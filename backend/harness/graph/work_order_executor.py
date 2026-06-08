@@ -56,6 +56,7 @@ class GraphNodeWorkOrderExecutor:
         )
         if order.structure_hash and order.structure_hash != graph_config.expected_structural_hash():
             raise ValueError("GraphNodeWorkOrder structure_hash does not match GraphHarnessConfig")
+        _assert_work_order_contract_boundary(graph_config=graph_config, work_order=order)
         if not _graph_node_by_id(graph_config, order.node_id):
             raise ValueError("GraphNodeWorkOrder node_id not found in GraphHarnessConfig")
         if order.work_kind == "agent":
@@ -300,6 +301,39 @@ class GraphNodeWorkOrderExecutor:
             created_at=time.time(),
         )
         return GraphWorkOrderExecution(work_order=work_order, node_result=result)
+
+
+def _assert_work_order_contract_boundary(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> None:
+    if work_order.config_id != graph_config.config_id:
+        raise ValueError("GraphNodeWorkOrder config_id does not match GraphHarnessConfig")
+    if work_order.config_hash != graph_config.content_hash:
+        raise ValueError("GraphNodeWorkOrder config_hash does not match GraphHarnessConfig")
+    graph_slot = dict(work_order.graph_slot or {})
+    if not graph_slot:
+        raise ValueError("GraphNodeWorkOrder missing graph_slot")
+    if str(graph_slot.get("authority") or "") != "harness.graph.node_execution_slot":
+        raise ValueError("GraphNodeWorkOrder graph_slot authority mismatch")
+    identity = dict(graph_slot.get("graph_identity") or {})
+    for field_name, expected in (
+        ("graph_run_id", work_order.graph_run_id),
+        ("node_id", work_order.node_id),
+        ("work_order_id", work_order.work_order_id),
+        ("config_id", work_order.config_id),
+    ):
+        actual = str(identity.get(field_name) or "").strip()
+        if not actual:
+            raise ValueError(f"GraphNodeWorkOrder graph_slot identity missing: {field_name}")
+        if actual != str(expected or "").strip():
+            raise ValueError(f"GraphNodeWorkOrder graph_slot identity mismatch: {field_name}")
+    input_package = dict(work_order.input_package or {})
+    materializer = str(input_package.get("materializer_authority") or "").strip()
+    if materializer != "harness.graph.context_materializer":
+        raise ValueError("GraphNodeWorkOrder input_package authority mismatch")
+    execution_boundary = dict(input_package.get("execution_boundary") or {})
+    if execution_boundary.get("node_worker_only") is not True:
+        raise ValueError("GraphNodeWorkOrder execution_boundary must mark node_worker_only")
+    if str(execution_boundary.get("graph_state_owner") or "") != "harness.graph_loop":
+        raise ValueError("GraphNodeWorkOrder execution_boundary graph_state_owner mismatch")
 
 
 def _agent_execution_not_ok_result(

@@ -422,6 +422,129 @@ def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executo
     assert executor.last_run["tool_invocation_context"].caller_kind == "task_run"
 
 
+def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbox_approval(tmp_path: Path) -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:artifact-write",
+        caller_kind="task_run",
+        caller_ref="taskrun:artifact-write",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        task_run_id="taskrun:artifact-write",
+        agent_run_id="agrun:artifact-write",
+        action_request_ref="action:artifact-write",
+        packet_ref="packet:task:artifact-write",
+        tool_name="write_file",
+        tool_call_id="call:write",
+        tool_args={"path": "reports/summary.md", "content": "managed artifact"},
+        operation_id="op.write_file",
+        sandbox_scope={
+            "enabled": False,
+            "workspace_root": str(tmp_path / "project"),
+        },
+        file_scope={
+            "enabled": True,
+            "profile_id": "file_profile.managed_project_workspace",
+            "repositories": {"write": "repo.managed_project.artifacts"},
+            "managed_storage_root": str(tmp_path / "project" / ".managed-files"),
+        },
+        action_permit=_permit(
+            action_request_ref="action:artifact-write",
+            invocation_kind="task_execution",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+        ),
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                execution_store=None,
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+                ),
+            )
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "ok"
+    assert observation.operation_gate["decision"] == "allow"
+    assert executor.run_calls == 1
+    assert executor.last_run["file_management_policy"]["repositories"]["write"] == "repo.managed_project.artifacts"
+
+
+def test_runtime_tool_control_plane_keeps_project_workspace_write_approval_without_sandbox(tmp_path: Path) -> None:
+    executor = _RecordingToolExecutor()
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "write_file", "operation_id": "op.write_file", "read_only": False}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:project-write",
+        caller_kind="task_run",
+        caller_ref="taskrun:project-write",
+        session_id="session:one",
+        turn_id="turn:one:1",
+        task_run_id="taskrun:project-write",
+        agent_run_id="agrun:project-write",
+        action_request_ref="action:project-write",
+        packet_ref="packet:task:project-write",
+        tool_name="write_file",
+        tool_call_id="call:write",
+        tool_args={"path": "src/app.py", "content": "print('changed')"},
+        operation_id="op.write_file",
+        sandbox_scope={
+            "enabled": False,
+            "workspace_root": str(tmp_path / "project"),
+        },
+        file_scope={
+            "enabled": True,
+            "profile_id": "file_profile.managed_project_workspace",
+            "repositories": {"write": "repo.managed_project.project_workspace"},
+            "managed_storage_root": str(tmp_path / "project" / ".managed-files"),
+        },
+        action_permit=_permit(
+            action_request_ref="action:project-write",
+            invocation_kind="task_execution",
+            tool_name="write_file",
+            operation_id="op.write_file",
+            read_only=False,
+        ),
+        requested_constraints={
+            "runtime_host": SimpleNamespace(
+                execution_store=None,
+                backend_dir=BACKEND_DIR,
+                tool_authorization_index=SimpleNamespace(
+                    definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)}
+                ),
+            )
+        },
+    )
+
+    observation = asyncio.run(
+        RuntimeToolControlPlane(
+            tool_runtime_executor=executor,
+            operation_gate=OperationGate(build_default_operation_registry()),
+        ).invoke(request, tool_plan=plan)
+    )
+
+    assert observation.status == "needs_approval"
+    assert observation.operation_gate["decision"] == "requires_approval"
+    assert executor.run_calls == 0
+
+
 def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state() -> None:
     executor = _RecordingToolExecutor()
     plan = build_runtime_tool_plan(

@@ -154,6 +154,46 @@ def build_provider_payload_manifest(
             )
         )
     params = _drop_empty(dict(request_params or {}))
+    tool_call_options = _dict_param(params.pop("tool_call_options", {}))
+    response_format = _response_format_param(params)
+    if tool_call_options:
+        ordinal += 1
+        payload = canonical_json({"tool_call_options": tool_call_options})
+        segments.append(
+            ProviderPayloadSegment(
+                segment_id=_segment_id(request_id, ordinal, "tool_call_options", payload),
+                kind="tool_call_options",
+                transport_location="tool_call_options",
+                ordinal=ordinal,
+                source_ref="model_request.tool_call_options",
+                content_hash=_stable_text_hash(payload),
+                byte_length=len(payload.encode("utf-8", errors="ignore")),
+                cache_scope="none",
+                cache_role="never_cache",
+                prefix_tier="none",
+                compression_role="preserve",
+                metadata={"key_only": True, "option_keys": sorted(str(key) for key in tool_call_options)},
+            )
+        )
+    if response_format not in (None, "", [], {}):
+        ordinal += 1
+        payload = canonical_json({"response_format": response_format})
+        segments.append(
+            ProviderPayloadSegment(
+                segment_id=_segment_id(request_id, ordinal, "response_format", payload),
+                kind="response_format",
+                transport_location="response_format",
+                ordinal=ordinal,
+                source_ref="model_request.response_format",
+                content_hash=_stable_text_hash(payload),
+                byte_length=len(payload.encode("utf-8", errors="ignore")),
+                cache_scope="none",
+                cache_role="never_cache",
+                prefix_tier="none",
+                compression_role="preserve",
+                metadata={"key_only": True},
+            )
+        )
     if params:
         ordinal += 1
         payload = canonical_json({"cache_relevant_params": params})
@@ -359,6 +399,13 @@ def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, A
     selected_tier, selected_prefix = _selected_tier_prefix(tier_prefixes)
     tool_segments = [segment for segment in segments if segment.transport_location == "tools"]
     request_param_segments = [segment for segment in segments if segment.transport_location == "request_params"]
+    tool_option_segments = [segment for segment in segments if segment.transport_location == "tool_call_options"]
+    response_format_segments = [segment for segment in segments if segment.transport_location == "response_format"]
+    cache_sensitive_segments = [
+        *request_param_segments,
+        *tool_option_segments,
+        *response_format_segments,
+    ]
     stable_prefix_segments = _provider_prefix_segments_for_tier(segments, tier=selected_tier)
     return {
         "selected_prefix_key_tier": selected_tier,
@@ -370,12 +417,19 @@ def _cache_boundary(segments: tuple[ProviderPayloadSegment, ...]) -> dict[str, A
         "stable_message_prefix_segment_count": len(stable_message_prefix),
         "tool_catalog_hash": _segments_hash(tool_segments),
         "stable_tool_catalog_hash": _segments_hash(stable_tools),
-        "cache_sensitive_params_hash": _segments_hash(request_param_segments),
+        "cache_sensitive_params_hash": _segments_hash(cache_sensitive_segments),
+        "provider_params_hash": _segments_hash(request_param_segments),
+        "tool_call_options_hash": _segments_hash(tool_option_segments),
+        "response_format_hash": _segments_hash(response_format_segments),
+        "cache_sensitive_param_segment_count": len(cache_sensitive_segments),
         "tier_prefixes": tier_prefixes,
         "tool_schema_segment_count": sum(1 for segment in segments if segment.transport_location == "tools"),
         "tool_schema_cache_roles": [
             segment.cache_role for segment in segments if segment.transport_location == "tools"
         ],
+        "tool_call_options_segment_count": len(tool_option_segments),
+        "response_format_segment_count": len(response_format_segments),
+        "provider_params_segment_count": len(request_param_segments),
         "authority": "runtime.model_gateway.provider_payload.cache_boundary",
     }
 
@@ -497,3 +551,17 @@ def _json_stable(value: Any) -> Any:
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {str(key): value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _dict_param(value: Any) -> dict[str, Any]:
+    return _drop_empty(dict(value or {})) if isinstance(value, dict) else {}
+
+
+def _response_format_param(params: dict[str, Any]) -> Any:
+    if "response_format" in params:
+        return params.pop("response_format")
+    if "structured_output_schema" in params:
+        return params.pop("structured_output_schema")
+    if "output_schema" in params:
+        return params.pop("output_schema")
+    return None

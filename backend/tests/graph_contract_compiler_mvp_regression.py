@@ -8,7 +8,9 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.graph.context_materializer import GraphContextMaterializer
-from harness.graph.flow_packet import build_flow_packet
+from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
+from harness.graph.flow_packet import build_flow_packet, edge_delivers_flow_packet
+from harness.graph.loop import _edge_states_after_node_result
 from harness.graph.models import GraphLoopState, NodeResultEnvelope
 from harness.graph.runtime import _graph_runtime_scope
 from harness.graph.state_machine import GraphStateMachine
@@ -78,6 +80,121 @@ def _graph() -> TaskGraphDefinition:
     )
 
 
+def _edge_protocol_graph() -> TaskGraphDefinition:
+    node_ids = (
+        "source",
+        "handoff",
+        "resource_read",
+        "resource_write_candidate",
+        "resource_commit",
+        "review_feedback",
+        "conditional_route",
+        "event_signal",
+        "audit_observation",
+        "control_dependency",
+        "barrier_join",
+        "human_gate",
+    )
+    return TaskGraphDefinition(
+        graph_id="graph.edge_protocol_mvp",
+        title="Edge Protocol MVP",
+        graph_kind="multi_agent",
+        entry_node_id="source",
+        output_node_id="audit_observation",
+        runtime_policy={
+            "task_environment_id": "env.graph",
+            "project_id": "project.alpha",
+        },
+        nodes=tuple(
+            TaskGraphNodeDefinition(
+                node_id=node_id,
+                node_type="agent",
+                title=node_id.replace("_", " ").title(),
+                task_id=f"task.{node_id}",
+                agent_id=f"agent:{node_id}",
+                output_contract_id=f"contract.{node_id}.output",
+            )
+            for node_id in node_ids
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.handoff",
+                source_node_id="source",
+                target_node_id="handoff",
+                edge_type="structured_handoff",
+                payload_contract_id="contract.handoff",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.resource_read",
+                source_node_id="source",
+                target_node_id="resource_read",
+                edge_type="memory_read",
+                payload_contract_id="contract.memory_read",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.resource_write_candidate",
+                source_node_id="source",
+                target_node_id="resource_write_candidate",
+                edge_type="memory_write_candidate",
+                payload_contract_id="contract.memory_candidate",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.resource_commit",
+                source_node_id="source",
+                target_node_id="resource_commit",
+                edge_type="memory_commit",
+                payload_contract_id="contract.memory_commit",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.review_feedback",
+                source_node_id="source",
+                target_node_id="review_feedback",
+                edge_type="review_feedback",
+                payload_contract_id="contract.review_feedback",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.conditional_route",
+                source_node_id="source",
+                target_node_id="conditional_route",
+                edge_type="conditional_feedback",
+                payload_contract_id="contract.conditional_route",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.event_signal",
+                source_node_id="source",
+                target_node_id="event_signal",
+                edge_type="event_emit",
+                payload_contract_id="contract.event",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.audit_observation",
+                source_node_id="source",
+                target_node_id="audit_observation",
+                edge_type="audit_report",
+                payload_contract_id="contract.audit",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.control_dependency",
+                source_node_id="source",
+                target_node_id="control_dependency",
+                edge_type="control",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.barrier_join",
+                source_node_id="source",
+                target_node_id="barrier_join",
+                edge_type="barrier",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.human_gate",
+                source_node_id="source",
+                target_node_id="human_gate",
+                edge_type="gate",
+            ),
+        ),
+    )
+
+
 def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
     config = build_graph_harness_config_from_graph(graph=_graph())
     contracts = dict(config.contracts or {})
@@ -97,6 +214,46 @@ def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
     assert edge_contract["packet"]["target_input_slot"] == "review_material"
     assert edge_contract["security"]["source_environment_id"] == "env.writer"
     assert edge_contract["security"]["target_environment_id"] == "env.review"
+
+
+def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
+    config = build_graph_harness_config_from_graph(graph=_edge_protocol_graph())
+    edge_contracts = dict(config.contracts["edge_contract_index"])
+    expected_protocols = {
+        "edge.handoff": ("node_handoff", True),
+        "edge.resource_read": ("resource_read", True),
+        "edge.resource_write_candidate": ("resource_write_candidate", True),
+        "edge.resource_commit": ("resource_commit", True),
+        "edge.review_feedback": ("review_feedback", True),
+        "edge.conditional_route": ("conditional_route", True),
+        "edge.event_signal": ("event_signal", True),
+        "edge.audit_observation": ("audit_observation", True),
+        "edge.control_dependency": ("control_dependency", False),
+        "edge.barrier_join": ("barrier_join", False),
+        "edge.human_gate": ("human_gate", False),
+    }
+
+    edges_by_id = {str(edge.get("edge_id") or ""): dict(edge) for edge in config.edges}
+    outbound_flow_edge_ids = {str(edge.get("edge_id") or "") for edge in build_outbound_flow_edges(config, "source")}
+
+    for edge_id, (protocol_kind, produces_packet) in expected_protocols.items():
+        contract = dict(edge_contracts[edge_id])
+        protocol = dict(contract["protocol"])
+        trace = dict(contract["trace"])
+        packet = dict(contract.get("packet") or {})
+        assert protocol["kind"] == protocol_kind
+        assert protocol["produces_flow_packet"] is produces_packet
+        assert bool(protocol["interaction_pattern"])
+        assert trace["persist_packet"] is produces_packet
+        assert edge_delivers_flow_packet(edges_by_id[edge_id], graph_config=config) is produces_packet
+        if produces_packet:
+            assert packet["packet_type"] == f"flow_packet.{protocol_kind}"
+            assert edge_id in outbound_flow_edge_ids
+            assert build_inbound_flow_edges(config, str(edges_by_id[edge_id]["target_node_id"]))
+        else:
+            assert "packet_type" not in packet
+            assert edge_id not in outbound_flow_edge_ids
+            assert not build_inbound_flow_edges(config, str(edges_by_id[edge_id]["target_node_id"]))
 
 
 def test_state_machine_and_flow_packet_consume_edge_contract_index() -> None:
@@ -138,6 +295,70 @@ def test_state_machine_and_flow_packet_consume_edge_contract_index() -> None:
     assert packet.contract_id == "contract.chapter_draft"
     assert packet.target_input_slot == "review_material"
     assert packet.visibility["edge_contract_id"] == "edge-contract:edge.draft.review"
+
+
+def test_loop_edge_states_persist_packets_only_for_packet_protocols() -> None:
+    config = build_graph_harness_config_from_graph(graph=_edge_protocol_graph())
+    state_machine = GraphStateMachine()
+    state = GraphLoopState(
+        state_id="gstate:test",
+        graph_run_id="grun:test",
+        task_run_id="taskrun:test",
+        session_id="session-root",
+        config_id=config.config_id,
+        config_hash=config.content_hash,
+        graph_id=config.graph_id,
+        edge_states=state_machine.initial_edge_states(config),
+    )
+    result = NodeResultEnvelope(
+        result_id="result:source",
+        graph_run_id=state.graph_run_id,
+        task_run_id=state.task_run_id,
+        node_id="source",
+        work_order_id="work:source",
+        outputs={"payload": "ok"},
+        artifact_refs=("artifact://draft",),
+        memory_commit_receipts=(
+            {
+                "receipt_id": "memrec:1",
+                "status": "committed",
+                "repository_id": "memory.repo",
+                "record_key": "chapter:1",
+            },
+        ),
+        handoff_summary="source completed",
+    )
+
+    next_edges = _edge_states_after_node_result(
+        graph_config=config,
+        state=state,
+        result=result,
+        result_ref="rtobj:result:source",
+    )
+
+    packet_edge_ids = {
+        "edge.handoff",
+        "edge.resource_read",
+        "edge.resource_write_candidate",
+        "edge.resource_commit",
+        "edge.review_feedback",
+        "edge.conditional_route",
+        "edge.event_signal",
+        "edge.audit_observation",
+    }
+    state_only_edge_ids = {"edge.control_dependency", "edge.barrier_join", "edge.human_gate"}
+    for edge_id in packet_edge_ids:
+        edge_state = next_edges[edge_id]
+        assert edge_state["status"] == "ready"
+        assert edge_state["packet_persisted"] is True
+        assert edge_state["latest_packet"]["packet_type"].startswith("flow_packet.")
+        assert edge_state["latest_packet_id"]
+    for edge_id in state_only_edge_ids:
+        edge_state = next_edges[edge_id]
+        assert edge_state["status"] == "ready"
+        assert edge_state["packet_persisted"] is False
+        assert "latest_packet" not in edge_state
+        assert "latest_packet_id" not in edge_state
 
 
 def test_materializer_uses_node_environment_and_node_session_policy() -> None:

@@ -12,7 +12,7 @@ def build_inbound_flow_edges(graph_config: GraphHarnessConfig, node_id: str) -> 
         dict(edge)
         for edge in graph_config.edges
         if str(edge.get("target_node_id") or "") == target
-        and edge_delivers_flow_packet(dict(edge))
+        and edge_delivers_flow_packet(dict(edge), graph_config=graph_config)
     )
 
 
@@ -22,5 +22,5 @@ def build_outbound_flow_edges(graph_config: GraphHarnessConfig, node_id: str) ->
         dict(edge)
         for edge in graph_config.edges
         if str(edge.get("source_node_id") or "") == source
-        and edge_delivers_flow_packet(dict(edge))
+        and edge_delivers_flow_packet(dict(edge), graph_config=graph_config)
     )

@@ -253,6 +253,25 @@ def managed_project_workspace_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
             ManagedFileRepositorySpec(
+                repository_id="repo.managed_project.artifacts",
+                repository_kind="artifact_repository",
+                storage_adapter="artifact_repository",
+                scope_kind="run_scoped",
+                root_ref="artifact://managed-project/artifacts",
+                title="Managed project artifacts",
+                readable=True,
+                writable=True,
+                searchable=True,
+                versioned=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="managed artifacts are readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="managed artifacts are searchable"),
+                    FileAccessRule(action="write", behavior="allow", reason="managed artifacts are writable"),
+                    FileAccessRule(action="edit", behavior="allow", reason="managed artifacts are editable"),
+                ),
+                metadata={"projection_owner": "artifact_policy"},
+            ),
+            ManagedFileRepositorySpec(
                 repository_id="repo.managed_project.git_worktree_view",
                 repository_kind="git_worktree_view",
                 storage_adapter="git_worktree",
@@ -299,7 +318,12 @@ def managed_project_workspace_profile() -> ManagedFileEnvironmentProfile:
                 ),
             ),
         ),
-        default_access_policy={"real_workspace_write": "task_grant_required", "sandbox_write": "allowed"},
+        default_access_policy={
+            "real_workspace_write": "task_grant_required",
+            "sandbox_write": "allowed",
+            "artifact_write": "allowed",
+        },
+        default_projection_policy={"artifact_policy": "repo.managed_project.artifacts"},
     )
 
 

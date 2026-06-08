@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 from harness.runtime.artifact_scope import canonicalize_task_contract_artifacts
+from harness.runtime.file_management_policy import compile_tool_file_management_policy
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from runtime.shared.safety import build_task_safety_validators
 
@@ -128,6 +129,41 @@ def test_managed_project_workspace_write_scope_is_not_limited_to_artifacts() -> 
     assert "." in scope.workspace_write_roots
     assert "." in scope.write_roots
     assert scope.publish_roots == (artifact_root,)
+
+
+def test_managed_project_file_policy_uses_artifacts_when_sandbox_is_absent() -> None:
+    policy = compile_tool_file_management_policy(
+        {
+            "file_management": {
+                "file_profile_refs": ["file_profile.managed_project_workspace"],
+                "constraints": {
+                    "project_workspace_read": "allowed",
+                    "project_workspace_search": "allowed",
+                    "project_workspace_write": "task_granted",
+                    "project_workspace_edit": "task_granted",
+                    "sandbox_workspace_read": "allowed",
+                    "sandbox_workspace_search": "allowed",
+                    "sandbox_workspace_write": "allowed",
+                    "sandbox_workspace_edit": "allowed",
+                    "artifact_repository_read": "allowed",
+                    "artifact_repository_search": "allowed",
+                    "artifact_repository_write": "allowed",
+                    "artifact_repository_edit": "allowed",
+                    "default_read_repository": "repo.managed_project.sandbox_workspace",
+                    "default_search_repository": "repo.managed_project.sandbox_workspace",
+                    "default_write_repository": "repo.managed_project.sandbox_workspace",
+                    "default_edit_repository": "repo.managed_project.sandbox_workspace",
+                },
+            }
+        },
+        sandbox_policy={"enabled": False},
+    )
+
+    assert policy["repositories"]["read"] == "repo.managed_project.project_workspace"
+    assert policy["repositories"]["search"] == "repo.managed_project.project_workspace"
+    assert policy["repositories"]["write"] == "repo.managed_project.artifacts"
+    assert policy["repositories"]["edit"] == "repo.managed_project.artifacts"
+    assert set(policy["agent_allowed_file_actions"]) == {"read", "search", "write", "edit"}
 
 
 def test_safety_gate_allows_any_write_inside_sandbox_root(tmp_path: Path) -> None:

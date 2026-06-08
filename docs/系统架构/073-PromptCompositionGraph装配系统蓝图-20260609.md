@@ -374,3 +374,58 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 ## 待确认
 
 建议确认后按阶段 0 开始实施。阶段 0 是 shadow mode，不改变 provider 请求内容，主要用于把现有手写装配映射到 `PromptCompositionGraph`，找出不可映射的旧逻辑，再进入阶段 1 切换主链路。
+
+## 本轮收尾状态
+
+收尾日期：2026-06-09
+
+本轮已经完成阶段 0 的 shadow-mode 骨架，并补强了一部分缓存诊断链路；尚未进入阶段 1/2 的主链替换。当前状态必须按“shadow manifest + diagnostics 已落地”理解，不能误认为 `ProviderPayloadManifest` 已经接管 provider-visible payload。
+
+### 已完成
+
+- 新增并接入 `backend/prompt_composition/*` 的 shadow manifest 体系，覆盖 plan、graph、manifest、tracing 与 cache boundary diagnostics。
+- `RuntimeInvocationPacket` / runtime prompt manifest 能携带 `prompt_composition` 诊断，测试覆盖 single agent turn 与 task execution 的 shadow manifest 映射。
+- `PromptAssemblyService` / runtime prompt manifest 增加 assembly request fingerprint、section fingerprint 等稳定性诊断字段。
+- `PromptCachePlanner` 能把 prompt manifest 与 composition diagnostics 写入 cache record。
+- `PromptCacheBreakDetector` 能区分 `prompt_assembly_request_changed`、`prompt_section_fingerprint_changed`，并把 prompt assembly/composition 细节带入 break record。
+- `diagnose_deepseek_prompt_cache.py` 支持 prompt composition 字段、cache break detail、ledger tail window，并修复大 JSONL 读取导致的 OOM 风险。
+- prompt accounting 旧 ledger 已归档清理，活跃 ledger 只保留最近窗口与当前 schema 相关记录。
+
+### 未完成
+
+- `RuntimeCompiler` 尚未切换为只从 `PromptCompositionManifest` 渲染最终 messages；当前仍保留 shadow-mode 映射。
+- `ProviderPayloadManifest` 已具备首版实现，并由 `ModelRequestBuilder` 创建 provider-visible payload manifest；后续仍需继续扩展 response format、tool binding options 与 provider params 的完整 segment 覆盖。
+- serializer 中 tool schema 的 cache role 主权已迁移给 provider payload manifest；缺少 manifest 时只能记录为 `never_cache`，不能再根据 stable tool index 自行提升。
+- `backend/prompting/*` 旧链路尚未完成删除或 legacy 隔离。
+- `harness_single_agent_tool_runtime_regression.py` 当前单文件超过 3 分钟未收敛，需要作为工具运行时/流式输出专项排查，不能算本轮 prompt composition 计划的通过项。
+
+### 验证记录
+
+- `python -m pytest backend\tests\deepseek_prompt_cache_diagnostics_test.py backend\tests\prompt_cache_prefix_tier_regression.py backend\tests\prompt_composition_shadow_regression.py -q`：34 passed。
+- `python -m pytest backend\tests\model_runtime_regression.py -q`：56 passed。
+- `python -m pytest backend\tests\memory_maintenance_agent_regression.py -q`：15 passed。
+- `python -m pytest prompt_* + deepseek/live cache/prompt accounting 相关测试`：111 passed。
+- `python backend\scripts\diagnose_deepseek_prompt_cache.py --limit 8 --json`：可正常完成；`unplanned_model_call_breaks=0`，`repeated_prefix_provider_miss` 不再作为活跃问题出现。
+
+### 当前诊断残留
+
+DeepSeek cache 诊断仍报告 1 个 `stable_segment_content_changes`，来源是图任务 `task_execution` 的 `global_static` segment。它不是 durable memory 或 utility prompt 的旧 source 污染；后续应在图任务主线中追查同一 task scope 内为何有两组 `global_static` content hash。
+
+### 下一阶段边界
+
+下一轮如果继续升级，必须沿阶段 1/2 继续扩展 `ProviderPayloadManifest` 的覆盖面：补齐 tool binding options、response format、provider params 等 provider-visible 输入段，并确认 cache planner 只消费 payload boundary。不要继续在 serializer/cache planner 里追加新的推断逻辑。
+
+### 主权迁移追加收尾
+
+日期：2026-06-09
+
+- 删除 `CanonicalPromptSerializer` 内部的工具 schema cache role 推断 fallback。
+- 新增 `serializer_requires_provider_payload_manifest_to_promote_tool_schema` 回归，锁定规则：没有 `ProviderPayloadManifest` 时，serializer 不允许把工具 schema 提升为 stable cache segment。
+- 当前主权链调整为：
+
+```text
+ModelRequestBuilder
+  -> ProviderPayloadManifest(tool_schema_catalog cache role)
+  -> CanonicalPromptSerializer(serialize only)
+  -> PromptCachePlanner(provider payload boundary)
+```

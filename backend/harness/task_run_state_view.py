@@ -173,7 +173,7 @@ def _executor_lease_state(
     if status == "waiting_executor":
         return "lost"
     if status in {"created", "running", "queued", "in_progress"}:
-        return "running"
+        return "none"
     return "none"
 
 

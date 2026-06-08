@@ -159,6 +159,12 @@ def _changed_payload_reason(
             return "tool_count_changed"
         return "tool_schema_hash_changed"
     if _diag_value(previous_diag, "cache_sensitive_params_hash") != _diag_value(current_diag, "cache_sensitive_params_hash"):
+        if _diag_value(previous_diag, "tool_call_options_hash") != _diag_value(current_diag, "tool_call_options_hash"):
+            return "tool_binding_options_changed"
+        if _diag_value(previous_diag, "response_format_hash") != _diag_value(current_diag, "response_format_hash"):
+            return "response_format_changed"
+        if _diag_value(previous_diag, "provider_params_hash") != _diag_value(current_diag, "provider_params_hash"):
+            return "provider_params_changed"
         return "cache_sensitive_params_changed"
     if _diag_value(previous_diag, "provider_payload_prefix_hash") != _diag_value(current_diag, "provider_payload_prefix_hash"):
         return "provider_payload_prefix_changed"
@@ -179,6 +185,9 @@ def _provider_payload_diagnostics(
         "tool_catalog_hash",
         "stable_tool_catalog_hash",
         "cache_sensitive_params_hash",
+        "provider_params_hash",
+        "tool_call_options_hash",
+        "response_format_hash",
         "provider_payload_tool_prefix_segment_count",
         "provider_payload_message_prefix_segment_count",
     )

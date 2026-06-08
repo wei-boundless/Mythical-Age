@@ -60,10 +60,9 @@ class CanonicalPromptSerializer:
         planned_by_index = _bindings_by_message_index(bindings) if bindings else _plan_segments_by_message_index(plan)
         provider_payload_manifest = _model_request_provider_payload_manifest(model_request)
         provider_tool_segment = _provider_payload_tool_segment(provider_payload_manifest)
-        tool_schema_profile = provider_tool_segment or _tool_schema_cache_profile(
+        tool_schema_profile = provider_tool_segment or _unmanifested_tool_schema_profile(
             normalized_tools=normalized_tools,
-            normalized_messages=normalized_messages,
-            planned_by_index=planned_by_index,
+            has_provider_payload_manifest=bool(provider_payload_manifest),
         )
         segments: list[PromptSegment] = []
         ordinal = 0
@@ -322,162 +321,29 @@ def _tool_description(tool: Any) -> str:
     return str(getattr(tool, "description", "") or getattr(tool, "display_name", "") or "")
 
 
-def _tool_schema_cache_profile(
+def _unmanifested_tool_schema_profile(
     *,
     normalized_tools: list[dict[str, Any]],
-    normalized_messages: list[dict[str, Any]],
-    planned_by_index: dict[int, dict[str, Any]],
+    has_provider_payload_manifest: bool,
 ) -> dict[str, Any]:
-    default_profile = {
+    reason = (
+        "missing_provider_payload_tool_segment"
+        if has_provider_payload_manifest
+        else "missing_provider_payload_manifest"
+    )
+    return {
+        "kind": "tool_schema_catalog",
         "cache_role": "never_cache",
         "prefix_tier": "none",
         "source": "model_request.tools",
         "metadata": {
-            "cache_note": "tool_schema_is_recorded_but_not_promoted_without_matching_stable_tool_index",
-            "tool_schema_cache_decision": "not_promoted",
-        },
-    }
-    if not normalized_tools:
-        return default_profile
-    tool_index = _find_planned_tool_index(normalized_messages=normalized_messages, planned_by_index=planned_by_index)
-    if not tool_index:
-        return {
-            **default_profile,
-            "metadata": {
-                **dict(default_profile["metadata"]),
-                "tool_schema_cache_reason": "missing_stable_tool_index",
-            },
-        }
-    planned = dict(tool_index["planned"])
-    expected = _tool_index_fingerprint(tool_index.get("payload"))
-    actual = _provider_tool_schema_fingerprint(normalized_tools)
-    if expected != actual:
-        return {
-            **default_profile,
-            "metadata": {
-                **dict(default_profile["metadata"]),
-                "tool_schema_cache_reason": "provider_tools_do_not_match_tool_index",
-                "stable_tool_index_segment_id": _planned_segment_ref(planned),
-                "expected_tool_names": list(expected.get("tool_names") or []),
-                "actual_tool_names": list(actual.get("tool_names") or []),
-            },
-        }
-    cache_scope = str(planned.get("cache_scope") or "session")
-    cache_role = _cache_role(planned.get("cache_role"))
-    prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
-    if cache_role not in {"cacheable_prefix", "session_stable"}:
-        return {
-            **default_profile,
-            "metadata": {
-                **dict(default_profile["metadata"]),
-                "tool_schema_cache_reason": "matched_tool_index_is_not_stable",
-                "stable_tool_index_segment_id": _planned_segment_ref(planned),
-            },
-        }
-    return {
-        "cache_role": cache_role,
-        "prefix_tier": prefix_tier,
-        "source": str(planned.get("source_ref") or "model_request.tools"),
-        "metadata": {
             "tool_count": len(normalized_tools),
-            "cache_note": "tool_schema_cache_role_derived_from_matching_stable_tool_index",
-            "tool_schema_cache_decision": "derived_from_stable_tool_index",
-            "stable_tool_index_segment_id": _planned_segment_ref(planned),
-            "stable_tool_index_cache_scope": cache_scope,
-            "stable_tool_index_cache_role": cache_role,
-            "stable_tool_index_prefix_tier": prefix_tier,
+            "cache_note": "tool_schema_cache_role_requires_provider_payload_manifest",
+            "tool_schema_cache_decision": "not_promoted",
+            "tool_schema_cache_reason": reason,
+            "provider_payload_manifest_required": True,
         },
     }
-
-
-def _find_planned_tool_index(
-    *,
-    normalized_messages: list[dict[str, Any]],
-    planned_by_index: dict[int, dict[str, Any]],
-) -> dict[str, Any]:
-    for index, planned in sorted(planned_by_index.items()):
-        if str(dict(planned or {}).get("kind") or "") != "tool_index_stable":
-            continue
-        if index < 0 or index >= len(normalized_messages):
-            continue
-        payload = _parse_titled_json_payload(str(dict(normalized_messages[index]).get("content") or ""))
-        if not isinstance(payload, dict):
-            continue
-        return {"planned": dict(planned or {}), "payload": payload}
-    return {}
-
-
-def _parse_titled_json_payload(content: str) -> Any | None:
-    text = str(content or "").strip()
-    if not text:
-        return None
-    candidates = [text]
-    if "\n" in text:
-        candidates.append(text.split("\n", 1)[1].strip())
-    for candidate in candidates:
-        if not candidate or candidate[0] not in "{[":
-            continue
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
-def _tool_index_fingerprint(payload: Any) -> dict[str, Any]:
-    available = list(dict(payload or {}).get("available_tools") or []) if isinstance(payload, dict) else []
-    tools: list[dict[str, str]] = []
-    for item in available:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("tool_name") or item.get("name") or "").strip()
-        if not name:
-            continue
-        tools.append(
-            {
-                "name": name,
-                "input_schema_ref": str(item.get("input_schema_ref") or "").strip(),
-            }
-        )
-    ordered = sorted(tools, key=lambda item: item["name"])
-    return {
-        "tools": ordered,
-        "tool_names": [item["name"] for item in ordered],
-    }
-
-
-def _provider_tool_schema_fingerprint(normalized_tools: list[dict[str, Any]]) -> dict[str, Any]:
-    tools: list[dict[str, str]] = []
-    for item in normalized_tools:
-        name = str(item.get("name") or "").strip()
-        if not name:
-            continue
-        tools.append(
-            {
-                "name": name,
-                "input_schema_ref": _short_schema_ref(item.get("schema") or {}),
-            }
-        )
-    ordered = sorted(tools, key=lambda item: item["name"])
-    return {
-        "tools": ordered,
-        "tool_names": [item["name"] for item in ordered],
-    }
-
-
-def _short_schema_ref(schema: Any) -> str:
-    digest = stable_text_hash(canonical_json(schema or {}))
-    return "sha256:" + digest.removeprefix("sha256:")[:10]
-
-
-def _planned_segment_ref(planned: dict[str, Any]) -> str:
-    metadata = dict(dict(planned or {}).get("metadata") or {})
-    return str(
-        dict(planned or {}).get("segment_id")
-        or dict(planned or {}).get("planned_segment_id")
-        or metadata.get("planned_segment_id")
-        or ""
-    )
 
 
 def _model_request_messages(model_request: Any | None) -> list[dict[str, Any]]:

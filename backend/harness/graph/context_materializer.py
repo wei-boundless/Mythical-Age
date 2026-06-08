@@ -292,6 +292,18 @@ class GraphContextMaterializer:
             "task_environment": dict(graph_config.environment or {}),
             "runtime_scope": _runtime_scope_from_state(state),
             "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract),
+            "execution_boundary": {
+                "node_worker_only": True,
+                "graph_state_owner": "harness.graph_loop",
+                "allowed_result_authority": "harness.graph_node_result_envelope",
+                "forbidden_actions": [
+                    "advance_graph_state",
+                    "dispatch_downstream_node",
+                    "write_graph_checkpoint",
+                    "bypass_edge_contract",
+                ],
+                "authority": "harness.graph.node_worker_execution_boundary",
+            },
             "agent_instruction": _agent_instruction(prompt_contract=prompt_contract, node=node),
             "input_contract": dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("schema", {}),
             "output_contract": dict(node.get("contracts") or {}),
@@ -861,12 +873,15 @@ def _outbound_edge_policy(*, graph_config: GraphHarnessConfig, edge: dict[str, A
     packet = dict(edge_contract.get("packet") or {})
     reliability = dict(edge_contract.get("reliability") or {})
     protocol = dict(edge_contract.get("protocol") or {})
+    trace = dict(edge_contract.get("trace") or {})
     return {
         "edge_id": str(edge.get("edge_id") or ""),
         "target_node_id": str(edge.get("target_node_id") or ""),
         "edge_type": str(edge.get("edge_type") or ""),
         "edge_contract_id": str(edge_contract.get("contract_id") or ""),
         "protocol_kind": str(protocol.get("kind") or ""),
+        "interaction_pattern": str(protocol.get("interaction_pattern") or ""),
+        "produces_flow_packet": bool(protocol.get("produces_flow_packet", trace.get("persist_packet", False))),
         "scheduler_role": str(edge.get("scheduler_role") or ""),
         "semantic_role": str(edge.get("semantic_role") or ""),
         "payload_contract_id": str(packet.get("payload_contract_id") or edge.get("payload_contract_id") or ""),
@@ -879,6 +894,10 @@ def _outbound_edge_policy(*, graph_config: GraphHarnessConfig, edge: dict[str, A
         "receipt_policy": {
             "ack_required": bool(reliability.get("ack_required", edge.get("ack_required", True))),
             "ack_policy": str(reliability.get("ack_policy") or edge.get("ack_policy") or ""),
+        },
+        "trace_policy": {
+            "persist_packet": bool(trace.get("persist_packet", False)),
+            "checkpoint_policy": str(trace.get("checkpoint_policy") or ""),
         },
         "authority": "harness.graph.outbound_edge_policy_projection",
     }

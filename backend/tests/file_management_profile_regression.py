@@ -51,15 +51,20 @@ def test_managed_project_workspace_profile_uses_project_and_sandbox_repositories
     assert {
         "repo.managed_project.project_workspace",
         "repo.managed_project.sandbox_workspace",
+        "repo.managed_project.artifacts",
         "repo.managed_project.git_worktree_view",
         "repo.managed_project.test_artifacts",
     } <= repo_ids
     project = profile.repository("repo.managed_project.project_workspace")
     sandbox = profile.repository("repo.managed_project.sandbox_workspace")
+    artifacts = profile.repository("repo.managed_project.artifacts")
     assert project is not None and project.readable is True and project.searchable is True
     assert any(rule.action == "write" and rule.behavior == "ask" for rule in project.access_rules)
     assert sandbox is not None and sandbox.writable is True
     assert any(rule.action == "write" and rule.behavior == "allow" for rule in sandbox.access_rules)
+    assert artifacts is not None and artifacts.repository_kind == "artifact_repository"
+    assert artifacts.metadata["projection_owner"] == "artifact_policy"
+    assert any(rule.action == "write" and rule.behavior == "allow" for rule in artifacts.access_rules)
 
 
 def test_resolved_environment_records_mature_backends() -> None:

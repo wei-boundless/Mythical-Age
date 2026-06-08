@@ -23,6 +23,11 @@ def compile_tool_file_management_policy(
     repositories = _repository_map_for_constraints(constraints)
     if not repositories:
         repositories = _repository_map_for_profile(profile_id)
+    repositories = _repository_map_for_runtime_boundary(
+        profile_id,
+        repositories,
+        sandbox_policy=sandbox_policy,
+    )
     payload = {
         "enabled": True,
         "profile_id": profile_id,
@@ -84,6 +89,26 @@ def _repository_map_for_profile(profile_id: str) -> dict[str, str]:
             "edit": "repo.writing.draft_workspace",
         }
     return {}
+
+
+def _repository_map_for_runtime_boundary(
+    profile_id: str,
+    repositories: dict[str, str],
+    *,
+    sandbox_policy: dict[str, Any] | None,
+) -> dict[str, str]:
+    if profile_id != "file_profile.managed_project_workspace":
+        return dict(repositories)
+    if _sandbox_overlay_active(sandbox_policy):
+        return dict(repositories)
+    normalized = dict(repositories)
+    for action in ("read", "search"):
+        if normalized.get(action) == "repo.managed_project.sandbox_workspace":
+            normalized[action] = "repo.managed_project.project_workspace"
+    for action in ("write", "edit"):
+        if normalized.get(action) == "repo.managed_project.sandbox_workspace":
+            normalized[action] = "repo.managed_project.artifacts"
+    return normalized
 
 
 def _default_repository_id(repositories: dict[str, str]) -> str:

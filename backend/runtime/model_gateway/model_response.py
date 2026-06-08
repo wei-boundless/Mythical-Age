@@ -9,10 +9,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from runtime.model_gateway.assistant_stream_frame import (
+    assistant_final_stream_events,
     assistant_message_ref,
-    assistant_stream_repair_event,
-    assistant_text_final_event,
-    content_sha256,
 )
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
@@ -72,7 +70,7 @@ class ModelResponseRuntimeExecutor:
         plain_streamer = getattr(self.model_runtime, "astream_messages", None)
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
-        emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", stream_policy.get("emit_content_delta", True)) is not False)
+        emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False)
         emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True)
         accounting_context = _accounting_context_from_directive(
             directive,
@@ -475,7 +473,7 @@ class ModelResponseRuntimeExecutor:
         content = sanitize_visible_assistant_content(output_response.canonical_answer).strip()
         if not content:
             content = "我已接入新的单 agent 主链，但这轮模型没有返回可展示内容。"
-        for frame_event in _assistant_final_stream_events(
+        for frame_event in assistant_final_stream_events(
             assistant_normalizer,
             content=content,
             stream_ref=stream_ref,
@@ -547,58 +545,6 @@ class ModelResponseRuntimeExecutor:
             if operation_id:
                 return operation_id
         return str(tool_name or "").strip()
-
-
-def _assistant_final_stream_events(
-    normalizer: AssistantStreamNormalizer | None,
-    *,
-    content: str,
-    stream_ref: str,
-    message_ref: str,
-    turn_run_id: str,
-    task_run_id: str,
-    answer_channel: str,
-    answer_source: str,
-    answer_canonical_state: str,
-    answer_persist_policy: str,
-    terminal_reason: str,
-) -> list[dict[str, Any]]:
-    sequence = 1
-    events: list[dict[str, Any]] = []
-    if normalizer is not None:
-        events.extend(normalizer.flush())
-        normalizer.mark_final_content(content)
-        sequence = normalizer.next_sequence()
-        if normalizer.latest_sequence > 0 and content_sha256(normalizer.emitted_content) != content_sha256(content):
-            events.append(
-                assistant_stream_repair_event(
-                    replacement_content=content,
-                    stream_ref=stream_ref,
-                    message_ref=message_ref,
-                    turn_run_id=turn_run_id,
-                    task_run_id=task_run_id,
-                    repair_sequence=sequence,
-                    applies_after_sequence=normalizer.latest_sequence,
-                    expected_content_sha256=content_sha256(normalizer.emitted_content),
-                )
-            )
-            sequence += 1
-    events.append(
-        assistant_text_final_event(
-            content=content,
-            stream_ref=stream_ref,
-            message_ref=message_ref,
-            turn_run_id=turn_run_id,
-            task_run_id=task_run_id,
-            sequence=sequence,
-            answer_channel=answer_channel,
-            answer_source=answer_source,
-            answer_canonical_state=answer_canonical_state,
-            answer_persist_policy=answer_persist_policy,
-            terminal_reason=terminal_reason,
-        )
-    )
-    return events
 
 
 def _model_only_finalization(directive: RuntimeDirective) -> bool:

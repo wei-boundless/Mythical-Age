@@ -39,6 +39,8 @@ def test_managed_project_workspace_access_table_distinguishes_real_workspace_fro
     assert table.requires_approval(repository_id="repo.managed_project.project_workspace", action="write") is True
     assert table.is_allowed(repository_id="repo.managed_project.sandbox_workspace", action="write") is True
     assert table.requires_approval(repository_id="repo.managed_project.sandbox_workspace", action="write") is False
+    assert table.is_allowed(repository_id="repo.managed_project.artifacts", action="write") is True
+    assert table.requires_approval(repository_id="repo.managed_project.artifacts", action="write") is False
 
     git_write_denial = [
         denial

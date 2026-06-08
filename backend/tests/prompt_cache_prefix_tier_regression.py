@@ -16,6 +16,8 @@ from runtime.model_gateway.model_request import ModelRequestBuilder
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     CompressionBudgetPlanner,
+    ModelTokenUsageRecord,
+    PromptCacheBreakDetector,
     PromptCacheBaselineTracker,
     PromptCachePlanner,
     PromptSegment,
@@ -501,6 +503,81 @@ def test_tool_schema_cache_role_derives_from_matching_stable_tool_index() -> Non
     assert tool_schema.metadata["provider_payload_manifest_ref"] == model_request.provider_payload_manifest.manifest_id
 
 
+def test_serializer_requires_provider_payload_manifest_to_promote_tool_schema() -> None:
+    input_schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {
+            "role": "system",
+            "content": "Task execution tool index\n"
+            + json.dumps(
+                {
+                    "available_tools": [
+                        {
+                            "tool_name": "read_file",
+                            "input_schema_ref": _short_schema_ref(input_schema),
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": input_schema,
+            },
+        }
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:serializer-without-provider-payload",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": messages[1]["content"],
+                "kind": "tool_index_stable",
+                "source_ref": "task_execution_tool_index",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "compression_role": "preserve",
+            },
+        ],
+    ).to_dict()
+
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:serializer-without-provider-payload",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+    )
+
+    tool_schema = next(segment for segment in segment_map.segments if segment.kind == "tool_schema_catalog")
+    assert tool_schema.cache_role == "never_cache"
+    assert tool_schema.prefix_tier == "none"
+    assert tool_schema.source == "model_request.tools"
+    assert tool_schema.metadata["tool_schema_cache_decision"] == "not_promoted"
+    assert tool_schema.metadata["tool_schema_cache_reason"] == "missing_provider_payload_manifest"
+    assert tool_schema.metadata["provider_payload_manifest_required"] is True
+
+
 def test_prompt_cache_planner_uses_provider_payload_boundary_for_stable_tool_schema() -> None:
     input_schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
     changed_schema = {
@@ -649,6 +726,140 @@ def test_prompt_cache_planner_uses_provider_payload_boundary_for_stable_tool_sch
     )
     assert "tool_catalog" in second_baseline.changed_tiers
     assert "provider_payload" in second_baseline.changed_tiers
+
+
+def test_provider_payload_manifest_splits_key_only_provider_options() -> None:
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write a file",
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+        },
+    }
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:provider-payload-key-only-options",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[1]["content"],
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+    base_params = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "base_url": "https://api.deepseek.com",
+        "call_kind": "invoke_messages_with_tools",
+        "tool_count": 1,
+        "tool_call_options": {"parallel_tool_calls": False},
+        "response_format": {"type": "json_object"},
+        "temperature": 0.0,
+        "thinking_mode": "disabled",
+    }
+    changed_params = {
+        **base_params,
+        "tool_call_options": {
+            "tool_choice": {"type": "function", "function": {"name": "write_file"}},
+            "parallel_tool_calls": False,
+        },
+    }
+
+    first_request = ModelRequestBuilder().build(
+        request_id="modelreq:provider-payload-key-only-options:1",
+        messages=messages,
+        tools=[tool],
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        metadata={"cache_relevant_params": base_params},
+    )
+    second_request = ModelRequestBuilder().build(
+        request_id="modelreq:provider-payload-key-only-options:2",
+        messages=messages,
+        tools=[tool],
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        metadata={"cache_relevant_params": changed_params},
+    )
+
+    kinds = {segment.kind: segment for segment in first_request.provider_payload_manifest.segments}
+    assert kinds["tool_call_options"].transport_location == "tool_call_options"
+    assert kinds["response_format"].transport_location == "response_format"
+    assert kinds["provider_params"].transport_location == "request_params"
+    assert first_request.provider_payload_manifest.cache_boundary["tool_call_options_segment_count"] == 1
+    assert first_request.provider_payload_manifest.cache_boundary["response_format_segment_count"] == 1
+    assert first_request.provider_payload_manifest.cache_boundary["provider_params_segment_count"] == 1
+    assert first_request.provider_payload_prefix_hash == second_request.provider_payload_prefix_hash
+    assert first_request.tool_catalog_hash == second_request.tool_catalog_hash
+    assert first_request.cache_sensitive_params_hash != second_request.cache_sensitive_params_hash
+
+    serializer = CanonicalPromptSerializer()
+    first_map = serializer.build_segment_map(
+        request_id=first_request.request_id,
+        messages=messages,
+        tools=[tool],
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        model_request=first_request,
+    )
+    second_map = serializer.build_segment_map(
+        request_id=second_request.request_id,
+        messages=messages,
+        tools=[tool],
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        model_request=second_request,
+    )
+    planner = PromptCachePlanner()
+    first_record = planner.plan(first_map, provider="deepseek", model="deepseek-v4-pro", model_request=first_request)
+    second_record = planner.plan(second_map, provider="deepseek", model="deepseek-v4-pro", model_request=second_request)
+    assert first_record.prefix_hash == second_record.prefix_hash
+    assert first_record.cache_key != second_record.cache_key
+
+    usage = ModelTokenUsageRecord(
+        usage_id="tokuse:provider-payload-key-only-options:2",
+        request_id=second_request.request_id,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        source="provider_usage",
+        prompt_tokens=100,
+        cached_tokens=0,
+        total_tokens=100,
+    )
+    miss_record = planner.with_provider_usage(second_record, usage)
+    break_record = PromptCacheBreakDetector().detect(
+        cache_record=miss_record,
+        provider_usage=usage,
+        previous_cache_records=[first_record],
+        created_at=2.0,
+    )
+    assert break_record is not None
+    assert break_record.reason == "tool_binding_options_changed"
 
 
 def test_tool_schema_stays_never_cache_when_provider_tools_do_not_match_tool_index() -> None:

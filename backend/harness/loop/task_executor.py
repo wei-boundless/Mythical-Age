@@ -608,6 +608,11 @@ async def execute_task_run(
     runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
     if runtime_kind not in {"single_agent_task", "subagent_task"}:
         return _conflict(task_run_id, "not_single_agent_task_run")
+    if _origin_kind(task_run) == "graph_node_assigned" and not _graph_node_authorization_matches_identity(
+        task_run,
+        authorization=graph_node_authorization,
+    ):
+        return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="executor_start")
     if control_result is not None:
         return control_result
@@ -2855,15 +2860,22 @@ def _origin_kind(task_run: Any) -> str:
 
 
 def _authorized_graph_node_executor_resume(task_run: Any, *, authorization: dict[str, Any] | None) -> bool:
-    if not authorization:
+    if not _graph_node_authorization_matches_identity(task_run, authorization=authorization):
         return False
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    if _origin_kind(task_run) != "graph_node_assigned":
-        return False
     if str(getattr(task_run, "status", "") or "") != "waiting_executor":
         return False
     executor_status = str(diagnostics.get("executor_status") or "").strip()
     if executor_status not in {"", "waiting_executor"}:
+        return False
+    return True
+
+
+def _graph_node_authorization_matches_identity(task_run: Any, *, authorization: dict[str, Any] | None) -> bool:
+    if not authorization:
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    if _origin_kind(task_run) != "graph_node_assigned":
         return False
     return (
         str(diagnostics.get("graph_run_id") or "") == str(authorization.get("graph_run_id") or "")
@@ -2878,17 +2890,9 @@ def _recover_stale_graph_node_executor_claim(
     task_run: Any,
     graph_node_authorization: dict[str, Any] | None,
 ) -> Any | None:
-    if not graph_node_authorization:
+    if not _graph_node_authorization_matches_identity(task_run, authorization=graph_node_authorization):
         return None
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    if _origin_kind(task_run) != "graph_node_assigned":
-        return None
-    if (
-        str(diagnostics.get("graph_run_id") or "") != str(graph_node_authorization.get("graph_run_id") or "")
-        or str(diagnostics.get("graph_work_order_id") or "") != str(graph_node_authorization.get("graph_work_order_id") or "")
-        or str(diagnostics.get("graph_node_id") or "") != str(graph_node_authorization.get("graph_node_id") or "")
-    ):
-        return None
     executor_epoch = int(diagnostics.get("executor_epoch") or 0)
     if executor_epoch_is_live(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch):
         return None

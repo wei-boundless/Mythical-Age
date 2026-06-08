@@ -222,6 +222,10 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert start.node_work_orders[0].input_package["initial_inputs"] == {"goal": "smoke"}
     assert start.node_work_orders[0].input_package["materializer_authority"] == "harness.graph.context_materializer"
     assert start.node_work_orders[0].input_package["node_identity"]["node_id"] == "draft"
+    execution_boundary = start.node_work_orders[0].input_package["execution_boundary"]
+    assert execution_boundary["node_worker_only"] is True
+    assert execution_boundary["graph_state_owner"] == "harness.graph_loop"
+    assert "advance_graph_state" in execution_boundary["forbidden_actions"]
     assert "内容起草员" in start.node_work_orders[0].input_package["agent_instruction"]
     graph_slot = start.node_work_orders[0].graph_slot
     assert graph_slot["authority"] == "harness.graph.node_execution_slot"
@@ -1748,6 +1752,82 @@ def test_graph_harness_executes_agent_work_order_and_advances_loop() -> None:
     assert stored_graph_result["authority"] == "harness.graph_result_envelope"
     assert stored_graph_result["graph_run_id"] == start.graph_run.graph_run_id
     assert execution["node_executor_task_run"]["task_run_id"].startswith("gtask:")
+
+
+def test_graph_node_task_run_cannot_execute_outside_graph_harness_authority() -> None:
+    runtime = HarnessRuntimeFacade(
+        base_dir=isolated_backend_root("graph-task-node-worker-authority-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=TaskExecutionModelRuntimeStub(),
+    )
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.node_worker_authority",
+        title="Node Worker Authority",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "执行",
+                "task_id": "task.test.execute",
+                "agent_id": "agent:0",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    work_order = start.node_work_orders[0]
+    node_task_run = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
+
+    direct = asyncio.run(runtime.execute_task_run(node_task_run.task_run_id, max_steps=1))
+
+    assert direct["ok"] is False
+    assert direct["error"] == "graph_node_task_run_controlled_by_graph_runtime"
+
+    tampered = work_order.to_dict()
+    tampered_graph_slot = dict(tampered["graph_slot"])
+    tampered_graph_slot["graph_identity"] = {
+        **dict(tampered_graph_slot["graph_identity"]),
+        "node_id": "other_node",
+    }
+    tampered["graph_slot"] = tampered_graph_slot
+    try:
+        asyncio.run(
+            runtime.graph_harness.execute_work_order(
+                graph_config=graph_config,
+                work_order=tampered,
+                max_steps=1,
+            )
+        )
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "graph_slot identity mismatch: node_id" in str(raised)
+
+    execution = asyncio.run(
+        runtime.graph_harness.execute_work_order(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=1,
+        )
+    )
+
+    assert execution["node_result"]["status"] == "completed"
+    assert execution["accepted_result"]["node_id"] == "draft"
 
 
 def test_graph_module_is_expanded_before_graph_harness_runtime() -> None:

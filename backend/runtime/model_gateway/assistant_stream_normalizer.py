@@ -233,10 +233,15 @@ def _display_hint(chunk: str) -> dict[str, Any]:
 
 
 def _line_slice(text: str, *, max_lines: int) -> str:
-    newline_index = str(text or "").find("\n")
-    if newline_index < 0:
-        return ""
-    return text[: newline_index + 1]
+    line_limit = max(1, int(max_lines))
+    newline_count = 0
+    for index, char in enumerate(str(text or "")):
+        if char != "\n":
+            continue
+        newline_count += 1
+        if newline_count >= line_limit:
+            return text[: index + 1]
+    return ""
 
 
 def _atomic_slice(text: str) -> str:

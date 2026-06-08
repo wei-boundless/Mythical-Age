@@ -44,3 +44,29 @@ def test_assistant_stream_normalizer_flushes_pending_text_without_ui_sleep() -> 
     assert normalizer.observe_delta("这是一个没有标点的短句") != []
     assert normalizer.flush() != []
     assert normalizer.emitted_content == "这是一个没有标点的短句"
+
+
+def test_assistant_stream_normalizer_honors_pending_line_count() -> None:
+    normalizer = AssistantStreamNormalizer(
+        stream_ref="modelreq:test",
+        message_ref="turn:test:assistant",
+        max_flush_interval_ms=10_000,
+        max_pending_line_count=2,
+    )
+
+    assert normalizer.observe_delta("第一行\n") == []
+    events = normalizer.observe_delta("第二行\n")
+
+    assert [event["content"] for event in events] == ["第一行\n第二行\n"]
+
+
+def test_assistant_stream_normalizer_keeps_url_runs_atomic() -> None:
+    normalizer = AssistantStreamNormalizer(
+        stream_ref="modelreq:test",
+        message_ref="turn:test:assistant",
+        max_flush_interval_ms=10_000,
+    )
+
+    events = normalizer.observe_delta("https://example.com/a/b ")
+
+    assert [event["content"] for event in events] == ["https://example.com/a/b"]

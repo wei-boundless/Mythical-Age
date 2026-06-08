@@ -68,6 +68,13 @@ def provider_payload_boundary_diagnostics(
         "tool_catalog_hash": str(resolved.get("tool_catalog_hash") or ""),
         "stable_tool_catalog_hash": str(resolved.get("stable_tool_catalog_hash") or ""),
         "cache_sensitive_params_hash": str(resolved.get("cache_sensitive_params_hash") or ""),
+        "provider_params_hash": str(resolved.get("provider_params_hash") or ""),
+        "tool_call_options_hash": str(resolved.get("tool_call_options_hash") or ""),
+        "response_format_hash": str(resolved.get("response_format_hash") or ""),
+        "cache_sensitive_param_segment_count": int(resolved.get("cache_sensitive_param_segment_count") or 0),
+        "tool_call_options_segment_count": int(resolved.get("tool_call_options_segment_count") or 0),
+        "response_format_segment_count": int(resolved.get("response_format_segment_count") or 0),
+        "provider_params_segment_count": int(resolved.get("provider_params_segment_count") or 0),
         "stable_message_prefix_hash": str(resolved.get("stable_message_prefix_hash") or ""),
         "selected_provider_payload_prefix": selected_prefix,
     }

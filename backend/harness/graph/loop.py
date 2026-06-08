@@ -2550,7 +2550,7 @@ def _edge_states_after_node_result(
             continue
         edge_state = dict(edge_states.get(edge_id) or {})
         packet_summary: dict[str, Any] = {}
-        if result.status == "completed" and edge_delivers_flow_packet(edge):
+        if result.status == "completed" and edge_delivers_flow_packet(edge, graph_config=graph_config):
             packet = build_flow_packet(
                 graph_config=graph_config,
                 state=state,
@@ -2582,6 +2582,7 @@ def _edge_states_after_node_result(
                 "source_node_id": result.node_id,
                 "target_node_id": str(edge.get("target_node_id") or ""),
                 "status": "ready" if result.status == "completed" else "source_failed",
+                "packet_persisted": bool(packet_summary),
                 "updated_at": now,
             }
         )

@@ -323,6 +323,28 @@ function mergeAssistantTextDeltaEvent(
   if (current && sequence <= current.latestSequence) {
     return state;
   }
+  if (!current && sequence !== 1) {
+    const streamState: AssistantTextStreamState = {
+      messageId: assistantId,
+      messageRef: stringValue(data.message_ref),
+      streamRef: stringValue(data.stream_ref),
+      latestSequence: 0,
+      canonicalContent: "",
+      canonicalContentSha256: "",
+      accumulatedUtf8Bytes: 0,
+      finalReceived: false,
+      terminal: false,
+      repairState: "pending",
+      displayHintsBySequence: {},
+    };
+    return {
+      ...state,
+      assistantTextStreamsByMessageId: {
+        ...state.assistantTextStreamsByMessageId,
+        [assistantId]: streamState,
+      },
+    };
+  }
   if (current && sequence !== current.latestSequence + 1) {
     return {
       ...state,
@@ -337,9 +359,29 @@ function mergeAssistantTextDeltaEvent(
   }
   const previousContent = current?.canonicalContent ?? "";
   const expectedStart = optionalNumberValue(data.content_utf8_start);
-  const repairState = expectedStart !== null && expectedStart !== utf8ByteLength(previousContent)
-    ? "pending"
-    : current?.repairState ?? "none";
+  if (expectedStart !== null && expectedStart !== utf8ByteLength(previousContent)) {
+    const streamState: AssistantTextStreamState = {
+      messageId: assistantId,
+      messageRef: stringValue(data.message_ref) || current?.messageRef || "",
+      streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+      latestSequence: current?.latestSequence ?? 0,
+      canonicalContent: previousContent,
+      canonicalContentSha256: current?.canonicalContentSha256 ?? "",
+      accumulatedUtf8Bytes: current?.accumulatedUtf8Bytes ?? utf8ByteLength(previousContent),
+      finalReceived: current?.finalReceived ?? false,
+      terminal: current?.terminal ?? false,
+      repairState: "pending",
+      displayHintsBySequence: current?.displayHintsBySequence ?? {},
+    };
+    return {
+      ...state,
+      assistantTextStreamsByMessageId: {
+        ...state.assistantTextStreamsByMessageId,
+        [assistantId]: streamState,
+      },
+    };
+  }
+  const repairState = current?.repairState ?? "none";
   const canonicalContent = `${previousContent}${content}`;
   const streamState: AssistantTextStreamState = {
     messageId: assistantId,

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
+from file_management import build_file_access_table, resolve_file_environment
 from permissions.operations import build_default_operation_registry
 from orchestration.runtime_directive import RuntimeDirective
 from permissions import ApprovalState, ApprovalToken, PermissionContext, ResourceDecision, ResourcePolicy
@@ -41,6 +42,10 @@ _EXPLICIT_HUMAN_APPROVAL_POLICIES = {
     "always_ask",
 }
 _DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
+_FILE_WRITE_OPERATION_ACTIONS = {
+    "op.write_file": "write",
+    "op.edit_file": "edit",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -924,6 +929,8 @@ def _operation_requires_approval(operation_id: str, *, request: ToolInvocationRe
             return False
         if _task_run_sandbox_authorizes_default_approval_operation(operation_id, descriptor=_operation_descriptor(operation_id), sandbox_policy=sandbox_policy):
             return False
+        if _file_write_scope_authorizes_without_approval(operation_id, request=request, sandbox_policy=sandbox_policy):
+            return False
         return True
     descriptor = _operation_descriptor(operation_id)
     if descriptor is None or not bool(getattr(descriptor, "requires_approval_by_default", False)):
@@ -932,7 +939,68 @@ def _operation_requires_approval(operation_id: str, *, request: ToolInvocationRe
         return False
     if _task_run_sandbox_authorizes_default_approval_operation(operation_id, descriptor=descriptor, sandbox_policy=sandbox_policy):
         return False
+    if _file_write_scope_authorizes_without_approval(operation_id, request=request, sandbox_policy=sandbox_policy):
+        return False
     return True
+
+
+def _file_write_scope_authorizes_without_approval(
+    operation_id: str,
+    *,
+    request: ToolInvocationRequest,
+    sandbox_policy: dict[str, Any],
+) -> bool:
+    action = _FILE_WRITE_OPERATION_ACTIONS.get(str(operation_id or "").strip())
+    if not action:
+        return False
+    file_policy = dict(request.file_scope or {})
+    if file_policy.get("enabled") is False:
+        return False
+    profile_id = str(file_policy.get("profile_id") or "").strip()
+    if not profile_id:
+        return False
+    repository_id = _file_scope_repository_for_action(file_policy, action)
+    if not repository_id:
+        return False
+    try:
+        environment = resolve_file_environment(
+            profile_id,
+            repository_requirements=dict(file_policy.get("repository_requirements") or {}),
+        )
+    except Exception:
+        return False
+    repository = environment.repository(repository_id)
+    if repository is None:
+        return False
+    if repository.repository_kind == "sandbox_workspace" and not _sandbox_has_concrete_boundary(sandbox_policy):
+        return False
+    table = build_file_access_table(
+        environment,
+        task_file_requirements=dict(file_policy.get("task_file_requirements") or {}),
+        agent_allowed_actions=tuple(
+            str(item)
+            for item in list(file_policy.get("agent_allowed_file_actions") or [])
+            if str(item).strip()
+        ),
+        table_id=str(file_policy.get("file_access_table_id") or ""),
+    )
+    grants = table.grants_for(repository_id=repository_id, action=action)
+    return any(grant.behavior == "allow" and not grant.requires_approval for grant in grants)
+
+
+def _file_scope_repository_for_action(file_policy: dict[str, Any], action: str) -> str:
+    repositories = dict(file_policy.get("repositories") or {})
+    explicit = str(repositories.get(action) or "").strip()
+    if explicit:
+        return explicit
+    return str(file_policy.get("default_repository_id") or "").strip()
+
+
+def _sandbox_has_concrete_boundary(sandbox_policy: dict[str, Any]) -> bool:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return False
+    return bool(str(policy.get("sandbox_root") or "").strip())
 
 
 def _task_run_sandbox_authorizes_default_approval_operation(operation_id: str, *, descriptor: Any, sandbox_policy: dict[str, Any]) -> bool:

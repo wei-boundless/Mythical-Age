@@ -32,10 +32,8 @@ from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_sc
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
+    assistant_final_stream_events,
     assistant_message_ref,
-    assistant_stream_repair_event,
-    assistant_text_final_event,
-    content_sha256,
 )
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
@@ -244,7 +242,7 @@ async def run_single_agent_turn(
             terminal_payload: dict[str, Any] | None = None,
         ) -> AsyncIterator[dict[str, Any]]:
             nonlocal terminal_recorded, assistant_stream_normalizer
-            for frame_event in _assistant_final_stream_events(
+            for frame_event in assistant_final_stream_events(
                 assistant_stream_normalizer,
                 content=content,
                 answer_channel=answer_channel,
@@ -1298,62 +1296,6 @@ async def run_single_agent_turn(
         raise
 
 
-def _assistant_final_stream_events(
-    normalizer: AssistantStreamNormalizer | None,
-    *,
-    content: str,
-    answer_channel: str,
-    answer_source: str,
-    terminal_reason: str,
-    answer_canonical_state: str,
-    answer_persist_policy: str,
-    stream_ref: str = "",
-    message_ref: str = "",
-    turn_run_id: str = "",
-    task_run_id: str = "",
-) -> list[dict[str, Any]]:
-    stream_ref = str(stream_ref or getattr(normalizer, "stream_ref", "") or "")
-    message_ref = str(message_ref or getattr(normalizer, "message_ref", "") or assistant_message_ref(stream_ref=stream_ref))
-    turn_run_id = str(turn_run_id or getattr(normalizer, "turn_run_id", "") or "")
-    task_run_id = str(task_run_id or getattr(normalizer, "task_run_id", "") or "")
-    sequence = 1
-    events: list[dict[str, Any]] = []
-    if normalizer is not None:
-        events.extend(normalizer.flush())
-        normalizer.mark_final_content(content)
-        sequence = normalizer.next_sequence()
-        if normalizer.latest_sequence > 0 and content_sha256(normalizer.emitted_content) != content_sha256(content):
-            events.append(
-                assistant_stream_repair_event(
-                    replacement_content=content,
-                    stream_ref=stream_ref,
-                    message_ref=message_ref,
-                    turn_run_id=turn_run_id,
-                    task_run_id=task_run_id,
-                    repair_sequence=sequence,
-                    applies_after_sequence=normalizer.latest_sequence,
-                    expected_content_sha256=content_sha256(normalizer.emitted_content),
-                )
-            )
-            sequence += 1
-    events.append(
-        assistant_text_final_event(
-            content=content,
-            stream_ref=stream_ref,
-            message_ref=message_ref,
-            turn_run_id=turn_run_id,
-            task_run_id=task_run_id,
-            sequence=sequence,
-            answer_channel=answer_channel,
-            answer_source=answer_source,
-            answer_canonical_state=answer_canonical_state,
-            answer_persist_policy=answer_persist_policy,
-            terminal_reason=terminal_reason,
-        )
-    )
-    return events
-
-
 async def _invoke_single_turn_model(
     *,
     model_runtime: Any,
@@ -1437,7 +1379,7 @@ async def _invoke_single_turn_model_with_stream_events(
     )
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
-    emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", stream_policy.get("emit_content_delta", True)) is not False) and bool(allow_assistant_text_delta)
+    emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False) and bool(allow_assistant_text_delta)
     emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True) and bool(allow_assistant_text_delta)
     stream_ref = str(accounting_context.get("request_id") or "")
     assistant_normalizer = AssistantStreamNormalizer(
@@ -2138,7 +2080,7 @@ async def _emit_single_agent_protocol_error(
         "answer_finalization_policy": commit_decision.finalization_policy,
         "answer_fallback_reason": commit_decision.fallback_reason,
     }
-    for frame_event in _assistant_final_stream_events(
+    for frame_event in assistant_final_stream_events(
         None,
         content=content,
         answer_channel="blocked",

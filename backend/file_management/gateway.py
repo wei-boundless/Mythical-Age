@@ -283,6 +283,11 @@ class FileGateway:
             context=context,
         )
 
+    def existing_file_path(self, repository_id: str, logical_path: str) -> Path | None:
+        _repository, _binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
+        target = adapter.resolve(normalized_path)
+        return target if target.exists() and target.is_file() else None
+
     def _repository_adapter(
         self,
         repository_id: str,

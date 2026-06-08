@@ -4,8 +4,8 @@ from typing import Any
 
 
 RESOURCE_READ_TYPES = {"memory_read", "memory_handoff", "artifact_read", "artifact_context", "file_read", "file_context"}
-RESOURCE_WRITE_TYPES = {"memory_write", "artifact_write", "file_write"}
-RESOURCE_COMMIT_TYPES = {"memory_commit", "memory_write_candidate", "artifact_commit", "file_commit"}
+RESOURCE_WRITE_TYPES = {"memory_write", "memory_write_candidate", "artifact_write", "file_write"}
+RESOURCE_COMMIT_TYPES = {"memory_commit", "artifact_commit", "file_commit"}
 EVENT_TYPES = {"event", "event_emit", "event_subscribe", "event_notify"}
 AUDIT_TYPES = {"audit", "audit_report", "audit_observation"}
 REVIEW_TYPES = {"revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}

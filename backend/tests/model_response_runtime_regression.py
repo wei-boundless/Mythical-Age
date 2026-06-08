@@ -120,6 +120,14 @@ class _ReasoningOnlyToolStreamRuntime:
         return SimpleNamespace(content="unused fallback")
 
 
+class _SimpleStreamingRuntime:
+    async def astream_messages(self, _messages, **_kwargs):
+        yield SimpleNamespace(content="typed stream.")
+
+    async def invoke_messages(self, _messages):
+        return SimpleNamespace(content="unused fallback")
+
+
 class _CapturingSpecRuntime:
     def __init__(self) -> None:
         self.seen_model_spec = None
@@ -175,6 +183,26 @@ def test_stream_retryable_error_with_partial_output_suppresses_non_stream_fallba
     assert runtime.invoke_count == 0
     assert events[-1]["type"] == "error"
     assert events[-1]["answer_channel"] == "orchestration_fail_closed"
+
+
+def test_legacy_emit_content_delta_policy_does_not_disable_assistant_text_delta() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_SimpleStreamingRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={"enabled": True, "emit_content_delta": False},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert any(event.get("type") == "assistant_text_delta" and event.get("content") == "typed stream." for event in events)
+    assert not any(event.get("type") == "content_delta" for event in events)
 
 
 def test_stream_retryable_error_without_partial_output_falls_back_to_real_non_stream_invoke() -> None:

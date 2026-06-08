@@ -40,6 +40,7 @@ def test_runtime_write_file_uses_file_gateway_sandbox_repository(tmp_path: Path)
     assert gateway_payload["access_decision"] == "allow"
     assert artifact_refs[0]["absolute_path"] == str((sandbox / "docs" / "note.md").resolve())
     assert artifact_refs[0]["sandbox_path"] == "docs/note.md"
+    assert artifact_refs[0].get("bypass_sandbox_publish") is not True
     assert receipt["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert receipt["operation_id"] == "op.write_file"
     assert receipt["tool_call_id"] == "call-write_file"
@@ -142,6 +143,74 @@ def test_runtime_project_workspace_write_is_rejected_without_file_approval(tmp_p
     assert not (sandbox / "docs" / "direct.md").exists()
 
 
+def test_runtime_managed_project_artifact_write_is_allowed_without_sandbox(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="write_file",
+        tool_args={"path": "reports/summary.md", "content": "managed artifact"},
+        operation_id="op.write_file",
+        sandbox_enabled=False,
+        default_file_repositories=False,
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    gateway_payload = envelope["structured_payload"]["file_gateway"]
+    receipt = gateway_payload["receipt"]
+    artifact_refs = [dict(item) for item in list(envelope.get("artifact_refs") or [])]
+    artifact_path = project / ".managed-files" / "artifacts" / "managed-project" / "artifacts" / "reports" / "summary.md"
+
+    assert result["error"] == ""
+    assert result["execution_record"].status == "completed"
+    assert gateway_payload["access_decision"] == "allow"
+    assert receipt["repository_id"] == "repo.managed_project.artifacts"
+    assert artifact_path.read_text(encoding="utf-8") == "managed artifact"
+    assert not (project / "reports" / "summary.md").exists()
+    assert not (sandbox / "reports" / "summary.md").exists()
+    assert artifact_refs[0]["repository_id"] == "repo.managed_project.artifacts"
+    assert artifact_refs[0]["repository_kind"] == "artifact_repository"
+    assert artifact_refs[0]["bypass_sandbox_publish"] is True
+    assert artifact_refs[0]["absolute_path"] == str(artifact_path.resolve())
+
+
+def test_runtime_managed_project_artifact_write_requires_explicit_overwrite(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    artifact_path = project / ".managed-files" / "artifacts" / "managed-project" / "artifacts" / "reports" / "summary.md"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_text("existing artifact", encoding="utf-8")
+
+    blocked = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="write_file",
+        tool_args={"path": "reports/summary.md", "content": "replacement"},
+        operation_id="op.write_file",
+        sandbox_enabled=False,
+        default_file_repositories=False,
+    )
+
+    assert blocked["execution_record"].status == "failed"
+    assert blocked["recoverable_error"] == "existing_file_overwrite_requires_explicit_intent"
+    assert artifact_path.read_text(encoding="utf-8") == "existing artifact"
+
+    overwritten = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="write_file",
+        tool_args={"path": "reports/summary.md", "content": "replacement", "allow_overwrite": True},
+        operation_id="op.write_file",
+        sandbox_enabled=False,
+        default_file_repositories=False,
+    )
+
+    assert overwritten["execution_record"].status == "completed"
+    assert artifact_path.read_text(encoding="utf-8") == "replacement"
+
+
 def test_runtime_file_management_works_when_sandbox_is_disabled(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
@@ -176,6 +245,7 @@ def _run_tool(
     sandbox_enabled: bool = True,
     file_profile_id: str = "file_profile.managed_project_workspace",
     file_repositories: dict[str, str] | None = None,
+    default_file_repositories: bool = True,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
@@ -224,6 +294,11 @@ def _run_tool(
         ),
     )
     executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+    default_repositories = {
+        "read": "repo.managed_project.sandbox_workspace",
+        "write": "repo.managed_project.sandbox_workspace",
+        "edit": "repo.managed_project.sandbox_workspace",
+    } if default_file_repositories else {}
     return asyncio.run(
         executor.run(
             task_run_id=task_run_id,
@@ -241,9 +316,7 @@ def _run_tool(
                 "enabled": True,
                 "profile_id": file_profile_id,
                 "repositories": {
-                    "read": "repo.managed_project.sandbox_workspace",
-                    "write": "repo.managed_project.sandbox_workspace",
-                    "edit": "repo.managed_project.sandbox_workspace",
+                    **default_repositories,
                     **dict(file_repositories or {}),
                 },
                 "managed_storage_root": str(workspace / ".managed-files"),

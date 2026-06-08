@@ -137,3 +137,68 @@ def assistant_stream_repair_event(
         "replacement_content": text,
         "replacement_content_sha256": content_sha256(text),
     }
+
+
+def assistant_final_stream_events(
+    normalizer: Any | None,
+    *,
+    content: str,
+    answer_channel: str,
+    answer_source: str,
+    terminal_reason: str,
+    answer_canonical_state: str,
+    answer_persist_policy: str,
+    stream_ref: str = "",
+    message_ref: str = "",
+    turn_run_id: str = "",
+    task_run_id: str = "",
+) -> list[dict[str, Any]]:
+    text = str(content or "")
+    resolved_stream_ref = str(stream_ref or getattr(normalizer, "stream_ref", "") or "")
+    resolved_message_ref = str(
+        message_ref
+        or getattr(normalizer, "message_ref", "")
+        or assistant_message_ref(stream_ref=resolved_stream_ref)
+    )
+    resolved_turn_run_id = str(turn_run_id or getattr(normalizer, "turn_run_id", "") or "")
+    resolved_task_run_id = str(task_run_id or getattr(normalizer, "task_run_id", "") or "")
+
+    sequence = 1
+    events: list[dict[str, Any]] = []
+    if normalizer is not None:
+        events.extend(normalizer.flush())
+        normalizer.mark_final_content(text)
+        sequence = normalizer.next_sequence()
+        emitted_content = str(getattr(normalizer, "emitted_content", "") or "")
+        latest_sequence = int(getattr(normalizer, "latest_sequence", 0) or 0)
+        if latest_sequence > 0 and content_sha256(emitted_content) != content_sha256(text):
+            events.append(
+                assistant_stream_repair_event(
+                    replacement_content=text,
+                    stream_ref=resolved_stream_ref,
+                    message_ref=resolved_message_ref,
+                    turn_run_id=resolved_turn_run_id,
+                    task_run_id=resolved_task_run_id,
+                    repair_sequence=sequence,
+                    applies_after_sequence=latest_sequence,
+                    expected_content_sha256=content_sha256(emitted_content),
+                )
+            )
+            sequence += 1
+
+    events.append(
+        assistant_text_final_event(
+            content=text,
+            stream_ref=resolved_stream_ref,
+            message_ref=resolved_message_ref,
+            turn_run_id=resolved_turn_run_id,
+            task_run_id=resolved_task_run_id,
+            sequence=sequence,
+            answer_channel=answer_channel,
+            answer_source=answer_source,
+            answer_canonical_state=answer_canonical_state,
+            answer_persist_policy=answer_persist_policy,
+            terminal_reason=terminal_reason,
+        )
+    )
+    return events

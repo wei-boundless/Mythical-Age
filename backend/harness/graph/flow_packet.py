@@ -18,16 +18,41 @@ FLOW_PACKET_EDGE_TYPES = {
     "structured_handoff",
     "memory_handoff",
     "memory_read",
+    "memory_write",
+    "memory_write_candidate",
+    "memory_commit",
     "artifact_read",
+    "artifact_write",
     "artifact_context",
+    "artifact_commit",
     "file_read",
+    "file_write",
     "file_context",
+    "file_commit",
     "revision_request",
     "review_feedback",
     "repair_feedback",
     "conditional_feedback",
     "repair_route",
+    "event",
+    "event_emit",
+    "event_subscribe",
+    "event_notify",
+    "audit",
+    "audit_report",
+    "audit_observation",
 }
+FLOW_PACKET_PROTOCOL_KINDS = {
+    "node_handoff",
+    "resource_read",
+    "resource_write_candidate",
+    "resource_commit",
+    "review_feedback",
+    "conditional_route",
+    "event_signal",
+    "audit_observation",
+}
+STATE_ONLY_PROTOCOL_KINDS = {"control_dependency", "barrier_join", "human_gate", "a2a_session"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +149,31 @@ class FlowPacket:
         )
 
 
-def edge_delivers_flow_packet(edge: dict[str, Any]) -> bool:
+def edge_delivers_flow_packet(edge: dict[str, Any], *, graph_config: GraphHarnessConfig | None = None) -> bool:
+    if graph_config is not None:
+        edge_contract = edge_contract_or_projection(graph_config, edge)
+        trace = dict(edge_contract.get("trace") or {})
+        if "persist_packet" in trace:
+            return bool(trace.get("persist_packet"))
+        protocol = dict(edge_contract.get("protocol") or {})
+        produces_flow_packet = protocol.get("produces_flow_packet")
+        if produces_flow_packet is not None:
+            return bool(produces_flow_packet)
+        protocol_kind = str(protocol.get("kind") or "").strip()
+        if protocol_kind:
+            return _protocol_delivers_flow_packet(protocol_kind)
+    return _legacy_edge_delivers_flow_packet(edge)
+
+
+def _protocol_delivers_flow_packet(protocol_kind: str) -> bool:
+    if protocol_kind in STATE_ONLY_PROTOCOL_KINDS:
+        return False
+    if protocol_kind in FLOW_PACKET_PROTOCOL_KINDS or protocol_kind in FLOW_PACKET_EDGE_TYPES:
+        return True
+    return protocol_kind.startswith("resource_") or protocol_kind.endswith("_signal") or protocol_kind.endswith("_observation")
+
+
+def _legacy_edge_delivers_flow_packet(edge: dict[str, Any]) -> bool:
     edge_type = str(edge.get("edge_type") or "").strip()
     semantic_role = str(edge.get("semantic_role") or "").strip()
     scheduler_role = str(edge.get("scheduler_role") or "").strip()

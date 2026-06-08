@@ -592,3 +592,47 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 ## 待确认决策
 
 建议采用 `PromptCompositionPlan / PromptCompositionManifest + ProviderPayloadManifest` 两层方案，并按五阶段实施。确认后从阶段 0 开始改代码，先把 prompt 装配体系树立起来，再把 tool schema 从 `never_cache` 升级为稳定 provider payload segment，最后接 cache planner 和诊断。
+
+## 本轮收尾状态
+
+收尾日期：2026-06-09
+
+本轮已完成 prompt composition shadow manifest 与 DeepSeek cache 诊断增强，但 `ProviderPayloadManifest` 尚未正式接管 provider-visible payload。因此本文后续阶段仍然有效，尤其是 tool schema 从 serializer 事后 `never_cache` 迁移到 provider payload segment 的部分，不能视为已经完成。
+
+### 已落地的缓存诊断能力
+
+- cache record 现在能带出 `prompt_manifest_ref`、`assembly_request_fingerprint`、`section_fingerprint`、`prompt_composition_manifest_ref`、`prompt_composition_cache_boundary_status`、prefix tier sequence 与 layer/segment violation count。
+- cache break detector 能把 assembly request fingerprint 变化、section fingerprint 变化、composition boundary 变化作为独立诊断来源。
+- DeepSeek 诊断脚本支持按最近 ledger window 流式读取，避免历史大账本导致 OOM，并能在 recent requests 中展示 prompt composition/cache break detail。
+- 活跃 prompt accounting ledger 已清理旧记录：历史原始文件归档到 `storage/runtime_state/prompt_accounting/archive/cleanup-20260609-041016`，legacy durable recall source 记录归档到 `storage/runtime_state/prompt_accounting/archive/cleanup-legacy-durable-source-20260609-041423`。
+
+### 当前诊断结果
+
+- 全局 DeepSeek cache hit rate：`0.7296`。
+- `agent_runtime` hit rate：`0.735`。
+- `memory_maintenance` hit rate：`0.3433`。
+- `unplanned_model_call_breaks=0`。
+- `repeated_prefix_provider_miss` 已不再作为活跃 issue 出现。
+- 剩余 issue：1 个图任务 `global_static` stable segment content hash 变化，应在图任务主线排查。
+
+### 后续不能跳过的工作
+
+- `ProviderPayloadManifest` / `ProviderPayloadSegment` 已具备首版实现，`ModelRequestBuilder` 负责创建 provider-visible payload manifest。
+- serializer 已移除基于 `tool_index_stable` 的工具 schema cache role 推断 fallback；现在只能序列化 manifest 裁决。缺少 provider payload manifest 时，工具 schema 只能记录为 `never_cache`，并标记 `missing_provider_payload_manifest`。
+- cache planner 需要消费 provider payload cache boundary，而不是继续从 message index 或事后 tool segment 推断。
+- tool schema hash、tool binding options、provider params、response format 必须进入 cache key 或 cache-sensitive diagnostics。
+
+### 本轮追加落地
+
+日期：2026-06-09
+
+- 删除 serializer 内部旧 `_tool_schema_cache_profile` 推断权，避免 serializer 根据 stable tool index 自行把工具 schema 提升为 `session_stable`。
+- 新增回归：即使 `segment_plan` 中存在稳定 `tool_index_stable`，没有 `ProviderPayloadManifest` 时，serializer 也必须保持 tool schema `never_cache`。
+- `ProviderPayloadManifest` 已把 key-only provider-visible 输入拆成独立 segment：`tool_call_options`、`response_format`、`provider_params`。
+- `cache_sensitive_params_hash` 现在由 provider params、tool call options、response format 三类 segment 共同生成；这些段不进入 stable prefix，但会进入本地 cache key 与 break attribution。
+- `PromptCacheBreakDetector` 对 cache-sensitive params 变化增加细分归因：`tool_binding_options_changed`、`response_format_changed`、`provider_params_changed`。
+- 验证命令：
+  - `python -m pytest backend\tests\prompt_cache_prefix_tier_regression.py backend\tests\tool_catalog_manifest_regression.py -q`：20 passed。
+  - `python -m pytest backend\tests\model_runtime_regression.py backend\tests\prompt_cache_break_detector_regression.py backend\tests\deepseek_prompt_cache_diagnostics_test.py -q`：75 passed。
+  - prompt/cache 较宽套件加 tool catalog manifest：118 passed。
+  - provider option segment 追加后，`prompt_cache_prefix_tier_regression.py`：15 passed；`tool_catalog_manifest_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py + model_runtime_regression.py`：81 passed；较宽套件：119 passed。

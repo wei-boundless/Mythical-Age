@@ -521,6 +521,7 @@ def _coerce_read_window_int(
 
 class NativeWriteFileTool(_NativeToolBase):
     def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        gateway = self._file_gateway(context)
         gateway_permission = _check_gateway_file_permission(
             tool=self,
             args=args,
@@ -530,8 +531,20 @@ class NativeWriteFileTool(_NativeToolBase):
         if gateway_permission is not None and not gateway_permission.allowed:
             return gateway_permission
         path = str(args.get("path") or "").strip()
-        files = self._files(context)
-        existing = _resolve_existing_file(files, path)
+        if gateway is not None:
+            try:
+                existing = gateway.existing_file_path(_repository_for_action(context, "write"), path)
+            except (KeyError, ValueError) as exc:
+                return ToolPermissionResult(
+                    allowed=False,
+                    decision="deny",
+                    reason="file_gateway_permission_denied",
+                    repair_instruction="Retry with a path and operation allowed by the active task environment.",
+                    diagnostics={"action": "write", "path": path, "error": str(exc)},
+                )
+        else:
+            files = self._files(context)
+            existing = _resolve_existing_file(files, path)
         if existing is not None and not _overwrite_intent_is_explicit(args, existing, context):
             return ToolPermissionResult(
                 allowed=False,
@@ -2228,6 +2241,11 @@ def _artifact_ref_for_gateway_file(
     repository_id = str(getattr(result, "repository_id", "") or "").strip()
     if repository_id:
         artifact["repository_id"] = repository_id
+    repository_kind = str(getattr(result, "repository_kind", "") or "").strip()
+    if repository_kind:
+        artifact["repository_kind"] = repository_kind
+    if repository_kind and repository_kind != "sandbox_workspace":
+        artifact["bypass_sandbox_publish"] = True
     return artifact
 
 
