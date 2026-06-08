@@ -4,11 +4,10 @@ import { AlertTriangle, RefreshCw, RadioTower } from "lucide-react";
 import { useMemo } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
-import { RunActivityLane } from "@/components/layout/RunActivityLane";
-import { RunProjectLane } from "@/components/layout/RunProjectLane";
+import { RunTaskLane } from "@/components/layout/RunTaskLane";
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
-import { selectRunMonitorActivityLane, selectRunMonitorProjectLane } from "@/lib/run-monitor/selectors";
+import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 
 export function RunMonitorPanel() {
   const confirm = useConfirmDialog();
@@ -22,8 +21,7 @@ export function RunMonitorPanel() {
     runMonitorLoading,
     runMonitorStreamStatus,
   } = useAppStore();
-  const activity = useMemo(() => selectRunMonitorActivityLane(runMonitor), [runMonitor]);
-  const projects = useMemo(() => selectRunMonitorProjectLane(runMonitor), [runMonitor]);
+  const tasks = useMemo(() => selectRunMonitorTaskLane(runMonitor), [runMonitor]);
   const summary = runMonitor?.summary;
   const headline = summary?.active
     ? `${summary.active} 运行中`
@@ -60,6 +58,15 @@ export function RunMonitorPanel() {
       });
       if (!approved) return;
     }
+    if (action === "close_runtime") {
+      const approved = await confirm({
+        title: "关闭运行",
+        body: "关闭会终止该任务或图任务的运行状态，并保留记录供健康系统追踪和清理。",
+        confirmLabel: "关闭运行",
+        tone: "warning",
+      });
+      if (!approved) return;
+    }
     await runMonitorAction(payload);
   }
 
@@ -89,8 +96,7 @@ export function RunMonitorPanel() {
         </div>
       ) : null}
 
-      <RunProjectLane actionLoading={runMonitorActionLoading} onAction={(payload) => void handleAction(payload)} projects={projects} onOpen={openRunMonitorSignal} />
-      <RunActivityLane actionLoading={runMonitorActionLoading} onAction={(payload) => void handleAction(payload)} signals={activity} loading={runMonitorLoading} onOpen={openRunMonitorSignal} />
+      <RunTaskLane actionLoading={runMonitorActionLoading} onAction={(payload) => void handleAction(payload)} signals={tasks} loading={runMonitorLoading} onOpen={openRunMonitorSignal} />
     </section>
   );
 }

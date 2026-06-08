@@ -15,11 +15,12 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Unlink,
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
-import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
+import { FileChangesPanel } from "@/components/layout/FileChangesPanel";
 import { openProjectWorkspaceInVSCode, type CodeEnvironmentTreeNode } from "@/lib/api";
 import type { SessionSummary } from "@/lib/api";
 import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskActivityKind, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
@@ -173,12 +174,20 @@ function sessionMetaLine(session: SessionSummary) {
   const projectRoot = projectRootFromSession(session);
   const projectLabel = projectRoot ? `${projectNameFromRoot(projectRoot)} · ` : "";
   if (!task) {
-    return `${projectLabel}${session.message_count} 条消息 · ${formatSessionTime(session.updated_at)}`;
+    return `${projectLabel}${sessionTurnCountLabel(session)} · ${formatSessionTime(session.updated_at)}`;
   }
   const updatedAt = Number(task.updated_at || session.updated_at || 0);
   const taskCount = Number(task.task_run_count || 0);
   const countLabel = taskCount > 1 ? `${taskCount} 个任务记录` : "当前任务";
   return `${projectLabel}${sessionTaskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
+}
+
+function sessionTurnCountLabel(session: SessionSummary) {
+  const turnCount = Number(session.turn_count);
+  if (Number.isFinite(turnCount) && turnCount >= 0) {
+    return `${turnCount} 轮`;
+  }
+  return `${session.message_count} 条`;
 }
 
 function sessionIsRunning(session: SessionSummary) {
@@ -327,6 +336,7 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     sessions,
     createNewSession,
     refreshWorkspaceTree,
+    removeProjectWorkspace,
     removeSession,
     selectProjectWorkspace,
     selectProjectWorkspaceDirectory,
@@ -335,18 +345,23 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     workspaceTreeError,
     workspaceTreeLoading,
   } = useAppStore();
-  const visibleSessions = [...projectSessions].sort((a, b) => b.updated_at - a.updated_at);
+  const visibleSessions = [
+    ...(activeProjectKey ? projectSessions : sessions.filter((session) => !projectRootFromSession(session))),
+  ].sort((a, b) => b.updated_at - a.updated_at);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
   const boundProjectRoot = activeProjectRoot || projectRootFromSession(currentSession);
-  const projectRoot = boundProjectRoot || "先选择项目";
-  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "未选择项目";
-  const projectContextLabel = boundProjectRoot ? "当前项目" : "项目入口";
+  const projectRoot = boundProjectRoot || "普通会话不会访问项目文件";
+  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "通用会话";
   const projectWorkspacesErrorLabel = projectSelectionErrorMessage(projectWorkspacesError);
   const projectTreeNodes = workspaceTree?.tree.children || [];
+  const generalSessionCount = sessions.filter((session) => !projectRootFromSession(session)).length;
   const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
   const [openProjectRootError, setOpenProjectRootError] = useState("");
   const [bindingProjectBusy, setBindingProjectBusy] = useState(false);
   const [bindingProjectError, setBindingProjectError] = useState("");
+  const [pendingRemoveProjectKey, setPendingRemoveProjectKey] = useState("");
+  const [removingProjectKey, setRemovingProjectKey] = useState("");
+  const [removeProjectError, setRemoveProjectError] = useState("");
   const [filesOpen, setFilesOpen] = useState(false);
 
   useEffect(() => {
@@ -356,12 +371,12 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     setBindingProjectError("");
   }, [boundProjectRoot]);
 
-  async function handleOpenProjectRoot() {
+  async function handleOpenProjectRoot(projectKey = activeProjectKey) {
     setOpeningProjectRoot(true);
     setOpenProjectRootError("");
     try {
-      if (boundProjectRoot && activeProjectKey) {
-        await openProjectWorkspaceInVSCode(activeProjectKey);
+      if (projectKey) {
+        await openProjectWorkspaceInVSCode(projectKey);
       } else {
         setOpenProjectRootError("请先选择项目。");
       }
@@ -384,95 +399,150 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     }
   }
 
+  async function handleRemoveProject(projectKey: string) {
+    setRemovingProjectKey(projectKey);
+    setRemoveProjectError("");
+    try {
+      await removeProjectWorkspace(projectKey);
+      setPendingRemoveProjectKey("");
+    } catch (error) {
+      setRemoveProjectError(projectSelectionErrorMessage(error) || "项目移出失败。");
+    } finally {
+      setRemovingProjectKey("");
+    }
+  }
+
   return (
     <aside className="workbench-resource-panel" aria-label="任务环境管理">
       <header className="workbench-panel-head">
         <div>
           <strong>项目</strong>
-          <span>{projectWorkspaces.length ? `${projectWorkspaces.length} 个项目` : "先选择项目"}</span>
+          <span>{projectWorkspaces.length ? `${projectWorkspaces.length} 个可选项目` : "可直接对话"}</span>
         </div>
-        <WorkspaceModeSwitcher />
       </header>
 
-      <section className="workbench-project-context" aria-label="当前项目上下文">
-        <div className="workbench-project-context__summary">
-          <div className="workbench-project-context__identity">
-            <span>{projectContextLabel}</span>
-            {projectWorkspaces.length > 1 ? (
-              <span className="workbench-project-title-select">
-                <select
-                  aria-label="切换项目"
-                  disabled={projectWorkspacesLoading}
-                  onChange={(event) => {
-                    const projectKey = event.currentTarget.value;
-                    if (projectKey && projectKey !== activeProjectKey) {
-                      void selectProjectWorkspace(projectKey);
-                    }
-                  }}
-                  title="切换项目"
-                  value={activeProjectKey || ""}
-                >
-                  {!activeProjectKey ? <option value="">选择项目</option> : null}
-                  {projectWorkspaces.map((project) => (
-                    <option key={project.key} value={project.key}>
-                      {project.name} · {project.session_count} 个对话
-                    </option>
-                  ))}
-                </select>
-              </span>
-            ) : (
-              <strong>{projectName}</strong>
-            )}
-            <small title={projectRoot}>{projectRoot}</small>
+      <section className="workbench-project-context workbench-project-switcher" aria-label="会话范围">
+        <div className="workbench-project-switcher__head">
+          <div>
+            <span>范围</span>
+            <strong>{projectName}</strong>
           </div>
-          <div className="workbench-project-context__actions">
-            {boundProjectRoot ? (
-              <>
-                <button
-                  disabled={bindingProjectBusy || projectWorkspacesLoading}
-                  onClick={() => void handleBindProject()}
-                  title="添加项目"
-                  type="button"
-                >
-                  <Plus size={14} />
-                  <span>添加</span>
-                </button>
-                <button
-                  disabled={openingProjectRoot}
-                  onClick={() => void handleOpenProjectRoot()}
-                  title="在新的 VS Code 窗口打开当前项目"
-                  type="button"
-                >
-                  <FolderOpen size={14} />
-                  <span>VS Code</span>
-                </button>
-                <button
-                  disabled={workspaceTreeLoading}
-                  onClick={() => void refreshWorkspaceTree()}
-                  title="刷新当前项目文件"
-                  type="button"
-                >
-                  <RefreshCw size={14} />
-                  <span>刷新</span>
-                </button>
-              </>
-            ) : (
-              <button
-                className="workbench-project-context__bind-action"
-                disabled={bindingProjectBusy || projectWorkspacesLoading}
-                onClick={() => void handleBindProject()}
-                title="选择项目目录"
-                type="button"
-              >
-                <FolderOpen size={14} />
-                <span>{bindingProjectBusy || projectWorkspacesLoading ? "选择中" : "选择项目"}</span>
-              </button>
-            )}
-          </div>
+          <button
+            className="workbench-project-switcher__add"
+            disabled={bindingProjectBusy || projectWorkspacesLoading}
+            onClick={() => void handleBindProject()}
+            title="添加项目"
+            type="button"
+          >
+            <Plus size={14} />
+            <span>{bindingProjectBusy || projectWorkspacesLoading ? "选择中" : "添加"}</span>
+          </button>
         </div>
-        {!boundProjectRoot && bindingProjectError ? <small className="workbench-project-bind-error">{bindingProjectError}</small> : null}
+
+        <div className="workbench-project-switcher__list">
+          <button
+            aria-current={!activeProjectKey ? "page" : undefined}
+            className={[
+              "workbench-project-scope-row",
+              !activeProjectKey ? "workbench-project-scope-row--active" : "",
+            ].filter(Boolean).join(" ")}
+            disabled={projectWorkspacesLoading}
+            onClick={() => {
+              if (activeProjectKey) {
+                void selectProjectWorkspace("");
+              }
+            }}
+            title="切换到通用会话"
+            type="button"
+          >
+            <span className="workbench-project-scope-row__icon"><MessageSquare size={14} /></span>
+            <span className="workbench-project-scope-row__main">
+              <strong>通用会话</strong>
+              <small>{generalSessionCount} 个对话</small>
+            </span>
+          </button>
+
+          {projectWorkspaces.map((project) => {
+            const active = project.key === activeProjectKey;
+            const pendingRemove = pendingRemoveProjectKey === project.key;
+            const removing = removingProjectKey === project.key;
+            return (
+              <div
+                className={[
+                  "workbench-project-scope-item",
+                  active ? "workbench-project-scope-item--active" : "",
+                  pendingRemove ? "workbench-project-scope-item--confirming" : "",
+                ].filter(Boolean).join(" ")}
+                key={project.key}
+              >
+                <div className="workbench-project-scope-row-wrap">
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className="workbench-project-scope-row"
+                    disabled={projectWorkspacesLoading || removing}
+                    onClick={() => {
+                      if (!active) {
+                        void selectProjectWorkspace(project.key);
+                      }
+                    }}
+                    title={project.workspace_root}
+                    type="button"
+                  >
+                    <span className={project.available ? "workbench-project-scope-row__status" : "workbench-project-scope-row__status is-missing"} />
+                    <span className="workbench-project-scope-row__icon"><Folder size={14} /></span>
+                    <span className="workbench-project-scope-row__main">
+                      <strong>{project.name}</strong>
+                      <small>{project.workspace_root}</small>
+                    </span>
+                    <span className="workbench-project-scope-row__count">{project.session_count}</span>
+                  </button>
+                  <div className="workbench-project-scope-row__actions">
+                    <button
+                      disabled={openingProjectRoot || removing}
+                      onClick={() => void handleOpenProjectRoot(project.key)}
+                      title="在 VS Code 打开"
+                      type="button"
+                    >
+                      <FolderOpen size={13} />
+                    </button>
+                    {active ? (
+                      <button
+                        disabled={workspaceTreeLoading || removing}
+                        onClick={() => void refreshWorkspaceTree()}
+                        title="刷新项目文件"
+                        type="button"
+                      >
+                        <RefreshCw size={13} />
+                      </button>
+                    ) : null}
+                    <button
+                      disabled={removing}
+                      onClick={() => setPendingRemoveProjectKey(pendingRemove ? "" : project.key)}
+                      title="移出项目列表"
+                      type="button"
+                    >
+                      <Unlink size={13} />
+                    </button>
+                  </div>
+                </div>
+                {pendingRemove ? (
+                  <div className="workbench-project-remove-confirm">
+                    <span>移出项目</span>
+                    <button disabled={removing} onClick={() => setPendingRemoveProjectKey("")} type="button">取消</button>
+                    <button disabled={removing} onClick={() => void handleRemoveProject(project.key)} type="button">
+                      {removing ? "移出中" : "确认"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        {bindingProjectError ? <small className="workbench-project-bind-error">{bindingProjectError}</small> : null}
         {projectWorkspacesErrorLabel ? <small className="workbench-project-bind-error">{projectWorkspacesErrorLabel}</small> : null}
-        {boundProjectRoot && openProjectRootError ? <small className="workbench-project-bind-error">{openProjectRootError}</small> : null}
+        {openProjectRootError ? <small className="workbench-project-bind-error">{openProjectRootError}</small> : null}
+        {removeProjectError ? <small className="workbench-project-bind-error">{removeProjectError}</small> : null}
       </section>
 
       <div className="workbench-left-body">
@@ -480,9 +550,9 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <div className="workbench-session-toolbar">
             <div>
               <strong>对话</strong>
-              <span>{boundProjectRoot ? `${visibleSessions.length} 个项目对话` : "先选择项目"}</span>
+              <span>{boundProjectRoot ? `${visibleSessions.length} 个项目对话` : `${visibleSessions.length} 个通用对话`}</span>
             </div>
-            <button aria-label="新建项目对话" disabled={!activeProjectKey} onClick={() => void createNewSession()} type="button">
+            <button aria-label={boundProjectRoot ? "新建项目对话" : "新建通用对话"} onClick={() => void createNewSession()} type="button">
               <Plus size={15} />
               <span>新建</span>
             </button>
@@ -522,8 +592,8 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             );}) : (
               <div className="workbench-empty-state">
                 <MessageSquare size={18} />
-                <strong>{boundProjectRoot ? "这个项目还没有对话" : "先选择项目"}</strong>
-                <span>{boundProjectRoot ? "新建后开始" : "选择目录后再开始对话"}</span>
+                <strong>{boundProjectRoot ? "这个项目还没有对话" : "还没有通用对话"}</strong>
+                <span>{boundProjectRoot ? "新建后开始" : "可以不绑定项目直接开始"}</span>
               </div>
             )}
           </div>
@@ -692,6 +762,7 @@ function RightToolPanel() {
     <aside className="workbench-right-panel" aria-label="辅助面板">
       <div className="workbench-right-body">
         <RunMonitorPanel />
+        <FileChangesPanel />
       </div>
     </aside>
   );

@@ -5,7 +5,6 @@ import { ChevronDown } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { TaskEnvironmentCatalog } from "@/lib/api";
-import type { WorkspaceView } from "@/lib/store/types";
 
 type TaskEnvironmentOption = TaskEnvironmentCatalog["environments"][number];
 
@@ -31,19 +30,15 @@ export function WorkspaceModeSwitcher({
   className?: string;
 }) {
   const {
-    activeWorkspaceView,
     conversationActiveEnvironment,
     setActiveTaskEnvironment,
-    setWorkspaceView,
     taskEnvironmentCatalog,
     taskEnvironmentCatalogError,
     taskEnvironmentCatalogLoading,
   } = useAppStore();
   const environments = (taskEnvironmentCatalog?.environments ?? []).filter(isVisibleTaskEnvironment);
   const activeEnvironmentId = String(conversationActiveEnvironment?.task_environment_id || "").trim();
-  const switchableValue = activeWorkspaceView === "creative"
-    ? "env.creation.writing"
-    : activeEnvironmentId || "env.general.workspace";
+  const switchableValue = activeEnvironmentId || "env.general.workspace";
   const disabled = taskEnvironmentCatalogLoading || environments.length === 0;
   const hasSwitchableValue = environments.some((item) => taskEnvironmentId(item) === switchableValue);
 
@@ -58,11 +53,7 @@ export function WorkspaceModeSwitcher({
         value={switchableValue}
         onChange={(event) => {
           const value = event.target.value.trim();
-          if (value.startsWith("env.")) {
-            void setActiveTaskEnvironment(value, { source: "workspace-mode" });
-            return;
-          }
-          setWorkspaceView(value as WorkspaceView);
+          if (value.startsWith("env.")) void setActiveTaskEnvironment(value, { source: "workspace-mode" });
         }}
       >
         {!environments.length ? (

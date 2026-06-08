@@ -45,6 +45,7 @@ const TASK_ENVIRONMENT_VIEWS = new Set<WorkspaceView>(["chat", "code-environment
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "工作台", icon: MessageSquare },
+  { view: "creative", label: "图任务", icon: Workflow },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
@@ -200,7 +201,7 @@ function Workspace() {
     );
   } else if (activeWorkspaceView === "creative") {
     content = (
-      <SystemPageShell label="写作环境" view="creative">
+      <SystemPageShell label="图任务区" view="creative">
         <LazyView><CreativeEnvironmentView /></LazyView>
       </SystemPageShell>
     );

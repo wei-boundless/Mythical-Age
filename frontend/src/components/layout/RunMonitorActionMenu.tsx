@@ -14,6 +14,7 @@ type RunMonitorActionMenuProps = {
 
 const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
+const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
 export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMonitorActionMenuProps) {
   const [open, setOpen] = useState(false);
@@ -49,7 +50,7 @@ export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMon
         <div className="run-monitor-action-menu__list" role="menu">
           {actions.map((action) => (
             <button
-              className={DANGER_ACTIONS.has(action.action) ? "run-monitor-action-menu__item run-monitor-action-menu__item--danger" : "run-monitor-action-menu__item"}
+              className={actionClassName(action.action)}
               disabled={loadingAction === action.action}
               key={action.action}
               onClick={(event) => {
@@ -72,4 +73,14 @@ export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMon
       ) : null}
     </div>
   );
+}
+
+function actionClassName(action: string) {
+  if (DANGER_ACTIONS.has(action)) {
+    return "run-monitor-action-menu__item run-monitor-action-menu__item--danger";
+  }
+  if (WARNING_ACTIONS.has(action)) {
+    return "run-monitor-action-menu__item run-monitor-action-menu__item--warning";
+  }
+  return "run-monitor-action-menu__item";
 }
