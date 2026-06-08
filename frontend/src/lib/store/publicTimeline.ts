@@ -1,4 +1,5 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
+import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
 
 export type PublicTimelineTerminalState = "done" | "error" | "stopped" | "";
 
@@ -7,13 +8,84 @@ type MergeOptions = {
   limit?: number;
 };
 
+const BODY_TIMELINE_KINDS = new Set([
+  "assistant_text",
+  "opening_judgment",
+  "task_plan",
+  "tool_result_feedback",
+  "stage_summary",
+  "observation_report",
+  "final_summary",
+]);
+const TOOL_LIMIT_BLOCKED_PUBLIC_TEXT = "本轮连续工具调用已达到运行上限，且没有生成可直接展示的结论。当前处理已停止。你可以让我继续下一轮，或补充要优先核查的位置。";
+const PUBLIC_TIMELINE_TEXT_FIELDS = [
+  "title",
+  "detail",
+  "text",
+  "public_summary",
+  "observation",
+  "recovery_hint",
+  "next_step",
+  "subject_label",
+  "implication",
+  "path",
+  "href",
+] as const;
+const TOOL_WINDOW_TEXT_FIELDS = ["tool_label", "target", "status"] as const;
+
+export function sanitizePublicTimelineItems(items: PublicChatTimelineItem[] | null | undefined) {
+  if (!Array.isArray(items) || !items.length) {
+    return Array.isArray(items) ? items : undefined;
+  }
+  let changed = false;
+  const sanitized = items.map((item) => {
+    const next = sanitizePublicTimelineItem(item);
+    if (next !== item) {
+      changed = true;
+    }
+    return next;
+  });
+  return changed ? sanitized : items;
+}
+
+export function sanitizePublicTimelineItem(item: PublicChatTimelineItem) {
+  const next: Record<string, unknown> = { ...item };
+  let changed = false;
+  for (const field of PUBLIC_TIMELINE_TEXT_FIELDS) {
+    const sanitized = sanitizePublicTimelineText(next[field], { replacementForProtocolProjection: TOOL_LIMIT_BLOCKED_PUBLIC_TEXT });
+    if (sanitized !== next[field]) {
+      next[field] = sanitized;
+      changed = true;
+    }
+  }
+  const toolWindow = sanitizePublicTimelineToolWindow(item.tool_window);
+  if (toolWindow !== item.tool_window) {
+    if (toolWindow && Object.keys(toolWindow).length) {
+      next.tool_window = toolWindow;
+    } else {
+      delete next.tool_window;
+    }
+    changed = true;
+  }
+  return changed ? next as PublicChatTimelineItem : item;
+}
+
 export function cleanPublicTimelineText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 export function publicTimelineItemText(item: PublicChatTimelineItem | undefined) {
   if (!item) return "";
-  return cleanPublicTimelineText(item.public_summary || item.observation || item.text || item.detail || item.title || item.subject_label || item.path || item.href);
+  const text = cleanPublicTimelineText(item.public_summary || item.observation || item.text || item.detail || item.title || item.subject_label || item.path || item.href);
+  if (text) return text;
+  if (cleanPublicTimelineText(item.kind) !== "todo_plan" || !Array.isArray(item.todo_items)) {
+    return "";
+  }
+  const activeItemId = cleanPublicTimelineText(item.active_item_id);
+  const active = item.todo_items.find((todo) => cleanPublicTimelineText(todo.todo_id) === activeItemId)
+    ?? item.todo_items.find((todo) => cleanPublicTimelineText(todo.status) === "in_progress")
+    ?? item.todo_items[0];
+  return cleanPublicTimelineText(active?.active_form || active?.content);
 }
 
 export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {
@@ -36,14 +108,19 @@ export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, 
 export function publicTimelineSemanticKey(item: PublicChatTimelineItem | undefined) {
   if (!item) return "";
   const kind = cleanPublicTimelineText(item.kind);
+  if (isPublicTimelineBodyItem(item)) {
+    const body = cleanPublicTimelineText(item.text || item.detail || item.public_summary || item.observation || item.implication);
+    return body ? `body:${kind}:${body}` : "";
+  }
   if (kind === "work_action") {
+    if (cleanPublicTimelineText(item.item_id)) return "";
     const actionKind = cleanPublicTimelineText(item.action_kind);
     const subject = cleanPublicTimelineText(item.subject_label);
     const refs = Array.isArray(item.trace_refs)
       ? item.trace_refs.map((ref) => cleanPublicTimelineText(ref)).filter(Boolean)
       : [];
-    if (refs.length) return `work:${refs.join(",")}`;
-    return actionKind || subject ? `work:${actionKind}:${subject}` : "";
+    if (actionKind && subject && actionKind !== "batch") return `work:${actionKind}:${subject}`;
+    return refs.length ? `work:${refs.join(",")}` : "";
   }
   if (kind !== "tool_activity") return "";
   const titleTarget = normalizedToolActivityTarget(item.title || item.text);
@@ -69,17 +146,17 @@ export function normalizePublicTimelineItems(
   const indexBySemanticKey = new Map<string, number>();
 
   for (const [index, rawItem] of (items ?? []).entries()) {
+    const sanitizedItem = sanitizePublicTimelineItem(rawItem);
     const item = options.terminalState
-      ? finalizePublicTimelineItem(rawItem, options.terminalState)
-      : rawItem;
+      ? finalizePublicTimelineItem(sanitizedItem, options.terminalState)
+      : sanitizedItem;
     if (!publicTimelineItemText(item)) {
       continue;
     }
     const semanticKey = publicTimelineSemanticKey(item);
     const key = publicTimelineItemKey(item, index);
-    const existingIndex = semanticKey
-      ? indexBySemanticKey.get(semanticKey)
-      : indexByKey.get(key);
+    const existingIndex = indexByKey.get(key)
+      ?? (semanticKey ? indexBySemanticKey.get(semanticKey) : undefined);
 
     if (existingIndex !== undefined) {
       result[existingIndex] = preferPublicTimelineItem(result[existingIndex], item);
@@ -97,7 +174,80 @@ export function normalizePublicTimelineItems(
     result.push(item);
   }
 
-  return options.limit && options.limit > 0 ? result.slice(-options.limit) : result;
+  return trimPublicTimelineItems(result, options.limit);
+}
+
+function sanitizePublicTimelineToolWindow(value: PublicChatTimelineItem["tool_window"]) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const next: Record<string, unknown> = { ...value };
+  let changed = false;
+  for (const field of TOOL_WINDOW_TEXT_FIELDS) {
+    const sanitized = sanitizePublicTimelineText(next[field], { replacementForProtocolProjection: "" });
+    if (sanitized !== next[field]) {
+      next[field] = sanitized;
+      changed = true;
+    }
+  }
+  if (Array.isArray(value.sections)) {
+    const sections = value.sections
+      .map((section) => {
+        if (!section || typeof section !== "object" || Array.isArray(section)) {
+          changed = true;
+          return null;
+        }
+        const label = sanitizePublicTimelineText(section.label, { replacementForProtocolProjection: "" });
+        const text = sanitizePublicTimelineText(section.text, { replacementForProtocolProjection: "" });
+        if (label !== section.label || text !== section.text) {
+          changed = true;
+        }
+        if (!cleanPublicTimelineText(label) || !cleanPublicTimelineText(text)) {
+          changed = true;
+          return null;
+        }
+        return { label: String(label), text: String(text) };
+      })
+      .filter((section): section is { label: string; text: string } => Boolean(section))
+      .slice(0, 4);
+    if (sections.length !== value.sections.length || sections.some((section, index) =>
+      section.label !== value.sections?.[index]?.label || section.text !== value.sections?.[index]?.text
+    )) {
+      changed = true;
+    }
+    next.sections = sections;
+  }
+  return changed ? next as NonNullable<PublicChatTimelineItem["tool_window"]> : value;
+}
+
+function sanitizePublicTimelineText(
+  value: unknown,
+  options: { replacementForProtocolProjection: string },
+) {
+  if (typeof value !== "string") {
+    return value;
+  }
+  if (isInternalActiveWorkControlText(value) || isInternalProtocolEnumText(value)) {
+    return "";
+  }
+  if (looksLikeInternalProtocolProjectionText(value)) {
+    return options.replacementForProtocolProjection;
+  }
+  return value;
+}
+
+function looksLikeInternalProtocolProjectionText(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return false;
+  }
+  return /内部工具协议|工具调用残片|<｜｜DSML｜｜|DSML|active_work_control\.action/.test(text)
+    || /\btool_calls\b/i.test(text)
+    || /模型返回了.*协议/.test(text);
+}
+
+function isInternalProtocolEnumText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase() === "assistant_message";
 }
 
 export function finalizePublicTimelineItems(
@@ -148,18 +298,31 @@ function finalizePublicTimelineItem(
 }
 
 function preferPublicTimelineItem(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
-  const leftRank = publicTimelineStateRank(left);
-  const rightRank = publicTimelineStateRank(right);
-  if (rightRank >= leftRank) {
-    return { ...left, ...right };
+  const trace_refs = mergeTraceRefs(left.trace_refs, right.trace_refs);
+  const merged = publicTimelineStateRank(right) >= publicTimelineStateRank(left)
+    ? { ...left, ...right }
+    : { ...right, ...left };
+  return trace_refs.length ? { ...merged, trace_refs } : merged;
+}
+
+function mergeTraceRefs(left: PublicChatTimelineItem["trace_refs"], right: PublicChatTimelineItem["trace_refs"]) {
+  const seen = new Set<string>();
+  const refs: string[] = [];
+  for (const ref of [...(left ?? []), ...(right ?? [])]) {
+    const normalized = cleanPublicTimelineText(ref);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    refs.push(normalized);
   }
-  return left;
+  return refs;
 }
 
 function publicTimelineStateRank(item: PublicChatTimelineItem) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
   if (["error", "failed", "blocked", "missing"].includes(state) || item.kind === "blocked") return 4;
-  if (["done", "ready", "passed", "success"].includes(state)) return 3;
+  if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return 3;
   if (["running", "working", "partial"].includes(state) || item.stream_state === "streaming") return 2;
   return 1;
 }
@@ -186,4 +349,34 @@ function toolActivityOperation(item: PublicChatTimelineItem) {
   if (/检查|确认|path_exists|stat_path|list_dir|inspect/.test(text)) return "inspect";
   if (/运行|terminal|command|shell/.test(text)) return "command";
   return "call";
+}
+
+function trimPublicTimelineItems(items: PublicChatTimelineItem[], limit: number | undefined) {
+  if (!limit || limit <= 0 || items.length <= limit) {
+    return items;
+  }
+  const protectedIndexes = new Set<number>();
+  items.forEach((item, index) => {
+    if (isPublicTimelineBodyItem(item)) {
+      protectedIndexes.add(index);
+    }
+  });
+  if (!protectedIndexes.size) {
+    return items.slice(-limit);
+  }
+  const selectedIndexes = new Set(protectedIndexes);
+  const targetSize = Math.max(limit, protectedIndexes.size);
+  for (let index = items.length - 1; index >= 0 && selectedIndexes.size < targetSize; index -= 1) {
+    selectedIndexes.add(index);
+  }
+  return items.filter((_item, index) => selectedIndexes.has(index));
+}
+
+export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | undefined) {
+  if (!item) return false;
+  const surface = cleanPublicTimelineText(item.surface);
+  const authority = cleanPublicTimelineText(item.source_authority);
+  if (surface === "body") return !["runtime", "tool", "system"].includes(authority);
+  if (surface === "tool_window" || surface === "status") return false;
+  return BODY_TIMELINE_KINDS.has(cleanPublicTimelineText(item.kind));
 }

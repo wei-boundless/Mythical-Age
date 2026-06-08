@@ -105,11 +105,11 @@ class RuntimeCompiler:
             or request_diagnostics.get("task_environment_id")
             or "env.general.workspace"
         )
-        prompt_assembly = self._assemble_prompt_pack(
+        prompt_assembly = PromptAssemblyResult(
+            assembly_id="promptasm:empty:semantic_compaction_runtime_pack",
             invocation_kind=invocation_kind,
-            prompt_pack_refs=_prompt_pack_refs_for_invocation(profile_payload, invocation_kind=invocation_kind),
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
+            sections=(),
+            prompt_pack_refs=(),
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind=invocation_kind,
@@ -154,15 +154,6 @@ class RuntimeCompiler:
             packet_id=packet_id,
             invocation_kind=invocation_kind,
             specs=[
-                _message_spec(
-                    role="system",
-                    content=prompt_assembly.content,
-                    kind="global_static",
-                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
-                    cache_scope="global",
-                    cache_role="cacheable_prefix",
-                    compression_role="preserve",
-                ),
                 _message_spec(
                     role="system",
                     content=agent_prompt_assembly.content,
@@ -214,6 +205,16 @@ class RuntimeCompiler:
             dynamic_projection_refs=("semantic_compaction_request",),
             volatile_state_refs=("messages", "recent_messages"),
         ).to_dict()
+        prompt_manifest["rendered_prompt_refs"] = [
+            "general.runtime_protocol.system_call_protocol",
+            "coding.cycles.session_compaction.way.route",
+        ]
+        prompt_manifest["prompt_text_authority"] = {
+            "authority": "harness.runtime.semantic_compaction.prompt_frame",
+            "runtime_text_authority": "semantic_compaction_model_only_frame",
+            "replaced_prompt_pack_refs": [],
+            "rendered_prompt_refs": list(prompt_manifest["rendered_prompt_refs"]),
+        }
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())

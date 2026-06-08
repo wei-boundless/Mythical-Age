@@ -51,6 +51,7 @@ class FileGatewayResult:
     access_decision: str
     managed_file_ref: ManagedFileRef
     content: str = ""
+    before_content: str | None = None
     physical_path: str = ""
     receipt: FileOperationReceipt | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -64,6 +65,7 @@ class FileGatewayResult:
             "access_decision": self.access_decision,
             "managed_file_ref": self.managed_file_ref.to_dict(),
             "content": self.content,
+            "before_content": self.before_content,
             "physical_path": self.physical_path,
             "receipt": self.receipt.to_dict() if self.receipt is not None else None,
             "metadata": dict(self.metadata),
@@ -391,6 +393,7 @@ class FileGateway:
             access_decision=access_decision,
             file_ref=file_ref,
             content=content,
+            before_content=before_content,
             physical_path=str(adapter.resolve(logical_path)),
             receipt=receipt,
         )
@@ -405,6 +408,7 @@ class FileGateway:
         access_decision: str,
         file_ref: ManagedFileRef,
         content: str = "",
+        before_content: str | None = None,
         physical_path: str = "",
         receipt: FileOperationReceipt | None = None,
     ) -> FileGatewayResult:
@@ -416,6 +420,7 @@ class FileGateway:
             access_decision=access_decision,
             managed_file_ref=file_ref,
             content=content,
+            before_content=before_content,
             physical_path=physical_path,
             receipt=receipt,
             metadata={

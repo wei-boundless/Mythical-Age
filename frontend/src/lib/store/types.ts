@@ -375,6 +375,7 @@ export type StoreActions = {
   refreshWorkspaceTree: () => Promise<void>;
   selectProjectWorkspace: (projectKey: string) => Promise<void>;
   selectProjectWorkspaceDirectory: () => Promise<void>;
+  removeProjectWorkspace: (projectKey: string) => Promise<void>;
   refreshProjectWorkspaces: () => Promise<void>;
   refreshProjectSessions: () => Promise<void>;
   createNewSession: () => Promise<void>;

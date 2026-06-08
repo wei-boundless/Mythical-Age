@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
+from harness.runtime.session_task_projection import build_single_agent_task_projection
+from integrations.vscode_connection import get_vscode_connection_store
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
@@ -131,8 +133,13 @@ async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
     assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
-    _bind_or_validate_editor_project(runtime, session_id, dict(payload.editor_context or {}))
-    request = _query_request_from_payload(payload, session_id=session_id)
+    editor_context = _effective_editor_context(
+        session_id,
+        dict(payload.editor_context or {}),
+        session_manager=runtime.session_manager,
+    )
+    _bind_or_validate_editor_project(runtime, session_id, editor_context)
+    request = _query_request_from_payload(payload, session_id=session_id, editor_context=editor_context)
     run = _create_and_schedule_run(runtime, request)
     return _run_response(runtime, run)
 
@@ -198,7 +205,12 @@ async def resume_chat_run(stream_run_id: str):
     }
 
 
-def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> HarnessRuntimeRequest:
+def _query_request_from_payload(
+    payload: ChatRequest,
+    *,
+    session_id: str,
+    editor_context: dict[str, Any] | None = None,
+) -> HarnessRuntimeRequest:
     return HarnessRuntimeRequest(
         session_id=session_id,
         message=payload.message,
@@ -210,7 +222,21 @@ def _query_request_from_payload(payload: ChatRequest, *, session_id: str) -> Har
         permission_mode=str(payload.permission_mode or ""),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
-        editor_context=dict(payload.editor_context or {}),
+        editor_context=dict(editor_context if editor_context is not None else payload.editor_context or {}),
+    )
+
+
+def _effective_editor_context(
+    session_id: str,
+    payload_editor_context: dict[str, Any],
+    *,
+    session_manager: Any | None = None,
+) -> dict[str, Any]:
+    if payload_editor_context:
+        return dict(payload_editor_context)
+    return get_vscode_connection_store().latest_editor_context(
+        session_id,
+        session_manager=session_manager,
     )
 
 
@@ -307,6 +333,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             public_event_type, data = projection
             if runtime_task_run_id:
                 data.setdefault("runtime_task_run_id", runtime_task_run_id)
+                _attach_task_projection_to_public_data(runtime, runtime_task_run_id, data)
             if runtime_active_turn_id:
                 data.setdefault("active_turn_id", runtime_active_turn_id)
             logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
@@ -323,7 +350,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             current = registry.mark_event(
                 current,
                 latest_event_offset=logged.offset,
-                status=_status_for_public_event(public_event_type),
+                status=_status_for_public_event(public_event_type, data),
                 terminal_event=public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else "",
                 diagnostics=diagnostics or None,
             )
@@ -431,8 +458,11 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     }
 
 
-def _status_for_public_event(event_type: str) -> str:
+def _status_for_public_event(event_type: str, data: dict[str, Any] | None = None) -> str:
     if event_type == "done":
+        payload = dict(data or {})
+        if str(payload.get("terminal_reason") or "").strip() == "task_executor_scheduled":
+            return "waiting"
         return "completed"
     if event_type == "error":
         return "failed"
@@ -484,6 +514,28 @@ def _public_runtime_branch(branch: dict[str, Any]) -> dict[str, Any]:
         for key in ("branch_kind", "reason")
         if key in branch
     }
+
+
+def _attach_task_projection_to_public_data(runtime: Any, task_run_id: str, data: dict[str, Any]) -> None:
+    normalized_task_run_id = str(task_run_id or "").strip()
+    if not normalized_task_run_id.startswith("taskrun:"):
+        return
+    try:
+        host = runtime.harness_runtime.single_agent_runtime_host
+        task_run = host.state_index.get_task_run(normalized_task_run_id)
+        if task_run is None:
+            return
+        projection = build_single_agent_task_projection(host, task_run)
+    except Exception:
+        return
+    if not projection:
+        return
+    data.setdefault("task_projection", projection)
+    data.setdefault("task_projection_delta", projection)
+    if str(data.get("terminal_reason") or "").strip() == "task_executor_scheduled":
+        data.setdefault("background_task_run_id", normalized_task_run_id)
+        data.setdefault("turn_handoff_completed", True)
+        data.setdefault("work_status", str(projection.get("status") or "running"))
 
 
 def _redact_public_stream_data(value: Any) -> Any:

@@ -150,7 +150,8 @@ function syntheticAssistantMessagesForRuntimeAttachments(
       continue;
     }
     const hasVisibleRuntime = Boolean(
-      attachment.public_timeline?.length
+      attachment.task_projection
+      || attachment.public_timeline?.length
       || attachment.progress_entries?.length
       || String(attachment.summary ?? "").trim()
       || String(attachment.latest_public_progress_note ?? attachment.latest_step_summary ?? "").trim()

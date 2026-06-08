@@ -87,6 +87,9 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         "navigation_target": dict(item.get("navigation_target") or {}),
         "detail_ref": _detail_ref(item),
         "graph_ref": _graph_ref(item),
+        "fact_summary": dict(item.get("fact_summary") or {}),
+        "trace_summary": dict(item.get("trace_summary") or {}),
+        "diagnostic_signal_refs": list(item.get("diagnostic_signal_refs") or []),
         "timestamps": {
             "started_at": started_at,
             "updated_at": updated_at,
@@ -280,8 +283,26 @@ def _human_duration(seconds: float) -> str:
 def _monitor_revision(signals: list[dict[str, Any]], *, now: float) -> str:
     latest = max((float(dict(item.get("timestamps") or {}).get("last_activity_at") or 0.0) for item in signals), default=0.0)
     identity = "|".join(
-        f"{item.get('signal_id')}:{item.get('state')}:{dict(item.get('timestamps') or {}).get('last_activity_at')}"
+        (
+            f"{item.get('signal_id')}:{item.get('state')}:"
+            f"{dict(item.get('timestamps') or {}).get('last_activity_at')}:"
+            f"{_diagnostic_revision_part(item)}"
+        )
         for item in signals
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"rtmon:{int(latest or now)}:{digest}"
+
+
+def _diagnostic_revision_part(item: dict[str, Any]) -> str:
+    trace_summary = dict(item.get("trace_summary") or {})
+    fact_summary = dict(item.get("fact_summary") or {})
+    return ":".join(
+        [
+            str(trace_summary.get("trace_id") or ""),
+            str(trace_summary.get("span_count") or ""),
+            str(trace_summary.get("event_count") or ""),
+            str(trace_summary.get("error_span_count") or ""),
+            str(fact_summary.get("fact_count") or ""),
+        ]
+    )

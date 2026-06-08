@@ -5,7 +5,7 @@ import { RefreshCw } from "lucide-react";
 import { RunMonitorActionMenu } from "@/components/layout/RunMonitorActionMenu";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
-import { selectRunMonitorActivityLane, selectRunMonitorProjectLane } from "@/lib/run-monitor/selectors";
+import { selectRunMonitorProjectLane, selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { useAppStore } from "@/lib/store";
 
@@ -30,8 +30,8 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
   const projects = selectRunMonitorProjectLane(runMonitor);
   const recent = lanes?.recent ?? [];
   const hidden = lanes?.hidden ?? [];
-  const fallbackActivity = selectRunMonitorActivityLane(runMonitor);
-  const queueRows = queue.length ? queue : fallbackActivity.filter((signal) => signal.state !== "completed");
+  const fallbackTasks = selectRunMonitorTaskLane(runMonitor);
+  const queueRows = queue.length ? queue : fallbackTasks.filter((signal) => signal.state !== "completed");
   const recordRows = [...recent, ...hidden];
 
   async function handleAction(payload: RuntimeMonitorActionPayload) {

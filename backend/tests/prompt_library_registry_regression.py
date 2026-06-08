@@ -37,10 +37,10 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id["runtime.rule.file_management.generic.v1"].resource_type == "environment.file_management_rule"
     assert resource_by_id["coding.rule.large_scope_exploration.v1"].resource_type == "environment.coding_rule"
     assert resource_by_id["coding.rule.large_scope_exploration.v1"].cache_scope == "static_environment"
-    assert resource_by_id["agent.main_interactive_agent.single_agent_turn.work_role.v1"].allowed_invocation_kinds == ("single_agent_turn",)
-    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].allowed_invocation_kinds == ("task_execution",)
-    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].source_ref.startswith("prompt_library.agent_prompts")
-    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].cache_scope == "session_stable"
+    assert resource_by_id["agent.main_interactive_agent.single_agent_turn.work_role"].allowed_invocation_kinds == ("single_agent_turn",)
+    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].allowed_invocation_kinds == ("task_execution",)
+    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].source_ref.startswith("prompt_library.agent_prompts")
+    assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].cache_scope == "session_stable"
     assert resource_by_id["environment.general.workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].allowed_environment_refs == ()
@@ -65,7 +65,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id["runtime.rule.subagent_invocation_protocol.v1"].rule_kind == "runtime.subagent_invocation_protocol"
     assert rule_by_id["coding.rule.large_scope_exploration.v1"].rule_kind == "coding.large_scope_exploration"
     assert rule_by_id["coding.rule.large_scope_exploration.v1"].cache_tier == "static_environment"
-    assert rule_by_id["agent.main_interactive_agent.task_execution.work_role.v1"].cache_tier == "session_stable"
+    assert rule_by_id["agent.main_interactive_agent.task_execution.work_role"].cache_tier == "session_stable"
     assert rule_by_id["coding.rule.editing.v1"].requires == ("runtime.rule.file_management.generic.v1",)
 
 

@@ -106,9 +106,9 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             metadata={
                 "runtime_template_id": "builtin.main.default",
                 "agent_prompt_refs_by_invocation": {
-                    "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
-                    "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role.v1"],
-                    "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
+                    "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
+                    "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
+                    "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
                 },
             },
         ),
@@ -126,7 +126,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "manager_kind": "memory",
                 "runtime_template_id": "builtin.system.memory_manager",
                 "agent_prompt_refs_by_invocation": {
-                    "memory_maintenance": ["agent.memory_system_agent.memory_maintenance.work_role.v1"],
+                    "memory_maintenance": ["agent.memory_system_agent.memory_maintenance.work_role"],
                 },
             },
         ),
@@ -227,12 +227,27 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="system_builtin",
+            model_profile=parse_agent_model_profile(
+                {
+                    "profile_id": "model.profile.context_compactor.semantic_compaction",
+                    "display_name": "Context compactor semantic JSON profile",
+                    "max_output_tokens": 4096,
+                    "timeout_seconds": 45,
+                    "long_output_timeout_seconds": 45,
+                    "max_retries": 1,
+                    "temperature": 0,
+                    "thinking_mode": "disabled",
+                    "reasoning_effort": "auto",
+                    "stream_policy": {"enabled": False, "source": "context_compactor_agent.model_profile"},
+                    "response_format": {"type": "json_object"},
+                }
+            ),
             metadata={
                 "system_key": "context_management",
                 "manager_kind": "context_compaction",
                 "runtime_template_id": "builtin.system.context_compactor",
                 "agent_prompt_refs_by_invocation": {
-                    "semantic_compaction": ["agent.context_compactor_agent.semantic_compaction.work_role.v1"],
+                    "semantic_compaction": ["agent.context_compactor_agent.semantic_compaction.work_role"],
                 },
                 "worker_kind": "semantic_compaction",
                 "subagent_task_kind": "semantic_compaction",
@@ -241,7 +256,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "forbidden_inputs": ("external_web", "cross_namespace_memory", "raw_filesystem_scan"),
                 },
                 "output_contract": {
-                    "required_fields": ("summary_content",),
+                    "required_fields": ("structured_summary",),
+                    "optional_fields": ("summary_content", "diagnostics"),
                     "forbidden_actions": ("tool_call", "file_write", "memory_write", "delegation"),
                 },
                 "runtime_config": {
@@ -251,10 +267,10 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "max_tool_calls": 0,
                     "max_sources": 0,
                     "evidence_packet_required": False,
-                    "stop_policy": "recovery_point_ready_or_fallback",
+                    "stop_policy": "recovery_point_ready_or_blocked",
                     "context_compaction": {
                         "output_contract": "context_recovery_point",
-                        "fallback": "deterministic",
+                        "unavailable_summary_policy": "block_compaction",
                         "keep_last_messages": 6,
                         "max_summary_chars": 4000,
                         "trigger_pressure_levels": ("high", "critical"),
@@ -864,6 +880,12 @@ def _enforce_system_builtin_profile_payload(
         default_payload.get("subagent_policy"),
         payload.get("subagent_policy"),
     )
+    default_model_profile = dict(default_payload.get("model_profile") or {})
+    if (
+        str(payload.get("agent_profile_id") or "") == str(default_payload.get("agent_profile_id") or "")
+        and _model_profile_has_default_authority(default_model_profile)
+    ):
+        enforced["model_profile"] = default_model_profile
     enforced["allowed_memory_scopes"] = _normalize_memory_scopes(
         agent_id,
         enforced.get("allowed_memory_scopes"),
@@ -907,6 +929,26 @@ def _enforce_system_builtin_profile_payload(
         },
     }
     return enforced
+
+
+def _model_profile_has_default_authority(payload: dict[str, Any]) -> bool:
+    if not payload:
+        return False
+    return any(
+        payload.get(key) not in (None, "", [], {})
+        for key in (
+            "profile_id",
+            "provider",
+            "model",
+            "max_output_tokens",
+            "timeout_seconds",
+            "temperature",
+            "thinking_mode",
+            "reasoning_effort",
+            "stream_policy",
+            "response_format",
+        )
+    )
 
 
 def _merge_subagent_policy_payloads(default_value: Any, payload_value: Any) -> dict[str, Any]:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import json
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -12,6 +15,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
+from integrations.vscode_connection import get_vscode_connection_store
 from sessions import SessionProjectBindingConflict, SessionProjectBindingMissing
 from harness.runtime.session_timeline import build_session_runtime_timeline
 from task_system.environments import task_environment_registry_from_backend_dir
@@ -319,16 +323,41 @@ async def open_session_project_in_vscode(
         binding = runtime.session_manager.require_project_binding(session_id)
     except SessionProjectBindingMissing as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    workspace_root = str(binding.get("workspace_root") or "").strip()
+    connection_store = get_vscode_connection_store()
+    current_status = connection_store.status(session_id, session_manager=runtime.session_manager)
+    if current_status.connected and not current_status.stale and _same_resolved_path(current_status.workspace_root, workspace_root):
+        return {
+            "ok": True,
+            "project_binding": binding,
+            "command": [],
+            "window_mode": "existing_project_connection",
+            "connection_reused": True,
+            "connection_status": current_status.to_dict(),
+            "session_id": session_id,
+        }
     executable = shutil.which("code")
     if not executable:
         raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")
-    workspace_root = str(binding.get("workspace_root") or "").strip()
+    extension_installation = _ensure_vscode_connection_extension_installed()
+    if not extension_installation:
+        raise HTTPException(
+            status_code=503,
+            detail="VS Code connection extension is not built; run `npm run compile` in extensions/vscode",
+        )
+    connection_store.register_launch_intent(session_id=session_id, workspace_root=workspace_root)
     command = [executable, "--new-window", workspace_root]
+    env = {
+        **os.environ,
+        "LANGCHAIN_AGENT_SESSION_ID": session_id,
+        "LANGCHAIN_AGENT_WORKSPACE_ROOT": workspace_root,
+    }
     try:
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
         subprocess.Popen(
             command,
             creationflags=creationflags,
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -340,6 +369,7 @@ async def open_session_project_in_vscode(
         "project_binding": binding,
         "command": command,
         "window_mode": "new_window",
+        "extension_installation": extension_installation,
         "session_id": session_id,
     }
 
@@ -355,6 +385,17 @@ def _select_project_directory_with_windows_dialog() -> str:
         except RuntimeError as ps_error:
             raise RuntimeError(f"{ps_error}; tkinter selection failed: {tk_error}") from ps_error
     return selected
+
+
+def _same_resolved_path(left: object, right: object) -> bool:
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text or not right_text:
+        return False
+    try:
+        return Path(left_text).expanduser().resolve() == Path(right_text).expanduser().resolve()
+    except Exception:
+        return left_text.casefold() == right_text.casefold()
 
 
 def _select_project_directory_with_tkinter() -> str:
@@ -407,6 +448,36 @@ def _select_project_directory_with_powershell() -> str:
         detail = (completed.stderr or completed.stdout or "Project directory selection failed.").strip()
         raise RuntimeError(detail)
     return (completed.stdout or "").strip()
+
+
+def _ensure_vscode_connection_extension_installed() -> dict[str, Any]:
+    extension_dir = Path(__file__).resolve().parents[2] / "extensions" / "vscode"
+    package_path = extension_dir / "package.json"
+    main_path = extension_dir / "out" / "extension.js"
+    if not package_path.exists() or not main_path.exists():
+        return {}
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    publisher = str(package.get("publisher") or "local").strip() or "local"
+    name = str(package.get("name") or "langchain-agent-vscode").strip() or "langchain-agent-vscode"
+    version = str(package.get("version") or "0.0.0").strip() or "0.0.0"
+    extension_id = f"{publisher}.{name}"
+    install_root = Path(os.environ.get("VSCODE_EXTENSIONS") or Path.home() / ".vscode" / "extensions").resolve()
+    install_dir = (install_root / f"{extension_id}-{version}").resolve()
+    if install_root not in install_dir.parents:
+        raise RuntimeError("invalid VS Code extension install path")
+    install_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(package_path, install_dir / "package.json")
+    target_out = install_dir / "out"
+    if target_out.exists():
+        shutil.rmtree(target_out)
+    shutil.copytree(extension_dir / "out", target_out)
+    return {
+        "extension_id": extension_id,
+        "version": version,
+        "install_dir": str(install_dir),
+        "source_dir": str(extension_dir),
+        "authority": "api.sessions.vscode_connection_extension_installation",
+    }
 
 
 @router.get("/sessions/{session_id}/timeline")

@@ -126,6 +126,8 @@ class CompressionBudgetPlanner:
             return True
         if segment.compression_role == "preserve":
             return True
+        if str(segment.cache_role or "").strip() == "session_stable":
+            return True
         if is_cache_eligible_prefix(
             cache_role=segment.cache_role,
             prefix_tier=getattr(segment, "prefix_tier", ""),

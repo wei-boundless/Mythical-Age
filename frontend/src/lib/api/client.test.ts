@@ -65,6 +65,41 @@ describe("apiRequest", () => {
     await pending;
   });
 
+  it("does not retry session timeline timeouts because session refresh has a history fallback", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const pending = expect(apiRequest("/sessions/session:slow/timeline")).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: "Request timed out after 12000ms: /sessions/session:slow/timeline",
+    });
+    await vi.advanceTimersByTimeAsync(12000);
+
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one timeout retry for ordinary GET requests", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const pending = expect(apiRequest("/files")).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: "Request timed out after 12000ms: /files",
+    });
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(12000);
+
+    await pending;
+  });
+
   it("returns null for 204 no-content responses", async () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("fetch", vi.fn(async () => ({

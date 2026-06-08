@@ -10,6 +10,7 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 
 SUPPRESSED_TEXT = {
     "",
+    "assistant_message",
     "done",
     "completed",
     "running",
@@ -37,12 +38,18 @@ INTERNAL_EVENT_TOKENS = {
 }
 
 STRUCTURED_PAYLOAD_TOKENS = {
+    "action_type",
     "authority",
+    "completion_status",
     "diagnostics",
+    "model_action",
     "matched_version_count",
     "candidate_version_count",
+    "public_action_state",
+    "public_progress_note",
     "result_envelope",
     "structured_payload",
+    "tool_call",
 }
 
 TOOL_NAME_TOKENS = {
@@ -78,7 +85,7 @@ def public_text(value: Any, *, limit: int = 220) -> str:
         return ""
     if _looks_internal(text) or looks_structured_payload(text):
         return ""
-    if len(text) > limit:
+    if limit > 0 and len(text) > limit:
         return text[: max(1, limit - 1)] + "..."
     return text
 

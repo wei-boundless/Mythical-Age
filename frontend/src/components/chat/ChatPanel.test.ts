@@ -35,7 +35,7 @@ function tokenStats(patch: Partial<TokenStats>): TokenStats {
 }
 
 describe("ChatPanel", () => {
-  it("hides the footer activity when the latest assistant message owns live public progress", () => {
+  it("keeps the footer activity when the latest assistant message only has message-level public timeline", () => {
     const messages = [
       message({
         runtimePublicTimelineDraft: [
@@ -51,7 +51,7 @@ describe("ChatPanel", () => {
       }),
     ];
 
-    expect(shouldSuppressSessionActivityBar(messages, true)).toBe(true);
+    expect(shouldSuppressSessionActivityBar(messages, true)).toBe(false);
   });
 
   it("keeps the footer activity available when no message-level feedback exists", () => {
@@ -79,7 +79,7 @@ describe("ChatPanel", () => {
     ], false)).toBe(true);
   });
 
-  it("hides the footer activity when message progress is waiting outside an active stream", () => {
+  it("keeps footer activity for waiting public timeline without backend projection", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
         runtimePublicTimelineDraft: [
@@ -93,7 +93,7 @@ describe("ChatPanel", () => {
           },
         ],
       }),
-    ], false)).toBe(true);
+    ], false)).toBe(false);
   });
 
   it("shows context pressure ratio even when pressure is normal", () => {

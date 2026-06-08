@@ -15,6 +15,7 @@ from api.session_summary import enrich_session_summaries, enrich_session_summary
 from api.sessions import _select_project_directory_with_windows_dialog
 from code_environment.models import CodeEnvironmentWorkspaceTreeResponse
 from code_environment.workspace_tree import build_workspace_tree
+from integrations.vscode_connection import get_vscode_connection_store
 from project_workspaces import ProjectWorkspaceMissing, ProjectWorkspaceService
 
 
@@ -93,6 +94,24 @@ async def get_project_workspace(project_key: str) -> dict[str, Any]:
     }
 
 
+@router.delete("/project-workspaces/{project_key}")
+async def remove_project_workspace(
+    project_key: str,
+    detach_sessions: bool = Query(default=True),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        result = _service(runtime).remove_workspace(project_key, detach_sessions=detach_sessions)
+    except ProjectWorkspaceMissing as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "authority": "project_workspaces.remove",
+        "project_key": project_key,
+        "ok": True,
+        **result,
+    }
+
+
 @router.get("/project-workspaces/{project_key}/sessions")
 async def list_project_workspace_sessions(
     project_key: str,
@@ -166,6 +185,17 @@ async def open_project_workspace_in_vscode(project_key: str) -> dict[str, Any]:
     workspace_root = str(project.get("workspace_root") or "").strip()
     if not Path(workspace_root).expanduser().is_dir():
         raise HTTPException(status_code=404, detail="project workspace root not found")
+    current_status = get_vscode_connection_store().project_status(workspace_root)
+    if current_status.connected and not current_status.stale:
+        return {
+            "authority": "project_workspaces.open_vscode",
+            "ok": True,
+            "project": project,
+            "command": [],
+            "window_mode": "existing_project_connection",
+            "connection_reused": True,
+            "connection_status": current_status.to_dict(),
+        }
     executable = shutil.which("code")
     if not executable:
         raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")

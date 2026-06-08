@@ -350,11 +350,58 @@ def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
         and item.get("text") == "I found the target file and will write the update next."
         for item in attachment["public_timeline"]
     )
-    assert any(
+    assert not any(
         item.get("kind") == "final_summary"
         and item.get("text") == "Turn update is complete."
         for item in attachment["public_timeline"]
     )
+
+
+def test_session_runtime_timeline_does_not_project_plain_assistant_message_as_runtime_body() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-plain-answer"
+    turn_id = "turn:session-plain-answer:3"
+    turn_run_id = f"turnrun:{turn_id}"
+    host.state_index.upsert_turn_run(
+        TurnRun(
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="completed",
+            terminal_reason="assistant_message",
+            created_at=1.0,
+            updated_at=2.0,
+        )
+    )
+    host.event_log.append(
+        turn_run_id,
+        "agent_turn_terminal",
+        payload={
+            "turn_id": turn_id,
+            "status": "completed",
+            "terminal_reason": "assistant_message",
+        },
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={
+            "messages": [
+                {"role": "user", "content": "你可以干什么", "turn_id": turn_id},
+                {
+                    "role": "assistant",
+                    "content": "我可以帮你阅读代码、修改文件并运行验证。",
+                    "turn_id": turn_id,
+                    "id": "message:assistant",
+                },
+            ]
+        },
+        runtime_host=host,
+    )
+
+    assert timeline["runtime_attachments"] == []
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:

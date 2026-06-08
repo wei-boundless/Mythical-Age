@@ -23,6 +23,7 @@ _INTERNAL_STEP_SUMMARIES = {
 
 _SUPPRESSED_TEXT = {
     "",
+    "assistant_message",
     "done",
     "completed",
     "running",
@@ -35,6 +36,34 @@ _GENERIC_TOOL_WAIT_PREFIXES = (
     "已发起工具调用，正在等待工具返回",
     "已经过工具调用，正在等待工具返回",
 )
+
+_INTERNAL_PROTOCOL_TEXT_MARKERS = (
+    "action_type",
+    "内部工具协议",
+    "工具调用残片",
+    "completion_status",
+    "dsml",
+    "model_action",
+    "public_action_state",
+    "public_progress_note",
+    "tool_call",
+    "tool_calls",
+    "active_work_control.action",
+)
+_CONTROL_ASSISTANT_CHANNELS = {
+    "active_work_control",
+    "ask_user",
+    "blocked",
+    "runtime_control",
+    "task_control",
+}
+_STAGE_FEEDBACK_ASSISTANT_CHANNELS = {
+    "progress_feedback",
+    "stage_feedback",
+}
+_STAGE_FEEDBACK_ASSISTANT_SOURCES = {
+    "harness.single_agent_turn.tool_commentary",
+}
 
 
 def project_public_timeline_delta(
@@ -53,6 +82,8 @@ def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, An
         return _runtime_step_summary_items(data)
     if event_type == "model_action_admission":
         return _model_action_admission_items(data)
+    if event_type in {"assistant_text", "answer_candidate"}:
+        return [_assistant_text_item(event_type, data)]
     if event_type == "turn_tool_observation_recorded":
         return [_turn_tool_observation_item(data)]
     if event_type == "task_tool_observation_recorded":
@@ -98,6 +129,43 @@ def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
     if str(event.get("event_type") or "").strip() != "agent_todo_initialized":
         return {}
     return public_todo_plan_item(public_todo_plan_from_event(event))
+
+
+def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    answer_channel = str(data.get("answer_channel") or "").strip().lower()
+    answer_source = str(data.get("answer_source") or "").strip()
+    if event_type == "answer_candidate" or not _is_public_assistant_text(
+        answer_channel=answer_channel,
+        answer_source=answer_source,
+    ):
+        return {}
+    text = _visible_agent_feedback(data.get("content") or data.get("text") or data.get("answer"))
+    if not text:
+        return {}
+    task_run_id = str(data.get("runtime_task_run_id") or data.get("task_run_id") or "").strip()
+    trace_ref = str(data.get("event_id") or data.get("debug_trace_ref") or "").strip()
+    kind = "opening_judgment" if answer_channel == "task_control" else "stage_summary"
+    title = "开局判断" if kind == "opening_judgment" else "阶段反馈"
+    return _compact(
+        {
+            "item_id": _stable_id(event_type, trace_ref or task_run_id, text),
+            "kind": kind,
+            "surface": "body",
+            "source_authority": "model",
+            "title": title,
+            "text": text,
+            "state": "running",
+            "trace_refs": [trace_ref] if trace_ref else [],
+        }
+    )
+
+
+def _is_public_assistant_text(*, answer_channel: str, answer_source: str) -> bool:
+    if answer_channel in _CONTROL_ASSISTANT_CHANNELS:
+        return True
+    if answer_channel in _STAGE_FEEDBACK_ASSISTANT_CHANNELS:
+        return True
+    return answer_source in _STAGE_FEEDBACK_ASSISTANT_SOURCES
 
 
 def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -282,10 +350,12 @@ def _agent_feedback_item_from_model_action(
 
 
 def _visible_agent_feedback(value: Any) -> str:
-    text = _visible_text(value, limit=220)
+    text = _visible_text(value, limit=0)
     if not text:
         return ""
     lowered = text.lower()
+    if _looks_like_internal_protocol_text(text):
+        return ""
     if any(lowered.startswith(prefix) for prefix in _GENERIC_TOOL_WAIT_PREFIXES):
         return ""
     if text in _SUPPRESSED_TEXT or lowered in _SUPPRESSED_TEXT:
@@ -293,6 +363,14 @@ def _visible_agent_feedback(value: Any) -> str:
     if text.startswith(("正在调用", "工具已完成", "工具失败")):
         return ""
     return text
+
+
+def _looks_like_internal_protocol_text(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in _INTERNAL_PROTOCOL_TEXT_MARKERS)
 
 
 def _done_item(data: dict[str, Any]) -> dict[str, Any]:
@@ -315,12 +393,15 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
             detail=summary,
             state="running",
         )
-    if summary and summary != content:
+    final_text = summary or content
+    if final_text and final_text != content or (final_text and not summary):
         return _compact(
             {
-                "item_id": _stable_id("final", task_run_id, summary),
+                "item_id": _stable_id("final", task_run_id, final_text),
                 "kind": "final_summary",
-                "text": summary,
+                "surface": "body",
+                "source_authority": "model",
+                "text": final_text,
                 "state": "done",
             }
         )

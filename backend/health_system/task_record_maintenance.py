@@ -14,6 +14,7 @@ FAILED_TASK_STATUSES = {"failed", "aborted", "cancelled", "error"}
 MAINTENANCE_BUCKETS = {"static", "completed", "failed", "diagnostics"}
 DEFAULT_MIN_RECORD_AGE_SECONDS = 24 * 60 * 60
 DEFAULT_STALE_RUNTIME_SECONDS = 30 * 60
+DEFAULT_MAINTENANCE_SCAN_LIMIT = 80
 
 
 class HealthTaskRecordMaintenanceService:
@@ -155,10 +156,11 @@ class HealthTaskRecordMaintenanceService:
         reported_task_run_ids = self._reported_task_run_ids()
         lineage_index = self._lineage_index()
         records: list[dict[str, Any]] = []
+        deep_diagnostics = bool(requested) or bucket == "diagnostics"
         task_runs = (
             [item for item in (self.state_index.get_task_run(task_run_id) for task_run_id in requested) if item is not None]
             if requested
-            else self.state_index.list_recent_task_runs(limit=240)
+            else self.state_index.list_recent_task_runs(limit=DEFAULT_MAINTENANCE_SCAN_LIMIT)
         )
         token_summary_index = self._token_summary_index(task_runs)
         for task_run in task_runs:
@@ -173,6 +175,7 @@ class HealthTaskRecordMaintenanceService:
                 min_age_seconds=min_age_seconds,
                 lineage_index=lineage_index,
                 token_summary_index=token_summary_index,
+                deep_diagnostics=deep_diagnostics,
             )
             if requested:
                 if task_run_id in requested:
@@ -195,6 +198,7 @@ class HealthTaskRecordMaintenanceService:
         min_age_seconds: int,
         lineage_index: dict[str, Any],
         token_summary_index: dict[str, dict[str, Any]],
+        deep_diagnostics: bool = False,
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         status = str(getattr(task_run, "status", "") or "unknown")
@@ -207,13 +211,24 @@ class HealthTaskRecordMaintenanceService:
         activity = _project_runtime_activity({**dict(monitor or {}), "status": str(monitor.get("status") or status)})
         activity_state = str(activity.get("activity_state") or "")
         event_count = self._event_count(task_run_id)
-        recent_event = self._recent_event_snapshot(task_run_id)
+        graph_run_id = str(diagnostics.get("graph_run_id") or monitor.get("graph_run_id") or dict(monitor.get("graph_ref") or {}).get("graph_run_id") or "").strip()
+        needs_runtime_diagnostics = (
+            status in ACTIVE_TASK_STATUSES
+            or activity.get("is_running") is True
+            or activity.get("is_waiting") is True
+            or activity_state == "stale"
+            or resource_class == "dynamic"
+            or bucket == "diagnostics"
+            or bool(graph_run_id)
+        )
+        recent_event = self._recent_event_snapshot(task_run_id) if needs_runtime_diagnostics else _empty_recent_event_snapshot(task_run_id)
         token_summary = dict(token_summary_index.get(task_run_id) or {})
         runtime_diagnostics = self._runtime_diagnostics(
             task_run=task_run,
             monitor=monitor,
             activity=activity,
             recent_event=recent_event,
+            include_graph_checkpoint=deep_diagnostics,
         )
         protection_reasons: list[str] = []
         if activity.get("is_running") is True or activity.get("is_waiting") is True or activity_state == "stale" or resource_class == "dynamic":
@@ -319,13 +334,14 @@ class HealthTaskRecordMaintenanceService:
         monitor: dict[str, Any],
         activity: dict[str, Any],
         recent_event: dict[str, Any],
+        include_graph_checkpoint: bool = False,
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         status = str(getattr(task_run, "status", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         graph_run_id = str(diagnostics.get("graph_run_id") or monitor.get("graph_run_id") or dict(monitor.get("graph_ref") or {}).get("graph_run_id") or "").strip()
         graph_run = self._graph_run_object(graph_run_id)
-        graph_state = self._graph_checkpoint_state(graph_run_id)
+        graph_state = self._graph_checkpoint_state(graph_run_id) if include_graph_checkpoint else {}
         flags: list[str] = []
         protection_reasons: list[str] = []
         recommended_actions: list[str] = []
@@ -370,6 +386,7 @@ class HealthTaskRecordMaintenanceService:
             "stale_threshold_seconds": DEFAULT_STALE_RUNTIME_SECONDS,
             "graph_run": self._graph_run_summary(graph_run),
             "graph_checkpoint": active_graph_work,
+            "graph_checkpoint_deep_scan": bool(include_graph_checkpoint),
             "flags": list(dict.fromkeys(flags)),
             "protection_reasons": list(dict.fromkeys(protection_reasons)),
             "recommended_actions": list(dict.fromkeys(recommended_actions)),
@@ -486,7 +503,7 @@ class HealthTaskRecordMaintenanceService:
 
     def _monitor_by_task_run_id(self) -> dict[str, dict[str, Any]]:
         try:
-            monitor = dict(self.runtime_host.list_global_live_monitor(limit=500) or {})
+            monitor = dict(self.runtime_host.list_global_live_monitor(limit=DEFAULT_MAINTENANCE_SCAN_LIMIT) or {})
         except Exception:
             return {}
         return {
@@ -547,7 +564,7 @@ class HealthTaskRecordMaintenanceService:
 
     def _lineage_index(self) -> dict[str, Any]:
         parent_task_run_ids: set[str] = set()
-        for other in self.state_index.list_recent_task_runs(limit=240):
+        for other in self.state_index.list_recent_task_runs(limit=DEFAULT_MAINTENANCE_SCAN_LIMIT):
             diagnostics = dict(getattr(other, "diagnostics", {}) or {})
             lineage = dict(diagnostics.get("lineage") or {})
             origin = dict(diagnostics.get("origin") or {})
@@ -673,6 +690,17 @@ def _project_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
     from harness.runtime.run_monitor.activity import project_runtime_activity
 
     return dict(project_runtime_activity(payload))
+
+
+def _empty_recent_event_snapshot(task_run_id: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "task_run_id": task_run_id,
+        "event_type": "",
+        "event_id": "",
+        "created_at": 0.0,
+        "age_seconds": 0.0,
+    }
 
 
 def _safe_runtime_object_id(value: str) -> str:

@@ -27,12 +27,13 @@ class RuntimeEventSubscription:
 class RuntimeEventLog:
     """JSONL event log for Harness traces."""
 
-    def __init__(self, root_dir: Path) -> None:
+    def __init__(self, root_dir: Path, *, fact_ledger: Any | None = None) -> None:
         self.root_dir = Path(root_dir)
         self.event_dir = self.root_dir / "events"
         self.event_dir.mkdir(parents=True, exist_ok=True)
         self.index = RuntimeEventIndex(self.root_dir)
         self.payload_store = RuntimeEventPayloadStore(self.root_dir)
+        self.fact_ledger = fact_ledger
         self._subscriptions: list[RuntimeEventSubscription] = []
         self._subscription_lock = threading.RLock()
         self._write_lock = threading.RLock()
@@ -77,8 +78,43 @@ class RuntimeEventLog:
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
             self.index.record_append(event, event_path=path)
+            self._record_runtime_event_fact(event)
         self._publish(event)
         return event
+
+    def attach_fact_ledger(self, fact_ledger: Any | None) -> None:
+        self.fact_ledger = fact_ledger
+
+    def _record_runtime_event_fact(self, event: RuntimeEvent) -> None:
+        ledger = self.fact_ledger
+        if ledger is None:
+            return
+        event_type = str(getattr(event, "event_type", "") or "")
+        if event_type not in _RUNTIME_EVENT_FACT_TYPES:
+            return
+        try:
+            ledger.record_fact(
+                fact_type="runtime_event",
+                scope=_runtime_event_fact_scope(event),
+                source={
+                    "system": "runtime_event_log",
+                    "authority": event.authority,
+                    "source_ref": event.event_id,
+                },
+                refs=_runtime_event_fact_refs(event),
+                attributes={
+                    "event_type": event_type,
+                    "run_id": event.run_id,
+                    "offset": int(event.offset),
+                    "payload_externalized": bool(dict(event.payload or {}).get("payload_externalized") is True),
+                },
+                summary=f"{event_type}:{event.run_id}:{event.offset}",
+                retention_class="diagnostic_ttl",
+                idempotency_key=f"runtime-event:{event.event_id}",
+                created_at=event.created_at,
+            )
+        except Exception:
+            return
 
     def subscribe(self, *, run_id: str = "", max_queue_size: int = 500) -> RuntimeEventSubscription:
         try:
@@ -211,5 +247,155 @@ def _safe_id(value: str, *, limit: int = 180) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     head_limit = max(1, limit - len(digest) - 1)
     return f"{safe[:head_limit].rstrip('_')}_{digest}"
+
+
+_RUNTIME_EVENT_FACT_TYPES = {
+    "agent_run_created",
+    "agent_run_updated",
+    "agent_run_result_created",
+    "agent_turn_action_request_started",
+    "agent_turn_action_request_completed",
+    "agent_turn_action_request_failed",
+    "agent_turn_blocked",
+    "agent_turn_clarification_required",
+    "agent_turn_closing",
+    "agent_turn_completed",
+    "agent_turn_failed",
+    "approval_resumed",
+    "approval_waiting",
+    "bounded_observation_recorded",
+    "checkpoint_written",
+    "commit_gate_checked",
+    "execution_dispatch_started",
+    "execution_record_created",
+    "execution_result_recorded",
+    "execution_result_reused",
+    "loop_error",
+    "loop_terminal",
+    "model_action_admission_checked",
+    "model_action_request_received",
+    "operation_gate_checked",
+    "output_boundary_applied",
+    "recovery_attempted",
+    "recovery_replay_decided",
+    "replay_guard_triggered",
+    "runtime_admission_blocked",
+    "runtime_admission_checked",
+    "runtime_directive_issued",
+    "runtime_invocation_packet_compiled",
+    "task_run_executor_claimed",
+    "task_run_executor_scheduled",
+    "task_run_launched",
+    "task_run_lifecycle_finished",
+    "task_run_lifecycle_started",
+    "task_run_lifecycle_waiting_executor",
+    "task_run_started",
+    "task_run_terminal_observed",
+    "task_tool_observation_recorded",
+    "turn_tool_observation_recorded",
+}
+
+
+def _runtime_event_fact_scope(event: RuntimeEvent) -> dict[str, Any]:
+    payload = dict(event.payload or {})
+    refs = dict(event.refs or {})
+    task_payload = dict(payload.get("task_run") or {})
+    lifecycle_payload = dict(payload.get("lifecycle") or {})
+    return {
+        "session_id": _first_non_empty(
+            refs.get("session_id"),
+            refs.get("session_ref"),
+            payload.get("session_id"),
+            task_payload.get("session_id"),
+        ),
+        "turn_id": _first_non_empty(
+            refs.get("turn_id"),
+            refs.get("turn_ref"),
+            payload.get("turn_id"),
+            task_payload.get("turn_id"),
+        ),
+        "turn_run_id": _first_non_empty(
+            refs.get("turn_run_id"),
+            refs.get("turn_run_ref"),
+            payload.get("turn_run_id"),
+        ),
+        "task_run_id": _first_non_empty(
+            refs.get("task_run_id"),
+            refs.get("task_run_ref"),
+            payload.get("task_run_id"),
+            task_payload.get("task_run_id"),
+            lifecycle_payload.get("task_run_id"),
+            event.run_id if str(event.run_id or "").startswith("taskrun:") else "",
+        ),
+        "graph_run_id": _first_non_empty(
+            refs.get("graph_run_id"),
+            refs.get("graph_run_ref"),
+            payload.get("graph_run_id"),
+        ),
+        "node_id": _first_non_empty(refs.get("node_id"), refs.get("node_ref"), payload.get("node_id")),
+        "work_order_id": _first_non_empty(
+            refs.get("work_order_id"),
+            refs.get("work_order_ref"),
+            payload.get("work_order_id"),
+        ),
+    }
+
+
+def _runtime_event_fact_refs(event: RuntimeEvent) -> dict[str, Any]:
+    refs = dict(event.refs or {})
+    payload = dict(event.payload or {})
+    execution_receipt = dict(payload.get("execution_receipt") or {})
+    observation = dict(payload.get("observation") or {})
+    observation_payload = dict(observation.get("payload") or {})
+    result_envelope = dict(observation_payload.get("result_envelope") or {})
+    receipt_from_observation = dict(
+        observation_payload.get("execution_receipt")
+        or result_envelope.get("execution_receipt")
+        or {}
+    )
+    result = {
+        "runtime_event_id": event.event_id,
+        "runtime_run_id": event.run_id,
+        "runtime_event_offset": int(event.offset),
+        "action_request_ref": _first_non_empty(refs.get("action_request_ref"), payload.get("action_request_ref")),
+        "observation_ref": _first_non_empty(refs.get("observation_ref"), payload.get("observation_ref"), observation.get("observation_id")),
+        "runtime_invocation_packet_ref": _first_non_empty(refs.get("runtime_invocation_packet_ref"), payload.get("runtime_invocation_packet_ref")),
+        "trace_id": _first_non_empty(refs.get("trace_id"), payload.get("trace_id")),
+        "span_id": _first_non_empty(refs.get("span_id"), payload.get("span_id")),
+        "execution_id": _first_non_empty(
+            refs.get("execution_id"),
+            payload.get("execution_id"),
+            execution_receipt.get("execution_id"),
+            receipt_from_observation.get("execution_id"),
+        ),
+        "usage_id": _first_non_empty(refs.get("usage_id"), payload.get("usage_id")),
+        "artifact_ref": _first_artifact_ref(refs, payload, observation_payload),
+    }
+    return {key: value for key, value in result.items() if value not in (None, "", [], {})}
+
+
+def _first_artifact_ref(*payloads: dict[str, Any]) -> str:
+    for payload in payloads:
+        for key in ("artifact_ref", "artifact_refs"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, (list, tuple)) and value:
+                first = value[0]
+                if isinstance(first, str) and first.strip():
+                    return first.strip()
+                if isinstance(first, dict):
+                    candidate = _first_non_empty(first.get("artifact_ref"), first.get("ref"), first.get("path"))
+                    if candidate:
+                        return candidate
+    return ""
+
+
+def _first_non_empty(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 

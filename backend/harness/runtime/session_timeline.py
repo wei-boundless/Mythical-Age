@@ -4,9 +4,12 @@ import json
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.public_chat_timeline import build_public_chat_timeline, build_public_chat_timeline_from_progress_entries
+from harness.runtime.public_chat_timeline import build_public_chat_timeline_from_progress_entries
 from harness.runtime.public_projection_filters import should_hide_public_tool_observation
-from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
+from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.public_progress import public_runtime_progress_title
+from harness.runtime.runtime_monitor_public_projection import project_public_timeline_from_events
+from harness.runtime.session_task_projection import build_single_agent_task_projection
 
 
 def build_session_runtime_timeline(
@@ -14,12 +17,12 @@ def build_session_runtime_timeline(
     session_id: str,
     history: dict[str, Any],
     runtime_host: Any,
-    max_progress_entries: int = 24,
+    max_timeline_items: int = 24,
 ) -> dict[str, Any]:
     history_record = dict(history or {})
     history_messages = list(history_record.get("messages") or [])
     task_attachments = [
-        _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_progress_entries=max_progress_entries)
+        _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_timeline_items=max_timeline_items)
         for task_run in sorted(
             runtime_host.state_index.list_session_task_runs(session_id),
             key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
@@ -27,7 +30,7 @@ def build_session_runtime_timeline(
         if _is_formal_chat_task_run(task_run)
     ]
     turn_attachments = [
-        _turn_runtime_attachment(runtime_host, turn_run, history_messages=history_messages, max_progress_entries=max_progress_entries)
+        _turn_runtime_attachment(runtime_host, turn_run, history_messages=history_messages, max_timeline_items=max_timeline_items)
         for turn_run in sorted(
             runtime_host.state_index.list_session_turn_runs(session_id),
             key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
@@ -51,33 +54,50 @@ def _is_formal_chat_task_run(task_run: Any) -> bool:
     return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
 
 
-def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: list[Any], max_progress_entries: int) -> dict[str, Any]:
+def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: list[Any], max_timeline_items: int) -> dict[str, Any]:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     if not task_run_id:
         return {}
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_progress_entries * 8)]
+    events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
     monitor = runtime_host.monitor_projector.project_task_run(task_run, now=_latest_now(events, task_run))
     final_answer = str(diagnostics.get("final_answer") or "")
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
-    progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
     progress_presentation = build_progress_presentation(events=events, task_run=task_run, monitor=monitor)
+    progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
     anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
-    public_timeline = build_public_chat_timeline(
-        progress_presentation=progress_presentation,
+    anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
+    public_timeline = project_public_timeline_from_events(
+        events,
+        runtime_host=runtime_host,
+        monitor=monitor,
+        run_id=task_run_id,
+        task_run_id=task_run_id,
         final_answer=final_answer,
-        artifact_refs=artifact_refs,
         status=str(getattr(task_run, "status", "") or ""),
-        terminal_reason=str(getattr(task_run, "terminal_reason", "") or ""),
         assistant_text=assistant_text,
+        limit=max_timeline_items,
+    )
+    public_timeline = _merge_public_timeline(
+        public_timeline,
+        _public_timeline_from_progress_entries(progress_entries),
+        limit=max_timeline_items,
+    )
+    task_projection = build_single_agent_task_projection(
+        runtime_host,
+        task_run,
+        events=events,
+        monitor=monitor,
+        anchor_turn_id=anchor_turn_id,
+        anchor_message_id=anchor_message_id,
     )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
         "anchor_turn_id": anchor_turn_id,
-        "anchor_message_id": _history_message_id(anchor_message) if anchor_message else "",
+        "anchor_message_id": anchor_message_id,
         "anchor_role": "assistant",
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
@@ -94,6 +114,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "progress_presentation": progress_presentation,
         "progress_entries": progress_entries,
         "public_timeline": public_timeline,
+        **({"task_projection": task_projection} if task_projection else {}),
         "artifact_refs": artifact_refs,
         "final_answer": final_answer,
         "trace_available": True,
@@ -104,18 +125,37 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     }
 
 
-def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messages: list[Any], max_progress_entries: int) -> dict[str, Any]:
+def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messages: list[Any], max_timeline_items: int) -> dict[str, Any]:
     turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
     if not turn_run_id:
         return {}
-    events = [item.to_dict() for item in _recent_events(runtime_host, turn_run_id, limit=max_progress_entries * 8)]
-    progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
-    if not progress_entries:
-        return {}
+    events = [item.to_dict() for item in _recent_events(runtime_host, turn_run_id, limit=max_timeline_items * 8)]
+    progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
-    latest = progress_entries[-1]
+    assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
     status = str(getattr(turn_run, "status", "") or "")
+    terminal_reason = str(getattr(turn_run, "terminal_reason", "") or "")
+    public_timeline = project_public_timeline_from_events(
+        events,
+        runtime_host=runtime_host,
+        run_id=turn_run_id,
+        turn_run_id=turn_run_id,
+        final_answer=assistant_text,
+        assistant_text=assistant_text,
+        status=status,
+        limit=max_timeline_items,
+    )
+    public_timeline = _merge_public_timeline(
+        public_timeline,
+        _public_timeline_from_progress_entries(progress_entries),
+        limit=max_timeline_items,
+    )
+    if not public_timeline:
+        return {}
+    latest_public_text = _latest_public_timeline_text(public_timeline)
+    latest_event = events[-1] if events else {}
+    latest_event_type = str(latest_event.get("event_type") or "")
     return {
         "attachment_id": f"runtime-attachment:{turn_run_id}",
         "run_id": turn_run_id,
@@ -126,28 +166,28 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "task_run_id": "",
         "task_id": "",
         "status": status,
-        "terminal_reason": public_runtime_progress_summary(getattr(turn_run, "terminal_reason", "") or ""),
+        "terminal_reason": "" if _is_internal_turn_terminal_reason(terminal_reason) else public_runtime_progress_summary(terminal_reason),
         "lifecycle": status,
         "bucket": "turn",
         "title": "会话运行",
-        "summary": str(latest.get("publicNote") or latest.get("body") or latest.get("title") or ""),
+        "summary": latest_public_text,
         "latest_step": {
-            "step": str(latest.get("eventType") or ""),
-            "status": str(latest.get("statusText") or status),
-            "summary": str(latest.get("body") or ""),
-            "public_progress_note": str(latest.get("publicNote") or latest.get("body") or ""),
-            "agent_brief_output": str(latest.get("agentBrief") or ""),
-            "event_id": str(latest.get("id") or ""),
-            "created_at": float(latest.get("createdAt") or 0.0),
+            "step": latest_event_type,
+            "status": status,
+            "summary": latest_public_text,
+            "public_progress_note": latest_public_text,
+            "agent_brief_output": "",
+            "event_id": str(latest_event.get("event_id") or ""),
+            "created_at": float(latest_event.get("created_at") or 0.0),
         },
-        "latest_step_summary": str(latest.get("body") or ""),
-        "latest_public_progress_note": str(latest.get("publicNote") or latest.get("body") or ""),
-        "agent_brief_output": str(latest.get("agentBrief") or ""),
-        "latest_event_type": str(latest.get("eventType") or ""),
+        "latest_step_summary": latest_public_text,
+        "latest_public_progress_note": latest_public_text,
+        "agent_brief_output": "",
+        "latest_event_type": latest_event_type,
         "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
         "progress_presentation": {},
         "progress_entries": progress_entries,
-        "public_timeline": build_public_chat_timeline_from_progress_entries(progress_entries),
+        "public_timeline": public_timeline,
         "artifact_refs": _artifact_refs_from_progress_entries(progress_entries),
         "final_answer": "",
         "trace_available": True,
@@ -156,6 +196,103 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
         "authority": "session_runtime_timeline.turn_attachment",
     }
+
+
+def _is_internal_turn_terminal_reason(reason: str) -> bool:
+    normalized = str(reason or "").strip().lower()
+    return normalized in {
+        "assistant_message",
+        "stream_cancelled",
+        "turn_stream_closed",
+        "harness.entrypoint_error",
+    }
+
+
+def _merge_public_timeline(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary_has_error_item = any(_public_timeline_item_is_error(item) for item in primary)
+    for item in [*list(primary or []), *list(secondary or [])]:
+        payload = dict(item or {})
+        if primary_has_error_item and str(payload.get("kind") or "") == "blocked":
+            continue
+        key = _public_timeline_key(payload)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(payload)
+    return merged[-max(1, int(limit or 24)) :]
+
+
+def _public_timeline_item_is_error(item: dict[str, Any]) -> bool:
+    return str(item.get("kind") or "") == "blocked" or str(item.get("state") or "").lower() in {
+        "error",
+        "failed",
+        "blocked",
+    }
+
+
+def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items = list(build_public_chat_timeline_from_progress_entries(entries))
+    if any(str(item.get("kind") or "") == "opening_judgment" for item in items):
+        return items
+    for entry in entries:
+        if str(entry.get("kind") or "") != "model":
+            continue
+        text = public_runtime_progress_summary(entry.get("body") or entry.get("publicNote") or entry.get("agentBrief") or "").strip()
+        if not text:
+            continue
+        return [
+            {
+                "item_id": f"opening:{entry.get('id') or entry.get('eventType') or len(items)}",
+                "kind": "opening_judgment",
+                "title": "开局判断",
+                "text": text,
+                "state": "error" if str(entry.get("level") or "") == "error" else "done" if str(entry.get("level") or "") == "success" else "running",
+                "trace_refs": [str(entry.get("id") or "")] if str(entry.get("id") or "") else [],
+            },
+            *items,
+        ]
+    return items
+
+
+def _public_timeline_key(item: dict[str, Any]) -> str:
+    for key in ("item_id", "id"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return "|".join(
+        [
+            str(item.get("kind") or ""),
+            str(item.get("text") or item.get("detail") or item.get("public_summary") or ""),
+            str(item.get("title") or ""),
+        ]
+    ).strip("|")
+
+
+def _latest_public_timeline_text(items: list[dict[str, Any]]) -> str:
+    for item in reversed(list(items or [])):
+        text = _public_timeline_item_text(item)
+        if text:
+            return text
+    return ""
+
+
+def _public_timeline_item_text(item: dict[str, Any]) -> str:
+    for key in (
+        "public_summary",
+        "text",
+        "detail",
+        "observation",
+        "title",
+        "subject_label",
+        "path",
+        "href",
+    ):
+        text = str(item.get(key) or "").strip()
+        if text:
+            return public_runtime_progress_summary(text)
+    return ""
 
 
 def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:
@@ -210,10 +347,10 @@ def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:
 
 def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: list[dict[str, Any]]) -> str:
     return (
-        _latest_interaction_turn_id(events)
-        or _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
-        or _valid_turn_ref(diagnostics.get("turn_id"))
+        _valid_turn_ref(diagnostics.get("turn_id"))
         or _turn_id_from_task_run(task_run_id)
+        or _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
+        or _latest_interaction_turn_id(events)
         or ""
     )
 
@@ -404,10 +541,9 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if _is_internal_step_only(step, summary=summary, public_note=public_note, action_brief=action_brief):
                 continue
             if public_note or action_brief or summary or step:
+                body = public_note or action_brief or summary
                 if step.startswith("model_action_received"):
                     body = public_note or action_brief or _objective_model_step_body(step=step, status=status)
-                else:
-                    body = public_note or action_brief or summary
                 entries.append(
                     _entry(
                         event,
@@ -470,7 +606,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     kind="stage",
                     level="success",
                     status="completed",
-                    tool_name="",
                     public_note=public_runtime_progress_summary(instruction),
                     evidence_type="user_instruction",
                 )
@@ -957,7 +1092,8 @@ def _looks_like_raw_json(value: str) -> bool:
     text = str(value or "").strip()
     if not text:
         return False
-    return (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]"))
+    return (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")
+    )
 
 
 def _tool_observation_body(value: str) -> str:

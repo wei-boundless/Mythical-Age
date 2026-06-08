@@ -1,14 +1,16 @@
 import {
   taskGraphRunIdsFromTrace,
-  PublicChatTimelineItem,
-  type
-  OrchestrationEdge,
-  OrchestrationNode,
-  OrchestrationSnapshot,
-  RetrievalResult,
-  HarnessTaskRunTrace
+  type PublicChatTimelineItem,
+  type OrchestrationEdge,
+  type OrchestrationNode,
+  type OrchestrationSnapshot,
+  type RetrievalResult,
+  type HarnessTaskRunTrace,
+  type SessionRuntimeAttachment,
+  type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
+import { shouldDisplayAssistantContent, shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 
 import type { Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
@@ -16,7 +18,7 @@ import {
   looksLikeSkillDocumentPrefix,
   makeId
 } from "./utils";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent } from "./publicTimeline";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent, sanitizePublicTimelineItems } from "./publicTimeline";
 
 export type StreamSession = {
   assistantId: string;
@@ -923,6 +925,77 @@ function patchAssistantPublicTimelineDraft(
   }));
 }
 
+function patchAssistantTaskProjectionDraft(
+  state: StoreState,
+  assistantId: string,
+  projection: SingleAgentTaskProjection | null,
+) {
+  const attachment = runtimeAttachmentFromTaskProjection(projection);
+  if (!assistantId || !attachment) {
+    return state;
+  }
+  return patchAssistant(state, assistantId, (message) => {
+    const existing = message.runtimeAttachments ?? [];
+    const runId = runtimeAttachmentRunId(attachment);
+    const next = [...existing];
+    const index = next.findIndex((item) => runtimeAttachmentRunId(item) === runId);
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        ...attachment,
+        public_timeline: [],
+      };
+    } else {
+      next.push(attachment);
+    }
+    return {
+      ...message,
+      runtimeAttachments: next,
+    };
+  });
+}
+
+function taskProjectionFromEventData(data: Record<string, unknown>): SingleAgentTaskProjection | null {
+  const value = data.task_projection_delta ?? data.task_projection;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as SingleAgentTaskProjection;
+}
+
+function runtimeAttachmentFromTaskProjection(projection: SingleAgentTaskProjection | null): SessionRuntimeAttachment | null {
+  if (!projection) {
+    return null;
+  }
+  const taskRunId = String(projection.task_run_id ?? "").trim();
+  const projectionId = String(projection.projection_id ?? "").trim();
+  const runId = taskRunId || projectionId;
+  if (!runId) {
+    return null;
+  }
+  const anchorTurnId = String(projection.anchor_turn_id ?? projection.turn_id ?? "").trim();
+  return {
+    attachment_id: `runtime-attachment:${runId}`,
+    run_id: runId,
+    anchor_turn_id: anchorTurnId,
+    anchor_message_id: String(projection.anchor_message_id ?? "").trim() || undefined,
+    anchor_role: "assistant",
+    task_run_id: taskRunId,
+    task_id: String(projection.task_id ?? "").trim() || undefined,
+    status: String(projection.status ?? "").trim(),
+    public_timeline: [],
+    task_projection: projection,
+    trace_available: true,
+    debug_trace_ref: String(projection.debug_trace_ref ?? taskRunId ?? "").trim(),
+    created_at: Number(projection.created_at ?? 0) || undefined,
+    updated_at: Number(projection.updated_at ?? 0) || Date.now() / 1000,
+  };
+}
+
+function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment) {
+  return String(attachment.run_id || attachment.task_run_id || "").trim();
+}
+
 function applyVisibilitySessionActivity(
   state: StoreState,
   event: string,
@@ -1090,8 +1163,9 @@ export function reduceStreamEvent(
   const visibility = projectRuntimeStreamEvent(event, data);
   const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
   const publicTimelineDelta = Array.isArray(data.public_timeline_delta)
-    ? data.public_timeline_delta as PublicChatTimelineItem[]
+    ? sanitizePublicTimelineItems(data.public_timeline_delta as PublicChatTimelineItem[])
     : undefined;
+  const taskProjectionDelta = taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -1144,8 +1218,13 @@ export function reduceStreamEvent(
     session.assistantId,
     visibility.progressEntry,
   );
-  const stateWithTimelineDraft = patchAssistantPublicTimelineDraft(
+  const stateWithTaskProjection = patchAssistantTaskProjectionDraft(
     stateWithOrchestration,
+    session.assistantId,
+    taskProjectionDelta,
+  );
+  const stateWithTimelineDraft = patchAssistantPublicTimelineDraft(
+    stateWithTaskProjection,
     session.assistantId,
     publicTimelineDelta,
   );
@@ -1180,10 +1259,11 @@ export function reduceStreamEvent(
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
+    const keepExistingContent = shouldDisplayAssistantContent(answerMetadata);
     const doneContent = assistantDoneContentFromEvent(data);
     return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
-        message.content
+      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) =>
+        keepExistingContent && message.content
           ? {
               ...message,
               ...answerMetadata,
@@ -1218,6 +1298,9 @@ export function reduceStreamEvent(
         if (message.content.trim()) {
           return message;
         }
+        if (!shouldDisplayAssistantStreamContent(answerMetadataFromEvent(data))) {
+          return message;
+        }
         const candidate = String(data.content ?? "").trim();
         return candidate ? { ...message, content: candidate } : message;
       }),
@@ -1239,7 +1322,7 @@ export function reduceStreamEvent(
     const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
     const visibleError = `处理失败\n\n${errorText}`;
     return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
+      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
         const current = message.content.trim();
         if (!current) {
           return {
@@ -1269,7 +1352,7 @@ export function reduceStreamEvent(
 
   if (event === "stopped") {
     return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
+      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
         ...message,
         content: message.content,
         runtimePublicTimelineDraft: mergePublicTimelineItems(

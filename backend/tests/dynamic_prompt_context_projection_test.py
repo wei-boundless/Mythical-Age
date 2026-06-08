@@ -958,10 +958,10 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
                 "mode": "professional",
                 "metadata": {},
             },
-            "agent_prompt_refs": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+            "agent_prompt_refs": ["agent.main_interactive_agent.single_agent_turn.work_role"],
             "agent_prompt_refs_by_invocation": {
-                "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
-                "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
+                "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
+                "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
             },
             "environment_prompt_refs": ["environment.development.sandbox.orientation.v1"],
             "task_environment": {
@@ -975,8 +975,8 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
 
     model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
     manifest = result.packet.diagnostics["prompt_manifest"]
-    assert "agent.main_interactive_agent.task_execution.work_role.v1" in manifest["stable_prompt_refs"]
-    assert "agent.main_interactive_agent.single_agent_turn.work_role.v1" not in manifest["stable_prompt_refs"]
+    assert "agent.main_interactive_agent.task_execution.work_role" in manifest["stable_prompt_refs"]
+    assert "agent.main_interactive_agent.single_agent_turn.work_role" not in manifest["stable_prompt_refs"]
     assert "持续任务执行 agent" in model_input
     assert "不负责重新判断是否建立任务生命周期" in model_input
     assert "请求持续任务生命周期" not in model_input
@@ -1025,7 +1025,7 @@ def test_runtime_compiler_rejects_wrong_invocation_prompt_ref() -> None:
             runtime_assembly={
                 "profile": {"mode": "professional"},
                 "agent_prompt_refs_by_invocation": {
-                    "task_execution": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
+                    "task_execution": ["agent.main_interactive_agent.single_agent_turn.work_role"],
                 },
                 "task_environment": {"environment_id": "env.general.workspace"},
             },

@@ -44,14 +44,26 @@ class HealthStore:
     def load_issues(self) -> list[HealthIssue]:
         return [_issue_from_payload(item) for item in self._read_jsonl_dicts(self.issues_path)]
 
+    def get_issue(self, issue_id: str) -> HealthIssue | None:
+        payload = self._find_jsonl_dict_by_key(self.issues_path, "issue_id", issue_id)
+        return _issue_from_payload(payload) if payload is not None else None
+
     def load_task_requests(self) -> list[HealthTaskRequest]:
         return [_task_request_from_payload(item) for item in self._read_jsonl_dicts(self.task_requests_path)]
 
     def load_commands(self) -> list[HealthManagementCommand]:
         return [_command_from_payload(item) for item in self._read_jsonl_dicts(self.commands_path)]
 
+    def get_command(self, command_id: str) -> HealthManagementCommand | None:
+        payload = self._find_jsonl_dict_by_key(self.commands_path, "command_id", command_id)
+        return _command_from_payload(payload) if payload is not None else None
+
     def load_receipts(self) -> list[HealthManagementReceipt]:
         return [_receipt_from_payload(item) for item in self._read_jsonl_dicts(self.receipts_path)]
+
+    def get_receipt(self, receipt_id: str) -> HealthManagementReceipt | None:
+        payload = self._find_jsonl_dict_by_key(self.receipts_path, "receipt_id", receipt_id)
+        return _receipt_from_payload(payload) if payload is not None else None
 
     def load_reports(self) -> list[HealthReport]:
         return [_report_from_payload(item) for item in self._read_jsonl_dicts(self.reports_path)]
@@ -169,17 +181,52 @@ class HealthStore:
         if not path.exists():
             return []
         rows: list[dict[str, Any]] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                self._bad_jsonl_line_count += 1
-                continue
-            if isinstance(payload, dict):
-                rows.append(payload)
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                payload = self._parse_jsonl_line(line)
+                if payload is not None:
+                    rows.append(payload)
         return rows
+
+    def _find_jsonl_dict_by_key(self, path: Path, key: str, value: str) -> dict[str, Any] | None:
+        target = str(value or "").strip()
+        if not target or not path.exists():
+            return None
+        for payload in self._iter_jsonl_dicts_reverse(path):
+            if str(payload.get(key) or "").strip() == target:
+                return payload
+        return None
+
+    def _iter_jsonl_dicts_reverse(self, path: Path, *, chunk_size: int = 1024 * 1024) -> Iterator[dict[str, Any]]:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            position = handle.tell()
+            buffer = b""
+            while position > 0:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                handle.seek(position)
+                buffer = handle.read(read_size) + buffer
+                lines = buffer.split(b"\n")
+                buffer = lines[0]
+                for raw_line in reversed(lines[1:]):
+                    payload = self._parse_jsonl_line(raw_line.decode("utf-8", errors="replace"))
+                    if payload is not None:
+                        yield payload
+            if buffer.strip():
+                payload = self._parse_jsonl_line(buffer.decode("utf-8", errors="replace"))
+                if payload is not None:
+                    yield payload
+
+    def _parse_jsonl_line(self, line: str) -> dict[str, Any] | None:
+        if not line.strip():
+            return None
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            self._bad_jsonl_line_count += 1
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +249,14 @@ class HealthStore:
             with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=tmp_dir, prefix=f".{path.stem}.", suffix=".tmp") as handle:
                 handle.write(content)
                 tmp_path = Path(handle.name)
-            tmp_path.replace(path)
+            for attempt in range(12):
+                try:
+                    tmp_path.replace(path)
+                    break
+                except PermissionError:
+                    if attempt >= 11:
+                        raise
+                    time.sleep(min(0.25, 0.05 * (attempt + 1)))
             tmp_path = None
         finally:
             if tmp_path is not None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from capability_system.skills.paths import CapabilitySkillPaths
@@ -16,6 +17,8 @@ from permissions import PermissionService
 from harness.entrypoint import HarnessRuntimeFacade
 from bootstrap.settings import AppSettingsService
 from capability_system.capabilities.retrieval import RetrievalService
+from health_system.graph_breakpoint_command_supervisor import GraphBreakpointCommandSupervisor
+from health_system.graph_breakpoint_supervisor import GraphBreakpointSupervisor
 from sessions import SessionManager
 from runtime import ModelRuntime
 from runtime.prompt_accounting import PromptAccountingLedger
@@ -34,6 +37,9 @@ class AppRuntime:
         self.permission_service: PermissionService | None = None
         self.model_runtime: ModelRuntime | None = None
         self.harness_runtime: HarnessRuntimeFacade | None = None
+        self.graph_breakpoint_supervisor: GraphBreakpointSupervisor | None = None
+        self.graph_breakpoint_command_supervisor: GraphBreakpointCommandSupervisor | None = None
+        self._background_services_started = False
 
     def initialize(self, base_dir: Path) -> None:
         self.base_dir = base_dir
@@ -75,6 +81,40 @@ class AppRuntime:
             permission_service=self.permission_service,
             model_runtime=self.model_runtime,
         )
+        self.graph_breakpoint_supervisor = GraphBreakpointSupervisor(
+            base_dir=base_dir,
+            runtime=self,
+        )
+        self.graph_breakpoint_command_supervisor = GraphBreakpointCommandSupervisor(
+            base_dir=base_dir,
+            runtime=self,
+        )
+
+    async def start_background_services(self) -> None:
+        runtime = self.require_ready()
+        if self._background_services_started:
+            return
+        host = runtime.harness_runtime.single_agent_runtime_host
+        supervisor = self.graph_breakpoint_supervisor
+        command_supervisor = self.graph_breakpoint_command_supervisor
+        if supervisor is not None:
+            host.spawn_background_task(
+                self._run_background_service_after_startup(supervisor.run_forever),
+                name="health-graph-breakpoint-supervisor",
+            )
+        if command_supervisor is not None:
+            host.spawn_background_task(
+                self._run_background_service_after_startup(command_supervisor.run_forever),
+                name="health-graph-breakpoint-command-supervisor",
+            )
+        self._background_services_started = True
+
+    async def _run_background_service_after_startup(self, runner, *, initial_delay_seconds: float = 1.0) -> None:
+        if initial_delay_seconds > 0:
+            await asyncio.sleep(initial_delay_seconds)
+        result = runner()
+        if hasattr(result, "__await__"):
+            await result
 
     def _session_compactor_kwargs(self, session_id: str) -> dict[str, object]:
         if self.base_dir is None or self.model_runtime is None:
@@ -181,6 +221,16 @@ class AppRuntime:
         runtime.tool_runtime.reload()
 
     async def shutdown(self) -> None:
+        host = getattr(getattr(self, "harness_runtime", None), "single_agent_runtime_host", None)
+        if host is not None:
+            await host.cancel_background_tasks(
+                names={
+                    "health-graph-breakpoint-supervisor",
+                    "health-graph-breakpoint-command-supervisor",
+                },
+                reason="app_runtime_shutdown",
+            )
+        self._background_services_started = False
         model_runtime = self.model_runtime
         if model_runtime is not None:
             close = getattr(model_runtime, "close", None)
@@ -193,7 +243,7 @@ class AppRuntime:
         if normalized.startswith("capability_system/skills/") or normalized.startswith("capability_system/tools/registries/"):
             self.refresh_catalogs()
             return
-        if normalized.startswith("durable_memory/"):
+        if normalized.startswith("durable_memory/") or normalized.startswith("storage/memory/durable/"):
             namespace_id = self._namespace_from_durable_relative_path(normalized)
             runtime.memory_facade.mark_durable_memory_namespaces_dirty(
                 {namespace_id: 1},
@@ -215,7 +265,7 @@ class AppRuntime:
                 coalesce_key="durable_memory_governance",
             )
             return
-        if normalized.startswith("session-memory/"):
+        if normalized.startswith("session-memory/") or normalized.startswith("storage/memory/session/"):
             runtime.retrieval_service.rebuild_session_memory()
             return
         if normalized.startswith("knowledge/"):
@@ -283,6 +333,8 @@ class AppRuntime:
         parts = str(normalized_path or "").replace("\\", "/").split("/")
         if len(parts) >= 3 and parts[0] == "durable_memory" and parts[1] == "environments":
             return durable_memory_namespace_id_for_task_environment(parts[2])
+        if len(parts) >= 5 and parts[:3] == ["storage", "memory", "durable"] and parts[3] == "environments":
+            return durable_memory_namespace_id_for_task_environment(parts[4])
         return "global_common"
 
 

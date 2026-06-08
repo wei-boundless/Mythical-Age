@@ -16,13 +16,16 @@ from project_layout import ProjectLayout
 from harness.runtime.run_monitor import RuntimeMonitorService
 from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
+from runtime.facts import RuntimeFactLedger
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.prompt_accounting import PromptAccountingLedger
+from runtime.observability import RuntimeObservabilityKernel
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
 from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
+from runtime.trace import RuntimeTraceService
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -49,7 +52,8 @@ class SingleAgentRuntimeHost:
         self.owner_process_id = os.getpid()
         self.instance_id = f"runtime-instance:{os.getpid()}:{uuid.uuid4().hex[:12]}"
         self.backend_dir = Path(backend_dir) if backend_dir is not None else ProjectLayout.from_runtime_root(self.root_dir).backend_dir
-        self.event_log = RuntimeEventLog(self.root_dir)
+        self.fact_ledger = RuntimeFactLedger(self.root_dir)
+        self.event_log = RuntimeEventLog(self.root_dir, fact_ledger=self.fact_ledger)
         self.run_registry = RuntimeRunRegistry(self.root_dir)
         self.stream_replay = RuntimeStreamReplayService(self.event_log)
         self._close_unowned_active_chat_runs()
@@ -58,6 +62,12 @@ class SingleAgentRuntimeHost:
         self.file_state_store = FileStateAuthorityStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
+        self.trace_service = RuntimeTraceService(self.root_dir, fact_ledger=self.fact_ledger)
+        self.observability = RuntimeObservabilityKernel(
+            event_log=self.event_log,
+            trace_service=self.trace_service,
+            fact_ledger=self.fact_ledger,
+        )
         self.active_turn_registry = ActiveTurnRegistry(self)
         self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())

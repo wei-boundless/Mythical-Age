@@ -1,0 +1,162 @@
+  1 | # 后端目录分层说明
+  2 | 
+  3 | 日期：2026-05-04
+  4 | 
+  5 | ## 一、文档定位
+  6 | 
+  7 | 本文用于说明 `backend/` 当前的正式目录边界、历史重叠目录以及后续目录治理方向。
+  8 | 
+  9 | 它不是源码实现文档，而是目录层级说明。
+ 10 | 
+ 11 | ## 二、正式分层
+ 12 | 
+ 13 | 当前建议把 `backend/` 里的目录理解为五层：
+ 14 | 
+ 15 | ## 2.1 Interface Layer
+ 16 | 
+ 17 | 主要目录：
+ 18 | 
+ 19 | - `api`
+ 20 | - `bootstrap`
+ 21 | 
+ 22 | 职责：
+ 23 | 
+ 24 | - HTTP / stream / app host 接入
+ 25 | - 外部调用入口
+ 26 | 
+ 27 | ## 2.2 Control Plane Layer
+ 28 | 
+ 29 | 主要目录：
+ 30 | 
+ 31 | - `query`
+ 32 | - `tasks`
+ 33 | 
+ 34 | 职责：
+ 35 | 
+ 36 | - query 入口适配
+ 37 | - turn 归口
+ 38 | - task 识别、登记、绑定、工作流
+ 39 | 
+ 40 | ## 2.3 Orchestration Layer
+ 41 | 
+ 42 | 主要目录：
+ 43 | 
+ 44 | - `orchestration`
+ 45 | 
+ 46 | 职责：
+ 47 | 
+ 48 | - body 装配
+ 49 | - runtime spec
+ 50 | - directive
+ 51 | - runloop spine
+ 52 | 
+ 53 | ## 2.4 Supply Systems Layer
+ 54 | 
+ 55 | 主要目录：
+ 56 | 
+ 57 | - `memory_system`
+ 58 | - `soul`
+ 59 | - `operations`
+ 60 | - `health_system`
+ 61 | - `sessions`
+ 62 | 
+ 63 | 职责：
+ 64 | 
+ 65 | - 给编排系统提供正式输入材料
+ 66 | - 给主链提供会话连续体与持久化
+ 67 | 
+ 68 | ## 2.5 Execution / Output Layer
+ 69 | 
+ 70 | 主要目录：
+ 71 | 
+ 72 | - `execution`
+ 73 | - `output`
+ 74 | - `output_boundary`
+ 75 | 
+ 76 | 职责：
+ 77 | 
+ 78 | - model/tool 执行
+ 79 | - 输出边界
+ 80 | - 结果收口
+ 81 | 
+ 82 | ## 三、当前重叠目录
+ 83 | 
+ 84 | 以下目录当前应视为实现层或历史残留，不应继续无边界扩张：
+ 85 | 
+ 86 | - `memory`
+ 87 | - `structured_memory`
+ 88 | 
+ 89 | 说明：
+ 90 | 
+ 91 | - `memory` 更接近兼容层
+ 92 | - `structured_memory` 更接近记忆底层实现层
+ 93 | 
+ 94 | ## 四、数据根边界
+ 95 | 
+ 96 | 从 2026-05-04 起，`backend/` 只作为代码根使用。
+ 97 | 
+ 98 | 所有运行生成数据、索引、checkpoint、会话态、健康记录统一进入项目根 `storage/`。
+ 99 | 
+100 | 正式数据根包括：
+101 | 
+102 | - `storage/durable_memory`
+103 | - `storage/session_memory`
+104 | - `storage/sessions`
+105 | - `storage/runtime_state`
+106 | - `storage/health_system`
+107 | - `storage/indexes`
+108 | - `storage/document_cache`
+109 | - `storage/modality_artifacts`
+110 | - `storage/capability_system`
+111 | - `storage/tasks`
+112 | - `storage/orchestration`
+113 | - `storage/test_system`
+114 | 
+115 | 因此：
+116 | 
+117 | - `backend/` 不再承载持久化运行数据
+118 | - `storage/` 是唯一正式数据根
+119 | - 旧 `backend/storage`、`backend/session-memory`、`backend/health-system`、`backend/runtime-loop` 已清退
+120 | 
+121 | ## 五、当前目录阅读建议
+122 | 
+123 | 如果你要理解当前主链，建议按下面顺序看目录：
+124 | 
+125 | 1. `api`
+126 | 2. `query`
+127 | 3. `tasks`
+128 | 4. `orchestration`
+129 | 5. `memory_system`
+130 | 6. `soul`
+131 | 7. `operations`
+132 | 8. `sessions`
+133 | 9. `execution`
+134 | 10. `output_boundary`
+135 | 
+136 | ## 六、目录治理规则
+137 | 
+138 | 后续目录重构统一遵守：
+139 | 
+140 | 1. 每个正式系统只保留一个 public boundary
+141 | 2. 兼容层不再放在正式系统根目录里长期生长
+142 | 3. 数据目录和代码目录命名必须可区分
+143 | 4. 新能力优先接到正式系统目录，不再接到历史重叠目录
+144 | 
+145 | ## 七、当前冻结结论
+146 | 
+147 | 从现在开始，后续新代码优先落到这些正式系统目录：
+148 | 
+149 | - `tasks`
+150 | - `orchestration`
+151 | - `memory_system`
+152 | - `soul`
+153 | - `operations`
+154 | - `health_system`
+155 | - `bootstrap`
+156 | - `sessions`
+157 | - `execution`
+158 | 
+159 | 而以下对象默认不再作为新系统边界继续扩展：
+160 | 
+161 | - `memory`
+162 | - `structured_memory`

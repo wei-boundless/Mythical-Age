@@ -213,6 +213,7 @@ class ModelRuntime:
         self._prompt_cache_break_detector = PromptCacheBreakDetector()
         self._prompt_stability_reporter = PromptStabilityReporter()
         self._model_request_builder = ModelRequestBuilder()
+        self.runtime_observability: Any | None = None
 
     @property
     def request_timeout_seconds(self) -> float:
@@ -276,6 +277,9 @@ class ModelRuntime:
     def attach_prompt_accounting_ledger(self, ledger: PromptAccountingLedger | None) -> None:
         self.prompt_accounting_ledger = ledger
 
+    def attach_runtime_observability(self, observability: Any | None) -> None:
+        self.runtime_observability = observability
+
     async def invoke_messages(
         self,
         messages: list[dict[str, str]],
@@ -305,9 +309,11 @@ class ModelRuntime:
                     )
                     self._finish_prompt_accounting(accounting, response=response)
                     return response
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     raise
                 except Exception as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
                     await self._invalidate_chat_model_for_spec(effective_spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -384,9 +390,11 @@ class ModelRuntime:
                     )
                     self._finish_prompt_accounting(accounting, response=response)
                     return response
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     raise
                 except Exception as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, spec)
                     await self._invalidate_chat_model_for_spec(spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -457,9 +465,11 @@ class ModelRuntime:
                         yield chunk
                     self._finish_prompt_accounting(accounting, response=aggregated_chunk)
                     return
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     raise
                 except Exception as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, effective_spec)
                     await self._invalidate_chat_model_for_spec(effective_spec)
                     if emitted:
@@ -544,9 +554,11 @@ class ModelRuntime:
                         yield chunk
                     self._finish_prompt_accounting(accounting, response=aggregated_chunk)
                     return
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     raise
                 except Exception as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, spec)
                     await self._invalidate_chat_model_for_spec(spec)
                     if emitted:
@@ -628,9 +640,11 @@ class ModelRuntime:
                         yield item
                     self._finish_prompt_accounting(accounting, response=last_item)
                     return
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     raise
                 except Exception as exc:
+                    self._finish_prompt_accounting(accounting, response=None, error=exc)
                     last_error = self._map_error(exc, spec)
                     await self._invalidate_chat_model_for_spec(spec)
                     if emitted:
@@ -1003,8 +1017,6 @@ class ModelRuntime:
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ledger = self.prompt_accounting_ledger
-        if ledger is None:
-            return {}
         context = dict(accounting_context or {})
         context, unplanned_reason = _normalize_accounting_context_for_prompt_plan(
             context,
@@ -1040,6 +1052,8 @@ class ModelRuntime:
             ),
         }
         segment_plan = dict(context.get("segment_plan") or {})
+        local_prediction_usage_id = f"tokuse:{request_id}:local_prediction"
+        model_request = None
         try:
             model_request = self._model_request_builder.build(
                 request_id=request_id,
@@ -1051,6 +1065,38 @@ class ModelRuntime:
                 segment_plan=segment_plan,
                 metadata=metadata,
             )
+        except Exception:
+            logger.debug("Failed to build model request accounting projection", exc_info=True)
+        trace_span_context = self._start_model_trace_span(
+            context=context,
+            request_id=request_id,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            provider=spec.provider,
+            model=spec.model,
+            call_kind=call_kind,
+            attempt=attempt,
+            packet_ref=str(context.get("packet_ref") or ""),
+            usage_id=local_prediction_usage_id,
+            message_count=len(list(messages or [])),
+            tool_count=len(list(tools or [])),
+        )
+        base_accounting = {
+            "request_id": request_id,
+            "run_id": run_id,
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "provider": spec.provider,
+            "model": spec.model,
+            "started_at": created_at,
+            "trace_span_context": trace_span_context,
+        }
+        if model_request is not None:
+            base_accounting["model_request"] = model_request
+        if ledger is None or model_request is None:
+            return base_accounting
+        try:
             cache_policy = model_request.cache_policy
             segment_map = self._prompt_serializer.build_segment_map(
                 request_id=request_id,
@@ -1076,7 +1122,7 @@ class ModelRuntime:
             )
             ledger.record_segment_map(segment_map)
             prediction = ModelTokenUsageRecord(
-                usage_id=f"tokuse:{request_id}:local_prediction",
+                usage_id=local_prediction_usage_id,
                 request_id=request_id,
                 run_id=run_id,
                 task_run_id=task_run_id,
@@ -1204,28 +1250,27 @@ class ModelRuntime:
             )
             ledger.record_prompt_cache_baseline(baseline_record)
             return {
-                "request_id": request_id,
-                "run_id": run_id,
-                "task_run_id": task_run_id,
-                "session_id": session_id,
-                "provider": spec.provider,
-                "model": spec.model,
+                **base_accounting,
                 "cache_record": cache_record,
                 "model_request": model_request,
                 "segment_map": segment_map,
                 "stability_report": stability_report,
                 "cache_baseline_record": baseline_record,
-                "started_at": created_at,
             }
         except Exception:
             logger.debug("Failed to record prompt accounting prediction", exc_info=True)
-            return {}
+            return base_accounting
 
-    def _finish_prompt_accounting(self, accounting: dict[str, Any], *, response: Any) -> None:
+    def _finish_prompt_accounting(self, accounting: dict[str, Any], *, response: Any, error: BaseException | None = None) -> None:
         ledger = self.prompt_accounting_ledger
         request_id = str(dict(accounting or {}).get("request_id") or "")
-        if ledger is None or not request_id:
+        if error is not None:
+            self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
+        if ledger is None or not request_id:
+            self._finish_model_trace_span(accounting, provider_usage=None, error=None)
+            return
+        provider_usage = None
         try:
             provider_usage = extract_provider_usage(
                 response,
@@ -1306,6 +1351,113 @@ class ModelRuntime:
                 ledger.record_prompt_stability(updated_stability_report)
         except Exception:
             logger.debug("Failed to record provider token usage", exc_info=True)
+        finally:
+            self._finish_model_trace_span(accounting, provider_usage=provider_usage, error=None)
+
+    def _start_model_trace_span(
+        self,
+        *,
+        context: dict[str, Any],
+        request_id: str,
+        run_id: str,
+        task_run_id: str,
+        session_id: str,
+        provider: str,
+        model: str,
+        call_kind: str,
+        attempt: int,
+        packet_ref: str,
+        usage_id: str,
+        message_count: int,
+        tool_count: int,
+    ) -> Any | None:
+        observability = self.runtime_observability
+        start_span = getattr(observability, "start_span", None)
+        if not callable(start_span):
+            return None
+        parent_context: Any | None = dict(context or {})
+        try:
+            return start_span(
+                parent_context,
+                name=f"model.{call_kind}",
+                span_kind="model",
+                refs={
+                    "usage_id": usage_id,
+                    "prompt_request_id": request_id,
+                    "packet_ref": packet_ref,
+                    **({"task_run_id": task_run_id} if task_run_id else {}),
+                    **({"run_id": run_id} if run_id else {}),
+                },
+                attributes={
+                    "provider": provider,
+                    "model": model,
+                    "call_kind": call_kind,
+                    "attempt": attempt,
+                    "message_count": message_count,
+                    "tool_count": tool_count,
+                    "session_id": session_id,
+                },
+                idempotency_key=f"model:{request_id}",
+            )
+        except Exception:
+            logger.debug("Failed to start model trace span", exc_info=True)
+            return None
+
+    def _finish_model_trace_span(
+        self,
+        accounting: dict[str, Any],
+        *,
+        provider_usage: ModelTokenUsageRecord | None,
+        error: BaseException | None,
+    ) -> None:
+        observability = self.runtime_observability
+        span_context = dict(accounting or {}).get("trace_span_context")
+        if span_context is None:
+            return
+        record_event = getattr(observability, "record_event", None)
+        finish_span = getattr(observability, "finish_span", None)
+        if not callable(finish_span):
+            return
+        attributes: dict[str, Any] = {}
+        if provider_usage is not None:
+            attributes.update(
+                {
+                    "provider_usage_id": provider_usage.usage_id,
+                    "provider_prompt_tokens": int(provider_usage.prompt_tokens or 0),
+                    "provider_completion_tokens": int(provider_usage.completion_tokens or 0),
+                    "provider_total_tokens": int(provider_usage.total_tokens or 0),
+                    "provider_cached_tokens": max(
+                        int(provider_usage.cached_tokens or 0),
+                        int(provider_usage.cache_read_tokens or 0),
+                    ),
+                }
+            )
+            try:
+                if callable(record_event):
+                    record_event(
+                        span_context,
+                        name="model.provider_usage_recorded",
+                        refs={"usage_id": provider_usage.usage_id},
+                        attributes={
+                            "provider": provider_usage.provider,
+                            "model": provider_usage.model,
+                            "prompt_tokens": int(provider_usage.prompt_tokens or 0),
+                            "completion_tokens": int(provider_usage.completion_tokens or 0),
+                            "total_tokens": int(provider_usage.total_tokens or 0),
+                        },
+                        idempotency_key=f"model-provider-usage:{provider_usage.usage_id}",
+                    )
+            except Exception:
+                logger.debug("Failed to record model provider usage trace event", exc_info=True)
+        try:
+            finish_span(
+                span_context,
+                status="error" if error is not None else "ok",
+                error=error,
+                attributes=attributes,
+            )
+        except Exception:
+            logger.debug("Failed to finish model trace span", exc_info=True)
 
     def _max_output_tokens_for_spec(self, spec: ModelSpec) -> int:
         if spec.max_output_tokens is not None:

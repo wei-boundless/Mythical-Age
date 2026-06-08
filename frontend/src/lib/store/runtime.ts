@@ -31,6 +31,7 @@ import {
   listSessions,
   listSkills,
   renameSession,
+  removeProjectWorkspace,
   saveFile,
   saveFileForSession,
   createProjectWorkspaceSession,
@@ -42,7 +43,7 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -116,6 +117,10 @@ function workspaceRootKey(root: string) {
 function sessionBelongsToProject(session: SessionSummary, workspaceRoot: string) {
   const root = workspaceRootKey(workspaceRoot);
   return Boolean(root && workspaceRootKey(sessionProjectRoot(session)) === root);
+}
+
+function unboundMainChatSessions(sessions: SessionSummary[]) {
+  return visibleMainChatSessions(sessions).filter((session) => !sessionProjectRoot(session));
 }
 
 function mergeSessionSummaries(existing: SessionSummary[], incoming: SessionSummary[]) {
@@ -256,6 +261,9 @@ export class WorkspaceRuntime {
       },
       selectProjectWorkspaceDirectory: async () => {
         await this.selectProjectWorkspaceDirectory();
+      },
+      removeProjectWorkspace: async (projectKey) => {
+        await this.removeProjectWorkspace(projectKey);
       },
       refreshProjectWorkspaces: async () => {
         await this.refreshProjectWorkspaces();
@@ -710,6 +718,84 @@ export class WorkspaceRuntime {
     }
   }
 
+  private async removeProjectWorkspace(projectKey: string) {
+    const normalizedKey = String(projectKey || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    const previous = this.store.getState();
+    const previousSessionId = previous.currentSessionId || "";
+    const removingActiveProject = previous.activeProjectKey === normalizedKey;
+    this.store.setState((prev) => ({
+      ...prev,
+      projectWorkspacesLoading: true,
+      projectWorkspacesError: "",
+    }));
+    try {
+      const removal = await removeProjectWorkspace(normalizedKey, { detachSessions: true });
+      const [projectPayload, allSessions] = await Promise.all([
+        listProjectWorkspaces(),
+        listSessions(),
+      ]);
+      const sessions = visibleMainChatSessions(allSessions);
+      const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
+      const detachedSessionIds = new Set((removal.detached_sessions || []).map((session) => session.id));
+      const detachedCurrentSession = previousSessionId
+        ? sessions.find((session) => detachedSessionIds.has(session.id) && session.id === previousSessionId && !sessionProjectRoot(session)) ?? null
+        : null;
+      const shouldClearActiveProject = removingActiveProject || Boolean(detachedCurrentSession);
+      const nextActiveProjectKey = shouldClearActiveProject ? "" : this.store.getState().activeProjectKey;
+      const nextActiveProjectRoot = shouldClearActiveProject ? "" : this.store.getState().activeProjectRoot;
+      this.store.setState((prev) => ({
+        ...prev,
+        sessions,
+        projectWorkspaces: projects,
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: "",
+        activeProjectKey: nextActiveProjectKey,
+        activeProjectRoot: nextActiveProjectRoot,
+        projectSessions: nextActiveProjectRoot
+          ? sessions.filter((session) => sessionBelongsToProject(session, nextActiveProjectRoot))
+          : [],
+        workspaceTree: shouldClearActiveProject ? null : prev.workspaceTree,
+        workspaceTreeError: shouldClearActiveProject ? "" : prev.workspaceTreeError,
+      }));
+
+      if (shouldClearActiveProject) {
+        const unboundSessions = unboundMainChatSessions(sessions);
+        const nextSession = detachedCurrentSession ?? unboundSessions[0] ?? null;
+        if (nextSession) {
+          await this.activateMainChatSession(nextSession);
+        } else {
+          this.clearActiveSession();
+        }
+        void this.refreshWorkspaceTree().catch(() => undefined);
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        projectWorkspacesLoading: false,
+        projectWorkspacesError: this.errorMessage(error, "项目移出失败。"),
+      }));
+      throw error;
+    }
+  }
+
+  private async activateMainChatSession(session: SessionSummary) {
+    const restoredFromStreamCache = this.applySelectedSessionShell(session.id, {
+      scope: session.scope,
+      poolKey: MAIN_CHAT_POOL_KEY,
+    });
+    if (restoredFromStreamCache) {
+      return;
+    }
+    const reattached = await this.reattachChatRunForSession(session.id);
+    if (!reattached) {
+      void this.refreshSessionDetails(session.id).catch(() => undefined);
+      void this.hydrateLatestOrchestrationSnapshot(session.id).catch(() => undefined);
+    }
+  }
+
   private refreshMainSessionPoolInBackground() {
     void this.refreshMainSessionPool().catch((error) => {
       this.noteSessionRefreshFailure(error);
@@ -878,9 +964,7 @@ export class WorkspaceRuntime {
         message.runtimeAttachments,
         current.runtimeAttachments ?? [],
       );
-      const persistedPublicTimeline = (runtimeAttachments ?? []).flatMap((attachment) =>
-        Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
-      );
+      const persistedPublicTimeline = this.publicTimelineFromRuntimeAttachments(runtimeAttachments);
       return {
         ...message,
         runtimeAttachments,
@@ -3416,6 +3500,23 @@ export class WorkspaceRuntime {
     };
   }
 
+  private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
+    return (runtimeAttachments ?? []).flatMap((attachment) =>
+      attachment.task_projection ? [] : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+    );
+  }
+
+  private taskProjectionFromRecord(value: unknown): SingleAgentTaskProjection | null {
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const projection = record.task_projection_delta ?? record.task_projection;
+    if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+      return null;
+    }
+    return projection as SingleAgentTaskProjection;
+  }
+
   private publicTimelineItemsFromRecord(value: unknown): PublicChatTimelineItem[] {
     const record = value && typeof value === "object" && !Array.isArray(value)
       ? value as Record<string, unknown>
@@ -3575,9 +3676,11 @@ export class WorkspaceRuntime {
       ...existing,
       ...attachment,
       progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
-      public_timeline: mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
-        limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
-      }),
+      public_timeline: attachment.task_projection
+        ? []
+        : mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
+          limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
+        }),
     };
   }
 
@@ -3838,19 +3941,21 @@ export class WorkspaceRuntime {
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
     const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
+    const taskProjection = this.taskProjectionFromRecord(runtimeEvent);
     const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);
-    if (!latestProgressEntry && !publicTimelineItems.length) {
+    if (!latestProgressEntry && !publicTimelineItems.length && !taskProjection) {
       return state;
     }
     const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
-    const runId = String(publicAnchor.run_id ?? latestProgressEntry?.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
-    const latestTaskRunId = String(publicAnchor.task_run_id ?? latestProgressEntry?.taskRunId ?? "").trim();
+    const runId = String(publicAnchor.run_id ?? taskProjection?.task_run_id ?? latestProgressEntry?.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
+    const latestTaskRunId = String(publicAnchor.task_run_id ?? taskProjection?.task_run_id ?? latestProgressEntry?.taskRunId ?? "").trim();
     const taskRunId = latestTaskRunId.startsWith("taskrun:")
       ? latestTaskRunId
       : runId.startsWith("taskrun:")
         ? runId
         : "";
-    const anchorTurnId = this.runtimeEventAnchorTurnId(runtimeEvent, state);
+    const anchorTurnId = String(taskProjection?.anchor_turn_id ?? "").trim()
+      || this.runtimeEventAnchorTurnId(runtimeEvent, state);
     if (!runId || !anchorTurnId) {
       return state;
     }
@@ -3870,12 +3975,13 @@ export class WorkspaceRuntime {
       attachment_id: `runtime-attachment:${runId}`,
       run_id: runId,
       anchor_turn_id: anchorTurnId,
+      anchor_message_id: String(taskProjection?.anchor_message_id ?? "").trim() || undefined,
       anchor_role: String(publicAnchor.anchor_role ?? "assistant"),
       task_run_id: taskRunId || undefined,
-      task_id: String(payload.task_id ?? ""),
-      status: String(payload.status ?? "running"),
+      task_id: String(taskProjection?.task_id ?? payload.task_id ?? ""),
+      status: String(taskProjection?.status ?? payload.status ?? "running"),
       terminal_reason: "",
-      lifecycle: String(payload.status ?? "running"),
+      lifecycle: String(taskProjection?.status ?? payload.status ?? "running"),
       title: "处理进展",
       summary: String(payload.public_progress_note ?? payload.summary ?? publicSummary ?? ""),
       latest_step: {
@@ -3894,10 +4000,11 @@ export class WorkspaceRuntime {
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: publicTimelineItems,
+      public_timeline: taskProjection ? [] : publicTimelineItems,
+      task_projection: taskProjection ?? undefined,
       trace_available: true,
-      debug_trace_ref: String(runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
-      updated_at: Number(runtimeEvent.created_at ?? Date.now() / 1000),
+      debug_trace_ref: String(taskProjection?.debug_trace_ref ?? runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
+      updated_at: Number(taskProjection?.updated_at ?? runtimeEvent.created_at ?? Date.now() / 1000),
     };
     const anchorIndex = Number(anchorTurnId.split(":").at(-1));
     return {
@@ -3959,6 +4066,7 @@ export class WorkspaceRuntime {
       return state;
     }
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
+    const taskProjection = this.taskProjectionFromRecord(monitor);
     const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
     const monitorStatusItem = this.publicTimelineStatusItemFromMonitor(monitor, taskRunId);
     const publicTimelineItems = mergePublicTimelineItems(
@@ -3972,10 +4080,10 @@ export class WorkspaceRuntime {
       anchor_turn_id: anchorTurnId,
       anchor_role: "assistant",
       task_run_id: taskRunId,
-      task_id: String(taskRun.task_id ?? monitor.task_id ?? ""),
-      status: String(monitor.status ?? taskRun.status ?? ""),
+      task_id: String(taskProjection?.task_id ?? taskRun.task_id ?? monitor.task_id ?? ""),
+      status: String(taskProjection?.status ?? monitor.status ?? taskRun.status ?? ""),
       terminal_reason: String(monitor.terminal_reason ?? taskRun.terminal_reason ?? ""),
-      lifecycle: String((monitor as Record<string, unknown>).lifecycle ?? ""),
+      lifecycle: String(taskProjection?.status ?? (monitor as Record<string, unknown>).lifecycle ?? ""),
       title: String((monitor as Record<string, unknown>).title ?? "处理进展"),
       summary: String(monitor.latest_step_summary ?? ""),
       latest_step: monitor.latest_step ?? {},
@@ -3983,11 +4091,12 @@ export class WorkspaceRuntime {
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: publicTimelineItems,
+      public_timeline: taskProjection ? [] : publicTimelineItems,
+      task_projection: taskProjection ?? undefined,
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
       trace_available: true,
-      debug_trace_ref: taskRunId,
-      updated_at: Number(monitor.updated_at ?? Date.now() / 1000),
+      debug_trace_ref: String(taskProjection?.debug_trace_ref ?? taskRunId),
+      updated_at: Number(taskProjection?.updated_at ?? monitor.updated_at ?? Date.now() / 1000),
     };
     return {
       ...state,

@@ -31,14 +31,22 @@ class RuntimeMonitorProjector:
         self,
         event_log: Any,
         *,
+        runtime_host: Any | None = None,
         freshness_seconds: float = 5 * 60.0,
         resource_resolver: Any | None = None,
         session_scope_resolver: Any | None = None,
+        observability_query: Any | None = None,
+        fact_ledger: Any | None = None,
+        trace_service: Any | None = None,
     ) -> None:
         self.event_log = event_log
+        self.runtime_host = runtime_host
         self.freshness_seconds = float(freshness_seconds)
         self.resource_resolver = resource_resolver
         self.session_scope_resolver = session_scope_resolver
+        self.observability_query = observability_query
+        self.fact_ledger = fact_ledger
+        self.trace_service = trace_service
 
     def project_task_run(
         self,
@@ -50,6 +58,7 @@ class RuntimeMonitorProjector:
     ) -> dict[str, Any]:
         current_time = float(now)
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        session_id = str(getattr(task_run, "session_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         events = self._recent_events(task_run_id, limit=240) if include_runtime_details else []
         latest_event = events[-1].to_dict() if events else {}
@@ -145,13 +154,27 @@ class RuntimeMonitorProjector:
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
-            session_id=str(getattr(task_run, "session_id", "") or ""),
+            session_id=session_id,
             graph_run_id=graph_run_id,
             graph_harness_config_id=graph_harness_config_id,
             artifact_refs=artifact_refs,
             resolve_availability=include_runtime_details,
         )
         child_runtime_refs = self._child_runtime_refs(graph_monitor) if include_runtime_details and kind == "task_graph" else []
+        fact_summary = self._fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+        trace_summary = self._trace_summary(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            graph_run_id=graph_run_id,
+            hydrate=include_runtime_details,
+        )
+        diagnostic_signal_refs = self._diagnostic_signal_refs(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            graph_run_id=graph_run_id,
+            fact_summary=fact_summary,
+            trace_summary=trace_summary,
+        )
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
             "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
@@ -167,7 +190,7 @@ class RuntimeMonitorProjector:
             kind=kind,
             task_instance_id=task_instance_id,
             task_run_id=task_run_id,
-            session_id=str(getattr(task_run, "session_id", "") or ""),
+            session_id=session_id,
             session_scope=session_scope,
             graph_run_id=graph_run_id,
             graph_id=graph_id,
@@ -176,7 +199,7 @@ class RuntimeMonitorProjector:
         has_graph_run = bool(graph_run_id or graph_harness_config_id)
         item = {
             "task_run_id": task_run_id,
-            "session_id": str(getattr(task_run, "session_id", "") or ""),
+            "session_id": session_id,
             "task_id": str(getattr(task_run, "task_id", "") or ""),
             "execution_runtime_kind": str(getattr(task_run, "execution_runtime_kind", "") or ""),
             "task_instance_id": task_instance_id,
@@ -223,6 +246,9 @@ class RuntimeMonitorProjector:
             "artifact_refs": artifact_refs[:10],
             "resource_refs": resource_refs,
             "primary_resource_ref": resource_refs[0] if resource_refs else None,
+            "fact_summary": fact_summary,
+            "trace_summary": trace_summary,
+            "diagnostic_signal_refs": diagnostic_signal_refs,
             "graph_status": graph_status,
             "child_runtime_refs": child_runtime_refs,
             "navigation_target": navigation_target,
@@ -344,6 +370,20 @@ class RuntimeMonitorProjector:
             "summary": summary,
             "agent_brief": "",
         }
+        fact_summary = self._fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id="")
+        trace_summary = self._trace_summary(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            graph_run_id="",
+            hydrate=True,
+        )
+        diagnostic_signal_refs = self._diagnostic_signal_refs(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            graph_run_id="",
+            fact_summary=fact_summary,
+            trace_summary=trace_summary,
+        )
         item = {
             "task_run_id": task_run_id,
             "session_id": session_id,
@@ -406,6 +446,9 @@ class RuntimeMonitorProjector:
             "artifact_refs": [],
             "resource_refs": [],
             "primary_resource_ref": None,
+            "fact_summary": fact_summary,
+            "trace_summary": trace_summary,
+            "diagnostic_signal_refs": diagnostic_signal_refs,
             "graph_status": None,
             "child_runtime_refs": [],
             "navigation_target": build_navigation_target(
@@ -519,6 +562,228 @@ class RuntimeMonitorProjector:
             except Exception:
                 return len(events)
         return len(events)
+
+    def _fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
+        scope_ref = _fact_scope_ref(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+        if self.fact_ledger is None or not scope_ref.get("scope_key"):
+            return {
+                "authority": "runtime_monitor.fact_summary",
+                "available": False,
+                "task_run_id": task_run_id,
+                "session_id": session_id,
+                "graph_run_id": graph_run_id,
+                "fact_count": 0,
+                "fact_type_counts": {},
+                "retention_class_counts": {},
+                "scope_ref": scope_ref,
+            }
+        try:
+            records = self._fact_records_for_scope(
+                task_run_id=task_run_id,
+                session_id=session_id,
+                graph_run_id=graph_run_id,
+                limit=5000,
+            )
+        except Exception:
+            records = []
+        return {
+            "authority": "runtime_monitor.fact_summary",
+            "available": True,
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "graph_run_id": graph_run_id,
+            "fact_count": len(records),
+            "fact_type_counts": _counts(_record_field(item, "fact_type") for item in records),
+            "retention_class_counts": _counts(_record_field(item, "retention_class") for item in records),
+            "scope_ref": scope_ref,
+        }
+
+    def _trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, hydrate: bool) -> dict[str, Any]:
+        query = getattr(self.observability_query, "trace_summary", None)
+        if callable(query):
+            try:
+                summary = dict(
+                    query(
+                        task_run_id=task_run_id,
+                        session_id=session_id,
+                        graph_run_id=graph_run_id,
+                        hydrate=hydrate,
+                    )
+                    or {}
+                )
+            except Exception:
+                summary = {}
+            if summary:
+                return {
+                    **summary,
+                    "authority": "runtime_monitor.trace_summary",
+                    "source_authority": str(summary.get("authority") or ""),
+                }
+        trace_fact = self._latest_trace_run_fact(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+        trace_id = _record_ref(trace_fact, "trace_id") if trace_fact is not None else ""
+        base = {
+            "authority": "runtime_monitor.trace_summary",
+            "available": bool(trace_id),
+            "hydrated": False,
+            "trace_id": trace_id,
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "graph_run_id": graph_run_id,
+            "source_fact_id": _record_field(trace_fact, "fact_id") if trace_fact is not None else "",
+            "detail_ref": {"kind": "trace", "trace_id": trace_id} if trace_id else {},
+        }
+        if not trace_id or not hydrate:
+            return base
+        summarizer = getattr(self.trace_service, "summarize_trace", None)
+        if not callable(summarizer):
+            return base
+        try:
+            raw = dict(summarizer(trace_id) or {})
+        except Exception:
+            return {**base, "available": False}
+        if raw.get("available") is not True:
+            return {**base, "available": False, "hydrated": True}
+        return {
+            **base,
+            "available": True,
+            "hydrated": True,
+            "run": _compact_trace_run(dict(raw.get("run") or {})),
+            "span_count": int(raw.get("span_count") or 0),
+            "event_count": int(raw.get("event_count") or 0),
+            "error_span_count": int(raw.get("error_span_count") or 0),
+            "latest_span": _compact_trace_span(dict(raw.get("latest_span") or {})),
+        }
+
+    def _diagnostic_signal_refs(
+        self,
+        *,
+        task_run_id: str,
+        session_id: str,
+        graph_run_id: str,
+        fact_summary: dict[str, Any],
+        trace_summary: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        refs: list[dict[str, Any]] = []
+        trace_id = str(trace_summary.get("trace_id") or "").strip()
+        if trace_id:
+            refs.append(
+                {
+                    "kind": "trace",
+                    "ref": f"trace:{trace_id}",
+                    "trace_id": trace_id,
+                    "task_run_id": task_run_id,
+                    "session_id": session_id,
+                    "graph_run_id": graph_run_id,
+                    "error_span_count": int(trace_summary.get("error_span_count") or 0),
+                }
+            )
+        scope_ref = dict(fact_summary.get("scope_ref") or {})
+        fact_count = int(fact_summary.get("fact_count") or 0)
+        if bool(fact_summary.get("available")) and fact_count > 0 and scope_ref.get("scope_key"):
+            refs.append(
+                {
+                    "kind": "fact_scope",
+                    "ref": str(scope_ref.get("scope_key") or ""),
+                    "task_run_id": task_run_id,
+                    "session_id": session_id,
+                    "graph_run_id": graph_run_id,
+                    "fact_count": fact_count,
+                    "fact_type_counts": dict(fact_summary.get("fact_type_counts") or {}),
+                }
+            )
+        for fact in self._recent_diagnostic_facts(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id):
+            refs.append(
+                {
+                    "kind": "fact",
+                    "ref": str(_record_field(fact, "fact_id") or ""),
+                    "fact_id": str(_record_field(fact, "fact_id") or ""),
+                    "fact_type": str(_record_field(fact, "fact_type") or ""),
+                    "task_run_id": task_run_id,
+                    "session_id": session_id,
+                    "graph_run_id": graph_run_id,
+                    "summary": _short_text(_record_field(fact, "summary"), limit=180),
+                    "created_at": float(_record_field(fact, "created_at") or 0.0),
+                }
+            )
+        return _dedupe_signal_refs(refs)[:12]
+
+    def _latest_trace_run_fact(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> Any | None:
+        try:
+            records = self._fact_records_for_scope(
+                task_run_id=task_run_id,
+                session_id=session_id,
+                graph_run_id=graph_run_id,
+                fact_type="trace_run",
+                limit=50,
+            )
+        except Exception:
+            records = []
+        records = [item for item in records if _record_ref(item, "trace_id")]
+        if not records:
+            return None
+        return sorted(records, key=lambda item: float(_record_field(item, "created_at") or 0.0), reverse=True)[0]
+
+    def _recent_diagnostic_facts(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> list[Any]:
+        records: list[Any] = []
+        for fact_type in ("monitor_signal", "health_issue"):
+            try:
+                records.extend(
+                    self._fact_records_for_scope(
+                        task_run_id=task_run_id,
+                        session_id=session_id,
+                        graph_run_id=graph_run_id,
+                        fact_type=fact_type,
+                        limit=20,
+                    )
+                )
+            except Exception:
+                continue
+        return sorted(records, key=lambda item: float(_record_field(item, "created_at") or 0.0), reverse=True)[:10]
+
+    def _fact_records_for_scope(
+        self,
+        *,
+        task_run_id: str,
+        session_id: str,
+        graph_run_id: str = "",
+        fact_type: str = "",
+        limit: int = 200,
+    ) -> list[Any]:
+        reader = getattr(self.fact_ledger, "list_records", None)
+        if not callable(reader):
+            return []
+        queries: list[dict[str, Any]] = []
+        normalized_task_run_id = str(task_run_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_graph_run_id = str(graph_run_id or "").strip()
+        if normalized_task_run_id.startswith("turnrun:"):
+            queries.append({"turn_run_id": normalized_task_run_id})
+        elif normalized_task_run_id:
+            queries.append({"task_run_id": normalized_task_run_id})
+        if normalized_graph_run_id:
+            queries.append({"graph_run_id": normalized_graph_run_id})
+        if not queries and normalized_session_id:
+            queries.append({"session_id": normalized_session_id})
+        if not queries:
+            return []
+        records: list[Any] = []
+        seen: set[str] = set()
+        per_query_limit = max(1, min(int(limit or 200), 5000))
+        for filters in queries:
+            query = dict(filters)
+            if fact_type:
+                query["fact_type"] = fact_type
+            for record in list(reader(**query, limit=per_query_limit)):
+                fact_id = str(_record_field(record, "fact_id") or "")
+                identity = fact_id or f"{_record_field(record, 'fact_type')}:{_record_field(record, 'created_at')}"
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                records.append(record)
+        records.sort(key=lambda item: float(_record_field(item, "created_at") or 0.0))
+        if len(records) > per_query_limit:
+            return records[-per_query_limit:]
+        return records
 
     def _route(self, task_run: Any, diagnostics: dict[str, Any]) -> dict[str, str]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
@@ -940,6 +1205,167 @@ def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict
         except Exception:
             pass
     return []
+
+
+def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, str]:
+    normalized_task_run_id = str(task_run_id or "").strip()
+    normalized_session_id = str(session_id or "").strip()
+    normalized_graph_run_id = str(graph_run_id or "").strip()
+    if normalized_task_run_id.startswith("turnrun:"):
+        return {
+            "kind": "runtime_fact_scope",
+            "scope_kind": "turn_run",
+            "scope_key": f"runtime_fact_scope:turn_run:{normalized_task_run_id}",
+            "task_run_id": normalized_task_run_id,
+            "session_id": normalized_session_id,
+            "graph_run_id": normalized_graph_run_id,
+        }
+    if normalized_task_run_id:
+        return {
+            "kind": "runtime_fact_scope",
+            "scope_kind": "task_run",
+            "scope_key": f"runtime_fact_scope:task_run:{normalized_task_run_id}",
+            "task_run_id": normalized_task_run_id,
+            "session_id": normalized_session_id,
+            "graph_run_id": normalized_graph_run_id,
+        }
+    if normalized_graph_run_id:
+        return {
+            "kind": "runtime_fact_scope",
+            "scope_kind": "graph_run",
+            "scope_key": f"runtime_fact_scope:graph_run:{normalized_graph_run_id}",
+            "task_run_id": "",
+            "session_id": normalized_session_id,
+            "graph_run_id": normalized_graph_run_id,
+        }
+    if normalized_session_id:
+        return {
+            "kind": "runtime_fact_scope",
+            "scope_kind": "session",
+            "scope_key": f"runtime_fact_scope:session:{normalized_session_id}",
+            "task_run_id": "",
+            "session_id": normalized_session_id,
+            "graph_run_id": "",
+        }
+    return {"kind": "runtime_fact_scope", "scope_kind": "", "scope_key": "", "task_run_id": "", "session_id": "", "graph_run_id": ""}
+
+
+def _compact_trace_run(run: dict[str, Any]) -> dict[str, Any]:
+    if not run:
+        return {}
+    return {
+        "trace_id": str(run.get("trace_id") or ""),
+        "run_kind": str(run.get("run_kind") or ""),
+        "root_run_id": str(run.get("root_run_id") or ""),
+        "status": str(run.get("status") or ""),
+        "terminal_reason": str(run.get("terminal_reason") or ""),
+        "started_at": float(run.get("started_at") or 0.0),
+        "ended_at": float(run.get("ended_at") or 0.0),
+        "scope": _compact_ref_payload(dict(run.get("scope") or {})),
+        "refs": _compact_ref_payload(dict(run.get("refs") or {})),
+    }
+
+
+def _compact_trace_span(span: dict[str, Any]) -> dict[str, Any]:
+    if not span:
+        return {}
+    return {
+        "trace_id": str(span.get("trace_id") or ""),
+        "span_id": str(span.get("span_id") or ""),
+        "parent_span_id": str(span.get("parent_span_id") or ""),
+        "name": str(span.get("name") or ""),
+        "span_kind": str(span.get("span_kind") or ""),
+        "status": str(span.get("status") or ""),
+        "started_at": float(span.get("started_at") or 0.0),
+        "ended_at": float(span.get("ended_at") or 0.0),
+        "latency_ms": float(span.get("latency_ms") or 0.0),
+        "refs": _compact_ref_payload(dict(span.get("refs") or {})),
+    }
+
+
+def _compact_ref_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "trace_id",
+        "span_id",
+        "task_run_id",
+        "turn_id",
+        "turn_run_id",
+        "graph_run_id",
+        "node_id",
+        "work_order_id",
+        "execution_id",
+        "usage_id",
+        "artifact_ref",
+        "runtime_event_id",
+        "runtime_run_id",
+        "action_request_ref",
+        "observation_ref",
+        "runtime_invocation_packet_ref",
+        "fact_id",
+        "tool_call_id",
+        "executor_epoch",
+    }
+    result: dict[str, Any] = {}
+    for key, value in dict(payload or {}).items():
+        normalized_key = str(key or "")
+        if normalized_key not in allowed or value in (None, "", [], {}):
+            continue
+        if isinstance(value, (bool, int, float)):
+            result[normalized_key] = value
+        else:
+            result[normalized_key] = _short_text(value, limit=240)
+    return result
+
+
+def _record_field(record: Any, field: str) -> Any:
+    if record is None:
+        return ""
+    if isinstance(record, dict):
+        return record.get(field)
+    return getattr(record, field, "")
+
+
+def _record_ref(record: Any, key: str) -> str:
+    refs = _record_field(record, "refs")
+    if not isinstance(refs, dict):
+        return ""
+    return str(refs.get(key) or "").strip()
+
+
+def _counts(values: Any) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for value in values:
+        key = str(value or "").strip() or "unknown"
+        result[key] = result.get(key, 0) + 1
+    return result
+
+
+def _short_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").replace("\n", " ").strip()
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _dedupe_signal_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in refs:
+        payload = dict(ref or {})
+        identity = "|".join(
+            [
+                str(payload.get("kind") or ""),
+                str(payload.get("ref") or ""),
+                str(payload.get("fact_id") or ""),
+                str(payload.get("trace_id") or ""),
+            ]
+        )
+        if not identity.strip("|") or identity in seen:
+            continue
+        seen.add(identity)
+        result.append(payload)
+    return result
 
 
 def _active_turn_status(state: str) -> str:

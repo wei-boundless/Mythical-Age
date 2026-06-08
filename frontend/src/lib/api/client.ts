@@ -58,6 +58,15 @@ function requestTimeoutReason(path: string, timeoutMs: number) {
   return new DOMException(`Request timed out after ${timeoutMs}ms: ${path}`, "TimeoutError");
 }
 
+function shouldRetryGetRequest(path: string) {
+  return !isSessionTimelinePath(path);
+}
+
+function isSessionTimelinePath(path: string) {
+  const pathname = String(path || "").split("?")[0];
+  return /^\/sessions\/[^/]+\/timeline$/.test(pathname);
+}
+
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const hasBody = init?.body !== undefined && init?.body !== null;
@@ -83,7 +92,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   try {
     response = await runFetch();
   } catch (error) {
-    if (method === "GET" && isRequestAbortError(error)) {
+    if (method === "GET" && isRequestAbortError(error) && shouldRetryGetRequest(path)) {
       try {
         response = await runFetch();
       } catch (retryError) {

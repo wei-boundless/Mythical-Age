@@ -4,6 +4,7 @@ import asyncio
 import fnmatch
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -28,6 +29,9 @@ from file_management import (
     build_file_access_table,
     resolve_file_environment,
 )
+from memory_system.runtime_scope import project_id_for_task_run
+from memory_system.runtime_services import MemoryRuntimeServices
+from runtime.file_changes import FileChangeTracker
 from runtime_objects.tool_result_storage import (
     DEFAULT_REHYDRATION_SIZE_BYTES,
     MAX_REHYDRATION_SIZE_BYTES,
@@ -68,6 +72,7 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "edit_file",
     "terminal",
     "python_repl",
+    "memory_search",
 }
 
 def build_native_runtime_tool(
@@ -87,6 +92,8 @@ def build_native_runtime_tool(
         return NativeTerminalTool(capability_definition)
     if name == "python_repl":
         return NativePythonReplTool(capability_definition)
+    if name == "memory_search":
+        return NativeMemorySearchTool(capability_definition)
     if name == "read_structured_file":
         return NativeReadStructuredFileTool(capability_definition)
     if name == "search_files":
@@ -548,11 +555,24 @@ class NativeWriteFileTool(_NativeToolBase):
         if gateway is not None:
             return self._call_gateway_write(args=args, context=context, gateway=gateway, path=path, content=content)
         try:
-            file_path = self._files(context).write_text(path, content)
-            rel = self._files(context).relative_path(file_path)
+            files = self._files(context)
+            target_path = files.resolve(path, require_path=True)
+            before_content = files.read_text(target_path) if target_path.exists() and target_path.is_file() else None
+            file_path = files.write_text(path, content)
+            rel = files.relative_path(file_path)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
+        file_change = _record_text_file_change(
+            context=context,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            logical_path=rel,
+            absolute_path=file_path,
+            workspace_root=_change_root_for_path(context, file_path),
+            before_content=before_content,
+            after_content=content,
+        )
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -563,7 +583,8 @@ class NativeWriteFileTool(_NativeToolBase):
                     "path": rel,
                     "size_bytes": file_path.stat().st_size,
                     "sha256": _file_sha256(file_path),
-                }
+                },
+                "file_change": file_change,
             },
             observed_paths=(rel,),
             artifact_refs=(artifact,),
@@ -593,6 +614,21 @@ class NativeWriteFileTool(_NativeToolBase):
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        file_change = _record_text_file_change(
+            context=context,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            logical_path=result.logical_path,
+            absolute_path=result.physical_path,
+            workspace_root=_gateway_result_root(result) or _change_root_for_path(context, Path(result.physical_path)),
+            before_content=result.before_content,
+            after_content=result.content,
+            metadata={
+                "repository_id": result.repository_id,
+                "repository_kind": result.repository_kind,
+                "file_operation_receipt_id": str(receipt.get("receipt_id") or ""),
+            },
+        )
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -611,6 +647,7 @@ class NativeWriteFileTool(_NativeToolBase):
                     "receipt": receipt,
                     "root_binding": result.metadata.get("root_binding"),
                 },
+                "file_change": file_change,
             },
             observed_paths=(result.logical_path,),
             artifact_refs=(artifact,),
@@ -639,11 +676,25 @@ class NativeEditFileTool(_NativeToolBase):
         if gateway is not None:
             return self._call_gateway_edit(args=args, context=context, gateway=gateway, path=path)
         try:
-            file_path = self._files(context).edit_text(path, str(args.get("old_text") or ""), str(args.get("new_text") or ""))
-            rel = self._files(context).relative_path(file_path)
+            files = self._files(context)
+            target_path = files.resolve(path, require_path=True)
+            before_content = files.read_text(target_path)
+            file_path = files.edit_text(path, str(args.get("old_text") or ""), str(args.get("new_text") or ""))
+            rel = files.relative_path(file_path)
+            after_content = files.read_text(file_path)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
+        file_change = _record_text_file_change(
+            context=context,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            logical_path=rel,
+            absolute_path=file_path,
+            workspace_root=_change_root_for_path(context, file_path),
+            before_content=before_content,
+            after_content=after_content,
+        )
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -654,7 +705,8 @@ class NativeEditFileTool(_NativeToolBase):
                     "path": rel,
                     "size_bytes": file_path.stat().st_size,
                     "sha256": _file_sha256(file_path),
-                }
+                },
+                "file_change": file_change,
             },
             observed_paths=(rel,),
             artifact_refs=(artifact,),
@@ -684,6 +736,21 @@ class NativeEditFileTool(_NativeToolBase):
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        file_change = _record_text_file_change(
+            context=context,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            logical_path=result.logical_path,
+            absolute_path=result.physical_path,
+            workspace_root=_gateway_result_root(result) or _change_root_for_path(context, Path(result.physical_path)),
+            before_content=result.before_content,
+            after_content=result.content,
+            metadata={
+                "repository_id": result.repository_id,
+                "repository_kind": result.repository_kind,
+                "file_operation_receipt_id": str(receipt.get("receipt_id") or ""),
+            },
+        )
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -702,6 +769,7 @@ class NativeEditFileTool(_NativeToolBase):
                     "receipt": receipt,
                     "root_binding": result.metadata.get("root_binding"),
                 },
+                "file_change": file_change,
             },
             observed_paths=(result.logical_path,),
             artifact_refs=(artifact,),
@@ -728,6 +796,7 @@ class NativeTerminalTool(_NativeToolBase):
                 execution_receipt=context.execution_receipt,
             )
         settings = get_settings()
+        before_files = _capture_command_file_snapshot(context, force=False, command=command)
         docker = DockerSandboxBackend()
         if docker.is_enabled(context.sandbox_policy):
             sandbox_root = context.sandbox_root or context.workspace_root
@@ -743,6 +812,15 @@ class NativeTerminalTool(_NativeToolBase):
                     },
                 },
             )
+            file_changes = _record_command_file_changes(
+                context=context,
+                before_snapshot=before_files,
+                tool_name=self.name,
+                operation_id=self.operation_id,
+                command_label=command,
+            )
+            if file_changes:
+                structured_payload = {**structured_payload, "file_changes": file_changes}
             return self._envelope(
                 tool_args=args,
                 status="ok" if execution.exit_code == 0 else "error",
@@ -767,6 +845,15 @@ class NativeTerminalTool(_NativeToolBase):
             combined = f"Timed out after {settings.terminal_timeout_seconds} seconds."
             exit_code = 124
         text = combined[:5000]
+        file_changes = _record_command_file_changes(
+            context=context,
+            before_snapshot=before_files,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            command_label=command,
+        )
+        if file_changes:
+            structured_payload = {**structured_payload, "file_changes": file_changes}
         receipt = {"command": command, "exit_code": exit_code, "passed": exit_code == 0, "output_preview": text[:500]}
         return self._envelope(
             tool_args=args,
@@ -794,6 +881,7 @@ class NativePythonReplTool(_NativeToolBase):
                 command_receipt=receipt,
                 execution_receipt=context.execution_receipt,
             )
+        before_files = _capture_command_file_snapshot(context, force=True, command="python -c <code>")
         docker = DockerSandboxBackend()
         if docker.is_enabled(context.sandbox_policy):
             sandbox_root = context.sandbox_root or context.workspace_root
@@ -809,10 +897,18 @@ class NativePythonReplTool(_NativeToolBase):
                     },
                 },
             )
+            file_changes = _record_command_file_changes(
+                context=context,
+                before_snapshot=before_files,
+                tool_name=self.name,
+                operation_id=self.operation_id,
+                command_label="python -c <code>",
+            )
             return self._envelope(
                 tool_args=args,
                 status="ok" if execution.exit_code == 0 else "error",
                 text=execution.output,
+                structured_payload={"file_changes": file_changes} if file_changes else {},
                 command_receipt={"command": "python -c <code>", **execution.receipt},
                 execution_receipt=context.execution_receipt,
             )
@@ -831,12 +927,82 @@ class NativePythonReplTool(_NativeToolBase):
             combined = "Timed out after 15 seconds."
             exit_code = 124
         text = combined[:5000]
+        file_changes = _record_command_file_changes(
+            context=context,
+            before_snapshot=before_files,
+            tool_name=self.name,
+            operation_id=self.operation_id,
+            command_label="python -c <code>",
+        )
         receipt = {"command": "python -c <code>", "exit_code": exit_code, "passed": exit_code == 0, "output_preview": text[:500]}
         return self._envelope(
             tool_args=args,
             status="ok" if exit_code == 0 else "error",
             text=text,
+            structured_payload={"file_changes": file_changes} if file_changes else {},
             command_receipt=receipt,
+            execution_receipt=context.execution_receipt,
+        )
+
+
+class NativeMemorySearchTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        query = str(payload.get("query") or "").strip()
+        if not query:
+            return ToolValidationResult(
+                allowed=False,
+                reason="memory_search_query_required",
+                repair_instruction="memory_search requires a non-empty query.",
+                normalized_args=payload,
+                diagnostics={"missing_inputs": ["query"]},
+            )
+        task_scope = str(payload.get("task_run_id") or context.task_run_id or "").strip()
+        project_scope = str(payload.get("project_id") or "").strip()
+        if not project_scope and task_scope:
+            project_scope = project_id_for_task_run(_native_runtime_base_dir(context), task_scope)
+        if not task_scope and not project_scope:
+            return ToolValidationResult(
+                allowed=False,
+                reason="memory_search_scope_required",
+                repair_instruction="memory_search requires runtime-bound task_run_id or project_id. Reassemble the runtime with memory scope before retrying.",
+                normalized_args=payload,
+                diagnostics={"missing_inputs": ["task_run_id_or_project_id"]},
+            )
+        return ToolValidationResult(
+            allowed=True,
+            normalized_args={
+                "query": query,
+                "task_run_id": task_scope,
+                "project_id": project_scope,
+                "repositories": [str(item).strip() for item in list(payload.get("repositories") or []) if str(item).strip()],
+                "collections": [str(item).strip() for item in list(payload.get("collections") or []) if str(item).strip()],
+                "limit": max(1, min(int(payload.get("limit") or 8), 20)),
+            },
+        )
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
+
+    def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        try:
+            payload = _memory_search_payload(args, root_dir=_native_runtime_base_dir(context))
+        except Exception as exc:
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"memory_search failed: {exc}",
+                structured_payload={"tool_result": {"kind": "memory_search", "status": "error", "error": str(exc)}},
+                execution_receipt=context.execution_receipt,
+            )
+        return self._envelope(
+            tool_args=args,
+            status="ok",
+            text=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            structured_payload={"tool_result": {"kind": "memory_search", **payload}},
             execution_receipt=context.execution_receipt,
         )
 
@@ -1125,6 +1291,111 @@ def _walk(value: Any, path: str, lines: list[str], *, max_items: int) -> None:
     lines.append(f"{path}: {type(value).__name__}")
 
 
+def _memory_search_payload(args: dict[str, Any], *, root_dir: Path) -> dict[str, Any]:
+    query = str(args.get("query") or "").strip()
+    task_scope = str(args.get("task_run_id") or "").strip()
+    project_scope = str(args.get("project_id") or "").strip()
+    if not task_scope and not project_scope:
+        raise ValueError("memory_search requires task_run_id or project_id")
+    repo_filter = {str(item or "").strip() for item in list(args.get("repositories") or []) if str(item or "").strip()}
+    collection_filter = {str(item or "").strip() for item in list(args.get("collections") or []) if str(item or "").strip()}
+    result_limit = max(1, min(int(args.get("limit") or 8), 20))
+    service = MemoryRuntimeServices.from_runtime_root(root_dir).formal_memory
+    versions = tuple(
+        version
+        for version in service.store.list_versions(limit=2000)
+        if _memory_version_visible(version, task_run_id=task_scope, project_id=project_scope)
+    )
+    terms = _memory_query_terms(query)
+    matches: list[dict[str, Any]] = []
+    for version in versions:
+        if version.status not in {"accepted", "committed"}:
+            continue
+        if repo_filter and version.logical_repository_id not in repo_filter and version.repository_id not in repo_filter:
+            continue
+        if collection_filter and version.collection_id not in collection_filter:
+            continue
+        haystack = "\n".join(
+            str(item or "")
+            for item in (
+                version.logical_repository_id,
+                version.collection_id,
+                version.record_key,
+                version.record_kind,
+                version.summary,
+                version.canonical_text,
+                json.dumps(version.payload, ensure_ascii=False, sort_keys=True),
+            )
+        ).lower()
+        score = _memory_match_score(terms, haystack)
+        if score <= 0:
+            continue
+        matches.append(
+            {
+                "score": score,
+                "memory_ref": version.version_id,
+                "record_key": version.record_key,
+                "record_kind": version.record_kind,
+                "repository": version.logical_repository_id or version.repository_id,
+                "effective_repository": version.repository_id,
+                "collection": version.collection_id,
+                "summary": version.summary,
+                "canonical_text_preview": _memory_preview(version.canonical_text),
+                "artifact_refs": list(version.artifact_refs),
+                "source_node_id": version.source_node_id,
+                "source_clock": version.source_clock,
+            }
+        )
+    matches.sort(key=lambda item: (-int(item["score"]), str(item["repository"]), str(item["collection"]), str(item["record_key"])))
+    return {
+        "authority": "formal_memory.memory_search_tool",
+        "query": query,
+        "task_run_id": task_scope,
+        "project_id": project_scope,
+        "repositories": sorted(repo_filter),
+        "collections": sorted(collection_filter),
+        "result_count": min(len(matches), result_limit),
+        "results": matches[:result_limit],
+        "diagnostics": {"candidate_version_count": len(versions), "matched_version_count": len(matches), "search_terms": terms},
+    }
+
+
+def _memory_version_visible(version: Any, *, task_run_id: str, project_id: str) -> bool:
+    if task_run_id and str(getattr(version, "task_run_id", "") or "") == task_run_id:
+        return True
+    if project_id and str(getattr(version, "scope_kind", "") or "") == "project_scoped":
+        return str(getattr(version, "scope_id", "") or "") == project_id
+    return False
+
+
+def _memory_query_terms(query: str) -> list[str]:
+    raw_terms = re.findall(r"[A-Za-z0-9_.\-\u4e00-\u9fff]+", query.lower())
+    terms: list[str] = []
+    seen: set[str] = set()
+    for term in [query.lower(), *raw_terms]:
+        normalized = term.strip("._- \t\r\n")
+        if len(normalized) < 2 or normalized in seen:
+            continue
+        seen.add(normalized)
+        terms.append(normalized)
+    return terms
+
+
+def _memory_match_score(terms: list[str], haystack: str) -> int:
+    score = 0
+    for term in terms:
+        if term in haystack:
+            score += max(1, min(len(term), 20))
+    return score
+
+
+def _memory_preview(text: str, *, limit: int = 1200) -> str:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rstrip() + "..."
+
+
 def _file_management_config(context: ToolUseContext) -> dict[str, Any]:
     config = dict(context.file_management_policy or {})
     if not config:
@@ -1344,6 +1615,288 @@ def _real_workspace_root(context: ToolUseContext) -> Path:
     if policy_root:
         return Path(policy_root).resolve()
     return Path(context.workspace_root).resolve()
+
+
+def _native_runtime_base_dir(context: ToolUseContext) -> Path:
+    value = str(getattr(context, "runtime_base_dir", "") or "").strip()
+    if value:
+        return Path(value).resolve()
+    return _real_workspace_root(context)
+
+
+_COMMAND_CHANGE_EXCLUDED_DIRS = set(DEFAULT_EXCLUDED_DIRS) | {
+    ".git",
+    ".hg",
+    ".svn",
+    ".next",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "__pycache__",
+}
+_COMMAND_CHANGE_WRITE_MARKERS = (
+    ">",
+    ">>",
+    " add-content",
+    " copy-item",
+    " mkdir",
+    " move-item",
+    " new-item",
+    " out-file",
+    " remove-item",
+    " rename-item",
+    " set-content",
+    " tee-object",
+    " touch ",
+    " rm ",
+    " mv ",
+    " cp ",
+    " sed -i",
+)
+_COMMAND_CHANGE_MAX_FILES = 1800
+_COMMAND_CHANGE_MAX_RECORDS = 24
+_COMMAND_CHANGE_MAX_FILE_BYTES = 1_000_000
+_COMMAND_CHANGE_MAX_TOTAL_BYTES = 16_000_000
+
+
+def _capture_command_file_snapshot(
+    context: ToolUseContext,
+    *,
+    force: bool,
+    command: str,
+) -> dict[str, Any] | None:
+    if not force and not _command_likely_writes_files(command):
+        return None
+    root = Path(context.workspace_root).resolve()
+    if not root.exists() or not root.is_dir():
+        return None
+    files = WorkspaceFileService(root)
+    entries: dict[str, dict[str, Any]] = {}
+    total_bytes = 0
+    scanned_files = 0
+    truncated = False
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        try:
+            children = sorted(directory.iterdir(), key=lambda item: item.name.lower())
+        except OSError:
+            continue
+        for child in children:
+            if child.is_dir():
+                if child.name in _COMMAND_CHANGE_EXCLUDED_DIRS:
+                    continue
+                stack.append(child)
+                continue
+            if not child.is_file():
+                continue
+            if files.is_excluded(child, include_default_search_excludes=True):
+                continue
+            rel = files.relative_path(child)
+            if rel.startswith("storage/file_changes/"):
+                continue
+            scanned_files += 1
+            if scanned_files > _COMMAND_CHANGE_MAX_FILES:
+                truncated = True
+                break
+            item = _read_trackable_text_file(child)
+            if item is None:
+                continue
+            size = int(item["size_bytes"])
+            if total_bytes + size > _COMMAND_CHANGE_MAX_TOTAL_BYTES:
+                truncated = True
+                break
+            total_bytes += size
+            entries[rel] = {
+                **item,
+                "path": rel,
+                "absolute_path": str(child.resolve()),
+            }
+        if truncated:
+            break
+    return {
+        "root": str(root),
+        "entries": entries,
+        "scanned_files": scanned_files,
+        "truncated": truncated,
+        "authority": "runtime.file_changes.command_snapshot",
+    }
+
+
+def _record_command_file_changes(
+    *,
+    context: ToolUseContext,
+    before_snapshot: dict[str, Any] | None,
+    tool_name: str,
+    operation_id: str,
+    command_label: str,
+) -> dict[str, Any]:
+    if not before_snapshot:
+        return {}
+    root = Path(str(before_snapshot.get("root") or context.workspace_root)).resolve()
+    after_snapshot = _capture_command_file_snapshot(context, force=True, command=command_label)
+    if not after_snapshot:
+        return {}
+    before_entries = dict(before_snapshot.get("entries") or {})
+    after_entries = dict(after_snapshot.get("entries") or {})
+    changed_paths = [
+        path
+        for path in sorted(set(before_entries) | set(after_entries))
+        if str(dict(before_entries.get(path) or {}).get("sha256") or "") != str(dict(after_entries.get(path) or {}).get("sha256") or "")
+    ]
+    records: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for logical_path in changed_paths[:_COMMAND_CHANGE_MAX_RECORDS]:
+        before = dict(before_entries.get(logical_path) or {})
+        after = dict(after_entries.get(logical_path) or {})
+        absolute_path = str(after.get("absolute_path") or before.get("absolute_path") or (root / logical_path))
+        result = _record_text_file_change(
+            context=context,
+            tool_name=tool_name,
+            operation_id=operation_id,
+            logical_path=logical_path,
+            absolute_path=absolute_path,
+            workspace_root=root,
+            before_content=str(before["content"]) if "content" in before else None,
+            after_content=str(after["content"]) if "content" in after else None,
+            metadata={"source": "command_snapshot", "command": command_label},
+        )
+        if str(result.get("status") or "") == "recorded":
+            records.append(dict(result.get("record") or {}))
+        elif str(result.get("status") or "") == "error":
+            errors.append({"path": logical_path, "error": str(result.get("error") or "")})
+    return {
+        "status": "recorded" if records else "unchanged",
+        "record_count": len(records),
+        "changed_path_count": len(changed_paths),
+        "skipped_path_count": max(0, len(changed_paths) - len(records)),
+        "snapshot_truncated": bool(before_snapshot.get("truncated") or after_snapshot.get("truncated")),
+        "records": records,
+        "frontend_diffs": [_frontend_diff_for_record(record) for record in records],
+        "errors": errors,
+        "authority": "runtime.file_changes.command_integration",
+    }
+
+
+def _read_trackable_text_file(path: Path) -> dict[str, Any] | None:
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(_COMMAND_CHANGE_MAX_FILE_BYTES + 1)
+    except OSError:
+        return None
+    if len(data) > _COMMAND_CHANGE_MAX_FILE_BYTES or b"\x00" in data:
+        return None
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return {
+        "content": content,
+        "size_bytes": len(data),
+        "sha256": _sha256_text(content),
+    }
+
+
+def _command_likely_writes_files(command: str) -> bool:
+    normalized = f" {str(command or '').strip().lower()} "
+    if not normalized.strip():
+        return False
+    return any(marker in normalized for marker in _COMMAND_CHANGE_WRITE_MARKERS)
+
+
+def _record_text_file_change(
+    *,
+    context: ToolUseContext,
+    tool_name: str,
+    operation_id: str,
+    logical_path: str,
+    absolute_path: str | Path,
+    workspace_root: str | Path,
+    before_content: str | None,
+    after_content: str | None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    before_text = "" if before_content is None else str(before_content)
+    after_text = "" if after_content is None else str(after_content)
+    if before_content is None and after_content is None:
+        return {"status": "unchanged", "authority": "runtime.file_changes.noop"}
+    if before_content is not None and after_content is not None and _sha256_text(before_text) == _sha256_text(after_text):
+        return {"status": "unchanged", "authority": "runtime.file_changes.noop"}
+    try:
+        record = FileChangeTracker(_file_change_tracker_base_dir(context)).record_text_change(
+            session_id=context.session_id,
+            task_run_id=context.task_run_id,
+            agent_run_id=context.agent_run_id,
+            tool_call_id=context.tool_call_id,
+            tool_name=tool_name,
+            operation_id=operation_id,
+            workspace_root=workspace_root,
+            logical_path=logical_path,
+            absolute_path=absolute_path,
+            before_content=before_content,
+            after_content=after_content,
+            metadata=metadata,
+        )
+        return {
+            "status": "recorded",
+            "record": record,
+            "frontend_diff": _frontend_diff_for_record(record),
+            "authority": "runtime.file_changes.tool_integration",
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+            "authority": "runtime.file_changes.tool_integration",
+        }
+
+
+def _frontend_diff_for_record(record: dict[str, Any]) -> dict[str, Any]:
+    record_id = str(dict(record or {}).get("record_id") or "").strip()
+    if not record_id:
+        return {}
+    return {
+        "record_id": record_id,
+        "api_path": f"/file-changes/{record_id}/diff",
+        "authority": "runtime.file_changes.frontend_diff",
+    }
+
+
+def _change_root_for_path(context: ToolUseContext, path: str | Path) -> Path:
+    target = Path(path).resolve()
+    candidates = [
+        context.workspace_root,
+        context.sandbox_root,
+        _real_workspace_root(context),
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        root = Path(candidate).resolve()
+        if target == root or root in target.parents:
+            return root
+    return target.parent.resolve()
+
+
+def _file_change_tracker_base_dir(context: ToolUseContext) -> Path:
+    value = str(getattr(context, "runtime_base_dir", "") or "").strip()
+    if value:
+        return Path(value).resolve()
+    return _real_workspace_root(context)
+
+
+def _gateway_result_root(result: Any) -> str:
+    root_binding = dict(dict(getattr(result, "metadata", {}) or {}).get("root_binding") or {})
+    return str(root_binding.get("root") or "").strip()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
 
 
 def _runtime_context_storage_roots(context: ToolUseContext) -> tuple[Path, ...]:

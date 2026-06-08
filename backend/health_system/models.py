@@ -49,6 +49,36 @@ class HealthIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class GraphBreakpointPacket:
+    graph_run_id: str
+    graph_id: str
+    graph_harness_config_id: str
+    task_run_id: str
+    session_id: str
+    node_id: str
+    work_order_id: str
+    graph_status: str
+    task_status: str
+    terminal_reason: str
+    blocked_reason: str = ""
+    recoverable_error: dict[str, Any] = field(default_factory=dict)
+    parse_diagnostics: dict[str, Any] = field(default_factory=dict)
+    response_diagnostics: dict[str, Any] = field(default_factory=dict)
+    task_run_monitor: dict[str, Any] = field(default_factory=dict)
+    graph_loop_state: dict[str, Any] = field(default_factory=dict)
+    active_node_runtime_views: tuple[dict[str, Any], ...] = ()
+    refs: dict[str, str] = field(default_factory=dict)
+    fingerprint: str = ""
+    detected_at: float = 0.0
+    authority: str = "health_system.graph_breakpoint_packet"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["active_node_runtime_views"] = [dict(item) for item in self.active_node_runtime_views]
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class HealthAgentRun:
     run_id: str
     request_id: str

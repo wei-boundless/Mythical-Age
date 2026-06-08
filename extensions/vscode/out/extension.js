@@ -36,13 +36,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
-const apiClient_1 = require("./apiClient");
-const editorContext_1 = require("./editorContext");
+const apiClient_1 = require("./connection/apiClient");
+const editorContext_1 = require("./connection/editorContext");
+const heartbeat_1 = require("./connection/heartbeat");
+const sessionBinding_1 = require("./connection/sessionBinding");
 let output;
-const SESSION_STATE_KEY = "langchainAgent.sessionId";
 function activate(context) {
     output = vscode.window.createOutputChannel("Langchain Agent");
     context.subscriptions.push(output);
+    context.subscriptions.push((0, heartbeat_1.startContextHeartbeat)(context, output));
     context.subscriptions.push(vscode.commands.registerCommand("langchainAgent.sendToAgent", () => sendCurrentContext(context)), vscode.commands.registerCommand("langchainAgent.showEditorContext", showEditorContext));
 }
 function deactivate() {
@@ -59,10 +61,11 @@ async function sendCurrentContext(context) {
         return;
     }
     const editorContext = (0, editorContext_1.collectEditorContext)();
-    const sessionId = await resolveSessionId(context, editorContext);
+    const sessionId = await (0, sessionBinding_1.resolveSessionId)(context, editorContext, { createIfMissing: true });
     output?.show(true);
     output?.appendLine(`Sending request to local agent session ${sessionId}.`);
     try {
+        await (0, apiClient_1.postEditorContext)(sessionId, editorContext);
         const run = await (0, apiClient_1.createChatRun)({
             message: message.trim(),
             session_id: sessionId,
@@ -80,39 +83,6 @@ async function sendCurrentContext(context) {
         output?.appendLine(text);
         vscode.window.showErrorMessage(text);
     }
-}
-async function resolveSessionId(context, editorContext) {
-    const configured = (0, apiClient_1.configuredSessionId)();
-    if (configured) {
-        return configured;
-    }
-    const stored = context.workspaceState.get(SESSION_STATE_KEY) || "";
-    if (stored && await (0, apiClient_1.sessionExists)(stored)) {
-        return stored;
-    }
-    const projectBinding = await projectBindingFromEditorContext(editorContext);
-    const created = await (0, apiClient_1.createSession)("VS Code Agent Session", projectBinding);
-    await context.workspaceState.update(SESSION_STATE_KEY, created.id);
-    output?.appendLine(`Created local agent session ${created.id}.`);
-    return created.id;
-}
-async function projectBindingFromEditorContext(editorContext) {
-    const roots = Array.from(new Set(editorContext.workspace_roots.map((item) => item.trim()).filter(Boolean)));
-    if (roots.length === 0) {
-        return undefined;
-    }
-    if (roots.length === 1) {
-        return { workspace_root: roots[0], source: "vscode" };
-    }
-    const selected = await vscode.window.showQuickPick(roots, {
-        title: "Bind Langchain Agent Session",
-        placeHolder: "Select the project root for this local agent session.",
-        ignoreFocusOut: true
-    });
-    if (!selected) {
-        throw new Error("A project root must be selected before creating a VS Code agent session.");
-    }
-    return { workspace_root: selected, source: "vscode" };
 }
 async function showEditorContext() {
     const snapshot = (0, editorContext_1.collectEditorContext)();

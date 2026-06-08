@@ -20,6 +20,7 @@ export type SessionSummary = {
   created_at: number;
   updated_at: number;
   message_count: number;
+  turn_count?: number;
   scope?: SessionScope;
   task_binding?: SessionTaskBinding;
   conversation_state?: ConversationState;
@@ -217,8 +218,11 @@ export type PublicTodoItem = {
 export type PublicChatTimelineItem = {
   item_id?: string;
   kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "work_action" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
+  surface?: "body" | "tool_window" | "status" | string;
+  source_authority?: "model" | "runtime" | "tool" | "system" | string;
   action_kind?: "inspect" | "read" | "search" | "edit" | "write" | "run" | "verify" | "memory" | "prepare" | "artifact" | "browse" | "image" | "work" | string;
   phase?: "running" | "done" | "adjusting" | string;
+  phase_ref?: string;
   subject_label?: string;
   public_summary?: string;
   observation?: string;
@@ -228,16 +232,69 @@ export type PublicChatTimelineItem = {
   text?: string;
   implication?: string;
   recovery_hint?: string;
+  tool_window?: {
+    tool_label?: string;
+    target?: string;
+    status?: string;
+    sections?: Array<{
+      label?: string;
+      text?: string;
+    }>;
+  };
   href?: string;
   path?: string;
   state?: "running" | "done" | "error" | "ready" | "missing" | "passed" | "failed" | "partial" | string;
   stream_state?: "streaming" | "done" | string;
+  collapse_after_body_feedback?: boolean;
+  collapsed?: boolean;
+  covers_tool_refs?: string[];
   trace_refs?: string[];
   artifacts?: Array<Record<string, unknown>>;
   verified?: string[];
   todo_items?: PublicTodoItem[];
   active_item_id?: string;
   completion_ready?: boolean;
+};
+
+export type SingleAgentTaskProjectionTodo = {
+  plan_id?: string;
+  active_item_id?: string;
+  completion_ready?: boolean;
+  authority?: string;
+  items?: PublicTodoItem[];
+};
+
+export type SingleAgentTaskProjectionActivity = {
+  activity_id?: string;
+  kind: "handoff" | "action" | "observation" | "todo" | "status" | "final" | "error" | string;
+  title?: string;
+  detail?: string;
+  state?: "running" | "completed" | "failed" | "waiting" | "stopped" | string;
+  event_ref?: string;
+  source_kind?: string;
+};
+
+export type SingleAgentTaskProjection = {
+  projection_id: string;
+  authority: string;
+  task_run_id: string;
+  task_id?: string;
+  turn_id?: string;
+  anchor_turn_id?: string;
+  anchor_message_id?: string;
+  status: "queued" | "running" | "waiting_approval" | "waiting_user" | "paused" | "stopped" | "failed" | "completed" | string;
+  raw_status?: string;
+  phase?: "handoff" | "scheduled" | "executing" | "tool_waiting" | "verifying" | "blocked" | "completed" | string;
+  user_visible_goal?: string;
+  current_action?: Record<string, unknown>;
+  todo?: SingleAgentTaskProjectionTodo;
+  activities?: SingleAgentTaskProjectionActivity[];
+  final_answer?: string;
+  artifact_refs?: Array<Record<string, unknown>>;
+  control?: Record<string, unknown>;
+  debug_trace_ref?: string;
+  created_at?: number;
+  updated_at?: number;
 };
 
 export type PublicChatTimelineDelta = {
@@ -287,6 +344,7 @@ export type SessionRuntimeAttachment = {
   progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
   public_timeline?: PublicChatTimelineItem[];
+  task_projection?: SingleAgentTaskProjection;
   artifact_refs?: Array<Record<string, unknown>>;
   final_answer?: string;
   trace_available?: boolean;
@@ -376,6 +434,44 @@ export type ProjectWorkspaceSummary = {
   latest_session_at: number;
   available: boolean;
   authority: string;
+};
+
+export type FileChangeRecord = {
+  record_id: string;
+  session_id: string;
+  task_run_id: string;
+  agent_run_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  operation_id: string;
+  workspace_root: string;
+  logical_path: string;
+  absolute_path: string;
+  before_exists: boolean;
+  after_exists: boolean;
+  before_sha256: string;
+  after_sha256: string;
+  before_snapshot_path: string;
+  after_snapshot_path: string;
+  status: string;
+  created_at: number;
+  rolled_back_at?: number;
+  rollback_error?: string;
+  metadata?: Record<string, unknown>;
+  authority?: string;
+};
+
+export type FileChangeDiff = {
+  diff_id: string;
+  logical_path: string;
+  before_exists: boolean;
+  after_exists: boolean;
+  before_content: string;
+  after_content: string;
+  before_sha256: string;
+  after_sha256: string;
+  truncated?: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 export type CodeEnvironmentGitStatus = {
@@ -1779,6 +1875,37 @@ export type OrchestrationOption = {
   operation_type?: string;
 };
 
+export type PersonalitySelection = {
+  personality_attitude_refs: string[];
+  work_attitude_refs: string[];
+};
+
+export type PersonalitySelectorOption = {
+  id: string;
+  value: string;
+  prompt_ref: string;
+  label: string;
+  title?: string;
+  description?: string;
+  dimension: "personality_attitude" | "work_attitude" | string;
+  order?: number;
+};
+
+export type PersonalitySelectorDimension = {
+  dimension: "personality_attitude" | "work_attitude" | string;
+  label: string;
+  description?: string;
+  options: PersonalitySelectorOption[];
+};
+
+export type PersonalitySelectorCatalog = {
+  authority: string;
+  schema_version: string;
+  selection_key: string;
+  dimensions: PersonalitySelectorDimension[];
+  options_by_dimension?: Record<string, PersonalitySelectorOption[]>;
+};
+
 export type OrchestrationCapabilityItem = {
   capability_id: string;
   capability_kind: "skill" | "tool" | "mcp" | "operation" | string;
@@ -1821,6 +1948,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     capability_items?: OrchestrationCapabilityItem[];
     tool_packages?: ToolPackageDefinition[];
     model_provider_catalog?: ModelProviderCatalog;
+    personality_options?: PersonalitySelectorCatalog;
   };
 };
 
@@ -2520,6 +2648,8 @@ export type RunMonitorEventPayload = {
     public_event_type?: string;
     public_timeline_delta?: PublicChatTimelineItem[];
     public_timeline?: PublicChatTimelineItem[];
+    task_projection?: SingleAgentTaskProjection;
+    task_projection_delta?: SingleAgentTaskProjection;
     public_anchor?: {
       run_id?: string;
       task_run_id?: string;
@@ -2573,6 +2703,7 @@ export type HarnessTaskRunLiveMonitor = {
   latest_progress?: Record<string, unknown>;
   progress_presentation?: Record<string, unknown>;
   public_timeline?: PublicChatTimelineItem[];
+  task_projection?: SingleAgentTaskProjection;
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
@@ -3806,6 +3937,22 @@ export async function selectProjectWorkspaceDirectory() {
   });
 }
 
+export async function removeProjectWorkspace(projectKey: string, options: { detachSessions?: boolean } = {}) {
+  const params = new URLSearchParams();
+  params.set("detach_sessions", String(options.detachSessions ?? true));
+  return request<{
+    authority: string;
+    project_key: string;
+    ok: boolean;
+    project: ProjectWorkspaceSummary;
+    removed_registry_entry: boolean;
+    detached_sessions: SessionSummary[];
+    detached_session_count: number;
+  }>(`/project-workspaces/${encodeURIComponent(projectKey)}?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
 export async function listProjectWorkspaceSessions(projectKey: string) {
   return request<{
     authority: string;
@@ -3926,6 +4073,37 @@ export async function saveFileForSession(path: string, content: string, sessionI
   return request<{ ok: boolean; path: string }>(`/files?${params.toString()}`, {
     method: "POST",
     body: JSON.stringify({ path, content })
+  });
+}
+
+export async function listFileChanges(params: { sessionId?: string; taskRunId?: string; status?: string; limit?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.sessionId) query.set("session_id", params.sessionId);
+  if (params.taskRunId) query.set("task_run_id", params.taskRunId);
+  if (params.status) query.set("status", params.status);
+  if (params.limit) query.set("limit", String(params.limit));
+  return request<{
+    records: FileChangeRecord[];
+    summary: { count: number };
+    authority: string;
+  }>(`/file-changes${query.toString() ? `?${query.toString()}` : ""}`);
+}
+
+export async function getFileChangeDiff(recordId: string) {
+  return request<{
+    diff: FileChangeDiff;
+    authority: string;
+  }>(`/file-changes/${encodeURIComponent(recordId)}/diff`);
+}
+
+export async function rollbackFileChange(recordId: string, options: { force?: boolean } = {}) {
+  return request<{
+    record: FileChangeRecord;
+    rolled_back: boolean;
+    authority: string;
+  }>(`/file-changes/${encodeURIComponent(recordId)}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ force: Boolean(options.force) }),
   });
 }
 

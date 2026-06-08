@@ -22,9 +22,13 @@ class RuntimeMonitorService:
         )
         self.projector = RuntimeMonitorProjector(
             runtime_host.event_log,
+            runtime_host=runtime_host,
             freshness_seconds=freshness_seconds,
             resource_resolver=self.resource_resolver,
             session_scope_resolver=getattr(runtime_host, "session_scope_resolver", None),
+            observability_query=getattr(getattr(runtime_host, "observability", None), "query", None),
+            fact_ledger=getattr(runtime_host, "fact_ledger", None),
+            trace_service=getattr(runtime_host, "trace_service", None),
         )
         self.retention_store = RuntimeMonitorRetentionStore(
             backend_dir=getattr(runtime_host, "backend_dir", None),

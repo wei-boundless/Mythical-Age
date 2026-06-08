@@ -267,9 +267,9 @@ def test_main_profile_uses_prompt_library_refs_not_embedded_work_role_prompts() 
     metadata = dict(profile.metadata or {})
 
     assert metadata["agent_prompt_refs_by_invocation"] == {
-        "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role.v1"],
-        "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role.v1"],
-        "task_execution": ["agent.main_interactive_agent.task_execution.work_role.v1"],
+        "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
+        "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
+        "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
     }
     assert "work_role_prompt" not in metadata
     assert "agent_work_role_prompt" not in metadata

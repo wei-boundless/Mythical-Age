@@ -231,6 +231,27 @@ class SessionManager:
             self._write_payload(session_id, payload)
             return next_binding
 
+    def clear_project_binding(
+        self,
+        session_id: str,
+        *,
+        workspace_root: str | None = None,
+    ) -> dict[str, Any]:
+        expected_root = str(workspace_root or "").strip()
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            state = _normalize_conversation_state(dict(payload.get("conversation_state") or {}))
+            current = _normalize_project_binding(dict(state.get("project_binding") or {}), validate_root=False)
+            if not current:
+                return self._summary_from_payload(payload)
+            if expected_root and not _same_workspace_root(current["workspace_root"], expected_root):
+                raise SessionProjectBindingConflict("session has a different project binding")
+            state["project_binding"] = {}
+            payload["conversation_state"] = state
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return self._summary_from_payload(payload)
+
     def set_active_task_environment(self, session_id: str, active_environment: dict[str, Any]) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)

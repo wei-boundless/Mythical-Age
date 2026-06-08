@@ -1,0 +1,240 @@
+  1 | # Graph Harness Architecture Audit
+  2 | 
+  3 | 日期：2026-06-07
+  4 | 
+  5 | 范围：
+  6 | 
+  7 | - `backend/api/orchestration.py`
+  8 | - `backend/harness/graph_harness.py`
+  9 | - `backend/harness/entrypoint/runtime_facade.py`
+ 10 | - `backend/task_system/engagement/service.py`
+ 11 | - `backend/task_system/engagement/dispatcher.py`
+ 12 | - `backend/api/task_system.py`
+ 13 | 
+ 14 | ## 1. 当前主链
+ 15 | 
+ 16 | 当前图任务的真实主链已经相对清晰：
+ 17 | 
+ 18 | 1. 图运行控制入口：
+ 19 |    - `backend/api/orchestration.py`
+ 20 | 2. 图运行总门面：
+ 21 |    - `backend/harness/graph_harness.py`
+ 22 | 3. 图运行静态装配：
+ 23 |    - `backend/harness/graph/runtime.py`
+ 24 | 4. 图循环推进：
+ 25 |    - `backend/harness/graph/loop.py`
+ 26 |    - `backend/harness/graph/state_machine.py`
+ 27 | 5. 节点执行任务化：
+ 28 |    - `backend/harness/entrypoint/runtime_facade.py`
+ 29 | 6. 节点 work order 执行：
+ 30 |    - `backend/harness/graph/work_order_executor.py`
+ 31 | 
+ 32 | 目标权力链应该是：
+ 33 | 
+ 34 | `API scope/binding -> GraphHarness -> GraphRuntime/GraphLoop -> RuntimeFacade node task creation -> WorkOrderExecutor`
+ 35 | 
+ 36 | ## 2. 结构性问题
+ 37 | 
+ 38 | ### P0: 图启动存在第二套上层入口
+ 39 | 
+ 40 | 文件：
+ 41 | 
+ 42 | - `backend/api/task_system.py`
+ 43 | - `backend/task_system/engagement/service.py`
+ 44 | - `backend/task_system/engagement/dispatcher.py`
+ 45 | 
+ 46 | 现状：
+ 47 | 
+ 48 | - `/tasks/engagement-plans/{plan_id}/start` 会走 `EngagementService.start(...)`
+ 49 | - `EngagementService` 再调用 `EngagementDispatcher.dispatch(...)`
+ 50 | - `EngagementDispatcher` 在 `_dispatch_graph_task_run(...)` 内直接 `graph_harness.start_run(...)`
+ 51 | 
+ 52 | 问题：
+ 53 | 
+ 54 | - 这不是图任务主控制入口，却在重新决定“如何启动图运行”。
+ 55 | - 它绕开了 `backend/api/orchestration.py` 里已有的项目绑定、单项目单图实例复用、scope 校验和返回契约。
+ 56 | - 结果是“图任务启动”这件事存在两套权力源：
+ 57 |   - 一套在 `api/orchestration.py`
+ 58 |   - 一套在 `engagement/dispatcher.py`
+ 59 | 
+ 60 | 结论：
+ 61 | 
+ 62 | - 这是典型双入口噪音。
+ 63 | - `EngagementDispatcher` 不应该自己发起 `graph_harness.start_run(...)`。
+ 64 | - engagement 层应该只做：
+ 65 |   - 计划解析
+ 66 |   - 准入
+ 67 |   - 启动请求归一化
+ 68 |   - 然后把启动交给唯一图控制入口
+ 69 | 
+ 70 | 动作：
+ 71 | 
+ 72 | - 删除 `EngagementDispatcher` 对 `GraphHarness.start_run(...)` 的直接调用权。
+ 73 | - 改成调用单一图启动服务。
+ 74 | - 最终删除 `engagement` 链里重复的图启动编排。
+ 75 | 
+ 76 | ### P0: EngagementDispatcher 内存在隐式 GraphHarness fallback
+ 77 | 
+ 78 | 文件：
+ 79 | 
+ 80 | - `backend/task_system/engagement/dispatcher.py`
+ 81 | 
+ 82 | 现状：
+ 83 | 
+ 84 | - `_graph_harness_from_runtime_host(...)` 会：
+ 85 |   - 优先读 `runtime_host.graph_harness`
+ 86 |   - 没有就临时 `GraphHarness(services=AgentRuntimeServices.from_runtime_host(runtime_host))`
+ 87 | 
+ 88 | 问题：
+ 89 | 
+ 90 | - 这是隐藏式兼容分支。
+ 91 | - 运行时如果没有正确挂 graph harness，本应直接失败暴露 wiring 问题，而不是静默临时造一个。
+ 92 | - 这会制造“看起来能跑，但不是统一 runtime 实例”的假象。
+ 93 | 
+ 94 | 结论：
+ 95 | 
+ 96 | - 这段 fallback 没有合法权力。
+ 97 | - 应直接删除。
+ 98 | 
+ 99 | 动作：
+100 | 
+101 | - 要么 `runtime_host` 必须显式提供 graph harness。
+102 | - 要么上层显式传入图启动服务。
+103 | - 不能在 dispatcher 内偷偷构造。
+104 | 
+105 | ### P0: 图级启动契约分散，project graph binding 只在一条链上生效
+106 | 
+107 | 文件：
+108 | 
+109 | - `backend/api/orchestration.py`
+110 | - `backend/task_system/engagement/dispatcher.py`
+111 | 
+112 | 现状：
+113 | 
+114 | - `api/orchestration.py` 在启动时会维护：
+115 |   - `ProjectGraphInstanceRepository`
+116 |   - 单项目活跃图实例复用
+117 |   - control session 绑定
+118 | - `engagement/dispatcher.py` 自己启动图时没有复用这套逻辑
+119 | 
+120 | 问题：
+121 | 
+122 | - 同一个项目上的图实例唯一性，不该只在某一条入口里成立。
+123 | - 如果 engagement 链继续保留直接启动，就会继续绕过项目级图实例边界。
+124 | 
+125 | 结论：
+126 | 
+127 | - 图实例绑定必须是唯一主链能力。
+128 | - 不能让第二条入口绕开。
+129 | 
+130 | 动作：
+131 | 
+132 | - 将“图启动”抽成单一 service，或只保留 `api/orchestration.py` 这条启动路径。
+133 | - engagement 层只负责把请求路由给它。
+134 | 
+135 | ### P1: GraphHarness 内部有重复调用面，run_until_idle 直接绕过 facade 方法
+136 | 
+137 | 文件：
+138 | 
+139 | - `backend/harness/graph_harness.py`
+140 | 
+141 | 现状：
+142 | 
+143 | - `GraphHarness` 已公开 `resume_run(...)`
+144 | - 但 `run_until_idle(...)` 内部直接 `self._resume.resume(...)`
+145 | 
+146 | 问题：
+147 | 
+148 | - 虽然行为接近，但这属于同层重复调用面。
+149 | - facade 已经定义了公开恢复接口，内部再直连下层对象，会让后续收口更难。
+150 | 
+151 | 结论：
+152 | 
+153 | - 不是最严重的问题，但属于应清理的重复面。
+154 | 
+155 | 动作：
+156 | 
+157 | - `run_until_idle(...)` 改用 `self.resume_run(...)`
+158 | 
+159 | ### P1: GraphHarness 兼有执行与呈现辅助逻辑
+160 | 
+161 | 文件：
+162 | 
+163 | - `backend/harness/graph_harness.py`
+164 | 
+165 | 现状：
+166 | 
+167 | - `GraphHarness` 既控制图运行
+168 | - 也拼 monitor 视图、task run summary、event window projection
+169 | 
+170 | 问题：
+171 | 
+172 | - 运行控制与监控投影是两类职责。
+173 | - 当前还不至于阻塞运行，但已经形成“控制器兼 presenter”的倾向。
+174 | 
+175 | 结论：
+176 | 
+177 | - 中期应该把 monitor projection 下沉到专门 projector/service。
+178 | - `GraphHarness` 只保留运行控制和状态读取。
+179 | 
+180 | 动作：
+181 | 
+182 | - 第一阶段不强拆。
+183 | - 先删除双入口和 fallback。
+184 | - 第二阶段再裁掉 monitor 视图组装。
+185 | 
+186 | ### P1: RuntimeFacade 仍承担图节点适配与 session 建立双职责
+187 | 
+188 | 文件：
+189 | 
+190 | - `backend/harness/entrypoint/runtime_facade.py`
+191 | 
+192 | 现状：
+193 | 
+194 | - `_create_graph_node_task_run(...)`
+195 | - `_ensure_graph_node_session(...)`
+196 | - `_resolve_graph_node_profile(...)`
+197 | 
+198 | 问题：
+199 | 
+200 | - `RuntimeFacade` 既做 graph node task 化，又做 session/materialization 侧的绑定。
+201 | - 这是运行期适配层，不是当前最突出的噪音，但已经过厚。
+202 | 
+203 | 结论：
+204 | 
+205 | - 当前先不拆。
+206 | - 它仍属于主链的一部分，不是“无意义兼容”。
+207 | 
+208 | 动作：
+209 | 
+210 | - 保留。
+211 | - 等双入口清完后，再判断是否要抽出 `GraphNodeTaskAdapter`。
+212 | 
+213 | ## 3. 删除优先级
+214 | 
+215 | 第一批必须删：
+216 | 
+217 | 1. `backend/task_system/engagement/dispatcher.py` 里的 `GraphHarness.start_run(...)` 直接调用
+218 | 2. `backend/task_system/engagement/dispatcher.py` 里的 `_graph_harness_from_runtime_host(...)` fallback
+219 | 3. engagement 启动链中对图启动的重复编排
+220 | 
+221 | 第二批收口：
+222 | 
+223 | 1. `backend/harness/graph_harness.py` 内部统一走 facade 方法，不直连 `_resume`
+224 | 2. 评估是否把 `get_graph_run_monitor(...)` 从 harness 中移出
+225 | 
+226 | 暂不处理：
+227 | 
+228 | 1. `RuntimeFacade` 节点 task 化逻辑
+229 | 2. 图状态机与 work order executor 本体
+230 | 
+231 | 原因：
+232 | 
+233 | - 这两部分虽然厚，但目前仍是主链核心，不属于“无意义兼容”。
+234 | 
+235 | ## 4. 实施计划
+236 | 
+237 | ### Stage 1: 删除 engagement 对图启动的重复权力
+238 | 
+239 | 改动：
+240 | 

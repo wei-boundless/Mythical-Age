@@ -4,6 +4,7 @@ import { Edit3, FileText, RefreshCw, Save, Sparkles, Workflow, X } from "lucide-
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 import { useAppStore } from "@/lib/store";
 
@@ -220,57 +221,60 @@ export function CenterWorkspaceView({
 
   return (
     <section className="center-workspace" aria-label="中心工作区">
-      <header className="center-workspace__tabs" aria-label="中心层级切换">
-        <button
-          className={layer === "chat" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
-          onClick={() => setLayer("chat")}
-          type="button"
-        >
-          <Sparkles size={14} />
-          <span>会话层</span>
-        </button>
-        <button
-          className={layer === "task-graph" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
-          onClick={() => setLayer("task-graph")}
-          type="button"
-        >
-          <Workflow size={14} />
-          <span>图任务层</span>
-        </button>
-        {openFilePaths.map((path) => {
-          const active = layer === "file" && path === activeFilePath;
-          return (
-            <div
-              className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
-              key={path}
-              title={path}
-            >
-              <button
-                aria-current={active ? "page" : undefined}
-                className="center-workspace-file-tab__main"
-                onClick={() => {
-                  if (!canSwitchActiveFile(path)) return;
-                  setActiveFilePath(path);
-                  setLayer("file");
-                  setSessionEditorPageState({ activeFilePath: path, openFilePaths });
-                }}
-                type="button"
+      <header className="center-workspace__head" aria-label="主会话页面控制">
+        <nav className="center-workspace__tabs" aria-label="中心层级切换">
+          <button
+            className={layer === "chat" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
+            onClick={() => setLayer("chat")}
+            type="button"
+          >
+            <Sparkles size={14} />
+            <span>会话层</span>
+          </button>
+          <button
+            className={layer === "task-graph" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
+            onClick={() => setLayer("task-graph")}
+            type="button"
+          >
+            <Workflow size={14} />
+            <span>图任务层</span>
+          </button>
+          {openFilePaths.map((path) => {
+            const active = layer === "file" && path === activeFilePath;
+            return (
+              <div
+                className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
+                key={path}
+                title={path}
               >
-                <FileText size={14} />
-                <span>{compactFileName(path)}</span>
-              </button>
-              <button
-                aria-label={`关闭文件页 ${compactFileName(path)}`}
-                className="center-workspace-file-tab__close"
-                onClick={() => closeFilePage(path)}
-                title="关闭文件页"
-                type="button"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          );
-        })}
+                <button
+                  aria-current={active ? "page" : undefined}
+                  className="center-workspace-file-tab__main"
+                  onClick={() => {
+                    if (!canSwitchActiveFile(path)) return;
+                    setActiveFilePath(path);
+                    setLayer("file");
+                    setSessionEditorPageState({ activeFilePath: path, openFilePaths });
+                  }}
+                  type="button"
+                >
+                  <FileText size={14} />
+                  <span>{compactFileName(path)}</span>
+                </button>
+                <button
+                  aria-label={`关闭文件页 ${compactFileName(path)}`}
+                  className="center-workspace-file-tab__close"
+                  onClick={() => closeFilePage(path)}
+                  title="关闭文件页"
+                  type="button"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+        <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
       </header>
 
       {layer === "chat" ? (

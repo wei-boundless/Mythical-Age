@@ -5,15 +5,15 @@ import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { PublicRunActivity } from "@/components/chat/PublicRunActivity";
+import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/components/chat/PublicTimelineActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import {
-  assistantContentFromPublicTimeline,
-  hasAgentRunProjection,
+  isPublicTimelineBodyItem,
   looksLikeRawToolOutput,
-  projectAgentRun,
+  publicTimelineBodyText,
 } from "@/components/chat/agentRunProjection";
-import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
+import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
+import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
@@ -26,6 +26,9 @@ export function ChatMessage({
   runtimePublicTimelineDraft,
   answerChannel,
   answerCanonicalState,
+  answerPersistPolicy,
+  answerSource,
+  answerLeakFlags,
   retrievals,
   canEdit = false,
   onResendEdit
@@ -64,22 +67,39 @@ export function ChatMessage({
   const [copiedReply, setCopiedReply] = useState(false);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
-  const baseDisplayContent = isUser ? content : assistantDisplayContent(content);
-  const publicTimelineItems = isUser
+  const baseDisplayContent = isUser
+    ? content
+    : assistantDisplayContent(content, {
+      answerChannel,
+      answerCanonicalState,
+      answerPersistPolicy,
+      answerSource,
+      answerLeakFlags,
+    });
+  const terminalState = publicTimelineTerminalStateFromAnswer({ answerCanonicalState, answerChannel });
+  const taskProjections = isUser
+    ? []
+    : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
+  const basePublicTimelineItems = isUser
     ? []
     : mergedPublicTimelineItems(
       runtimeAttachments,
       runtimePublicTimelineDraft,
-      publicTimelineTerminalStateFromAnswer({ answerCanonicalState, answerChannel }),
+      terminalState,
     );
-  const displayContent = isUser
-    ? baseDisplayContent
-    : assistantContentFromPublicTimeline(baseDisplayContent, publicTimelineItems);
+  const hasBasePublicTimelineActivity = publicTimelineHasDisplayableActivity(basePublicTimelineItems, taskProjections);
+  const contentProjectedIntoTimeline = !isUser && Boolean(baseDisplayContent.trim()) && hasBasePublicTimelineActivity;
+  const publicTimelineItems = contentProjectedIntoTimeline
+    ? mergePublicTimelineItems(
+      withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent),
+      [assistantFinalSummaryTimelineItem(baseDisplayContent)],
+      { terminalState },
+    )
+    : basePublicTimelineItems;
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
   const messageDisplayContent = isUser
-    ? displayContent
-    : displayContent;
-  const runProjection = isUser ? null : projectAgentRun(publicTimelineItems, messageDisplayContent);
-  const hasRunActivity = Boolean(runProjection && hasAgentRunProjection(runProjection));
+    ? baseDisplayContent
+    : contentProjectedIntoTimeline ? "" : baseDisplayContent;
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
@@ -148,6 +168,9 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
+      {!isUser && hasPublicTimelineActivity ? (
+        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjections} />
+      ) : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {!isUser && copyableReplyText ? (
@@ -225,9 +248,6 @@ export function ChatMessage({
           )}
         </div>
       ) : null}
-      {hasRunActivity ? (
-        <PublicRunActivity projection={runProjection ?? undefined} />
-      ) : null}
     </article>
   );
 }
@@ -259,13 +279,83 @@ function mergedPublicTimelineItems(
   terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer> = "",
 ) {
   const persisted = attachments.flatMap((attachment) =>
-    Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+    attachment.task_projection
+      ? []
+      : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
   );
   return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
 }
 
-function assistantDisplayContent(content: string) {
+function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttachment[]): SingleAgentTaskProjection[] {
+  return attachments.flatMap((attachment) =>
+    attachment.task_projection ? [attachment.task_projection] : [],
+  );
+}
+
+function assistantFinalSummaryTimelineItem(content: string): PublicChatTimelineItem {
+  const text = content.trim();
+  return {
+    item_id: `assistant-final:${text.slice(0, 96)}`,
+    kind: "final_summary",
+    surface: "body",
+    source_authority: "model",
+    text,
+    state: "done",
+  };
+}
+
+function withoutRedundantAssistantFinalBody(items: PublicChatTimelineItem[], content: string) {
+  return items.filter((item) => !isRedundantAssistantFinalBody(item, content));
+}
+
+function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: string) {
+  const kind = String(item.kind ?? "").trim();
+  if (kind !== "final_summary" && kind !== "assistant_text") {
+    return false;
+  }
+  if (!isPublicTimelineBodyItem(item)) {
+    return false;
+  }
+  const itemText = normalizedAssistantComparisonText(publicTimelineBodyText(item));
+  const contentText = normalizedAssistantComparisonText(content);
+  if (!itemText || !contentText) {
+    return false;
+  }
+  if (itemText === contentText) {
+    return true;
+  }
+  const shortText = itemText.length <= contentText.length ? itemText : contentText;
+  const longText = itemText.length <= contentText.length ? contentText : itemText;
+  if (shortText.length < 80) {
+    return false;
+  }
+  if (longText.includes(shortText)) {
+    return true;
+  }
+  return commonPrefixLength(shortText, longText) / shortText.length >= 0.92;
+}
+
+function normalizedAssistantComparisonText(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function commonPrefixLength(left: string, right: string) {
+  const limit = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < limit && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+function assistantDisplayContent(
+  content: string,
+  metadata: Parameters<typeof shouldDisplayAssistantContent>[0],
+) {
   const normalized = String(content || "").trim();
+  if (!shouldDisplayAssistantContent(metadata)) {
+    return "";
+  }
   if (looksLikeRawToolOutput(normalized)) {
     return "";
   }

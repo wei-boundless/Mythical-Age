@@ -11,6 +11,7 @@ from capability_system.skills.paths import CapabilitySkillPaths
 from capability_system.skills.scanner import scan_skills
 from capability_system.tools.paths import CapabilityToolPaths
 from code_environment.workspace_tree import _is_excluded_relative_path
+from memory_system.storage_layout import MemoryStorageLayout
 from project_layout import ProjectLayout
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
@@ -146,6 +147,7 @@ def _resolve_path(
 ) -> Path:
     runtime = require_runtime()
     layout = ProjectLayout.from_backend_dir(runtime.base_dir)
+    memory_layout = MemoryStorageLayout.from_project_layout(layout)
     skill_paths = CapabilitySkillPaths.from_base_dir(runtime.base_dir)
     tool_paths = CapabilityToolPaths.from_base_dir(runtime.base_dir)
     project_root = _session_project_root(
@@ -161,11 +163,15 @@ def _resolve_path(
         raise HTTPException(status_code=400, detail="Path is not in the editable whitelist")
 
     if normalized.startswith("durable_memory/"):
-        candidate = (layout.durable_memory_dir / normalized.removeprefix("durable_memory/")).resolve()
-        allowed_root = layout.durable_memory_dir.resolve()
+        durable_ref = normalized.removeprefix("durable_memory/")
+        if durable_ref.startswith("environments/"):
+            candidate = (memory_layout.durable_root / durable_ref).resolve()
+        else:
+            candidate = (memory_layout.durable_global_root / durable_ref).resolve()
+        allowed_root = memory_layout.durable_root.resolve()
     elif normalized.startswith("session-memory/"):
-        candidate = (layout.session_memory_dir / normalized.removeprefix("session-memory/")).resolve()
-        allowed_root = layout.session_memory_dir.resolve()
+        candidate = (memory_layout.session_root / normalized.removeprefix("session-memory/")).resolve()
+        allowed_root = memory_layout.session_root.resolve()
     elif normalized.startswith("sessions/"):
         candidate = (layout.sessions_dir / normalized.removeprefix("sessions/")).resolve()
         allowed_root = layout.sessions_dir.resolve()

@@ -14,6 +14,7 @@ from .execution_planner import (
     build_health_agent_run_preview,
 )
 from .models import (
+    GraphBreakpointPacket,
     HealthAgentConversationMessage,
     HealthAgentConversationSession,
     HealthAgentRun,
@@ -76,7 +77,12 @@ class HealthRegistry:
 
     def get_issue(self, issue_id: str) -> HealthIssue | None:
         target = str(issue_id or "").strip()
-        return next((item for item in self.list_issues() if item.issue_id == target), None)
+        if not target:
+            return None
+        stored = self.store.get_issue(target)
+        if stored is not None:
+            return stored
+        return next((item for item in default_health_issues() if item.issue_id == target), None)
 
     def create_issue(self, payload: dict[str, Any]) -> HealthIssue:
         now = time.time()
@@ -104,19 +110,110 @@ class HealthRegistry:
         self.store.upsert_issue(issue)
         return issue
 
+    def upsert_graph_breakpoint_issue(self, packet: GraphBreakpointPacket) -> HealthIssue:
+        now = time.time()
+        issue_id = _graph_breakpoint_issue_id(packet)
+        existing = self.get_issue(issue_id)
+        recovery_key = _graph_breakpoint_recovery_key(packet)
+        metadata = {
+            **(dict(existing.metadata or {}) if existing is not None else {}),
+            "graph_breakpoint_packet": _compact_graph_breakpoint_packet(packet, recovery_key=recovery_key),
+            "graph_breakpoint_fingerprint": str(packet.fingerprint or ""),
+            "graph_breakpoint_recovery_key": recovery_key,
+            "graph_breakpoint_detected_at": float(packet.detected_at or now),
+        }
+        runtime_trace_refs = tuple(
+            item
+            for item in dict.fromkeys(
+                [
+                    packet.task_run_id,
+                    packet.refs.get("graph_run_ref") or "",
+                    *(existing.runtime_trace_refs if existing is not None else ()),
+                ]
+            )
+            if item
+        )
+        issue = HealthIssue(
+            issue_id=issue_id,
+            title=_graph_breakpoint_issue_title(packet),
+            owner_system="graph_runtime",
+            severity=_graph_breakpoint_severity(packet),
+            status="triage_ready",
+            source="health_system.graph_breakpoint_poller",
+            conversation_ref=packet.session_id,
+            runtime_trace_refs=runtime_trace_refs,
+            prompt_manifest_refs=existing.prompt_manifest_refs if existing is not None else (),
+            memory_refs=existing.memory_refs if existing is not None else (),
+            assertion_refs=existing.assertion_refs if existing is not None else (),
+            duplicate_of=existing.duplicate_of if existing is not None else "",
+            created_at=existing.created_at if existing is not None and existing.created_at > 0 else now,
+            updated_at=now,
+            metadata=metadata,
+        )
+        self.store.upsert_issue(issue)
+        return issue
+
+    def upsert_graph_breakpoint_command(self, *, issue: HealthIssue, packet: GraphBreakpointPacket) -> HealthManagementCommand:
+        now = time.time()
+        recovery_key = _graph_breakpoint_recovery_key(packet)
+        command_id = _graph_breakpoint_command_id(issue=issue, packet=packet)
+        existing = self.get_command(command_id)
+        if existing is not None:
+            return existing
+        command = HealthManagementCommand(
+            command_id=command_id,
+            command_type="analyze_trace",
+            initiator_type="system",
+            initiator_ref=packet.graph_run_id or packet.task_run_id or issue.issue_id,
+            requested_by="health_system.graph_breakpoint_supervisor",
+            source="health_system.graph_breakpoint_supervisor",
+            conversation_session_ref="",
+            target_scope="health_issue",
+            target_ref=issue.issue_id,
+            health_action="graph_breakpoint_diagnostics",
+            payload={
+                "source_issue_id": issue.issue_id,
+                "graph_breakpoint_recovery_key": recovery_key,
+                "graph_breakpoint_fingerprint": str(packet.fingerprint or ""),
+                "graph_run_id": packet.graph_run_id,
+                "graph_id": packet.graph_id,
+                "graph_harness_config_id": packet.graph_harness_config_id,
+                "task_run_id": packet.task_run_id,
+                "session_id": packet.session_id,
+                "node_id": packet.node_id,
+                "work_order_id": packet.work_order_id,
+                "graph_status": packet.graph_status,
+                "task_status": packet.task_status,
+                "terminal_reason": packet.terminal_reason,
+                "blocked_reason": packet.blocked_reason,
+                "recoverable_error": dict(packet.recoverable_error or {}),
+                "parse_diagnostics": dict(packet.parse_diagnostics or {}),
+                "response_diagnostics": dict(packet.response_diagnostics or {}),
+            },
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        self.store.upsert_command(command)
+        return command
+
     def list_commands(self) -> list[HealthManagementCommand]:
         return self.store.load_commands()
 
     def get_command(self, command_id: str) -> HealthManagementCommand | None:
         target = str(command_id or "").strip()
-        return next((item for item in self.list_commands() if item.command_id == target), None)
+        if not target:
+            return None
+        return self.store.get_command(target)
 
     def list_receipts(self) -> list[HealthManagementReceipt]:
         return self.store.load_receipts()
 
     def get_receipt(self, receipt_id: str) -> HealthManagementReceipt | None:
         target = str(receipt_id or "").strip()
-        return next((item for item in self.list_receipts() if item.receipt_id == target), None)
+        if not target:
+            return None
+        return self.store.get_receipt(target)
 
     def list_reports(self) -> list[HealthReport]:
         return self.store.load_reports()
@@ -604,4 +701,101 @@ def _safe_health_runtime_id(value: str) -> str:
     safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in str(value or "").strip())
     return safe.strip("-") or f"health-agent-session-{int(time.time() * 1000)}"
 
+
+def _graph_breakpoint_issue_id(packet: GraphBreakpointPacket) -> str:
+    node_part = packet.node_id or "graph"
+    reason_part = packet.terminal_reason or packet.blocked_reason or "unknown"
+    return (
+        "health:issue:graph-breakpoint:"
+        f"{_safe_health_issue_token(packet.graph_run_id)}:"
+        f"{_safe_health_issue_token(node_part)}:"
+        f"{_safe_health_issue_token(reason_part)}"
+    )
+
+
+def _graph_breakpoint_issue_title(packet: GraphBreakpointPacket) -> str:
+    graph_label = packet.graph_id or packet.graph_run_id or "unknown-graph"
+    node_label = packet.node_id or "graph-root"
+    reason = packet.terminal_reason or packet.blocked_reason or "unknown"
+    return f"图任务断点：{graph_label} / {node_label} / {reason}"
+
+
+def _graph_breakpoint_severity(packet: GraphBreakpointPacket) -> str:
+    reason = (packet.terminal_reason or packet.blocked_reason or "").lower()
+    if packet.graph_status == "failed" or "failed" in reason:
+        return "high"
+    if "protocol" in reason or "repair" in reason:
+        return "high"
+    if packet.graph_status in {"blocked", "waiting_human_gate"}:
+        return "medium"
+    return "medium"
+
+
+def _safe_health_issue_token(value: str) -> str:
+    safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in str(value or "").strip())
+    safe = safe.strip("-")
+    return safe[:72] or "unknown"
+
+
+def _graph_breakpoint_command_id(*, issue: HealthIssue, packet: GraphBreakpointPacket) -> str:
+    recovery_key = _graph_breakpoint_recovery_key(packet)
+    if recovery_key:
+        return "health-command:graph-breakpoint:" + ":".join(
+            _safe_health_issue_token(item)
+            for item in recovery_key.split("|")
+            if item
+        )
+    issue_token = _safe_health_issue_token(issue.issue_id)
+    fingerprint = _safe_health_issue_token(packet.fingerprint or "unknown")
+    return f"health-command:graph-breakpoint:{issue_token}:{fingerprint}"
+
+
+def _graph_breakpoint_recovery_key(packet: GraphBreakpointPacket) -> str:
+    recoverable_error = dict(packet.recoverable_error or {})
+    reason = packet.terminal_reason or packet.blocked_reason or str(recoverable_error.get("error_code") or "") or "unknown"
+    parts = [
+        packet.graph_run_id,
+        packet.node_id or "graph",
+        reason,
+        packet.graph_harness_config_id or "config_unknown",
+    ]
+    return "|".join(str(item or "").strip() for item in parts if str(item or "").strip())
+
+
+def _compact_graph_breakpoint_packet(packet: GraphBreakpointPacket, *, recovery_key: str) -> dict[str, Any]:
+    recoverable_error = dict(packet.recoverable_error or {})
+    return {
+        "authority": packet.authority,
+        "graph_run_id": packet.graph_run_id,
+        "graph_id": packet.graph_id,
+        "graph_harness_config_id": packet.graph_harness_config_id,
+        "task_run_id": packet.task_run_id,
+        "session_id": packet.session_id,
+        "node_id": packet.node_id,
+        "work_order_id": packet.work_order_id,
+        "graph_status": packet.graph_status,
+        "task_status": packet.task_status,
+        "terminal_reason": packet.terminal_reason,
+        "blocked_reason": packet.blocked_reason,
+        "recoverable_error": _compact_graph_breakpoint_error(recoverable_error),
+        "parse_diagnostics": dict(packet.parse_diagnostics or {}),
+        "executor_presence": str(dict(packet.response_diagnostics or {}).get("executor_presence") or ""),
+        "fingerprint": str(packet.fingerprint or ""),
+        "recovery_key": recovery_key,
+        "detected_at": float(packet.detected_at or 0.0),
+        "refs": dict(packet.refs or {}),
+    }
+
+
+def _compact_graph_breakpoint_error(error: dict[str, Any]) -> dict[str, Any]:
+    if not error:
+        return {}
+    allowed = {
+        "error_code",
+        "retryable",
+        "user_message",
+        "detail",
+        "validation_errors",
+    }
+    return {key: value for key, value in error.items() if key in allowed}
 

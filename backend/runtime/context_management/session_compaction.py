@@ -327,6 +327,45 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+def _history_recovery_summary_source(raw_messages: list[dict[str, Any]]) -> str:
+    public_messages = _public_pressure_messages(raw_messages)
+    if not public_messages:
+        return ""
+    older_messages = public_messages[:-6] if len(public_messages) > 6 else public_messages
+    if not older_messages:
+        return ""
+    lines = [
+        "# Warm Context",
+        f"- Automatic context replacement is summarizing {len(older_messages)} earlier public session messages.",
+    ]
+    for index, message in enumerate(older_messages[:12], start=1):
+        role = str(message.get("role") or "").strip() or "message"
+        content = _compact_history_recovery_text(message.get("content"), limit=360 if index <= 4 else 220)
+        if content:
+            lines.append(f"- {role}: {content}")
+    if len(older_messages) > 12:
+        lines.append(f"- {len(older_messages) - 12} additional earlier messages were omitted from this compact checkpoint source.")
+    recent_messages = public_messages[-6:] if len(public_messages) > 6 else []
+    if recent_messages:
+        lines.extend(["", "# Next Step"])
+        latest_user = next((item for item in reversed(recent_messages) if item.get("role") == "user"), None)
+        if latest_user is not None:
+            latest = _compact_history_recovery_text(latest_user.get("content"), limit=220)
+            if latest:
+                lines.append(f"- Continue from the latest user request: {latest}")
+    return "\n".join(lines).strip()
+
+
+def _compact_history_recovery_text(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").replace("\r\n", "\n").replace("\r", "\n").split())
+    if not text:
+        return ""
+    bounded = max(80, int(limit or 80))
+    if len(text) <= bounded:
+        return text
+    return text[:bounded].rstrip() + "..."
+
+
 def compact_session_history(
     runtime: Any,
     *,
@@ -375,9 +414,15 @@ def compact_session_history(
         )
 
     trigger = "auto" if mode == "auto" else "preview" if mode == "preview" else "manual"
+    summary_source_content = (
+        _history_recovery_summary_source(raw_messages)
+        if effective_level == "full_compact"
+        else None
+    )
     result = compactor.apply_strategy(
         py_messages,
         pressure_level=effective_level,  # type: ignore[arg-type]
+        summary_source_content=summary_source_content,
         request_id=f"context_compaction:{trigger}:{mode}:{session_id}",
         session_id=session_id,
         trigger=trigger,  # type: ignore[arg-type]

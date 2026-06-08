@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from api.chat import router as chat_router
 from api.config_api import router as config_router
 from api.files import router as files_router
+from api.file_changes import router as file_changes_router
 from api.health_system import router as health_system_router
 from api.image_assets import router as image_assets_router
 from api.memory import router as memory_router
@@ -15,12 +16,15 @@ from api.orchestration import router as orchestration_router
 from api.orchestration_catalog import router as orchestration_catalog_router
 from api.orchestration_harness import router as orchestration_harness_router
 from api.project_workspaces import router as project_workspaces_router
+from api.runtime_facts import router as runtime_facts_router
 from api.runtime_monitor import router as runtime_monitor_router
+from api.runtime_trace import router as runtime_trace_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.task_system import router as task_system_router
 from api.tokens import router as tokens_router
 from api.code_environment import router as code_environment_router
+from api.vscode import router as vscode_router
 from bootstrap.lifespan import runtime_lifespan
 from sessions import InvalidSessionId, SessionPayloadCorrupt, SessionStorageError
 from runtime_encoding import configure_process_utf8
@@ -45,6 +49,7 @@ app.add_middleware(
 app.include_router(chat_router, prefix="/api", tags=["chat"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
+app.include_router(file_changes_router, prefix="/api", tags=["file-changes"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])
 app.include_router(mcp_system_router, prefix="/api", tags=["mcp-system"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
@@ -56,9 +61,12 @@ app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
 app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestration-harness"])
 app.include_router(project_workspaces_router, prefix="/api", tags=["project-workspaces"])
 app.include_router(runtime_monitor_router, prefix="/api", tags=["runtime-monitor"])
+app.include_router(runtime_trace_router, prefix="/api", tags=["runtime-trace"])
+app.include_router(runtime_facts_router, prefix="/api", tags=["runtime-facts"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(image_assets_router, prefix="/api", tags=["image-assets"])
 app.include_router(code_environment_router, prefix="/api", tags=["code-environment"])
+app.include_router(vscode_router, prefix="/api", tags=["vscode"])
 
 
 @app.exception_handler(InvalidSessionId)

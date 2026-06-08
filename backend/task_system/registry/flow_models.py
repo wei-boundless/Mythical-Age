@@ -4,6 +4,19 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+TASK_MEMORY_LAYER_ALIASES: dict[str, str] = {
+    "conversation": "conversation",
+    "state": "state",
+    "working": "working",
+    "working_memory": "working",
+    "long_term": "long_term",
+    "durable": "long_term",
+}
+DISCONNECTED_TASK_MEMORY_LAYERS: frozenset[str] = frozenset(
+    {"task_durable", "task_durable_memory", "artifact_refs"}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class TaskFlowDefinition:
     flow_id: str
@@ -185,12 +198,36 @@ class TaskMemoryRequestProfile:
             raise ValueError("TaskMemoryRequestProfile requires profile_id")
         if not self.task_id:
             raise ValueError("TaskMemoryRequestProfile requires task_id")
+        object.__setattr__(
+            self,
+            "requested_memory_layers",
+            _normalize_task_memory_layers(self.requested_memory_layers),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["requested_memory_layers"] = list(self.requested_memory_layers)
         payload["requested_topics"] = list(self.requested_topics)
         return payload
+
+
+def _normalize_task_memory_layers(values: tuple[str, ...]) -> tuple[str, ...]:
+    layers: list[str] = []
+    seen: set[str] = set()
+    for item in tuple(values or ()):
+        raw = str(item or "").strip()
+        if not raw:
+            continue
+        if raw in DISCONNECTED_TASK_MEMORY_LAYERS:
+            raise ValueError(f"TaskMemoryRequestProfile uses disconnected runtime memory layer: {raw}")
+        normalized = TASK_MEMORY_LAYER_ALIASES.get(raw)
+        if normalized is None:
+            raise ValueError(f"TaskMemoryRequestProfile uses non-runtime memory layer: {raw}")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        layers.append(normalized)
+    return tuple(layers)
 
 
 @dataclass(frozen=True, slots=True)

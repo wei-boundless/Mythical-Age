@@ -137,6 +137,33 @@ class ProjectWorkspaceService:
             "source": source,
         }
 
+    def remove_workspace(self, key: str, *, detach_sessions: bool = True) -> dict[str, Any]:
+        workspace = self.workspace_for_key(key)
+        workspace_key = str(workspace.get("key") or "").strip()
+        workspace_root = str(workspace.get("workspace_root") or "").strip()
+        if not workspace_key or not workspace_root:
+            raise ProjectWorkspaceMissing("project workspace not found")
+
+        stored = {item.key: item for item in self._load_stored()}
+        removed_registry_entry = stored.pop(workspace_key, None) is not None
+        detached_sessions: list[dict[str, Any]] = []
+        if detach_sessions:
+            for session in self.sessions_for_workspace(workspace_key):
+                detached_sessions.append(
+                    self.session_manager.clear_project_binding(
+                        str(session.get("id") or ""),
+                        workspace_root=workspace_root,
+                    )
+                )
+        if removed_registry_entry:
+            self._write_stored(stored.values())
+        return {
+            "project": workspace,
+            "removed_registry_entry": removed_registry_entry,
+            "detached_sessions": detached_sessions,
+            "detached_session_count": len(detached_sessions),
+        }
+
     def _main_chat_sessions(self) -> list[dict[str, Any]]:
         sessions = []
         for session in list(self.session_manager.list_sessions() or []):

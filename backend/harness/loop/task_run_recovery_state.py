@@ -3,16 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from harness.task_run_state_view import task_run_state_view
+
 from .task_tool_approval import matching_approval_grant_for_pending
 
 
-RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
 REPLAN_CONTROL_STATES = {"replan_requested", "interrupted_for_replan"}
 TERMINAL_COMPLETED_STATUSES = {"completed", "success"}
-TERMINAL_STOPPED_STATUSES = {"aborted", "cancelled"}
-TERMINAL_FAILED_STATUSES = {"failed", "error"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,12 +40,15 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     executor_status = str(diagnostics.get("executor_status") or "").strip()
     control_state = _control_state(diagnostics)
     recovery_action = str(diagnostics.get("recovery_action") or "").strip()
-    recoverable = _is_recoverable(diagnostics, recovery_action=recovery_action)
-    graph_controlled = _is_graph_controlled(diagnostics)
-    stopped = control_state in STOP_CONTROL_STATES or terminal_reason == "user_aborted" or status in TERMINAL_STOPPED_STATUSES
-    paused = control_state in PAUSE_CONTROL_STATES
-    completed_iteration = status in TERMINAL_COMPLETED_STATUSES
-    running_claimed = status == "running" and executor_status in {"scheduled", "running"}
+    view = task_run_state_view(task_run)
+    recoverable = bool(view.get("recoverable"))
+    graph_controlled = bool(view.get("graph_controlled"))
+    task_work_state = str(view.get("task_work_state") or "")
+    executor_lease_state = str(view.get("executor_lease_state") or "")
+    stopped = task_work_state == "stopped"
+    paused = task_work_state == "paused" or control_state in PAUSE_CONTROL_STATES
+    completed_iteration = task_work_state == "completed" or status in TERMINAL_COMPLETED_STATUSES
+    running_claimed = bool(view.get("running_claimed"))
 
     same_run_resumable = False
     reason = "not_resumable"
@@ -58,9 +60,12 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
         reason = "stopped_terminal"
     elif running_claimed:
         reason = "executor_claimed"
-    elif status == "waiting_executor":
+    elif bool(view.get("can_resume")):
         same_run_resumable = True
-        reason = "waiting_executor"
+        reason = str(view.get("control_reason") or "resumable")
+    elif status == "waiting_executor" and executor_lease_state in {"lost", "none", "blocked"}:
+        same_run_resumable = True
+        reason = str(view.get("control_reason") or "waiting_executor")
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
@@ -97,19 +102,3 @@ def _control_state(diagnostics: dict[str, Any]) -> str:
         return ""
     state = str(control.get("state") or "").strip()
     return state if state in {"pause_requested", "paused", "resume_requested", "stop_requested", "stopped", *REPLAN_CONTROL_STATES} else ""
-
-
-def _is_recoverable(diagnostics: dict[str, Any], *, recovery_action: str) -> bool:
-    if recovery_action in RECOVERY_ACTIONS:
-        recoverable = diagnostics.get("recoverable_error")
-        if isinstance(recoverable, dict):
-            return recoverable.get("retryable") is not False
-        return True
-    recoverable = diagnostics.get("recoverable_error")
-    return isinstance(recoverable, dict) and recoverable.get("retryable") is not False
-
-
-def _is_graph_controlled(diagnostics: dict[str, Any]) -> bool:
-    origin = diagnostics.get("origin")
-    origin_kind = str(diagnostics.get("origin_kind") or dict(origin or {}).get("origin_kind") or "").strip() if isinstance(origin, dict) else str(diagnostics.get("origin_kind") or "").strip()
-    return origin_kind == "graph_node_assigned" or bool(diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id"))

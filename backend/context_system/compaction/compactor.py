@@ -697,10 +697,12 @@ class ContextCompactor:
             reason=reason,
             reserved_output_tokens=reserved_output_tokens,
         )
+        explicit_semantic_summary_present = has_material_session_memory_content(semantic_summary_content or "")
+        explicit_summary_present = has_material_session_memory_content(summary_content or "")
+        source_summary_present = has_material_session_memory_content(summary_source_content or "")
         semantic_compactor_needed = (
             semantic_summary_content is None
-            and not has_material_session_memory_content(summary_content or "")
-            and not has_material_session_memory_content(summary_source_content or "")
+            and not explicit_summary_present
             and not session_summary_content
         )
         semantic_worker_result = (
@@ -709,24 +711,30 @@ class ContextCompactor:
             else None
         )
         semantic_worker_summary = _summary_from_semantic_worker_result(semantic_worker_result)
+        semantic_worker_summary_present = has_material_session_memory_content(semantic_worker_summary)
         resolved_summary_content = (
             semantic_summary_content
-            or summary_content
-            or session_summary_content
-            or semantic_worker_summary
+            if explicit_semantic_summary_present
+            else summary_content
+            if explicit_summary_present
+            else session_summary_content
+            if session_summary_content
+            else semantic_worker_summary
+            if semantic_worker_summary_present
+            else None
         )
         preserve_from_index = session_preserve_from_index if session_summary_content and resolved_summary_content == session_summary_content else None
         compaction_source = (
             "semantic_compactor"
-            if semantic_summary_content
+            if explicit_semantic_summary_present
             else "explicit_summary"
-            if summary_content
+            if explicit_summary_present
             else "validated_session_memory"
             if session_summary_content and resolved_summary_content == session_summary_content
             else str(semantic_worker_result.source)
-            if semantic_worker_result and semantic_worker_result.ok
+            if semantic_worker_result and semantic_worker_result.ok and semantic_worker_summary_present
             else "explicit_summary_source"
-            if summary_source_content
+            if source_summary_present
             else "unavailable"
         )
         full_compact_diagnostics = {
@@ -808,7 +816,12 @@ class ContextCompactor:
                 continue
             if max_chars_per_section > 240:
                 max_chars_per_section = 240
-                if resolved_summary_content is None and summary_source_content is None and summary_content is None:
+                if compaction_source == "explicit_summary_source" and summary_source_content is not None:
+                    resolved_summary_content = self.session_memory_manager.compact_view(
+                        content=summary_source_content,
+                        max_chars_per_section=max_chars_per_section,
+                    ).strip()
+                elif resolved_summary_content is None and summary_source_content is None and summary_content is None:
                     resolved_summary_content = self.session_memory_manager.compact_view(
                         max_chars_per_section=max_chars_per_section,
                     ).strip()

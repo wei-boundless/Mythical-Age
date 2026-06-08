@@ -9,6 +9,7 @@ from typing import Any
 class ToolUseContext:
     workspace_root: Path
     sandbox_root: Path | None = None
+    runtime_base_dir: str = ""
     tool_invocation_id: str = ""
     caller_kind: str = ""
     caller_ref: str = ""
@@ -29,16 +30,19 @@ class ToolUseContext:
     file_management_policy: dict[str, Any] = field(default_factory=dict)
     environment_snapshot: dict[str, Any] = field(default_factory=dict)
     execution_receipt: dict[str, Any] = field(default_factory=dict)
+    runtime_assembly: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["workspace_root"] = str(self.workspace_root)
         payload["sandbox_root"] = str(self.sandbox_root) if self.sandbox_root is not None else ""
+        payload["runtime_base_dir"] = str(self.runtime_base_dir or "")
         payload["material_mounts"] = [dict(item) for item in self.material_mounts]
         payload["sandbox_policy"] = dict(self.sandbox_policy)
         payload["file_management_policy"] = dict(self.file_management_policy)
         payload["environment_snapshot"] = dict(self.environment_snapshot)
         payload["execution_receipt"] = dict(self.execution_receipt)
+        payload["runtime_assembly"] = dict(self.runtime_assembly)
         return payload
 
 

@@ -149,6 +149,9 @@ class HarnessRuntimeFacade:
         attach_prompt_accounting = getattr(self.model_runtime, "attach_prompt_accounting_ledger", None)
         if callable(attach_prompt_accounting):
             attach_prompt_accounting(self.single_agent_runtime_host.prompt_accounting_ledger)
+        attach_observability = getattr(self.model_runtime, "attach_runtime_observability", None)
+        if callable(attach_observability):
+            attach_observability(self.single_agent_runtime_host.observability)
         self.agent_runtime_services = AgentRuntimeServices.from_runtime_host(
             self.single_agent_runtime_host,
             execute_task_run_callback=self.execute_task_run,

@@ -1,0 +1,240 @@
+   1 | from __future__ import annotations
+   2 | 
+   3 | import asyncio
+   4 | from dataclasses import dataclass, replace
+   5 | import time
+   6 | from types import SimpleNamespace
+   7 | from typing import Any
+   8 | 
+   9 | from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_artifact_ref
+  10 | from runtime.shared.models import TaskRun
+  11 | 
+  12 | from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
+  13 | from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
+  14 | from .graph.model_overrides import merge_effective_runtime_overrides
+  15 | from .graph.resume import GraphResumeResult, GraphResumeService
+  16 | from .graph.runner import GraphRunRunner, GraphRunRunnerResult
+  17 | from .graph.runtime import GraphRuntime, GraphRuntimeStart
+  18 | from .graph.work_order_contract import _graph_node_task_run_id
+  19 | from .graph.work_order_executor import GraphNodeWorkOrderExecutor
+  20 | 
+  21 | 
+  22 | @dataclass(frozen=True, slots=True)
+  23 | class GraphHarnessStart:
+  24 |     task_run: Any
+  25 |     graph_run: Any
+  26 |     envelope: Any
+  27 |     loop_state: Any
+  28 |     checkpoint: dict[str, Any]
+  29 |     node_work_orders: tuple[Any, ...] = ()
+  30 |     events: tuple[dict[str, Any], ...] = ()
+  31 | 
+  32 |     @property
+  33 |     def node_work_order(self) -> dict[str, Any]:
+  34 |         return self.node_work_orders[0].to_dict() if self.node_work_orders else {}
+  35 | 
+  36 |     @property
+  37 |     def graph_run_id(self) -> str:
+  38 |         return str(getattr(self.graph_run, "graph_run_id", "") or "")
+  39 | 
+  40 | 
+  41 | class GraphHarness:
+  42 |     """Production facade for graph task control.
+  43 | 
+  44 |     It owns GraphRuntime, GraphLoop, and graph node work-order execution.
+  45 |     """
+  46 | 
+  47 |     def __init__(self, *, services: Any) -> None:
+  48 |         self._services = services
+  49 |         self._runtime = GraphRuntime(services=services)
+  50 |         self._loop = GraphLoop(services=services)
+  51 |         self._resume = GraphResumeService(graph_loop=self._loop, services=services)
+  52 |         self._work_order_executor = GraphNodeWorkOrderExecutor(services=services)
+  53 |         self._runner = GraphRunRunner(
+  54 |             services=services,
+  55 |             graph_loop=self._loop,
+  56 |             execute_work_order=self._execute_work_order_for_runner,
+  57 |         )
+  58 |         self._runner_locks: dict[str, asyncio.Lock] = {}
+  59 | 
+  60 |     @property
+  61 |     def graph_loop(self) -> GraphLoop:
+  62 |         return self._loop
+  63 | 
+  64 |     @property
+  65 |     def state_index(self) -> Any:
+  66 |         return self._services.state_index
+  67 | 
+  68 |     def start_run(
+  69 |         self,
+  70 |         *,
+  71 |         session_id: str,
+  72 |         task_id: str,
+  73 |         graph_config: GraphHarnessConfig,
+  74 |         initial_inputs: dict[str, Any] | None = None,
+  75 |         diagnostics: dict[str, Any] | None = None,
+  76 |         dispatch_ready: bool = True,
+  77 |     ) -> GraphHarnessStart:
+  78 |         runtime_start: GraphRuntimeStart = self._runtime.start(
+  79 |             session_id=session_id,
+  80 |             task_id=task_id,
+  81 |             graph_config=graph_config,
+  82 |             initial_inputs=dict(initial_inputs or {}),
+  83 |             diagnostics=dict(diagnostics or {}),
+  84 |         )
+  85 |         loop_start: GraphLoopStart = self._loop.initialize(
+  86 |             graph_config=graph_config,
+  87 |             envelope=runtime_start.envelope,
+  88 |             dispatch_ready=dispatch_ready,
+  89 |         )
+  90 |         task_run = _task_run_from_payload(
+  91 |             self._services.state_index.get_task_run(runtime_start.task_run.task_run_id),
+  92 |             fallback=runtime_start.task_run,
+  93 |         )
+  94 |         graph_run = _graph_run_from_payload(
+  95 |             self.get_graph_run(runtime_start.graph_run.graph_run_id),
+  96 |             fallback=runtime_start.graph_run,
+  97 |         )
+  98 |         return GraphHarnessStart(
+  99 |             task_run=task_run,
+ 100 |             graph_run=graph_run,
+ 101 |             envelope=runtime_start.envelope,
+ 102 |             loop_state=loop_start.loop_state,
+ 103 |             checkpoint=loop_start.checkpoint,
+ 104 |             node_work_orders=loop_start.node_work_orders,
+ 105 |             events=tuple([*runtime_start.events, *loop_start.events]),
+ 106 |         )
+ 107 | 
+ 108 |     def accept_node_result(
+ 109 |         self,
+ 110 |         *,
+ 111 |         graph_config: GraphHarnessConfig,
+ 112 |         graph_run_id: str,
+ 113 |         result: NodeResultEnvelope | dict[str, Any],
+ 114 |         allow_runner_active: bool = False,
+ 115 |     ) -> GraphLoopAdvance:
+ 116 |         self._assert_graph_operation_allowed(
+ 117 |             graph_run_id,
+ 118 |             operation="accept_node_result",
+ 119 |             allow_runner_active=allow_runner_active,
+ 120 |             allow_active_work_orders=True,
+ 121 |         )
+ 122 |         advance = self._loop.accept_node_result(
+ 123 |             graph_config=graph_config,
+ 124 |             graph_run_id=graph_run_id,
+ 125 |             result=result,
+ 126 |         )
+ 127 |         control_state = _graph_stop_control_state(advance.loop_state) or _graph_pause_control_state(advance.loop_state)
+ 128 |         if control_state in {"pause_requested", "paused", "stop_requested", "stopped"}:
+ 129 |             control = dict(dict(getattr(advance.loop_state, "diagnostics", {}) or {}).get("runtime_control") or {})
+ 130 |             self._sync_graph_control_records(
+ 131 |                 graph_run_id=graph_run_id,
+ 132 |                 loop_state=advance.loop_state,
+ 133 |                 control_state=control_state,
+ 134 |                 reason=str(control.get("reason") or ""),
+ 135 |                 requested_by=str(control.get("requested_by") or "user"),
+ 136 |             )
+ 137 |         return advance
+ 138 | 
+ 139 |     def resume_run(
+ 140 |         self,
+ 141 |         *,
+ 142 |         graph_config: GraphHarnessConfig,
+ 143 |         graph_run_id: str,
+ 144 |         dispatch_ready: bool = True,
+ 145 |         max_requests: int | None = None,
+ 146 |         allow_runner_active: bool = False,
+ 147 |     ) -> GraphResumeResult:
+ 148 |         self._assert_graph_operation_allowed(
+ 149 |             graph_run_id,
+ 150 |             operation="resume_run",
+ 151 |             allow_runner_active=allow_runner_active,
+ 152 |             allow_active_work_orders=True,
+ 153 |         )
+ 154 |         was_paused = _graph_pause_control_state(self._loop.get_state(graph_run_id))
+ 155 |         result = self._resume.resume(
+ 156 |             graph_config=graph_config,
+ 157 |             graph_run_id=graph_run_id,
+ 158 |             dispatch_ready=dispatch_ready,
+ 159 |             max_requests=max_requests,
+ 160 |         )
+ 161 |         if was_paused and result.loop_state is not None:
+ 162 |             self._sync_graph_control_records(
+ 163 |                 graph_run_id=graph_run_id,
+ 164 |                 loop_state=result.loop_state,
+ 165 |                 control_state="resume_requested",
+ 166 |                 reason=f"resume_from_{was_paused}",
+ 167 |                 requested_by="graph_resume",
+ 168 |             )
+ 169 |         return result
+ 170 | 
+ 171 |     def pause_run(
+ 172 |         self,
+ 173 |         *,
+ 174 |         graph_run_id: str,
+ 175 |         reason: str = "",
+ 176 |         requested_by: str = "user",
+ 177 |     ) -> dict[str, Any]:
+ 178 |         pause = self._loop.pause_and_checkpoint(
+ 179 |             graph_run_id=graph_run_id,
+ 180 |             reason=reason,
+ 181 |             requested_by=requested_by,
+ 182 |         )
+ 183 |         control_state = _graph_pause_control_state(pause.loop_state) or pause.loop_state.status
+ 184 |         self._sync_graph_control_records(
+ 185 |             graph_run_id=graph_run_id,
+ 186 |             loop_state=pause.loop_state,
+ 187 |             control_state=control_state,
+ 188 |             reason=reason,
+ 189 |             requested_by=requested_by,
+ 190 |         )
+ 191 |         return {
+ 192 |             "authority": "harness.graph_run_pause",
+ 193 |             "graph_run_id": graph_run_id,
+ 194 |             "control_state": control_state,
+ 195 |             "graph_loop_state": pause.loop_state.to_dict(),
+ 196 |             "checkpoint": dict(pause.checkpoint),
+ 197 |             "events": [dict(item) for item in pause.events],
+ 198 |         }
+ 199 | 
+ 200 |     def stop_run(
+ 201 |         self,
+ 202 |         *,
+ 203 |         graph_run_id: str,
+ 204 |         reason: str = "",
+ 205 |         requested_by: str = "user",
+ 206 |     ) -> dict[str, Any]:
+ 207 |         stopped = self._loop.stop_and_checkpoint(
+ 208 |             graph_run_id=graph_run_id,
+ 209 |             reason=reason,
+ 210 |             requested_by=requested_by,
+ 211 |         )
+ 212 |         control_state = _graph_stop_control_state(stopped.loop_state) or stopped.loop_state.status
+ 213 |         self._sync_graph_control_records(
+ 214 |             graph_run_id=graph_run_id,
+ 215 |             loop_state=stopped.loop_state,
+ 216 |             control_state=control_state,
+ 217 |             reason=reason,
+ 218 |             requested_by=requested_by,
+ 219 |         )
+ 220 |         return {
+ 221 |             "authority": "harness.graph_run_stop",
+ 222 |             "graph_run_id": graph_run_id,
+ 223 |             "control_state": control_state,
+ 224 |             "graph_loop_state": stopped.loop_state.to_dict(),
+ 225 |             "checkpoint": dict(stopped.checkpoint),
+ 226 |             "events": [dict(item) for item in stopped.events],
+ 227 |         }
+ 228 | 
+ 229 |     def dispatch_ready(
+ 230 |         self,
+ 231 |         *,
+ 232 |         graph_config: GraphHarnessConfig,
+ 233 |         graph_run_id: str,
+ 234 |         max_requests: int | None = None,
+ 235 |         allow_runner_active: bool = False,
+ 236 |     ) -> GraphLoopStart:
+ 237 |         self._assert_graph_operation_allowed(
+ 238 |             graph_run_id,
+ 239 |             operation="dispatch_ready",
+ 240 |             allow_runner_active=allow_runner_active,

@@ -5,12 +5,13 @@ import { Gauge } from "lucide-react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { hasPublicRunActivity } from "@/components/chat/PublicRunActivity";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
+import { hasDisplayablePublicTimelineBody } from "@/components/chat/agentRunProjection";
+import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPanel";
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
-import { mergePublicTimelineItems, publicTimelineItemText, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { Message, TokenStats } from "@/lib/store/types";
 
@@ -148,17 +149,23 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <div className="chat-panel-status-row">
           {suppressFooterActivity ? null : <SessionActivityBar activity={sessionActivity} active={currentSessionActive} />}
-          {conversationActiveEnvironment ? (
-            <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
-              <span>环境</span>
-              <strong>
-                {taskEnvironmentDisplayName(
-                  conversationActiveEnvironment.task_environment_id,
-                  conversationActiveEnvironment.environment_label,
-                )}
-              </strong>
-            </div>
-          ) : null}
+          <div className="chat-panel-status-row__right">
+            {conversationActiveEnvironment ? (
+              <div className="chat-task-environment-binding" title={conversationActiveEnvironment.task_environment_id}>
+                <span>环境</span>
+                <strong>
+                  {taskEnvironmentDisplayName(
+                    conversationActiveEnvironment.task_environment_id,
+                    conversationActiveEnvironment.environment_label,
+                  )}
+                </strong>
+              </div>
+            ) : null}
+            <VSCodeStatusPanel
+              sessionId={currentSessionId}
+              projectBinding={currentSession?.conversation_state?.project_binding ?? null}
+            />
+          </div>
           <SessionTokenMeter tokenStats={tokenStats} />
         </div>
         <ChatInput
@@ -186,7 +193,7 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!latestAssistant) return false;
   const persisted = (latestAssistant.runtimeAttachments ?? []).flatMap((attachment) =>
-    Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+    attachment.task_projection ? [] : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
   );
   const publicTimeline = mergePublicTimelineItems(
     persisted,
@@ -207,7 +214,7 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   if (latestAssistant.content.trim() && latestAssistant.answerChannel === "active_work_control") {
     return true;
   }
-  return hasPublicRunActivity(publicTimeline, latestAssistant.content);
+  return false;
 }
 
 export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "sourceIndex">[]) {
@@ -221,8 +228,7 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
 }
 
 function isMessageLevelAssistantFeedback(item: PublicChatTimelineItem) {
-  const kind = String(item.kind || "").trim();
-  return (kind === "assistant_text" || kind === "opening_judgment") && Boolean(publicTimelineItemText(item));
+  return hasDisplayablePublicTimelineBody([item]);
 }
 
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {

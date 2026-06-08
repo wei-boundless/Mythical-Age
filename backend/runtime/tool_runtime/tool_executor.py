@@ -163,6 +163,7 @@ class ToolRuntimeExecutor:
         tool_context = ToolUseContext(
             workspace_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            runtime_base_dir=str(Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()),
             task_run_id=task_run_id,
             session_id=_session_id_from_policy(policy_payload),
             agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
@@ -485,6 +486,7 @@ class ToolRuntimeExecutor:
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            runtime_base_dir=str(Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()),
             tool_invocation_id=invocation_context.tool_invocation_id,
             caller_kind=invocation_context.caller_kind,
             caller_ref=invocation_context.caller_ref,
@@ -875,6 +877,7 @@ class ToolRuntimeExecutor:
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            runtime_base_dir=str(Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()),
             tool_invocation_id=invocation_context.tool_invocation_id,
             caller_kind=invocation_context.caller_kind,
             caller_ref=invocation_context.caller_ref,

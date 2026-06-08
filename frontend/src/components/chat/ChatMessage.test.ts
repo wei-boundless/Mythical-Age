@@ -55,7 +55,7 @@ describe("ChatMessage", () => {
     expect(user).not.toContain("复制回复");
   });
 
-  it("does not rewrite single-turn tool-loop guard messages in history", () => {
+  it("does not render blocked tool-loop guard metadata as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "blocked",
@@ -68,12 +68,12 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("本轮工具观察次数已达到上限");
+    expect(html).not.toContain("本轮工具观察次数已达到上限");
     expect(html).not.toContain("基于已有事实收口说明");
     expect(html).not.toContain("public-run-activity");
   });
 
-  it("keeps task opening prose visible before runtime activity", () => {
+  it("renders public timeline activity for task-control messages without backend projection", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "task_control",
@@ -104,12 +104,12 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先把目标转成可执行任务");
+    expect(html).not.toContain("我先把目标转成可执行任务");
     expect(html).toContain("正在运行测试");
-    expect(html.indexOf("我先把目标转成可执行任务")).toBeLessThan(html.indexOf("正在运行测试"));
+    expect(html).toContain("public-run-activity");
   });
 
-  it("hides routine output boundary cleanup state without hiding the assistant message", () => {
+  it("hides routine output boundary cleanup state", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "progress_only",
@@ -127,7 +127,7 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我会按这个目标推进");
+    expect(html).not.toContain("我会按这个目标推进");
     expect(html).not.toContain("任务控制消息");
     expect(html).not.toContain("不写入长期记忆");
     expect(html).not.toContain("已清理内部协议");
@@ -219,7 +219,7 @@ describe("ChatMessage", () => {
     expect(html.match(/我先确认现有输出链路/g)?.length ?? 0).toBe(1);
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
-    expect(html).not.toContain("public-run-activity");
+    expect(html).toContain("public-run-activity");
     expect(html).not.toContain("正在思考");
   });
 
@@ -277,7 +277,7 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).not.toContain("public-run-activity");
+    expect(html).toContain("public-run-activity");
     expect(html).not.toContain("artifacts/football.html 已返回");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
@@ -320,6 +320,52 @@ describe("ChatMessage", () => {
     expect(html).toContain("已经确认问题来自 renderer.ts 的类型导入");
     expect(html.match(/已经确认问题来自 renderer\.ts 的类型导入/g)?.length ?? 0).toBe(1);
     expect(html).not.toContain("收尾总结");
+  });
+
+  it("deduplicates persisted runtime final summaries against canonical assistant prose", () => {
+    const content = [
+      "我可以帮你完成以下工作：",
+      "",
+      "- 代码与开发：阅读、搜索、分析项目代码，编写和修改文件。",
+      "- 前端相关：打开页面、点击、输入、截图验证。",
+      "- 信息获取：搜索网络和官方文档。",
+      "",
+      "你现在有什么需要我帮忙的吗？",
+    ].join("\n");
+    const persistedSummary = content.replace("你现在有什么需要我帮忙的吗？", "").trim();
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content,
+        id: "message:dedupe-final-summary",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:dedupe",
+            run_id: "turnrun:dedupe",
+            anchor_turn_id: "turn:session-dedupe:1",
+            status: "completed",
+            public_timeline: [
+              {
+                item_id: "final:persisted",
+                kind: "final_summary",
+                surface: "body",
+                source_authority: "model",
+                text: persistedSummary,
+                state: "done",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html.match(/我可以帮你完成以下工作/g)?.length ?? 0).toBe(1);
+    expect(html).toContain("你现在有什么需要我帮忙的吗");
   });
 
   it("renders runtime attachment activity even before assistant prose is persisted", () => {
@@ -411,7 +457,8 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("public-run-activity");
+    expect(html).toContain("public-run-activity");
+    expect(html).toContain("已确认目标");
     expect(html).not.toContain("2938 bytes");
     expect(html).not.toContain("assets.ts");
     expect(html).not.toContain("file frontend");
@@ -441,10 +488,9 @@ describe("ChatMessage", () => {
     );
 
     expect(html).not.toContain("已复制 2 个素材文件");
-    expect(html).toContain("public-run-activity__command-output");
-    expect(html).toContain("命令输出");
-    expect(html).toContain("终端");
-    expect(html).toContain("Copied: game-boss-demon-king.png");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).toContain("复制素材");
+    expect(html).not.toContain("Copied: game-boss-demon-king.png");
     expect(html).not.toContain("<p>Copied:");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
@@ -491,7 +537,7 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("好，我接着处理。");
     expect(html).toContain("验证已返回，22 tests passed");
-    expect(html).toContain("下一步会根据测试结果收口");
+    expect(html).not.toContain("下一步会根据测试结果收口");
     expect(html).not.toContain("我正在验证验证结果");
     expect(html).not.toContain("观察报告");
   });

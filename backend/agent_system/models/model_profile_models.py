@@ -30,6 +30,7 @@ class AgentModelProfile:
     thinking_mode: str = ""
     reasoning_effort: str = ""
     stream_policy: dict[str, Any] = field(default_factory=dict)
+    response_format: dict[str, Any] = field(default_factory=dict)
     fallback_profile_ref: str = ""
     capability_tags: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -77,6 +78,7 @@ class ResolvedModelSpec:
     thinking_mode: str
     reasoning_effort: str
     stream_policy: dict[str, Any] = field(default_factory=dict)
+    response_format: dict[str, Any] = field(default_factory=dict)
     source_chain: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -95,6 +97,7 @@ class ResolvedModelSpec:
             "thinking_mode": self.thinking_mode,
             "reasoning_effort": self.reasoning_effort,
             "stream_policy": dict(self.stream_policy or {}),
+            "response_format": dict(self.response_format or {}),
             "source_chain": list(self.source_chain),
             "diagnostics": dict(self.diagnostics or {}),
         }
@@ -116,6 +119,7 @@ def parse_agent_model_profile(value: Any) -> AgentModelProfile:
         thinking_mode=str(payload.get("thinking_mode") or "").strip().lower(),
         reasoning_effort=str(payload.get("reasoning_effort") or "").strip().lower(),
         stream_policy=dict(payload.get("stream_policy") or {}),
+        response_format=_dict_or_empty(payload.get("response_format")),
         fallback_profile_ref=str(payload.get("fallback_profile_ref") or "").strip(),
         capability_tags=tuple(_unique_texts(payload.get("capability_tags"))),
         metadata=dict(payload.get("metadata") or {}),
@@ -210,6 +214,10 @@ def _optional_bool(value: Any) -> bool | None:
     if lowered in {"false", "0", "no", "off", "disabled"}:
         return False
     return None
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _unique_texts(value: Any) -> list[str]:
