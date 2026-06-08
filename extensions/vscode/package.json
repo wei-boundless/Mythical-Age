@@ -11,6 +11,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:langchainAgent.sendToAgent",
     "onCommand:langchainAgent.showEditorContext"
   ],

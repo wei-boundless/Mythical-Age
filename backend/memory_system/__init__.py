@@ -12,6 +12,8 @@ __all__ = [
     "MemoryRequest",
     "MemoryRuntimeView",
     "MemoryScopePolicy",
+    "RuntimeFactBridge",
+    "RuntimeFactMemoryCandidate",
     "WorkingMemoryPolicyProfile",
     "build_memory_bundle",
     "build_memory_request",
@@ -27,6 +29,8 @@ _EXPORTS = {
     "MemoryRequest": ("memory_system.runtime_supply", "MemoryRequest"),
     "MemoryRuntimeView": ("memory_system.runtime_view", "MemoryRuntimeView"),
     "MemoryScopePolicy": ("memory_system.runtime_supply", "MemoryScopePolicy"),
+    "RuntimeFactBridge": ("memory_system.runtime_fact_bridge", "RuntimeFactBridge"),
+    "RuntimeFactMemoryCandidate": ("memory_system.runtime_fact_bridge", "RuntimeFactMemoryCandidate"),
     "WorkingMemoryPolicyProfile": ("memory_system.working_memory_models", "WorkingMemoryPolicyProfile"),
     "build_memory_bundle": ("memory_system.runtime_supply", "build_memory_bundle"),
     "build_memory_request": ("memory_system.runtime_supply", "build_memory_request"),
@@ -46,6 +50,7 @@ if TYPE_CHECKING:
         build_memory_request,
         build_memory_scope_policy,
     )
+    from .runtime_fact_bridge import RuntimeFactBridge, RuntimeFactMemoryCandidate
     from .storage.models import MemoryNote
     from .working_memory_models import WorkingMemoryPolicyProfile
 

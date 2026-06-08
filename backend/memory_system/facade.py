@@ -21,6 +21,7 @@ from .maintenance import (
 )
 from .runtime_services import MemoryRuntimeServices
 from .session_emphasis import SessionEmphasisStore
+from .storage_layout import MemoryStorageLayout
 from .state_memory import StateMemoryStoreAdapter
 
 
@@ -30,8 +31,15 @@ class MemoryFacade:
         self._context_budget_provider = context_budget_provider
         self._model_invoker: Callable[[list[dict[str, str]]], Any] | None = None
         self._external_durable_memory_saved_callback: Callable[[dict[str, int]], None] | None = None
+        project_layout = ProjectLayout.from_backend_dir(base_dir)
+        self.storage_layout = MemoryStorageLayout.from_project_layout(project_layout)
+        self.storage_layout.ensure_dirs()
         self.adapter = MemoryMessageAdapter()
-        self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
+        self.session_memory = SessionMemoryLayer(
+            base_dir,
+            session_root=self.storage_layout.session_root,
+            context_budget_provider=context_budget_provider,
+        )
         self.foreground_state = ForegroundContinuityStateStore(self.session_memory.session_root)
         self.session_emphasis = SessionEmphasisStore(self.session_memory.session_root)
         self.durable_memory = DurableMemoryLayer(base_dir)
@@ -45,6 +53,7 @@ class MemoryFacade:
         )
         self.maintenance_coordinator = MemoryMaintenanceCoordinator(
             base_dir=base_dir,
+            runtime_dir=self.storage_layout.maintenance_root,
             session_memory_layer=self.session_memory,
             session_emphasis_store=self.session_emphasis,
             memory_manager=self.memory_manager,
@@ -59,8 +68,7 @@ class MemoryFacade:
         self.session_root = self.session_memory.session_root
         self.conversation_memory = ConversationMemoryStoreAdapter(self.session_root)
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
-        layout = ProjectLayout.from_backend_dir(base_dir)
-        self.runtime_services = MemoryRuntimeServices(layout.storage_root)
+        self.runtime_services = MemoryRuntimeServices(self.storage_layout)
         self.working_memory = self.runtime_services.working_memory
         self.formal_memory = self.runtime_services.formal_memory
         self.working_memory_finalizer = self.runtime_services.working_memory_finalizer
@@ -76,6 +84,7 @@ class MemoryFacade:
         self.governance_service = DurableMemoryGovernanceService(
             base_dir,
             memory_manager=self.memory_manager,
+            runtime_dir=self.storage_layout.durable_governance_root,
         )
         self.maintenance_coordinator.set_durable_saved_callback(self._on_durable_memory_saved)
 

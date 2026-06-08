@@ -295,16 +295,42 @@ def _result_metadata_for_tool(
     )
     if not content_range:
         return {}
+    result_boundary = _drop_empty_dict(
+        {
+            "fact_status": "window_evidence",
+            "usable_as": ["current_file_window"],
+            "not_usable_as": ["full_file_fact"] if has_more else [],
+            "freshness": "active",
+            "requires_agent_judgment": True,
+        }
+    )
+    recovery_options: list[dict[str, Any]] = []
     if has_more and next_start_line is not None:
-        guidance = (
-            f"read_file 已返回 {path} 的第 {start_line} 行到第 {end_line} 行。"
-            f"如仍需要后续内容，下一次应使用 start_line={next_start_line} 和 line_count={line_count or ''}；不要重复读取相同行窗口。"
+        recovery_options.append(
+            _drop_empty_dict(
+                {
+                    "kind": "continue_reading",
+                    "tool_name": "read_file",
+                    "args_hint": _drop_empty_dict(
+                        {
+                            "path": path,
+                            "start_line": next_start_line,
+                            "line_count": line_count,
+                        }
+                    ),
+                }
+            )
         )
-    else:
-        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。"
+    recovery_options.append(
+        {
+            "kind": "proceed_with_window",
+            "condition": "current_step_only_needs_visible_window",
+        }
+    )
     return {
         "content_range": content_range,
-        "tool_guidance": guidance,
+        "result_boundary": result_boundary,
+        "recovery_options": recovery_options,
     }
 
 

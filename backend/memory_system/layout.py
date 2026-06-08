@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
-from project_layout import ProjectLayout
+from .storage_layout import (
+    MemoryStorageLayout,
+    durable_memory_namespace_id_for_task_environment,
+    safe_memory_namespace_id,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,35 +60,26 @@ class EnvironmentDurableMemoryScope:
 
 
 def durable_memory_layout_from_backend_dir(base_dir: str | Path) -> DurableMemoryLayout:
-    layout = ProjectLayout.from_backend_dir(base_dir)
-    return DurableMemoryLayout(layout.durable_memory_dir)
+    storage_layout = MemoryStorageLayout.from_backend_dir(base_dir)
+    storage_layout.ensure_dirs()
+    return DurableMemoryLayout(storage_layout.durable_global_root)
 
 
 def environment_durable_memory_scope_from_backend_dir(
     base_dir: str | Path,
     task_environment_id: str,
 ) -> EnvironmentDurableMemoryScope:
-    layout = ProjectLayout.from_backend_dir(base_dir)
+    layout = MemoryStorageLayout.from_backend_dir(base_dir)
+    layout.ensure_dirs()
     normalized = str(task_environment_id or "").strip()
     if not normalized:
         normalized = "env.general.workspace"
     safe_id = safe_memory_namespace_id(normalized)
-    root = layout.durable_memory_dir / "environments" / safe_id
+    root = layout.durable_environment_root(normalized)
     return EnvironmentDurableMemoryScope(
         namespace_id=durable_memory_namespace_id_for_task_environment(normalized),
         task_environment_id=normalized,
         storage_root=root,
     )
-
-
-def durable_memory_namespace_id_for_task_environment(task_environment_id: str) -> str:
-    return f"env:{safe_memory_namespace_id(task_environment_id)}"
-
-
-def safe_memory_namespace_id(value: str) -> str:
-    normalized = str(value or "").strip().lower()
-    normalized = re.sub(r"[^a-z0-9._-]+", "-", normalized)
-    normalized = normalized.replace("..", ".").strip(".-_")
-    return normalized[:120] or "env-general-workspace"
 
 

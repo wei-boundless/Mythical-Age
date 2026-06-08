@@ -10,8 +10,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from project_layout import ProjectLayout
 from memory_system.layout import durable_memory_layout_from_backend_dir, safe_memory_namespace_id
+from memory_system.storage_layout import MemoryStorageLayout
 from memory_system.storage.consolidation import DurableMemoryConsolidator
 from memory_system.storage.frontmatter import format_frontmatter, parse_frontmatter
 
@@ -74,13 +74,14 @@ class MemoryGovernance:
 class DurableMemoryGovernanceService:
     """Formal governance boundary for durable-memory files."""
 
-    def __init__(self, base_dir: Path, *, memory_manager: Any) -> None:
+    def __init__(self, base_dir: Path, *, memory_manager: Any, runtime_dir: Path | None = None) -> None:
         self.base_dir = Path(base_dir)
         self.memory_manager = memory_manager
+        self.storage_layout = MemoryStorageLayout.from_backend_dir(self.base_dir)
+        self.storage_layout.ensure_dirs()
         self.layout = durable_memory_layout_from_backend_dir(self.base_dir)
         self.governance = MemoryGovernance(base_dir)
-        project_layout = ProjectLayout.from_backend_dir(self.base_dir)
-        self.runtime_dir = project_layout.runtime_state_dir / "durable_memory_governance"
+        self.runtime_dir = Path(runtime_dir) if runtime_dir is not None else MemoryStorageLayout.from_backend_dir(self.base_dir).durable_governance_root
         self.report_dir = self.runtime_dir / "reports"
         self.state_path = self.runtime_dir / "state.json"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -654,10 +655,10 @@ class DurableMemoryGovernanceService:
     def _namespace_root(self, namespace_id: str) -> Path:
         normalized = self._normalize_namespace_id(namespace_id)
         if normalized == "global_common":
-            return self.layout.root_dir
+            return self.storage_layout.durable_global_root
         if normalized.startswith("env:"):
             safe_id = safe_memory_namespace_id(normalized.removeprefix("env:"))
-            return self.layout.root_dir / "environments" / safe_id
+            return self.storage_layout.durable_environment_root(safe_id)
         raise ValueError(f"Unsupported durable memory namespace: {namespace_id}")
 
     def _namespace_manager(self, namespace_id: str) -> MemoryManager:

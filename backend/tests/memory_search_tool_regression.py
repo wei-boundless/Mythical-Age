@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 from capability_system.tools.native_tool_catalog import get_tool_definition_map
-from capability_system.tools.tool_units.memory_search_tool import MemorySearchTool
 from memory_system.formal_memory_models import FormalMemoryCollection, FormalMemoryRepository
 from memory_system.runtime_services import MemoryRuntimeServices
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.models import TaskRun
+from tests.support.native_tool_runner import call_native_tool
 
 
 def test_memory_search_tool_reads_formal_task_memory_only(tmp_path: Path) -> None:
@@ -59,14 +59,16 @@ def test_memory_search_tool_reads_formal_task_memory_only(tmp_path: Path) -> Non
     )
 
     result = json.loads(
-        MemorySearchTool(tmp_path / "storage").invoke(
+        call_native_tool(
+            "memory_search",
             {
                 "query": "大泽少年 祭骨",
                 "task_run_id": "task-1",
                 "repositories": ["memory.writing.manuscript"],
                 "collections": ["manuscript_fact_index"],
-            }
-        )
+            },
+            workspace_root=tmp_path / "storage",
+        ).text
     )
 
     assert result["authority"] == "formal_memory.memory_search_tool"
@@ -122,14 +124,16 @@ def test_memory_search_tool_resolves_project_scoped_memory_from_task_run(tmp_pat
     )
 
     result = json.loads(
-        MemorySearchTool(tmp_path / "storage").invoke(
+        call_native_tool(
+            "memory_search",
             {
                 "query": "神庭破灭 万族崛起",
                 "task_run_id": "taskrun:chapter",
                 "repositories": ["memory.writing.baseline"],
                 "collections": ["world_bible"],
-            }
-        )
+            },
+            workspace_root=tmp_path / "storage",
+        ).text
     )
 
     assert result["project_id"] == "project:honghuang"

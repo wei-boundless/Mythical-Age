@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Any
@@ -8,7 +10,7 @@ from .process_state import ContextSlots, DialogueState, FlowState, TaskState, Tu
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 from .models import utc_now_iso
 from .process_state import ProcessStateManager
-from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder
+from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder, has_material_session_memory_content
 from .text_utils import normalize_storage_text
 
 
@@ -29,18 +31,27 @@ class SessionMemoryManager:
         self.debug_view_path = self.views_dir / "debug_view.md"
         self.compaction_view_path = self.views_dir / "compaction_view.md"
         self.summary_path = self.session_dir / "summary.md"
+        self.compaction_state_path = self.session_dir / "compaction_state.json"
         self.state_manager = ProcessStateManager(self.session_dir)
         self.flow_snapshot_manager = FlowSnapshotManager(self.session_dir)
         self.view_builder = SessionMemoryViewBuilder()
         self._ensure_view_files()
 
     def load(self) -> str:
-        source_path = self.summary_path if self.summary_path.exists() else self.agent_view_path
-        return normalize_storage_text(source_path.read_text(encoding="utf-8")) + "\n"
+        for source_path in (self.summary_path, self.agent_view_path):
+            content = self._read_material_text(source_path)
+            if content:
+                return content + "\n"
+        return ""
 
     def load_debug_view(self) -> str:
-        source_path = self.debug_view_path if self.debug_view_path.exists() else self.agent_view_path
-        return normalize_storage_text(source_path.read_text(encoding="utf-8")) + "\n"
+        for source_path in (self.debug_view_path, self.agent_view_path, self.summary_path):
+            if not source_path.exists():
+                continue
+            content = normalize_storage_text(source_path.read_text(encoding="utf-8"))
+            if content:
+                return content + "\n"
+        return DEFAULT_TEMPLATE.strip() + "\n"
 
     def load_state(self) -> DialogueState:
         return self.state_manager.load()
@@ -54,8 +65,16 @@ class SessionMemoryManager:
         compaction_rendered = self.view_builder.render_compaction_view(model_rendered)
         self.agent_view_path.write_text(debug_rendered, encoding="utf-8")
         self.debug_view_path.write_text(debug_rendered, encoding="utf-8")
-        self.summary_path.write_text(model_rendered, encoding="utf-8")
-        self.compaction_view_path.write_text(compaction_rendered, encoding="utf-8")
+        if has_material_session_memory_content(model_rendered):
+            self.summary_path.write_text(model_rendered, encoding="utf-8")
+            if compaction_rendered.strip():
+                self.compaction_view_path.write_text(compaction_rendered, encoding="utf-8")
+            elif self.compaction_view_path.exists():
+                self.compaction_view_path.unlink()
+        else:
+            for path in (self.summary_path, self.compaction_view_path, self.compaction_state_path):
+                if path.exists():
+                    path.unlink()
 
     def update_runtime_state_from_context_state(
         self,
@@ -90,8 +109,12 @@ class SessionMemoryManager:
                 max_chars_per_section=max_chars_per_section,
             )
         if max_chars_per_section == 800 and self.compaction_view_path.exists():
-            return normalize_storage_text(self.compaction_view_path.read_text(encoding="utf-8")) + "\n"
+            content = self._read_material_text(self.compaction_view_path)
+            if content:
+                return content + "\n"
         source = self.load()
+        if not source.strip():
+            return ""
         return self.view_builder.render_compaction_view(
             source,
             max_chars_per_section=max_chars_per_section,
@@ -99,6 +122,160 @@ class SessionMemoryManager:
 
     def parse_sections(self, content: str) -> dict[str, list[str]]:
         return self.view_builder.parse_sections(content)
+
+    def write_compaction_state(
+        self,
+        *,
+        messages: list[Any] | tuple[Any, ...],
+        run_id: str,
+        source: str,
+        source_message_refs: list[str] | tuple[str, ...] | None = None,
+        summary_content: str = "",
+    ) -> dict[str, Any]:
+        material_summary = normalize_storage_text(summary_content or self.load())
+        if not has_material_session_memory_content(material_summary):
+            if self.compaction_state_path.exists():
+                self.compaction_state_path.unlink()
+            return {
+                "authority": "memory_system.session_memory.compaction_state",
+                "status": "not_written",
+                "reason": "empty_session_memory",
+            }
+        normalized_messages = [_message_identity_payload(item) for item in list(messages or [])]
+        message_ids = [str(item.get("message_id") or "") for item in normalized_messages]
+        payload = {
+            "authority": "memory_system.session_memory.compaction_state",
+            "schema_version": "session-memory-compaction-state.v1",
+            "covered_message_count": len(normalized_messages),
+            "covered_message_ids": message_ids,
+            "last_summarized_message_id": message_ids[-1] if message_ids else "",
+            "message_fingerprint": _stable_hash(normalized_messages),
+            "last_message_fingerprint": _stable_hash(normalized_messages[-1:]) if normalized_messages else "",
+            "summary_sha256": hashlib.sha256(material_summary.encode("utf-8")).hexdigest(),
+            "summary_material": True,
+            "updated_at": utc_now_iso(),
+            "run_id": str(run_id or ""),
+            "source": str(source or "memory_maintenance_agent"),
+            "source_message_refs": [str(item) for item in list(source_message_refs or []) if str(item)],
+        }
+        self.compaction_state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+
+    def load_compaction_state(self) -> dict[str, Any]:
+        if not self.compaction_state_path.exists():
+            return {}
+        payload = json.loads(self.compaction_state_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Session memory compaction state must be a JSON object")
+        return payload
+
+    def validate_compaction_state(self, messages: list[Any] | tuple[Any, ...]) -> dict[str, Any]:
+        try:
+            state = self.load_compaction_state()
+        except Exception as exc:
+            return {
+                "ok": False,
+                "status": "corrupt",
+                "reason": str(exc) or "compaction_state_corrupt",
+                "summary_material": has_material_session_memory_content(self.compact_view()),
+                "covered_message_count": 0,
+                "authority": "memory_system.session_memory.compaction_state_validation",
+            }
+        material_summary = self.compact_view()
+        summary_material = has_material_session_memory_content(material_summary)
+        if not state:
+            return {
+                "ok": False,
+                "status": "missing",
+                "reason": "compaction_state_missing",
+                "summary_material": summary_material,
+                "covered_message_count": 0,
+                "authority": "memory_system.session_memory.compaction_state_validation",
+            }
+        normalized_messages = [_message_identity_payload(item) for item in list(messages or [])]
+        covered_count = _safe_int(state.get("covered_message_count"))
+        if not summary_material:
+            return self._compaction_state_validation_result(
+                ok=False,
+                state=state,
+                covered_count=covered_count,
+                reason="session_memory_empty",
+                status="empty_summary",
+                summary_material=False,
+            )
+        if covered_count <= 0 or covered_count > len(normalized_messages):
+            return self._compaction_state_validation_result(
+                ok=False,
+                state=state,
+                covered_count=covered_count,
+                reason="covered_message_count_out_of_range",
+                status="stale",
+                summary_material=True,
+            )
+        prefix = normalized_messages[:covered_count]
+        current_last_id = str(prefix[-1].get("message_id") or "").strip() if prefix else ""
+        current_fingerprint = _stable_hash(prefix)
+        expected_fingerprint = str(state.get("message_fingerprint") or "").strip()
+        if expected_fingerprint and current_fingerprint != expected_fingerprint:
+            return self._compaction_state_validation_result(
+                ok=False,
+                state=state,
+                covered_count=covered_count,
+                reason="message_fingerprint_mismatch",
+                status="stale",
+                summary_material=True,
+                current_message_fingerprint=current_fingerprint,
+                current_last_summarized_message_id=current_last_id,
+            )
+        expected_last_id = str(state.get("last_summarized_message_id") or "").strip()
+        if expected_last_id and current_last_id and expected_last_id != current_last_id:
+            return self._compaction_state_validation_result(
+                ok=False,
+                state=state,
+                covered_count=covered_count,
+                reason="last_summarized_message_id_mismatch",
+                status="stale",
+                summary_material=True,
+                current_last_summarized_message_id=current_last_id,
+            )
+        return self._compaction_state_validation_result(
+            ok=True,
+            state=state,
+            covered_count=covered_count,
+            reason="ok",
+            status="valid",
+            summary_material=True,
+            current_message_fingerprint=current_fingerprint,
+            current_last_summarized_message_id=current_last_id,
+        )
+
+    def _compaction_state_validation_result(
+        self,
+        *,
+        ok: bool,
+        state: dict[str, Any],
+        covered_count: int,
+        reason: str,
+        status: str,
+        summary_material: bool,
+        current_message_fingerprint: str = "",
+        current_last_summarized_message_id: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "ok": bool(ok),
+            "status": status,
+            "reason": reason,
+            "summary_material": bool(summary_material),
+            "covered_message_count": int(covered_count or 0),
+            "last_summarized_message_id": str(state.get("last_summarized_message_id") or ""),
+            "message_fingerprint": str(state.get("message_fingerprint") or ""),
+            "current_message_fingerprint": current_message_fingerprint,
+            "current_last_summarized_message_id": current_last_summarized_message_id,
+            "run_id": str(state.get("run_id") or ""),
+            "source": str(state.get("source") or ""),
+            "updated_at": str(state.get("updated_at") or ""),
+            "authority": "memory_system.session_memory.compaction_state_validation",
+        }
 
     def _build_state_from_context_state(
         self,
@@ -757,9 +934,9 @@ class SessionMemoryManager:
             source = self.agent_view_path.read_text(encoding="utf-8")
             if not self.debug_view_path.exists():
                 self.debug_view_path.write_text(source, encoding="utf-8")
-            if not self.summary_path.exists():
+            if not self.summary_path.exists() and has_material_session_memory_content(source):
                 self.summary_path.write_text(source, encoding="utf-8")
-            if not self.compaction_view_path.exists():
+            if not self.compaction_view_path.exists() and has_material_session_memory_content(source):
                 self.compaction_view_path.write_text(
                     self.view_builder.render_compaction_view(source),
                     encoding="utf-8",
@@ -767,20 +944,95 @@ class SessionMemoryManager:
             return
         if self.summary_path.exists():
             source = self.summary_path.read_text(encoding="utf-8")
-            self.agent_view_path.write_text(source, encoding="utf-8")
-            self.debug_view_path.write_text(source, encoding="utf-8")
-            self.compaction_view_path.write_text(
-                self.view_builder.render_compaction_view(source),
-                encoding="utf-8",
-            )
+            view_source = source if has_material_session_memory_content(source) else DEFAULT_TEMPLATE
+            self.agent_view_path.write_text(view_source, encoding="utf-8")
+            self.debug_view_path.write_text(view_source, encoding="utf-8")
+            if has_material_session_memory_content(source):
+                self.compaction_view_path.write_text(
+                    self.view_builder.render_compaction_view(source),
+                    encoding="utf-8",
+                )
             return
         default_view = DEFAULT_TEMPLATE
         self.agent_view_path.write_text(default_view, encoding="utf-8")
         self.debug_view_path.write_text(default_view, encoding="utf-8")
-        self.summary_path.write_text(default_view, encoding="utf-8")
-        self.compaction_view_path.write_text(
-            self.view_builder.render_compaction_view(default_view),
-            encoding="utf-8",
-        )
+
+    def _read_material_text(self, path: Path) -> str:
+        if not path.exists():
+            return ""
+        content = normalize_storage_text(path.read_text(encoding="utf-8"))
+        if not has_material_session_memory_content(content):
+            return ""
+        return content
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _message_identity_payload(message: Any) -> dict[str, Any]:
+    if isinstance(message, dict):
+        payload = dict(message)
+        if "content_sha256" in payload and "role" in payload:
+            normalized = {
+                "message_id": str(payload.get("message_id") or ""),
+                "role": str(payload.get("role") or ""),
+                "content_sha256": str(payload.get("content_sha256") or ""),
+                "content_chars": _safe_int(payload.get("content_chars")),
+            }
+            for key in ("turn_id", "tool_call_id", "tool_calls"):
+                value = payload.get(key)
+                if value not in (None, "", [], {}):
+                    normalized[key] = value
+            return normalized
+        role = str(payload.get("role") or payload.get("type") or "")
+        content = normalize_storage_text(payload.get("content") or payload.get("text") or "")
+        meta = dict(payload.get("meta") or {}) if isinstance(payload.get("meta"), dict) else {}
+    else:
+        role = str(getattr(message, "role", "") or "")
+        content = normalize_storage_text(getattr(message, "content", "") or "")
+        meta = dict(getattr(message, "meta", {}) or {})
+        payload = {"role": role, "content": content, "meta": meta}
+    message_id = _message_id_from_payload(payload, meta=meta)
+    tool_calls = payload.get("tool_calls")
+    if tool_calls is None:
+        tool_calls = meta.get("tool_calls")
+    normalized: dict[str, Any] = {
+        "message_id": message_id,
+        "role": role,
+        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "content_chars": len(content),
+    }
+    turn_id = str(payload.get("turn_id") or meta.get("turn_id") or "").strip()
+    if turn_id:
+        normalized["turn_id"] = turn_id
+    tool_call_id = str(payload.get("tool_call_id") or meta.get("tool_call_id") or payload.get("call_id") or meta.get("call_id") or "").strip()
+    if tool_call_id:
+        normalized["tool_call_id"] = tool_call_id
+    if isinstance(tool_calls, list) and tool_calls:
+        normalized["tool_calls"] = [
+            {
+                "id": str(item.get("id") or ""),
+                "name": str(item.get("name") or ""),
+            }
+            for item in tool_calls
+            if isinstance(item, dict)
+        ]
+    return normalized
+
+
+def _message_id_from_payload(payload: dict[str, Any], *, meta: dict[str, Any]) -> str:
+    for source in (payload, meta):
+        for key in ("message_id", "id"):
+            value = str(source.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

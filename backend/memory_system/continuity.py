@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from context_system.budget.presets import get_context_budget_preset
-from project_layout import ProjectLayout
+from .storage_layout import MemoryStorageLayout
 from runtime.output_boundary import sanitize_visible_assistant_content
 
 from .paths import normalize_session_id, safe_session_dir
@@ -130,6 +130,9 @@ class MemoryMessageAdapter:
                 continue
             meta = dict(item.get("meta", {}) or {})
             for key in (
+                "message_id",
+                "id",
+                "turn_id",
                 "answer_channel",
                 "answer_source",
                 "answer_canonical_state",
@@ -160,13 +163,19 @@ class SessionMemoryLayer:
     def __init__(
         self,
         base_dir: Path,
+        *,
+        session_root: Path | None = None,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
         compactor_kwargs_provider: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self.base_dir = base_dir
         self._context_budget_provider = context_budget_provider
         self._compactor_kwargs_provider = compactor_kwargs_provider
-        self.session_root = ProjectLayout.from_backend_dir(base_dir).session_memory_dir
+        if session_root is None:
+            layout = MemoryStorageLayout.from_backend_dir(base_dir)
+            layout.ensure_dirs()
+            session_root = layout.session_root
+        self.session_root = Path(session_root)
         self.session_root.mkdir(parents=True, exist_ok=True)
 
     def set_compactor_kwargs_provider(self, provider: Callable[[str], dict[str, Any]] | None) -> None:
@@ -198,6 +207,7 @@ class SessionMemoryLayer:
         return ContextCompactor(
             self.manager(session_id),
             effective_history_token_budget=int(budget["available_context_tokens"]),
+            compaction_threshold_tokens=dict(budget.get("compaction_threshold_tokens") or {}),
             **self._compactor_kwargs(session_id),
         )
 

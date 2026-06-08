@@ -13,6 +13,7 @@ from memory_system import MemoryHeader
 from memory_system.governance_service import DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS
 from memory_system.layout import durable_memory_namespace_id_for_task_environment
 from memory_system.runtime_services import MemoryRuntimeServices
+from memory_system.storage_layout import MemoryStorageLayout
 from project_layout import ProjectLayout
 from request_intent.memory_intent import analyze_memory_intent
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
@@ -76,11 +77,10 @@ def _layout_from_runtime(runtime: Any) -> ProjectLayout:
 
 
 def _memory_runtime_services(runtime: Any) -> MemoryRuntimeServices:
-    layout = _layout_from_runtime(runtime)
     facade_services = getattr(getattr(runtime, "memory_facade", None), "runtime_services", None)
     if isinstance(facade_services, MemoryRuntimeServices):
         return facade_services
-    return MemoryRuntimeServices(layout.storage_root)
+    return MemoryRuntimeServices.from_backend_dir(runtime.base_dir)
 
 
 def _formal_memory_service(runtime: Any):
@@ -492,7 +492,7 @@ async def get_session_memory_files(
     assert runtime.base_dir is not None
 
     safe_session_id = _safe_session_id(session_id)
-    session_dir = ProjectLayout.from_backend_dir(runtime.base_dir).session_memory_dir / safe_session_id
+    session_dir = MemoryStorageLayout.from_backend_dir(runtime.base_dir).session_root / safe_session_id
     files = [
         _session_memory_file_payload(session_dir, safe_session_id, item_id, label, relative_path, description)
         for item_id, label, relative_path, description in SESSION_MEMORY_FILE_TARGETS

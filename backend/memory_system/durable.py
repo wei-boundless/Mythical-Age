@@ -14,7 +14,7 @@ from memory_system.storage.memory_manager import MemoryManager
 from runtime.model_gateway.model_runtime import utility_accounting_context
 
 
-MessageInvoker = Callable[[list[dict[str, str]]], Any]
+MessageInvoker = Callable[..., Any]
 
 
 async def _call_message_invoker(
@@ -23,29 +23,10 @@ async def _call_message_invoker(
     *,
     accounting_context: dict[str, Any],
 ) -> Any:
-    if _callable_accepts_kwarg(message_invoker, "accounting_context"):
-        response = message_invoker(messages, accounting_context=accounting_context)
-    else:
-        response = message_invoker(messages)
+    response = message_invoker(messages, accounting_context=accounting_context)
     if inspect.isawaitable(response):
         return await response
     return response
-
-
-def _callable_accepts_kwarg(callback: Callable[..., Any], kwarg: str) -> bool:
-    try:
-        signature = inspect.signature(callback)
-    except (TypeError, ValueError):
-        return True
-    for parameter in signature.parameters.values():
-        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
-            return True
-        if parameter.name == kwarg and parameter.kind in {
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        }:
-            return True
-    return False
 
 
 class MemoryRecallRequest(BaseModel):

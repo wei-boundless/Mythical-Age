@@ -35,7 +35,6 @@ WorkingMemoryPromotionState = Literal[
     "needs_review",
     "approved",
     "rejected",
-    "promoted_to_task_durable",
     "promoted_to_artifact_store",
     "promoted_to_health_issue",
 ]

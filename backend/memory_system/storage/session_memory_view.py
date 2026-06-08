@@ -54,6 +54,12 @@ _What the assistant should most likely do next if the work continues._
 _Short chronological bullets of meaningful events._
 """
 
+TEMPLATE_DESCRIPTION_LINES = frozenset(
+    line.strip()
+    for line in DEFAULT_TEMPLATE.splitlines()
+    if line.strip().startswith("_") and line.strip().endswith("_")
+)
+
 COMPACTION_HEADER_ORDER = [
     "# Session Title",
     "# Active Goal",
@@ -130,7 +136,15 @@ class SessionMemoryViewBuilder:
         *,
         max_chars_per_section: int = 800,
     ) -> str:
-        sections = self.parse_sections(source)
+        if not has_material_session_memory_content(source):
+            return ""
+        sections = self.parse_sections(source, use_default_template=False)
+        if not sections:
+            text = str(source or "").strip()
+            section_limit = max(120, int(max_chars_per_section or 800))
+            if len(text) > section_limit:
+                text = text[:section_limit].rstrip() + "\n[... section truncated ...]"
+            return text.strip() + "\n" if text.strip() else ""
         rendered: list[str] = []
         ordered_headers = [
             header
@@ -140,7 +154,6 @@ class SessionMemoryViewBuilder:
         for header in ordered_headers:
             body = sections.get(header, [])
             rendered.append(header)
-            rendered.extend(self.description_for_header(header))
             text = "\n".join(body).strip()
             section_limit = min(
                 max_chars_per_section,
@@ -153,7 +166,7 @@ class SessionMemoryViewBuilder:
             rendered.append("")
         return "\n".join(rendered).strip() + "\n"
 
-    def parse_sections(self, content: str) -> dict[str, list[str]]:
+    def parse_sections(self, content: str, *, use_default_template: bool = True) -> dict[str, list[str]]:
         sections: dict[str, list[str]] = {}
         current_header: str | None = None
         current_lines: list[str] = []
@@ -167,16 +180,16 @@ class SessionMemoryViewBuilder:
                 current_lines.append(line)
         if current_header is not None:
             sections[current_header] = current_lines
-        if not sections:
-            return self.parse_sections(DEFAULT_TEMPLATE)
+        if not sections and use_default_template:
+            return self.parse_sections(DEFAULT_TEMPLATE, use_default_template=False)
         return sections
 
     def description_for_header(self, header: str) -> list[str]:
-        template_sections = self.parse_sections(DEFAULT_TEMPLATE)
+        template_sections = self.parse_sections(DEFAULT_TEMPLATE, use_default_template=False)
         return [line for line in template_sections.get(header, []) if line.strip().startswith("_")]
 
     def _render_sections(self, sections: dict[str, list[str]], *, include_empty_headers: bool) -> str:
-        ordered_headers = list(self.parse_sections(DEFAULT_TEMPLATE).keys())
+        ordered_headers = list(self.parse_sections(DEFAULT_TEMPLATE, use_default_template=False).keys())
         chunks: list[str] = []
         for header in ordered_headers:
             lines = sections.get(header, [])
@@ -315,5 +328,18 @@ def _mask_private_binding_values(line: str) -> str:
     text = re.sub(r"(?:active_pdf|pdf)=\S+", "pdf=available", text, flags=re.IGNORECASE)
     text = re.sub(r"(?:active_dataset|dataset)=\S+", "dataset=available", text, flags=re.IGNORECASE)
     return _PRIVATE_BINDING_RE.sub("binding=available", text)
+
+
+def has_material_session_memory_content(content: str) -> bool:
+    for line in str(content or "").replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# "):
+            continue
+        if stripped in TEMPLATE_DESCRIPTION_LINES:
+            continue
+        return True
+    return False
 
 

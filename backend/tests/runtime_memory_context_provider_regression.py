@@ -86,3 +86,31 @@ def test_explicit_memory_read_opens_long_term_memory() -> None:
 
     assert bundle.profiles[-1]["requested_memory_layers"] == ["state", "long_term"]
     assert bundle.profiles[-1]["allow_long_term_memory"] is True
+
+
+def test_task_execution_rejects_non_runtime_memory_profile_layers_before_bundle_call() -> None:
+    for layer in ("task_durable", "artifact_refs"):
+        bundle = _CapturingBundleService()
+        error = ""
+
+        try:
+            asyncio.run(
+                _provider(bundle).for_task_execution(
+                    {
+                        "session_id": "session-runtime-memory-invalid",
+                        "task_run": {"task_run_id": "taskrun:invalid", "task_id": "task.invalid"},
+                        "contract": {
+                            "memory_request_profile": {
+                                "requested_memory_layers": ["state", layer],
+                                "allow_long_term_memory": True,
+                            }
+                        },
+                        "agent_runtime_profile": SimpleNamespace(allowed_memory_scopes=()),
+                    }
+                )
+            )
+        except ValueError as exc:
+            error = str(exc)
+
+        assert "memory layer" in error.lower()
+        assert bundle.profiles == []

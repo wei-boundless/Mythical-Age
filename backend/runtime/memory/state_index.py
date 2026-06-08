@@ -25,6 +25,7 @@ from ..shared.runtime_object_store import RuntimeObjectStore
 _STATE_INDEX_WRITE_LOCK = threading.RLock()
 GLOBAL_RECENT_TASK_RUN_INDEX_ID = "default"
 GLOBAL_RECENT_TASK_RUN_LIMIT = 240
+ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID = "default"
 
 
 class RuntimeStateIndex:
@@ -48,27 +49,29 @@ class RuntimeStateIndex:
 
     def upsert_task_run(self, task_run: TaskRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
-            if self._session_deleted_unlocked(task_run.session_id) or self._task_run_deleted_unlocked(task_run.task_run_id):
-                return
-            payload = self._compact_task_run_payload(task_run.to_dict())
-            self._write_record("task_runs", task_run.task_run_id, payload)
-            self._append_index_id("sessions", task_run.session_id, task_run.task_run_id)
-            self._upsert_global_recent_task_run(
-                task_run.task_run_id,
-                updated_at=float(payload.get("updated_at") or payload.get("created_at") or 0.0),
-            )
-            self._maybe_write_latest_ref(
-                "session_latest_task_runs",
-                task_run.session_id,
-                task_run.task_run_id,
-                updated_at=float(payload.get("updated_at") or 0.0),
-            )
-            self._upsert_session_live_view(
-                session_id=task_run.session_id,
-                task_run_id=task_run.task_run_id,
-                updated_at=float(payload.get("updated_at") or 0.0),
-            )
-            self._touch_meta()
+            self._upsert_task_run_unlocked(task_run)
+
+    def update_task_run(self, task_run_id: str, updater: Any) -> TaskRun | None:
+        normalized_task_run_id = str(task_run_id or "").strip()
+        if not normalized_task_run_id or not callable(updater):
+            return None
+        with _STATE_INDEX_WRITE_LOCK:
+            if self._task_run_deleted_unlocked(normalized_task_run_id):
+                return None
+            payload = self._read_record("task_runs", normalized_task_run_id)
+            if not payload:
+                return None
+            current = _task_run_from_payload(payload)
+            updated = updater(current)
+            if updated is None:
+                return None
+            if not isinstance(updated, TaskRun):
+                raise TypeError("RuntimeStateIndex.update_task_run updater must return TaskRun or None")
+            if updated.task_run_id != normalized_task_run_id:
+                raise ValueError("RuntimeStateIndex.update_task_run cannot change task_run_id")
+            if updated.session_id != current.session_id:
+                raise ValueError("RuntimeStateIndex.update_task_run cannot change session_id")
+            return self._upsert_task_run_unlocked(updated)
 
     def upsert_turn_run(self, turn_run: TurnRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
@@ -84,6 +87,32 @@ class RuntimeStateIndex:
                 updated_at=float(payload.get("updated_at") or 0.0),
             )
             self._touch_meta()
+
+    def _upsert_task_run_unlocked(self, task_run: TaskRun) -> TaskRun | None:
+        if self._session_deleted_unlocked(task_run.session_id) or self._task_run_deleted_unlocked(task_run.task_run_id):
+            return None
+        payload = self._compact_task_run_payload(task_run.to_dict())
+        self._write_record("task_runs", task_run.task_run_id, payload)
+        self._append_index_id("sessions", task_run.session_id, task_run.task_run_id)
+        self._upsert_global_recent_task_run(
+            task_run.task_run_id,
+            updated_at=float(payload.get("updated_at") or payload.get("created_at") or 0.0),
+        )
+        self._maybe_write_latest_ref(
+            "session_latest_task_runs",
+            task_run.session_id,
+            task_run.task_run_id,
+            updated_at=float(payload.get("updated_at") or 0.0),
+        )
+        self._upsert_session_live_view(
+            session_id=task_run.session_id,
+            task_run_id=task_run.task_run_id,
+            updated_at=float(payload.get("updated_at") or 0.0),
+        )
+        self._sync_active_executor_task_run_id(task_run.task_run_id, payload)
+        self._sync_graph_node_task_run_id(task_run.task_run_id, payload)
+        self._touch_meta()
+        return _task_run_from_payload(payload)
 
     def upsert_agent_run(self, agent_run: AgentRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
@@ -172,6 +201,58 @@ class RuntimeStateIndex:
     def list_task_runs(self) -> list[TaskRun]:
         task_runs = self._read_record_bucket("task_runs")
         return [_task_run_from_payload(item) for item in task_runs.values() if isinstance(item, dict)]
+
+    def list_active_executor_task_runs(self) -> list[TaskRun]:
+        ids = self._read_index_ids("active_executor_task_runs", ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID)
+        if not ids:
+            return []
+        task_runs: list[TaskRun] = []
+        active_ids: list[str] = []
+        for task_run_id in ids:
+            payload = self._read_record("task_runs", task_run_id)
+            if not payload or not _is_active_executor_task_run_payload(payload):
+                continue
+            task_runs.append(_task_run_from_payload(payload))
+            active_ids.append(task_run_id)
+        if active_ids != ids:
+            self._write_index_value("active_executor_task_runs", ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID, active_ids)
+        return task_runs
+
+    def get_graph_node_task_run(self, *, graph_run_id: str = "", work_order_id: str = "") -> TaskRun | None:
+        normalized_work_order_id = str(work_order_id or "").strip()
+        if not normalized_work_order_id:
+            return None
+        task_run_id = str(self._read_index_value("graph_node_task_run_by_work_order", normalized_work_order_id) or "").strip()
+        if not task_run_id:
+            return None
+        payload = self._read_record("task_runs", task_run_id)
+        identity = _graph_node_task_identity(payload)
+        if not payload or not identity or identity.get("work_order_id") != normalized_work_order_id:
+            self._write_index_value("graph_node_task_run_by_work_order", normalized_work_order_id, "")
+            return None
+        normalized_graph_run_id = str(graph_run_id or "").strip()
+        if normalized_graph_run_id and identity.get("graph_run_id") != normalized_graph_run_id:
+            self._write_index_value("graph_node_task_run_by_work_order", normalized_work_order_id, "")
+            return None
+        return _task_run_from_payload(payload)
+
+    def list_graph_node_task_runs(self, *, graph_run_id: str) -> list[TaskRun]:
+        normalized_graph_run_id = str(graph_run_id or "").strip()
+        if not normalized_graph_run_id:
+            return []
+        ids = self._read_index_ids("graph_node_task_runs_by_graph_run", normalized_graph_run_id)
+        task_runs: list[TaskRun] = []
+        active_ids: list[str] = []
+        for task_run_id in ids:
+            payload = self._read_record("task_runs", task_run_id)
+            identity = _graph_node_task_identity(payload)
+            if not payload or not identity or identity.get("graph_run_id") != normalized_graph_run_id:
+                continue
+            task_runs.append(_task_run_from_payload(payload))
+            active_ids.append(task_run_id)
+        if active_ids != ids:
+            self._write_index_value("graph_node_task_runs_by_graph_run", normalized_graph_run_id, active_ids)
+        return task_runs
 
     def list_recent_task_runs(self, *, limit: int = 80) -> list[TaskRun]:
         requested = max(1, min(int(limit or 80), GLOBAL_RECENT_TASK_RUN_LIMIT))
@@ -743,6 +824,32 @@ class RuntimeStateIndex:
             items.append(value)
         self._write_index_value(bucket, index_id, items)
 
+    def _remove_index_id(self, bucket: str, index_id: str, value: str) -> None:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return
+        items = self._read_index_ids(bucket, index_id)
+        next_items = [item for item in items if item != normalized]
+        if next_items != items:
+            self._write_index_value(bucket, index_id, next_items)
+
+    def _sync_active_executor_task_run_id(self, task_run_id: str, payload: dict[str, Any]) -> None:
+        if _is_active_executor_task_run_payload(payload):
+            self._append_index_id("active_executor_task_runs", ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID, task_run_id)
+            return
+        self._remove_index_id("active_executor_task_runs", ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID, task_run_id)
+
+    def _sync_graph_node_task_run_id(self, task_run_id: str, payload: dict[str, Any]) -> None:
+        identity = _graph_node_task_identity(payload)
+        if not identity:
+            return
+        graph_run_id = str(identity.get("graph_run_id") or "").strip()
+        work_order_id = str(identity.get("work_order_id") or "").strip()
+        if graph_run_id:
+            self._append_index_id("graph_node_task_runs_by_graph_run", graph_run_id, task_run_id)
+        if work_order_id:
+            self._write_index_value("graph_node_task_run_by_work_order", work_order_id, task_run_id)
+
     def _upsert_global_recent_task_run(self, task_run_id: str, *, updated_at: float) -> None:
         normalized = str(task_run_id or "").strip()
         if not normalized:
@@ -920,6 +1027,8 @@ class RuntimeStateIndex:
             "task_worker_spawn_results",
             "session_projects",
             "global_recent_task_runs",
+            "active_executor_task_runs",
+            "graph_node_task_runs_by_graph_run",
             "project_supervision_records",
             "task_supervision_records",
         )
@@ -932,6 +1041,7 @@ class RuntimeStateIndex:
             "graph_project_index",
             "session_active_project_status",
             "task_project_status",
+            "graph_node_task_run_by_work_order",
         )
 
     @classmethod
@@ -961,6 +1071,8 @@ class RuntimeStateIndex:
             "project_runtime_statuses": {},
             "session_projects": {},
             "global_recent_task_runs": {},
+            "active_executor_task_runs": {},
+            "graph_node_task_runs_by_graph_run": {},
             "project_supervision_records": {},
             "task_supervision_records": {},
             "session_latest_task_runs": {},
@@ -968,6 +1080,7 @@ class RuntimeStateIndex:
             "graph_project_index": {},
             "session_active_project_status": {},
             "task_project_status": {},
+            "graph_node_task_run_by_work_order": {},
             "updated_at": 0.0,
         }
 
@@ -975,7 +1088,10 @@ class RuntimeStateIndex:
     def _read_json(path: Path, default: Any) -> Any:
         if not path.exists():
             return default
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return default
 
     def _atomic_write(self, payload: dict[str, Any]) -> None:
         self.replace_snapshot(payload)
@@ -1030,6 +1146,56 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         terminal_reason=payload.get("terminal_reason", ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
+
+
+def _is_active_executor_task_run_payload(payload: dict[str, Any]) -> bool:
+    if str(payload.get("execution_runtime_kind") or "") not in {"single_agent_task", "subagent_task"}:
+        return False
+    status = str(payload.get("status") or "").strip()
+    if status in {"completed", "success", "failed", "error", "aborted", "cancelled", "canceled", "stopped"}:
+        return False
+    diagnostics = dict(payload.get("diagnostics") or {})
+    origin = dict(diagnostics.get("origin") or {}) if isinstance(diagnostics.get("origin"), dict) else {}
+    origin_kind = str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
+    if origin_kind == "graph_node_assigned":
+        return False
+    if diagnostics.get("graph_run_id") or diagnostics.get("graph_harness_config_id") or diagnostics.get("graph_node_id"):
+        return False
+    executor_status = str(diagnostics.get("executor_status") or "").strip()
+    if executor_status in {"scheduled", "running", "retrying", "recovering"}:
+        return True
+    return status == "running"
+
+
+def _graph_node_task_identity(payload: dict[str, Any]) -> dict[str, str]:
+    if not isinstance(payload, dict) or str(payload.get("execution_runtime_kind") or "") not in {"single_agent_task", "subagent_task"}:
+        return {}
+    diagnostics = dict(payload.get("diagnostics") or {})
+    origin = dict(diagnostics.get("origin") or {}) if isinstance(diagnostics.get("origin"), dict) else {}
+    origin_kind = str(payload.get("origin_kind") or diagnostics.get("origin_kind") or origin.get("origin_kind") or "").strip()
+    if origin_kind != "graph_node_assigned":
+        return {}
+    graph_run_id = str(
+        payload.get("graph_run_id")
+        or diagnostics.get("graph_run_id")
+        or origin.get("graph_run_id")
+        or origin.get("parent_run_ref")
+        or ""
+    ).strip()
+    work_order_id = str(
+        payload.get("graph_work_order_id")
+        or diagnostics.get("graph_work_order_id")
+        or origin.get("origin_ref")
+        or ""
+    ).strip()
+    node_id = str(payload.get("graph_node_id") or diagnostics.get("graph_node_id") or diagnostics.get("node_id") or origin.get("node_id") or "").strip()
+    if not graph_run_id or not work_order_id:
+        return {}
+    return {
+        "graph_run_id": graph_run_id,
+        "work_order_id": work_order_id,
+        "node_id": node_id,
+    }
 
 
 def _turn_run_from_payload(payload: dict[str, Any]) -> TurnRun:

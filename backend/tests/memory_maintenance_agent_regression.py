@@ -44,7 +44,7 @@ def _agent_payload(*, durable_actions=None):
 
 
 def _fake_invoker(payload):
-    async def invoke(_messages):
+    async def invoke(_messages, *, accounting_context=None):
         return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
 
     return invoke
@@ -74,7 +74,7 @@ def test_background_memory_maintenance_skips_without_opportunity_signal(tmp_path
     facade = MemoryFacade(tmp_path)
     calls = []
 
-    async def invoker(messages):
+    async def invoker(messages, *, accounting_context=None):
         calls.append(messages)
         return SimpleNamespace(content=json.dumps(_agent_payload(), ensure_ascii=False))
 
@@ -93,6 +93,9 @@ def test_background_memory_maintenance_skips_without_opportunity_signal(tmp_path
     assert receipt.attempted is False
     assert receipt.durable_skip_reason == "below_maintenance_threshold"
     assert calls == []
+    assert not facade.session_memory.manager("session-maintenance-gate").compaction_state_path.exists()
+    state = facade.maintenance_coordinator._load_state("session-maintenance-gate")
+    assert int(state.get("last_memory_message_index") or 0) == 0
 
 
 def test_session_emphasis_action_writes_pinned_user_steer(tmp_path) -> None:
@@ -205,8 +208,8 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
     receipt = facade.run_memory_maintenance_after_commit(
         session_id="session-memory-maintenance",
         messages=[
-            {"role": "user", "content": "把记忆管理agent接通"},
-            {"role": "assistant", "content": "已经接通"},
+            {"role": "user", "content": "把记忆管理agent接通", "message_id": "msg:memory:1"},
+            {"role": "assistant", "content": "已经接通", "message_id": "msg:memory:2"},
         ],
         turn_id="turn:session-memory-maintenance:1",
         force=True,
@@ -217,6 +220,9 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
     assert receipt.durable_memory_succeeded is True
     assert receipt.durable_write_count == 1
     assert "接通记忆管理 Agent" in facade.session_memory.manager("session-memory-maintenance").load()
+    compaction_state = facade.session_memory.manager("session-memory-maintenance").load_compaction_state()
+    assert compaction_state["last_summarized_message_id"]
+    assert compaction_state["covered_message_count"] == 2
     assert facade.memory_manager.note_path("memory-agent-boundary").exists()
 
 

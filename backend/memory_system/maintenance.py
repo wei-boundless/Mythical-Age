@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import threading
@@ -11,7 +12,6 @@ from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from project_layout import ProjectLayout
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
 from prompt_library.agent_prompts import MEMORY_SYSTEM_AGENT_MEMORY_MAINTENANCE_PROMPT
@@ -22,12 +22,13 @@ from .layout import durable_memory_namespace_id_for_task_environment
 from .manifest_scan import scan_memory_headers
 from .paths import normalize_session_id, safe_runtime_session_key
 from .session_emphasis import SessionEmphasisCaptureGate, SessionEmphasisStore
+from .storage_layout import MemoryStorageLayout
 
 
 MEMORY_MANAGER_AGENT_ID = "agent:1"
 MEMORY_MANAGER_PROFILE_ID = "memory_system_agent"
 MEMORY_MANAGER_RUNTIME_TEMPLATE_IDS = ("builtin.system.memory_manager", "runtime.template.memory_manager")
-MEMORY_MANAGER_PROMPT_REF = "agent.memory_system_agent.memory_maintenance.work_role.v1"
+MEMORY_MANAGER_PROMPT_REF = "agent.memory_system_agent.memory_maintenance.work_role"
 MEMORY_MANAGER_ALLOWED_OPERATIONS = {"op.model_response", "op.memory_read", "op.memory_write_candidate"}
 MEMORY_MANAGER_REQUIRED_SCOPES = {
     "conversation_readonly",
@@ -114,6 +115,44 @@ def normalize_text_list(value: Any) -> list[str]:
 
 def _message_text_size(messages: list[dict[str, Any]]) -> int:
     return sum(len(normalize_text(item.get("content") or item.get("text") or "")) for item in messages if isinstance(item, dict))
+
+
+def _message_coverage_payload(message: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(message or {})
+    meta = dict(payload.get("meta") or {}) if isinstance(payload.get("meta"), dict) else {}
+    content = normalize_storage_text(payload.get("content") or payload.get("text") or "")
+    result: dict[str, Any] = {
+        "message_id": _message_id_from_payload(payload, meta=meta),
+        "role": str(payload.get("role") or payload.get("type") or ""),
+        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "content_chars": len(content),
+    }
+    for key in ("turn_id", "tool_call_id", "call_id"):
+        value = str(payload.get(key) or meta.get(key) or "").strip()
+        if value:
+            result["tool_call_id" if key == "call_id" else key] = value
+    tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else meta.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        result["tool_calls"] = [
+            {"id": str(item.get("id") or ""), "name": str(item.get("name") or "")}
+            for item in tool_calls
+            if isinstance(item, dict)
+        ]
+    return result
+
+
+def _message_id_from_payload(payload: dict[str, Any], *, meta: dict[str, Any]) -> str:
+    for source in (payload, meta):
+        for key in ("message_id", "id"):
+            value = str(source.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _main_context_has_compact_pressure(main_context: dict[str, Any]) -> bool:
@@ -374,6 +413,11 @@ class MemoryMaintenanceRequest(BaseModel):
     agent_id: str = MEMORY_MANAGER_AGENT_ID
     message_count: int = 0
     last_memory_message_index: int = 0
+    message_ids: list[str] = Field(default_factory=list)
+    last_message_id: str = ""
+    message_fingerprint: str = ""
+    last_message_fingerprint: str = ""
+    message_coverage: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
     message_slice: list[dict[str, Any]] = Field(default_factory=list)
     previous_session_memory: str = ""
     main_context: dict[str, Any] = Field(default_factory=dict)
@@ -470,7 +514,7 @@ class MaintenanceOpportunityGate:
         )
 
 
-MessageInvoker = Callable[[list[dict[str, str]]], Awaitable[object]]
+MessageInvoker = Callable[..., Awaitable[object] | object]
 
 
 async def _call_message_invoker(
@@ -479,29 +523,10 @@ async def _call_message_invoker(
     *,
     accounting_context: dict[str, Any],
 ) -> object:
-    if _callable_accepts_kwarg(message_invoker, "accounting_context"):
-        response = message_invoker(messages, accounting_context=accounting_context)  # type: ignore[call-arg]
-    else:
-        response = message_invoker(messages)
+    response = message_invoker(messages, accounting_context=accounting_context)  # type: ignore[call-arg]
     if inspect.isawaitable(response):
         return await response
     return response
-
-
-def _callable_accepts_kwarg(callback: Callable[..., Any], kwarg: str) -> bool:
-    try:
-        signature = inspect.signature(callback)
-    except (TypeError, ValueError):
-        return True
-    for parameter in signature.parameters.values():
-        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
-            return True
-        if parameter.name == kwarg and parameter.kind in {
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        }:
-            return True
-    return False
 
 
 class MemoryMaintenanceAgent:
@@ -690,6 +715,13 @@ class MemoryCommitter:
         manager = self.session_memory_layer.manager(request.session_id)
         rendered_session = proposal.session_memory.render_markdown()
         manager.overwrite(rendered_session, debug_content=rendered_session)
+        manager.write_compaction_state(
+            messages=list(request.message_coverage or []),
+            run_id=request.run_id,
+            source=MEMORY_MANAGER_AGENT_ID,
+            source_message_refs=list(request.source_message_refs or []),
+            summary_content=rendered_session,
+        )
 
         emphasis_commit = self.commit_session_emphasis_actions(request, proposal.session_emphasis_actions)
         durable_commit = self.commit_durable_plan(request, proposal.durable_memory)
@@ -1084,6 +1116,7 @@ class MemoryMaintenanceCoordinator:
         self,
         *,
         base_dir: Path,
+        runtime_dir: Path | None = None,
         session_memory_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
@@ -1091,8 +1124,7 @@ class MemoryMaintenanceCoordinator:
         maintenance_agent: MemoryMaintenanceAgent,
         on_durable_saved: Callable[[dict[str, int]], None] | None = None,
     ) -> None:
-        layout = ProjectLayout.from_backend_dir(base_dir)
-        self.runtime_dir = layout.runtime_state_dir / "memory_maintenance"
+        self.runtime_dir = Path(runtime_dir) if runtime_dir is not None else MemoryStorageLayout.from_backend_dir(base_dir).maintenance_root
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.session_memory_layer = session_memory_layer
         self.session_emphasis_store = session_emphasis_store
@@ -1230,14 +1262,14 @@ class MemoryMaintenanceCoordinator:
                     attempted=False,
                     durable_skipped=True,
                     durable_skip_reason=opportunity.reason,
-                    last_memory_message_index=message_count,
+                    last_memory_message_index=last_index,
                     processed_message_count=message_count,
                     diagnostics={"maintenance_opportunity": opportunity.model_dump()},
                 )
                 self._save_state(
                     safe_session_id,
                     {
-                        "last_memory_message_index": message_count,
+                        "last_memory_message_index": last_index,
                         "last_run_id": receipt.run_id,
                         "last_status": receipt.status,
                         "updated_at": utc_now_iso(),
@@ -1322,9 +1354,15 @@ class MemoryMaintenanceCoordinator:
     ) -> MemoryMaintenanceRequest:
         start = max(0, last_index - 4)
         message_slice = [self._message_payload(index, item) for index, item in enumerate(messages[start:], start=start)][-16:]
+        message_coverage = [_message_coverage_payload(item) for item in list(messages or []) if isinstance(item, dict)]
+        message_ids = [str(item.get("message_id") or "") for item in message_coverage]
         manager = self.session_memory_layer.manager(session_id)
         previous = manager.load()
-        source_refs = [f"message:{index}" for index in range(last_index, len(messages))]
+        source_refs = [
+            f"message:{message_coverage[index].get('message_id') or index}"
+            for index in range(last_index, len(messages))
+            if index < len(message_coverage)
+        ]
         decision_context = self._decision_context_from_main_context(
             main_context,
             memory_environment_context=memory_environment_context,
@@ -1336,6 +1374,11 @@ class MemoryMaintenanceCoordinator:
             turn_id=turn_id,
             message_count=len(messages),
             last_memory_message_index=last_index,
+            message_ids=message_ids,
+            last_message_id=message_ids[-1] if message_ids else "",
+            message_fingerprint=_stable_hash(message_coverage),
+            last_message_fingerprint=_stable_hash(message_coverage[-1:]) if message_coverage else "",
+            message_coverage=message_coverage,
             message_slice=message_slice,
             previous_session_memory=previous[:20000],
             main_context=dict(main_context or {}),

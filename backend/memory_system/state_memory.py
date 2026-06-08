@@ -18,9 +18,8 @@ from .storage.session_memory import SessionMemoryManager
 class StateMemoryStoreAdapter:
     """Read-only adapter over the current process-state storage.
 
-    This is the first landing layer for the new StateMemory boundary. It wraps
-    existing `process_state.json` / `flow_snapshots.json` material into
-    candidate-only contracts without changing the old storage format.
+    This is the StateMemory boundary adapter. It wraps process-state material
+    into candidate-only contracts without changing session storage ownership.
     """
 
     def __init__(self, session_root: str | Path) -> None:

@@ -141,6 +141,11 @@ def test_open_vscode_uses_new_window_for_bound_session(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(sessions_api, "require_runtime", lambda: runtime)
     monkeypatch.setattr(sessions_api.shutil, "which", lambda name: "C:/bin/code.cmd" if name == "code" else None)
+    monkeypatch.setattr(
+        sessions_api,
+        "_ensure_vscode_connection_extension_installed",
+        lambda: {"extension_id": "local.langchain-agent-vscode", "install_dir": "C:/Users/test/.vscode/extensions/local.langchain-agent-vscode-0.1.0"},
+    )
     monkeypatch.setattr(sessions_api.subprocess, "Popen", fake_popen)
 
     result = asyncio.run(
@@ -155,8 +160,84 @@ def test_open_vscode_uses_new_window_for_bound_session(tmp_path: Path, monkeypat
     command = launched["command"]
     assert command == ["C:/bin/code.cmd", "--new-window", str(selected_project.resolve())]
     assert "-r" not in command
+    assert "--extensionDevelopmentPath=D:/agent/extensions/vscode" not in command
     assert result["window_mode"] == "new_window"
+    assert result["extension_installation"]["extension_id"] == "local.langchain-agent-vscode"
     assert result["session_id"] == session["id"]
+
+
+def test_open_vscode_reuses_existing_project_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = SessionManager(tmp_path / "sessions")
+    selected_project = tmp_path / "selected-project"
+    selected_project.mkdir()
+    source_session = manager.create_session(title="VS Code source")
+    target_session = manager.create_session(title="VS Code target")
+    manager.bind_project(source_session["id"], workspace_root=str(selected_project), source="test")
+    manager.bind_project(target_session["id"], workspace_root=str(selected_project), source="test")
+    runtime = SimpleNamespace(session_manager=manager)
+    store = sessions_api.get_vscode_connection_store()
+    store.clear()
+    store.record_context(
+        session_manager=manager,
+        session_id=source_session["id"],
+        editor_context={
+            "source": "vscode",
+            "workspace_roots": [str(selected_project)],
+            "active_file": {"path": str(selected_project / "README.md"), "language_id": "markdown", "dirty": False},
+            "visible_files": [],
+            "diagnostics": [],
+        },
+    )
+
+    def fail_popen(*args: object, **kwargs: object) -> object:
+        raise AssertionError("VS Code should not be launched when project connection is already active")
+
+    monkeypatch.setattr(sessions_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(sessions_api.shutil, "which", lambda name: None)
+    monkeypatch.setattr(sessions_api.subprocess, "Popen", fail_popen)
+    try:
+        result = asyncio.run(
+            sessions_api.open_session_project_in_vscode(
+                target_session["id"],
+                workspace_view=None,
+                task_environment_id=None,
+                project_id=None,
+            )
+        )
+    finally:
+        store.clear()
+
+    assert result["window_mode"] == "existing_project_connection"
+    assert result["connection_reused"] is True
+    assert result["command"] == []
+    assert result["connection_status"]["connection_session_id"] == source_session["id"]
+    assert result["connection_status"]["reused_project_connection"] is True
+
+
+def test_open_vscode_requires_connection_extension_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = SessionManager(tmp_path / "sessions")
+    selected_project = tmp_path / "selected-project"
+    selected_project.mkdir()
+    session = manager.create_session(title="VS Code window")
+    manager.bind_project(session["id"], workspace_root=str(selected_project), source="test")
+    runtime = SimpleNamespace(session_manager=manager)
+
+    monkeypatch.setattr(sessions_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(sessions_api.shutil, "which", lambda name: "C:/bin/code.cmd" if name == "code" else None)
+    monkeypatch.setattr(sessions_api, "_ensure_vscode_connection_extension_installed", lambda: {})
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            sessions_api.open_session_project_in_vscode(
+                session["id"],
+                workspace_view=None,
+                task_environment_id=None,
+                project_id=None,
+            )
+        )
+
+    assert exc.value.status_code == 503
+    assert "VS Code connection extension is not built" in str(exc.value.detail)
 
 
 def test_runtime_assembly_carries_bound_workspace_root(tmp_path: Path) -> None:

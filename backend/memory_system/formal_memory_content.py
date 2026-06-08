@@ -8,12 +8,12 @@ def materialize_formal_memory_candidate(
     *,
     candidate: dict[str, Any],
     edge: dict[str, Any],
-    fallback_write_policy: dict[str, Any],
+    default_write_policy: dict[str, Any],
     output_bundle: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     policy = formal_memory_materialization_policy(
         edge=edge,
-        fallback_write_policy=fallback_write_policy,
+        default_write_policy=default_write_policy,
     )
     content_requirement = formal_memory_content_requirement_from_payloads(
         edge=edge,
@@ -111,14 +111,14 @@ def materialize_formal_memory_candidate(
 def formal_memory_materialization_policy(
     *,
     edge: dict[str, Any],
-    fallback_write_policy: dict[str, Any] | None = None,
+    default_write_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    fallback = dict(fallback_write_policy or {})
+    defaults = dict(default_write_policy or {})
     return dict(
         edge.get("materialization_policy")
         or edge.get("candidate_materialization_policy")
-        or fallback.get("candidate_materialization_policy")
-        or fallback.get("materialization_policy")
+        or defaults.get("candidate_materialization_policy")
+        or defaults.get("materialization_policy")
         or {}
     )
 

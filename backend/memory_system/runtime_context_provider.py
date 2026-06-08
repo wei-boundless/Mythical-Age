@@ -6,6 +6,7 @@ from typing import Any, Callable
 from request_intent.memory_intent import analyze_memory_intent
 
 from .environment_context import resolve_memory_environment_context
+from .runtime_view import normalize_memory_layers
 
 
 class RuntimeMemoryContextProvider:
@@ -214,8 +215,11 @@ class RuntimeMemoryContextProvider:
                 memory_view=memory_view,
                 note_limit=note_limit,
             )
+        except ValueError:
+            self._logger.exception("runtime memory context profile rejected")
+            raise
         except Exception as exc:
-            self._logger.warning("runtime memory context supply failed: %s", exc)
+            self._logger.warning("runtime memory context supply failed: %s", exc, exc_info=True)
             return {}
         return _runtime_memory_context_payload(context_result, memory_view)
 
@@ -429,7 +433,7 @@ def _task_runtime_requested_memory_layers(
     *,
     agent_runtime_profile: Any,
 ) -> list[str]:
-    requested = _dedupe_strings(memory_request_profile.get("requested_memory_layers") or ())
+    requested = list(normalize_memory_layers(memory_request_profile.get("requested_memory_layers") or ()))
     if not requested:
         requested = ["state"]
     allow_long_term = (

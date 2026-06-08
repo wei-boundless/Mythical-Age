@@ -363,7 +363,7 @@ def test_formal_memory_candidate_materialization_reads_artifact_text(tmp_path, m
                 "summary_mode": "first_heading_or_excerpt",
             },
         },
-        fallback_write_policy={"writable_kinds": ["canon"], "writable_scopes": ["test"]},
+        default_write_policy={"writable_kinds": ["canon"], "writable_scopes": ["test"]},
         output_bundle={
             "artifact_refs": [f"artifact:{artifact.name}"],
             "workspace_root": str(tmp_path),

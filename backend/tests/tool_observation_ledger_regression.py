@@ -124,7 +124,9 @@ def test_read_file_observation_records_content_window_metadata() -> None:
 
     assert record["result_metadata"]["content_range"]["start_line"] == 11
     assert record["result_metadata"]["content_range"]["next_start_line"] == 16
-    assert "不要重复读取相同行窗口" in record["result_metadata"]["tool_guidance"]
+    assert record["result_metadata"]["result_boundary"]["fact_status"] == "window_evidence"
+    assert record["result_metadata"]["recovery_options"][0]["kind"] == "continue_reading"
+    assert record["result_metadata"]["recovery_options"][0]["args_hint"]["start_line"] == 16
 
 
 def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -> None:
