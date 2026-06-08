@@ -45,6 +45,154 @@
 - cache hit 诊断必须从 usage 闭环校验：内部 `stable_prefix_hash`、`provider_global_prefix_hash`、`session_prefix_hash`、`task_prefix_hash` 只能作为预测和解释；真实命中率以 DeepSeek 返回的 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` 为准。
 - 对 DeepSeek 的优化目标不是“每轮都满命中”，而是“同生命周期同 agent 形态下稳定前缀不漂移”。首次请求 miss、第二轮因公共前缀尚未持久化而局部 miss、缓存过期后 miss 都是合理现象；无端 stable segment 变动、工具 schema 顺序漂移、动态状态前置才是装配错误。
 
+## 成熟实现参考：Codex 与 Claude Code
+
+本轮参考的本地外部目录：
+
+- Codex：`D:\AI应用\openai-codex`
+- Claude Code 源码/反编译工程：`D:\AI应用\claude-code-nb-main`
+- Claude Code 结构研究文档：`D:\AI应用\Claude-Code-Source-Study-main`
+
+这些参考的价值不在于复制具体 prompt 文本，而在于确认成熟 agent 不会把 prompt 装配散落成若干手写字符串拼接点；它们都把 prompt / tools / context / provider request 保持为结构化对象直到最后一层。
+
+### Codex 的装配形态
+
+关键源码：
+
+- `D:\AI应用\openai-codex\codex-rs\core\src\client_common.rs`
+- `D:\AI应用\openai-codex\codex-rs\core\src\client.rs`
+- `D:\AI应用\openai-codex\codex-rs\core\src\session\turn.rs`
+- `D:\AI应用\openai-codex\codex-rs\core\src\session\turn_context.rs`
+- `D:\AI应用\openai-codex\codex-rs\core\src\context\fragment.rs`
+- `D:\AI应用\openai-codex\codex-rs\core\src\context\contextual_user_message.rs`
+
+观察到的关键结构：
+
+- `Prompt` 是一次模型请求的结构化包，字段明确分开：`input`、`tools`、`parallel_tool_calls`、`base_instructions`、`personality`、`output_schema`。这说明 Codex 不把工具、指令、历史压成一个未命名字符串。
+- `ModelClientSession.build_responses_request()` 是 provider request 的最后映射点，把 `Prompt` 转为 Responses API 请求字段：`instructions`、`input`、`tools`、`parallel_tool_calls`、`reasoning`、`prompt_cache_key`、`text`。provider 序列化权威集中在这一层。
+- `TurnContext` 持有单轮运行事实：model、provider、permission、sandbox、environment、developer/user instructions、compact prompt、collaboration mode、dynamic tools 等。它是 turn facts，不是 prompt 文本拼接器。
+- `run_turn()` 在采样前做 compaction、记录 context updates、构建 skill/plugin 注入，然后从 session history 取 `for_prompt()` 结果进入采样。也就是说，执行循环消费已经进入会话/上下文账本的 item，而不是到处临时拼 message。
+- `ContextualUserFragment` 为动态上下文提供 typed fragment：每个 fragment 自己声明 role、markers、body，并能被识别为系统注入片段。这比裸字符串拼接稳定，因为注入来源、边界和清理都可审计。
+- base instructions 的来源在 session 初始化/配置层裁决，provider request 只读取 `BaseInstructions`。这符合“上游裁决，下游只映射”的权威链。
+
+Codex 可借鉴原则：
+
+- 必须有一个一等 `Prompt` / `ModelTurnPacket` 对象，承载最终请求语义。
+- prompt 输入、工具目录、base instructions、动态上下文、输出 schema、provider params 必须分字段保留到 provider adapter。
+- 动态上下文应该是 typed fragment，有 markers、role、source、lifecycle，而不是在 compiler 中直接写字符串。
+- request adapter 只能做 provider 字段映射和 canonicalization，不重新选择 prompt 或工具。
+
+### Claude Code 的装配形态
+
+关键源码/文档：
+
+- `D:\AI应用\claude-code-nb-main\constants\systemPromptSections.ts`
+- `D:\AI应用\claude-code-nb-main\constants\prompts.ts`
+- `D:\AI应用\claude-code-nb-main\utils\toolSchemaCache.ts`
+- `D:\AI应用\claude-code-nb-main\QueryEngine.ts`
+- `D:\AI应用\claude-code-nb-main\query.ts`
+- `D:\AI应用\Claude-Code-Source-Study-main\docs\04-System-Prompt-工程.md`
+- `D:\AI应用\Claude-Code-Source-Study-main\docs\06-上下文管理.md`
+- `D:\AI应用\Claude-Code-Source-Study-main\docs\07-Prompt-Cache.md`
+
+观察到的关键结构：
+
+- `systemPromptSection()` 创建可 memoize 的 system prompt section；`DANGEROUS_uncachedSystemPromptSection()` 显式标记每轮重算段，并要求提供原因。这是非常明确的稳定性边界设计。
+- `prompts.ts` 中有静态/动态边界 marker：静态内容在 marker 前，用户/会话相关动态内容在 marker 后。cache 不是事后猜测，而是由 section 生命周期和边界共同决定。
+- `getSystemPrompt(tools)` 仍允许按工具、模式、session、memory、output style 等自由组合 agent 形态，但每个 section 都经过注册和生命周期裁决，而不是调用点随手拼。
+- `toolSchemaCache.ts` 把工具 schema 做 session-scoped memoization，并明确说明工具 schema 在 provider 请求中位于 system prompt 之前，字节级变化会破坏下游缓存。这个设计直接支持“工具 schema 是 provider-visible 稳定 payload”的判断。
+- `QueryEngine` owns query lifecycle and session state；每轮调用时先准备 `systemPrompt`、`messages`、`tools`，再进入 `query()` loop。loop 内可以执行工具和压缩，但入口参数是结构化的。
+- compact / microcompact 通过 compact boundary、preserved segment、cache-safe params、tool result 清理策略维护上下文，不把“总结交接”和“缓存保护”混在普通消息拼接里。
+
+Claude Code 可借鉴原则：
+
+- prompt section 必须注册化；可缓存段和 volatile 段必须有显式声明。
+- 任何每轮重算的 system section 都要有强制 reason，默认不允许静默破坏 stable prefix。
+- tool schema 要有 session 级稳定化机制；工具可见性变化是语义变化，工具 schema 字节漂移是装配问题。
+- compact 结果应成为边界事件/交接包，不应偷偷替换历史而不留下结构化 boundary。
+
+### 两者共同的成熟准则
+
+| 准则 | Codex 体现 | Claude Code 体现 | 本项目应采用 |
+|---|---|---|---|
+| 一等请求包 | `Prompt` 分离 `input/tools/base_instructions` | `systemPrompt/messages/tools` 作为 query 入口 | 建立 `PromptCompositionManifest` + `ProviderPayloadManifest` |
+| 上游裁决、下游映射 | `TurnContext` / session 决定事实，client adapter 映射 request | `QueryEngine` 准备上下文，API 层发送 | `RuntimeCompiler` 不再手写最终装配顺序 |
+| section/fragment 注册 | `ContextualUserFragment` typed injection | `systemPromptSection()` registry | prompt slot 和 dynamic fragment 都注册化 |
+| provider payload 分字段 | Responses request 保留 `instructions/input/tools` | Anthropic request 保留 `system/messages/tools` | `messages/tools/tool_options/provider_params` 一起进 manifest |
+| cache 从生命周期派生 | `prompt_cache_key` 和 session facts 分离 | static/dynamic marker + section cache | cache 只标注/诊断，不反向决定装配 |
+| 压缩有边界 | pre-sampling compact 与 history item 分离 | compact boundary / preserved segment | compaction handoff 成为结构化 context item |
+
+## 稳固装配系统定稿
+
+目标不是新增一个更大的 compiler，而是把“选择、展开、排序、映射、记账”拆成单向权威链。最终系统必须支持自由组合 agent 形态，同时消灭 `RuntimeCompiler` 里手工拼接最终 messages 的主权。
+
+### 目标权威链
+
+```text
+RuntimeTurnFacts
+  -> PromptMountPlan
+  -> PromptCompositionPlan
+  -> PromptSectionGraph
+  -> PromptCompositionManifest
+  -> RuntimeInvocationPacket
+  -> ProviderPayloadManifest
+  -> ModelRequestPacket
+  -> PromptAccountingLedger
+```
+
+各层职责：
+
+| 层 | 允许决定 | 禁止决定 |
+|---|---|---|
+| `RuntimeTurnFacts` | 本轮事实：profile、model、environment、permission、tools、skills、memory、history refs | 不拼 prompt 文本 |
+| `PromptMountPlan` | 哪些 pack/profile/environment/lifecycle/personality refs 被挂载及原因 | 不决定最终 message 顺序 |
+| `PromptCompositionPlan` | slot 列表、slot target、layer、lifecycle、cache class、required/optional | 不读取 provider，不估算 token |
+| `PromptSectionGraph` | 从 registry 展开 section，做 active/deprecated/scope/rule 校验 | 不临时追加 runtime state |
+| `PromptCompositionManifest` | 最终 prompt section 图、slot 顺序、hash、source、stable/dynamic 边界、rejected refs | 不生成 tool schema |
+| `RuntimeInvocationPacket` | 把 manifest 映射成 runtime 可执行 packet，携带 available tools 和 dynamic fragments | 不重新选择 refs 或改 section 顺序 |
+| `ProviderPayloadManifest` | provider-visible `messages/tools/options/provider params` 的 canonical segment、transport location、cache key | 不决定 agent 语义 |
+| `ModelRequestPacket` | 适配具体 provider 请求字段并发送 | 不新增 prompt 内容 |
+| `PromptAccountingLedger` | 记录 manifest、usage、cache hit/miss、break reason | 不补做 cache_role 裁决 |
+
+### 必须替代的手工拼接点
+
+当前 `RuntimeCompiler` 仍在不同 invocation 方法里手写 message specs，包括 single agent turn、task execution、observation followup、semantic compaction。这些方法后续不应再拥有“最终装配顺序”的主权，只允许做两件事：
+
+- 选择 invocation kind，并交给 `PromptCompositionPlanner` 生成 slots。
+- 把 `PromptCompositionManifest` 映射成 `RuntimeInvocationPacket` 的 messages，不允许临时新增未登记 section。
+
+### 推荐对象命名
+
+避免与旧 `prompt_manifest`、`segment_plan` 重名：
+
+- `PromptCompositionPlan`
+- `PromptCompositionSlot`
+- `PromptSectionGraph`
+- `PromptCompositionManifest`
+- `DynamicContextFragment`
+- `ToolCatalogManifest`
+- `ProviderPayloadManifest`
+- `ProviderPayloadSegment`
+- `ProviderCacheBoundary`
+- `PromptAssemblyTrace`
+
+### 关键设计决定
+
+- `PromptCompositionSlot` 是一切 prompt 装配的最小权威单位。每个 slot 必须有 `slot_id`、`layer`、`target_role`、`source_ref`、`lifecycle`、`required`、`cache_role`、`prefix_tier`、`composition_order`。
+- `PromptAssemblyService` 应从“按 refs join content”升级为“根据 slot 展开 section graph”。join 只能是最终渲染步骤，不能是装配主权。
+- dynamic projection 不再作为一坨字符串进入 compiler，而是拆成 `DynamicContextFragment[]`，每个 fragment 带 `fragment_type`、`role`、`markers`、`source_ref`、`volatility_reason`、`token_budget`。
+- tool schema 不属于 message segment plan；它属于 `ToolCatalogManifest` 和 `ProviderPayloadManifest`。工具 schema 的排序、hash、可见性原因、授权状态必须可解释。
+- compaction handoff 不应只是普通 user message；它应是 `CompactionBoundaryItem` 或等价的 structured context item，进入 manifest 时可被识别、压缩和审计。
+- cache planner 只消费 `ProviderPayloadManifest.cache_boundary`，不再自己根据 message index 推断 stable prefix。
+
+### 不采用的做法
+
+- 不把 `RuntimeCompiler` 扩写成更复杂的 if/else message builder。
+- 不为了 DeepSeek cache 命中隐藏工具或减少 prompt 形态。
+- 不把动态 runtime facts 写进 global/session stable prefix。
+- 不保留 `backend/prompting/*` 作为并行主链路；后续必须审查后删除或明确降级为 legacy artifact。
+- 不让 serializer 继续决定 `tool_schema=never_cache`；serializer 只能记录 manifest 裁决。
+
 ## 当前结构审查
 
 ### 主要链路

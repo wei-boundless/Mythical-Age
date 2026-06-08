@@ -2441,7 +2441,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("sends running active task input as a queued steer request with visible assistant feedback", async () => {
+  it("sends running active task input as an auto active-work request with visible assistant feedback", async () => {
     const taskRunId = "taskrun:turn:session-queue-only:1:abc";
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
@@ -2524,6 +2524,118 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().activeTurnSnapshot).toMatchObject({
       turn_id: "turn:session-queue-only:1",
       task_run_id: taskRunId,
+    });
+  });
+
+  it("queues later input while an auto active-work turn stream is deciding", async () => {
+    const taskRunId = "taskrun:turn:session-auto-active-stream:1:abc";
+    let finishFirstStream: (() => void) | null = null;
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers) => {
+        await new Promise<void>((resolve) => {
+          finishFirstStream = () => {
+            handlers.onEvent("done", {
+              content: "已加入当前任务队列，会在当前执行中优先纳入。",
+              answer_channel: "active_work_control",
+              completion_state: "task_steer_accepted",
+              runtime_task_run_id: taskRunId,
+              active_turn_id: "turn:session-auto-active-stream:1",
+            });
+            resolve();
+          };
+        });
+        return { terminalEvent: "done" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", {
+          content: "第二条补充已处理。",
+          answer_channel: "active_work_control",
+          completion_state: "task_steer_accepted",
+          runtime_task_run_id: taskRunId,
+          active_turn_id: "turn:session-auto-active-stream:1",
+        });
+        return { terminalEvent: "done" };
+      });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "开始任务" },
+        { role: "assistant", content: "我会开始处理。" },
+        { role: "user", content: "补充一" },
+      ],
+      runtime_attachments: [],
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      active_turn_snapshot: {
+        turn_id: "turn:session-auto-active-stream:1",
+        bound_task_run_id: taskRunId,
+        state: "running_task",
+      },
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session-auto-active-stream",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        route: { kind: "agent_runtime_run", session_id: "session-auto-active-stream", task_run_id: taskRunId },
+        runtime_control: { state: "running" },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-auto-active-stream",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-auto-active-stream:1",
+        task_run_id: taskRunId,
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: ({
+        task_run_id: taskRunId,
+        session_id: "session-auto-active-stream",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        route: { kind: "agent_runtime_run", session_id: "session-auto-active-stream", task_run_id: taskRunId },
+        runtime_control: { state: "running" },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      } as unknown) as StoreState["taskGraphLiveMonitor"],
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "我会开始处理。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const firstSend = runtime.actions.sendMessage("补充一");
+    await flushPromises();
+
+    expect(store.getState().activeStreamSessionIds).toContain("session-auto-active-stream");
+    await runtime.actions.sendMessage("补充二");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(store.getState().messages.map((message) => message.content)).toContain("补充二");
+    expect(store.getState().sessionActivity).toMatchObject({
+      event: "user_input_queued",
+    });
+
+    const finish = finishFirstStream as (() => void) | null;
+    expect(finish).not.toBeNull();
+    finish?.();
+    await firstSend;
+    await flushPromises(10);
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "补充二",
+      expected_active_turn_id: "turn:session-auto-active-stream:1",
+      active_turn_input_policy: "auto",
     });
   });
 

@@ -318,6 +318,7 @@ export class WorkspaceRuntime {
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
+  private autoActiveWorkTurnStreamSessionIds = new Set<string>();
   private queuedUserInputsBySession = new Map<string, Array<{ content: string; messageId: string }>>();
   private flushingQueuedUserInputs = new Set<string>();
 
@@ -2384,6 +2385,18 @@ export class WorkspaceRuntime {
     }
     const activeStreamState = this.store.getState();
     if (activeStreamState.activeStreamSessionIds.includes(sessionId)) {
+      if (this.autoActiveWorkTurnStreamSessionIds.has(sessionId)) {
+        if (options.queuedUserMessageId) {
+          const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
+          this.queuedUserInputsBySession.set(sessionId, [
+            { content: trimmed, messageId: options.queuedUserMessageId },
+            ...queued,
+          ]);
+          return;
+        }
+        this.enqueueUserInputForSession(sessionId, trimmed);
+        return;
+      }
       if (this.shouldQueueActiveTurnInput(activeStreamState, sessionId)) {
         await this.submitActiveTurnSteerDuringActiveStream(sessionId, trimmed, options);
         return;
@@ -2436,9 +2449,7 @@ export class WorkspaceRuntime {
         )
       }
     };
-    const activeStreamSessionIds = queueActiveTurnInput
-      ? this.store.getState().activeStreamSessionIds
-      : this.store.getState().activeStreamSessionIds.includes(sessionId)
+    const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
     let streamState: StoreState = {
@@ -2456,8 +2467,11 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
+    this.addActiveStreamSession(sessionId);
+    if (queueActiveTurnInput) {
+      this.autoActiveWorkTurnStreamSessionIds.add(sessionId);
+    }
     if (!queueActiveTurnInput) {
-      this.addActiveStreamSession(sessionId);
       this.deferMonitorPollingForActiveStream();
     }
     if (isImageGenerationTurn) {
@@ -2503,9 +2517,7 @@ export class WorkspaceRuntime {
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
-            const currentActiveStreamSessionIds = queueActiveTurnInput
-              ? this.store.getState().activeStreamSessionIds
-              : this.store.getState().activeStreamSessionIds.includes(sessionId)
+            const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
               : [...this.store.getState().activeStreamSessionIds, sessionId];
             streamState = {
@@ -2549,9 +2561,7 @@ export class WorkspaceRuntime {
           ? { reason: "user_stopped" }
           : { error: error instanceof Error ? error.message : "unknown error" }
       );
-      const currentActiveStreamSessionIds = queueActiveTurnInput
-        ? this.store.getState().activeStreamSessionIds
-        : this.store.getState().activeStreamSessionIds.includes(sessionId)
+      const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
         ? this.store.getState().activeStreamSessionIds
         : [...this.store.getState().activeStreamSessionIds, sessionId];
       streamState = {
@@ -2571,6 +2581,7 @@ export class WorkspaceRuntime {
       }
     } finally {
       this.streamAbortControllers.delete(sessionId);
+      this.autoActiveWorkTurnStreamSessionIds.delete(sessionId);
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
         next.sessionActivitiesById = {

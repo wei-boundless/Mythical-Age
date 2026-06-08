@@ -707,30 +707,64 @@ class HarnessRuntimeFacade:
         active_work_context: ActiveWorkContext | None,
     ) -> list[dict[str, Any]] | None:
         policy = str(getattr(request, "active_turn_input_policy", "") or "auto").strip().lower() or "auto"
-        if policy not in {"auto", "steer"}:
+        if policy != "steer":
             return None
         expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
         if not expected_active_turn_id:
-            return None
-        if active_work_context is None or not active_work_context.running:
-            return None
+            return await self._active_turn_steer_blocked_events(
+                request=request,
+                turn_id=turn_id,
+                context=None,
+                terminal_reason="expected_active_turn_unavailable",
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+            )
+        if active_work_context is None:
+            return await self._active_turn_steer_blocked_events(
+                request=request,
+                turn_id=turn_id,
+                context=None,
+                terminal_reason="active_turn_steer_not_running",
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+            )
         if str(active_work_context.authority or "") != "harness.runtime.active_turn_context":
-            return None
-        if str(active_work_context.control_state or "") in {"paused", "pause_requested", "stopped", "stop_requested"}:
-            return None
-        branch_event = self._active_turn_steer_branch_event(reason="expected_active_turn_matched")
+            return await self._active_turn_steer_blocked_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                terminal_reason="expected_active_turn_mismatch",
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+            )
+        control_state = str(active_work_context.control_state or "")
+        if control_state in {"paused", "pause_requested", "stopped", "stop_requested"}:
+            return await self._active_turn_steer_blocked_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                terminal_reason=f"active_turn_steer_control_state_{control_state}",
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+            )
+        if not active_work_context.running:
+            return await self._active_turn_steer_blocked_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                terminal_reason="active_turn_steer_not_running",
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+            )
         guard = self._active_turn_control_guard(request=request, active_work_context=active_work_context)
         if guard is not None:
+            terminal_reason = str(guard.get("terminal_reason") or "expected_active_turn_mismatch")
             terminal_events = await self._active_turn_steer_terminal_events(
                 request=request,
                 turn_id=turn_id,
                 context=active_work_context,
                 content=str(guard.get("content") or "当前任务状态已变化，请刷新后重试。"),
                 status="blocked",
-                terminal_reason=str(guard.get("terminal_reason") or "expected_active_turn_mismatch"),
+                terminal_reason=terminal_reason,
                 completion_state="blocked",
             )
-            return [branch_event, *terminal_events]
+            return [self._active_turn_steer_branch_event(reason=terminal_reason), *terminal_events]
+        branch_event = self._active_turn_steer_branch_event(reason="expected_active_turn_matched")
         result = append_user_work_instruction(
             self.single_agent_runtime_host,
             active_work_context.task_run_id,
@@ -799,6 +833,26 @@ class HarnessRuntimeFacade:
         )
         return [branch_event, active_event, *terminal_events]
 
+    async def _active_turn_steer_blocked_events(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        context: ActiveWorkContext | None,
+        terminal_reason: str,
+        content: str,
+    ) -> list[dict[str, Any]]:
+        terminal_events = await self._active_turn_steer_terminal_events(
+            request=request,
+            turn_id=turn_id,
+            context=context,
+            content=content,
+            status="blocked",
+            terminal_reason=terminal_reason,
+            completion_state="blocked",
+        )
+        return [self._active_turn_steer_branch_event(reason=terminal_reason), *terminal_events]
+
     def _active_turn_steer_branch_event(self, *, reason: str) -> dict[str, Any]:
         return {
             "type": "runtime_branch_decided",
@@ -815,7 +869,7 @@ class HarnessRuntimeFacade:
         *,
         request: HarnessRuntimeRequest,
         turn_id: str,
-        context: ActiveWorkContext,
+        context: ActiveWorkContext | None,
         content: str,
         status: str,
         terminal_reason: str,
@@ -829,16 +883,38 @@ class HarnessRuntimeFacade:
             execution_posture="active_work_control",
             terminal_reason=terminal_reason,
         )
+        message_payload: dict[str, Any] = {
+            "role": "assistant",
+            "content": decision.content,
+            "turn_id": turn_id,
+            **decision.to_payload(),
+        }
+        if context is not None and context.task_run_id:
+            message_payload["task_run_id"] = context.task_run_id
         await self._apply_assistant_message_commit_async(
-            context.session_id,
-            {
-                "role": "assistant",
-                "content": decision.content,
-                "turn_id": turn_id,
-                "task_run_id": context.task_run_id,
-                **decision.to_payload(),
-            },
+            request.session_id,
+            message_payload,
         )
+        expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        active_turn_payload = self._active_turn_payload_for_context(
+            context=context,
+            session_id=request.session_id,
+            turn_id=expected_active_turn_id,
+        )
+        extra = {
+            "completion_state": completion_state,
+            "summary": decision.content if completion_state == "task_steer_accepted" else "",
+            "active_turn_id": expected_active_turn_id,
+            "active_turn": active_turn_payload,
+            "runtime_branch": {
+                "branch_kind": "active_turn_steer",
+                "invocation_kind": "active_turn_input",
+                "authority": "harness.entrypoint.active_turn_steer_fast_path",
+            },
+        }
+        if context is not None and context.task_run_id:
+            extra["runtime_task_run_id"] = context.task_run_id
+            extra["task_run_id"] = context.task_run_id
         return [
             final_answer_event(
                 content=decision.content,
@@ -846,29 +922,34 @@ class HarnessRuntimeFacade:
                 answer_source="harness.entrypoint.active_turn_steer",
                 terminal_reason=terminal_reason,
                 execution_posture="active_work_control",
-                extra={
-                    "completion_state": completion_state,
-                    "summary": decision.content if completion_state == "task_steer_accepted" else "",
-                    "runtime_task_run_id": context.task_run_id,
-                    "task_run_id": context.task_run_id,
-                    "active_turn_id": str(getattr(request, "expected_active_turn_id", "") or "").strip(),
-                    "active_turn": self._active_turn_payload_for_context(
-                        context=context,
-                        turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
-                    ),
-                    "runtime_branch": {
-                        "branch_kind": "active_turn_steer",
-                        "invocation_kind": "active_turn_input",
-                        "authority": "harness.entrypoint.active_turn_steer_fast_path",
-                    },
-                },
+                extra=extra,
             )
         ]
 
-    def _active_turn_payload_for_context(self, *, context: ActiveWorkContext, turn_id: str) -> dict[str, Any]:
-        active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(context.session_id)
+    def _active_turn_payload_for_context(
+        self,
+        *,
+        context: ActiveWorkContext | None,
+        session_id: str = "",
+        turn_id: str,
+    ) -> dict[str, Any]:
+        active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(
+            context.session_id if context is not None else session_id
+        )
         if active_turn is not None:
+            if context is None and str(getattr(active_turn, "turn_id", "") or "").strip() != str(turn_id or "").strip():
+                return {
+                    "session_id": str(session_id or ""),
+                    "turn_id": str(turn_id or ""),
+                    "state": "unavailable",
+                }
             return active_turn.to_dict()
+        if context is None:
+            return {
+                "session_id": str(session_id or ""),
+                "turn_id": str(turn_id or ""),
+                "state": "unavailable",
+            }
         return {
             "session_id": context.session_id,
             "turn_id": str(turn_id or context.active_work_id or "").strip(),

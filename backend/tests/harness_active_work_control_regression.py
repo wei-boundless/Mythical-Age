@@ -775,6 +775,182 @@ def test_running_active_turn_input_queues_steer_without_model_roundtrip() -> Non
     )
     assert [str(item.get("role") or "") for item in session_messages] == ["user", "assistant"]
 
+def test_auto_active_turn_input_uses_model_decision_even_when_task_running() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户在当前运行任务中追加约束",
+            "response": "已记录补充要求，会在当前执行中参考。",
+            "appended_instruction": "补充：先定位非 steer 边界。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:auto-active-turn-running-model-decision",
+        status="running",
+    )
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:auto-current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:auto-current",
+        task_run_id=task_run_id,
+        state="running_task",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="补充：先定位非 steer 边界。",
+                expected_active_turn_id="turn:active:auto-current",
+                active_turn_input_policy="auto",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert "runtime_assembly_compiled" in event_types
+    assert "single_agent_turn_started" in event_types
+    assert "model_action_admission" in event_types
+    assert any(
+        event.get("type") == "runtime_branch_decided"
+        and dict(event.get("runtime_branch") or {}).get("branch_kind") != "active_turn_steer"
+        for event in events
+    )
+    assert "active_task_steer_accepted" in event_types
+    assert model.active_work_decision_count == 1
+    assert updated_task is not None
+    assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
+        and event.get("completion_state") == "task_steer_accepted"
+        for event in events
+    )
+
+def test_explicit_active_turn_steer_without_active_context_blocks_without_model_roundtrip() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "显式 steer 不应该进入模型判断。",
+            "response": "不应出现。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    session_id = "session-explicit-steer-no-active-context"
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="补充：优先检查最新回答为什么慢。",
+                expected_active_turn_id="turn:missing-active-context",
+                active_turn_input_policy="steer",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    branch = next(event for event in events if event.get("type") == "runtime_branch_decided")
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert "runtime_assembly_compiled" not in event_types
+    assert "single_agent_turn_started" not in event_types
+    assert "active_task_steer_accepted" not in event_types
+    assert model.active_work_decision_count == 0
+    assert dict(branch.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
+    assert dict(branch.get("runtime_branch") or {}).get("reason") == "active_turn_steer_not_running"
+    assert done.get("answer_channel") == "blocked"
+    assert done.get("answer_source") == "harness.entrypoint.active_turn_steer"
+    assert done.get("terminal_reason") == "active_turn_steer_not_running"
+    assert done.get("completion_state") == "blocked"
+    assert done.get("active_turn_id") == "turn:missing-active-context"
+    assert dict(done.get("active_turn") or {}).get("state") == "unavailable"
+
+def test_explicit_active_turn_steer_paused_context_blocks_without_model_roundtrip() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "暂停状态不应该被 steer 快路径改写。",
+            "response": "不应出现。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    session_id = "session-explicit-steer-paused-context"
+    task_run_id = _seed_active_work(
+        runtime,
+        session_id=session_id,
+        task_run_id="taskrun:explicit-steer-paused-context",
+        status="waiting_executor",
+    )
+    host = runtime.single_agent_runtime_host
+    task_run = host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    host.state_index.upsert_task_run(
+        replace(
+            task_run,
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "runtime_control": {
+                    "state": "paused",
+                    "authority": "orchestration.task_run_control",
+                },
+            },
+        )
+    )
+    host.active_turn_registry.start(session_id=session_id, turn_id="turn:explicit-steer-paused")
+    host.active_turn_registry.bind_task_run(
+        session_id=session_id,
+        turn_id="turn:explicit-steer-paused",
+        task_run_id=task_run_id,
+        state="waiting_executor",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="补充：继续前先检查慢回复。",
+                expected_active_turn_id="turn:explicit-steer-paused",
+                active_turn_input_policy="steer",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [str(event.get("type") or "") for event in events]
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert "runtime_assembly_compiled" not in event_types
+    assert "single_agent_turn_started" not in event_types
+    assert "active_task_steer_accepted" not in event_types
+    assert "active_task_steer_recorded" not in trace_event_types
+    assert model.active_work_decision_count == 0
+    assert done.get("answer_channel") == "blocked"
+    assert done.get("answer_source") == "harness.entrypoint.active_turn_steer"
+    assert done.get("terminal_reason") == "active_turn_steer_control_state_paused"
+    assert done.get("completion_state") == "blocked"
+    assert done.get("runtime_task_run_id") == task_run_id
+    assert dict(done.get("active_turn") or {}).get("bound_task_run_id") == task_run_id
+
 def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_boundary() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
