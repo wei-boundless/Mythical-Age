@@ -190,6 +190,71 @@ def test_api_smoke_flow() -> None:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
+def test_session_summary_endpoint_reads_single_session() -> None:
+    with TestClient(app) as client:
+        created = client.post("/api/sessions", json={"title": "Single summary"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        summary = client.get(f"/api/sessions/{session_id}")
+
+        assert summary.status_code == 200
+        assert summary.json()["id"] == session_id
+        assert summary.json()["title"] == "Single summary"
+        assert "messages" not in summary.json()
+
+
+def test_workbench_current_session_ref_is_persisted() -> None:
+    with TestClient(app) as client:
+        created = client.post("/api/sessions", json={"title": "Workbench current"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        saved = client.put(
+            "/api/workbench/current-session",
+            json={"session_id": session_id, "scope": {}, "pool_key": "main-chat"},
+        )
+        assert saved.status_code == 200
+
+        current = client.get("/api/workbench/current-session")
+        assert current.status_code == 200
+        assert current.json()["current_session"]["session_id"] == session_id
+        assert current.json()["current_session"]["pool_key"] == "main-chat"
+
+        cleared = client.delete(f"/api/workbench/current-session?session_id={session_id}")
+        assert cleared.status_code == 200
+        assert cleared.json()["current_session"] is None
+
+
+def test_workbench_current_session_ref_persists_authoritative_session_scope() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/sessions",
+            json={
+                "title": "Scoped current",
+                "scope": {
+                    "workspace_view": "task_environment",
+                    "task_environment_id": "env.general.workspace",
+                    "project_id": "project-a",
+                },
+            },
+        )
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        saved = client.put(
+            "/api/workbench/current-session",
+            json={"session_id": session_id, "scope": {}, "pool_key": "task_environment:env.general.workspace:project-a"},
+        )
+
+        assert saved.status_code == 200
+        assert saved.json()["current_session"]["scope"] == {
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.general.workspace",
+            "project_id": "project-a",
+        }
+
+
 def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()

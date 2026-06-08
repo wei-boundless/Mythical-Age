@@ -71,7 +71,8 @@ class SpawnSubagentTool(_SubagentLifecycleTool):
         "A fresh specialist does not inherit the full parent conversation: write a complete brief with the goal, known facts, files/refs, scope, exclusions, output format, and failure handling. "
         "For independent searches, spawn multiple specialists in separate tool calls in the same action batch when allowed by policy. "
         "Never predict a child result before wait_subagent returns it. "
-        "The tool returns a subagent_run_ref; use wait_subagent or list_subagents to observe progress and then synthesize the returned result_refs/evidence/limitations yourself."
+        "The tool returns a subagent_run_ref; use wait_subagent or list_subagents to observe progress and then synthesize the returned result_refs/evidence/limitations yourself. "
+        "Never delegate your own understanding, final judgment, or user-facing answer to a child agent."
     )
     args_schema: type[BaseModel] = SpawnSubagentInput
 

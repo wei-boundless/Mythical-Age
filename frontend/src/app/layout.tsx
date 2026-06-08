@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Mythical Agent",
-  description: "A transparent, file-first local AI agent system.",
+  title: "Mythical Age | 洪荒智能",
+  description: "洪荒智能：透明、文件优先的本地 AI agent 系统。",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },

@@ -17396,6 +17396,13 @@ html[data-workspace-tone] .agent-workbench {
   gap: 0;
 }
 
+.agent-workbench .chat-control-cluster--stream {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  gap: 0;
+}
+
 .agent-workbench .chat-control-cluster--mode {
   flex: 0 0 auto;
   width: auto;
@@ -17510,6 +17517,51 @@ html[data-workspace-tone] .agent-workbench {
   color: #17202d;
   font-size: 12.5px;
   font-weight: 680;
+}
+
+.agent-workbench .chat-stream-toggle {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(151, 166, 185, 0.32);
+  border-radius: 7px;
+  background: rgba(248, 250, 252, 0.72);
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 680;
+  line-height: 1;
+  padding: 0 9px;
+  white-space: nowrap;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.agent-workbench .chat-stream-toggle svg {
+  flex: 0 0 auto;
+  color: #64748b;
+}
+
+.agent-workbench .chat-stream-toggle:hover:not(:disabled),
+.agent-workbench .chat-stream-toggle:focus-visible {
+  border-color: rgba(40, 95, 198, 0.34);
+  background: rgba(255, 255, 255, 0.94);
+  color: #17202d;
+  outline: none;
+}
+
+.agent-workbench .chat-stream-toggle--active {
+  border-color: rgba(40, 95, 198, 0.44);
+  background: rgba(239, 246, 255, 0.92);
+  color: #214c8d;
+}
+
+.agent-workbench .chat-stream-toggle--active svg {
+  color: #285fc6;
+}
+
+.agent-workbench .chat-stream-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .agent-workbench .chat-search-policy--compact {
@@ -17637,7 +17689,8 @@ html[data-workspace-tone] .agent-workbench {
   .agent-workbench .chat-control-cluster,
   .agent-workbench .chat-control-cluster--model,
   .agent-workbench .chat-control-cluster--mode,
-  .agent-workbench .chat-control-cluster--scope {
+  .agent-workbench .chat-control-cluster--scope,
+  .agent-workbench .chat-control-cluster--stream {
     max-width: none;
     width: 100%;
   }
@@ -17674,6 +17727,7 @@ html[data-workspace-tone] .agent-workbench {
 
   .agent-workbench .chat-model-select,
   .agent-workbench .chat-mode-select,
+  .agent-workbench .chat-stream-toggle,
   .agent-workbench .chat-search-policy__item {
     width: 100%;
   }

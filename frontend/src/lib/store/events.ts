@@ -1252,6 +1252,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "token" || event === "content_delta") {
+    if (!stateWithTimelineDraft.chatStreamDisplayEnabled) {
+      return {
+        state: stateWithTimelineDraft,
+        session,
+      };
+    }
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
         const nextContent = `${message.content}${String(data.content ?? "")}`;
@@ -1304,6 +1310,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "answer_candidate" || event === "assistant_text") {
+    if (!stateWithTimelineDraft.chatStreamDisplayEnabled) {
+      return {
+        state: stateWithTimelineDraft,
+        session,
+      };
+    }
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
         if (message.content.trim()) {

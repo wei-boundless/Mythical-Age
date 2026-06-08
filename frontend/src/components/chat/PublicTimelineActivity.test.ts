@@ -106,4 +106,57 @@ describe("PublicTimelineActivity", () => {
     expect(html.indexOf("我先确认当前文件状态。")).toBeLessThan(html.indexOf("正在读取 ChatMessage.tsx"));
     expect(html.indexOf("正在读取 ChatMessage.tsx")).toBeLessThan(html.indexOf("已确认投影入口。"));
   });
+
+  it("preserves markdown paragraphs for model body timeline text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "body:final",
+            kind: "final_summary",
+            surface: "body",
+            source_authority: "model",
+            text: "第一段说明。\n\n第二段说明。\n\n- 第三段要点",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("<p>第一段说明。</p>");
+    expect(html).toContain("<p>第二段说明。</p>");
+    expect(html).toContain("<li>第三段要点</li>");
+    expect(html).not.toContain("第一段说明。 第二段说明。");
+  });
+
+  it("restores readable paragraphs for long single-line model body text", () => {
+    const denseText = Array(3).fill([
+      "柳如焰没有立刻回答。",
+      "她的手指仍贴在他腹部，感受着那片滚烫的皮肤底下越来越失控的脉动。",
+      "烛火在她眼底跳动，映出一层薄薄的光。",
+      "良久，她抽回手，退了一步。",
+      "沈雁回瞳孔一缩。",
+      "他哑着嗓子，把头别向一边。",
+      "柳如焰轻轻笑了。",
+      "那笑声在密室里回荡，像银铃碎裂的声音。",
+      "他知道自己不该开口。",
+      "可他更清楚，在这间密室里，沉默也是一种交锋。",
+    ].join(" ")).join(" ");
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "body:dense",
+            kind: "final_summary",
+            surface: "body",
+            source_authority: "model",
+            text: denseText,
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html.match(/<p>/g)?.length ?? 0).toBeGreaterThan(1);
+  });
 });

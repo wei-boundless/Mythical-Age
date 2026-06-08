@@ -79,7 +79,7 @@ def test_web_research_worker_prompt_binds_to_specialist_profile() -> None:
         "source_matrix",
         "source_urls",
         "open_questions",
-        "confidence",
+        "source_strength",
         "recommended_parent_action",
     )
 

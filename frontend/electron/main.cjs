@@ -204,7 +204,7 @@ function createWindow(config) {
     height: 940,
     minWidth: 1100,
     minHeight: 720,
-    title: "The Mythical Agent",
+    title: "Mythical Age · 洪荒智能",
     backgroundColor: "#f6f1e7",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -222,7 +222,7 @@ app.whenReady().then(async () => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendLog("host.err", `${message}\n`);
-    dialog.showErrorBox("The Mythical Agent failed to start", message);
+    dialog.showErrorBox("Mythical Age · 洪荒智能 failed to start", message);
     app.quit();
   }
 });

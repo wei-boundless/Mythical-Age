@@ -53,6 +53,15 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
       });
       if (!approved) return;
     }
+    if (payload.action === "close_runtime") {
+      const approved = await confirm({
+        title: "关闭运行",
+        body: "关闭会终止该任务的运行状态，并保留记录供健康系统追踪和清理。",
+        confirmLabel: "关闭运行",
+        tone: "warning",
+      });
+      if (!approved) return;
+    }
     await runMonitorAction(payload);
   }
 

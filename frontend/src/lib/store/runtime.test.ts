@@ -31,8 +31,12 @@ const api = vi.hoisted(() => ({
   setSessionPermissionMode: vi.fn(),
   setPermissionMode: vi.fn(),
   getSessionHistory: vi.fn(),
+  getSessionSummary: vi.fn(),
   getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
+  getWorkbenchCurrentSession: vi.fn(),
+  setWorkbenchCurrentSession: vi.fn(),
+  clearWorkbenchCurrentSession: vi.fn(),
   getImageAssetConfig: vi.fn(),
   getGraphRunMonitor: vi.fn(),
   getWorkspaceContext: vi.fn(),
@@ -83,8 +87,12 @@ vi.mock("@/lib/api", () => ({
   setSessionPermissionMode: api.setSessionPermissionMode,
   setPermissionMode: api.setPermissionMode,
   getSessionHistory: api.getSessionHistory,
+  getSessionSummary: api.getSessionSummary,
   getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
+  getWorkbenchCurrentSession: api.getWorkbenchCurrentSession,
+  setWorkbenchCurrentSession: api.setWorkbenchCurrentSession,
+  clearWorkbenchCurrentSession: api.clearWorkbenchCurrentSession,
   listSessions: api.listSessions,
   listProjectWorkspaces: api.listProjectWorkspaces,
   listProjectWorkspaceSessions: api.listProjectWorkspaceSessions,
@@ -171,8 +179,8 @@ function activityStateForTest(item: Record<string, unknown>) {
   if (["failed", "aborted", "error"].includes(status) || lifecycle === "failed" || bucket === "failed") return "failed";
   if (["completed", "success"].includes(status) || lifecycle === "completed" || bucket === "completed") return "completed";
   if (controlState === "paused" || lifecycle === "paused") return "paused";
-  if (["waiting_executor", "waiting_approval", "waiting_user", "blocked"].includes(status) || ["waiting", "action_required"].includes(lifecycle) || bucket === "waiting" || item.action_required === true) return "waiting";
   if (bucket === "diagnostics" || lifecycle === "stale" || item.stale === true) return "stale";
+  if (["waiting_executor", "waiting_approval", "waiting_user", "blocked"].includes(status) || ["waiting", "action_required"].includes(lifecycle) || bucket === "waiting" || item.action_required === true) return "waiting";
   if (item.is_running === true || ["created", "running"].includes(status) || lifecycle === "running") return "running";
   return "idle";
 }
@@ -476,10 +484,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.stopOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
+    api.getSessionSummary.mockReset();
+    api.getSessionSummary.mockRejectedValue(new Error("no remembered session"));
     api.getSessionTimeline.mockReset();
     api.getSessionTimeline.mockResolvedValue({ messages: [], runtime_attachments: [] });
     api.getSessionTokens.mockReset();
     api.getSessionTokens.mockResolvedValue(null);
+    api.getWorkbenchCurrentSession.mockReset();
+    api.getWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: null,
+    });
+    api.setWorkbenchCurrentSession.mockReset();
+    api.setWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: null,
+    });
+    api.clearWorkbenchCurrentSession.mockReset();
+    api.clearWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: null,
+    });
     api.getGraphRunMonitor.mockReset();
     api.getGraphRunMonitor.mockResolvedValue({
       authority: "harness.graph_run_monitor",
@@ -2620,14 +2645,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.objectContaining({
         item_id: `live:${taskRunId}:monitor-status`,
         kind: "status_update",
-        title: "等待继续",
-        state: "waiting",
-        phase: "waiting",
+        title: "等待检查",
+        state: "stale",
+        phase: "stale",
       }),
     ]));
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "waiting",
-      title: "等待继续",
+      level: "warning",
+      title: "等待检查",
     });
   });
 
@@ -2811,6 +2836,36 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_canonical");
     expect(assistant?.answerSelectedChannel).toBe("answer_candidate");
     expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
+  });
+
+  it("keeps streamed deltas out of the visible assistant message when stream display is disabled", () => {
+    let transition = startStreamingTurn({
+      ...getDefaultState(),
+      chatStreamDisplayEnabled: false,
+    }, "你好");
+    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "你好，" });
+    transition = reduceStreamEvent(transition.state, transition.session, "token", { content: "我在。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", {
+      content: "提前候选答案不应显示。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
+      content: "提前 assistant_text 不应显示。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "最终回答。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("最终回答。");
   });
 
   it("uses done summary as assistant prose when final content is absent", () => {
@@ -3368,6 +3423,111 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       title: "会话连接失败",
       event: "workspace_initialize_failed",
     });
+  });
+
+  it("restores the last active session without scanning session or project indexes", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveSessionRef"
+        ? JSON.stringify({ sessionId: "session:current", poolKey: "main-chat" })
+        : null
+    );
+    api.getSessionSummary.mockResolvedValue({
+      id: "session:current",
+      title: "Current",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 1,
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
+    });
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [{ role: "assistant", content: "当前会话内容" }],
+      runtime_attachments: [],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(api.getSessionSummary).toHaveBeenCalledWith("session:current", undefined);
+    expect(api.getWorkbenchCurrentSession).not.toHaveBeenCalled();
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.listProjectWorkspaces).not.toHaveBeenCalled();
+    expect(store.getState().workspaceInitializing).toBe(false);
+    expect(store.getState().currentSessionId).toBe("session:current");
+    expect(store.getState().permissionMode).toBe("plan");
+    expect(store.getState().messages).toMatchObject([
+      { role: "assistant", content: "当前会话内容" },
+    ]);
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      "agentWorkbench.lastActiveSessionRef",
+      JSON.stringify({ sessionId: "session:current", poolKey: "main-chat" }),
+    );
+    expect(api.setWorkbenchCurrentSession).toHaveBeenCalledWith({
+      sessionId: "session:current",
+      scope: undefined,
+      poolKey: "main-chat",
+    });
+  });
+
+  it("restores the backend-persisted current session when local storage has no ref", async () => {
+    vi.useRealTimers();
+    api.getWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: {
+        authority: "workbench.current_session_ref",
+        session_id: "session:persisted",
+        scope: {},
+        pool_key: "main-chat",
+        updated_at: 2,
+      },
+    });
+    api.getSessionSummary.mockResolvedValue({
+      id: "session:persisted",
+      title: "Persisted",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 0,
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+
+    expect(api.getWorkbenchCurrentSession).toHaveBeenCalledTimes(1);
+    expect(api.getSessionSummary).toHaveBeenCalledWith("session:persisted", undefined);
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.listProjectWorkspaces).not.toHaveBeenCalled();
+    expect(store.getState().currentSessionId).toBe("session:persisted");
+  });
+
+  it("falls back to the session index when the remembered session is gone", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveSessionRef"
+        ? JSON.stringify({ sessionId: "session:missing", poolKey: "main-chat" })
+        : null
+    );
+    api.getSessionSummary.mockRejectedValue(new Error('{"detail":"Unknown session_id"}'));
+    api.listSessions.mockResolvedValue([{
+      id: "session:fallback",
+      title: "Fallback",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 0,
+    }]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+
+    expect(api.getSessionSummary).toHaveBeenCalledWith("session:missing", undefined);
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith("agentWorkbench.lastActiveSessionRef");
+    expect(api.clearWorkbenchCurrentSession).toHaveBeenCalledWith("session:missing");
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(store.getState().currentSessionId).toBe("session:fallback");
   });
 
   it("does not surface delayed session refresh timeouts as unhandled errors", async () => {
@@ -4034,6 +4194,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       base_url: "https://api.openai.com/v1",
       credential_ref: "provider:openai:primary",
       thinking_mode: "enabled",
+      stream_policy: {
+        enabled: true,
+        mode: "model_text_stream",
+        emit_content_delta: true,
+        source: "frontend.chat_stream_display_toggle",
+      },
     });
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).not.toHaveProperty("reasoning_effort");
   });
@@ -4165,6 +4331,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       base_url: "https://api.deepseek.com",
       credential_ref: "provider:deepseek:primary",
       thinking_mode: "disabled",
+      stream_policy: {
+        enabled: true,
+        mode: "model_text_stream",
+        emit_content_delta: true,
+        source: "frontend.chat_stream_display_toggle",
+      },
     });
   });
 
@@ -4227,6 +4399,34 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       thinking_mode: "disabled",
     });
     expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("sends disabled stream policy when stream display is turned off", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:no-stream-display",
+      title: "No Stream Display",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:no-stream-display",
+      chatStreamDisplayEnabled: false,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("等最终结果再显示");
+
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection).toEqual({
+      stream_policy: {
+        enabled: false,
+        mode: "disabled",
+        emit_content_delta: false,
+        source: "frontend.chat_stream_display_toggle",
+      },
+    });
   });
 
   it("routes image turns without starting TaskGraph session monitor polling", async () => {

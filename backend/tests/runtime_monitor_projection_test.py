@@ -598,6 +598,74 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
     assert result["monitor"]["management"]["lanes"]["recent"] == []
 
 
+def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable(tmp_path):
+    now = time.time()
+    stale_waiting = task_run(
+        task_run_id="taskrun:stale-waiting",
+        session_id="session-stale-waiting",
+        status="waiting_executor",
+        created_at=now - 900,
+        updated_at=now - 700,
+        diagnostics={"title": "停滞等待任务"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([stale_waiting]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+    signal = monitor["signals"][0]
+    actions = {item["action"]: item for item in signal["actions"]}
+
+    assert signal["state"] == "stale"
+    assert signal["activity_state"] == "stale"
+    assert signal["activity_label"] == "等待检查"
+    assert monitor["summary"]["waiting"] == 0
+    assert actions["clear_from_monitor"]["enabled"] is True
+    assert actions["close_runtime"]["enabled"] is True
+    assert actions["stop_task"]["enabled"] is False
+
+
+def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypatch):
+    now = time.time()
+    stale_waiting = task_run(
+        task_run_id="taskrun:stale-close",
+        session_id="session-stale-close",
+        status="waiting_executor",
+        created_at=now - 900,
+        updated_at=now - 700,
+        diagnostics={"title": "可关闭停滞任务"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([stale_waiting]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    stop_calls = []
+
+    def fake_stop_task_run(host, task_run_id, *, reason="", requested_by="user"):
+        stop_calls.append((host, task_run_id, reason, requested_by))
+        return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason}
+
+    monkeypatch.setattr("harness.loop.task_executor.stop_task_run", fake_stop_task_run)
+
+    result = asyncio.run(action_service.execute({"action": "close_runtime", "signal_id": "taskrun:stale-close"}))
+
+    assert result["accepted"] is True
+    assert result["effects"]["stop"]["accepted"] is True
+    assert stop_calls == [(runtime_host, "taskrun:stale-close", "runtime_monitor_close_runtime", "user")]
+    hidden = result["monitor"]["management"]["lanes"]["hidden"]
+    assert [item["signal_id"] for item in hidden] == ["taskrun:stale-close"]
+
+
 def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",

@@ -233,6 +233,8 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     running = bool(signal.get("is_running") is True or source.get("is_running") is True)
     resumable = bool(signal.get("is_resumable") is True or source.get("is_resumable") is True)
     interruptible = bool(signal.get("is_interruptible") is True or source.get("is_interruptible") is True)
+    lifecycle = str(signal.get("lifecycle") or source.get("lifecycle") or "")
+    stale = activity_state == "stale" or lifecycle == "stale" or bool(signal.get("stale") is True or source.get("stale") is True)
     graph_task = work_kind == "graph_task" or bool(graph_run_id)
     actions = [
         _action("open", "打开", True),
@@ -241,16 +243,25 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     if hidden:
         actions.append(_action("restore_to_monitor", "恢复显示", True))
     else:
-        clear_enabled = activity_state in {"completed", "failed", "stopped", "stale"} and not running
+        clear_enabled = (terminal or stale) and not running
         actions.append(_action("clear_from_monitor", "清出", clear_enabled, "" if clear_enabled else "active_or_waiting_runtime"))
     pause_enabled = bool(task_run_id) and interruptible and not terminal
     resume_enabled = bool(task_run_id) and resumable and not terminal
     stop_enabled = bool(task_run_id) and interruptible and not terminal
+    close_enabled = bool(task_run_id) and not terminal and (
+        running or stale or activity_state in {"waiting", "paused"}
+    )
     actions.extend(
         [
             _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),
             _action("resume_task", "继续", resume_enabled, "" if resume_enabled else "not_waiting_task"),
             _action("stop_task", "停止", stop_enabled, "" if stop_enabled else "not_running_task"),
+            _action(
+                "close_runtime",
+                "关闭运行",
+                close_enabled,
+                "" if close_enabled else "not_closeable_runtime",
+            ),
         ]
     )
     if graph_task:

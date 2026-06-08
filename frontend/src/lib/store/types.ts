@@ -126,6 +126,7 @@ export type TokenStats = {
   context_meter?: {
     current_context_tokens?: number;
     current_context_ratio?: number;
+    compaction_pressure_tokens?: number;
     context_window_tokens?: number;
     input_capacity_tokens?: number;
     replacement_threshold_tokens?: number;
@@ -172,13 +173,14 @@ export type WorkspaceView =
 export type TaskEnvironmentWorkspaceView = Extract<WorkspaceView, "chat" | "code-environment">;
 
 export type ChatModelSelection = {
-  selection_id: string;
-  provider: string;
-  model: string;
+  selection_id?: string;
+  provider?: string;
+  model?: string;
   base_url?: string;
   credential_ref?: string;
   thinking_mode?: "enabled" | "disabled";
   reasoning_effort?: "auto" | "high" | "max";
+  stream_policy?: Record<string, unknown>;
 };
 
 export type ChatMode = "chat" | "image";
@@ -327,6 +329,7 @@ export type StoreState = {
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
   chatThinkingMode: ChatThinkingMode;
+  chatStreamDisplayEnabled: boolean;
   skills: SkillSummary[];
   inspectorPath: string;
   inspectorContent: string;
@@ -389,6 +392,7 @@ export type StoreActions = {
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;
+  setChatStreamDisplayEnabled: (enabled: boolean) => void;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (ref: SessionRef) => Promise<void>;
   loadInspectorFile: (path: string) => Promise<void>;

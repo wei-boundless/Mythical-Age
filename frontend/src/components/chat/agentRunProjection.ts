@@ -33,7 +33,7 @@ export function publicTimelineBodyText(item: PublicChatTimelineItem | null | und
     item.public_summary,
     item.implication,
   ]) {
-    const text = cleanRunText(candidate);
+    const text = cleanRunBodyText(candidate);
     if (text) return text;
   }
   return "";
@@ -53,6 +53,43 @@ export function looksLikeRawToolOutput(value: unknown) {
 
 function cleanRunText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function cleanRunBodyText(value: unknown) {
+  const text = String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return restoreReadableBodyParagraphs(text);
+}
+
+function restoreReadableBodyParagraphs(text: string) {
+  if (!text || text.includes("\n\n") || text.length < 480) {
+    return text;
+  }
+  const sentences = text.split(/(?<=[。！？!?；;」”）】])\s+/u).map((item) => item.trim()).filter(Boolean);
+  if (sentences.length < 4) {
+    return text;
+  }
+  const paragraphs: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    const next = current ? `${current} ${sentence}` : sentence;
+    if (current && (current.length >= 220 || next.length > 360 || /^["“「]/.test(sentence))) {
+      paragraphs.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+  if (current) {
+    paragraphs.push(current);
+  }
+  return paragraphs.length > 1 ? paragraphs.join("\n\n") : text;
 }
 
 function looksLikeToolPlaceholder(value: string) {

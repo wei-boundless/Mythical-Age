@@ -60,6 +60,8 @@ class RuntimeMonitorActionService:
             effects = self._clear_from_monitor(payload=payload, signal=signal)
         elif action == "restore_to_monitor":
             effects = self._restore_to_monitor(payload=payload, signal=signal)
+        elif action == "close_runtime":
+            effects = self._close_runtime(payload=payload, signal=signal)
         elif action == "delete_record":
             effects = await self._delete_record(payload=payload, signal=signal)
         elif action == "pause_task":
@@ -97,7 +99,15 @@ class RuntimeMonitorActionService:
             return {"enabled": False, "disabled_reason": "signal_id_required"}
         if action == "preview_delete_graph_run":
             return {"enabled": bool(_graph_run_id(payload=payload, signal=signal)), "disabled_reason": "" if _graph_run_id(payload=payload, signal=signal) else "graph_run_id_required"}
-        if action in {"pause_task", "resume_task", "stop_task", "delete_record", "preview_delete_record"} and not _task_run_id(payload=payload, signal=signal):
+        task_run_required_actions = {
+            "close_runtime",
+            "pause_task",
+            "resume_task",
+            "stop_task",
+            "delete_record",
+            "preview_delete_record",
+        }
+        if action in task_run_required_actions and not _task_run_id(payload=payload, signal=signal):
             return {"enabled": False, "disabled_reason": "task_run_id_required"}
         if signal is None:
             return {"enabled": action in {"preview_delete_record", "delete_record"}, "disabled_reason": "" if action in {"preview_delete_record", "delete_record"} else "signal_not_found"}
@@ -158,6 +168,36 @@ class RuntimeMonitorActionService:
             reason=str(payload.get("reason") or "user_restored"),
         )
         return {"authority": "runtime_monitor.actions.restore_to_monitor", "restored": row}
+
+    def _close_runtime(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        task_run_id = _task_run_id(payload=payload, signal=signal)
+        reason = str(payload.get("reason") or "runtime_monitor_close_runtime")
+        stop_result = self._stop_task(
+            payload={**payload, "reason": reason},
+            signal=signal,
+        )
+        if stop_result.get("error") or stop_result.get("ok") is False:
+            return {
+                "authority": "runtime_monitor.actions.close_runtime",
+                "task_run_id": task_run_id,
+                "stop": stop_result,
+                "error": str(stop_result.get("error") or "runtime_close_rejected"),
+            }
+        signal_id = _signal_id(payload=payload, signal=signal) or task_run_id
+        hidden = self.monitor_service.retention_store.hide_signal(
+            signal_id=signal_id,
+            task_run_id=task_run_id,
+            graph_run_id=_graph_run_id(payload=payload, signal=signal),
+            reason=reason,
+            hidden_by="user",
+            source_revision=str(payload.get("source_revision") or ""),
+        )
+        return {
+            "authority": "runtime_monitor.actions.close_runtime",
+            "task_run_id": task_run_id,
+            "stop": stop_result,
+            "hidden": hidden,
+        }
 
     async def _delete_record(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)

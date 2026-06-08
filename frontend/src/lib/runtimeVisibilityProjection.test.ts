@@ -68,6 +68,43 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.activityDetail).toBe("我先核对当前文件状态，确认可以从断点继续。");
   });
 
+  it("projects stale waiting task lifecycle events as diagnostic state", () => {
+    const projection = projectRuntimeStreamEvent("task_run_lifecycle_event", {
+      event: {
+        event_id: "rtevt:stale-waiting",
+        run_id: "taskrun:stale-waiting",
+        event_type: "task_run_lifecycle_waiting_executor",
+        created_at: 41,
+        payload: {
+          reason: "waiting_executor",
+          task_run: {
+            task_run_id: "taskrun:stale-waiting",
+            status: "waiting_executor",
+            lifecycle: "stale",
+            bucket: "diagnostics",
+            stale: true,
+          },
+          observation: {
+            source: "runtime_monitor",
+            summary: "处理已经停滞，需要诊断。",
+          },
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "等待检查",
+      activityTitle: "等待检查",
+      level: "warning",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      title: "等待检查",
+      level: "warning",
+      statusText: "需诊断",
+      taskRunId: "taskrun:stale-waiting",
+    });
+  });
+
   it("keeps permission gate diagnostics out of the user-visible task flow", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {

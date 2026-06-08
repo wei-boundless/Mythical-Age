@@ -299,9 +299,11 @@ function taskProjectionTone(projections: SingleAgentTaskProjection[]): PublicTim
 }
 
 function publicText(item: PublicChatTimelineItem) {
-  const candidates = isPublicTimelineBodyItem(item) ? [
-    publicTimelineBodyText(item),
-  ] : [
+  if (isPublicTimelineBodyItem(item)) {
+    const text = publicTimelineBodyText(item);
+    return text && !looksLikeRawToolOutput(text) ? text : "";
+  }
+  const candidates = [
     item.public_summary,
     item.title,
     item.subject_label,

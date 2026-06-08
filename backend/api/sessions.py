@@ -16,10 +16,10 @@ from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
 from integrations.vscode_connection import get_vscode_connection_store
-from sessions import SessionProjectBindingConflict, SessionProjectBindingMissing
+from sessions import InvalidSessionId, SessionProjectBindingConflict, SessionProjectBindingMissing
 from harness.runtime.session_timeline import build_session_runtime_timeline
 from task_system.environments import task_environment_registry_from_backend_dir
-from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
+from task_system.session_scope import assert_optional_session_scope, normalize_session_scope, request_scope_from_query
 
 router = APIRouter()
 
@@ -98,12 +98,31 @@ async def get_session_summary(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
-        runtime.session_manager,
-        session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    expected_scope = request_scope_from_query(
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
     )
-    return runtime.session_manager.get_session_summary(session_id)
+    try:
+        summary = runtime.session_manager.get_session_summary(session_id)
+    except InvalidSessionId:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if expected_scope is not None:
+        actual = normalize_session_scope(dict(summary.get("scope") or {}))
+        expected = normalize_session_scope(expected_scope)
+        if actual.to_dict() != expected.to_dict():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Session scope mismatch",
+                    "session_id": session_id,
+                    "actual_scope": actual.to_dict(),
+                    "expected_scope": expected.to_dict(),
+                },
+            )
+    return summary
 
 
 @router.put("/sessions/{session_id}")

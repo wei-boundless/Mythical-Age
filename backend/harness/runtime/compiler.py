@@ -3044,7 +3044,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
                 "需要控制裁决时只能输出一个 JSON action；不能在同一轮混合多个控制裁决，也不能把控制裁决和普通工具调用混在一起。"
             )
     if bool(tool_boundary.get("subagent_lifecycle_enabled") is True):
-        lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；主 agent 仍负责最终判断和收口。")
+        lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；你仍负责最终判断和收口。")
     if "active_work_control" in allowed_actions:
         lines.append(
             "- 如果本轮上下文包含 active_work_context，它只是当前工作或可恢复断点的事实和可用控制动作；"
@@ -3097,7 +3097,7 @@ def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult, *, in
     content = str(agent_prompt_assembly.content or "").strip()
     if not content:
         return ""
-    return "\n当前主 agent 工作角色：\n" + content + "\n"
+    return "\n当前职责：\n" + content + "\n"
 
 
 def _prompt_contract_instruction(prompt_contract_assembly: PromptAssemblyResult) -> str:

@@ -21,9 +21,12 @@ import {
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
   setSessionPermissionMode,
+  setWorkbenchCurrentSession,
   getSessionHistory,
+  getSessionSummary,
   getSessionTimeline,
   getSessionTokens,
+  getWorkbenchCurrentSession,
   getProjectWorkspaceTree,
   isRequestAbortError,
   listProjectWorkspaces,
@@ -38,12 +41,13 @@ import {
   selectProjectWorkspaceDirectory,
   stopOrchestrationHarnessTaskRun,
   clearChatStreamCursor,
+  clearWorkbenchCurrentSession,
   readChatStreamCursor,
   streamChat,
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -64,6 +68,8 @@ const DEFAULT_INSPECTOR_PATH = "durable_memory/index/MEMORY.md";
 const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
 const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
 const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
+const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
+const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
 
@@ -191,6 +197,94 @@ function storageSet(key: string, value: string) {
   }
 }
 
+function storageRemove(key: string) {
+  try {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage?.removeItem(key);
+  } catch {
+    // Local storage is only an interface memory hint; runtime behavior must not depend on it.
+  }
+}
+
+function readRememberedChatStreamDisplayEnabled() {
+  const raw = storageGet(CHAT_STREAM_DISPLAY_ENABLED_KEY).toLowerCase();
+  if (["1", "true", "enabled", "on"].includes(raw)) return true;
+  if (["0", "false", "disabled", "off"].includes(raw)) return false;
+  return null;
+}
+
+function rememberChatStreamDisplayEnabled(enabled: boolean) {
+  storageSet(CHAT_STREAM_DISPLAY_ENABLED_KEY, enabled ? "1" : "0");
+}
+
+function sessionRefFromStoredValue(raw: unknown): SessionRef | null {
+  if (typeof raw === "string") {
+    const sessionId = raw.trim();
+    return sessionId ? { sessionId, poolKey: MAIN_CHAT_POOL_KEY } : null;
+  }
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const parsed = raw as Partial<SessionRef> & WorkbenchSessionRef;
+  const sessionId = String(parsed.sessionId || parsed.session_id || "").trim();
+  if (!sessionId) {
+    return null;
+  }
+  const scope = parsed.scope && typeof parsed.scope === "object" ? parsed.scope : undefined;
+  const poolKey = parsed.poolKey ?? (parsed.pool_key as SessionPoolKey | undefined) ?? sessionPoolKeyForScope(scope);
+  return {
+    sessionId,
+    ...(scope ? { scope } : {}),
+    poolKey,
+  };
+}
+
+function readRememberedSessionRef(): SessionRef | null {
+  const raw = storageGet(LAST_ACTIVE_SESSION_REF_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return sessionRefFromStoredValue(JSON.parse(raw));
+  } catch {
+    return sessionRefFromStoredValue(raw);
+  }
+}
+
+function rememberSessionRef(ref: SessionRef) {
+  const sessionId = String(ref.sessionId || "").trim();
+  if (!sessionId) {
+    return;
+  }
+  const scope = ref.scope && Object.keys(ref.scope).length ? ref.scope : undefined;
+  storageSet(LAST_ACTIVE_SESSION_REF_KEY, JSON.stringify({
+    sessionId,
+    ...(scope ? { scope } : {}),
+    poolKey: ref.poolKey ?? sessionPoolKeyForScope(scope),
+  }));
+}
+
+function clearRememberedSessionRef(sessionId?: string) {
+  const expected = String(sessionId || "").trim();
+  if (!expected) {
+    storageRemove(LAST_ACTIVE_SESSION_REF_KEY);
+    return;
+  }
+  const remembered = readRememberedSessionRef();
+  if (remembered?.sessionId === expected) {
+    storageRemove(LAST_ACTIVE_SESSION_REF_KEY);
+  }
+}
+
+function shouldClearRememberedSessionAfterError(error: unknown) {
+  const message = errorDetailMessage(error).toLowerCase();
+  return message.includes("unknown session_id")
+    || message.includes("invalid session_id")
+    || message.includes("session scope mismatch");
+}
+
 function errorDetailMessage(error: unknown) {
   const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
   if (!message) {
@@ -230,6 +324,13 @@ export class WorkspaceRuntime {
   readonly actions: StoreActions;
 
   constructor(private readonly store: Store<StoreState>) {
+    const rememberedChatStreamDisplayEnabled = readRememberedChatStreamDisplayEnabled();
+    if (rememberedChatStreamDisplayEnabled !== null) {
+      this.store.setState((prev) => ({
+        ...prev,
+        chatStreamDisplayEnabled: rememberedChatStreamDisplayEnabled,
+      }));
+    }
     this.runMonitorController = new RunMonitorController(this.store, {
       hasActiveChatStream: () => this.hasActiveChatStream(),
       patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
@@ -306,6 +407,9 @@ export class WorkspaceRuntime {
       },
       setChatThinkingMode: (mode) => {
         this.setChatThinkingMode(mode);
+      },
+      setChatStreamDisplayEnabled: (enabled) => {
+        this.setChatStreamDisplayEnabled(enabled);
       },
       renameCurrentSession: async (title) => {
         await this.renameCurrentSession(title);
@@ -421,58 +525,21 @@ export class WorkspaceRuntime {
     }));
     try {
       await this.refreshTaskEnvironmentCatalog();
-      const [projectPayload, allSessions] = await Promise.all([
-        listProjectWorkspaces(),
-        listSessions(),
-      ]);
-      const sessions = visibleMainChatSessions(allSessions);
-      const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
-      const currentSessionId = this.store.getState().currentSessionId;
-      const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : null;
-      const currentProjectRoot = sessionProjectRoot(currentSession);
-      const activeProject = currentProjectRoot
-        ? projects.find((project) => sessionBelongsToProject(currentSession!, project.workspace_root))
-        : projects[0] ?? null;
-      this.store.setState((prev) => ({
-        ...prev,
-        sessions,
-        projectWorkspaces: projects,
-        activeProjectKey: activeProject?.key || "",
-        activeProjectRoot: activeProject?.workspace_root || "",
-      }));
-
-      if (activeProject) {
-        await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: currentSessionId || undefined });
-      } else if (!currentSessionId && sessions.length) {
-        const sessionId = sessions[0].id;
-        const restoredFromStreamCache = this.applySelectedSessionShell(sessionId, {
-          scope: sessions[0].scope,
-          poolKey: MAIN_CHAT_POOL_KEY,
-        });
-        if (!restoredFromStreamCache) {
-          const reattached = await this.reattachChatRunForSession(sessionId);
-          if (!reattached) {
-            void this.refreshSessionDetails(sessionId).catch(() => undefined);
-            void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
-          }
-        }
-      } else if (currentSessionId) {
-        const restoredFromStreamCache = this.applySelectedSessionShell(currentSessionId, {
-          scope: currentSession?.scope,
-          poolKey: MAIN_CHAT_POOL_KEY,
-        });
-        if (!restoredFromStreamCache) {
-          const reattached = await this.reattachChatRunForSession(currentSessionId);
-          if (!reattached) {
-            void this.refreshSessionDetails(currentSessionId).catch(() => undefined);
-            void this.hydrateLatestOrchestrationSnapshot(currentSessionId).catch(() => undefined);
-          }
+      let restoredCurrentSession = false;
+      const rememberedSessionRef = readRememberedSessionRef();
+      if (rememberedSessionRef?.sessionId) {
+        const restored = await this.restoreRememberedSessionOnStartup(rememberedSessionRef);
+        restoredCurrentSession = restored === "restored";
+      } else {
+        const persistedSessionRef = await this.readPersistedCurrentSessionRef();
+        if (persistedSessionRef?.sessionId) {
+          const restored = await this.restoreRememberedSessionOnStartup(persistedSessionRef);
+          restoredCurrentSession = restored === "restored";
         }
       }
-      this.store.setState((prev) => ({
-        ...prev,
-        workspaceInitializing: false,
-      }));
+      if (!restoredCurrentSession) {
+        await this.initializeFromSessionList();
+      }
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
@@ -498,6 +565,159 @@ export class WorkspaceRuntime {
     void this.loadWorkspaceMetadata().catch(() => undefined);
     void this.refreshWorkspaceTree().catch(() => undefined);
     void this.loadInspectorMemoryFile().catch(() => undefined);
+  }
+
+  private async readPersistedCurrentSessionRef() {
+    try {
+      const payload = await getWorkbenchCurrentSession();
+      return sessionRefFromStoredValue(payload.current_session);
+    } catch (error) {
+      console.debug("[workspace-runtime] persisted current session read skipped", {
+        event: "workbench_current_session_read_failed",
+        error: this.errorMessage(error, "当前会话指针读取失败。"),
+      });
+      return null;
+    }
+  }
+
+  private persistCurrentSessionRef(ref: SessionRef) {
+    const normalized = this.normalizeSessionRef(ref, this.store.getState());
+    if (!normalized.sessionId) {
+      return;
+    }
+    void setWorkbenchCurrentSession({
+      sessionId: normalized.sessionId,
+      scope: normalized.scope,
+      poolKey: normalized.poolKey,
+    }).catch((error) => {
+      console.debug("[workspace-runtime] persisted current session write skipped", {
+        event: "workbench_current_session_write_failed",
+        sessionId: normalized.sessionId,
+        error: this.errorMessage(error, "当前会话指针写入失败。"),
+      });
+    });
+  }
+
+  private clearPersistedCurrentSessionRef(sessionId?: string) {
+    void clearWorkbenchCurrentSession(sessionId).catch((error) => {
+      console.debug("[workspace-runtime] persisted current session clear skipped", {
+        event: "workbench_current_session_clear_failed",
+        sessionId: sessionId || "",
+        error: this.errorMessage(error, "当前会话指针清理失败。"),
+      });
+    });
+  }
+
+  private async restoreRememberedSessionOnStartup(ref: SessionRef) {
+    const normalized = this.normalizeSessionRef(ref, this.store.getState());
+    if (!normalized.sessionId) {
+      clearRememberedSessionRef();
+      return false;
+    }
+
+    let summary: SessionSummary;
+    try {
+      summary = await getSessionSummary(normalized.sessionId, normalized.scope);
+    } catch (error) {
+      if (shouldClearRememberedSessionAfterError(error)) {
+        clearRememberedSessionRef(normalized.sessionId);
+        this.clearPersistedCurrentSessionRef(normalized.sessionId);
+        return "invalid";
+      }
+      return "failed";
+    }
+
+    const restoredScope = summary.scope ?? normalized.scope;
+    const restoredRef: SessionRef = {
+      sessionId: summary.id,
+      ...(restoredScope ? { scope: restoredScope } : {}),
+      poolKey: normalized.poolKey ?? sessionPoolKeyForScope(restoredScope),
+    };
+    this.store.setState((prev) => {
+      const sessions = mergeSessionSummaries(prev.sessions, [summary]);
+      const projectRoot = sessionProjectRoot(summary);
+      const activeProject = projectRoot
+        ? prev.projectWorkspaces.find((project) => sessionBelongsToProject(summary, project.workspace_root)) ?? null
+        : null;
+      return {
+        ...prev,
+        sessions,
+        projectSessions: activeProject
+          ? mergeSessionSummaries(prev.projectSessions, [summary])
+          : prev.projectSessions,
+        activeProjectKey: activeProject?.key || "",
+        activeProjectRoot: activeProject?.workspace_root || "",
+      };
+    });
+
+    const restoredFromStreamCache = this.applySelectedSessionShell(summary.id, restoredRef);
+    if (!restoredFromStreamCache) {
+      const reattached = await this.reattachChatRunForSession(summary.id);
+      if (!reattached) {
+        void this.refreshSessionDetails(summary.id).catch(() => undefined);
+        void this.hydrateLatestOrchestrationSnapshot(summary.id).catch(() => undefined);
+      }
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceInitializing: false,
+    }));
+    return "restored";
+  }
+
+  private async initializeFromSessionList(projectPayloadOverride?: Awaited<ReturnType<typeof listProjectWorkspaces>>) {
+    const [projectPayload, allSessions] = await Promise.all([
+      projectPayloadOverride ? Promise.resolve(projectPayloadOverride) : listProjectWorkspaces(),
+      listSessions(),
+    ]);
+    const sessions = visibleMainChatSessions(allSessions);
+    const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
+    const currentSessionId = this.store.getState().currentSessionId;
+    const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : null;
+    const currentProjectRoot = sessionProjectRoot(currentSession);
+    const activeProject = currentProjectRoot
+      ? projects.find((project) => sessionBelongsToProject(currentSession!, project.workspace_root))
+      : projects[0] ?? null;
+    this.store.setState((prev) => ({
+      ...prev,
+      sessions,
+      projectWorkspaces: projects,
+      activeProjectKey: activeProject?.key || "",
+      activeProjectRoot: activeProject?.workspace_root || "",
+    }));
+
+    if (activeProject) {
+      await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: currentSessionId || undefined });
+    } else if (!currentSessionId && sessions.length) {
+      const sessionId = sessions[0].id;
+      const restoredFromStreamCache = this.applySelectedSessionShell(sessionId, {
+        scope: sessions[0].scope,
+        poolKey: MAIN_CHAT_POOL_KEY,
+      });
+      if (!restoredFromStreamCache) {
+        const reattached = await this.reattachChatRunForSession(sessionId);
+        if (!reattached) {
+          void this.refreshSessionDetails(sessionId).catch(() => undefined);
+          void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
+        }
+      }
+    } else if (currentSessionId) {
+      const restoredFromStreamCache = this.applySelectedSessionShell(currentSessionId, {
+        scope: currentSession?.scope,
+        poolKey: MAIN_CHAT_POOL_KEY,
+      });
+      if (!restoredFromStreamCache) {
+        const reattached = await this.reattachChatRunForSession(currentSessionId);
+        if (!reattached) {
+          void this.refreshSessionDetails(currentSessionId).catch(() => undefined);
+          void this.hydrateLatestOrchestrationSnapshot(currentSessionId).catch(() => undefined);
+        }
+      }
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceInitializing: false,
+    }));
   }
 
   private async loadWorkspaceMetadata() {
@@ -1312,9 +1532,10 @@ export class WorkspaceRuntime {
             ]
           : prev.projectSessions,
         currentSessionId: created.id,
-        activeSessionScope: null,
+        activeSessionScope: created.scope ?? null,
         activeSessionRef: {
           sessionId: created.id,
+          ...(created.scope ? { scope: created.scope } : {}),
           poolKey: MAIN_CHAT_POOL_KEY,
         },
         conversationActiveEnvironment,
@@ -1322,6 +1543,16 @@ export class WorkspaceRuntime {
         messages: [],
         tokenStats: null
       }, created.id));
+      rememberSessionRef({
+        sessionId: created.id,
+        ...(created.scope ? { scope: created.scope } : {}),
+        poolKey: MAIN_CHAT_POOL_KEY,
+      });
+      this.persistCurrentSessionRef({
+        sessionId: created.id,
+        ...(created.scope ? { scope: created.scope } : {}),
+        poolKey: MAIN_CHAT_POOL_KEY,
+      });
       this.store.setState((prev) => this.clearSessionActivityFor(prev, created.id));
       await setSessionPermissionMode(created.id, permissionMode).catch((error) => {
         console.debug("[workspace-runtime] default permission mode persist skipped", {
@@ -1367,19 +1598,24 @@ export class WorkspaceRuntime {
       this.noteSessionRefreshFailure(error);
       return;
     }
+    const createdScope = this.sessionScopeForSession(sessionId);
+    const createdRef: SessionRef = {
+      sessionId,
+      ...(createdScope ? { scope: createdScope } : {}),
+      poolKey: MAIN_CHAT_POOL_KEY,
+    };
     this.store.setState((prev) => this.withVisibleEditorContextForSession({
       ...prev,
       currentSessionId: sessionId,
-      activeSessionScope: null,
-      activeSessionRef: {
-        sessionId,
-        poolKey: MAIN_CHAT_POOL_KEY,
-      },
+      activeSessionScope: createdScope ?? null,
+      activeSessionRef: createdRef,
       messages: [],
       orchestrationSnapshot: null,
       taskGraphLiveMonitor: null,
       tokenStats: null
     }, sessionId));
+    rememberSessionRef(createdRef);
+    this.persistCurrentSessionRef(createdRef);
     this.store.setState((prev) => this.clearSessionActivityFor(prev, sessionId));
     const activeProjectKey = this.store.getState().activeProjectKey;
     if (activeProjectKey) {
@@ -1443,8 +1679,8 @@ export class WorkspaceRuntime {
   private normalizeSessionRef(ref: SessionRef, state: StoreState): SessionRef {
     const sessionId = String(ref.sessionId || "").trim();
     const explicitScope = this.normalizeSessionScope(ref.scope);
-    const inferredScope = !explicitScope && ref.poolKey !== MAIN_CHAT_POOL_KEY
-      ? this.resolveSessionScope(sessionId, state) ?? undefined
+    const inferredScope = !explicitScope
+      ? this.normalizeSessionScope(this.resolveSessionScope(sessionId, state))
       : undefined;
     const scope = explicitScope ?? inferredScope;
     return {
@@ -1661,6 +1897,8 @@ export class WorkspaceRuntime {
     if (!normalized.sessionId) {
       return false;
     }
+    rememberSessionRef(normalized);
+    this.persistCurrentSessionRef(normalized);
     const streamingCache = this.streamingSessionCache.get(normalized.sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
       const selectedSession = this.store.getState().sessions.find((session) => session.id === normalized.sessionId);
@@ -2468,6 +2706,14 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, chatThinkingMode: normalizeChatThinkingMode(mode) }));
   }
 
+  private setChatStreamDisplayEnabled(enabled: boolean) {
+    rememberChatStreamDisplayEnabled(enabled);
+    this.store.setState((prev) => ({
+      ...prev,
+      chatStreamDisplayEnabled: Boolean(enabled),
+    }));
+  }
+
   private chatEnvironmentBindingPayload(state: StoreState): Record<string, unknown> | undefined {
     const activeEnvironment = state.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment();
     const taskEnvironmentId = String(activeEnvironment.task_environment_id ?? "").trim();
@@ -2486,13 +2732,14 @@ export class WorkspaceRuntime {
 
   private chatModelSelectionPayload(state: StoreState): ChatModelSelection | undefined {
     const resolved = this.resolveChatModelSelection(state);
+    const streamPolicy = this.chatStreamPolicyPayload(state);
     if (!resolved) {
-      return undefined;
+      return { stream_policy: streamPolicy };
     }
     const { selectionId, provider, model, baseUrl, credentialRef } = resolved;
     const supportsHiddenReasoning = this.supportsHiddenReasoning(provider, model, state.selectedChatMode, state.modelProviderConfig);
     if (selectionId === "system-default" && !supportsHiddenReasoning) {
-      return undefined;
+      return { stream_policy: streamPolicy };
     }
     const payload: ChatModelSelection = {
       selection_id: selectionId,
@@ -2500,12 +2747,23 @@ export class WorkspaceRuntime {
       model,
       base_url: baseUrl,
       credential_ref: credentialRef,
+      stream_policy: streamPolicy,
     };
     if (supportsHiddenReasoning) {
       const thinkingMode = normalizeChatThinkingMode(state.chatThinkingMode);
       payload.thinking_mode = thinkingMode === "normal" ? "disabled" : "enabled";
     }
     return payload;
+  }
+
+  private chatStreamPolicyPayload(state: StoreState) {
+    const enabled = Boolean(state.chatStreamDisplayEnabled);
+    return {
+      enabled,
+      mode: enabled ? "model_text_stream" : "disabled",
+      emit_content_delta: enabled,
+      source: "frontend.chat_stream_display_toggle",
+    };
   }
 
   private resolveChatModelSelection(state: StoreState) {
@@ -2736,6 +2994,8 @@ export class WorkspaceRuntime {
     const poolKey = normalized.poolKey ?? sessionPoolKeyForScope(deletedSessionScope);
     const wasCurrentSession = this.store.getState().currentSessionId === sessionId;
     await deleteSession(sessionId, deletedSessionScope);
+    clearRememberedSessionRef(sessionId);
+    this.clearPersistedCurrentSessionRef(sessionId);
     this.streamingSessionCache.delete(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
@@ -2798,6 +3058,8 @@ export class WorkspaceRuntime {
   }
 
   private clearActiveSession() {
+    clearRememberedSessionRef();
+    this.clearPersistedCurrentSessionRef();
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: null,
@@ -3376,7 +3638,12 @@ export class WorkspaceRuntime {
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
-      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId, controlState);
+      this.updateSessionActivityFromLiveMonitor(
+        staleOrDiagnostic && controlState.trim().toLowerCase() !== "paused" ? "stale" : liveStatus,
+        taskRunId,
+        graphRunId,
+        controlState,
+      );
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
           ...this.patchRuntimeAttachmentFromMonitor(
@@ -3544,32 +3811,31 @@ export class WorkspaceRuntime {
     if (controlState === "paused") {
       title = "已暂停";
       detail = "当前处理已停在可继续状态，可以直接继续。";
+    } else if (staleOrDiagnostic) {
+      title = "等待检查";
+      detail = "最近没有新的运行动作，需要在监控中检查或关闭运行。";
     } else if (status === "waiting_executor") {
       title = "等待继续";
-      detail = staleOrDiagnostic
-        ? "当前任务已停在等待队列，最近没有新的运行动作；继续后会接上现有进度。"
-        : "当前任务已进入等待队列，继续后会接上现有进度。";
+      detail = "当前任务已进入等待队列，继续后会接上现有进度。";
     } else if (status === "waiting_approval") {
       title = "等待确认";
       detail = "需要确认后继续执行。";
     } else if (status === "blocked") {
       title = "已停住";
       detail = "当前处理暂时停住，我会换一种方式继续。";
-    } else if (staleOrDiagnostic) {
-      title = "等待继续";
-      detail = "最近没有新的运行动作，继续后会接上现有进度。";
     } else {
       return null;
     }
 
+    const staleState = staleOrDiagnostic && controlState !== "paused";
     return {
       item_id: `live:${taskRunId}:monitor-status`,
       kind: "status_update",
-      phase: "waiting",
+      phase: staleState ? "stale" : "waiting",
       title,
       detail,
       text: detail,
-      state: "waiting",
+      state: staleState ? "stale" : "waiting",
       stream_state: "done",
       trace_refs: [taskRunId].filter(Boolean),
     };
@@ -4219,6 +4485,29 @@ export class WorkspaceRuntime {
     const normalizedStatus = liveStatus.trim();
     const normalizedControlState = controlState.trim();
     if (!normalizedStatus) {
+      return;
+    }
+    if (normalizedStatus === "stale") {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "warning",
+          title: "等待检查",
+          detail: "运行已经停滞，需要在监控中检查或关闭运行",
+          event: "runtime_live_monitor",
+          receipt: {
+            level: "warning",
+            title: "等待检查",
+            body: "运行已经停滞，需要在监控中检查或关闭运行。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              graphRunId: graphRunId || "",
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
       return;
     }
     if (normalizedControlState === "paused") {

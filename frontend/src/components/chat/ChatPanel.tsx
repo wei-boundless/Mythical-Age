@@ -35,6 +35,8 @@ export function ChatPanel() {
     setPermissionMode,
     chatThinkingMode,
     setChatThinkingMode,
+    chatStreamDisplayEnabled,
+    setChatStreamDisplayEnabled,
     selectedChatModelId,
     setSelectedChatModel,
     sessions,
@@ -182,7 +184,9 @@ export function ChatPanel() {
           onSelectChatModel={setSelectedChatModel}
           selectedChatModelId={selectedChatModelId}
           chatThinkingMode={chatThinkingMode}
+          chatStreamDisplayEnabled={chatStreamDisplayEnabled}
           onSelectThinkingMode={setChatThinkingMode}
+          onSelectStreamDisplayEnabled={setChatStreamDisplayEnabled}
         />
       </div>
     </section>
@@ -271,15 +275,19 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
   const pressureLevel = String(contextMeter.pressure_level || "normal").trim() || "normal";
   const levelClass = tokenPressureClass(pressureLevel);
   const usedPercent = percentFromRatio(currentSessionContextRatio(tokenStats));
+  const pressureTokens = contextPressureTokens(tokenStats);
   const currentTokens = currentContextTokens(tokenStats);
   const thresholdTokens = compactionThresholdTokens(tokenStats);
+  const remainingTokens = compactionRemainingTokens(tokenStats, pressureTokens, thresholdTokens);
   const tokenRatioText = thresholdTokens > 0
-    ? `${formatTokenCount(currentTokens)}/${formatTokenCount(thresholdTokens)}`
-    : formatTokenCount(currentTokens);
+    ? `${formatTokenCount(pressureTokens)}/${formatTokenCount(thresholdTokens)}`
+    : formatTokenCount(pressureTokens);
   const pressurePercentText = `${usedPercent}%`;
   const title = [
-    `当前上下文 ${formatExactTokenCount(currentTokens)} tokens`,
+    `当前上下文压力 ${formatExactTokenCount(pressureTokens)} tokens`,
+    pressureTokens !== currentTokens ? `会话公开历史 ${formatExactTokenCount(currentTokens)} tokens` : "",
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
+    thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
     `阈值占比 ${pressurePercentText}`,
     thresholdTokens > 0 ? "达到阈值会触发自动压缩" : "",
   ].filter(Boolean).join("；");
@@ -308,6 +316,10 @@ function currentSessionContextRatio(tokenStats: TokenStats) {
   if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
     return compactionRatio;
   }
+  const thresholdTokens = compactionThresholdTokens(tokenStats);
+  if (thresholdTokens > 0) {
+    return contextPressureTokens(tokenStats) / thresholdTokens;
+  }
   return 0;
 }
 
@@ -316,9 +328,25 @@ function currentContextTokens(tokenStats: TokenStats) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
+function contextPressureTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.compaction_pressure_tokens ?? NaN);
+  if (Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+  return currentContextTokens(tokenStats);
+}
+
 function compactionThresholdTokens(tokenStats: TokenStats) {
   const value = Number(tokenStats.context_meter?.replacement_threshold_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function compactionRemainingTokens(tokenStats: TokenStats, pressureTokens: number, thresholdTokens: number) {
+  const reported = Number(tokenStats.context_meter?.compaction_remaining_tokens ?? NaN);
+  if (Number.isFinite(reported)) {
+    return Math.max(0, Math.round(reported));
+  }
+  return Math.max(0, thresholdTokens - pressureTokens);
 }
 
 function formatTokenCount(value: unknown) {

@@ -45,4 +45,18 @@ describe("RunMonitorActionMenu", () => {
 
     expect(html).toContain("运行操作");
   });
+
+  it("exposes close runtime actions", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RunMonitorActionMenu, {
+        loadingAction: "",
+        onAction: () => undefined,
+        signal: signalWithActions([
+          { action: "close_runtime", enabled: true, label: "关闭运行" },
+        ]),
+      }),
+    );
+
+    expect(html).toContain("运行操作");
+  });
 });

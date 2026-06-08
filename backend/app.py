@@ -25,6 +25,7 @@ from api.task_system import router as task_system_router
 from api.tokens import router as tokens_router
 from api.code_environment import router as code_environment_router
 from api.vscode import router as vscode_router
+from api.workbench import router as workbench_router
 from bootstrap.lifespan import runtime_lifespan
 from sessions import InvalidSessionId, SessionPayloadCorrupt, SessionStorageError
 from runtime_encoding import configure_process_utf8
@@ -67,6 +68,7 @@ app.include_router(capability_system_router, prefix="/api", tags=["capability-sy
 app.include_router(image_assets_router, prefix="/api", tags=["image-assets"])
 app.include_router(code_environment_router, prefix="/api", tags=["code-environment"])
 app.include_router(vscode_router, prefix="/api", tags=["vscode"])
+app.include_router(workbench_router, prefix="/api", tags=["workbench"])
 
 
 @app.exception_handler(InvalidSessionId)

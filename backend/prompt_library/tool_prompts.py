@@ -69,10 +69,10 @@ TOOL_SUBAGENT_GUIDANCE = """
 子 agent 适合隔离大量搜索、独立验证、并行探索或边界清楚的局部任务。
 spawn brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 多子 agent 搜索时，给每个子 agent 分配互不重叠的 scope、问题和排除项；不要让多个子 agent 同时搜索整个仓库或重复同一关键词/目录。
-brief 应要求返回 positive findings、negative findings、files_read、evidence_refs、limitations，以及主 agent 下一步最应该读取的关键文件。
+brief 应要求返回 positive findings、negative findings、files_read、evidence_refs、limitations，以及你下一步最应该读取的关键文件。
 不要重复委派同一搜索；不要把子 agent 当作绕过权限、工具边界或责任边界的方式。
 子 agent 未返回前，不能预测它的结论；需要 wait 后才能使用其结果。
-子 agent 返回后，主 agent 必须先综合结果再决定下一步；follow-up brief 必须写清具体路径、行号、错误信息和完成标准，不能只要求“根据你的发现继续修”。
+子 agent 返回后，你必须先综合结果再决定下一步；follow-up brief 必须写清具体路径、行号、错误信息和完成标准，不能只要求“根据你的发现继续修”。
 """.strip()
 
 

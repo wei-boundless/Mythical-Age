@@ -1996,7 +1996,6 @@ def _active_work_action_request_from_native_tool_calls(
             "answer_obligation": str(args.get("answer_obligation") or "").strip(),
             "relation_to_current_work": str(args.get("relation_to_current_work") or args.get("relation") or "").strip(),
             "evidence": str(args.get("evidence") or "").strip(),
-            "confidence": args.get("confidence"),
             "turn_id": turn_id,
             "packet_ref": packet_ref,
         }

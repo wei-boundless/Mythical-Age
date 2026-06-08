@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory_system.layout import durable_memory_layout_from_backend_dir
@@ -46,11 +46,14 @@ class MemoryRecallRequest(BaseModel):
 class MemoryRecallSelection(BaseModel):
     should_recall: bool = False
     selected_note_ids: list[str] = Field(default_factory=list)
-    reason: str = ""
-    confidence: float = 0.0
+    selection_reason: str = Field(default="", validation_alias=AliasChoices("selection_reason", "reason"))
     needs_verification: bool = False
     manifest_only: bool = False
     ignore_memory: bool = False
+
+    @property
+    def reason(self) -> str:
+        return self.selection_reason
 
 
 class MemoryRecallResult(BaseModel):
@@ -71,8 +74,7 @@ class DurableMemoryRecallSelector:
         if request.ignore_memory:
             return MemoryRecallSelection(
                 should_recall=False,
-                reason="ignore_memory",
-                confidence=1.0,
+                selection_reason="ignore_memory",
                 ignore_memory=True,
             )
 
@@ -80,23 +82,20 @@ class DurableMemoryRecallSelector:
         if not headers:
             return MemoryRecallSelection(
                 should_recall=False,
-                reason="no_manifest_headers",
-                confidence=1.0,
+                selection_reason="no_manifest_headers",
             )
 
         if request.explicit_memory_mode == "inventory":
             return MemoryRecallSelection(
                 should_recall=False,
-                reason="explicit_memory_inventory",
-                confidence=1.0,
+                selection_reason="explicit_memory_inventory",
                 manifest_only=True,
             )
 
         if self._message_invoker is None:
             return MemoryRecallSelection(
                 should_recall=False,
-                reason="no_durable_memory_selector_configured",
-                confidence=1.0,
+                selection_reason="no_durable_memory_selector_configured",
             )
 
         selection = await self._select_with_model(request)
@@ -104,8 +103,7 @@ class DurableMemoryRecallSelector:
             return selection
         return MemoryRecallSelection(
             should_recall=False,
-            reason="durable_memory_selector_failed",
-            confidence=1.0,
+            selection_reason="durable_memory_selector_failed",
         )
 
     async def _select_with_model(self, request: MemoryRecallRequest) -> MemoryRecallSelection | None:
@@ -121,7 +119,7 @@ class DurableMemoryRecallSelector:
             "Given a user query, main working context, and a manifest of available durable memory headers, "
             "select only the memory note ids that are clearly useful for answering the current query. "
             "Be strict. If nothing is clearly useful, return an empty selection. "
-            "Never answer the user directly. Return JSON with keys: should_recall, selected_note_ids, reason, confidence, "
+            "Never answer the user directly. Return JSON with keys: should_recall, selected_note_ids, selection_reason, "
             "needs_verification, manifest_only, ignore_memory."
         )
         user_prompt = json.dumps(
@@ -272,8 +270,7 @@ class DurableMemoryLayer:
         if self._has_running_loop():
             selection = MemoryRecallSelection(
                 should_recall=False,
-                reason="sync_recall_inside_running_loop_requires_async_call",
-                confidence=1.0,
+                selection_reason="sync_recall_inside_running_loop_requires_async_call",
             )
         else:
             selection = asyncio.run(self.recall_selector.select_relevant(request))

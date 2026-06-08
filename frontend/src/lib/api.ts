@@ -80,6 +80,21 @@ export type SessionScope = {
   project_id?: string;
 };
 
+export type WorkbenchSessionRef = {
+  authority?: string;
+  session_id?: string;
+  sessionId?: string;
+  scope?: Partial<SessionScope>;
+  pool_key?: string;
+  poolKey?: string;
+  updated_at?: number;
+};
+
+export type WorkbenchCurrentSessionPayload = {
+  authority: string;
+  current_session: WorkbenchSessionRef | null;
+};
+
 export type SessionTaskSummary = {
   available: boolean;
   selection?: "active" | "latest" | string;
@@ -3870,6 +3885,34 @@ export async function getSessionSummary(sessionId: string, scope?: Partial<Sessi
   return request<SessionSummary>(withSessionScopeQuery(`/sessions/${sessionId}`, scope));
 }
 
+export async function getWorkbenchCurrentSession() {
+  return request<WorkbenchCurrentSessionPayload>("/workbench/current-session");
+}
+
+export async function setWorkbenchCurrentSession(ref: {
+  sessionId: string;
+  scope?: Partial<SessionScope>;
+  poolKey?: string;
+}) {
+  return request<WorkbenchCurrentSessionPayload>("/workbench/current-session", {
+    method: "PUT",
+    body: JSON.stringify({
+      session_id: ref.sessionId,
+      scope: ref.scope ?? {},
+      pool_key: ref.poolKey ?? "main-chat",
+    }),
+  });
+}
+
+export async function clearWorkbenchCurrentSession(sessionId?: string) {
+  const params = new URLSearchParams();
+  if (sessionId) params.set("session_id", sessionId);
+  const query = params.toString();
+  return request<WorkbenchCurrentSessionPayload>(query ? `/workbench/current-session?${query}` : "/workbench/current-session", {
+    method: "DELETE",
+  });
+}
+
 export async function renameSession(sessionId: string, title: string, scope?: Partial<SessionScope>) {
   return request<SessionSummary>(withSessionScopeQuery(`/sessions/${sessionId}`, scope), {
     method: "PUT",
@@ -4017,6 +4060,7 @@ export async function getSessionTokens(sessionId: string, scope?: Partial<Sessio
     context_meter?: {
       current_context_tokens?: number;
       current_context_ratio?: number;
+      compaction_pressure_tokens?: number;
       context_window_tokens?: number;
       input_capacity_tokens?: number;
       replacement_threshold_tokens?: number;

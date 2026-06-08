@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.text_utils import normalize_storage_text
@@ -328,7 +328,10 @@ class DurableMemoryWriteAction(BaseModel):
     canonical_statement: str = ""
     summary: str = ""
     retrieval_hints: list[str] = Field(default_factory=list)
-    confidence: Literal["low", "medium", "high"] = "medium"
+    source_strength: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        validation_alias=AliasChoices("source_strength", "confidence"),
+    )
     reason: str = ""
     how_to_apply: str = ""
     evidence_excerpt: str = ""
@@ -624,7 +627,7 @@ class MemoryMaintenanceAgent:
                         "canonical_statement": "稳定事实",
                         "summary": "简短摘要",
                         "retrieval_hints": ["召回提示"],
-                        "confidence": "low | medium | high",
+                        "source_strength": "low | medium | high；表示证据来源强度，不是模型自评分",
                         "reason": "为什么值得长期保存",
                         "how_to_apply": "以后如何使用",
                         "evidence_excerpt": "来自本轮消息的证据摘录",
@@ -1047,7 +1050,7 @@ class MemoryCommitter:
             source_session_id=request.session_id,
             source_role="conversation",
             source_message_excerpt=evidence[:160],
-            confidence=action.confidence,
+            confidence=action.source_strength,
             status=str(policy.get("status") or "needs_review"),
             scope=str(policy.get("scope") or action.preference_scope),
             source_kind=action.evidence_source_kind,

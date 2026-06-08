@@ -894,23 +894,29 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const observation = record(payload.observation);
     const source = text(observation.source);
     const status = text(taskRun.status);
+    const lifecycle = text(taskRun.lifecycle ?? payload.lifecycle).toLowerCase();
+    const bucket = text(taskRun.bucket ?? payload.bucket).toLowerCase();
+    const stale = taskRun.stale === true || payload.stale === true || lifecycle === "stale" || bucket === "diagnostics";
     const waiting = eventType === "task_run_lifecycle_waiting_executor" || status === "waiting_executor";
     const title = eventType === "agent_todo_initialized"
       ? "处理清单已建立"
-      : waiting
+      : stale
+        ? "等待检查"
+        : waiting
         ? "等待继续"
         : "处理进展更新";
     const body = publicRuntimeText(text(observation.summary) || text(payload.reason) || status || eventType);
+    const level: SessionActivityLevel = stale ? "warning" : waiting ? "waiting" : "running";
     return {
       stageStatus: title,
       activityTitle: title,
       activityDetail: body,
-      level: waiting ? "waiting" : "running",
+      level,
       progressEntry: entry(eventType || "task_run_lifecycle_event", title, {
         body,
-        level: waiting ? "waiting" : "running",
+        level,
         kind: eventType === "agent_todo_initialized" ? "stage" : "terminal",
-        statusText: waiting ? "等待" : status || "进行中",
+        statusText: stale ? "需诊断" : waiting ? "等待" : status || "进行中",
         runId: text(runtimeEvent.run_id) || text(runtimeEvent.task_run_id),
         taskRunId: text(taskRun.task_run_id) || formalTaskRunId(runtimeEvent.run_id, runtimeEvent.task_run_id),
         eventId: text(runtimeEvent.event_id),

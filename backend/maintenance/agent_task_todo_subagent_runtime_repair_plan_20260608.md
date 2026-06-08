@@ -95,6 +95,64 @@ RequestFacts
 - 在 runtime profile 中绑定 `worker_prompt_ref` 和 `agent_prompt_refs_by_invocation.task_execution`。
 - Prompt 必须描述身份、职责、输入、输出、禁止事项、失败处理和质量标准，不能写成节点说明。
 
+### 6. Codex 式等待执行与监控投影
+
+- 采用 Codex 的生命周期权威模型：`started/completed/interrupted/failed` 一类终态事件和 `lifecycle` 是 UI/监控判断的权威来源。
+- `waiting_executor` 只表示 executor 调度边界或下一轮模型请求前的短暂队列状态，不作为长期可见运行状态。
+- 当记录同时具备 `status=waiting_executor` 与 `lifecycle=stale`、`stale=true` 或诊断语义时，监控必须投影为 `stale`，不能显示为“等待继续”。
+- stale 运行不计入 waiting summary，不允许走 resume 语义；可提供 `clear_from_monitor` 和 `close_runtime` 管理动作。
+- 前端本地兜底 projection 必须遵循同一优先级：显式 `paused/action_required` 优先，其次 stale/diagnostics，最后才是 fresh `waiting_executor`。
+- 完成/终态类事件必须作为 lossless 信号处理；普通进度可以降级或丢弃，但不能因为丢 completion 让 UI 永久等待。
+
+### 7. 当前工作生命周期体系
+
+目标不是只修“暂停后重发”，而是建立完整、可恢复、可重启、可审计的 current-work lifecycle。生命周期权威拆成五层：
+
+| 层 | 权威对象 | 只负责 | 禁止事项 |
+| --- | --- | --- | --- |
+| Chat/Stream | `RuntimeRun` / SSE 事件 | 传输、重连、流式输出 | 不决定任务是否恢复、重启或完成。 |
+| 当前工作指针 | `ActiveTurnRecord` | 当前会话正在控制哪个 TaskRun，以及 expected turn gate | 不保存执行进度，不替代 TaskRun 终态。 |
+| 任务生命周期 | `TaskRun` + lifecycle event log | started/running/waiting/paused/blocked/completed/stopped/replaced | 不根据 UI 状态猜测用户新意图。 |
+| 执行租约 | `executor_status` / executor epoch | scheduled/running/lost/blocked，防重复 executor | 不决定用户是继续还是重启。 |
+| 用户控制输入 | `active_work_control` / `request_task_run` / steer queue | 当前轮语义动作和追加要求 | 不隐式把新任务请求改写成恢复旧任务。 |
+
+#### 7.1 用户动作语义矩阵
+
+| 用户语义 | 模型动作 | 运行时迁移 | 后续输入 gate |
+| --- | --- | --- | --- |
+| 继续当前任务 | `active_work_control.continue_active_work` + `continuation_strategy=same_run_resume` | paused/blocked/waiting -> `resume_requested` -> schedule executor | 保持或重新绑定 `active_turn` 到同一 TaskRun。 |
+| 补充要求并继续 | `active_work_control.append_instruction_to_active_work` | 先写 durable steer；running 则 replan signal，paused/waiting 则 resume+schedule | 同一 TaskRun，steer 必须进入下一次 packet 并被消费。 |
+| 暂停 | `active_work_control.pause_active_work` | running -> `pause_requested`，waiting -> `paused` | `active_turn` 保留，后续必须能继续/重启/停止。 |
+| 停止/放弃 | `active_work_control.stop_active_work` | 非终态 -> stopped/aborted，清理 active turn | 下一轮可以作为全新请求处理。 |
+| 重启/从头做/不要沿用旧进度 | `request_task_run`，并显式声明 replacement intent | 当前 TaskRun 先标记 `replaced`/`user_restarted`，再创建新 TaskRun | active turn 绑定到新 TaskRun，旧 TaskRun 只保留审计记录。 |
+| 新的独立长期任务 | `request_task_run`，并显式声明 independent intent | 若会话已有 active work，默认阻断并要求用户确认是否并行/替换/停止旧任务 | 不允许 silently fork 两条当前任务。 |
+| 只问状态/原因 | `active_work_control.answer_about_active_work` 或普通回答 | 不改变 TaskRun 状态 | 不改变 active turn。 |
+
+#### 7.2 request_task_run 与 current work 的边界
+
+- `request_task_run` 不应再无条件复用最新 `waiting_executor` TaskRun。
+- 如果模型想继续旧任务，必须使用 `active_work_control.continue_active_work`；runtime 可以在 repair observation 中纠正错误动作，但不能静默改写。
+- 如果模型想重启旧任务，`request_task_run` 必须携带明确 replacement intent，例如：
+  - `diagnostics.active_work_relationship = "replace_current_work"`
+  - 或 `task_contract_seed.active_work_relationship = "restart_current_work"`
+- replacement intent 被接受后，runtime 才能停止旧 TaskRun，并以当前 action 的 `task_contract_seed` 创建新 TaskRun。
+- 如果 active work 存在但 `request_task_run` 没有 relationship，运行时应 fail-closed：不创建第二条任务，不恢复旧任务，要求模型/用户明确是继续、重启、停止还是新开独立任务。
+
+#### 7.3 ActiveTurn 保活与恢复
+
+- `active_turn` 是当前会话控制句柄，不是普通 chat turn 的临时对象。
+- 一旦一个 turn 创建、恢复、重启或接管非终态 TaskRun，`ActiveTurnRecord.bound_task_run_id` 必须指向该 TaskRun。
+- 单个 chat turn 的 `done`/`agent_turn_terminal` 只能结束本轮传输；如果 bound TaskRun 非终态，不能清掉 active turn。
+- 后端重启或 active turn 丢失后，只有用户明确对最新可恢复 TaskRun 发出 current-work 控制动作时，才可重新绑定本轮 active turn。
+- 前端每次打开当前 session 必须直接 hydrate 当前 session 的 live monitor 和 active_turn_snapshot；发送当前工作输入时必须带 `expected_active_turn_id`。若没有 snapshot，则只能走后端 current-work 恢复边界，不能由前端猜 task id。
+
+#### 7.4 Executor 与重复发送
+
+- scheduler 是唯一 executor 启动权威；若 TaskRun 已被 claim，重复 schedule 返回 already-running，不产生第二个 executor。
+- paused/waiting 下的补充要求：写 steer -> resume -> schedule；若 schedule 失败，用户可见回复必须报告失败，不能说“已继续”。
+- running 下的补充要求：写 steer -> replan/interruption signal；不能直接开启第二个 executor。
+- stale/diagnostic/terminal/graph-node task 不参与用户 chat 的 current-work 控制，只能走监控管理动作或 graph runtime。
+
 ## 验证计划
 
 聚焦回归：
@@ -107,14 +165,15 @@ python -m pytest backend/tests/search_specialist_split_regression.py -q
 python -m pytest backend/tests/sandbox_tool_runtime_regression.py -q
 python -m pytest backend/tests/prompt_library_registry_regression.py -q
 python -m pytest backend/tests/chat_environment_binding_regression.py -q
-python -m pytest backend/tests/harness_runtime_facade_regression.py -k "active_work_control or running_active_turn or waiting_executor" -q
+python -m pytest backend/tests/harness_runtime_facade_regression.py -k "active_work_control or running_active_turn or waiting_executor or active_turn_rebind or paused_resend or restart_current_work or replace_current_work" -q
+python -m pytest backend/tests/runtime_monitor_projection_test.py -q
 ```
 
 前端 active turn 请求验证：
 
 ```powershell
 cd frontend
-npm test -- src/lib/store/runtime.test.ts
+npm test -- src/lib/runtimeVisibilityProjection.test.ts src/lib/store/runtime.test.ts src/components/layout/RunMonitorActionMenu.test.ts
 ```
 
 静态检查：

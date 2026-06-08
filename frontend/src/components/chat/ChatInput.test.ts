@@ -15,11 +15,13 @@ function renderChatInput(
       modelProviderConfig: null,
       onSelectChatModel: () => undefined,
       onSelectPermissionMode: () => undefined,
+      onSelectStreamDisplayEnabled: () => undefined,
       onSelectThinkingMode: () => undefined,
       onSend: async () => undefined,
       onStop: () => undefined,
       permissionMode: "default",
       selectedChatModelId: "system-default",
+      chatStreamDisplayEnabled: true,
       streaming: false,
       supportedPermissionModes: ["default"],
       taskPrimaryAction: null,
@@ -48,5 +50,13 @@ describe("ChatInput", () => {
     expect(html).toContain("aria-label=\"中断当前任务\"");
     expect(html).not.toContain("继续当前任务");
     expect(html).not.toContain("chat-send-button--resume");
+  });
+
+  it("renders a stream display toggle", () => {
+    const html = renderChatInput({ chatStreamDisplayEnabled: false });
+
+    expect(html).toContain("aria-label=\"开启流式显示\"");
+    expect(html).toContain("aria-pressed=\"false\"");
+    expect(html).toContain("流式");
   });
 });

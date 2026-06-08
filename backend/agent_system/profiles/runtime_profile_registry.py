@@ -392,7 +392,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 },
                 "output_contract": {
                     "required_fields": ("answer_candidate", "evidence_refs", "limitations"),
-                    "recommended_fields": ("source_matrix", "source_urls", "open_questions", "confidence", "recommended_parent_action"),
+                    "recommended_fields": ("source_matrix", "source_urls", "open_questions", "source_strength", "recommended_parent_action"),
                     "source_policy": "无 source URL 或 evidence packet 时不得完成为成功答案。",
                     "result_policy": "summary_and_refs_only",
                 },

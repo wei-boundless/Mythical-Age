@@ -88,6 +88,8 @@ def activity_state(item: dict[str, Any]) -> ActivityState:
         return "completed"
     if control_state == "paused" or status == "paused" or lifecycle == "paused":
         return "paused"
+    if lifecycle == "stale" or bool(item.get("stale") is True):
+        return "stale"
     if (
         status in WAITING_STATUSES
         or lifecycle in {"waiting", "waiting_executor", "waiting_approval", "waiting_user", "action_required"}
@@ -95,8 +97,6 @@ def activity_state(item: dict[str, Any]) -> ActivityState:
         or bool(item.get("action_required") is True)
     ):
         return "waiting"
-    if lifecycle == "stale" or bucket == "diagnostics" or bool(item.get("stale") is True):
-        return "stale"
     if status in RUNNING_STATUSES or lifecycle in {"running", "active"} or bucket == "running" or bool(item.get("is_live") is True):
         return "running"
     return "idle"

@@ -101,6 +101,7 @@ describe("ChatPanel", () => {
       context_meter: {
         current_context_ratio: 0.03,
         current_context_tokens: 34000,
+        compaction_pressure_tokens: 34000,
         context_window_tokens: 1_000_000,
         replacement_threshold_tokens: 900000,
         compaction_pressure_ratio: 34000 / 900000,
@@ -114,7 +115,7 @@ describe("ChatPanel", () => {
       usedPercent: 4,
       pressurePercentText: "4%",
       tokenRatioText: "34.0K/900.0K",
-      title: "当前上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
+      title: "当前上下文压力 34,000 tokens；自动压缩阈值 900,000 tokens；距自动压缩还剩 866,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
       levelClass: "normal",
     });
   });
@@ -163,6 +164,7 @@ describe("ChatPanel", () => {
       context_meter: {
         current_context_ratio: 0.82,
         current_context_tokens: 820000,
+        compaction_pressure_tokens: 820000,
         context_window_tokens: 1_000_000,
         replacement_threshold_tokens: 900000,
         compaction_pressure_ratio: 820000 / 900000,
@@ -176,7 +178,7 @@ describe("ChatPanel", () => {
       usedPercent: 91,
       pressurePercentText: "91%",
       tokenRatioText: "820.0K/900.0K",
-      title: "当前上下文 820,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 91%；达到阈值会触发自动压缩",
+      title: "当前上下文压力 820,000 tokens；自动压缩阈值 900,000 tokens；距自动压缩还剩 80,000 tokens；阈值占比 91%；达到阈值会触发自动压缩",
       levelClass: "warning",
     });
   });
@@ -186,6 +188,7 @@ describe("ChatPanel", () => {
       context_meter: {
         current_context_ratio: 0.12,
         current_context_tokens: 120000,
+        compaction_pressure_tokens: 120000,
         context_window_tokens: 1_000_000,
         replacement_threshold_tokens: 900000,
         compaction_pressure_ratio: 120000 / 900000,
@@ -200,6 +203,29 @@ describe("ChatPanel", () => {
       usedPercent: 13,
       pressurePercentText: "13%",
       tokenRatioText: "120.0K/900.0K",
+      levelClass: "normal",
+    });
+  });
+
+  it("uses compaction pressure tokens for the visible ratio when session pressure is lower", () => {
+    expect(sessionContextPressurePresentation(tokenStats({
+      context_meter: {
+        current_context_ratio: 0.012598,
+        current_context_tokens: 12598,
+        compaction_pressure_tokens: 41444,
+        context_window_tokens: 1_000_000,
+        replacement_threshold_tokens: 850000,
+        compaction_pressure_ratio: 41444 / 850000,
+        compaction_remaining_tokens: 808556,
+        compaction_remaining_ratio: 808556 / 850000,
+        pressure_level: "normal",
+      },
+    }))).toEqual({
+      label: "上下文",
+      usedPercent: 5,
+      pressurePercentText: "5%",
+      tokenRatioText: "41.4K/850.0K",
+      title: "当前上下文压力 41,444 tokens；会话公开历史 12,598 tokens；自动压缩阈值 850,000 tokens；距自动压缩还剩 808,556 tokens；阈值占比 5%；达到阈值会触发自动压缩",
       levelClass: "normal",
     });
   });

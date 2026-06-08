@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, ShieldCheck, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Radio, ShieldCheck, Square } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
@@ -21,8 +21,10 @@ export function ChatInput({
   onStop,
   onSelectChatModel,
   onSelectPermissionMode,
+  onSelectStreamDisplayEnabled,
   onSelectThinkingMode,
   chatThinkingMode,
+  chatStreamDisplayEnabled,
   permissionMode,
   supportedPermissionModes,
   selectedChatModelId,
@@ -36,8 +38,10 @@ export function ChatInput({
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
   onSelectPermissionMode: (mode: string) => Promise<void> | void;
+  onSelectStreamDisplayEnabled: (enabled: boolean) => void;
   onSelectThinkingMode: (mode: ChatThinkingMode) => void;
   chatThinkingMode: ChatThinkingMode;
+  chatStreamDisplayEnabled: boolean;
   permissionMode: string;
   supportedPermissionModes: string[];
   selectedChatModelId: string;
@@ -85,6 +89,11 @@ export function ChatInput({
     "chat-send-button",
     primaryAction === "stop_stream" || primaryAction === "interrupt" ? "chat-stop-button chat-send-button--stop" : "",
   ].filter(Boolean).join(" ");
+  const streamToggleTitle = streaming
+    ? "本轮运行中，下一轮可切换流式显示"
+    : chatStreamDisplayEnabled
+      ? "流式显示已开启"
+      : "流式显示已关闭";
 
   useEffect(() => {
     if (!activeModelSupportsReasoning && chatThinkingMode !== "normal") {
@@ -193,6 +202,20 @@ export function ChatInput({
                 ))}
               </select>
             </label>
+          </div>
+          <div className="chat-control-cluster chat-control-cluster--stream">
+            <button
+              aria-label={chatStreamDisplayEnabled ? "关闭流式显示" : "开启流式显示"}
+              aria-pressed={chatStreamDisplayEnabled}
+              className={`chat-stream-toggle${chatStreamDisplayEnabled ? " chat-stream-toggle--active" : ""}`}
+              disabled={disabled || streaming}
+              onClick={() => onSelectStreamDisplayEnabled(!chatStreamDisplayEnabled)}
+              title={streamToggleTitle}
+              type="button"
+            >
+              <Radio size={14} />
+              <span>流式</span>
+            </button>
           </div>
         </div>
         <div className="chat-input-panel__actions">
