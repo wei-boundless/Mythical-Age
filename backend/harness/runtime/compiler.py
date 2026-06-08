@@ -120,18 +120,22 @@ class RuntimeCompiler:
         )
         output_contract = {
             "required_json_object": True,
-            "required_fields": ["structured_summary"],
+            "required_fields": ["context_recovery_package"],
             "optional_fields": ["summary_content", "diagnostics"],
-            "structured_summary_schema": {
-                "current_goal": "string | string[]",
-                "active_constraints": "string[]",
-                "verified_facts": "string[]",
-                "decisions": "string[]",
-                "artifacts": "string[] | object[]",
-                "invalidated_items": "string[]",
+            "context_recovery_package_schema": {
+                "current_task": "string",
+                "key_user_constraints": "string[]",
+                "progress_so_far": "string[]",
+                "important_findings": "string[]",
+                "key_decisions": "string[]",
+                "files_artifacts_refs": "string[] | object[]",
+                "errors_and_corrections": "string[]",
+                "environment_state": "string[]",
+                "dirty_worktree": "string[]",
+                "validation_state": "string[]",
                 "open_questions": "string[]",
-                "next_actions": "string[]",
-                "recovery_notes": "string[]",
+                "next_steps": "string[]",
+                "do_not_touch": "string[]",
             },
             "forbidden_actions": ["tool_call", "file_write", "memory_write", "delegation"],
             **dict(profile_metadata.get("output_contract") or {}),
@@ -374,6 +378,7 @@ class RuntimeCompiler:
             allowed_actions=allowed_actions,
             active_work_context=dict(active_work_context or {}),
             memory_context=memory_context or session_context_payload.get("memory_context"),
+            visible_tools=single_turn_tools,
             session_context=session_context_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
@@ -706,6 +711,7 @@ class RuntimeCompiler:
             allowed_actions=("respond", "ask_user", "tool_call", "block"),
             memory_context=memory_context,
             observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            visible_tools=tool_payloads,
             execution_state=dict(execution_state or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
@@ -1153,6 +1159,7 @@ class RuntimeCompiler:
             invocation_kind="tool_observation_followup",
             allowed_actions=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            visible_tools=tool_payloads,
             session_context=dict(session_context or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
@@ -3339,6 +3346,7 @@ def _environment_model_visible_payload(
                 "base_prompt_refs": list(mount_plan.base_prompt_refs),
                 "overlay_prompt_refs": list(mount_plan.overlay_prompt_refs),
                 "lifecycle_prompt_refs": list(mount_plan.lifecycle_prompt_refs),
+                "lifecycle_trigger_reasons": dict(mount_plan.lifecycle_trigger_reasons),
                 "environment_switch_policy": dict(mount_plan.environment_switch_policy),
                 "diagnostics": dict(mount_plan.diagnostics),
             }

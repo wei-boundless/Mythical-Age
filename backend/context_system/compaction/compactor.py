@@ -94,7 +94,17 @@ def _summary_from_semantic_worker_result(result: SemanticCompactionWorkerResult 
     if result is None or not result.ok:
         return ""
     if result.structured_summary:
-        rendered = _render_recovery_package(result.structured_summary, fallback=result.summary_content)
+        from runtime.context_management.recovery_package import (
+            context_recovery_package_from_structured_summary,
+            render_context_recovery_markdown,
+        )
+
+        package = context_recovery_package_from_structured_summary(
+            result.structured_summary,
+            fallback_summary=result.summary_content,
+            source=str(result.source or "semantic_compactor"),
+        )
+        rendered = render_context_recovery_markdown(package, include_metadata=False)
         if rendered:
             return rendered
     return str(result.summary_content or "").strip()
@@ -680,10 +690,15 @@ class ContextCompactor:
         session_compaction_validation = self.session_memory_manager.validate_compaction_state(working)
         session_summary_content = ""
         session_preserve_from_index: int | None = None
+        context_recovery_content = ""
         if session_compaction_validation.get("ok"):
-            session_summary_content = self.session_memory_manager.compact_view(
-                max_chars_per_section=max_chars_per_section,
-            ).strip()
+            context_recovery_content = self.session_memory_manager.context_recovery_markdown().strip()
+            session_summary_content = (
+                context_recovery_content
+                or self.session_memory_manager.compact_view(
+                    max_chars_per_section=max_chars_per_section,
+                ).strip()
+            )
             session_preserve_from_index = int(session_compaction_validation.get("covered_message_count") or 0)
         semantic_request = self.build_semantic_compaction_request(
             working,
@@ -745,6 +760,7 @@ class ContextCompactor:
             "microcompact_cache_decision": microcompact_cache_decision.to_dict(),
             "summary_source_tokens": self._count_tokens(summary_source_content or ""),
             "session_compaction_state": dict(session_compaction_validation or {}),
+            "context_recovery_package_present": bool(context_recovery_content),
             "semantic_compactor_required": semantic_compactor_needed,
             "semantic_compactor_registered": self.semantic_compactor_registration is not None,
             "semantic_compactor_binding": (
@@ -969,11 +985,11 @@ class ContextCompactor:
                 "你不能引入新事实，不能搜索，不能修改文件，不能调用工具，不能写入记忆。",
                 "你需要保留用户目标、当前约束、用户纠错、已验证事实、决策、产物引用、已失效事项、未解决问题和下一步恢复提示。",
                 "你需要丢弃重复寒暄、旧工具原文、大段 JSON/表格/日志原文、过期状态和已被后续消息否定的信息。",
-                "你必须输出 JSON 对象，并包含 structured_summary。",
-                "structured_summary 必须只包含从输入中能找到证据的信息，字段包括 current_goal、active_constraints、verified_facts、decisions、artifacts、invalidated_items、open_questions、next_actions、recovery_notes。",
+                "你必须输出 JSON 对象，并包含 context_recovery_package。",
+                "context_recovery_package 必须只包含从输入中能找到证据的信息，字段包括 current_task、key_user_constraints、progress_so_far、important_findings、key_decisions、files_artifacts_refs、errors_and_corrections、environment_state、dirty_worktree、validation_state、open_questions、next_steps、do_not_touch。",
                 "没有证据的字段使用空数组或空字符串；不要用模板说明占位。",
-                "可以附带 summary_content 作为简短中文概览，但系统会优先使用 structured_summary 渲染 checkpoint。",
-                "如果输入不足以可靠压缩，输出空 structured_summary 和空 summary_content，并在 diagnostics.reason 中说明原因。",
+                "可以附带 summary_content 作为简短中文概览，但系统会优先使用 context_recovery_package 渲染 checkpoint。",
+                "如果输入不足以可靠压缩，输出空 context_recovery_package 和空 summary_content，并在 diagnostics.reason 中说明原因。",
                 "不要暴露内部运行 id，不要输出 JSON 以外的解释文本，不要把旧工具原文整段复制进摘要。",
             ]
         )

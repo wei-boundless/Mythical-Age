@@ -23,6 +23,9 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         assert resource.category == "system"
         assert resource.owner_layer == "system"
         assert resource.cache_scope == "static"
+        assert not resource.prompt_id.endswith(".v1")
+        assert "Mythical Age" not in resource.content
+        assert "洪荒智能" not in resource.content
         assert resource.allowed_invocation_kinds == (
             "single_agent_turn",
             "task_execution",
@@ -70,6 +73,9 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     active_work_prompt = resource_by_id["environment.general.lifecycle.active_work_control"]
     assert "confidence" not in active_work_prompt.content.lower()
     assert "active_work_control action" in active_work_prompt.content
+    assert resource_by_id["environment.general.lifecycle.memory_read_context"].resource_type == "environment_prompt"
+    assert resource_by_id["environment.general.lifecycle.memory_write_handoff"].resource_type == "environment_prompt"
+    assert resource_by_id["environment.general.lifecycle.verification_gate"].resource_type == "environment_prompt"
     assert not [item for item in resources if "metadata.work_role_prompt" in item.source_ref]
     assert not [item for item in resources if item.resource_id.startswith("prompt.default.")]
     assert not [item for item in resources if item.resource_type in {"task_goal_role", "stage_role", "understanding_policy"}]
@@ -77,8 +83,10 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
 
     rules = registry.list_prompt_rules()
     rule_by_id = {item.rule_id: item for item in rules}
-    assert rule_by_id["system.foundation.vibe_coding_agent.v1"].rule_kind == "system.foundation.vibe_coding_agent"
-    assert rule_by_id["system.foundation.vibe_coding_agent.v1"].cache_tier == "global_static"
+    assert rule_by_id["system.foundation.local_collaboration"].rule_kind == "system.foundation.local_collaboration"
+    assert rule_by_id["system.foundation.local_collaboration"].cache_tier == "global_static"
+    assert rule_by_id["system.foundation.current_request_authority"].rule_kind == "system.foundation.current_request_authority"
+    assert rule_by_id["system.foundation.truth_and_verification"].rule_kind == "system.foundation.truth_and_verification"
     assert rule_by_id["runtime.task_execution.v1"].rule_kind == "runtime.protocol"
     assert rule_by_id["runtime.task_execution.v1"].requires == (
         "runtime.rule.system_call_protocol.v1",
@@ -128,7 +136,7 @@ def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: 
     stored_ids = {str(item.get("resource_id") or "") for item in list(payload.get("resources") or [])}
 
     assert "prompt.user.custom.output" in stored_ids
-    assert "system.foundation.vibe_coding_agent.v1" not in stored_ids
+    assert "system.foundation.local_collaboration" not in stored_ids
     assert "runtime.single_agent_turn.v1" not in stored_ids
     assert len(stored_ids) == 1
     assert registry.get_resource("runtime.single_agent_turn.v1") is not None

@@ -33,7 +33,11 @@ from harness.loop.task_run_execution_control import ExecutorControlSignal
 from harness.runtime.tool_batch_planner import ToolBatchGroup
 
 task_executor_module = sys.modules["harness.loop.task_executor"]
-from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
+from harness.loop.task_lifecycle import (
+    TaskLifecycleRecord,
+    TaskRunContract,
+    start_task_lifecycle_from_action_request,
+)
 from sessions import SessionManager
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from tests.support.runtime_stubs import (
@@ -3974,6 +3978,86 @@ def test_request_task_run_replaces_blocked_current_session_task_without_resuming
     assert existing_task_run_id not in visible
 
 
+def test_task_lifecycle_start_does_not_rewrite_request_to_current_session_handoff() -> None:
+    session_id = "session-lifecycle-no-current-handoff"
+    existing_task_run_id = "taskrun:lifecycle-no-current-handoff:old"
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    _seed_active_work(
+        runtime,
+        task_run_id=existing_task_run_id,
+        session_id=session_id,
+        status="waiting_executor",
+    )
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return SimpleNamespace()
+
+    host.spawn_background_task = _capture_background_task
+    committed: list[dict[str, object]] = []
+
+    async def _commit(_session_id: str, message: dict[str, object]) -> None:
+        committed.append(dict(message))
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        action_request = ModelActionRequest(
+            request_id="model-action:lifecycle-no-current-handoff",
+            turn_id="turn:lifecycle-no-current-handoff",
+            action_type="request_task_run",
+            public_progress_note="我会开始处理新的持续任务。",
+            task_contract_seed={
+                "user_visible_goal": "启动一个新的持续任务。",
+                "task_run_goal": "验证 lifecycle 层不把模型请求改写成 current-session handoff。",
+                "completion_criteria": ["必须创建新的 TaskRun"],
+            },
+        )
+        async for event in start_task_lifecycle_from_action_request(
+            runtime_host=host,
+            session_id=session_id,
+            turn_id="turn:lifecycle-no-current-handoff",
+            runtime_contract={"task_id": "task:lifecycle-no-current-handoff"},
+            model_selection={},
+            action_request=action_request,
+            agent_runtime_profile=SimpleNamespace(agent_profile_id="main_interactive_agent"),
+            runtime_assembly=SimpleNamespace(
+                to_dict=lambda: {
+                    "profile": {"task_lifecycle_policy": {"request_task_run": True}},
+                    "permission_mode": "default",
+                    "task_environment": {},
+                }
+            ),
+            runtime_branch={"branch_kind": "single_agent_turn"},
+            answer_source="test.lifecycle",
+            scheduler="test_lifecycle",
+            max_steps=1,
+            commit_assistant_message=_commit,
+            initialize_task_todo=lambda **_kwargs: None,
+            schedule_task_run_executor=runtime.schedule_task_run_executor,
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    stream_types = [str(event.get("type") or "") for event in events]
+    session_task_runs = host.state_index.list_session_task_runs(session_id)
+    new_tasks = [task for task in session_task_runs if task.task_run_id != existing_task_run_id]
+    old_task = host.state_index.get_task_run(existing_task_run_id)
+
+    assert "task_run_lifecycle_reused_current" not in stream_types
+    assert not any(str(event.get("terminal_reason") or "") == "session_active_task_exists" for event in events)
+    assert "task_run_lifecycle_started" in stream_types
+    assert len(new_tasks) == 1
+    assert new_tasks[0].status == "running"
+    assert old_task is not None
+    assert old_task.status == "waiting_executor"
+    assert spawned
+    assert committed
+
+
 def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run() -> None:
     session_id = "session-terminal-bound-active-turn"
     old_task_run_id = "taskrun:terminal-bound-active-turn:old"
@@ -5228,6 +5312,100 @@ def test_active_work_ambiguous_relation_is_rejected_as_inconsistent_control() ->
     assert decision.appended_instruction == ""
 
 
+def test_append_instruction_reports_resume_failure_without_accepting_steer(monkeypatch) -> None:
+    import harness.entrypoint.runtime_facade as runtime_facade_module
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户补充当前等待任务要求",
+            "response": "收到，我会按这个补充方向继续处理。",
+            "appended_instruction": "补充要求：优先检查调度失败。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:append-resume-failure")
+
+    def _resume_failure(*_args, **_kwargs):
+        return {"ok": False, "error": "task_run_waiting_approval_requires_grant"}
+
+    monkeypatch.setattr(runtime_facade_module, "resume_paused_task_run", _resume_failure)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="补充要求：优先检查调度失败。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert "active_task_steer_recorded" in event_types
+    assert "task_run_resume_requested" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+    assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "blocked"
+        and event.get("terminal_reason") == "active_work_resume_failed"
+        and "当前工作没有成功恢复：task_run_waiting_approval_requires_grant" in str(event.get("content") or "")
+        for event in events
+    )
+
+
+def test_append_instruction_to_waiting_approval_reports_queued_without_resume() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户补充等待确认任务要求",
+            "response": "收到，我会按这个补充方向继续处理。",
+            "appended_instruction": "确认前先补充验收标准。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:append-waiting-approval",
+        status="waiting_approval",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="确认前先补充验收标准。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert "active_task_steer_recorded" in event_types
+    assert "task_run_resume_requested" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+    assert any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "active_work_control"
+        and "补充要求已记录" in str(event.get("content") or "")
+        and "等待确认" in str(event.get("content") or "")
+        and "按这个补充方向继续处理" not in str(event.get("content") or "")
+        for event in events
+    )
+
+
 def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
@@ -5484,17 +5662,18 @@ def test_active_turn_preserves_user_granted_new_turn_capabilities(tmp_path: Path
     assert dict(dict(assembly.get("runtime_contract") or {}).get("runtime_facts") or {}).get("active_turn_capability_policy") == "preserve_user_granted_capabilities"
 
 
-def test_active_work_control_requires_expected_active_turn_id_for_bound_active_turn() -> None:
+def test_active_work_control_allows_missing_expected_active_turn_id_when_bound_task_matches() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "action": "continue_active_work",
             "relation_to_current_work": "current_work",
             "evidence": "用户说继续当前工作",
-            "response": "不应继续。",
+            "response": "我会继续当前工作。",
+            "continuation_strategy": "same_run_resume",
         }
     ])
     runtime = build_harness_runtime(model_runtime=model)
-    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-expected-required")
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-missing-expected-allowed")
 
     host = runtime.single_agent_runtime_host
     host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
@@ -5521,14 +5700,40 @@ def test_active_work_control_requires_expected_active_turn_id_for_bound_active_t
     event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and "需要刷新会话状态" in str(event.get("content") or "") for event in events)
-    assert any(
-        event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "expected_active_turn_id_required"
-        for event in events
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
+    assert any(event.get("type") == "done" and "继续当前工作" in str(event.get("content") or "") for event in events)
+
+
+def test_active_work_control_rejects_missing_expected_id_when_bound_task_changed() -> None:
+    from harness.loop.active_work import ActiveWorkContext
+
+    runtime = build_harness_runtime(model_runtime=NativeToolCallModelRuntimeStub(content="unused"))
+    original_task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-original")
+    replacement_task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-turn-replacement")
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:current")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:current",
+        task_run_id=replacement_task_run_id,
+        state="waiting_executor",
     )
-    assert "active_task_steer_recorded" not in event_types
-    assert "task_run_resume_requested" not in event_types
+
+    guard = runtime._active_turn_control_guard(
+        request=HarnessRuntimeRequest(session_id="session-active-work", message="继续当前工作"),
+        active_work_context=ActiveWorkContext(
+            session_id="session-active-work",
+            active_work_id="turn:active:old",
+            task_run_id=original_task_run_id,
+            status="waiting_executor",
+            authority="harness.runtime.active_turn_context",
+        ),
+    )
+
+    assert guard is not None
+    assert guard["status"] == "blocked"
+    assert guard["terminal_reason"] == "expected_active_turn_mismatch"
 
 
 def test_active_work_control_rejects_stale_expected_active_turn_id() -> None:
@@ -6309,6 +6514,54 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert any(event.get("type") == "assistant_text" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "done" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
+
+
+def test_native_request_task_run_preserves_active_work_relationship_for_replacement() -> None:
+    session_id = "session-native-taskrun-replace"
+    old_task_run_id = "taskrun:session-native-taskrun-replace:old"
+    model = _UnexpectedNativeToolCallModelRuntime(
+        tool_calls=[
+            {
+                "id": "call-request-task-run-replace",
+                "name": "request_task_run",
+                "args": {
+                    "user_visible_goal": "从头重做页面。",
+                    "task_run_goal": "替换旧任务并重新创建页面。",
+                    "completion_criteria": ["新页面文件真实存在"],
+                    "active_work_relationship": "replace_current_work",
+                    "public_progress_note": "我会按新的要求重建任务。",
+                },
+            }
+        ]
+    )
+    runtime = build_harness_runtime(model_runtime=model)
+    _seed_active_work(runtime, session_id=session_id, task_run_id=old_task_run_id)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="不要沿用刚才的进度，从头重做页面。",
+                runtime_contract={
+                    "allowed_operations": ["op.model_response"],
+                    "control_capabilities": {"may_request_task_run": True, "may_use_subagents": False},
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+    old_task = runtime.single_agent_runtime_host.state_index.get_task_run(old_task_run_id)
+    old_diagnostics = dict(getattr(old_task, "diagnostics", {}) or {})
+    replacement = dict(old_diagnostics.get("replacement") or {})
+
+    assert admissions
+    assert dict(dict(admissions[0].get("model_action_request") or {}).get("task_contract_seed") or {}).get("active_work_relationship") == "replace_current_work"
+    assert replacement.get("relationship") == "replace_current_work"
+    assert any(event.get("type") == "task_run_lifecycle_started" for event in events)
 
 
 def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:

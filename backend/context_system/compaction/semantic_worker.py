@@ -147,7 +147,8 @@ def evaluate_semantic_compaction_summary_quality(
         or _mentions_tool_observation(summary_text)
     )
     active_task_goal_preserved = bool(
-        _structured_field_present(structured, "current_goal")
+        _structured_field_present(structured, "current_task")
+        or _structured_field_present(structured, "current_goal")
         or _mentions_goal(summary_text)
         or (current_user and _contains_material_fragment(after_text, current_user))
     )
@@ -165,7 +166,7 @@ def evaluate_semantic_compaction_summary_quality(
     }
     missing = [key for key, value in coverage.items() if not value]
     if not summary_text and not structured:
-        missing.insert(0, "summary_content")
+        missing.insert(0, "context_recovery_package")
     status: Literal["pass", "unpass"] = "pass" if not missing else "unpass"
     return SemanticCompactionSummaryQuality(
         status=status,
@@ -200,7 +201,7 @@ def failed_sample_from_summary_quality(
 
 
 def _structured_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    for key in ("structured_summary", "recovery_package", "checkpoint"):
+    for key in ("context_recovery_package", "structured_summary", "recovery_package", "checkpoint"):
         value = payload.get(key)
         if isinstance(value, dict):
             return dict(value)

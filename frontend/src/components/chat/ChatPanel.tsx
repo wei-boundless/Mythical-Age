@@ -289,6 +289,7 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
     `阈值占比 ${pressurePercentText}`,
+    ...contextRecoveryPackageTitleItems(tokenStats),
     thresholdTokens > 0 ? "达到阈值会触发自动压缩" : "",
   ].filter(Boolean).join("；");
   return {
@@ -347,6 +348,25 @@ function compactionRemainingTokens(tokenStats: TokenStats, pressureTokens: numbe
     return Math.max(0, Math.round(reported));
   }
   return Math.max(0, thresholdTokens - pressureTokens);
+}
+
+function contextRecoveryPackageTitleItems(tokenStats: TokenStats) {
+  const packageStatus = tokenStats.context_recovery_package;
+  const readiness = tokenStats.compaction_readiness;
+  const present = Boolean(packageStatus?.present ?? readiness?.context_recovery_package_present);
+  if (!present) {
+    return [];
+  }
+  const fresh = Boolean(packageStatus?.fresh ?? readiness?.context_recovery_package_fresh);
+  const source = String(packageStatus?.source || readiness?.context_recovery_package_source || "").trim();
+  const coveredMessageCount = Number(packageStatus?.covered_message_count ?? NaN);
+  const staleReason = String(packageStatus?.stale_reason || "").trim();
+  return [
+    `恢复包 ${fresh ? "fresh" : "stale"}`,
+    source ? `恢复包来源 ${source}` : "",
+    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `恢复包覆盖 ${Math.round(coveredMessageCount)} 条消息` : "",
+    staleReason ? `恢复包失效原因 ${staleReason}` : "",
+  ].filter(Boolean);
 }
 
 function formatTokenCount(value: unknown) {

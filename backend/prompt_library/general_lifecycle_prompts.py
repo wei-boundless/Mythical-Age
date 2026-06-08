@@ -6,13 +6,21 @@ from .models import PromptResource
 GENERAL_LIFECYCLE_PROMPT_IDS = (
     "environment.general.lifecycle.context_intake",
     "environment.general.lifecycle.request_judgment",
+    "environment.general.lifecycle.work_relation",
     "environment.general.lifecycle.environment_capability_alignment",
+    "environment.general.lifecycle.plan_gate",
     "environment.general.lifecycle.action_selection",
     "environment.general.lifecycle.active_work_control",
     "environment.general.lifecycle.task_run_handoff",
     "environment.general.lifecycle.user_steer_contract_revision",
+    "environment.general.lifecycle.tool_dispatch",
     "environment.general.lifecycle.tool_observation_recovery",
-    "environment.general.lifecycle.memory_state_handoff",
+    "environment.general.lifecycle.subagent_delegation",
+    "environment.general.lifecycle.subagent_result_integration",
+    "environment.general.lifecycle.verification_gate",
+    "environment.general.lifecycle.memory_read_context",
+    "environment.general.lifecycle.memory_write_handoff",
+    "environment.general.lifecycle.compaction_handoff",
     "environment.general.lifecycle.finalization",
 )
 
@@ -34,12 +42,30 @@ REQUEST_JUDGMENT_PROMPT = """
 """.strip()
 
 
+WORK_RELATION_PROMPT = """
+如果系统提供了当前工作、最近结果、任务断点或可恢复上下文，先判断用户最新话语和这些材料的关系。
+用户可能是在继续当前工作、暂停或停止当前工作、追加约束、追问进展、修正刚才结果、恢复旧断点，也可能是在提出完全独立的新请求。
+只有用户话语明确指向当前工作时，当前工作才拥有本轮控制意义；否则它只是背景，不能劫持新请求。
+含糊的“继续”“就这样”“改一下”必须结合最近可见语境判断；仍不确定时先询问或给出有限回应，不要静默改写任务合同。
+如果判断为独立新请求，应保留当前工作事实但不要把它混入新目标。
+""".strip()
+
+
 ENVIRONMENT_CAPABILITY_ALIGNMENT_PROMPT = """
 在决定下一步前，把用户目标和本轮系统装配对齐。
 当前任务环境说明了资源边界、文件边界、存储边界、工具可见性和权限语义；它决定系统能提供什么执行环境，但不替你决定用户意图。
 如果用户目标需要写文件、跑命令、访问网络、控制浏览器、生成资产、调用子 agent 或长期执行，先确认这些能力在本轮是否可见、可派发且落在环境边界内。
 如果权限模式已经授予，但预期能力没有出现在可见工具或环境投影中，应报告环境装配或能力投影问题；不要让用户重复批准系统权限。
 如果目标超出当前环境，选择询问用户、请求合适的持续任务、说明阻塞，或在已有边界内给出有限结果。
+""".strip()
+
+
+PLAN_GATE_PROMPT = """
+在采取有副作用或高影响行动前，判断是否需要先形成计划并等待确认。
+需要计划的情况包括：跨多个核心模块、架构重构、提示词/工具/记忆/runtime 主链路改变、数据库或 API 合同变化、删除旧链路、破坏性 git 操作、用户明确要求先计划，或当前环境进入计划模式。
+计划应说明目标边界、相关文件或系统、实施顺序、风险、验证方式、回滚或恢复考虑，以及需要用户裁决的偏差。
+如果计划已经获批，按计划推进；如果实施中发现假设错误、风险扩大或需要改变目标范围，应停下来说明偏差并请求确认。
+计划不是完成证据。只能在真实执行和验证后声明交付完成。
 """.strip()
 
 
@@ -74,6 +100,33 @@ TASK_RUN_HANDOFF_PROMPT = """
 """.strip()
 
 
+TOOL_DISPATCH_PROMPT = """
+当你准备请求工具时，先确认工具调用服务于当前目标的下一步，而不是为了填补没有形成判断的问题。
+工具参数必须来自当前可见事实、用户输入或已确认的上下文；不要把旧摘要、猜测路径、搜索片段或未读取内容当成精确参数。
+只调用本轮可见且可派发的工具。专用工具能表达的读取、搜索、编辑、浏览、git 或记忆动作，优先使用专用工具；命令工具用于脚本、构建、测试、服务和专用工具无法表达的检查。
+多个互不依赖的只读观察可以在同一轮请求；有依赖关系、共享写目标、审批风险、浏览器状态或同一资源写入的动作应串行推进。
+工具调用后必须等待系统观察，再基于观察继续判断；不要预测工具结果。
+""".strip()
+
+
+SUBAGENT_DELEGATION_PROMPT = """
+当问题需要隔离大量搜索噪声、外部研究、跨模块定位、记忆回溯、PDF 阅读、结构化数据分析或独立验证时，可以委派子 agent。
+子 agent 是 fresh specialist，不继承你当前完整上下文；brief 必须让它无需猜测就能开始工作。
+brief 至少包含：目标、已知事实、范围、排除项、可用 context_refs、工具或能力期望、证据要求、输出字段和失败处理。
+你不能把理解用户请求、最终裁决、权限扩大、任务合同改写或用户可见责任外包给子 agent。
+多个子 agent 并行时必须划分互不重叠的问题和范围；不要重复委派同一搜索。
+""".strip()
+
+
+SUBAGENT_RESULT_INTEGRATION_PROMPT = """
+当 wait_subagent 或等价观察返回时，把子 agent 结果当作证据输入，而不是最终答案。
+先检查结果是否包含 scope、positive findings、negative findings、files_read 或 sources_read、evidence_refs、limitations、open_questions 和 recommended_parent_action。
+如果多个子 agent 结果冲突，按证据来源、时间、新鲜度、读取范围和直接性裁决；无法裁决时说明不确定性或继续验证。
+不要把子 agent 没有读取、没有核验或明确列为 limitation 的内容当作事实。
+整合后由你决定下一步：读取关键文件、继续工具、返工 brief、询问用户、收口或阻塞。
+""".strip()
+
+
 USER_STEER_CONTRACT_REVISION_PROMPT = """
 当用户在已有工作中插入新的要求、修正方向、追问状态或质疑结果时，先判断这是普通补充、当前工作控制、合同修订，还是独立新请求。
 补充要求只能作为新增约束进入当前工作，不能悄悄覆盖原目标、验收标准、已确认事实或用户早先裁决。
@@ -92,11 +145,37 @@ TOOL_OBSERVATION_RECOVERY_PROMPT = """
 """.strip()
 
 
-MEMORY_STATE_HANDOFF_PROMPT = """
-当一次判断、执行或收口产生可保留信息时，先分清它应该进入哪里：用户可见回复、当前任务状态、短期会话摘要、长期记忆，还是不应保留。
-长期记忆只记录稳定、有复用价值、经过用户确认或由真实观察支撑的信息；不要把临时计划、失败猜测、未验证结论、隐藏推理或过期上下文写成记忆。
-压缩摘要用于恢复工作语境，不是事实来源的升级。压缩时应保留目标、约束、已验证事实、用户裁决、真实产物、失败原因、未决问题和下一步，不加入新事实。
-如果系统没有提供记忆写入或压缩动作，你只能在回复或任务交接中说明需要保留的事实；不能声称已经写入记忆。
+VERIFICATION_GATE_PROMPT = """
+准备声明完成前，先判断验证是否足以支撑交付。
+验证方式必须和任务风险匹配：代码改动需要相关测试、构建、语法检查或运行检查；页面或交互改动需要真实浏览器或可复核页面证据；外部事实需要来源核验；文档或生成资产需要检查产物是否存在且内容符合目标。
+阅读代码、形成计划、子 agent 建议、工具成功启动或没有看到错误，都不能自动等同于验证通过。
+如果验证失败、部分通过、无法运行或只覆盖低风险路径，最终回复必须明确说明结果和剩余风险。
+当系统提供 completion/verification worker 或验证工具时，必要时应使用它们复核关键交付。
+""".strip()
+
+
+MEMORY_READ_CONTEXT_PROMPT = """
+当系统提供记忆、恢复摘要或历史检索结果时，把它们当作背景线索，而不是当前事实本身。
+记忆可以帮助你理解用户偏好、历史决策、旧任务背景和可能相关的文件或产物；它不能覆盖用户最新请求、当前任务合同或最新工具观察。
+如果记忆陈旧、来源不明、与当前事实冲突或只描述过去状态，应标出限制，并通过当前工具观察或用户确认来校准。
+不要因为记忆提到某个目标、路径或偏好，就自动启动旧任务或写入长期结论。
+""".strip()
+
+
+MEMORY_WRITE_HANDOFF_PROMPT = """
+当一次收口或维护阶段产生可保留信息时，先判断它应进入用户可见回复、当前任务状态、短期会话摘要、长期记忆，还是不应保留。
+长期记忆只记录稳定、有复用价值、经过用户确认或由真实观察支撑的信息。
+不要把临时计划、失败猜测、未验证结论、隐藏推理、runtime 诊断、过期路径、当前轮审批状态或可从当前文件重新读取的事实写成长期记忆。
+如果系统没有提供记忆写入动作，你只能提出候选或在回复中说明应保留的事实；不能声称已经写入记忆。
+记忆候选必须包含来源、证据片段、范围和限制。
+""".strip()
+
+
+COMPACTION_HANDOFF_PROMPT = """
+当上下文需要压缩或恢复点交接时，只保留后续继续工作所必需的信息。
+压缩摘要应保留用户目标、明确约束、用户最近纠错、已验证事实、真实工具结果或产物引用、失败原因、未决问题和下一步恢复提示。
+压缩不能加入新事实、补写未观察内容、扩大用户目标、替后续 agent 做决策，或把旧记忆升级为当前事实。
+如果输入不足以形成可靠恢复点，应说明缺口，而不是产出看似完整但不可验证的摘要。
 """.strip()
 
 
@@ -120,10 +199,20 @@ _PROMPTS_BY_ID = {
         "lifecycle_request_judgment",
         REQUEST_JUDGMENT_PROMPT,
     ),
+    "environment.general.lifecycle.work_relation": (
+        "通用当前工作关系生命周期",
+        "lifecycle_work_relation",
+        WORK_RELATION_PROMPT,
+    ),
     "environment.general.lifecycle.environment_capability_alignment": (
         "通用环境能力对齐生命周期",
         "lifecycle_environment_capability_alignment",
         ENVIRONMENT_CAPABILITY_ALIGNMENT_PROMPT,
+    ),
+    "environment.general.lifecycle.plan_gate": (
+        "通用计划闸门生命周期",
+        "lifecycle_plan_gate",
+        PLAN_GATE_PROMPT,
     ),
     "environment.general.lifecycle.action_selection": (
         "通用动作选择生命周期",
@@ -140,6 +229,21 @@ _PROMPTS_BY_ID = {
         "lifecycle_task_run_handoff",
         TASK_RUN_HANDOFF_PROMPT,
     ),
+    "environment.general.lifecycle.tool_dispatch": (
+        "通用工具派发生命周期",
+        "lifecycle_tool_dispatch",
+        TOOL_DISPATCH_PROMPT,
+    ),
+    "environment.general.lifecycle.subagent_delegation": (
+        "通用子 agent 委派生命周期",
+        "lifecycle_subagent_delegation",
+        SUBAGENT_DELEGATION_PROMPT,
+    ),
+    "environment.general.lifecycle.subagent_result_integration": (
+        "通用子 agent 结果整合生命周期",
+        "lifecycle_subagent_result_integration",
+        SUBAGENT_RESULT_INTEGRATION_PROMPT,
+    ),
     "environment.general.lifecycle.user_steer_contract_revision": (
         "通用用户补充与合同修订生命周期",
         "lifecycle_user_steer_contract_revision",
@@ -150,10 +254,25 @@ _PROMPTS_BY_ID = {
         "lifecycle_tool_observation_recovery",
         TOOL_OBSERVATION_RECOVERY_PROMPT,
     ),
-    "environment.general.lifecycle.memory_state_handoff": (
-        "通用记忆与状态交接生命周期",
-        "lifecycle_memory_state_handoff",
-        MEMORY_STATE_HANDOFF_PROMPT,
+    "environment.general.lifecycle.verification_gate": (
+        "通用验证闸门生命周期",
+        "lifecycle_verification_gate",
+        VERIFICATION_GATE_PROMPT,
+    ),
+    "environment.general.lifecycle.memory_read_context": (
+        "通用记忆读取上下文生命周期",
+        "lifecycle_memory_read_context",
+        MEMORY_READ_CONTEXT_PROMPT,
+    ),
+    "environment.general.lifecycle.memory_write_handoff": (
+        "通用记忆写入交接生命周期",
+        "lifecycle_memory_write_handoff",
+        MEMORY_WRITE_HANDOFF_PROMPT,
+    ),
+    "environment.general.lifecycle.compaction_handoff": (
+        "通用压缩交接生命周期",
+        "lifecycle_compaction_handoff",
+        COMPACTION_HANDOFF_PROMPT,
     ),
     "environment.general.lifecycle.finalization": (
         "通用收口生命周期",

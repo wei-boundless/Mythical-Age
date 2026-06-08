@@ -563,13 +563,15 @@ class HarnessRuntimeFacade:
         expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
         active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(request.session_id)
         actual_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
-        if not expected_active_turn_id:
+        actual_task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
+        expected_task_run_id = str(getattr(active_work_context, "task_run_id", "") or "").strip()
+        if not active_turn or (expected_task_run_id and actual_task_run_id != expected_task_run_id):
             return {
                 "status": "blocked",
-                "terminal_reason": "expected_active_turn_id_required",
-                "content": "当前有正在运行的任务，需要刷新会话状态后再控制当前工作。",
+                "terminal_reason": "expected_active_turn_mismatch",
+                "content": "当前任务状态已变化，请刷新后重试。",
             }
-        if not active_turn or actual_turn_id != expected_active_turn_id:
+        if expected_active_turn_id and actual_turn_id != expected_active_turn_id:
             return {
                 "status": "blocked",
                 "terminal_reason": "expected_active_turn_mismatch",
@@ -1039,7 +1041,7 @@ class HarnessRuntimeFacade:
         user_message: str,
         default_response: str,
         editor_context: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> str | dict[str, Any]:
         host = self.single_agent_runtime_host
         instruction = decision.appended_instruction or str(user_message or "").strip()
         result = append_user_work_instruction(
@@ -1078,15 +1080,20 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                 )
                 if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_reply(schedule_result)
+                    return _active_work_schedule_failure_payload(schedule_result)
                 self._bind_current_turn_to_task_run(
                     session_id=context.session_id,
                     turn_id=turn_id,
                     task_run_id=context.task_run_id,
                     state="running_task",
                 )
+            else:
+                return _active_work_resume_failure_payload(resume_result)
         if not result.get("ok"):
             return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+        if result.get("ok") and not context.running and not context.resumable:
+            latest_context = self._active_work_context_from_active_turn(context.session_id) or context
+            return "补充要求已记录。\n" + active_work_status_reply(latest_context)
         return default_response
 
     async def _apply_active_work_turn_decision(
@@ -1097,7 +1104,7 @@ class HarnessRuntimeFacade:
         turn_id: str,
         user_message: str,
         editor_context: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> str | dict[str, Any]:
         host = self.single_agent_runtime_host
         action = decision.action
         response = public_active_work_text(decision.response) or default_reply_for_action(action, context)
@@ -1155,6 +1162,11 @@ class HarnessRuntimeFacade:
             response = decision.response or active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
         elif action == "ask_user":
             response = decision.response or default_reply_for_action(action, context)
+        if isinstance(response, dict):
+            return {
+                **response,
+                "content": public_active_work_text(str(response.get("content") or "")),
+            }
         return public_active_work_text(response)
 
     def _apply_continue_active_work(
@@ -1167,7 +1179,7 @@ class HarnessRuntimeFacade:
         continuation_strategy: str = "",
         default_response: str,
         editor_context: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> str | dict[str, Any]:
         host = self.single_agent_runtime_host
         strategy = _continuation_strategy_for_execution(
             decision_strategy=continuation_strategy,
@@ -1206,7 +1218,7 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                 )
                 if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_reply(schedule_result)
+                    return _active_work_schedule_failure_payload(schedule_result)
                 self._bind_current_turn_to_task_run(
                     session_id=context.session_id,
                     turn_id=turn_id,
@@ -1214,7 +1226,7 @@ class HarnessRuntimeFacade:
                     state="running_task",
                 )
                 return default_response or "好，我接着处理。"
-            return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+            return _active_work_resume_failure_payload(result)
         if strategy == "already_running":
             if not context.running:
                 return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
@@ -1850,6 +1862,33 @@ def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
     if not reason:
         reason = "unknown"
     return f"当前工作恢复调度没有成功：{reason}。断点已保留；需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
+
+
+def _active_work_schedule_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
+    reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
+    return {
+        "status": "blocked",
+        "terminal_reason": "active_work_schedule_failed",
+        "reason": reason,
+        "content": _active_work_schedule_failure_reply(result),
+    }
+
+
+def _active_work_resume_failure_reply(result: dict[str, Any]) -> str:
+    reason = str(result.get("reason") or result.get("error") or "unknown").strip()
+    if not reason:
+        reason = "unknown"
+    return f"当前工作没有成功恢复：{reason}。断点已保留；如本轮包含补充要求，也已保留。需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
+
+
+def _active_work_resume_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
+    reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
+    return {
+        "status": "blocked",
+        "terminal_reason": "active_work_resume_failed",
+        "reason": reason,
+        "content": _active_work_resume_failure_reply(result),
+    }
 
 
 def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:

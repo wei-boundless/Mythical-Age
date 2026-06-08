@@ -165,6 +165,52 @@ def test_session_memory_manager_does_not_persist_template_as_summary(tmp_path) -
     assert manager.compact_view() == ""
     assert not manager.summary_path.exists()
     assert not manager.compaction_view_path.exists()
+    assert not manager.context_recovery_package_path.exists()
+
+
+def test_session_memory_compaction_state_writes_context_recovery_package(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    messages = [
+        Message(role="user", content="请升级压缩交接系统", meta={"message_id": "msg:1"}),
+        Message(role="assistant", content="已确认采用 context recovery package", meta={"message_id": "msg:2"}),
+    ]
+    summary = "\n".join(
+        [
+            "# Active Goal",
+            "- 升级压缩交接系统",
+            "",
+            "# Key User Requests",
+            "- 压缩摘要必须服务下一轮上下文交接",
+            "",
+            "# Files and Functions",
+            "- backend/runtime/context_management/recovery_package.py",
+            "",
+            "# Next Step",
+            "- 接入 pre-turn recovery package freshness",
+        ]
+    )
+    manager.overwrite(summary)
+
+    state = manager.write_compaction_state(
+        messages=messages,
+        run_id="memory-maintenance:recovery-package-test",
+        source="agent:1",
+        source_message_refs=["message:msg:1", "message:msg:2"],
+        summary_content=summary,
+    )
+    package = manager.load_context_recovery_package()
+
+    assert manager.context_recovery_package_path.exists()
+    assert state["context_recovery_package_hash"] == package["coverage"]["summary_hash"]
+    assert package["schema_version"] == "runtime-context-recovery-package.v1"
+    assert package["current_task"] == "升级压缩交接系统"
+    assert package["key_user_constraints"] == ["压缩摘要必须服务下一轮上下文交接"]
+    assert package["files_artifacts_refs"] == ["backend/runtime/context_management/recovery_package.py"]
+    assert package["next_steps"] == ["接入 pre-turn recovery package freshness"]
+    assert package["coverage"]["covered_message_count"] == 2
+    assert package["coverage"]["covered_message_ids"] == ["msg:1", "msg:2"]
+    assert package["freshness"]["status"] == "fresh"
+    assert "## 当前任务" in manager.context_recovery_markdown()
 
 
 def test_context_compactor_blocks_full_compact_when_only_template_summary_exists(tmp_path) -> None:
@@ -452,7 +498,7 @@ def test_context_compactor_invokes_registered_semantic_worker(tmp_path) -> None:
     assert result.diagnostics["semantic_compactor_result"]["ok"] is True
 
 
-def test_context_compactor_renders_structured_semantic_recovery_package(tmp_path) -> None:
+def test_context_compactor_renders_semantic_context_recovery_package(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path)
     worker = _RegisteredSemanticWorker(
         summary="",
@@ -487,9 +533,10 @@ def test_context_compactor_renders_structured_semantic_recovery_package(tmp_path
 
     assert result.did_full_compact is True
     assert result.messages[0].meta["compaction_source"] == "registered_semantic_compactor"
-    assert "## 当前目标" in result.messages[0].content
+    assert "# Context Recovery Package" in result.messages[0].content
+    assert "## 当前任务" in result.messages[0].content
     assert "修正上下文压缩质量" in result.messages[0].content
-    assert "## 已失效或被否定内容" in result.messages[0].content
+    assert "## 错误与纠正" in result.messages[0].content
     assert "旧工具原文不应整段保留" in result.messages[0].content
     assert result.diagnostics["semantic_structured_summary_present"] is True
 
@@ -527,7 +574,7 @@ def test_context_compactor_blocks_when_registered_worker_returns_empty_summary_w
     assert result.diagnostics["compaction_source"] == "unavailable"
     assert result.diagnostics["session_compaction_state"]["status"] == "missing"
     assert result.diagnostics["summary_quality"]["status"] == "unpass"
-    assert "summary_content" in result.diagnostics["summary_quality"]["missing_fields"]
+    assert "context_recovery_package" in result.diagnostics["summary_quality"]["missing_fields"]
     assert result.diagnostics["summary_quality_failed_sample_ledger"][0]["quality_status"] == "unpass"
 
 
@@ -583,6 +630,7 @@ def test_context_compactor_agent_profile_is_registered_and_tool_restricted() -> 
     assert profile.model_profile.response_format == {"type": "json_object"}
     assert profile.metadata["runtime_config"]["stop_policy"] == "recovery_point_ready_or_blocked"
     assert profile.metadata["runtime_config"]["context_compaction"]["unavailable_summary_policy"] == "block_compaction"
+    assert profile.metadata["output_contract"]["required_fields"] == ("context_recovery_package",)
     assert "fallback" not in profile.metadata["runtime_config"]["context_compaction"]
 
 
@@ -634,6 +682,7 @@ def test_runtime_compiler_builds_model_only_semantic_compaction_packet(tmp_path)
     assert "coding.cycles.session_compaction.way.route" in manifest["rendered_prompt_refs"]
     joined = "\n".join(str(item.get("content") or "") for item in result.packet.model_messages)
     assert "你是一名上下文压缩员" in joined
+    assert "context_recovery_package" in joined
     assert "Semantic compaction request" in joined
     assert "env.coding.vibe_workspace" in joined
 
@@ -647,9 +696,9 @@ class _SemanticCompactionModelRuntime:
         return SimpleNamespace(
             content=json.dumps(
                 {
-                    "structured_summary": {
-                        "current_goal": "继续压缩系统",
-                        "next_actions": ["保留环境边界"],
+                    "context_recovery_package": {
+                        "current_task": "继续压缩系统",
+                        "next_steps": ["保留环境边界"],
                     },
                     "summary_content": "用户目标：继续压缩系统。",
                 },
@@ -684,7 +733,7 @@ def test_registered_semantic_compaction_worker_invokes_runtime_model(tmp_path) -
     result = worker.compact(request)
 
     assert result.ok is True
-    assert result.structured_summary["next_actions"] == ["保留环境边界"]
+    assert result.structured_summary["next_steps"] == ["保留环境边界"]
     assert model_runtime.calls
     call = model_runtime.calls[0]
     assert call["kwargs"]["accounting_context"]["cache_metric_scope"] == "semantic_compaction_worker"
@@ -693,7 +742,7 @@ def test_registered_semantic_compaction_worker_invokes_runtime_model(tmp_path) -
     assert call["kwargs"]["model_spec"]["stream_policy"]["enabled"] is False
     assert call["kwargs"]["model_spec"]["response_format"] == {"type": "json_object"}
     assert any("Semantic compaction request" in str(message.get("content") or "") for message in call["messages"])
-    assert result.diagnostics["model_response_protocol"]["json_payload"]["structured_summary"]["current_goal"] == "继续压缩系统"
+    assert result.diagnostics["model_response_protocol"]["json_payload"]["context_recovery_package"]["current_task"] == "继续压缩系统"
 
 
 def test_memory_facade_compactor_uses_only_injected_semantic_worker(tmp_path) -> None:

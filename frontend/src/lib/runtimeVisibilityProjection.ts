@@ -112,7 +112,6 @@ function isTaskRunHandoffEvent(data: Record<string, unknown>) {
   const reason = text(data.terminal_reason);
   const channel = text(data.answer_channel);
   return reason === "task_executor_scheduled"
-    || reason === "session_active_task_exists"
     || channel === "task_control";
 }
 

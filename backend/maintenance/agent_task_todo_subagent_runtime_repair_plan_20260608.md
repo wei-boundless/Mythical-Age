@@ -125,7 +125,7 @@ RequestFacts
 | 暂停 | `active_work_control.pause_active_work` | running -> `pause_requested`，waiting -> `paused` | `active_turn` 保留，后续必须能继续/重启/停止。 |
 | 停止/放弃 | `active_work_control.stop_active_work` | 非终态 -> stopped/aborted，清理 active turn | 下一轮可以作为全新请求处理。 |
 | 重启/从头做/不要沿用旧进度 | `request_task_run`，并显式声明 replacement intent | 当前 TaskRun 先标记 `replaced`/`user_restarted`，再创建新 TaskRun | active turn 绑定到新 TaskRun，旧 TaskRun 只保留审计记录。 |
-| 新的独立长期任务 | `request_task_run`，并显式声明 independent intent | 若会话已有 active work，默认阻断并要求用户确认是否并行/替换/停止旧任务 | 不允许 silently fork 两条当前任务。 |
+| 新的独立长期任务 | `request_task_run`，并显式声明 independent intent | 运行时不做隐藏意图复判；在单 current-work 约束下先对旧 TaskRun 做 replaced/stopped 审计收口，再启动新 TaskRun | 不允许 silently fork 两条当前任务，但也不把 agent 已选择的新任务请求改写成恢复旧任务。 |
 | 只问状态/原因 | `active_work_control.answer_about_active_work` 或普通回答 | 不改变 TaskRun 状态 | 不改变 active turn。 |
 
 #### 7.2 request_task_run 与 current work 的边界
@@ -140,6 +140,7 @@ RequestFacts
   - 旧 TaskRun 正在运行时，请求 stop，标记为 `replaced_by_new_task_request`，并从 current-work guard 中移除，避免阻挡新任务。
   - 新 TaskRun 由当前 action 的 `task_contract_seed` 正常创建并绑定新的 active turn。
 - 系统不应靠隐藏意图识别阻挡 agent；它只维护单 current-work 指针、executor 去重、旧任务审计和 active turn 边界。
+- `task_lifecycle` 不再执行 `current_session_task_run` handoff guard。它只负责 contract 校验、TaskRun 创建、executor 调度和事件记录；current work 的替换、停止和审计收口统一在 facade 边界完成，避免生命周期层二次改写模型的 `request_task_run` 动作。
 
 #### 7.3 ActiveTurn 保活与恢复
 
@@ -147,14 +148,18 @@ RequestFacts
 - 一旦一个 turn 创建、恢复、重启或接管非终态 TaskRun，`ActiveTurnRecord.bound_task_run_id` 必须指向该 TaskRun。
 - 单个 chat turn 的 `done`/`agent_turn_terminal` 只能结束本轮传输；如果 bound TaskRun 非终态，不能清掉 active turn。
 - 后端重启或 active turn 丢失后，只有用户明确对最新可恢复 TaskRun 发出 current-work 控制动作时，才可重新绑定本轮 active turn。
-- 前端每次打开当前 session 必须直接 hydrate 当前 session 的 live monitor 和 active_turn_snapshot；发送当前工作输入时必须带 `expected_active_turn_id`。若没有 snapshot，则只能走后端 current-work 恢复边界，不能由前端猜 task id。
+- 前端每次打开当前 session 必须直接 hydrate 当前 session 的 live monitor 和 active_turn_snapshot；发送当前工作输入时应携带 `expected_active_turn_id` 作为乐观并发令牌。
+- `expected_active_turn_id` 缺省时不应阻断 agent：后端以当前 `ActiveTurnRecord.bound_task_run_id` 和模型可见 `active_work_context.task_run_id` 做边缘一致性校验；只有 active turn 消失、已换绑到其它 TaskRun，或前端提供的 expected id 已过期时才拒绝控制动作。
+- 若没有 snapshot，前端不能猜 task id；请求仍可进入主模型回合，由后端投影 current-work 事实并让 agent 决定继续、补充、重启或普通回答。
 
 #### 7.4 Executor 与重复发送
 
 - scheduler 是唯一 executor 启动权威；若 TaskRun 已被 claim，重复 schedule 返回 already-running，不产生第二个 executor。
 - paused/waiting 下的补充要求：写 steer -> resume -> schedule；若 schedule 失败，用户可见回复必须报告失败，不能说“已继续”。
+- waiting_approval 等不可续跑态下的补充要求：只写 steer 并报告“已记录/等待确认”，不得使用“已继续处理”口吻，也不得启动 executor。
 - running 下的补充要求：写 steer -> replan/interruption signal；不能直接开启第二个 executor。
 - stale/diagnostic/terminal/graph-node task 不参与用户 chat 的 current-work 控制，只能走监控管理动作或 graph runtime。
+- `resume_paused_task_run` 或 executor schedule 失败时，active work 控制必须返回结构化 `blocked` 结果。UI 不得收到 `active_task_steer_accepted` 或“已继续”类投影；断点和已写入的 steer 保留，等待下一次模型轮次或人工修复后继续。
 
 ## 验证计划
 

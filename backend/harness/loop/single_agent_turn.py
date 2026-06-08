@@ -897,9 +897,7 @@ async def run_single_agent_turn(
                 request_task_terminal_status = "completed"
                 lifecycle_public_terminal_events: list[dict[str, Any]] = []
                 async for event in start_task_from_action_request(action_request):
-                    if event.get("type") == "task_run_lifecycle_reused_current":
-                        request_task_terminal_reason = "session_active_task_exists"
-                    elif _is_public_terminal_event(event):
+                    if _is_public_terminal_event(event):
                         lifecycle_public_terminal_events.append(dict(event))
                         request_task_terminal_reason = _terminal_reason_from_public_event(event, fallback=request_task_terminal_reason)
                         request_task_terminal_status = _turn_status_from_public_terminal_event(event)
@@ -1869,6 +1867,9 @@ def _action_request_from_native_tool_calls(
             "required_verifications": list(args.get("required_verifications") or []),
             "completion_criteria": list(args.get("completion_criteria") or []),
         }
+        active_work_relationship = str(args.get("active_work_relationship") or "").strip()
+        if active_work_relationship:
+            contract_seed["active_work_relationship"] = active_work_relationship
         public_note = str(args.get("public_progress_note") or "").strip() or "正在建立任务运行。"
         return ModelActionRequest(
             request_id=f"model-action:{turn_id}:single-agent-request-task-run",

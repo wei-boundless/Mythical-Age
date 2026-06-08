@@ -79,6 +79,7 @@ class PromptAssemblyService:
                     metadata={
                         "version": resource.version,
                         "resource_type": resource.resource_type,
+                        "authority_scope": dict(resource.metadata or {}).get("authority_scope"),
                         "prompt_rule": dict(resource.metadata or {}).get("prompt_rule"),
                     },
                 )

@@ -31,7 +31,9 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
 
     compiled = PromptRuleCompiler().compile(assembly.sections, invocation_kind="task_execution")
     assert "runtime.protocol" in compiled.rule_kinds
-    assert "system.foundation.vibe_coding_agent" in compiled.rule_kinds
+    assert "system.foundation.local_collaboration" in compiled.rule_kinds
+    assert "system.foundation.current_request_authority" in compiled.rule_kinds
+    assert "system.foundation.truth_and_verification" in compiled.rule_kinds
     assert "runtime.system_call_protocol" in compiled.rule_kinds
     assert "runtime.intent_feedback" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds

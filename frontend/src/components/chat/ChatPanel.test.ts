@@ -120,6 +120,25 @@ describe("ChatPanel", () => {
     });
   });
 
+  it("includes context recovery package freshness in the pressure title", () => {
+    expect(sessionContextPressurePresentation(tokenStats({
+      context_meter: {
+        current_context_tokens: 34000,
+        compaction_pressure_tokens: 34000,
+        replacement_threshold_tokens: 900000,
+        compaction_pressure_ratio: 34000 / 900000,
+        compaction_remaining_tokens: 866000,
+        pressure_level: "normal",
+      },
+      context_recovery_package: {
+        present: true,
+        fresh: true,
+        source: "agent:1",
+        covered_message_count: 4,
+      },
+    })).title).toContain("恢复包 fresh；恢复包来源 agent:1；恢复包覆盖 4 条消息");
+  });
+
   it("keeps the context status slot visible while token stats are loading", () => {
     expect(sessionContextPressurePresentation(null)).toEqual({
       label: "上下文",

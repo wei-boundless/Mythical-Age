@@ -1,6 +1,13 @@
 from .budget import estimate_json_bytes, estimate_text_bytes
 from .child_result_compaction import compact_child_result_observation
 from .history_compaction import microcompact_history
+from .recovery_package import (
+    ContextRecoveryCoverage,
+    ContextRecoveryFreshness,
+    ContextRecoveryPackage,
+    context_recovery_package_from_session_memory,
+    render_context_recovery_markdown,
+)
 from .session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime_objects.tool_result_storage import (
     DEFAULT_FIELD_SIZE_LIMIT_BYTES,
@@ -21,6 +28,11 @@ __all__ = [
     "ToolResultStore",
     "ToolUseSummary",
     "build_tool_use_summary",
+    "ContextRecoveryCoverage",
+    "ContextRecoveryFreshness",
+    "ContextRecoveryPackage",
+    "context_recovery_package_from_session_memory",
+    "render_context_recovery_markdown",
     "auto_compact_session_if_needed",
     "compact_session_history",
     "compact_child_result_observation",

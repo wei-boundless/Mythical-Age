@@ -15,7 +15,11 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
     resources = {item.resource_id: item for item in registry.list_resources()}
 
     read_guidance = resources["tool.guidance.read_file.v1"]
+    edit_guidance = resources["tool.guidance.edit_file.v1"]
+    write_guidance = resources["tool.guidance.write_file.v1"]
     terminal_guidance = resources["tool.guidance.terminal_powershell.v1"]
+    subagent_guidance = resources["tool.guidance.subagent.v1"]
+    browser_guidance = resources["tool.guidance.browser.v1"]
     web_guidance = resources["tool.guidance.web_fetch.v1"]
 
     assert read_guidance.category == "tool"
@@ -27,9 +31,17 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
         "tool_observation_followup",
     )
     assert "has_more" in read_guidance.content
+    assert "content_preview、code_structure 或 persisted-output" in read_guidance.content
+    assert "old_text not found" in edit_guidance.content
+    assert "写入内容必须完整可用" in write_guidance.content
     assert "Windows PowerShell" in terminal_guidance.content
+    assert "项目固定节点" in terminal_guidance.content
+    assert "recommended_parent_action" in subagent_guidance.content
+    assert "不能把子 agent 的建议自动当作最终用户答复" in subagent_guidance.content
+    assert "console/network 证据" in browser_guidance.content
     assert "不要只凭搜索摘要下结论" in web_guidance.content
     assert "来源之间冲突" in web_guidance.content
+    assert "source_urls" in web_guidance.content
 
 
 def test_schema_plus_guidance_tools_remain_prompt_visible() -> None:
@@ -112,7 +124,9 @@ def test_task_execution_tool_index_includes_guidance_for_visible_tools_only() ->
     assert "tool.guidance.write_file.v1" not in refs
     assert "tool.guidance.git_write.v1" not in refs
     assert "不要重复读取相同行窗口" in guidance_text
+    assert "目标区域当前精确行窗口" in guidance_text
     assert "Git 读取工具只用于获取版本库事实" in guidance_text
+    assert "后续提交规模" in guidance_text
     assert payload["available_tools"][0]["prompt_exposure_policy"]
 
 

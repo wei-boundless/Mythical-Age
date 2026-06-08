@@ -256,7 +256,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "forbidden_inputs": ("external_web", "cross_namespace_memory", "raw_filesystem_scan"),
                 },
                 "output_contract": {
-                    "required_fields": ("structured_summary",),
+                    "required_fields": ("context_recovery_package",),
                     "optional_fields": ("summary_content", "diagnostics"),
                     "forbidden_actions": ("tool_call", "file_write", "memory_write", "delegation"),
                 },

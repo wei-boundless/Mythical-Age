@@ -135,6 +135,24 @@ export type TokenStats = {
     compaction_remaining_ratio?: number;
     pressure_level?: string;
   };
+  context_recovery_package?: {
+    present?: boolean;
+    fresh?: boolean;
+    source?: string;
+    schema_version?: string;
+    covered_message_count?: number;
+    covered_event_run_id?: string;
+    covered_event_offset_end?: number | null;
+    summary_hash?: string;
+    source_summary_hash?: string;
+    freshness_status?: string;
+    stale_reason?: string;
+  };
+  compaction_readiness?: {
+    context_recovery_package_present?: boolean;
+    context_recovery_package_fresh?: boolean;
+    context_recovery_package_source?: string;
+  };
   cumulative_transcript_tokens?: number;
   cumulative_transcript_message_count?: number;
   compression_saved_tokens?: number;

@@ -210,87 +210,6 @@ def _current_session_task_sort_key(task_run: Any) -> tuple[int, float, float]:
     )
 
 
-async def _emit_current_session_task_handoff(
-    *,
-    runtime_host: Any,
-    current_task: Any,
-    session_id: str,
-    turn_id: str,
-    answer_source: str,
-    runtime_branch: dict[str, Any],
-    commit_assistant_message: CommitAssistantMessage,
-    api_protocol_prefix_messages: list[dict[str, Any]] | None,
-) -> AsyncIterator[dict[str, Any]]:
-    content = _current_session_task_handoff_content(current_task)
-    source = f"{answer_source}.current_session_task"
-    await commit_task_control_message(
-        commit_assistant_message,
-        session_id=session_id,
-        turn_id=turn_id,
-        content=content,
-        answer_source=source,
-        api_protocol_prefix_messages=api_protocol_prefix_messages,
-    )
-    task_payload = _task_run_payload(current_task)
-    yield {
-        "type": "task_run_lifecycle_reused_current",
-        "task_run": task_payload,
-        "status": str(task_payload.get("status") or ""),
-        "terminal_reason": "session_active_task_exists",
-        "authority": "harness.loop.task_lifecycle.current_session_task_guard",
-    }
-    yield final_answer_event(
-        content=content,
-        answer_channel="task_control",
-        answer_source=source,
-        terminal_reason="session_active_task_exists",
-        extra={
-            "runtime_branch": dict(runtime_branch or {}),
-            "task_run": {
-                "task_run_id": str(task_payload.get("task_run_id") or ""),
-                "status": str(task_payload.get("status") or ""),
-            },
-            **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
-        },
-    )
-
-
-def _current_session_task_handoff_content(task_run: Any) -> str:
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    contract = dict(diagnostics.get("contract") or {})
-    goal = _first_text(
-        diagnostics.get("goal"),
-        contract.get("user_visible_goal"),
-        contract.get("task_run_goal"),
-        getattr(task_run, "task_id", ""),
-    )
-    latest = _first_text(
-        diagnostics.get("latest_public_progress_note"),
-        diagnostics.get("latest_step_summary"),
-        diagnostics.get("summary"),
-    )
-    status = str(getattr(task_run, "status", "") or "").strip()
-    lines = ["当前会话已经有一个未完成任务，我不会再启动第二个任务。"]
-    if goal:
-        lines.append(f"当前处理的是：{goal}")
-    if latest:
-        lines.append(f"最近进展：{latest}")
-    if status in {"waiting_executor", "blocked"}:
-        lines.append("你可以继续、暂停、停止，或补充新的要求；系统会回到这个任务上处理。")
-    elif status in {"created", "running"}:
-        lines.append("当前任务仍在处理中，新的进展会继续更新在这个会话里。")
-    return "\n".join(line for line in lines if line.strip())
-
-
-def _task_run_payload(task_run: Any) -> dict[str, Any]:
-    if hasattr(task_run, "to_dict"):
-        try:
-            return dict(task_run.to_dict())
-        except Exception:
-            pass
-    return dict(task_run or {}) if isinstance(task_run, dict) else {}
-
-
 def start_task_lifecycle(
     runtime_host: Any,
     *,
@@ -568,20 +487,6 @@ async def start_task_lifecycle_from_action_request(
     editor_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
-    current_task = current_session_task_run(runtime_host, session_id=session_id)
-    if current_task is not None:
-        async for event in _emit_current_session_task_handoff(
-            runtime_host=runtime_host,
-            current_task=current_task,
-            session_id=session_id,
-            turn_id=turn_id,
-            answer_source=answer_source,
-            runtime_branch=runtime_branch,
-            commit_assistant_message=commit_assistant_message,
-            api_protocol_prefix_messages=api_protocol_prefix_messages,
-        ):
-            yield event
-        return
     contract, contract_errors = contract_from_action_request(
         action_request,
         packet_ref=str(action_request.diagnostics.get("packet_ref") or f"single-agent-turn:{turn_id}"),
@@ -647,20 +552,6 @@ async def start_task_lifecycle_from_contract(
     editor_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
-    current_task = current_session_task_run(runtime_host, session_id=session_id)
-    if current_task is not None:
-        async for event in _emit_current_session_task_handoff(
-            runtime_host=runtime_host,
-            current_task=current_task,
-            session_id=session_id,
-            turn_id=turn_id,
-            answer_source=answer_source,
-            runtime_branch=runtime_branch,
-            commit_assistant_message=commit_assistant_message,
-            api_protocol_prefix_messages=api_protocol_prefix_messages,
-        ):
-            yield event
-        return
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
     opening_content = task_run_opening_message(
         action_request=action_request,

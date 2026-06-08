@@ -32,6 +32,7 @@ class SessionMemoryManager:
         self.compaction_view_path = self.views_dir / "compaction_view.md"
         self.summary_path = self.session_dir / "summary.md"
         self.compaction_state_path = self.session_dir / "compaction_state.json"
+        self.context_recovery_package_path = self.session_dir / "context_recovery_package.json"
         self.state_manager = ProcessStateManager(self.session_dir)
         self.flow_snapshot_manager = FlowSnapshotManager(self.session_dir)
         self.view_builder = SessionMemoryViewBuilder()
@@ -72,7 +73,7 @@ class SessionMemoryManager:
             elif self.compaction_view_path.exists():
                 self.compaction_view_path.unlink()
         else:
-            for path in (self.summary_path, self.compaction_view_path, self.compaction_state_path):
+            for path in (self.summary_path, self.compaction_view_path, self.compaction_state_path, self.context_recovery_package_path):
                 if path.exists():
                     path.unlink()
 
@@ -134,8 +135,9 @@ class SessionMemoryManager:
     ) -> dict[str, Any]:
         material_summary = normalize_storage_text(summary_content or self.load())
         if not has_material_session_memory_content(material_summary):
-            if self.compaction_state_path.exists():
-                self.compaction_state_path.unlink()
+            for path in (self.compaction_state_path, self.context_recovery_package_path):
+                if path.exists():
+                    path.unlink()
             return {
                 "authority": "memory_system.session_memory.compaction_state",
                 "status": "not_written",
@@ -158,8 +160,58 @@ class SessionMemoryManager:
             "source": str(source or "memory_maintenance_agent"),
             "source_message_refs": [str(item) for item in list(source_message_refs or []) if str(item)],
         }
+        recovery_payload = self.write_context_recovery_package(
+            summary_content=material_summary,
+            compaction_state=payload,
+            source=str(source or "memory_maintenance_agent"),
+        )
+        if recovery_payload.get("coverage", {}).get("summary_hash"):
+            payload["context_recovery_package_hash"] = str(recovery_payload["coverage"]["summary_hash"])
         self.compaction_state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
+
+    def write_context_recovery_package(
+        self,
+        *,
+        summary_content: str = "",
+        compaction_state: dict[str, Any] | None = None,
+        source: str = "session_memory",
+    ) -> dict[str, Any]:
+        material_summary = normalize_storage_text(summary_content or self.load())
+        if not has_material_session_memory_content(material_summary):
+            if self.context_recovery_package_path.exists():
+                self.context_recovery_package_path.unlink()
+            return {
+                "authority": "runtime.context_management.context_recovery_package",
+                "status": "not_written",
+                "reason": "empty_session_memory",
+            }
+        from runtime.context_management.recovery_package import context_recovery_package_from_session_memory
+
+        package = context_recovery_package_from_session_memory(
+            material_summary,
+            compaction_state=dict(compaction_state or {}),
+            source=source or "session_memory",
+        )
+        payload = package.to_dict()
+        self.context_recovery_package_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+
+    def load_context_recovery_package(self) -> dict[str, Any]:
+        if not self.context_recovery_package_path.exists():
+            return {}
+        payload = json.loads(self.context_recovery_package_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Session context recovery package must be a JSON object")
+        return payload
+
+    def context_recovery_markdown(self) -> str:
+        payload = self.load_context_recovery_package()
+        if not payload:
+            return ""
+        from runtime.context_management.recovery_package import render_context_recovery_markdown
+
+        return render_context_recovery_markdown(payload)
 
     def load_compaction_state(self) -> dict[str, Any]:
         if not self.compaction_state_path.exists():

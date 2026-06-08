@@ -77,6 +77,11 @@ async def session_tokens(
         session_record=record,
     )
     context_meter = context_snapshot.to_dict()
+    context_recovery_package = _context_recovery_package_status(
+        runtime,
+        session_id=session_id,
+        raw_messages=raw_messages,
+    )
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
     cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
@@ -124,6 +129,9 @@ async def session_tokens(
         "ready_threshold_tokens": int(context_meter.get("ready_threshold_tokens") or 0),
         "current_context_tokens": int(context_meter.get("current_context_tokens") or 0),
         "blocked_reason": "" if bool(context_meter.get("auto_replacement_allowed", False)) else "below_replacement_threshold",
+        "context_recovery_package_present": bool(context_recovery_package.get("present", False)),
+        "context_recovery_package_fresh": bool(context_recovery_package.get("fresh", False)),
+        "context_recovery_package_source": str(context_recovery_package.get("source") or ""),
     }
     return {
         "system_tokens": system_tokens,
@@ -131,6 +139,7 @@ async def session_tokens(
         "total_tokens": system_tokens + message_tokens,
         "billing_totals": billing_totals,
         "context_meter": context_meter,
+        "context_recovery_package": context_recovery_package,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
         "cumulative_transcript_tokens": cumulative_transcript_tokens,
@@ -149,6 +158,69 @@ async def session_tokens(
         "history_did_microcompact": bool(context_compaction.get("did_microcompact", False)),
         "history_did_full_compact": bool(context_compaction.get("did_full_compact", False)),
         "prompt_accounting": prompt_usage,
+    }
+
+
+def _context_recovery_package_status(
+    runtime: Any,
+    *,
+    session_id: str,
+    raw_messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
+    manager_ref = getattr(session_memory, "manager", None)
+    if callable(manager_ref):
+        manager = manager_ref(session_id)
+    elif manager_ref is not None and callable(getattr(manager_ref, "load_context_recovery_package", None)):
+        manager = manager_ref
+    else:
+        return {
+            "authority": "runtime.context_management.context_recovery_package_status",
+            "present": False,
+            "fresh": False,
+            "reason": "session_memory_unavailable",
+        }
+    try:
+        package = manager.load_context_recovery_package()
+    except Exception as exc:
+        return {
+            "authority": "runtime.context_management.context_recovery_package_status",
+            "present": False,
+            "fresh": False,
+            "reason": str(exc) or "context_recovery_package_unreadable",
+        }
+    if not package:
+        return {
+            "authority": "runtime.context_management.context_recovery_package_status",
+            "present": False,
+            "fresh": False,
+            "reason": "context_recovery_package_missing",
+        }
+    try:
+        validation = manager.validate_compaction_state(raw_messages)
+    except Exception as exc:
+        validation = {"ok": False, "reason": str(exc) or "compaction_state_validation_failed"}
+    coverage = dict(package.get("coverage") or {})
+    freshness = dict(package.get("freshness") or {})
+    stale_reason = str(
+        dict(validation or {}).get("reason") if not bool(dict(validation or {}).get("ok")) else ""
+    )
+    if not stale_reason:
+        stale_reason = str(freshness.get("stale_reason") or coverage.get("stale_reason") or "")
+    return {
+        "authority": "runtime.context_management.context_recovery_package_status",
+        "present": True,
+        "fresh": bool(dict(validation or {}).get("ok")) and not stale_reason,
+        "source": str(package.get("source") or ""),
+        "schema_version": str(package.get("schema_version") or ""),
+        "covered_message_count": int(coverage.get("covered_message_count") or 0),
+        "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
+        "covered_event_offset_end": coverage.get("covered_event_offset_end"),
+        "summary_hash": str(coverage.get("summary_hash") or ""),
+        "source_summary_hash": str(coverage.get("source_summary_hash") or ""),
+        "freshness_status": str(freshness.get("status") or ""),
+        "stale_reason": stale_reason,
+        "validation": dict(validation or {}),
     }
 
 

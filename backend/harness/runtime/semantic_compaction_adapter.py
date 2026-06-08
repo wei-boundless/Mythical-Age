@@ -214,7 +214,7 @@ def _semantic_compaction_result_from_response(
 
 
 def _structured_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    for key in ("structured_summary", "recovery_package", "checkpoint"):
+    for key in ("context_recovery_package", "structured_summary", "recovery_package", "checkpoint"):
         value = payload.get(key)
         if isinstance(value, dict):
             return dict(value)

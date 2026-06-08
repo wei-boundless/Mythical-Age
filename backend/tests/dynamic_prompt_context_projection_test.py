@@ -977,11 +977,11 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
     manifest = result.packet.diagnostics["prompt_manifest"]
     assert "agent.main_interactive_agent.task_execution.work_role" in manifest["stable_prompt_refs"]
     assert "agent.main_interactive_agent.single_agent_turn.work_role" not in manifest["stable_prompt_refs"]
-    assert "持续任务执行 agent" in model_input
-    assert "不负责重新判断是否建立任务生命周期" in model_input
+    assert "你正在执行一个已经建立的持续任务合同" in model_input
+    assert "不负责重新判断是否应该建立任务生命周期" in model_input
     assert "请求持续任务生命周期" not in model_input
-    assert "处理 Python 开发任务" in model_input
-    assert "AST 工具只用于只读代码智能" in model_input
+    assert "工具选择、文件读写、命令、git、todo、浏览器和子 agent 的具体契约" in model_input
+    assert "准备 action_type=respond 前" in model_input
 
 
 def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_agent_profile() -> None:

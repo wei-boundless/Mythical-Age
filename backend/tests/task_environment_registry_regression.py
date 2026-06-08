@@ -430,14 +430,14 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "environment.rule.general_workspace.v1",
     ]
     assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
-    assert "处理 Python 开发任务" in model_input
-    assert "old_text not found" in model_input
+    assert "工具选择、文件读写" in model_input
+    assert "old_text 必须来自当前读取结果" in model_input
     assert "next_start_line" in model_input
-    assert "不要重复同一 path、start_line、line_count" in model_input
+    assert "不要重复读取相同行窗口" in model_input
     assert "大范围探索" in model_input
     assert "todo 不是事实来源" in model_input
     assert "验证必须真实" in model_input
-    assert "Windows PowerShell 5.1" in model_input
+    assert "Windows PowerShell" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
     assert "你处在通用开发沙盒任务环境中" in model_input
     assert "你处在 coding 或 development 环境时" in model_input
@@ -803,8 +803,11 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         "environment.general.lifecycle.context_intake",
         "environment.general.lifecycle.request_judgment",
         "environment.general.lifecycle.environment_capability_alignment",
+        "environment.general.lifecycle.plan_gate",
         "environment.general.lifecycle.action_selection",
         "environment.general.lifecycle.task_run_handoff",
+        "environment.general.lifecycle.tool_dispatch",
+        "environment.general.lifecycle.subagent_delegation",
         "environment.general.lifecycle.finalization",
     ]
 
@@ -845,8 +848,26 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
     assert stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert set(
+        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+    ) == set(expected_lifecycle_refs)
+    assert (
+        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
+            "environment.general.lifecycle.tool_dispatch"
+        ]
+        == "tool_call action is allowed"
+    )
+    assert (
+        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
+            "environment.general.lifecycle.subagent_delegation"
+        ]
+        == "subagent control tools are visible"
+    )
     assert packet.diagnostics["prompt_manifest"]["stable_prompt_refs"].count(DEFAULT_PERSONALITY_PROMPT_REF) == 1
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert set(
+        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+    ) == set(expected_lifecycle_refs)
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
@@ -854,13 +875,19 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     assert "当前人格" in model_input
     assert "Mythical Age（洪荒智能）" in model_input
     assert "不改变系统规则" in model_input
+    assert "你负责在当前会话中理解用户最新请求" in model_input
+    assert "本段只定义本轮动作协议；身份风格由 personality prompt 提供" in model_input
     assert "通用请求判断生命周期" in model_input
     assert "用户刚发来最新请求" in model_input
+    assert "在采取有副作用或高影响行动前" in model_input
     assert "当用户目标需要持续执行时" in model_input
+    assert "当你准备请求工具时" in model_input
+    assert "子 agent 是 fresh specialist" in model_input
     assert "准备回复用户前" in model_input
     assert "如果系统交给你 active_work_context" not in model_input
     assert "当系统返回工具观察" not in model_input
-    assert "当一次判断、执行或收口产生可保留信息" not in model_input
+    assert "当系统提供记忆、恢复摘要或历史检索结果" not in model_input
+    assert "当一次收口或维护阶段产生可保留信息" not in model_input
     assert "你是当前会话主 agent 的请求判断层" not in lifecycle_message
     assert "你是工具观察恢复层" not in lifecycle_message
     assert "confidence" not in lifecycle_message.lower()

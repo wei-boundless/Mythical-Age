@@ -139,6 +139,7 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert "context_meter" in response
     assert "cache_metrics" in response
     assert "compaction_readiness" in response
+    assert "context_recovery_package" in response
     assert response["context_meter"]["authority"] == "runtime.context_management.session_pressure_snapshot"
     assert response["context_meter"]["estimate_mode"] == "session_pressure"
     assert response["context_meter"]["current_context_tokens"] > 0
@@ -154,6 +155,12 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert response["history_did_compact"] is True
     assert response["history_compaction_strategy"] in {"microcompact", "full_compact"}
     assert response["history_tokens"] < response["raw_history_tokens"]
+    assert response["context_recovery_package"]["present"] is True
+    assert response["context_recovery_package"]["fresh"] is True
+    assert response["context_recovery_package"]["source"] == "agent:1"
+    assert response["context_recovery_package"]["covered_message_count"] == len(before)
+    assert response["compaction_readiness"]["context_recovery_package_present"] is True
+    assert response["compaction_readiness"]["context_recovery_package_fresh"] is True
     assert runtime.session_manager.load_session(session_id) == before
 
 
