@@ -124,6 +124,28 @@ class PromptCompositionSegmentBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class PromptCompositionMessageProjection:
+    segment_id: str
+    kind: str
+    source_ref: str
+    ordinal: int
+    model_message_index: int
+    model_message_role: str
+    cache_role: str = "volatile"
+    prefix_tier: str = "volatile"
+    content_hash: str = ""
+    model_message_hash: str = ""
+    binding_status: str = "unmapped"
+    bound_slot_ids: tuple[str, ...] = ()
+    authority: str = "prompt_composition.message_projection"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["bound_slot_ids"] = list(self.bound_slot_ids)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class PromptCompositionManifest:
     manifest_id: str
     invocation_kind: str
@@ -132,6 +154,7 @@ class PromptCompositionManifest:
     plan: PromptCompositionPlan
     graph: PromptCompositionGraph
     segment_bindings: tuple[PromptCompositionSegmentBinding, ...] = ()
+    message_projection: tuple[PromptCompositionMessageProjection, ...] = ()
     coverage: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_composition.manifest"
@@ -145,6 +168,7 @@ class PromptCompositionManifest:
             "plan": self.plan.to_dict(),
             "graph": self.graph.to_dict(),
             "segment_bindings": [item.to_dict() for item in self.segment_bindings],
+            "message_projection": [item.to_dict() for item in self.message_projection],
             "coverage": dict(self.coverage),
             "diagnostics": dict(self.diagnostics),
             "authority": self.authority,

@@ -1916,9 +1916,19 @@ def test_model_runtime_prompt_stability_records_tool_call_options(tmp_path: Path
     reports = ledger.list_prompt_stability(session_id="session:tool-option-stability")
     latest = reports[-1]
     current_options = latest.dynamic_param_summary["request_params"]["tool_call_options"]
+    provider_payload = latest.diagnostics["provider_payload"]
 
     assert current_options["tool_choice"] == {"type": "function", "function": {"name": "write_file"}}
     assert current_options["parallel_tool_calls"] is False
+    assert provider_payload["tool_call_options_segment_count"] == 1
+    assert provider_payload["provider_params_segment_count"] == 1
+    assert provider_payload["response_format_segment_count"] == 0
+    assert provider_payload["tool_call_options_hash"]
+    assert provider_payload["provider_params_hash"]
+    assert provider_payload["response_format_hash"] == ""
+    assert latest.dynamic_param_summary["cache_sensitive_params_hash"] == provider_payload["cache_sensitive_params_hash"]
+    assert "tool_call_options" in {section.kind for section in latest.volatile_sections}
+    assert "provider_params" in {section.kind for section in latest.volatile_sections}
     assert latest.diagnostics["likely_break_reason"] == "dynamic_request_params_changed"
     assert latest.diagnostics["dynamic_param_diff"]["request_params"]["previous"]["tool_call_options"] == {
         "parallel_tool_calls": False

@@ -109,6 +109,34 @@ describe("ChatMessage", () => {
     expect(html).toContain("public-run-activity");
   });
 
+  it("keeps live streamed prose visible beside runtime activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "我正在继续生成",
+        id: "message:streaming-with-activity",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:read",
+            kind: "work_action",
+            action_kind: "read",
+            title: "正在读取上下文",
+            public_summary: "正在读取上下文",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+        streamingContent: true,
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("我正在继续生成");
+    expect(html).toContain("正在读取上下文");
+    expect(html).toContain("复制回复");
+  });
+
   it("hides routine output boundary cleanup state", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

@@ -25,9 +25,17 @@ def _assert_shadow_manifest_covers_packet(packet) -> dict[str, object]:
     composition = _composition_manifest(packet)
     coverage = dict(composition.get("coverage") or {})
     segment_plan = dict(packet.segment_plan)
+    segments = list(segment_plan.get("segments") or [])
+    projection = list(composition.get("message_projection") or [])
     assert coverage["segment_count"] == len(list(segment_plan.get("segments") or []))
     assert coverage["all_segments_explained"] is True
     assert coverage["slot_count"] >= coverage["registered_prompt_slot_count"]
+    assert coverage["legacy_runtime_text_count"] == 0
+    assert len(projection) == len(segments)
+    assert [item["segment_id"] for item in projection] == [item["segment_id"] for item in segments]
+    assert [item["model_message_index"] for item in projection] == list(range(len(segments)))
+    assert [item["model_message_hash"] for item in projection] == [item["model_message_hash"] for item in segments]
+    assert all("content" not in item for item in projection)
     return composition
 
 
@@ -79,8 +87,11 @@ def test_shadow_manifest_binds_registered_prompts_and_marks_legacy_runtime_text(
     coverage = dict(manifest["coverage"])
     statuses = dict(coverage["segment_binding_status_counts"])
     cache_boundary = dict(manifest["diagnostics"]["cache_boundary"])
+    projection = list(manifest["message_projection"])
     assert statuses["registered_prompt_bound"] == 1
     assert statuses["runtime_action_schema"] == 1
+    assert [item["kind"] for item in projection] == ["global_static", "action_schema_static"]
+    assert all("content" not in item for item in projection)
     assert coverage["registered_prompt_slot_count"] > 0
     assert coverage["runtime_shadow_slot_count"] == 1
     assert cache_boundary["status"] == "ok"
@@ -330,4 +341,5 @@ def test_runtime_compiler_attaches_shadow_manifest_for_semantic_compaction() -> 
     composition = _assert_shadow_manifest_covers_packet(result.packet)
     coverage = dict(composition["coverage"])
     assert coverage["registered_prompt_bound_count"] >= 1
+    assert coverage["semantic_compaction_boundary_count"] == 1
     assert coverage["dynamic_context_fragment_count"] >= 1

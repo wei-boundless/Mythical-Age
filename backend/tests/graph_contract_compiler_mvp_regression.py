@@ -200,7 +200,33 @@ def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
     contracts = dict(config.contracts or {})
 
     assert contracts["compile_report"]["status"] == "valid"
+    compile_summary = contracts["compile_report"]["summary"]
+    assert compile_summary["configuration_guidance"]["configurator_system_node_id"] == "__configurator__"
+    assert compile_summary["configuration_guidance"]["configurator_write_contract_id"] == f"configurator-write:{config.graph_id}"
+    node_recommendations = {
+        item["node_id"]: item["prototype_id"]
+        for item in compile_summary["prototype_recommendations"]["nodes"]
+    }
+    edge_recommendations = {
+        item["edge_id"]: item["prototype_id"]
+        for item in compile_summary["prototype_recommendations"]["edges"]
+    }
+    assert node_recommendations == {"draft": "node.agent_worker", "review": "node.agent_worker"}
+    assert edge_recommendations["edge.draft.review"] == "edge.node_handoff"
     assert contracts["configurator_write_contract"]["can_apply_to"] == ["draft_graph_store"]
+    assert contracts["configurator_write_contract"]["output_contract"]["required_outputs"] == [
+        "graph_draft_patch",
+        "prototype_selection_report",
+        "compiler_validation_request",
+    ]
+    assert {
+        item["prototype_id"]
+        for item in contracts["configurator_write_contract"]["prototype_catalog"]["edge_contract_prototypes"]
+    } >= {"edge.node_handoff", "edge.review_feedback", "edge.human_gate", "edge.a2a_session"}
+    system_nodes = contracts["system_node_contract_index"]
+    assert system_nodes["__configurator__"]["prompt_contract"]["role_prompt"] == "你是一名任务图配置代理。"
+    assert "graph_draft_patch" in system_nodes["__configurator__"]["prompt_contract"]["output_requirements"][1]
+    assert system_nodes["__supervisor__"]["prompt_contract"]["role_prompt"] == "你是一名任务图运行监管员。"
     assert "node_interaction_contract_index" not in contracts
     assert contracts["graph_binding_contract"]["project_id"] == "project.alpha"
     assert contracts["deployment_package"]["binding"]["binding_mode"] == "project_scoped"
@@ -219,6 +245,10 @@ def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
 def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
     config = build_graph_harness_config_from_graph(graph=_edge_protocol_graph())
     edge_contracts = dict(config.contracts["edge_contract_index"])
+    edge_recommendations = {
+        item["edge_id"]: item
+        for item in config.contracts["compile_report"]["summary"]["prototype_recommendations"]["edges"]
+    }
     expected_protocols = {
         "edge.handoff": ("node_handoff", True),
         "edge.resource_read": ("resource_read", True),
@@ -241,9 +271,12 @@ def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
         protocol = dict(contract["protocol"])
         trace = dict(contract["trace"])
         packet = dict(contract.get("packet") or {})
+        recommendation = dict(edge_recommendations[edge_id])
         assert protocol["kind"] == protocol_kind
         assert protocol["produces_flow_packet"] is produces_packet
         assert bool(protocol["interaction_pattern"])
+        assert recommendation["prototype_id"] == f"edge.{protocol_kind}"
+        assert recommendation["interaction_pattern"] == protocol["interaction_pattern"]
         assert trace["persist_packet"] is produces_packet
         assert edge_delivers_flow_packet(edges_by_id[edge_id], graph_config=config) is produces_packet
         if produces_packet:

@@ -91,7 +91,7 @@ export function ChatMessage({
       terminalState,
     );
   const hasBasePublicTimelineActivity = publicTimelineHasDisplayableActivity(basePublicTimelineItems, taskProjections);
-  const contentProjectedIntoTimeline = !isUser && Boolean(baseDisplayContent.trim()) && hasBasePublicTimelineActivity;
+  const contentProjectedIntoTimeline = !streamingContent && !isUser && Boolean(baseDisplayContent.trim()) && hasBasePublicTimelineActivity;
   const publicTimelineItems = contentProjectedIntoTimeline
     ? mergePublicTimelineItems(
       withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent),

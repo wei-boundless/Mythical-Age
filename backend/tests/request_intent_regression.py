@@ -14,7 +14,7 @@ from request_intent.request_signals import build_request_signals
 def test_request_signals_are_facts_not_intent_or_route() -> None:
     frame = build_request_signals("修改 backend/foo.py，修复这个问题").to_dict()
 
-    assert frame["authority"] == "request_facts.frame"
+    assert frame["authority"] == "turn_signals.frame"
     assert "primary_intent" not in frame
     assert "route_hint" not in frame["capability_intent"]
     assert "write_requested" not in frame["turn_signals"]

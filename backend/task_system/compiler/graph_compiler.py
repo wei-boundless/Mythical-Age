@@ -4,7 +4,7 @@ from typing import Any
 
 from harness.graph.models import safe_id, stable_hash
 
-from .configurator_write_contracts import build_configurator_write_contract
+from .configurator_write_contracts import build_configurator_write_contract, configuration_prototype_catalog
 from .edge_contract_models import build_edge_contract_index
 from .models import GraphCompilationUnit, GraphCompileIssue, compile_report
 from .node_contract_models import build_node_contract_index
@@ -70,16 +70,16 @@ def build_graph_compilation_unit(
     )
     report = compile_report(
         graph_id=graph_id,
-        summary={
-            "graph_title": graph_title,
-            "node_count": len(nodes),
-            "edge_count": len(edges),
-            "resource_contract_count": len(resource_contract_index),
-            "edge_contract_count": len(edge_contract_index),
-            "node_contract_count": len(node_contract_index),
-            "node_interaction_contract_enabled": False,
-            "authority": "task_system.graph_compiler.summary",
-        },
+        summary=_compile_report_summary(
+            graph_id=graph_id,
+            graph_title=graph_title,
+            nodes=nodes,
+            edges=edges,
+            node_contract_index=node_contract_index,
+            resource_contract_index=resource_contract_index,
+            edge_contract_index=edge_contract_index,
+            graph_binding_contract=graph_binding_contract,
+        ),
         issues=issues,
     )
     deployment_package = _deployment_package(
@@ -205,6 +205,126 @@ def _compile_issues(
         if not str(dict(contract.get("protocol") or {}).get("kind") or "").strip():
             issues.append(GraphCompileIssue(code="edge_protocol_kind_missing", message="边契约缺少 protocol.kind。", edge_id=edge_id))
     return issues
+
+
+def _compile_report_summary(
+    *,
+    graph_id: str,
+    graph_title: str,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    node_contract_index: dict[str, dict[str, Any]],
+    resource_contract_index: dict[str, dict[str, Any]],
+    edge_contract_index: dict[str, dict[str, Any]],
+    graph_binding_contract: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "graph_title": graph_title,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "resource_contract_count": len(resource_contract_index),
+        "edge_contract_count": len(edge_contract_index),
+        "node_contract_count": len(node_contract_index),
+        "node_interaction_contract_enabled": False,
+        "graph_binding": dict(graph_binding_contract),
+        "prototype_catalog": configuration_prototype_catalog(),
+        "prototype_recommendations": _prototype_recommendations(
+            node_contract_index=node_contract_index,
+            resource_contract_index=resource_contract_index,
+            edge_contract_index=edge_contract_index,
+        ),
+        "configuration_guidance": {
+            "configurator_system_node_id": "__configurator__",
+            "supervisor_system_node_id": "__supervisor__",
+            "configurator_write_contract_id": f"configurator-write:{graph_id}",
+            "recommended_authoring_flow": [
+                "select_node_resource_edge_prototypes",
+                "emit_graph_draft_patch",
+                "validate_with_graph_compiler",
+                "repair_until_no_blocking_compile_issues",
+            ],
+            "minimum_user_choices": [
+                "business_goal",
+                "task_environment_or_project_scope",
+                "required_outputs",
+            ],
+            "advanced_fields_should_be_inferred": [
+                "edge_protocol_kind",
+                "payload_contract_id",
+                "target_input_slot",
+                "node_session_policy",
+                "checkpoint_policy",
+            ],
+            "authority": "task_system.graph_compiler.configuration_guidance",
+        },
+        "authority": "task_system.graph_compiler.summary",
+    }
+
+
+def _prototype_recommendations(
+    *,
+    node_contract_index: dict[str, dict[str, Any]],
+    resource_contract_index: dict[str, dict[str, Any]],
+    edge_contract_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "nodes": [_node_prototype_recommendation(node_id, contract) for node_id, contract in sorted(node_contract_index.items())],
+        "resources": [
+            _resource_prototype_recommendation(resource_id, contract)
+            for resource_id, contract in sorted(resource_contract_index.items())
+        ],
+        "edges": [_edge_prototype_recommendation(edge_id, contract) for edge_id, contract in sorted(edge_contract_index.items())],
+        "authority": "task_system.graph_compiler.prototype_recommendations",
+    }
+
+
+def _node_prototype_recommendation(node_id: str, contract: dict[str, Any]) -> dict[str, Any]:
+    node_class = str(contract.get("node_class") or "")
+    node_kind = str(contract.get("node_kind") or "")
+    if node_class == "resource":
+        prototype_id = "node.resource_repository"
+        reason = "节点被编译为资源节点，应由资源契约约束读写。"
+    elif node_kind == "ControlNode":
+        prototype_id = "node.control_gate"
+        reason = "节点是控制/门禁节点，应只表达调度或人工放行语义。"
+    else:
+        prototype_id = "node.agent_worker"
+        reason = "节点是可执行 agent 节点，应通过单 agent worker 履行节点契约。"
+    return {
+        "node_id": str(node_id),
+        "prototype_id": prototype_id,
+        "reason": reason,
+        "authority": "task_system.graph_compiler.node_prototype_recommendation",
+    }
+
+
+def _resource_prototype_recommendation(resource_id: str, contract: dict[str, Any]) -> dict[str, Any]:
+    resource_kind = str(contract.get("resource_kind") or "").strip()
+    if resource_kind == "memory":
+        prototype_id = "resource.memory_repository"
+    elif resource_kind == "file":
+        prototype_id = "resource.file_view"
+    else:
+        prototype_id = "resource.artifact_repository"
+    return {
+        "resource_id": str(resource_id),
+        "prototype_id": prototype_id,
+        "reason": "资源原型由 resource_kind 和编译后的读写策略推导。",
+        "authority": "task_system.graph_compiler.resource_prototype_recommendation",
+    }
+
+
+def _edge_prototype_recommendation(edge_id: str, contract: dict[str, Any]) -> dict[str, Any]:
+    protocol = dict(contract.get("protocol") or {})
+    protocol_kind = str(protocol.get("kind") or "node_handoff").strip() or "node_handoff"
+    return {
+        "edge_id": str(edge_id),
+        "prototype_id": f"edge.{protocol_kind}",
+        "protocol_kind": protocol_kind,
+        "interaction_pattern": str(protocol.get("interaction_pattern") or ""),
+        "reason": "边原型由 edge_type、scheduler_role 和显式 edge_protocol_kind 编译得到。",
+        "authority": "task_system.graph_compiler.edge_prototype_recommendation",
+    }
 
 
 def _deployment_package(

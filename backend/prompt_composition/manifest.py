@@ -9,6 +9,7 @@ from .graph import build_prompt_composition_graph
 from .models import (
     PromptCompositionLayerInput,
     PromptCompositionManifest,
+    PromptCompositionMessageProjection,
     PromptCompositionPlan,
     PromptCompositionSlot,
 )
@@ -56,6 +57,7 @@ def build_shadow_prompt_composition_manifest(
         )
     bindings = bind_segments_to_slots(segments=segments, slots=plan.slots)
     graph = build_prompt_composition_graph(plan)
+    message_projection = _message_projection(segments=segments, bindings=bindings)
     coverage = _coverage(plan=plan, bindings=bindings)
     cache_boundary = _cache_boundary_diagnostics(plan=plan, segments=segments)
     seed = {
@@ -64,6 +66,16 @@ def build_shadow_prompt_composition_manifest(
         "plan_id": plan.plan_id,
         "graph_id": graph.graph_id,
         "binding_statuses": [item.binding_status for item in bindings],
+        "message_projection": [
+            {
+                "segment_id": item.segment_id,
+                "kind": item.kind,
+                "model_message_index": item.model_message_index,
+                "model_message_hash": item.model_message_hash,
+                "binding_status": item.binding_status,
+            }
+            for item in message_projection
+        ],
     }
     digest = hashlib.sha256(json.dumps(seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return PromptCompositionManifest(
@@ -74,6 +86,7 @@ def build_shadow_prompt_composition_manifest(
         plan=plan,
         graph=graph,
         segment_bindings=bindings,
+        message_projection=message_projection,
         coverage=coverage,
         diagnostics={
             **dict(diagnostics or {}),
@@ -83,6 +96,35 @@ def build_shadow_prompt_composition_manifest(
             "authority": "prompt_composition.shadow_manifest_builder",
         },
     )
+
+
+def _message_projection(
+    *,
+    segments: tuple[dict[str, Any], ...],
+    bindings: tuple[Any, ...],
+) -> tuple[PromptCompositionMessageProjection, ...]:
+    binding_by_segment_id = {str(binding.segment_id or ""): binding for binding in bindings}
+    projection: list[PromptCompositionMessageProjection] = []
+    for segment in sorted(segments, key=lambda item: int(item.get("ordinal") or 0)):
+        segment_id = str(segment.get("segment_id") or "")
+        binding = binding_by_segment_id.get(segment_id)
+        projection.append(
+            PromptCompositionMessageProjection(
+                segment_id=segment_id,
+                kind=str(segment.get("kind") or ""),
+                source_ref=str(segment.get("source_ref") or ""),
+                ordinal=int(segment.get("ordinal") or 0),
+                model_message_index=int(segment.get("model_message_index") or 0),
+                model_message_role=str(segment.get("model_message_role") or ""),
+                cache_role=str(segment.get("cache_role") or "volatile"),
+                prefix_tier=str(segment.get("prefix_tier") or "volatile"),
+                content_hash=str(segment.get("content_hash") or ""),
+                model_message_hash=str(segment.get("model_message_hash") or ""),
+                binding_status=str(getattr(binding, "binding_status", "") or "unmapped"),
+                bound_slot_ids=tuple(str(item) for item in tuple(getattr(binding, "bound_slot_ids", ()) or ())),
+            )
+        )
+    return tuple(projection)
 
 
 def _runtime_slots_for_unbound_segments(
@@ -180,6 +222,7 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
         "runtime_contract_count": status_counts.get("runtime_contract", 0),
         "runtime_protocol_count": status_counts.get("runtime_protocol", 0),
+        "semantic_compaction_boundary_count": status_counts.get("semantic_compaction_boundary", 0),
         "tool_catalog_count": status_counts.get("tool_catalog", 0),
         "registered_prompt_bound_count": status_counts.get("registered_prompt_bound", 0),
         "authority": "prompt_composition.coverage",
@@ -238,6 +281,8 @@ def _runtime_layer(*, kind: str, source_kind: str) -> str:
         return "runtime_dynamic"
     if source_kind in {"runtime_action_schema", "tool_catalog"}:
         return "capability_stable"
+    if source_kind == "semantic_compaction_boundary":
+        return "lifecycle_stable"
     if source_kind == "runtime_artifact_scope":
         return "artifact_scope_stable"
     if source_kind == "runtime_contract":

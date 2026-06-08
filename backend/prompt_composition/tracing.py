@@ -23,6 +23,7 @@ DYNAMIC_SEGMENT_KINDS = {
 RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "action_schema_static": "runtime_action_schema",
     "artifact_scope_stable": "runtime_artifact_scope",
+    "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",
     "task_prompt_contract": "runtime_contract",
     "task_stable": "runtime_contract",
@@ -128,6 +129,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
     if status == "runtime_protocol":
         return "segment is compiler-generated runtime protocol and should become a registered protocol slot"
+    if status == "semantic_compaction_boundary":
+        return "segment is compiler-generated semantic compaction boundary and should become a registered lifecycle slot"
     if status == "tool_catalog":
         return "segment is compiler-generated tool catalog and should be owned by ToolCatalogManifest"
     return f"segment is compiler-generated stable text without a registered prompt slot: kind={kind} source_ref={source_ref}"
