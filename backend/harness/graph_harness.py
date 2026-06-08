@@ -13,6 +13,7 @@ from .graph.model_overrides import merge_effective_runtime_overrides
 from .graph.resume import GraphResumeResult, GraphResumeService
 from .graph.runner import GraphRunRunner, GraphRunRunnerResult
 from .graph.runtime import GraphRuntime, GraphRuntimeStart
+from .graph.supervisor import GraphSupervisor
 from .graph.work_order_executor import GraphNodeWorkOrderExecutor
 
 
@@ -352,6 +353,11 @@ class GraphHarness:
             task_run_lookup=self.get_task_run,
             task_run_monitor_lookup=self._task_run_monitor_by_id,
         )
+        supervisor_observation = (
+            GraphSupervisor().observe(graph_config=graph_config, state=state).to_dict()
+            if graph_config is not None and state is not None
+            else {}
+        )
         return {
             "authority": "harness.graph_run_monitor",
             "graph_run_id": graph_run_id,
@@ -364,6 +370,7 @@ class GraphHarness:
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
             "active_node_runtime_views": active_node_runtime_views,
+            "supervisor_observation": supervisor_observation,
             "event_count": event_count,
             "event_window": {
                 "kind": "omitted",

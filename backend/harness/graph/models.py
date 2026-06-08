@@ -115,7 +115,11 @@ class GraphHarnessConfig:
                 self.contracts,
                 include_keys={
                     "node_protocol_index",
+                    "node_contract_index",
+                    "resource_contract_index",
                     "edge_contract_index",
+                    "graph_binding_contract",
+                    "maintenance_contract",
                     "output_contract_index",
                     "memory_contract_index",
                     "artifact_contract_index",

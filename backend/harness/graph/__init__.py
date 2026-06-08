@@ -22,6 +22,7 @@ from .loop_engine import LoopEngine
 from .memory_context import MemoryContextAssembler
 from .output_policy import OutputPolicyResolver
 from .state_machine import GraphStateMachine, GraphStatusSnapshot
+from .supervisor import GraphSupervisor, SupervisorObservation
 from .langgraph_checkpoint_store import LangGraphCheckpointStore
 from .resume import GraphResumeResult, GraphResumeService
 from .runner import GraphRunRunner, GraphRunRunnerResult
@@ -43,6 +44,8 @@ __all__ = [
     "OutputPolicyResolver",
     "GraphStateMachine",
     "GraphStatusSnapshot",
+    "GraphSupervisor",
+    "SupervisorObservation",
     "GraphResumeResult",
     "GraphResumeService",
     "GraphRunRunner",

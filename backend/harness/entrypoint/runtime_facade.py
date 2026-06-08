@@ -1921,6 +1921,13 @@ class HarnessRuntimeFacade:
         runtime_host.runtime_objects.put_object("task_lifecycle", node_task_run_id, lifecycle.to_dict())
         graph_run = runtime_host.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(work_order.graph_run_id)}")
         node_session_id = str(getattr(work_order, "node_session_id", "") or "")
+        if node_session_id:
+            self._ensure_graph_node_session(
+                node_session_id=node_session_id,
+                graph_config=graph_config,
+                work_order=work_order,
+                graph_run=dict(graph_run or {}),
+            )
         task_run = TaskRun(
             task_run_id=node_task_run_id,
             session_id=node_session_id or str(dict(graph_run or {}).get("session_id") or work_order.graph_run_id),
@@ -2001,6 +2008,47 @@ class HarnessRuntimeFacade:
             )
         )
         return runtime_host.state_index.get_task_run(node_task_run_id) or task_run
+
+    def _ensure_graph_node_session(
+        self,
+        *,
+        node_session_id: str,
+        graph_config: Any,
+        work_order: Any,
+        graph_run: dict[str, Any],
+    ) -> None:
+        session_id = str(node_session_id or "").strip()
+        if not session_id:
+            return
+        try:
+            self.session_manager.load_session_record(session_id)
+            return
+        except Exception:
+            pass
+        runtime_scope = _graph_node_runtime_scope(work_order)
+        task_environment_id = str(
+            dict(getattr(work_order, "input_package", {}) or {}).get("task_environment_id")
+            or dict(runtime_scope or {}).get("task_environment_id")
+            or getattr(graph_config, "task_environment_id", "")
+            or ""
+        )
+        project_id = str(
+            dict(runtime_scope or {}).get("project_id")
+            or dict(graph_run or {}).get("project_id")
+            or ""
+        )
+        create = getattr(self.session_manager, "create_session", None)
+        if not callable(create):
+            return
+        create(
+            session_id=session_id,
+            title=f"Graph node {getattr(work_order, 'node_id', '')}",
+            scope={
+                "workspace_view": "project" if project_id else "task_environment",
+                "task_environment_id": task_environment_id,
+                "project_id": project_id,
+            },
+        )
 
     def _resolve_graph_node_profile(self, *, node_agent_id: str, work_order: Any, graph_config: Any) -> Any:
         explicit_profile_id = str(getattr(work_order, "agent_profile_id", "") or "").strip()

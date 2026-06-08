@@ -86,9 +86,13 @@ class SessionManager:
         title: str = "New Session",
         scope: dict[str, Any] | None = None,
         project_binding: dict[str, Any] | None = None,
+        session_id: str = "",
     ) -> dict[str, Any]:
         now = time.time()
-        session_id = f"session-{uuid.uuid4().hex[:16]}"
+        session_id = str(session_id or "").strip() or f"session-{uuid.uuid4().hex[:16]}"
+        path = self._session_path(session_id)
+        if path.exists():
+            return self.get_session_summary(session_id)
         initial_state: dict[str, Any] = {}
         binding = _normalize_project_binding(project_binding, validate_root=True, timestamp=now)
         if binding:

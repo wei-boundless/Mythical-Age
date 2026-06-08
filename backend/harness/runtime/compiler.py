@@ -33,6 +33,7 @@ from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
+from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 
 
@@ -863,10 +864,13 @@ class RuntimeCompiler:
         action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
-        task_contract_payload = {
-            "task_contract": _task_contract_stable_payload(contract),
-            "planning_protocol": planning_protocol,
-        }
+        task_contract_manifest = build_task_contract_manifest(
+            invocation_kind="task_execution",
+            model_visible_contract=_task_contract_stable_payload(contract),
+            planning_protocol=planning_protocol,
+            source_ref=str(contract.get("contract_id") or "task_execution_contract"),
+        )
+        task_contract_payload = task_contract_manifest.to_model_visible_payload()
         graph_node_runtime_context_payload = (
             {"graph_node_runtime_context": _graph_node_model_context_projection(graph_slot)}
             if graph_slot
@@ -1029,7 +1033,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_packet_payload_content("Task execution task contract", task_contract_payload),
                     kind="task_contract_stable",
-                    source_ref=str(contract.get("contract_id") or "task_execution_contract"),
+                    source_ref=task_contract_manifest.source_ref,
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1164,6 +1168,7 @@ class RuntimeCompiler:
         action_schema_manifest_payload = _attach_action_schema_manifest(prompt_manifest, action_schema_manifest)
         artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
+        task_contract_manifest_payload = _attach_task_contract_manifest(prompt_manifest, task_contract_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind="task_execution",
@@ -1231,6 +1236,7 @@ class RuntimeCompiler:
             action_schema_manifest=action_schema_manifest_payload,
             artifact_scope_manifest=artifact_scope_manifest_payload,
             tool_catalog_manifest=tool_catalog_manifest_payload,
+            task_contract_manifest=task_contract_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
@@ -1245,6 +1251,7 @@ class RuntimeCompiler:
                 "action_schema_manifest": action_schema_manifest_payload,
                 "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
+                "task_contract_manifest": task_contract_manifest_payload,
                 "model_input_authority": "runtime_invocation_packet.model_messages",
                 "artifact_scope": {
                     **sandbox_execution_scope.to_diagnostics(),
@@ -2691,6 +2698,15 @@ def _attach_tool_catalog_manifest(
 ) -> dict[str, Any]:
     payload = tool_catalog_manifest.to_dict()
     prompt_manifest["tool_catalog_manifest"] = payload
+    return payload
+
+
+def _attach_task_contract_manifest(
+    prompt_manifest: dict[str, Any],
+    task_contract_manifest: TaskContractManifest,
+) -> dict[str, Any]:
+    payload = task_contract_manifest.to_dict()
+    prompt_manifest["task_contract_manifest"] = payload
     return payload
 
 

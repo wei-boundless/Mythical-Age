@@ -1464,6 +1464,12 @@ def _runtime_scope(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWor
     graph_state = dict(work_order.graph_state or {})
     input_package = dict(work_order.input_package or {})
     dispatch_context = dict(work_order.dispatch_context or {})
+    task_environment_id = str(
+        input_package.get("task_environment_id")
+        or dict(dict(work_order.graph_slot or {}).get("output_contract") or {}).get("environment_projection", {}).get("task_environment_id")
+        or graph_config.task_environment_id
+        or ""
+    )
     return {
         **dict(environment.get("runtime_scope") or {}),
         **dict(graph_state.get("runtime_scope") or {}),
@@ -1472,7 +1478,9 @@ def _runtime_scope(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWor
         **dict(diagnostics.get("runtime_scope") or {}),
         **({"project_id": str(diagnostics.get("project_id") or "")} if str(diagnostics.get("project_id") or "") else {}),
         **({"scope_id": str(diagnostics.get("scope_id") or "")} if str(diagnostics.get("scope_id") or "") else {}),
-        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "task_environment_id": task_environment_id,
+        "node_session_id": str(work_order.node_session_id or ""),
+        "node_session_policy": dict(work_order.node_session_policy or {}),
         "graph_run_id": work_order.graph_run_id,
         "task_run_id": work_order.task_run_id,
         "authority": "harness.graph.work_order_runtime_scope",
