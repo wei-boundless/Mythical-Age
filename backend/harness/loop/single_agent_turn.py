@@ -45,6 +45,7 @@ from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from permissions.policy import normalize_permission_mode
+from prompt_library import SINGLE_AGENT_ADMISSION_REPAIR_PROMPT, SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT
 
 
 logger = logging.getLogger(__name__)
@@ -1706,13 +1707,7 @@ def _single_agent_admission_repair_messages(
         "admission": admission.to_dict(),
     }
     repair_instruction = (
-        "你是一名单轮动作准入修复员。\n"
-        "你只负责在运行边界已经拒绝上一动作后，重新给出一个合法的最终控制裁决。\n"
-        "你不能执行动作，不能忽略 admission，不能假设用户已经授权。\n\n"
-        "请只输出一个 JSON action。允许的 action_type 见修复输入。"
-        "当前阶段禁止普通工具调用；如果需要工具才能继续，应改为询问用户、请求持续任务或说明边界。"
-        "如果可以直接回答，使用 respond 并给出 final_answer。"
-        "禁止输出解释文字，禁止 Markdown。\n\n"
+        f"{SINGLE_AGENT_ADMISSION_REPAIR_PROMPT}\n\n"
         "修复输入：\n"
         f"{json.dumps(repair_payload, ensure_ascii=False, sort_keys=True)}"
     )
@@ -1759,13 +1754,10 @@ def _single_agent_protocol_repair_messages(
         else "当前修复阶段不允许普通工具调用；如需更多执行能力，应改为询问用户、请求持续任务、阻止或直接回答。\n"
     )
     repair_instruction = (
-        "你是一名动作协议修复员。\n"
+        f"{SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT}\n\n"
         f"你只负责把上一轮模型输出修复为{repair_target_text}。\n"
-        "你不能执行动作，不能扩写用户目标，不能引入新需求。\n\n"
-        "上一轮输出违反了运行协议。请根据用户当前请求、运行边界和允许动作，只输出一个 JSON 对象。\n"
         "如果需要控制裁决，只能选择一个 action_type。\n"
         f"{tool_repair_instruction}"
-        "禁止输出解释文字，禁止 Markdown，禁止多个控制动作。\n\n"
         "修复输入：\n"
         f"{json.dumps(repair_payload, ensure_ascii=False, sort_keys=True)}"
     )

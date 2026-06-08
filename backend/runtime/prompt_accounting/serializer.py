@@ -58,6 +58,13 @@ class CanonicalPromptSerializer:
         bindings = _model_request_bindings(model_request)
         plan = _model_request_segment_plan(model_request) or dict(segment_plan or {})
         planned_by_index = _bindings_by_message_index(bindings) if bindings else _plan_segments_by_message_index(plan)
+        provider_payload_manifest = _model_request_provider_payload_manifest(model_request)
+        provider_tool_segment = _provider_payload_tool_segment(provider_payload_manifest)
+        tool_schema_profile = provider_tool_segment or _tool_schema_cache_profile(
+            normalized_tools=normalized_tools,
+            normalized_messages=normalized_messages,
+            planned_by_index=planned_by_index,
+        )
         segments: list[PromptSegment] = []
         ordinal = 0
         for index, message in enumerate(normalized_messages):
@@ -110,28 +117,30 @@ class CanonicalPromptSerializer:
             ordinal += 1
             segment_payload = canonical_json({"tools": normalized_tools})
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
+            tool_schema_metadata = dict(tool_schema_profile.get("metadata") or {})
             segments.append(
                 PromptSegment(
-                    segment_id=_segment_id(request_id, ordinal, "tool_schema", segment_payload),
+                    segment_id=_segment_id(request_id, ordinal, str(tool_schema_profile.get("kind") or "tool_schema_catalog"), segment_payload),
                     request_id=request_id,
                     run_id=canonical_run_id,
                     task_run_id=str(task_run_id or ""),
                     session_id=str(session_id or ""),
-                    kind="tool_schema",
+                    kind=str(tool_schema_profile.get("kind") or "tool_schema_catalog"),
                     ordinal=ordinal,
                     role="tool_schema",
                     content_hash=stable_text_hash(segment_payload),
                     byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
                     predicted_tokens=token_count.tokens,
-                    cache_role="never_cache",
+                    cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
+                    prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
                     compression_role="preserve",
                     authority_class="contract",
-                    source="model_request.tools",
+                    source=str(tool_schema_profile.get("source") or "model_request.tools"),
                     created_at=timestamp,
                     metadata={
                         "tool_count": len(normalized_tools),
                         "token_count_mode": token_count.mode,
-                        "cache_note": "tool_schema_is_recorded_but_not_promoted_to_prefix_without_explicit_request_boundary",
+                        **tool_schema_metadata,
                     },
                 )
             )
@@ -313,6 +322,164 @@ def _tool_description(tool: Any) -> str:
     return str(getattr(tool, "description", "") or getattr(tool, "display_name", "") or "")
 
 
+def _tool_schema_cache_profile(
+    *,
+    normalized_tools: list[dict[str, Any]],
+    normalized_messages: list[dict[str, Any]],
+    planned_by_index: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    default_profile = {
+        "cache_role": "never_cache",
+        "prefix_tier": "none",
+        "source": "model_request.tools",
+        "metadata": {
+            "cache_note": "tool_schema_is_recorded_but_not_promoted_without_matching_stable_tool_index",
+            "tool_schema_cache_decision": "not_promoted",
+        },
+    }
+    if not normalized_tools:
+        return default_profile
+    tool_index = _find_planned_tool_index(normalized_messages=normalized_messages, planned_by_index=planned_by_index)
+    if not tool_index:
+        return {
+            **default_profile,
+            "metadata": {
+                **dict(default_profile["metadata"]),
+                "tool_schema_cache_reason": "missing_stable_tool_index",
+            },
+        }
+    planned = dict(tool_index["planned"])
+    expected = _tool_index_fingerprint(tool_index.get("payload"))
+    actual = _provider_tool_schema_fingerprint(normalized_tools)
+    if expected != actual:
+        return {
+            **default_profile,
+            "metadata": {
+                **dict(default_profile["metadata"]),
+                "tool_schema_cache_reason": "provider_tools_do_not_match_tool_index",
+                "stable_tool_index_segment_id": _planned_segment_ref(planned),
+                "expected_tool_names": list(expected.get("tool_names") or []),
+                "actual_tool_names": list(actual.get("tool_names") or []),
+            },
+        }
+    cache_scope = str(planned.get("cache_scope") or "session")
+    cache_role = _cache_role(planned.get("cache_role"))
+    prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=cache_scope, cache_role=cache_role)
+    if cache_role not in {"cacheable_prefix", "session_stable"}:
+        return {
+            **default_profile,
+            "metadata": {
+                **dict(default_profile["metadata"]),
+                "tool_schema_cache_reason": "matched_tool_index_is_not_stable",
+                "stable_tool_index_segment_id": _planned_segment_ref(planned),
+            },
+        }
+    return {
+        "cache_role": cache_role,
+        "prefix_tier": prefix_tier,
+        "source": str(planned.get("source_ref") or "model_request.tools"),
+        "metadata": {
+            "tool_count": len(normalized_tools),
+            "cache_note": "tool_schema_cache_role_derived_from_matching_stable_tool_index",
+            "tool_schema_cache_decision": "derived_from_stable_tool_index",
+            "stable_tool_index_segment_id": _planned_segment_ref(planned),
+            "stable_tool_index_cache_scope": cache_scope,
+            "stable_tool_index_cache_role": cache_role,
+            "stable_tool_index_prefix_tier": prefix_tier,
+        },
+    }
+
+
+def _find_planned_tool_index(
+    *,
+    normalized_messages: list[dict[str, Any]],
+    planned_by_index: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    for index, planned in sorted(planned_by_index.items()):
+        if str(dict(planned or {}).get("kind") or "") != "tool_index_stable":
+            continue
+        if index < 0 or index >= len(normalized_messages):
+            continue
+        payload = _parse_titled_json_payload(str(dict(normalized_messages[index]).get("content") or ""))
+        if not isinstance(payload, dict):
+            continue
+        return {"planned": dict(planned or {}), "payload": payload}
+    return {}
+
+
+def _parse_titled_json_payload(content: str) -> Any | None:
+    text = str(content or "").strip()
+    if not text:
+        return None
+    candidates = [text]
+    if "\n" in text:
+        candidates.append(text.split("\n", 1)[1].strip())
+    for candidate in candidates:
+        if not candidate or candidate[0] not in "{[":
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _tool_index_fingerprint(payload: Any) -> dict[str, Any]:
+    available = list(dict(payload or {}).get("available_tools") or []) if isinstance(payload, dict) else []
+    tools: list[dict[str, str]] = []
+    for item in available:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("tool_name") or item.get("name") or "").strip()
+        if not name:
+            continue
+        tools.append(
+            {
+                "name": name,
+                "input_schema_ref": str(item.get("input_schema_ref") or "").strip(),
+            }
+        )
+    ordered = sorted(tools, key=lambda item: item["name"])
+    return {
+        "tools": ordered,
+        "tool_names": [item["name"] for item in ordered],
+    }
+
+
+def _provider_tool_schema_fingerprint(normalized_tools: list[dict[str, Any]]) -> dict[str, Any]:
+    tools: list[dict[str, str]] = []
+    for item in normalized_tools:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        tools.append(
+            {
+                "name": name,
+                "input_schema_ref": _short_schema_ref(item.get("schema") or {}),
+            }
+        )
+    ordered = sorted(tools, key=lambda item: item["name"])
+    return {
+        "tools": ordered,
+        "tool_names": [item["name"] for item in ordered],
+    }
+
+
+def _short_schema_ref(schema: Any) -> str:
+    digest = stable_text_hash(canonical_json(schema or {}))
+    return "sha256:" + digest.removeprefix("sha256:")[:10]
+
+
+def _planned_segment_ref(planned: dict[str, Any]) -> str:
+    metadata = dict(dict(planned or {}).get("metadata") or {})
+    return str(
+        dict(planned or {}).get("segment_id")
+        or dict(planned or {}).get("planned_segment_id")
+        or metadata.get("planned_segment_id")
+        or ""
+    )
+
+
 def _model_request_messages(model_request: Any | None) -> list[dict[str, Any]]:
     if model_request is None:
         return []
@@ -353,6 +520,43 @@ def _model_request_segment_plan(model_request: Any | None) -> dict[str, Any]:
     if value is None and isinstance(model_request, dict):
         value = model_request.get("segment_plan")
     return dict(value or {}) if isinstance(value, dict) else {}
+
+
+def _model_request_provider_payload_manifest(model_request: Any | None) -> dict[str, Any]:
+    if model_request is None:
+        return {}
+    value = getattr(model_request, "provider_payload_manifest", None)
+    if value is None and isinstance(model_request, dict):
+        value = model_request.get("provider_payload_manifest")
+    if hasattr(value, "to_dict"):
+        return dict(value.to_dict())
+    return dict(value or {}) if isinstance(value, dict) else {}
+
+
+def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
+    for item in list(dict(manifest or {}).get("segments") or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("transport_location") or "") != "tools":
+            continue
+        metadata = dict(item.get("metadata") or {})
+        return {
+            "kind": str(item.get("kind") or "tool_schema_catalog"),
+            "cache_role": _cache_role(item.get("cache_role")),
+            "prefix_tier": _prefix_tier(
+                item.get("prefix_tier"),
+                cache_scope=str(item.get("cache_scope") or "none"),
+                cache_role=_cache_role(item.get("cache_role")),
+            ),
+            "source": str(item.get("source_ref") or "model_request.tools"),
+            "metadata": {
+                **metadata,
+                "provider_payload_manifest_ref": str(dict(manifest or {}).get("manifest_id") or ""),
+                "provider_payload_segment_id": str(item.get("segment_id") or ""),
+                "provider_payload_authority": str(item.get("authority") or ""),
+            },
+        }
+    return {}
 
 
 def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:

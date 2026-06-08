@@ -111,8 +111,19 @@ def _signal_lane_state(item: dict[str, Any]) -> str:
 def _activity(item: dict[str, Any]) -> dict[str, Any]:
     activity = item.get("activity")
     if isinstance(activity, dict) and activity.get("activity_state"):
-        return dict(activity)
-    return dict(project_runtime_activity(item))
+        payload = dict(activity)
+    else:
+        payload = dict(project_runtime_activity(item))
+    if str(item.get("lifecycle") or "") == "stale" or bool(item.get("stale") is True):
+        return {
+            **payload,
+            "activity_state": "stale",
+            "activity_label": "等待检查",
+            "is_running": False,
+            "is_waiting": True,
+            "tone": "neutral",
+        }
+    return payload
 
 
 def _source_kind(item: dict[str, Any]) -> str:

@@ -16,6 +16,7 @@ from .rules import list_builtin_prompt_rule_resources
 from .rules import prompt_rule_from_resource
 from .system_prompts import list_builtin_system_prompt_resources
 from .tool_prompts import list_builtin_tool_prompt_resources
+from .utility_prompts import list_builtin_utility_prompt_resources
 from .worker_prompts import list_builtin_worker_prompt_resources
 
 
@@ -81,6 +82,7 @@ class PromptLibraryRegistry:
                 *list_builtin_runtime_prompt_resources(),
                 *list_builtin_prompt_rule_resources(),
                 *list_builtin_tool_prompt_resources(),
+                *list_builtin_utility_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
                 *list_builtin_personality_prompt_resources(),
                 *list_builtin_worker_prompt_resources(),

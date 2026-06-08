@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from runtime.model_gateway.model_request import ModelRequestBuilder
-from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner, PromptCachePlanner, PromptSegment
+from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner, PromptCachePlanner, PromptSegment, stable_text_hash
 
 
 def test_different_task_nodes_keep_global_prefix_but_change_task_prefix() -> None:
@@ -319,3 +319,192 @@ def test_provider_global_prefix_rejects_task_semantic_fields() -> None:
                 }
             ],
         )
+
+
+def test_tool_schema_cache_role_derives_from_matching_stable_tool_index() -> None:
+    input_schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {
+            "role": "system",
+            "content": "Task execution tool index\n"
+            + json.dumps(
+                {
+                    "available_tools": [
+                        {
+                            "tool_name": "read_file",
+                            "input_schema_ref": _short_schema_ref(input_schema),
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        },
+        {"role": "user", "content": "current request"},
+    ]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": input_schema,
+            },
+        }
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:provider-tool-schema-cache",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": messages[1]["content"],
+                "kind": "tool_index_stable",
+                "source_ref": "task_execution_tool_index",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[2]["content"],
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:provider-tool-schema-cache",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+    )
+    provider_tool_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "tools"
+    )
+    assert provider_tool_segment.kind == "tool_schema_catalog"
+    assert provider_tool_segment.cache_role == "session_stable"
+    assert provider_tool_segment.prefix_tier == "task"
+
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:provider-tool-schema-cache",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        model_request=model_request,
+    )
+
+    tool_schema = next(segment for segment in segment_map.segments if segment.kind == "tool_schema_catalog")
+    assert tool_schema.cache_role == "session_stable"
+    assert tool_schema.prefix_tier == "task"
+    assert tool_schema.source == "task_execution_tool_index"
+    assert tool_schema.metadata["tool_schema_cache_decision"] == "derived_from_stable_tool_index"
+    assert tool_schema.metadata["provider_payload_manifest_ref"] == model_request.provider_payload_manifest.manifest_id
+
+
+def test_tool_schema_stays_never_cache_when_provider_tools_do_not_match_tool_index() -> None:
+    input_schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {
+            "role": "system",
+            "content": "Task execution tool index\n"
+            + json.dumps(
+                {
+                    "available_tools": [
+                        {
+                            "tool_name": "write_file",
+                            "input_schema_ref": _short_schema_ref(input_schema),
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": input_schema,
+            },
+        }
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:provider-tool-schema-cache-mismatch",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": messages[1]["content"],
+                "kind": "tool_index_stable",
+                "source_ref": "task_execution_tool_index",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "prefix_tier": "task",
+                "compression_role": "preserve",
+            },
+        ],
+    ).to_dict()
+
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:provider-tool-schema-cache-mismatch",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+    )
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:provider-tool-schema-cache-mismatch",
+        messages=messages,
+        tools=tools,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+        model_request=model_request,
+    )
+
+    tool_schema = next(segment for segment in segment_map.segments if segment.kind == "tool_schema_catalog")
+    assert tool_schema.cache_role == "never_cache"
+    assert tool_schema.prefix_tier == "none"
+    assert tool_schema.metadata["tool_schema_cache_reason"] == "provider_tools_do_not_match_tool_index"
+
+
+def _short_schema_ref(schema: dict[str, object]) -> str:
+    digest = stable_text_hash(json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return "sha256:" + digest.removeprefix("sha256:")[:10]

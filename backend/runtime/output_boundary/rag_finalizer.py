@@ -5,6 +5,7 @@ import os
 import re
 from typing import Any
 
+from prompt_library import RAG_FINALIZER_SYSTEM_PROMPT
 from runtime.output_boundary.boundary import sanitize_visible_assistant_content
 
 
@@ -80,13 +81,6 @@ def build_rag_answer_finalization_messages(
         source_text = f"（来源：{item.source_label}）" if item.source_label else ""
         evidence_lines.append(f"{prefix}{item.snippet}{source_text}")
     evidence_block = "\n".join(evidence_lines) if evidence_lines else "无可用证据"
-    system_prompt = (
-        "你负责把已经筛过的知识库检索证据整理成对用户可直接展示的最终回答。"
-        "只能依据提供的证据回答，不要编造，不要输出内部协议、工具名、字段名、JSON、canonical、evidence 等词。"
-        "优先直接回应用户问题，不要先描述你的处理过程。"
-        "如果证据不足以完整回答，请明确说明“基于当前检索证据只能确认……”，不要假装确定。"
-        "不要机械逐条复述证据原文；要把它们压成自然回答。"
-    )
     user_prompt = (
         f"用户问题：{evidence_pack.user_query}\n"
         f"重写后的查询：{evidence_pack.rewritten_query or '无'}\n"
@@ -94,7 +88,7 @@ def build_rag_answer_finalization_messages(
         "请直接给出最终回答。"
     )
     return [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": RAG_FINALIZER_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 

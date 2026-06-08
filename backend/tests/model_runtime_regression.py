@@ -236,6 +236,8 @@ def test_generate_title_uses_utility_minimal_segment_plan(
     assert local.diagnostics["cache_metric_scope"] == "utility_minimal_plan"
     assert local.diagnostics["call_purpose"] == "utility.generate_title"
     assert local.diagnostics["prompt_manifest"]["cache_metric_scope"] == "utility_minimal_plan"
+    assert local.diagnostics["prompt_manifest"]["primary_prompt_ref"] == "utility.title_generation.session"
+    assert local.diagnostics["prompt_manifest"]["prompt_refs"] == ["utility.title_generation.session"]
 
 
 def test_model_runtime_maps_timeout_errors(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -258,9 +258,12 @@ def test_memory_maintenance_model_call_has_prompt_accounting_context(tmp_path) -
     assert context["session_id"] == "session-maintenance-accounting"
     assert context["run_id"] == "memory-maintenance:session-maintenance-accounting:2"
     assert context["prompt_manifest"]["utility_purpose"] == "memory.maintenance_after_commit"
+    assert context["prompt_manifest"]["primary_prompt_ref"] == "agent.memory_system_agent.memory_maintenance.work_role"
+    assert context["prompt_manifest"]["prompt_refs"] == ["agent.memory_system_agent.memory_maintenance.work_role"]
     segments = context["segment_plan"]["segments"]
     assert [segment["kind"] for segment in segments] == ["utility_static", "utility_stable", "utility_volatile"]
     assert [segment["prefix_tier"] for segment in segments] == ["provider_global", "session", "volatile"]
+    assert segments[0]["source_ref"] == "agent.memory_system_agent.memory_maintenance.work_role"
 
 
 def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state(tmp_path) -> None:
@@ -331,7 +334,10 @@ def test_durable_memory_recall_model_call_has_prompt_accounting_context(tmp_path
     context = calls[0]["accounting_context"]
     assert context["cache_metric_scope"] == "durable_memory_recall"
     assert context["prompt_manifest"]["utility_purpose"] == "memory.durable_recall_selector"
+    assert context["prompt_manifest"]["primary_prompt_ref"] == "utility.memory.durable_recall_selector"
+    assert context["prompt_manifest"]["prompt_refs"] == ["utility.memory.durable_recall_selector"]
     assert context["segment_plan"]["segments"]
+    assert context["segment_plan"]["segments"][0]["source_ref"] == "utility.memory.durable_recall_selector"
 
 
 def test_memory_maintenance_model_failure_does_not_fallback_write_durable(tmp_path) -> None:

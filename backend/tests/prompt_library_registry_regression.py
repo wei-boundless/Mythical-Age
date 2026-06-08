@@ -5,14 +5,59 @@ from pathlib import Path
 
 from prompt_library import (
     DEFAULT_PERSONALITY_PROMPT_REF,
+    DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
+    EVIDENCE_DISTILLER_PROMPT,
     FOUNDATION_PROMPT_REFS,
     GENERAL_LIFECYCLE_PROMPT_IDS,
+    HISTORY_SUMMARY_RECOVERY_PROMPT,
+    MCP_SERVER_INSTRUCTIONS_PROMPT,
     PromptAssemblyRequest,
     PromptAssemblyService,
     PromptLibraryRegistry,
     PromptPack,
     PromptResource,
+    RAG_FINALIZER_SYSTEM_PROMPT,
+    SESSION_TITLE_GENERATION_PROMPT,
+    SINGLE_AGENT_ADMISSION_REPAIR_PROMPT,
+    SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT,
+    TASK_ACTION_JSON_REPAIR_PROMPT,
 )
+
+
+def test_prompt_library_registers_builtin_utility_prompts(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+    resources = {item.resource_id: item for item in registry.list_active_resources()}
+
+    expected = {
+        "utility.finalizer.rag_answer": RAG_FINALIZER_SYSTEM_PROMPT,
+        "utility.distiller.search_evidence": EVIDENCE_DISTILLER_PROMPT,
+        "utility.memory.durable_recall_selector": DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
+        "utility.title_generation.session": SESSION_TITLE_GENERATION_PROMPT,
+        "utility.summarize_history.context_recovery": HISTORY_SUMMARY_RECOVERY_PROMPT,
+        "utility.repair.single_agent_admission": SINGLE_AGENT_ADMISSION_REPAIR_PROMPT,
+        "utility.repair.single_agent_protocol": SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT,
+        "utility.repair.task_action_json": TASK_ACTION_JSON_REPAIR_PROMPT,
+        "mcp.prompt.server_instructions": MCP_SERVER_INSTRUCTIONS_PROMPT,
+    }
+    for prompt_id, content in expected.items():
+        resource = resources[prompt_id]
+        assert resource.content == content
+        assert resource.owner_layer == "runtime"
+        assert resource.cache_scope == "static"
+        assert resource.source_ref.startswith("prompt_library.utility_prompts")
+        assert resource.metadata["authority_scope"] == "utility_prompt"
+
+    utility_resources = registry.list_active_resources(category="utility")
+    mcp_resources = registry.list_active_resources(category="mcp")
+    assert {item.resource_id for item in utility_resources} >= {
+        "utility.finalizer.rag_answer",
+        "utility.repair.single_agent_protocol",
+        "utility.verifier.readonly_delivery",
+    }
+    assert {item.resource_id for item in mcp_resources} == {
+        "mcp.prompt.server_instructions",
+        "mcp.prompt.capability_usage",
+    }
 
 
 def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_default(tmp_path: Path) -> None:
@@ -91,7 +136,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         assert "AGENTS.md" not in resource.content
         assert "{cwd}" not in resource.content
         assert "工具列表" not in resource.content
-        assert "当前日期" not in resource.content
+    assert "当前日期" not in resource.content
 
     assert resource_by_id["runtime.single_agent_turn"].category == "runtime"
     assert resource_by_id["runtime.task_execution"].category == "runtime"

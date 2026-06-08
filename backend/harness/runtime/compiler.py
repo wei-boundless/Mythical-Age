@@ -15,6 +15,7 @@ from prompt_library import (
 )
 from prompt_library.rules import build_rule_diagnostics
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
+from prompt_composition import PromptCompositionLayerInput, build_shadow_prompt_composition_manifest
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
@@ -199,6 +200,8 @@ class RuntimeCompiler:
             source="harness.runtime.compiler.semantic_compaction",
         )
         model_messages = [dict(item) for item in protocol_sanitizer.messages]
+        semantic_dynamic_refs = ("semantic_compaction_request",)
+        semantic_volatile_refs = ("messages", "recent_messages")
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind=invocation_kind,
             assembly=_merge_prompt_assemblies(
@@ -207,8 +210,8 @@ class RuntimeCompiler:
                 invocation_kind=invocation_kind,
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=("semantic_compaction_request",),
-            volatile_state_refs=("messages", "recent_messages"),
+            dynamic_projection_refs=semantic_dynamic_refs,
+            volatile_state_refs=semantic_volatile_refs,
         ).to_dict()
         prompt_manifest["rendered_prompt_refs"] = [
             "general.runtime_protocol.system_call_protocol",
@@ -222,6 +225,24 @@ class RuntimeCompiler:
         }
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
+        prompt_composition_manifest = _attach_prompt_composition_manifest(
+            prompt_manifest,
+            invocation_kind=invocation_kind,
+            packet_id=packet_id,
+            layers=(
+                PromptCompositionLayerInput(
+                    layer_id="agent_work_role",
+                    slot_layer="agent_stable",
+                    assembly=agent_prompt_assembly,
+                    message_kinds=("semantic_compaction_role",),
+                    lifecycle="session_stable",
+                ),
+            ),
+            segment_plan=segment_plan.to_dict(),
+            dynamic_projection_refs=semantic_dynamic_refs,
+            volatile_state_refs=semantic_volatile_refs,
+            diagnostics={"compiler_entrypoint": "compile_semantic_compaction_packet"},
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{request_id}:semantic_compaction",
@@ -255,6 +276,7 @@ class RuntimeCompiler:
             task_run_id=resolved_task_run_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
+            prompt_composition_manifest=prompt_composition_manifest,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=(),
             allowed_action_types=("model_response",),
@@ -547,6 +569,20 @@ class RuntimeCompiler:
             source="harness.runtime.compiler.single_agent_turn",
         )
         model_messages = [dict(item) for item in protocol_sanitizer.messages]
+        single_turn_dynamic_refs = (
+            "agent_visible_runtime_projection",
+            "operation_authorization",
+            "active_work_context",
+            "recent_work_outcome",
+        )
+        single_turn_volatile_refs = (
+            "runtime_envelope",
+            "turn_id",
+            "history",
+            "user_message",
+            "recent_work_outcome",
+            "editor_context",
+        )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="single_agent_turn",
             assembly=_merge_prompt_assemblies(
@@ -558,8 +594,8 @@ class RuntimeCompiler:
                 invocation_kind="single_agent_turn",
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization", "active_work_context", "recent_work_outcome"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "recent_work_outcome", "editor_context"),
+            dynamic_projection_refs=single_turn_dynamic_refs,
+            volatile_state_refs=single_turn_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
@@ -571,6 +607,52 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        prompt_composition_manifest = _attach_prompt_composition_manifest(
+            prompt_manifest,
+            invocation_kind="single_agent_turn",
+            packet_id=packet_id,
+            layers=(
+                PromptCompositionLayerInput(
+                    layer_id="runtime_pack",
+                    slot_layer="global_static",
+                    assembly=prompt_assembly,
+                    message_kinds=("global_static",),
+                    lifecycle="global_static",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="personality",
+                    slot_layer="personality_stable",
+                    assembly=personality_prompt_assembly,
+                    message_kinds=("personality_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="environment",
+                    slot_layer="environment_stable",
+                    assembly=environment_prompt_assembly,
+                    message_kinds=("turn_context",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="lifecycle",
+                    slot_layer="lifecycle_stable",
+                    assembly=lifecycle_prompt_assembly,
+                    message_kinds=("turn_context",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="agent_work_role",
+                    slot_layer="agent_stable",
+                    assembly=agent_prompt_assembly,
+                    message_kinds=("turn_context",),
+                    lifecycle="session_stable",
+                ),
+            ),
+            segment_plan=segment_plan.to_dict(),
+            dynamic_projection_refs=single_turn_dynamic_refs,
+            volatile_state_refs=single_turn_volatile_refs,
+            diagnostics={"compiler_entrypoint": "compile_single_agent_turn_packet"},
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -581,6 +663,7 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
+            prompt_composition_manifest=prompt_composition_manifest,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=single_turn_tools,
             allowed_action_types=allowed_actions,
@@ -1022,6 +1105,18 @@ class RuntimeCompiler:
             ],
             enforce_dynamic_context_reports=True,
         )
+        task_dynamic_refs = (
+            "agent_visible_runtime_projection",
+            "operation_authorization",
+        )
+        task_volatile_refs = (
+            "runtime_envelope",
+            "task_state",
+            "user_steering_updates",
+            "pending_user_steers",
+            "active_contract_revisions",
+            "editor_context",
+        )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="task_execution",
             assembly=_merge_prompt_assemblies(
@@ -1034,18 +1129,8 @@ class RuntimeCompiler:
                 invocation_kind="task_execution",
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=(
-                "agent_visible_runtime_projection",
-                "operation_authorization",
-            ),
-            volatile_state_refs=(
-                "runtime_envelope",
-                "task_state",
-                "user_steering_updates",
-                "pending_user_steers",
-                "active_contract_revisions",
-                "editor_context",
-            ),
+            dynamic_projection_refs=task_dynamic_refs,
+            volatile_state_refs=task_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
@@ -1056,6 +1141,59 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        prompt_composition_manifest = _attach_prompt_composition_manifest(
+            prompt_manifest,
+            invocation_kind="task_execution",
+            packet_id=packet_id,
+            layers=(
+                PromptCompositionLayerInput(
+                    layer_id="runtime_pack",
+                    slot_layer="global_static",
+                    assembly=prompt_assembly,
+                    message_kinds=("global_static",),
+                    lifecycle="global_static",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="environment",
+                    slot_layer="environment_stable",
+                    assembly=environment_prompt_assembly,
+                    message_kinds=("environment_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="lifecycle",
+                    slot_layer="lifecycle_stable",
+                    assembly=lifecycle_prompt_assembly,
+                    message_kinds=("environment_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="personality",
+                    slot_layer="personality_stable",
+                    assembly=personality_prompt_assembly,
+                    message_kinds=("personality_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="agent_work_role",
+                    slot_layer="agent_stable",
+                    assembly=agent_prompt_assembly,
+                    message_kinds=("agent_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="task_prompt_contract",
+                    slot_layer="task_contract_stable",
+                    assembly=task_prompt_assembly,
+                    message_kinds=("task_prompt_contract",),
+                    lifecycle="task_stable",
+                ),
+            ),
+            segment_plan=segment_plan.to_dict(),
+            dynamic_projection_refs=task_dynamic_refs,
+            volatile_state_refs=task_volatile_refs,
+            diagnostics={"compiler_entrypoint": "compile_task_execution_packet"},
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1066,6 +1204,7 @@ class RuntimeCompiler:
             task_run_id=task_run_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
+            prompt_composition_manifest=prompt_composition_manifest,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
@@ -1337,6 +1476,15 @@ class RuntimeCompiler:
             ],
             enforce_dynamic_context_reports=True,
         )
+        observation_dynamic_refs = ("agent_visible_runtime_projection", "operation_authorization")
+        observation_volatile_refs = (
+            "runtime_envelope",
+            "turn_id",
+            "history",
+            "user_message",
+            "observations",
+            "editor_context",
+        )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="tool_observation_followup",
             assembly=_merge_prompt_assemblies(
@@ -1348,8 +1496,8 @@ class RuntimeCompiler:
                 invocation_kind="tool_observation_followup",
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations", "editor_context"),
+            dynamic_projection_refs=observation_dynamic_refs,
+            volatile_state_refs=observation_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
@@ -1360,6 +1508,52 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        prompt_composition_manifest = _attach_prompt_composition_manifest(
+            prompt_manifest,
+            invocation_kind="tool_observation_followup",
+            packet_id=packet_id,
+            layers=(
+                PromptCompositionLayerInput(
+                    layer_id="runtime_pack",
+                    slot_layer="global_static",
+                    assembly=prompt_assembly,
+                    message_kinds=("global_static",),
+                    lifecycle="global_static",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="environment",
+                    slot_layer="environment_stable",
+                    assembly=environment_prompt_assembly,
+                    message_kinds=("environment_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="lifecycle",
+                    slot_layer="lifecycle_stable",
+                    assembly=lifecycle_prompt_assembly,
+                    message_kinds=("environment_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="personality",
+                    slot_layer="personality_stable",
+                    assembly=personality_prompt_assembly,
+                    message_kinds=("personality_stable",),
+                    lifecycle="session_stable",
+                ),
+                PromptCompositionLayerInput(
+                    layer_id="agent_work_role",
+                    slot_layer="agent_stable",
+                    assembly=agent_prompt_assembly,
+                    message_kinds=("agent_stable",),
+                    lifecycle="session_stable",
+                ),
+            ),
+            segment_plan=segment_plan.to_dict(),
+            dynamic_projection_refs=observation_dynamic_refs,
+            volatile_state_refs=observation_volatile_refs,
+            diagnostics={"compiler_entrypoint": "compile_observation_followup_packet"},
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1370,6 +1564,7 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
+            prompt_composition_manifest=prompt_composition_manifest,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
@@ -2435,6 +2630,45 @@ def _attach_model_message_metrics(
         and _valid_message_index(segment.get("model_message_index"), message_chars)
     )
     prompt_manifest["token_estimate"] = token_estimate
+
+
+def _attach_prompt_composition_manifest(
+    prompt_manifest: dict[str, Any],
+    *,
+    invocation_kind: str,
+    packet_id: str,
+    layers: tuple[PromptCompositionLayerInput, ...],
+    segment_plan: dict[str, Any],
+    dynamic_projection_refs: tuple[str, ...] = (),
+    volatile_state_refs: tuple[str, ...] = (),
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        composition = build_shadow_prompt_composition_manifest(
+            invocation_kind=invocation_kind,
+            packet_id=packet_id,
+            layers=layers,
+            segment_plan=segment_plan,
+            dynamic_fragment_refs=dynamic_projection_refs,
+            volatile_state_refs=volatile_state_refs,
+            diagnostics={
+                **dict(diagnostics or {}),
+                "shadow_mode": True,
+                "legacy_runtime_prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
+            },
+        )
+    except Exception as exc:
+        failure = {
+            "shadow_mode": True,
+            "status": "failed",
+            "error": str(exc),
+            "authority": "prompt_composition.shadow_manifest_builder",
+        }
+        prompt_manifest["prompt_composition"] = failure
+        return failure
+    payload = composition.to_dict()
+    prompt_manifest["prompt_composition"] = payload
+    return payload
 
 
 def _context_window_report(

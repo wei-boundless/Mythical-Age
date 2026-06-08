@@ -37,15 +37,18 @@ RUNNING_STATUSES = {"created", "queued", "in_progress", "running"}
 
 def with_runtime_activity(item: dict[str, Any], *, control_context: RuntimeActivityControlContext | None = None) -> dict[str, Any]:
     activity = project_runtime_activity(item, control_context=control_context)
+    existing_capability = dict(item.get("control_capability") or {})
+    control_capability = {
+        **existing_capability,
+        "is_resumable": activity["is_resumable"],
+        "is_interruptible": activity["is_interruptible"],
+        "control_reason": activity["control_reason"],
+    }
     return {
         **item,
         **activity,
         "activity": activity,
-        "control_capability": {
-            "is_resumable": activity["is_resumable"],
-            "is_interruptible": activity["is_interruptible"],
-            "control_reason": activity["control_reason"],
-        },
+        "control_capability": control_capability,
     }
 
 
@@ -74,6 +77,9 @@ def project_runtime_activity(item: dict[str, Any], *, control_context: RuntimeAc
 
 
 def activity_state(item: dict[str, Any]) -> ActivityState:
+    explicit = _text(item.get("activity_state") or dict(item.get("activity") or {}).get("activity_state"))
+    if explicit in {"running", "waiting", "paused", "stopped", "failed", "completed", "stale", "idle"}:
+        return explicit  # type: ignore[return-value]
     status = _text(item.get("status"))
     lifecycle = _text(item.get("lifecycle"))
     bucket = _text(item.get("bucket"))
@@ -154,6 +160,8 @@ def _is_resumable(
     if control_context and control_context.resumable is not None:
         return bool(control_context.resumable), control_context.reason or "control_context"
     capability = dict(item.get("control_capability") or {})
+    if "can_resume_task" in capability:
+        return bool(capability.get("can_resume_task")), str(capability.get("control_reason") or "control_capability")
     if "is_resumable" in capability:
         return bool(capability.get("is_resumable")), str(capability.get("control_reason") or "control_capability")
     control_state = _text(item.get("control_state") or dict(item.get("runtime_control") or {}).get("state"))
@@ -171,6 +179,8 @@ def _is_interruptible(
     if control_context and control_context.interruptible is not None:
         return bool(control_context.interruptible), control_context.reason or "control_context"
     capability = dict(item.get("control_capability") or {})
+    if "can_pause_task" in capability:
+        return bool(capability.get("can_pause_task")), str(capability.get("control_reason") or "control_capability")
     if "is_interruptible" in capability:
         return bool(capability.get("is_interruptible")), str(capability.get("control_reason") or "control_capability")
     if state != "running":
@@ -184,6 +194,9 @@ def _is_interruptible(
 
 
 def _activity_label(item: dict[str, Any], *, state: ActivityState) -> str:
+    explicit = _plain_text(item.get("activity_label") or dict(item.get("activity") or {}).get("activity_label"))
+    if explicit:
+        return explicit
     status = _text(item.get("status"))
     lifecycle = _text(item.get("lifecycle"))
     if state == "running":
@@ -241,3 +254,7 @@ def _first_text(*values: str) -> str:
 
 def _text(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _plain_text(value: Any) -> str:
+    return str(value or "").strip()

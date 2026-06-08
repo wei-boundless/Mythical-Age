@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from prompt_library import READONLY_PLANNER_ROLE_PROMPT
+
 
 @dataclass(frozen=True, slots=True)
 class AgentPlanStep:
@@ -284,15 +286,7 @@ def _readonly_planner_request(*, task_id: str, semantic_contract: dict[str, Any]
             "required": ["plan_id", "task_goal_type", "semantic_contract_ref", "steps", "authority"],
             "step_required": ["step_id", "title", "purpose", "evidence_expectations"],
         },
-        "role_prompt": "\n".join(
-            [
-                "你是一名只读任务计划员。",
-                "你只根据语义任务合同、用户显式流程和已经存在的真实观察生成可执行计划草稿。",
-                "你不修改文件，不运行命令，不宣称已经完成任何执行动作。",
-                "每个计划步骤必须说明目的、预期产物、需要的操作类型和证据期望。",
-                "请只输出符合 runtime.agent_plan_draft schema 的结构化结果。",
-            ]
-        ),
+        "role_prompt": READONLY_PLANNER_ROLE_PROMPT,
         "diagnostics": {
             "request_contract_only": True,
             "model_call_performed": False,

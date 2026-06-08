@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
+from harness.task_run_state_view import task_run_state_view
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.public_chat_timeline import build_public_chat_timeline
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -71,8 +72,11 @@ class RuntimeMonitorProjector:
         last_activity_at = max(created_at, updated_at, latest_event_at)
         last_activity_age_seconds = max(0.0, current_time - last_activity_at) if last_activity_at else 0.0
         status = str(getattr(task_run, "status", "") or "")
-        control = runtime_control(diagnostics)
-        control_state = str(control.get("state") or "")
+        state_view = task_run_state_view(task_run)
+        control = dict(state_view.get("runtime_control") or runtime_control(diagnostics))
+        control_state = str(state_view.get("control_state") or control.get("state") or "")
+        control_capability = dict(state_view.get("control_capability") or {})
+        activity = dict(state_view.get("activity") or {})
         terminal = is_terminal_status(status)
         route = self._route(task_run, diagnostics)
         session_scope = self._session_scope(task_run, diagnostics)
@@ -227,6 +231,24 @@ class RuntimeMonitorProjector:
             "diagnostic_reasons": diagnostic_reasons,
             "runtime_control": control,
             "control_state": control_state,
+            "task_work_state": str(state_view.get("task_work_state") or ""),
+            "executor_status": str(state_view.get("executor_status") or ""),
+            "executor_lease_state": str(state_view.get("executor_lease_state") or ""),
+            "recovery_action": str(state_view.get("recovery_action") or ""),
+            "recoverable": bool(state_view.get("recoverable")),
+            "graph_controlled": bool(state_view.get("graph_controlled")),
+            "running_claimed": bool(state_view.get("running_claimed")),
+            "can_pause": bool(state_view.get("can_pause")),
+            "can_resume": bool(state_view.get("can_resume")),
+            "can_stop": bool(state_view.get("can_stop")),
+            "resume_mode": str(state_view.get("resume_mode") or ""),
+            "activity_state": str(activity.get("activity_state") or ""),
+            "activity_label": str(activity.get("activity_label") or ""),
+            "is_resumable": bool(control_capability.get("can_resume_task", state_view.get("can_resume"))),
+            "is_interruptible": bool(control_capability.get("can_pause_task", state_view.get("can_pause"))),
+            "control_reason": str(control_capability.get("control_reason") or state_view.get("control_reason") or ""),
+            "activity": activity,
+            "control_capability": control_capability,
             "is_live": resource_class == "dynamic",
             "summary": summary,
             "latest_progress": latest_progress,

@@ -1,5 +1,6 @@
 .env
 .tmp/
+.runtime/
 .pytest_tmp/
 .pytest_cache/
 .vscode/

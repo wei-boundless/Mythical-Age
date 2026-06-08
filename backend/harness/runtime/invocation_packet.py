@@ -16,6 +16,7 @@ class RuntimeInvocationPacket:
     step_id: str = ""
     model_messages: list[Any] = field(default_factory=list)
     segment_plan: dict[str, Any] = field(default_factory=dict)
+    prompt_composition_manifest: dict[str, Any] = field(default_factory=dict)
     prompt_pack_refs: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
     allowed_action_types: tuple[str, ...] = ()
@@ -52,6 +53,7 @@ class RuntimeInvocationPacket:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["segment_plan"] = dict(self.segment_plan)
+        payload["prompt_composition_manifest"] = dict(self.prompt_composition_manifest)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["allowed_action_types"] = list(self.allowed_action_types)

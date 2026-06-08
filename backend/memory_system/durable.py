@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from pydantic import AliasChoices, BaseModel, Field
 
+from prompt_library import DURABLE_MEMORY_RECALL_SELECTOR_PROMPT
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.memory_manager import MemoryManager
@@ -114,14 +115,6 @@ class DurableMemoryRecallSelector:
             f"{header.get('title', '')} | {header.get('description', '')}"
             for header in headers
         )
-        system_prompt = (
-            "You are the durable memory recall selector controlled by the memory system. "
-            "Given a user query, main working context, and a manifest of available durable memory headers, "
-            "select only the memory note ids that are clearly useful for answering the current query. "
-            "Be strict. If nothing is clearly useful, return an empty selection. "
-            "Never answer the user directly. Return JSON with keys: should_recall, selected_note_ids, selection_reason, "
-            "needs_verification, manifest_only, ignore_memory."
-        )
         user_prompt = json.dumps(
             {
                 "query": request.query,
@@ -140,7 +133,7 @@ class DurableMemoryRecallSelector:
         )
         try:
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": DURABLE_MEMORY_RECALL_SELECTOR_PROMPT},
                 {"role": "user", "content": user_prompt},
             ]
             response = await _call_message_invoker(

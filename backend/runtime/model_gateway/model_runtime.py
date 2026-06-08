@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 from bootstrap.settings import AppSettingsService
 from config import LLM_PROVIDER_DEFAULTS
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from prompt_library import HISTORY_SUMMARY_RECOVERY_PROMPT, SESSION_TITLE_GENERATION_PROMPT
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
@@ -43,6 +44,14 @@ if TYPE_CHECKING:
     from agent_system.models.model_profile_models import ResolvedModelSpec
 
 logger = logging.getLogger(__name__)
+
+_UTILITY_PROMPT_REFS_BY_PURPOSE: dict[str, tuple[str, ...]] = {
+    "utility.generate_title": ("utility.title_generation.session",),
+    "utility.summarize_history": ("utility.summarize_history.context_recovery",),
+    "utility.rag_answer_finalizer": ("utility.finalizer.rag_answer",),
+    "memory.durable_recall_selector": ("utility.memory.durable_recall_selector",),
+    "memory.maintenance_after_commit": ("agent.memory_system_agent.memory_maintenance.work_role",),
+}
 
 
 class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
@@ -683,13 +692,9 @@ class ModelRuntime:
         raise RuntimeError("No model candidates available")
 
     async def generate_title(self, first_user_message: str) -> str:
-        prompt = (
-            "请根据用户的第一条消息生成一个中文会话标题。"
-            "要求不超过 10 个汉字，不要带引号，不要解释。"
-        )
         try:
             messages = [
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": SESSION_TITLE_GENERATION_PROMPT},
                 {"role": "user", "content": first_user_message},
             ]
             response = await self.invoke_messages(
@@ -708,14 +713,6 @@ class ModelRuntime:
             return (first_user_message.strip() or "新会话")[:10]
 
     async def summarize_history(self, messages: list[dict[str, Any]]) -> str:
-        prompt = (
-            "你是一名上下文压缩员。"
-            "你只负责把已有运行历史整理成后续模型可以继续工作的恢复点。"
-            "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。"
-            "请输出中文上下文恢复包，保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。"
-            "丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。"
-            "控制在 900 字以内，不要解释压缩过程。"
-        )
         transcript_lines: list[str] = []
         for item in messages:
             role = item.get("role", "assistant")
@@ -726,7 +723,7 @@ class ModelRuntime:
 
         try:
             messages = [
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": HISTORY_SUMMARY_RECOVERY_PROMPT},
                 {"role": "user", "content": transcript},
             ]
             response = await self.invoke_messages(
@@ -1953,6 +1950,8 @@ def _utility_accounting_context(
     stable_message_count: int = 1,
 ) -> dict[str, Any]:
     stable_count = max(1, int(stable_message_count or 1))
+    prompt_refs = _utility_prompt_refs_for_purpose(purpose)
+    primary_prompt_ref = prompt_refs[0] if prompt_refs else ""
     segment_plan = build_prompt_segment_plan(
         packet_id=f"utility:{purpose}:{uuid.uuid4().hex[:8]}",
         invocation_kind="utility_model_call",
@@ -1961,7 +1960,7 @@ def _utility_accounting_context(
                 "role": str(message.get("role") or "user"),
                 "content": str(message.get("content") or ""),
                 "kind": "utility_static" if index == 0 else ("utility_stable" if index < stable_count else "utility_volatile"),
-                "source_ref": purpose,
+                "source_ref": primary_prompt_ref if index == 0 and primary_prompt_ref else purpose,
                 "cache_scope": "global" if index == 0 else ("session" if index < stable_count else "none"),
                 "cache_role": "cacheable_prefix" if index == 0 else ("session_stable" if index < stable_count else "volatile"),
                 "prefix_tier": "provider_global" if index == 0 else ("session" if index < stable_count else "volatile"),
@@ -1979,9 +1978,16 @@ def _utility_accounting_context(
             "invocation_kind": "utility_model_call",
             "cache_metric_scope": "utility_minimal_plan",
             "utility_purpose": purpose,
+            "primary_prompt_ref": primary_prompt_ref,
+            "prompt_refs": list(prompt_refs),
             "segment_plan_ref": segment_plan.get("segment_plan_id", ""),
         },
     }
+
+
+def _utility_prompt_refs_for_purpose(purpose: str) -> tuple[str, ...]:
+    normalized = str(purpose or "").strip()
+    return tuple(_UTILITY_PROMPT_REFS_BY_PURPOSE.get(normalized, ()))
 
 
 def utility_accounting_context(

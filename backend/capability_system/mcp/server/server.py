@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from capability_system.mcp.local_registry import default_local_mcp_units
 from capability_system.paths import resolve_capability_backend_dir
 from capability_system.skills.registry import SkillRegistry
+from prompt_library import MCP_SERVER_INSTRUCTIONS_PROMPT
 from .local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from .tool_pool import build_mcp_tool_pool
 
@@ -47,10 +48,7 @@ class StructuredDataInput(BaseModel):
 def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMCPExecutor | None = None) -> FastMCP:
     server = FastMCP(
         "langchain_agent_mcp",
-        instructions=(
-            "Standard MCP server for this local langchain-agent workspace. "
-            "It exposes knowledge retrieval, PDF analysis, and structured-data analysis as MCP tools."
-        ),
+        instructions=MCP_SERVER_INSTRUCTIONS_PROMPT,
     )
     root = resolve_capability_backend_dir(backend_dir or _default_backend_dir())
     active_executor = executor or _executor_for_backend(root)

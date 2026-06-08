@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from prompt_library import READONLY_DELIVERY_VERIFIER_ROLE_PROMPT
+
 
 @dataclass(frozen=True, slots=True)
 class VerificationReview:
@@ -167,15 +169,7 @@ def _readonly_verifier_request(*, task_run_id: str, semantic_contract: dict[str,
             "Do not accept claimed file writes without artifact or observed path evidence.",
             "Do not allow completion when required deliverables or obligations are missing.",
         ],
-        "role_prompt": "\n".join(
-            [
-                "你是一名只读交付验证员。",
-                "你只根据语义任务合同、证据包、交付物校验和义务校验判断是否允许完成。",
-                "你不修改文件，不运行命令，不补写缺失证据。",
-                "如果证据不足，必须指出缺失项并阻止完成。",
-                "请只输出结构化验证结论。",
-            ]
-        ),
+        "role_prompt": READONLY_DELIVERY_VERIFIER_ROLE_PROMPT,
         "diagnostics": {
             "request_contract_only": True,
             "model_call_performed": False,

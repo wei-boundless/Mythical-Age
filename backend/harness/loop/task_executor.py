@@ -24,6 +24,7 @@ from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
+from prompt_library import TASK_ACTION_JSON_REPAIR_PROMPT
 from project_layout import ProjectLayout
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
@@ -6413,10 +6414,8 @@ def _model_protocol_repair_instruction(
         reason = "上一轮输出不是可解析的 JSON 对象"
     return (
         f"{reason}；系统没有执行上一轮动作。错误：{error_text}。"
-        "本轮必须只输出一个合法 JSON 对象，必须填写 action_type、public_action_state 和 public_progress_note。"
-        "不要在 JSON 外继续输出正文、代码块或解释。"
-        "如果上一轮是在生成文件、网页、脚本或长内容时失败，改用 action_type=tool_call，"
-        "在 tool_calls 数组中调用 write_file 或 terminal；"
+        f"{TASK_ACTION_JSON_REPAIR_PROMPT}"
+        "此时在 tool_calls 数组中调用 write_file 或 terminal；"
         "把交付物内容放入 tool_calls[0].args，或先写入完整可运行的紧凑版本再用后续工具增量完善。"
     )
 

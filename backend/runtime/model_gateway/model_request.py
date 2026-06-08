@@ -6,6 +6,7 @@ from typing import Any
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages, normalize_tools
 
 from .provider_cache_policy import ProviderCachePolicy, ProviderCachePolicyResolver
+from .provider_payload import ProviderPayloadManifest, build_provider_payload_manifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,7 @@ class ModelRequestPacket:
     session_prefix_hash: str = ""
     task_prefix_hash: str = ""
     cache_policy: ProviderCachePolicy = field(default_factory=lambda: ProviderCachePolicy(provider=""))
+    provider_payload_manifest: ProviderPayloadManifest | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.model_gateway.model_request_packet"
 
@@ -59,6 +61,11 @@ class ModelRequestPacket:
         payload["segment_plan"] = dict(self.segment_plan)
         payload["segment_bindings"] = [binding.to_dict() for binding in self.segment_bindings]
         payload["cache_policy"] = self.cache_policy.to_dict()
+        payload["provider_payload_manifest"] = (
+            self.provider_payload_manifest.to_dict()
+            if self.provider_payload_manifest is not None
+            else {}
+        )
         payload["diagnostics"] = dict(self.diagnostics)
         return payload
 
@@ -93,6 +100,14 @@ class ModelRequestBuilder:
             }
         )
         cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)
+        provider_payload_manifest = build_provider_payload_manifest(
+            request_id=str(request_id or ""),
+            provider=str(provider or ""),
+            model=str(model or ""),
+            messages=normalized_messages,
+            tools=normalized_tools,
+            segment_bindings=bindings,
+        )
         return ModelRequestPacket(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
@@ -108,9 +123,11 @@ class ModelRequestBuilder:
             session_prefix_hash=tier_hashes["session"],
             task_prefix_hash=tier_hashes["task"],
             cache_policy=cache_policy,
+            provider_payload_manifest=provider_payload_manifest,
             diagnostics={
                 "planned_segment_count": len(list(plan.get("segments") or [])),
                 "bound_segment_count": len(bindings),
+                "provider_payload_manifest_ref": provider_payload_manifest.manifest_id,
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,

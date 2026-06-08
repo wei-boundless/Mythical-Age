@@ -6,7 +6,6 @@ from capability_system.tools.agent_todo_state import agent_todo_state_store_from
 from harness.task_run_state_view import task_run_state_view
 from harness.runtime.progress_presenter import build_progress_presentation, public_todo_plan_from_event
 from harness.runtime.public_progress import public_runtime_progress_summary
-from harness.runtime.run_monitor.lifecycle import runtime_control
 
 
 SINGLE_AGENT_TASK_PROJECTION_AUTHORITY = "harness.runtime.single_agent_task_projection.v1"
@@ -30,6 +29,7 @@ def build_single_agent_task_projection(
     diagnostics = _record(getattr(task_run, "diagnostics", {}))
     event_records = events if events is not None else _recent_event_dicts(runtime_host, task_run_id, limit=max_events)
     monitor_record = _record(monitor)
+    state_view = task_run_state_view(task_run, monitor=monitor_record)
     contract = _task_contract(runtime_host, task_run, diagnostics)
     todo = _task_todo(runtime_host, task_run, events=event_records)
     control = _projection_control(task_run, diagnostics, monitor=monitor_record)
@@ -72,8 +72,8 @@ def build_single_agent_task_projection(
             "anchor_message_id": _text(anchor_message_id),
             "status": projection_status,
             "raw_status": _text(getattr(task_run, "status", "")),
-            "task_work_state": _text(task_run_state_view(task_run, monitor=monitor_record).get("task_work_state")),
-            "executor_lease_state": _text(task_run_state_view(task_run, monitor=monitor_record).get("executor_lease_state")),
+            "task_work_state": _text(state_view.get("task_work_state")),
+            "executor_lease_state": _text(state_view.get("executor_lease_state")),
             "phase": phase,
             "user_visible_goal": user_visible_goal,
             "current_action": current_action,
@@ -82,6 +82,8 @@ def build_single_agent_task_projection(
             "final_answer": final_answer,
             "artifact_refs": artifact_refs,
             "control": control,
+            "activity": _record(state_view.get("activity")),
+            "control_capability": _record(state_view.get("control_capability")),
             "debug_trace_ref": task_run_id,
             "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
             "updated_at": updated_at,
@@ -220,16 +222,16 @@ def _normalize_todo_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
 
 def _projection_control(task_run: Any, diagnostics: dict[str, Any], *, monitor: dict[str, Any]) -> dict[str, Any]:
-    monitor_control = _record(monitor.get("runtime_control"))
-    control = monitor_control or runtime_control(diagnostics)
-    control_state = _text(control.get("state"))
     raw_status = _text(getattr(task_run, "status", ""))
     state_view = task_run_state_view(task_run, monitor=monitor)
-    terminal = _projection_status(task_run, control={"state": control_state}, monitor=monitor) in TERMINAL_PROJECTION_STATUSES
+    control = _record(state_view.get("runtime_control"))
+    control_state = _text(state_view.get("control_state") or control.get("state"))
+    capability = _record(state_view.get("control_capability"))
+    terminal = _text(state_view.get("task_work_state")) in {"completed", "failed", "stopped"}
     needs_approval = raw_status == "waiting_approval" or bool(_record(diagnostics.get("pending_approval")))
-    can_resume = not terminal and bool(state_view.get("can_resume"))
-    can_pause = not terminal and control_state not in {"paused", "stop_requested"} and _text(state_view.get("task_work_state")) in {"active", "ready_to_continue", "waiting_approval"}
-    can_stop = not terminal and control_state != "stop_requested"
+    can_resume = not terminal and bool(capability.get("can_resume_task", state_view.get("can_resume")))
+    can_pause = not terminal and bool(capability.get("can_pause_task", state_view.get("can_pause")))
+    can_stop = not terminal and bool(capability.get("can_stop_task", state_view.get("can_stop")))
     return _compact(
         {
             "state": control_state,
@@ -239,6 +241,7 @@ def _projection_control(task_run: Any, diagnostics: dict[str, Any], *, monitor: 
             "needs_approval": needs_approval,
             "pending_approval": _record(diagnostics.get("pending_approval")),
             "reason": _text(control.get("reason")),
+            "capability": capability,
         }
     )
 
@@ -260,6 +263,8 @@ def _projection_status(task_run: Any, *, control: dict[str, Any], monitor: dict[
         return "waiting_user"
     if work_state == "ready_to_continue":
         return "waiting_user"
+    if work_state == "active":
+        return "running"
     raw_status = _text(getattr(task_run, "status", "") or monitor.get("status")).lower()
     terminal_reason = _text(getattr(task_run, "terminal_reason", "") or monitor.get("terminal_reason")).lower()
     diagnostics = _record(getattr(task_run, "diagnostics", {}))

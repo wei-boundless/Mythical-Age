@@ -3896,6 +3896,7 @@ export class WorkspaceRuntime {
         taskRunId,
         graphRunId,
         controlState,
+        activeMonitor as Record<string, unknown>,
       );
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
@@ -4734,13 +4735,28 @@ export class WorkspaceRuntime {
     this.runMonitorController.openSignal(signalId);
   }
 
-  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string, controlState = "") {
+  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string, controlState = "", monitor: Record<string, unknown> | null = null) {
     const normalizedStatus = liveStatus.trim();
     const normalizedControlState = controlState.trim();
     if (!normalizedStatus) {
       return;
     }
-    if (normalizedStatus === "stale") {
+    const monitorRecord = monitor && typeof monitor === "object" && !Array.isArray(monitor) ? monitor : {};
+    const activityRecord = monitorRecord.activity && typeof monitorRecord.activity === "object" && !Array.isArray(monitorRecord.activity)
+      ? monitorRecord.activity as Record<string, unknown>
+      : {};
+    const projectedActivityState = normalizedStatus === "stale"
+      ? ""
+      : String(monitorRecord.activity_state || activityRecord.activity_state || "").trim();
+    const effectiveStatus = projectedActivityState === "waiting" ? "waiting_executor" : projectedActivityState || normalizedStatus;
+    const projectedTitle = String(monitorRecord.activity_label || activityRecord.activity_label || "").trim();
+    const projectedDetail = String(
+      monitorRecord.latest_public_progress_note
+      || monitorRecord.latest_step_summary
+      || monitorRecord.summary
+      || "",
+    ).trim();
+    if (effectiveStatus === "stale") {
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
@@ -4763,18 +4779,20 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (normalizedControlState === "paused") {
+    if (effectiveStatus === "paused" || normalizedControlState === "paused") {
+      const title = projectedTitle || "已暂停";
+      const detail = projectedDetail || "当前处理已停在可继续状态，可以直接说继续。";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "waiting",
-          title: "已暂停",
-          detail: "当前处理已停在可继续状态，可以直接说继续。",
+          title,
+          detail,
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
-            title: "已暂停",
-            body: "当前处理已停在可继续状态，可以直接说继续。",
+            title,
+            body: detail.endsWith("。") ? detail : `${detail}。`,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -4812,18 +4830,20 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (normalizedStatus === "waiting_executor" || normalizedStatus === "waiting_approval" || normalizedStatus === "blocked") {
+    if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "blocked") {
+      const title = projectedTitle || (effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : "运行受阻");
+      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。");
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "waiting",
-          title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
-          detail: normalizedStatus === "waiting_executor" ? "任务已进入等待队列。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。",
+          title,
+          detail,
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
-            title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
-            body: normalizedStatus === "waiting_executor" ? "任务已进入等待队列。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。",
+            title,
+            body: detail.endsWith("。") ? detail : `${detail}。`,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -4835,18 +4855,20 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-      if (normalizedStatus === "running" || normalizedStatus === "created") {
+    if (effectiveStatus === "running" || effectiveStatus === "created") {
+      const title = projectedTitle || "正在处理";
+      const detail = projectedDetail || "正在同步当前处理进展";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "running",
-          title: "正在处理",
-          detail: "正在同步当前处理进展",
+          title,
+          detail,
           event: "runtime_live_monitor",
           receipt: {
             level: "running",
-            title: "正在处理",
-            body: "正在同步当前处理进展。",
+            title,
+            body: detail.endsWith("。") ? detail : `${detail}。`,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -4858,18 +4880,20 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (["completed", "complete", "success", "succeeded"].includes(normalizedStatus)) {
+    if (["completed", "complete", "success", "succeeded"].includes(effectiveStatus)) {
+      const title = projectedTitle || "已完成";
+      const detail = projectedDetail || "结果已写回会话，运行记录可在监控中查看";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "success",
-          title: "已完成",
-          detail: "结果已写回会话，运行记录可在监控中查看",
+          title,
+          detail,
           event: "runtime_live_monitor",
           receipt: {
             level: "success",
-            title: "已完成",
-            body: "结果已写回会话，运行记录可在监控中查看。",
+            title,
+            body: detail.endsWith("。") ? detail : `${detail}。`,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -4881,18 +4905,20 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (["failed", "error"].includes(normalizedStatus)) {
+    if (["failed", "error"].includes(effectiveStatus)) {
+      const title = projectedTitle || "处理失败";
+      const detail = projectedDetail || "当前处理返回失败状态，请查看运行监控。";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "error",
-          title: "处理失败",
-          detail: "当前处理返回失败状态，请查看运行监控。",
+          title,
+          detail,
           event: "runtime_live_monitor",
           receipt: {
             level: "error",
-            title: "处理失败",
-            body: "当前处理返回失败状态，请查看运行监控。",
+            title,
+            body: detail.endsWith("。") ? detail : `${detail}。`,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",

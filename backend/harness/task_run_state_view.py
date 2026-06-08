@@ -52,8 +52,6 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         work_state = "waiting_approval"
     elif paused:
         work_state = "paused"
-    elif terminal_failed and recoverable:
-        work_state = "ready_to_continue"
     elif terminal_failed:
         work_state = "failed"
     elif status == "blocked" and recoverable:
@@ -75,6 +73,19 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         and control_state not in STOP_CONTROL_STATES
     )
     running_claimed = work_state == "active" and executor_lease_state in {"scheduled", "running", "recovering"}
+    terminal = work_state in {"completed", "failed", "stopped"}
+    can_pause = (
+        not graph_controlled
+        and not terminal
+        and work_state == "active"
+        and running_claimed
+        and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
+    )
+    can_stop = (
+        not graph_controlled
+        and not terminal
+        and control_state not in STOP_CONTROL_STATES
+    )
     resume_mode = "none"
     if can_resume:
         resume_mode = "same_run"
@@ -85,6 +96,30 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
     elif work_state == "waiting_approval":
         resume_mode = "needs_approval"
 
+    control_reason = _control_reason(work_state, executor_lease_state, can_resume, running_claimed)
+    activity_state = _public_activity_state(work_state, executor_lease_state)
+    activity_label = _public_activity_label(work_state)
+    activity = {
+        "activity_state": activity_state,
+        "activity_label": activity_label,
+        "is_running": activity_state == "running",
+        "is_waiting": activity_state in {"waiting", "paused"},
+        "is_resumable": can_resume,
+        "is_interruptible": can_pause,
+        "control_reason": control_reason,
+        "tone": _activity_tone(activity_state),
+        "authority": "harness.task_run_state_view.activity",
+    }
+    control_capability = {
+        "can_pause_task": can_pause,
+        "can_resume_task": can_resume,
+        "can_stop_task": can_stop,
+        "is_resumable": can_resume,
+        "is_interruptible": can_pause,
+        "resume_mode": resume_mode,
+        "control_reason": control_reason,
+        "authority": "harness.task_run_state_view.control_capability",
+    }
     return {
         "task_status": status,
         "terminal_reason": terminal_reason,
@@ -97,11 +132,13 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         "recovery_action": recovery_action,
         "graph_controlled": graph_controlled,
         "running_claimed": running_claimed,
+        "can_pause": can_pause,
         "can_resume": can_resume,
+        "can_stop": can_stop,
         "resume_mode": resume_mode,
-        "public_activity_state": _public_activity_state(work_state, executor_lease_state),
-        "public_activity_label": _public_activity_label(work_state),
-        "control_reason": _control_reason(work_state, executor_lease_state, can_resume, running_claimed),
+        "control_reason": control_reason,
+        "control_capability": control_capability,
+        "activity": activity,
         "authority": "harness.task_run_state_view",
     }
 
@@ -135,6 +172,8 @@ def _executor_lease_state(
         return "blocked"
     if status == "waiting_executor":
         return "lost"
+    if status in {"created", "running", "queued", "in_progress"}:
+        return "running"
     return "none"
 
 
@@ -222,6 +261,16 @@ def _control_reason(work_state: str, executor_lease_state: str, can_resume: bool
     if work_state == "waiting_user":
         return "waiting_user"
     return "not_available"
+
+
+def _activity_tone(activity_state: str) -> str:
+    if activity_state == "running":
+        return "active"
+    if activity_state == "failed":
+        return "attention"
+    if activity_state == "completed":
+        return "done"
+    return "neutral"
 
 
 def _graph_controlled(diagnostics: dict[str, Any]) -> bool:

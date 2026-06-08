@@ -107,7 +107,9 @@ def test_single_agent_task_projection_shows_protocol_repair_as_ready_to_continue
     assert projection["status"] == "waiting_user"
     assert projection["task_work_state"] == "ready_to_continue"
     assert projection["phase"] == "handoff"
+    assert projection["control"]["can_pause"] is False
     assert projection["control"]["can_resume"] is True
+    assert projection["control"]["can_stop"] is True
 
 
 def test_single_agent_task_projection_prioritizes_recovery_over_stale_executor_status_as_resume_ready() -> None:
@@ -125,4 +127,6 @@ def test_single_agent_task_projection_prioritizes_recovery_over_stale_executor_s
     assert projection["status"] == "waiting_user"
     assert projection["task_work_state"] == "ready_to_continue"
     assert projection["phase"] == "handoff"
+    assert projection["control"]["can_pause"] is False
     assert projection["control"]["can_resume"] is True
+    assert projection["control"]["can_stop"] is True

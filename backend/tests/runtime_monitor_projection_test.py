@@ -395,7 +395,8 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert waiting_signal["activity_state"] == "waiting"
     assert waiting_signal["is_resumable"] is False
     assert waiting_actions["resume_task"]["enabled"] is False
-    assert waiting_actions["stop_task"]["enabled"] is False
+    assert waiting_actions["pause_task"]["enabled"] is False
+    assert waiting_actions["stop_task"]["enabled"] is True
     assert waiting_actions["close_runtime"]["enabled"] is False
 
     paused_signal = signals["taskrun:paused"]
@@ -403,7 +404,8 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert paused_signal["activity_state"] == "paused"
     assert paused_signal["is_resumable"] is True
     assert paused_actions["resume_task"]["enabled"] is True
-    assert paused_actions["stop_task"]["enabled"] is False
+    assert paused_actions["pause_task"]["enabled"] is False
+    assert paused_actions["stop_task"]["enabled"] is True
     assert paused_actions["close_runtime"]["enabled"] is False
 
     running_signal = signals["taskrun:running"]
@@ -665,8 +667,41 @@ def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable
     assert signal["activity_label"] == "等待检查"
     assert monitor["summary"]["waiting"] == 0
     assert actions["clear_from_monitor"]["enabled"] is True
+    assert actions["pause_task"]["enabled"] is False
+    assert actions["resume_task"]["enabled"] is False
     assert actions["close_runtime"]["enabled"] is True
     assert actions["stop_task"]["enabled"] is False
+
+
+def test_runtime_monitor_management_projects_stale_running_as_closeable_not_pausable(tmp_path):
+    now = time.time()
+    stale_running = task_run(
+        task_run_id="taskrun:stale-running",
+        session_id="session-stale-running",
+        status="running",
+        created_at=now - 900,
+        updated_at=now - 700,
+        diagnostics={"title": "停滞运行任务", "executor_status": "running"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([stale_running]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+    signal = monitor["signals"][0]
+    actions = {item["action"]: item for item in signal["actions"]}
+
+    assert signal["state"] == "stale"
+    assert signal["activity_state"] == "stale"
+    assert signal["is_running"] is False
+    assert monitor["summary"]["active"] == 0
+    assert actions["pause_task"]["enabled"] is False
+    assert actions["resume_task"]["enabled"] is False
+    assert actions["stop_task"]["enabled"] is False
+    assert actions["close_runtime"]["enabled"] is True
 
 
 def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypatch):

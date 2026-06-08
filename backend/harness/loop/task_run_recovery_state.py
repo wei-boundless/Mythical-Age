@@ -69,7 +69,7 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
-    elif status in {"blocked", "failed"} and recoverable:
+    elif status == "blocked" and recoverable:
         same_run_resumable = True
         reason = "recoverable_terminal"
 

@@ -38,6 +38,9 @@ def test_rag_finalizer_uses_scoped_segment_plan() -> None:
     assert context["call_purpose"] == "utility.rag_answer_finalizer"
     assert context["segment_plan"]["segments"]
     assert context["prompt_manifest"]["cache_metric_scope"] == "rag_finalizer"
+    assert context["prompt_manifest"]["primary_prompt_ref"] == "utility.finalizer.rag_answer"
+    assert context["prompt_manifest"]["prompt_refs"] == ["utility.finalizer.rag_answer"]
+    assert context["segment_plan"]["segments"][0]["source_ref"] == "utility.finalizer.rag_answer"
 
 
 class _CapturingRuntime:
@@ -47,4 +50,3 @@ class _CapturingRuntime:
     async def invoke_messages(self, _messages: list[dict[str, str]], **kwargs: Any) -> Any:
         self.accounting_context = dict(kwargs.get("accounting_context") or {})
         return SimpleNamespace(content="基于当前检索证据，只能确认稳定前缀重复时缓存命中率会提高。")
-

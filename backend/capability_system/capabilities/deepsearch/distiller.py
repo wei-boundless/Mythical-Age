@@ -6,16 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from prompt_library import EVIDENCE_DISTILLER_PROMPT
 from .web_text import best_web_excerpt, clean_web_text
-
-
-EVIDENCE_DISTILLER_PROMPT = """你是一名检索证据提炼员。
-
-你只负责把搜索和网页抓取结果提炼成可追溯的证据。
-你不能替主 Agent 写最终回答，也不能把没有来源支持的判断写成事实。
-你需要保留来源 URL、标题、关键摘录、来源类型、置信度、未知项和冲突点。
-如果内容不足、来源不可访问、发布时间不明或只有二手来源，你必须明确标记限制。
-输出必须是结构化 JSON，包含 claims、unknowns、conflicts 和 source_refs。"""
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,6 +21,21 @@ from .registry import PromptLibraryRegistry
 from .rules import PromptRuleCompiler, list_builtin_prompt_rule_resources
 from .system_prompts import FOUNDATION_PROMPT_REFS, list_builtin_system_prompt_resources
 from .tool_prompts import list_builtin_tool_prompt_resources, tool_guidance_payload_for_visible_tools
+from .utility_prompts import (
+    DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
+    EVIDENCE_DISTILLER_PROMPT,
+    HISTORY_SUMMARY_RECOVERY_PROMPT,
+    MCP_CAPABILITY_USAGE_PROMPT,
+    MCP_SERVER_INSTRUCTIONS_PROMPT,
+    RAG_FINALIZER_SYSTEM_PROMPT,
+    READONLY_DELIVERY_VERIFIER_ROLE_PROMPT,
+    READONLY_PLANNER_ROLE_PROMPT,
+    SESSION_TITLE_GENERATION_PROMPT,
+    SINGLE_AGENT_ADMISSION_REPAIR_PROMPT,
+    SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT,
+    TASK_ACTION_JSON_REPAIR_PROMPT,
+    list_builtin_utility_prompt_resources,
+)
 from .worker_prompts import (
     WORKER_PROMPT_REFS_BY_BLUEPRINT,
     list_builtin_worker_prompt_resources,
@@ -36,6 +51,19 @@ __all__ = [
     "list_builtin_general_lifecycle_prompt_resources",
     "list_builtin_tool_prompt_resources",
     "tool_guidance_payload_for_visible_tools",
+    "list_builtin_utility_prompt_resources",
+    "RAG_FINALIZER_SYSTEM_PROMPT",
+    "EVIDENCE_DISTILLER_PROMPT",
+    "DURABLE_MEMORY_RECALL_SELECTOR_PROMPT",
+    "SESSION_TITLE_GENERATION_PROMPT",
+    "HISTORY_SUMMARY_RECOVERY_PROMPT",
+    "READONLY_PLANNER_ROLE_PROMPT",
+    "READONLY_DELIVERY_VERIFIER_ROLE_PROMPT",
+    "SINGLE_AGENT_ADMISSION_REPAIR_PROMPT",
+    "SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT",
+    "TASK_ACTION_JSON_REPAIR_PROMPT",
+    "MCP_SERVER_INSTRUCTIONS_PROMPT",
+    "MCP_CAPABILITY_USAGE_PROMPT",
     "DEFAULT_PERSONALITY_PROMPT_REF",
     "list_builtin_personality_prompt_resources",
     "WORKER_PROMPT_REFS_BY_BLUEPRINT",

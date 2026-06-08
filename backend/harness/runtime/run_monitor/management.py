@@ -230,11 +230,15 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     task_run_id = str(signal.get("task_run_id") or "").strip()
     graph_run_id = str(signal.get("graph_run_id") or dict(signal.get("graph_ref") or {}).get("graph_run_id") or "").strip()
     terminal = activity_state in {"completed", "failed", "stopped"} or state in {"completed", "failed"} or bool(source.get("terminal") is True)
-    running = bool(signal.get("is_running") is True or source.get("is_running") is True)
-    resumable = bool(signal.get("is_resumable") is True or source.get("is_resumable") is True)
-    interruptible = bool(signal.get("is_interruptible") is True or source.get("is_interruptible") is True)
     lifecycle = str(signal.get("lifecycle") or source.get("lifecycle") or "")
     stale = activity_state == "stale" or lifecycle == "stale" or bool(signal.get("stale") is True or source.get("stale") is True)
+    running = False if stale else bool(signal.get("is_running") is True or source.get("is_running") is True)
+    source_capability = dict(source.get("control_capability") or {})
+    signal_capability = dict(signal.get("control_capability") or {})
+    capability = {**source_capability, **signal_capability}
+    pause_allowed = bool(capability.get("can_pause_task", signal.get("is_interruptible") is True or source.get("is_interruptible") is True))
+    resume_allowed = bool(capability.get("can_resume_task", signal.get("is_resumable") is True or source.get("is_resumable") is True))
+    stop_allowed = bool(capability.get("can_stop_task", pause_allowed))
     graph_task = work_kind == "graph_task" or bool(graph_run_id)
     actions = [
         _action("open", "打开", True),
@@ -245,10 +249,10 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     else:
         clear_enabled = (terminal or stale) and not running
         actions.append(_action("clear_from_monitor", "清出", clear_enabled, "" if clear_enabled else "active_or_waiting_runtime"))
-    pause_enabled = bool(task_run_id) and interruptible and not terminal
-    resume_enabled = bool(task_run_id) and resumable and not terminal
-    stop_enabled = bool(task_run_id) and interruptible and not terminal
-    close_enabled = bool(task_run_id) and not terminal and stale and not running
+    pause_enabled = bool(task_run_id) and pause_allowed and not terminal and not (stale and not running)
+    resume_enabled = bool(task_run_id) and resume_allowed and not terminal and not (stale and not running)
+    stop_enabled = bool(task_run_id) and stop_allowed and not terminal and not (stale and not running)
+    close_enabled = bool(task_run_id) and stop_allowed and not terminal and stale and not running
     actions.extend(
         [
             _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),
