@@ -94,7 +94,7 @@ def build_task_execution_assembly_bundle(
         resolve_specific_task_assembly_policy(
             task_record=specific_task_record,
             execution_policy=execution_policy,
-            task_selection=current_turn_payload,
+            runtime_contract=current_turn_payload,
             environment_registry=task_environment_registry,
         )
         if specific_task_record is not None

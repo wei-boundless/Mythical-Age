@@ -261,7 +261,7 @@ TASK_SYSTEM_LIGHT_WEB_GAME_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "trace.agent_run_results.nonempty",
             "trace.artifact.contains=frontend/public/games",
         ),
-        params={"task_selection": {"selected_task_id": "task.dev.light_web_game"}},
+        params={"runtime_contract": {"selected_task_id": "task.dev.light_web_game"}},
         force_memory_sync=False,
     ),
 )
@@ -289,13 +289,13 @@ PROFESSIONAL_GAME_MULTIFILE_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.enabled",
             "sandbox.real_workspace_access=read_only",
         ),
-        params={"task_selection": {"selected_task_id": "task.dev.light_web_game"}},
+        params={"runtime_contract": {"selected_task_id": "task.dev.light_web_game"}},
         force_memory_sync=False,
     ),
 )
 
 
-PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
+PROFESSIONAL_RUNTIME_CONTRACT: dict[str, Any] = {
     "runtime_policy": {},
 }
 
@@ -330,7 +330,7 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/README.md",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
     LongScenarioTurn(
@@ -356,7 +356,7 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::assets/|player|coin",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/README.md::assets|player",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
     LongScenarioTurn(
@@ -381,7 +381,7 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.real_workspace_access=read_only",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::editor|brush|export|import",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
     LongScenarioTurn(
@@ -406,7 +406,7 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::restart|mobile|gameOver",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/styles.css::mobile-controls",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
     LongScenarioTurn(
@@ -436,7 +436,7 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::editor|brush|export|import|restart|mobile",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -477,7 +477,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {"runtime_policy": {}}
+            "runtime_contract": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),
@@ -500,7 +500,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {"runtime_policy": {}}
+            "runtime_contract": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),
@@ -523,7 +523,7 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.nonempty",
         ),
         params={
-            "task_selection": {"runtime_policy": {}}
+            "runtime_contract": {"runtime_policy": {}}
         },
         force_memory_sync=False,
     ),
@@ -559,7 +559,7 @@ PROFESSIONAL_CODE_FIX_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_any=通过|passed|修复|ready",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -586,7 +586,7 @@ PROFESSIONAL_TEST_REPORT_TRIAGE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_any=memory|context|artifact|writeback|写回|审批",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -616,7 +616,7 @@ PROFESSIONAL_DOC_DATA_ANALYSIS_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_all=治理|库存|行动",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -646,7 +646,7 @@ PROFESSIONAL_FEATURE_SLICE_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_all=后端|前端|测试",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -675,7 +675,7 @@ PROFESSIONAL_OPS_TROUBLESHOOTING_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_all=超时|原因|验证",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -710,7 +710,7 @@ PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS: tuple[LongScenarioTurn, ...] = (
             "response.contains_any=passed|通过|1 passed",
             "response.nonempty",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )
@@ -758,7 +758,7 @@ PROFESSIONAL_ROGUELIKE_CAMPAIGN_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::campaign|level|boss|upgrade|assets/",
             "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/README.md::五关|成长|Boss|assets",
         ),
-        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        params={"runtime_contract": PROFESSIONAL_RUNTIME_CONTRACT},
         force_memory_sync=False,
     ),
 )

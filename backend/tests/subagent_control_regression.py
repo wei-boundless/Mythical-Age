@@ -15,6 +15,7 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definition_map
 from harness.agent_control.controller import SubagentControl
+from harness.loop.task_executor import _active_child_subagent_summaries
 from harness.runtime.assembly import assemble_runtime
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.runtime_object_store import RuntimeObjectStore
@@ -57,7 +58,7 @@ def test_main_profile_exposes_subagent_policy_and_tools() -> None:
         session_id="session-1",
         turn_id="turn-1",
         agent_invocation_id="inv-1",
-        request_task_selection={},
+        runtime_contract={},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=instances,
@@ -69,6 +70,49 @@ def test_main_profile_exposes_subagent_policy_and_tools() -> None:
 
 def test_subagent_control_lifecycle_roundtrip() -> None:
     asyncio.run(_subagent_control_lifecycle_roundtrip())
+
+
+def test_active_child_subagent_summaries_only_returns_owned_running_children() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = RuntimeStateIndex(root)
+        task = TaskRun(task_run_id="tr-active", session_id="s1", task_id="task")
+        parent = AgentRun(
+            agent_run_id="ag-parent",
+            task_run_id="tr-active",
+            agent_id="agent:0",
+            agent_profile_id="main_interactive_agent",
+            status="running",
+        )
+        owned_child = AgentRun(
+            agent_run_id="ag-child-running",
+            task_run_id="tr-active:subagent:1",
+            agent_id="agent:knowledge_searcher",
+            agent_profile_id="knowledge_search_agent",
+            role="subagent_worker",
+            spawn_mode="subagent",
+            parent_agent_run_ref="ag-parent",
+            status="running",
+            diagnostics={"subagent_control": {"parent_task_run_id": "tr-active", "goal": "search"}},
+        )
+        completed_child = replace(owned_child, agent_run_id="ag-child-done", status="completed")
+        foreign_child = replace(
+            owned_child,
+            agent_run_id="ag-child-foreign",
+            parent_agent_run_ref="other-parent",
+            status="running",
+        )
+        state.upsert_task_run(task)
+        state.upsert_agent_run(parent)
+        state.upsert_agent_run(owned_child)
+        state.upsert_agent_run(completed_child)
+        state.upsert_agent_run(foreign_child)
+        host = type("Host", (), {"state_index": state})()
+
+        summaries = _active_child_subagent_summaries(host, task_run=task, parent_agent_run=parent)
+
+        assert [item["subagent_run_ref"] for item in summaries] == ["ag-child-running"]
+        assert summaries[0]["status"] == "running"
 
 
 async def _subagent_control_lifecycle_roundtrip() -> None:

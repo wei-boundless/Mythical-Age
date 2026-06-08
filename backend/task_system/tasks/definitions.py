@@ -159,7 +159,7 @@ def select_runtime_task_definitions(
     needs = capability_needs(understanding)
     kinds = material_kinds(understanding)
     binding = context_binding(understanding)
-    if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_selection":
+    if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_contract":
         return [definitions["task.final_response"]]
 
     action_type = str(action_request.get("action_type") or "").strip()

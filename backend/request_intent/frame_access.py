@@ -82,8 +82,8 @@ def explicit_task_selected(value: Any) -> bool:
     binding = context_binding(value)
     signals = turn_signals(value)
     return (
-        str(binding.get("kind") or "") == "explicit_task_selection"
-        or bool(signals.get("explicit_task_selection"))
+        str(binding.get("kind") or "") == "explicit_task_contract"
+        or bool(signals.get("explicit_task_contract"))
     )
 
 

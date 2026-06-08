@@ -2108,7 +2108,7 @@ export class WorkspaceRuntime {
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
           expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
-          active_turn_input_policy: activeTurnForRequest?.turn_id ? "steer" : "auto",
+          active_turn_input_policy: "auto",
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
           image_generation: imageGeneration
             ? {

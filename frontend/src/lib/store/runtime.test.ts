@@ -2153,7 +2153,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(2);
     expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session:background:1",
-      active_turn_input_policy: "steer",
+      active_turn_input_policy: "auto",
     });
     expect(store.getState().sessionActivity).toMatchObject({
       level: "waiting",
@@ -2204,7 +2204,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(3);
     expect(api.streamChat.mock.calls[2]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session:background:1",
-      active_turn_input_policy: "steer",
+      active_turn_input_policy: "auto",
     });
   });
 
@@ -2266,7 +2266,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledWith(
       expect.objectContaining({
         expected_active_turn_id: "turn:session-monitor-recover:1",
-        active_turn_input_policy: "steer",
+        active_turn_input_policy: "auto",
       }),
       expect.anything(),
       expect.anything(),
@@ -2339,7 +2339,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledWith(
       expect.objectContaining({
         expected_active_turn_id: "turn:session-queue-only:1",
-        active_turn_input_policy: "steer",
+        active_turn_input_policy: "auto",
       }),
       expect.anything(),
       expect.anything(),
@@ -2441,7 +2441,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(2);
     expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session-stream-queue:1",
-      active_turn_input_policy: "steer",
+      active_turn_input_policy: "auto",
     });
     expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(store.getState().messages.at(-1)).toMatchObject({

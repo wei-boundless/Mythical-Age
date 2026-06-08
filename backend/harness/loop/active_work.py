@@ -31,7 +31,6 @@ _CURRENT_WORK_ACTIONS = {
     "stop_active_work",
     "append_instruction_to_active_work",
     "answer_about_active_work",
-    "ask_user",
     "answer_then_continue_active_work",
 }
 @dataclass(frozen=True, slots=True)
@@ -70,7 +69,6 @@ class ActiveWorkTurnDecision:
     response: str = ""
     appended_instruction: str = ""
     reason: str = ""
-    confidence: float = 0.0
     relation_to_current_work: str = "ambiguous"
     evidence: str = ""
     turn_response_policy: str = ""
@@ -97,10 +95,6 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
     appended_instruction = str(raw.get("appended_instruction") or "").strip()
     if action == "append_instruction_to_active_work" and not appended_instruction:
         appended_instruction = str(user_message or "").strip()
-    try:
-        confidence = float(raw.get("confidence") or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
     relation_to_current_work = _normalize_relation_to_current_work(
         raw.get("relation_to_current_work") or raw.get("relation")
     )
@@ -117,11 +111,15 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         raw.get("continuation_strategy") or raw.get("resume_strategy") or raw.get("continuation_mode"),
         action=action,
     )
-    if action in _CURRENT_WORK_ACTIONS and relation_to_current_work == "independent_turn":
+    if action in _CURRENT_WORK_ACTIONS and relation_to_current_work != "current_work":
+        denied_reason = (
+            "active_work_relation_declared_independent"
+            if relation_to_current_work == "independent_turn"
+            else "active_work_relation_ambiguous"
+        )
         return _denied_active_work_decision(
-            "active_work_relation_declared_independent",
-            reason="active_work_relation_declared_independent",
-            confidence=confidence,
+            denied_reason,
+            reason=denied_reason,
             relation_to_current_work=relation_to_current_work,
             evidence=evidence,
             turn_response_policy=turn_response_policy,
@@ -134,7 +132,6 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         response=response,
         appended_instruction=appended_instruction,
         reason=str(raw.get("reason") or "").strip(),
-        confidence=confidence,
         relation_to_current_work=relation_to_current_work,
         evidence=evidence,
         turn_response_policy=turn_response_policy,
@@ -148,7 +145,6 @@ def _denied_active_work_decision(
     denied_reason: str,
     *,
     reason: str = "",
-    confidence: float = 0.0,
     relation_to_current_work: str = "ambiguous",
     evidence: str = "",
     turn_response_policy: str = "",
@@ -160,7 +156,6 @@ def _denied_active_work_decision(
         action="ask_user",
         response="",
         reason=reason or denied_reason,
-        confidence=confidence,
         relation_to_current_work=relation_to_current_work,
         evidence=evidence,
         turn_response_policy=turn_response_policy,
@@ -176,6 +171,8 @@ def active_work_control_denial_reply(decision: ActiveWorkTurnDecision) -> str:
     reason = str(decision.denied_reason or decision.reason or "").strip()
     if reason == "active_work_relation_declared_independent":
         return "我没有控制当前工作，因为这次动作没有明确指向当前工作。请重新提出独立问题，或直接说明要继续、暂停、停止或补充当前工作。"
+    if reason == "active_work_relation_ambiguous":
+        return "我没有控制当前工作，因为这次动作没有明确指向当前工作。请直接说明要继续、暂停、停止、补充要求还是询问当前进展。"
     if reason == "active_work_control_action_not_allowed":
         return "我没有控制当前工作，因为本轮返回的当前工作动作不在允许范围内。请重新提出独立问题，或说明要继续、暂停、停止、补充要求还是询问当前进展。"
     return "我没有控制当前工作，因为本轮当前工作动作没有通过运行边界校验。请重新说明你要如何处理当前工作。"

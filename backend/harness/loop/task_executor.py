@@ -652,7 +652,7 @@ async def execute_task_run(
         session_id=task_run.session_id,
         turn_id=turn_id,
         agent_invocation_id=f"aginvoke:{task_run.task_run_id}:executor",
-        request_task_selection=_runtime_contract_from_task_run(task_run),
+        runtime_contract=_runtime_contract_from_task_run(task_run),
         model_selection=model_selection,
         agent_runtime_profile=agent_profile,
         tool_instances=services.all_tool_instances(),
@@ -1439,6 +1439,44 @@ async def _execute_claimed_task_run(
                     step=f"task_completion_pending_steer_required:{step_index}",
                     status="running",
                     summary="用户补充要求或目标修订尚未被明确处理，正在继续推进。",
+                )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
+                continue
+            active_subagents = _active_child_subagent_summaries(
+                runtime_host,
+                task_run=current_task,
+                parent_agent_run=agent_run,
+            )
+            if active_subagents:
+                repair_observation = _active_subagent_completion_repair_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    active_subagents=active_subagents,
+                )
+                raw_observations.append(repair_observation)
+                runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+                runtime_host.event_log.append(
+                    current_task.task_run_id,
+                    "task_completion_repair_required",
+                    payload={"observation": repair_observation, "active_subagents": active_subagents},
+                    refs={"task_run_ref": current_task.task_run_id, "observation_ref": repair_observation["observation_id"]},
+                )
+                _record_task_step_summary(
+                    runtime_host,
+                    task_run_id=current_task.task_run_id,
+                    step=f"task_completion_active_subagent_required:{step_index}",
+                    status="running",
+                    summary="仍有子 Agent 未完成，正在等待或收口子任务后再完成父任务。",
                 )
                 observation_context = _observations_for_packet(
                     runtime_host,
@@ -5439,6 +5477,87 @@ def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_
         "created_at": time.time(),
         "authority": "orchestration.runtime_observation",
         "error": "completion_evidence_missing",
+    }
+
+
+def _active_child_subagent_summaries(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    parent_agent_run: Any,
+) -> list[dict[str, Any]]:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    parent_agent_run_ref = str(getattr(parent_agent_run, "agent_run_id", "") or "").strip()
+    if not task_run_id or not parent_agent_run_ref:
+        return []
+    state_index = getattr(runtime_host, "state_index", None)
+    snapshot_reader = getattr(state_index, "read_snapshot", None)
+    if not callable(snapshot_reader):
+        return []
+    try:
+        snapshot = dict(snapshot_reader() or {})
+    except Exception:
+        return []
+    result: list[dict[str, Any]] = []
+    for value in dict(snapshot.get("agent_runs") or {}).values():
+        if not isinstance(value, dict):
+            continue
+        diagnostics = dict(value.get("diagnostics") or {})
+        control = dict(diagnostics.get("subagent_control") or {})
+        if str(control.get("parent_task_run_id") or "") != task_run_id:
+            continue
+        if str(value.get("parent_agent_run_ref") or "") != parent_agent_run_ref:
+            continue
+        if str(value.get("spawn_mode") or "") != "subagent":
+            continue
+        status = str(value.get("status") or "").strip()
+        if status not in {"pending", "running"}:
+            continue
+        result.append(
+            _drop_empty(
+                {
+                    "subagent_run_ref": str(value.get("agent_run_id") or ""),
+                    "task_run_id": str(value.get("task_run_id") or ""),
+                    "agent_id": str(value.get("agent_id") or ""),
+                    "agent_profile_id": str(value.get("agent_profile_id") or ""),
+                    "status": status,
+                    "goal": str(control.get("goal") or ""),
+                    "scheduler_status": str(control.get("scheduler_status") or ""),
+                }
+            )
+        )
+    result.sort(key=lambda item: (str(item.get("status") or ""), str(item.get("subagent_run_ref") or "")))
+    return result
+
+
+def _active_subagent_completion_repair_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    action_request: AnyModelActionRequest,
+    active_subagents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "observation_id": f"rtobs:{task_run_id}:active-subagent:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "executor_error",
+        "source": "system:task_completion_validator",
+        "request_ref": action_request.request_id,
+        "directive_ref": packet_ref,
+        "content_chars": 0,
+        "payload": {
+            "error_code": "active_subagents_pending",
+            "active_subagents": [dict(item) for item in active_subagents],
+            "repair_instruction": (
+                "父任务仍有未完成的子 Agent，不能直接完成。你需要调用 wait_subagent 或 list_subagents 观察进度；"
+                "子 Agent 已完成时综合其 result/evidence 后再收口；确实不再需要时先 close_subagent 并说明原因。"
+            ),
+            "rejected_action_request": action_request.to_dict(),
+        },
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": "active_subagents_pending",
     }
 
 

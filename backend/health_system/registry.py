@@ -620,7 +620,7 @@ def _verdict_from_status(status: str) -> str:
     return "unknown"
 
 
-def _build_health_runtime_task_selection(
+def _build_health_runtime_contract(
     *,
     issue: dict[str, Any],
     health_action: str,
@@ -798,4 +798,3 @@ def _compact_graph_breakpoint_error(error: dict[str, Any]) -> dict[str, Any]:
         "validation_errors",
     }
     return {key: value for key, value in error.items() if key in allowed}
-

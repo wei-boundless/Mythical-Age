@@ -3866,6 +3866,10 @@ export async function createSession(
   });
 }
 
+export async function getSessionSummary(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<SessionSummary>(withSessionScopeQuery(`/sessions/${sessionId}`, scope));
+}
+
 export async function renameSession(sessionId: string, title: string, scope?: Partial<SessionScope>) {
   return request<SessionSummary>(withSessionScopeQuery(`/sessions/${sessionId}`, scope), {
     method: "PUT",

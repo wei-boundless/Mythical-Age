@@ -20,7 +20,7 @@ def test_chat_request_maps_environment_binding_without_task_selection() -> None:
     request = _query_request_from_payload(payload, session_id="session-env-binding")
 
     assert request.environment_binding["task_environment_id"] == "env.coding.vibe_workspace"
-    assert request.task_selection == {}
+    assert request.runtime_contract == {}
 
 
 def test_chat_request_rejects_legacy_task_selection_payload() -> None:

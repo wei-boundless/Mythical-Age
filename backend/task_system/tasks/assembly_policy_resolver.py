@@ -18,16 +18,16 @@ def resolve_specific_task_assembly_policy(
     *,
     task_record: SpecificTaskRecord,
     execution_policy: TaskExecutionPolicy | None = None,
-    task_selection: dict[str, Any] | None = None,
+    runtime_contract: dict[str, Any] | None = None,
     environment_registry: TaskEnvironmentRegistry | None = None,
 ) -> SpecificTaskAssemblyPolicy:
-    selection = dict(task_selection or {})
+    contract = dict(runtime_contract or {})
     task_policy = dict(getattr(task_record, "task_policy", {}) or {})
     metadata = dict(getattr(task_record, "metadata", {}) or {})
     execution_policy_metadata = dict(getattr(execution_policy, "metadata", {}) or {}) if execution_policy is not None else {}
     environment_id = _resolve_environment_id(
-        selection.get("task_environment_id"),
-        selection.get("environment_id"),
+        contract.get("task_environment_id"),
+        contract.get("environment_id"),
         metadata.get("task_environment_id"),
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
@@ -35,8 +35,8 @@ def resolve_specific_task_assembly_policy(
         environment_registry=environment_registry,
     )
     flow_ref = _first_value(
-        selection.get("flow_ref"),
-        selection.get("flow_id"),
+        contract.get("flow_ref"),
+        contract.get("flow_id"),
         task_policy.get("flow_ref"),
         task_policy.get("flow_id"),
         metadata.get("flow_ref"),
@@ -48,22 +48,22 @@ def resolve_specific_task_assembly_policy(
         task_policy.get("tool_requirements"),
         metadata.get("tool_capability_requirements"),
         metadata.get("tool_requirements"),
-        selection.get("tool_capability_requirements"),
-        selection.get("tool_requirements"),
+        contract.get("tool_capability_requirements"),
+        contract.get("tool_requirements"),
     )
     skill_policy = _merge_dicts(
         task_policy.get("skill_requirements"),
         metadata.get("skill_requirements"),
-        selection.get("skill_requirements"),
+        contract.get("skill_requirements"),
     )
     prompt_policy = _merge_dicts(
         task_policy.get("prompt_requirements"),
         metadata.get("prompt_requirements"),
-        selection.get("prompt_requirements"),
+        contract.get("prompt_requirements"),
     )
     runtime_shape = _runtime_shape(
         _first_value(
-            selection.get("runtime_shape"),
+            contract.get("runtime_shape"),
             task_policy.get("runtime_shape"),
             metadata.get("runtime_shape"),
             execution_policy_metadata.get("execution_chain_type"),
@@ -73,29 +73,24 @@ def resolve_specific_task_assembly_policy(
     )
     agent_selection = AgentSelectionPolicy(
         default_agent_id=_first_value(
-            selection.get("default_agent_id"),
             getattr(execution_policy, "default_agent_id", ""),
             metadata.get("default_agent_id"),
             "agent:0",
         ),
         agent_profile_ref=_first_value(
-            selection.get("agent_profile_id"),
-            selection.get("agent_profile_ref"),
             metadata.get("agent_profile_id"),
             metadata.get("agent_profile_ref"),
         ),
         worker_blueprint_id=_first_value(
-            selection.get("worker_agent_blueprint_id"),
             getattr(execution_policy, "worker_agent_blueprint_id", ""),
             metadata.get("worker_agent_blueprint_id"),
         ),
         allow_worker_spawn=bool(
-            selection.get("allow_worker_agent_spawn", getattr(execution_policy, "allow_worker_agent_spawn", False))
+            getattr(execution_policy, "allow_worker_agent_spawn", False)
+            or metadata.get("allow_worker_agent_spawn", False)
         ),
         participant_agent_refs=_tuple_from_any(
-            selection.get("participant_agent_refs")
-            or selection.get("participant_agent_ids")
-            or metadata.get("participant_agent_refs")
+            metadata.get("participant_agent_refs")
             or metadata.get("participant_agent_ids")
         ),
     )
@@ -125,15 +120,15 @@ def resolve_specific_task_assembly_policy(
         memory_requirements=_merge_dicts(
             task_policy.get("memory_requirements"),
             metadata.get("memory_requirements"),
-            selection.get("memory_requirements"),
+            contract.get("memory_requirements"),
         ),
         resource_requirements=_merge_dicts(
             task_policy.get("resource_requirements"),
             metadata.get("resource_requirements"),
-            selection.get("resource_requirements"),
+            contract.get("resource_requirements"),
         ),
         output_contract_ref=_first_value(
-            selection.get("output_contract_ref"),
+            contract.get("output_contract_ref"),
             getattr(task_record, "output_contract_id", ""),
         ),
         acceptance_policy=_merge_dicts(

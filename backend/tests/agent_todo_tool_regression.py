@@ -67,6 +67,46 @@ def test_agent_todo_tool_persists_and_updates_state(tmp_path: Path) -> None:
     assert viewed["items"][0]["todo_id"] == "read"
 
 
+def test_agent_todo_rejects_target_operations_without_todo_id(tmp_path: Path) -> None:
+    tool = AgentTodoTool(root_dir=tmp_path)
+    tool._run(
+        operation="replace",
+        session_id="s",
+        task_id="t",
+        items=[
+            {"todo_id": "read", "content": "Read current code", "status": "in_progress"},
+            {"todo_id": "test", "content": "Run tests", "status": "pending"},
+        ],
+    )
+
+    rejected = json.loads(tool._run(operation="complete", session_id="s", task_id="t"))
+    viewed = json.loads(tool._run(operation="view", session_id="s", task_id="t"))
+
+    assert rejected["status"] == "error"
+    assert "requires todo_id" in rejected["error"]
+    assert [item["status"] for item in viewed["items"]] == ["in_progress", "pending"]
+
+
+def test_agent_todo_rejects_unknown_todo_id_without_mutating_state(tmp_path: Path) -> None:
+    tool = AgentTodoTool(root_dir=tmp_path)
+    tool._run(
+        operation="replace",
+        session_id="s",
+        task_id="t",
+        items=[
+            {"todo_id": "read", "content": "Read current code", "status": "in_progress"},
+            {"todo_id": "test", "content": "Run tests", "status": "pending"},
+        ],
+    )
+
+    rejected = json.loads(tool._run(operation="remove", session_id="s", task_id="t", todo_id="missing"))
+    viewed = json.loads(tool._run(operation="view", session_id="s", task_id="t"))
+
+    assert rejected["status"] == "error"
+    assert "todo_id not found" in rejected["error"]
+    assert [item["todo_id"] for item in viewed["items"]] == ["read", "test"]
+
+
 def test_agent_todo_preserves_subagent_orchestration_metadata() -> None:
     plan = _build_plan(
         session_id="s1",

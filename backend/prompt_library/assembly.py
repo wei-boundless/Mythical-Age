@@ -126,6 +126,7 @@ class PromptAssemblyService:
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
             "cache_scope_order": [item.cache_scope for item in sections],
+            "prompt_precedence": _prompt_precedence_report(tuple(sections)),
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
@@ -192,6 +193,61 @@ def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> 
     if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
         return "pack_environment_ref_mismatch"
     return ""
+
+
+_PROMPT_LAYER_PRECEDENCE = {
+    "override": 0,
+    "coordinator": 10,
+    "agent": 20,
+    "runtime": 30,
+    "environment": 40,
+    "lifecycle": 45,
+    "tool": 50,
+    "skill": 60,
+    "project": 70,
+    "contract": 80,
+    "unknown": 100,
+}
+
+
+def _prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    for section in sections:
+        layer = _prompt_section_layer(section)
+        entries.append(
+            {
+                "prompt_ref": section.prompt_ref,
+                "category": section.category,
+                "subtype": section.subtype,
+                "owner_layer": section.owner_layer,
+                "assembly_layer": layer,
+                "precedence": _PROMPT_LAYER_PRECEDENCE.get(layer, _PROMPT_LAYER_PRECEDENCE["unknown"]),
+                "order": section.order,
+                "source_ref": section.source_ref,
+            }
+        )
+    return {
+        "policy": "override>coordinator>agent>runtime>environment>lifecycle>tool>skill>project>contract",
+        "behavior": "diagnostic_only_preserves_requested_order",
+        "entries": entries,
+        "authority": "prompt_library.prompt_assembly_precedence",
+    }
+
+
+def _prompt_section_layer(section: PromptSection) -> str:
+    category = str(section.category or "").strip()
+    subtype = str(section.subtype or "").strip()
+    resource_type = str(dict(section.metadata or {}).get("resource_type") or "").strip()
+    prompt_ref = str(section.prompt_ref or "").strip()
+    if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref):
+        return "lifecycle"
+    if category in _PROMPT_LAYER_PRECEDENCE:
+        return category
+    if resource_type == "tool_guidance":
+        return "tool"
+    if resource_type == "worker_prompt":
+        return "agent"
+    return "unknown"
 
 
 _CONTRACT_FIELD_SPECS = (

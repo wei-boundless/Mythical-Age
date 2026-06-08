@@ -249,7 +249,7 @@ def test_runtime_assembly_carries_bound_workspace_root(tmp_path: Path) -> None:
         session_id="session-bound",
         turn_id="turn-bound",
         agent_invocation_id="aginvoke-bound",
-        request_task_selection={},
+        runtime_contract={},
         model_selection={},
         agent_runtime_profile=None,
         tool_instances=(),

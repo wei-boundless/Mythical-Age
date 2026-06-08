@@ -12,7 +12,7 @@ from runtime.tooling import ToolCapability, ToolCapabilityFilterIssue, ToolCapab
 from .tool_scheduling import (
     evaluate_environment_operation,
     operation_requests_from_authorization,
-    operation_requests_from_runtime_selection,
+    operation_requests_from_runtime_contract,
 )
 
 _OPERATION_REGISTRY = build_default_operation_registry()
@@ -65,7 +65,7 @@ def build_runtime_tool_plan(
         dict.fromkeys(
             [
                 *operation_requests_from_authorization(operation_authorization),
-                *operation_requests_from_runtime_selection(dict(assembly.get("task_selection") or {})),
+                *operation_requests_from_runtime_contract(dict(assembly.get("runtime_contract") or {})),
             ]
         )
     )

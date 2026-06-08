@@ -132,7 +132,7 @@ class AgentCliClient:
             "session_id": session_id,
             "message": message,
             "stream": True,
-            "task_selection": {},
+            "environment_binding": {},
             "model_selection": {},
             "image_generation": {},
         }

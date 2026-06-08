@@ -741,8 +741,8 @@ def test_agent_todo_is_bound_to_runtime_task_scope_even_when_model_sends_default
     assert result["error"] == ""
     assert "agent-todo:session-real:taskrun-agent_todo" in payload
     assert "agent-todo:default:runtime" not in payload
-    assert (workspace / ".tmp" / "agent_todo" / "session-real__taskrun-agent_todo.json").exists()
-    assert not (workspace / ".tmp" / "agent_todo" / "default__runtime.json").exists()
+    assert (workspace / "storage" / "runtime_state" / "agent_todo" / "session-real__taskrun-agent_todo.json").exists()
+    assert not (workspace / "storage" / "runtime_state" / "agent_todo" / "default__runtime.json").exists()
 
 
 def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedback_before_tool_invocation(tmp_path: Path) -> None:

@@ -22,7 +22,7 @@ from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
 from harness.runtime.tool_scheduling import environment_allowed_operations
-from prompt_library import PromptLibraryRegistry, PromptResource
+from prompt_library import GENERAL_LIFECYCLE_PROMPT_IDS, PromptLibraryRegistry, PromptResource
 from task_system.tasks.definitions import default_task_definitions
 
 
@@ -92,6 +92,11 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
 
     assert general.sandbox_policy.shell_policy == "task_decided"
     assert general.execution_policy.shell_execution_policy == "task_decided"
+    assert [item.prompt_id for item in general.environment_prompts] == [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
+    ]
+    assert all(item.prompt_kind != "lifecycle" for item in general.environment_prompts)
 
 
 def test_task_definitions_do_not_declare_skill_authority() -> None:
@@ -130,7 +135,7 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
         session_id="session-test",
         turn_id="turn-test",
         agent_invocation_id="agent-invocation-test",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -161,7 +166,7 @@ def test_full_access_projects_registered_development_tools_without_profile_restr
         session_id="session-full-access-tools",
         turn_id="turn-full-access-tools",
         agent_invocation_id="agent-invocation-full-access-tools",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -227,7 +232,7 @@ def test_coding_environment_exposes_core_development_tools_for_authorized_agent(
         session_id="session-coding-env-tools",
         turn_id="turn-coding-env-tools",
         agent_invocation_id="agent-invocation-coding-env-tools",
-        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -260,7 +265,7 @@ def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
         session_id="session-tool-schema",
         turn_id="turn-tool-schema",
         agent_invocation_id="agent-invocation-tool-schema",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -300,7 +305,7 @@ def test_runtime_profile_does_not_bind_task_environment_without_explicit_selecti
         session_id="session-profile-env",
         turn_id="turn-profile-env",
         agent_invocation_id="agent-invocation-profile-env",
-        request_task_selection={},
+        runtime_contract={},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -322,7 +327,7 @@ def test_runtime_policy_default_environment_does_not_select_task_environment() -
         session_id="session-policy-env",
         turn_id="turn-policy-env",
         agent_invocation_id="agent-invocation-policy-env",
-        request_task_selection={
+        runtime_contract={
             "runtime_policy": {
                 "context_policy": {"default_environment_id": "env.development.sandbox"},
             },
@@ -352,7 +357,7 @@ def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_prof
         session_id="session-profile-writing",
         turn_id="turn-profile-writing",
         agent_invocation_id="agent-invocation-profile-writing",
-        request_task_selection={"task_environment_id": "env.creation.writing"},
+        runtime_contract={"task_environment_id": "env.creation.writing"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -361,7 +366,7 @@ def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_prof
 
     assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.creation.writing"
-    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "explicit_selection"
+    assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "runtime_contract"
 
 
 def test_development_environment_prompt_is_in_task_execution_packet() -> None:
@@ -373,7 +378,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         session_id="session-env-prompt",
         turn_id="turn-env-prompt",
         agent_invocation_id="agent-invocation-env-prompt",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -401,6 +406,8 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
         "runtime.rule.file_management.generic.v1",
         "environment.resource.base_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
@@ -418,6 +425,11 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "当前任务环境说明" in model_input
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
+    ]
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
     assert "处理 Python 开发任务" in model_input
     assert "old_text not found" in model_input
     assert "next_start_line" in model_input
@@ -443,7 +455,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
         session_id="session-coding-env-prompt",
         turn_id="turn-coding-env-prompt",
         agent_invocation_id="agent-invocation-coding-env-prompt",
-        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -471,6 +483,8 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
         "runtime.rule.file_management.generic.v1",
         "environment.resource.managed_project_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
@@ -488,6 +502,11 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
 
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
+    ]
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
     assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "项目工作区是 coding 任务的主要工作面" in model_input
     assert "artifact 目录是交付证据和发布面" in model_input
@@ -557,7 +576,7 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
         session_id="session-env-constraint",
         turn_id="turn-env-constraint",
         agent_invocation_id="agent-invocation-env-constraint",
-        request_task_selection={"task_environment_id": "env.creation.writing"},
+        runtime_contract={"task_environment_id": "env.creation.writing"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -591,7 +610,7 @@ def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
         session_id="session-execution-permit",
         turn_id="turn-execution-permit",
         agent_invocation_id="agent-invocation-execution-permit",
-        request_task_selection={
+        runtime_contract={
             "task_environment_id": "env.development.sandbox",
             "runtime_profile": {
                 "execution_permit": {
@@ -628,7 +647,7 @@ def test_full_access_still_respects_explicit_operation_ceiling() -> None:
         session_id="session-full-access-ceiling",
         turn_id="turn-full-access-ceiling",
         agent_invocation_id="agent-invocation-full-access-ceiling",
-        request_task_selection={
+        runtime_contract={
             "task_environment_id": "env.development.sandbox",
             "runtime_profile": {
                 "execution_permit": {
@@ -666,7 +685,7 @@ def test_allowed_operation_requests_do_not_cut_agent_profile_permissions() -> No
         session_id="session-disjoint-operation-scopes",
         turn_id="turn-disjoint-operation-scopes",
         agent_invocation_id="agent-invocation-disjoint-operation-scopes",
-        request_task_selection={
+        runtime_contract={
             "task_environment_id": "env.development.sandbox",
             "allowed_operations": ["op.read_file"],
             "runtime_profile": {
@@ -706,7 +725,7 @@ def test_development_environment_keeps_document_capability_routes() -> None:
         session_id="session-document-tools",
         turn_id="turn-document-tools",
         agent_invocation_id="agent-invocation-document-tools",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -746,7 +765,7 @@ def test_single_agent_turn_packet_keeps_development_environment_authorized_side_
         session_id="session-single-turn-side-effects",
         turn_id="turn-single-turn-side-effects",
         agent_invocation_id="agent-invocation-single-turn-side-effects",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -770,6 +789,72 @@ def test_single_agent_turn_packet_keeps_development_environment_authorized_side_
     assert packet.output_contract["native_actions"]["tool_call"]["boundary"] == "runtime_visible_tools_only"
 
 
+def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    expected_environment_refs = [
+        "runtime.rule.file_management.generic.v1",
+        "environment.resource.general_workspace.orientation.v1",
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
+    ]
+    expected_lifecycle_refs = [
+        "environment.general.lifecycle.context_intake",
+        "environment.general.lifecycle.request_judgment",
+        "environment.general.lifecycle.environment_capability_alignment",
+        "environment.general.lifecycle.action_selection",
+        "environment.general.lifecycle.task_run_handoff",
+        "environment.general.lifecycle.finalization",
+    ]
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-general-lifecycle",
+        turn_id="turn-general-lifecycle",
+        agent_invocation_id="agent-invocation-general-lifecycle",
+        runtime_contract={"task_environment_id": "env.general.workspace"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+    packet = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-general-lifecycle",
+        turn_id="turn-general-lifecycle",
+        agent_invocation_id="agent-invocation-general-lifecycle",
+        user_message="继续审查这个系统。",
+        history=[],
+        runtime_assembly=assembly,
+    ).packet
+    stable_message = _message_content_with_title(packet, "Single agent turn stable boundary")
+    stable_payload = _payload_after_title(stable_message, "Single agent turn stable boundary")
+    model_input = _model_input_text(packet)
+    lifecycle_message = next(
+        str(message.get("content") or "")
+        for message in packet.model_messages
+        if "通用请求判断生命周期" in str(message.get("content") or "")
+    )
+
+    assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
+    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert set(expected_lifecycle_refs).issubset(set(GENERAL_LIFECYCLE_PROMPT_IDS))
+    assert "通用请求判断生命周期" in model_input
+    assert "用户刚发来最新请求" in model_input
+    assert "当用户目标需要持续执行时" in model_input
+    assert "准备回复用户前" in model_input
+    assert "如果系统交给你 active_work_context" not in model_input
+    assert "当系统返回工具观察" not in model_input
+    assert "当一次判断、执行或收口产生可保留信息" not in model_input
+    assert "你是当前会话主 agent 的请求判断层" not in lifecycle_message
+    assert "你是工具观察恢复层" not in lifecycle_message
+    assert "confidence" not in lifecycle_message.lower()
+
+
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
@@ -779,7 +864,7 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
         session_id="session-skill-packet",
         turn_id="turn-skill-packet",
         agent_invocation_id="agent-invocation-skill-packet",
-        request_task_selection={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.development.sandbox"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -829,7 +914,7 @@ def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms()
         session_id="session-active-skill-clean",
         turn_id="turn-active-skill-clean",
         agent_invocation_id="agent-invocation-active-skill-clean",
-        request_task_selection={
+        runtime_contract={
             "task_environment_id": "env.development.sandbox",
             "selected_skill_ids": ["skill.visual-asset-generation"],
         },
@@ -1104,7 +1189,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
         session_id="session-custom-env",
         turn_id="turn-custom-env",
         agent_invocation_id="agent-invocation-custom-env",
-        request_task_selection={"task_environment_id": "env.custom.runtime"},
+        runtime_contract={"task_environment_id": "env.custom.runtime"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -1176,7 +1261,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         session_id="session-custom-prompted",
         turn_id="turn-custom-prompted",
         agent_invocation_id="agent-invocation-custom-prompted",
-        request_task_selection={"task_environment_id": "env.custom.prompted"},
+        runtime_contract={"task_environment_id": "env.custom.prompted"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -1204,6 +1289,8 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
 
     assert "你处在自定义提示环境中" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
         "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.custom.prompted.v1",
@@ -1278,7 +1365,7 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
         session_id="session-custom-reused-prompt",
         turn_id="turn-custom-reused-prompt",
         agent_invocation_id="agent-invocation-custom-reused-prompt",
-        request_task_selection={"task_environment_id": "env.custom.reused_prompt"},
+        runtime_contract={"task_environment_id": "env.custom.reused_prompt"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -1306,6 +1393,8 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
 
     assert "当前环境复用共享只读工作区导览" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+        "environment.general.workspace.orientation.v1",
+        "environment.rule.general_workspace.v1",
         "runtime.rule.file_management.generic.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.shared.readonly_workspace.orientation.v1",

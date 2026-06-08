@@ -305,6 +305,10 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "subagent_task_kind": "knowledge_search",
                 "subagent_task_kinds": ("knowledge_search", "knowledge_retrieval", "evidence_lookup", "retrieval"),
                 "runtime_template_id": "runtime.template.knowledge_search",
+                "worker_prompt_ref": "worker.prompt.knowledge_search.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.knowledge_search.v1"],
+                },
             },
         ),
         _runtime_profile(
@@ -316,7 +320,15 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
-            metadata={"worker_kind": "pdf_analysis", "subagent_task_kind": "pdf_reading", "runtime_template_id": "builtin.specialist.pdf_reader"},
+            metadata={
+                "worker_kind": "pdf_analysis",
+                "subagent_task_kind": "pdf_reading",
+                "runtime_template_id": "builtin.specialist.pdf_reader",
+                "worker_prompt_ref": "worker.prompt.pdf_analysis.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.pdf_analysis.v1"],
+                },
+            },
         ),
         _runtime_profile(
             agent_profile_id="structured_data_analysis_agent",
@@ -327,7 +339,15 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
-            metadata={"worker_kind": "structured_data_analysis", "subagent_task_kind": "table_analysis", "runtime_template_id": "builtin.specialist.table_analyst"},
+            metadata={
+                "worker_kind": "structured_data_analysis",
+                "subagent_task_kind": "table_analysis",
+                "runtime_template_id": "builtin.specialist.table_analyst",
+                "worker_prompt_ref": "worker.prompt.structured_data_analysis.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.structured_data_analysis.v1"],
+                },
+            },
         ),
         _runtime_profile(
             agent_profile_id="web_research_agent",
@@ -500,6 +520,10 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "subagent_task_kind": "memory_search",
                 "subagent_task_kinds": ("memory_search", "memory_lookup", "memory_recall"),
                 "runtime_template_id": "runtime.template.memory_search",
+                "worker_prompt_ref": "worker.prompt.memory_search.v1",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.memory_search.v1"],
+                },
                 "runtime_config": {
                     "template_id": "runtime.template.memory_search",
                     "runtime_kind": "memory_search_agent",

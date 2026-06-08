@@ -53,17 +53,17 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
     assert policy.prompt_requirements.optional_refs == ("bug_fix",)
 
 
-def test_specific_task_assembly_policy_selection_can_choose_environment_but_not_agent_runtime_behavior() -> None:
+def test_specific_task_assembly_policy_contract_can_choose_environment_but_not_agent_runtime_behavior() -> None:
     record = SpecificTaskRecord(
         task_id="task.chapter.draft",
         task_title="Chapter Draft",
         domain_id="legacy.writing",
-        metadata={"environment_id": "env.creation.writing"},
+        metadata={"environment_id": "env.creation.writing", "default_agent_id": "agent:codebase_searcher"},
     )
 
     policy = resolve_specific_task_assembly_policy(
         task_record=record,
-        task_selection={
+        runtime_contract={
             "task_environment_id": "env.creation.writing",
             "tool_requirements": {"required_operations": ["op.read_file", "op.write_file"]},
             "default_agent_id": "agent:0",
@@ -71,7 +71,7 @@ def test_specific_task_assembly_policy_selection_can_choose_environment_but_not_
     )
 
     assert policy.environment_id == "env.creation.writing"
-    assert policy.agent_selection.default_agent_id == "agent:0"
+    assert policy.agent_selection.default_agent_id == "agent:codebase_searcher"
     assert policy.tool_capability_requirements.required_operations == ("op.read_file", "op.write_file")
     payload = policy.to_dict()
     assert payload["authority"] == "task_system.specific_task_assembly_policy"

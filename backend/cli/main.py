@@ -505,7 +505,7 @@ def _runtime_extra_payload(*, task_environment_id: str = "") -> dict[str, Any]:
     payload: dict[str, Any] = {}
     environment_id = str(task_environment_id or "").strip()
     if environment_id:
-        payload["task_selection"] = {"task_environment_id": environment_id}
+        payload["environment_binding"] = {"task_environment_id": environment_id}
     return payload
 
 

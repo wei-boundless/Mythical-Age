@@ -75,7 +75,7 @@ def build_request_signals(
     text = str(message or "").strip()
     paths = tuple(_dedupe(_extract_paths(text)))
     suffixes = tuple(_dedupe([_suffix(path) for path in paths if _suffix(path)]))
-    explicit_selection = _explicit_selection(current_turn)
+    explicit_contract = _explicit_task_contract(current_turn)
     signals = _signals_from_observations(paths=paths, suffixes=suffixes, memory_intent=memory_intent)
     return RequestSignals(
         frame_id=f"turn-signals:{_slug(text)[:48] or 'runtime'}",
@@ -83,7 +83,7 @@ def build_request_signals(
         structural_signals=signals.to_dict(),
         capability_needs=signals.weak_capability_needs,
         target_domain_hints=tuple(_target_domain_hints(suffixes=suffixes, signals=signals, current_turn=current_turn)),
-        context_binding=_context_binding(explicit_selection=explicit_selection),
+        context_binding=_context_binding(explicit_contract=explicit_contract),
         decision_trace=(
             {
                 "stage": "turn_signals",
@@ -119,7 +119,7 @@ def _signals_from_observations(
     )
 
 
-def _explicit_selection(current_turn: dict[str, Any]) -> dict[str, Any]:
+def _explicit_task_contract(current_turn: dict[str, Any]) -> dict[str, Any]:
     selected_task_id = str(
         current_turn.get("selected_task_id")
         or current_turn.get("task_id")
@@ -129,7 +129,7 @@ def _explicit_selection(current_turn: dict[str, Any]) -> dict[str, Any]:
     ).strip()
     if not selected_task_id:
         return {}
-    return {"kind": "explicit_task_selection", "selected_task_id": selected_task_id}
+    return {"kind": "explicit_task_contract", "selected_task_id": selected_task_id}
 
 
 def _target_domain_hints(*, suffixes: tuple[str, ...], signals: TurnSignals, current_turn: dict[str, Any]) -> list[str]:
@@ -149,9 +149,9 @@ def _target_domain_hints(*, suffixes: tuple[str, ...], signals: TurnSignals, cur
     return _dedupe(domains)
 
 
-def _context_binding(*, explicit_selection: dict[str, Any]) -> dict[str, Any]:
-    if explicit_selection:
-        return dict(explicit_selection)
+def _context_binding(*, explicit_contract: dict[str, Any]) -> dict[str, Any]:
+    if explicit_contract:
+        return dict(explicit_contract)
     return {"kind": "current_turn"}
 
 

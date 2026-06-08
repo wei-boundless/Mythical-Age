@@ -608,7 +608,7 @@ def test_runtime_compiler_builds_model_only_semantic_compaction_packet(tmp_path)
         session_id="session-a",
         turn_id="turn-a",
         agent_invocation_id="aginvoke:semantic",
-        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=(),

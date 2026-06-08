@@ -174,7 +174,7 @@ def _seed_task_with_required_verification(runtime, *, task_run_id: str) -> str:
             updated_at=1.0,
             diagnostics={
                 "contract": contract.to_dict(),
-                "runtime_task_selection": {"runtime_profile": {}},
+                "runtime_contract": {"runtime_profile": {}},
             },
         )
     )

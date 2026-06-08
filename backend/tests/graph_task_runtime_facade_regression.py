@@ -1952,8 +1952,8 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     assert contract["runtime_profile"]["runtime_policy"]["source"] == "graph_slot.node_contract"
     assert runtime_contract["task_environment_id"] == "env.development.sandbox"
     assert runtime_contract["task_id"] == "task.test.execute"
-    assert selection["prompt_contract"]["task_instruction"] == "只完成当前节点任务。"
-    assert selection["runtime_profile"]["tool_policy"] == {}
+    assert runtime_contract["prompt_contract"]["task_instruction"] == "只完成当前节点任务。"
+    assert runtime_contract["runtime_profile"]["tool_policy"] == {}
 
 
 def test_graph_node_task_run_records_runtime_model_override() -> None:

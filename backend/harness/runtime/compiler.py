@@ -27,6 +27,7 @@ from .dynamic_context import DynamicContextInput, DynamicContextManager, Dynamic
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .environment_storage import ensure_environment_storage_dirs
+from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
 from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
@@ -366,37 +367,48 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        session_context_payload = dict(session_context or {})
+        prompt_mount_plan = prompt_mount_plan_for_invocation(
+            _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
+            invocation_kind="single_agent_turn",
+            allowed_actions=allowed_actions,
+            active_work_context=dict(active_work_context or {}),
+            memory_context=memory_context or session_context_payload.get("memory_context"),
+            session_context=session_context_payload,
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="single_agent_turn",
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="single_agent_turn"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        environment_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="environment",
-            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+            prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
+            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "control_capabilities": dict(effective_control_capabilities),
             "planning_protocol": planning_protocol,
-            "task_environment": _environment_model_visible_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(
+                environment_payload,
+                prompt_mount_plan=prompt_mount_plan.to_dict(),
+            ),
             "output_contract": output_contract,
             "available_tools": _stable_tool_catalog_payload(single_turn_tools),
             **tool_guidance_payload_for_visible_tools(single_turn_tools),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
-        session_context_payload = dict(session_context or {})
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="single_agent_turn",
@@ -519,6 +531,7 @@ class RuntimeCompiler:
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
                 environment_prompt_assembly,
+                lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="single_agent_turn",
             ),
@@ -527,6 +540,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "recent_work_outcome", "editor_context"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_manifest["context_window"] = _context_window_report(
@@ -669,6 +683,15 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        prompt_mount_plan = prompt_mount_plan_for_invocation(
+            _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
+            invocation_kind="task_execution",
+            allowed_actions=("respond", "ask_user", "tool_call", "block"),
+            memory_context=memory_context,
+            observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            execution_state=dict(execution_state or {}),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         task_prompt_assembly = self._assemble_prompt_contract(
             task_prompt_contract=task_prompt_contract,
             graph_node_prompt_contract=graph_node_prompt_contract,
@@ -679,11 +702,9 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        environment_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="environment",
-            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+            prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
         )
         project_instruction_bundle = collect_project_instruction_bundle(
             base_dir=self.base_dir,
@@ -698,6 +719,7 @@ class RuntimeCompiler:
         environment_instruction = _environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
+            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
             include_storage_note=False,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
@@ -720,7 +742,10 @@ class RuntimeCompiler:
         )
         artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
         environment_stable_payload = {
-            "task_environment": _environment_model_visible_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(
+                environment_payload,
+                prompt_mount_plan=prompt_mount_plan.to_dict(),
+            ),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         tool_index_payload = {
@@ -758,6 +783,7 @@ class RuntimeCompiler:
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_state_projection
+        user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
@@ -787,7 +813,14 @@ class RuntimeCompiler:
                         _packet_payload_content("Task execution environment boundary", environment_stable_payload),
                     ),
                     kind="environment_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    source_ref=",".join(
+                        _dedupe_strings(
+                            [
+                                *prompt_mount_plan.environment_prompt_refs,
+                                *prompt_mount_plan.lifecycle_prompt_refs,
+                            ]
+                        )
+                    ),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -907,6 +940,29 @@ class RuntimeCompiler:
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
                 ),
                 _message_spec(
+                    role="user",
+                    content=_packet_payload_content("User steering updates for this task", user_steering_payload),
+                    kind="user_steering_updates",
+                    source_ref=_user_steering_source_ref(user_steering_payload),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "user_task_steer",
+                        "volatility_reason": "user steer queue changes whenever the user adds or the executor consumes active task guidance",
+                        "projection_strategy": "preserve_user_supplied_task_steer",
+                        "cache_impact": "volatile_suffix_only",
+                        "steer_refs": [
+                            str(item.get("steer_id") or "")
+                            for item in list(user_steering_payload.get("pending_user_steers") or [])
+                            if isinstance(item, dict) and str(item.get("steer_id") or "")
+                        ],
+                        "pending_user_steer_count": int(user_steering_payload.get("pending_user_steer_count") or 0),
+                    },
+                )
+                if user_steering_payload
+                else None,
+                _message_spec(
                     role="assistant",
                     content=graph_node_completion_prefix,
                     kind="graph_node_completion_prefix",
@@ -932,6 +988,7 @@ class RuntimeCompiler:
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
                 environment_prompt_assembly,
+                lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 task_prompt_assembly,
                 invocation_kind="task_execution",
@@ -944,12 +1001,14 @@ class RuntimeCompiler:
             volatile_state_refs=(
                 "runtime_envelope",
                 "task_state",
+                "user_steering_updates",
                 "pending_user_steers",
                 "active_contract_revisions",
                 "editor_context",
             ),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
             session_context={},
@@ -1055,29 +1114,39 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        prompt_mount_plan = prompt_mount_plan_for_invocation(
+            _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
+            invocation_kind="tool_observation_followup",
+            allowed_actions=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
+            session_context=dict(session_context or {}),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="tool_observation_followup",
             prompt_refs=_agent_prompt_refs_for_invocation(assembly_payload, invocation_kind="tool_observation_followup"),
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        environment_prompt_assembly = self._assemble_prompt_refs(
-            invocation_kind="environment",
-            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+            prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = _environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
+            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "schema": schema,
-            "task_environment": _environment_model_visible_payload(environment_payload),
+            "task_environment": _environment_model_visible_payload(
+                environment_payload,
+                prompt_mount_plan=prompt_mount_plan.to_dict(),
+            ),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
             **tool_guidance_payload_for_visible_tools(tool_payloads),
@@ -1142,7 +1211,14 @@ class RuntimeCompiler:
                     role="system",
                     content=environment_instruction,
                     kind="environment_stable",
-                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    source_ref=",".join(
+                        _dedupe_strings(
+                            [
+                                *prompt_mount_plan.environment_prompt_refs,
+                                *prompt_mount_plan.lifecycle_prompt_refs,
+                            ]
+                        )
+                    ),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1209,6 +1285,7 @@ class RuntimeCompiler:
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
                 environment_prompt_assembly,
+                lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="tool_observation_followup",
             ),
@@ -1217,6 +1294,7 @@ class RuntimeCompiler:
             volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations", "editor_context"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
             session_context=session_context,
@@ -1334,6 +1412,37 @@ class RuntimeCompiler:
             requested_refs=prompt_refs,
         )
         return assembly
+
+    def _assemble_environment_prompt_layers(
+        self,
+        *,
+        prompt_mount_plan: Any,
+        agent_profile_ref: str,
+    ) -> tuple[PromptAssemblyResult, PromptAssemblyResult]:
+        base_environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=tuple(prompt_mount_plan.base_prompt_refs or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=str(prompt_mount_plan.base_environment_id or ""),
+        )
+        overlay_environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=tuple(prompt_mount_plan.overlay_prompt_refs or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+        )
+        environment_prompt_assembly = _merge_prompt_assemblies(
+            base_environment_prompt_assembly,
+            overlay_environment_prompt_assembly,
+            invocation_kind="environment",
+        )
+        lifecycle_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=tuple(prompt_mount_plan.lifecycle_prompt_refs or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=str(prompt_mount_plan.base_environment_id or ""),
+        )
+        return environment_prompt_assembly, lifecycle_prompt_assembly
 
 
 def _validate_runtime_prompt_pack_assembly(
@@ -2384,6 +2493,58 @@ def _looks_like_project_path(value: str) -> bool:
     return any(separator in text for separator in ("/", "\\")) or "." in Path(text).name
 
 
+def _user_steering_updates_payload(execution_state: dict[str, Any] | None) -> dict[str, Any]:
+    state = dict(execution_state or {})
+    projection = dict(state.get("system_projection") or {})
+    pending_steers = [
+        _user_steer_model_payload(item)
+        for item in list(projection.get("pending_user_steers") or [])
+        if isinstance(item, dict) and str(item.get("steer_id") or "").strip()
+    ]
+    if not pending_steers:
+        return {}
+    return {
+        "authority": "harness.runtime.task_execution.user_steering_updates",
+        "source": "active_task_steer_queue",
+        "handling_rules": [
+            "These are user-provided steering updates for the current task_run, not a new task selection.",
+            "You must account for each pending steer before final respond.",
+            "If a steer changes scope, target, acceptance criteria, or priority, revise the task plan or contract before completing.",
+            "Only list a steer_id in diagnostics.consumed_steer_refs after your action, plan revision, tool call, or final answer has actually handled it.",
+            "If a steer cannot be satisfied, explain why and mark the related revision decision rejected or needs_user.",
+        ],
+        "required_completion_gate": "Do not action_type=respond while any listed steer is unhandled.",
+        "pending_user_steer_count": len(pending_steers),
+        "pending_user_steers": pending_steers,
+    }
+
+
+def _user_steer_model_payload(value: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "steer_id": str(value.get("steer_id") or ""),
+        "task_run_id": str(value.get("task_run_id") or ""),
+        "submission_ref": str(value.get("submission_ref") or ""),
+        "steer_kind": str(value.get("steer_kind") or "instruction"),
+        "priority": str(value.get("priority") or "normal"),
+        "consumption_state": str(value.get("consumption_state") or "pending"),
+        "content": str(value.get("content") or ""),
+        "created_at": value.get("created_at"),
+        "editor_context": dict(value.get("editor_context") or {}) if isinstance(value.get("editor_context"), dict) else {},
+    }
+    return {key: item for key, item in payload.items() if item not in ("", {}, [], None)}
+
+
+def _user_steering_source_ref(payload: dict[str, Any]) -> str:
+    steer_ids = [
+        str(item.get("steer_id") or "")
+        for item in list(dict(payload or {}).get("pending_user_steers") or [])
+        if isinstance(item, dict) and str(item.get("steer_id") or "")
+    ]
+    if not steer_ids:
+        return "active_task_steer_queue"
+    return "active_task_steer_queue:" + _short_hash(_stable_json_hash(steer_ids))
+
+
 def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return f"{title}\n{body}"
@@ -2428,9 +2589,49 @@ def _merge_prompt_assemblies(
             "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
             "rejected_refs": rejected_refs,
             "prompt_rules": rule_diagnostics,
+            "prompt_precedence": _runtime_prompt_precedence_report(tuple(sections)),
             "authority": "prompt_library.prompt_assembly_manifest",
         },
     )
+
+
+def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    precedence = {
+        "system": 0,
+        "agent": 20,
+        "runtime": 30,
+        "environment": 40,
+        "lifecycle": 45,
+        "tool": 50,
+        "skill": 60,
+        "project": 70,
+        "contract": 80,
+        "unknown": 100,
+    }
+    for section in sections:
+        category = str(getattr(section, "category", "") or "")
+        subtype = str(getattr(section, "subtype", "") or "")
+        prompt_ref = str(getattr(section, "prompt_ref", "") or "")
+        layer = "lifecycle" if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref) else category
+        if layer not in precedence:
+            layer = "unknown"
+        entries.append(
+            {
+                "prompt_ref": prompt_ref,
+                "category": category,
+                "subtype": subtype,
+                "assembly_layer": layer,
+                "precedence": precedence[layer],
+                "order": int(getattr(section, "order", 0) or 0),
+            }
+        )
+    return {
+        "policy": "override>coordinator>agent>runtime>environment>lifecycle>tool>skill>project>contract",
+        "behavior": "diagnostic_only_preserves_requested_order",
+        "entries": entries,
+        "authority": "harness.runtime.prompt_precedence_report",
+    }
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
@@ -2469,6 +2670,52 @@ def _agent_prompt_refs_for_invocation(assembly_payload: dict[str, Any], *, invoc
     if refs:
         return refs
     return _string_tuple(assembly_payload.get("agent_prompt_refs"))
+
+
+def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+    explicit_plan = dict(assembly_payload.get("prompt_mount_plan") or {})
+    if explicit_plan:
+        return explicit_plan
+    environment_payload = dict(assembly_payload.get("task_environment") or {})
+    environment_prompt_refs = _string_tuple(assembly_payload.get("environment_prompt_refs"))
+    if not environment_prompt_refs:
+        boundary = dict(environment_payload.get("environment_boundary") or {})
+        environment_prompt_refs = _string_tuple(boundary.get("prompt_refs"))
+    if not environment_prompt_refs:
+        environment_prompt_refs = tuple(
+            str(item.get("prompt_id") or "").strip()
+            for item in list(environment_payload.get("environment_prompts") or [])
+            if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
+        )
+    if not environment_prompt_refs:
+        return {}
+    selected_environment_id = str(
+        environment_payload.get("environment_id")
+        or environment_payload.get("task_environment_id")
+        or GENERAL_ENVIRONMENT_ID
+    ).strip()
+    if selected_environment_id == GENERAL_ENVIRONMENT_ID:
+        base_prompt_refs = environment_prompt_refs
+        overlay_prompt_refs: tuple[str, ...] = ()
+    else:
+        base_candidates = {
+            "environment.general.workspace.orientation.v1",
+            "environment.rule.general_workspace.v1",
+        }
+        base_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref in base_candidates)
+        overlay_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref not in base_candidates)
+    return {
+        "base_environment_id": GENERAL_ENVIRONMENT_ID,
+        "selected_environment_id": selected_environment_id or GENERAL_ENVIRONMENT_ID,
+        "base_prompt_refs": list(base_prompt_refs),
+        "overlay_prompt_refs": list(overlay_prompt_refs),
+        "environment_prompt_refs": _dedupe_strings([*base_prompt_refs, *overlay_prompt_refs]),
+        "diagnostics": {
+            "source": "runtime_assembly_environment_prompt_refs_without_mount_plan",
+            "normalized_by": "harness.runtime.compiler",
+            "environment_prompt_count": len(environment_prompt_refs),
+        },
+    }
 
 
 def _task_run_context_enabled(profile_payload: dict[str, Any]) -> bool:
@@ -2872,9 +3119,11 @@ def _environment_instruction(
     environment_payload: dict[str, Any],
     *,
     environment_prompt_assembly: PromptAssemblyResult,
+    lifecycle_prompt_assembly: PromptAssemblyResult | None = None,
     include_storage_note: bool = True,
 ) -> str:
     content = _environment_prompt_section_content(environment_prompt_assembly)
+    lifecycle_content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
     environment_id = str(environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or "").strip()
     title = str(environment_payload.get("title") or environment_id or "未命名任务环境").strip()
     description = str(environment_payload.get("description") or "").strip()
@@ -2897,6 +3146,8 @@ def _environment_instruction(
     detail_sections: list[str] = []
     if content:
         detail_sections.append(content)
+    if lifecycle_content:
+        detail_sections.append(lifecycle_content)
     if storage_note:
         detail_sections.append(storage_note.rstrip())
     if not detail_sections:
@@ -2914,6 +3165,20 @@ def _environment_prompt_section_content(environment_prompt_assembly: PromptAssem
         title = str(section.title or prompt_ref or "环境提示").strip()
         prefix = "环境资源提示" if prompt_ref.startswith("environment.resource.") else "任务环境提示"
         rendered.append(f"【{prefix}：{title}】\n{str(section.content or '').strip()}")
+    return "\n\n".join(rendered).strip()
+
+
+def _lifecycle_prompt_section_content(lifecycle_prompt_assembly: PromptAssemblyResult | None) -> str:
+    if lifecycle_prompt_assembly is None:
+        return ""
+    sections = [section for section in lifecycle_prompt_assembly.sections if str(section.content or "").strip()]
+    if not sections:
+        return ""
+    rendered: list[str] = []
+    for section in sections:
+        prompt_ref = str(section.prompt_ref or "").strip()
+        title = str(section.title or prompt_ref or "生命周期提示").strip()
+        rendered.append(f"【生命周期提示：{title}】\n{str(section.content or '').strip()}")
     return "\n\n".join(rendered).strip()
 
 
@@ -2937,7 +3202,11 @@ def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str
     return payload
 
 
-def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
+def _environment_model_visible_payload(
+    environment_payload: dict[str, Any],
+    *,
+    prompt_mount_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     payload = dict(environment_payload or {})
     group = dict(payload.get("group") or {})
     storage = dict(payload.get("storage_space") or {})
@@ -2946,7 +3215,8 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
     file_management = dict(payload.get("file_management") or {})
     environment_boundary = dict(payload.get("environment_boundary") or {})
     boundary_contract = dict(environment_boundary.get("boundary_contract") or {})
-    prompt_refs = _string_tuple(environment_boundary.get("prompt_refs")) or tuple(
+    mount_plan = prompt_mount_plan_from_payload(prompt_mount_plan)
+    prompt_refs = mount_plan.environment_prompt_refs or _string_tuple(environment_boundary.get("prompt_refs")) or tuple(
         str(item.get("prompt_id") or "").strip()
         for item in list(payload.get("environment_prompts") or [])
         if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
@@ -2976,6 +3246,17 @@ def _environment_model_visible_payload(environment_payload: dict[str, Any]) -> d
             }
         ),
         "environment_prompt_refs": prompt_refs,
+        "prompt_mount_plan": _drop_empty_payload(
+            {
+                "base_environment_id": mount_plan.base_environment_id,
+                "selected_environment_id": mount_plan.selected_environment_id,
+                "base_prompt_refs": list(mount_plan.base_prompt_refs),
+                "overlay_prompt_refs": list(mount_plan.overlay_prompt_refs),
+                "lifecycle_prompt_refs": list(mount_plan.lifecycle_prompt_refs),
+                "environment_switch_policy": dict(mount_plan.environment_switch_policy),
+                "diagnostics": dict(mount_plan.diagnostics),
+            }
+        ),
         "boundary_contract": _drop_empty_payload(
             {
                 "tool_authority": str(boundary_contract.get("tool_authority") or ""),

@@ -74,12 +74,14 @@ class OrchestrationAgentGroupUpsertRequest(BaseModel):
 
 
 class OrchestrationPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str = Field(default="session-preview")
     turn_id: str = Field(default="turn:session-preview:1")
     task_id: str = Field(default="taskinst:turn:session-preview:1:general_response")
     user_goal: str = Field(..., min_length=1)
     source: str = Field(default="orchestration_preview")
-    task_selection: dict[str, Any] = Field(default_factory=dict)
+    runtime_contract: dict[str, Any] = Field(default_factory=dict)
 
 
 OPTION_LABELS: dict[str, str] = {
@@ -573,7 +575,7 @@ async def orchestration_runtime_spec_preview(payload: OrchestrationPreviewReques
         "runtime_assembly": assembly_payload,
         "runtime_profile": dict(assembly_payload.get("profile") or {}),
         "model_selection": dict(assembly_payload.get("model_selection") or {}),
-        "task_selection": dict(assembly_payload.get("task_selection") or {}),
+        "runtime_contract": dict(assembly_payload.get("runtime_contract") or {}),
         "task_environment": dict(assembly_payload.get("task_environment") or {}),
         "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
         "available_tools": [dict(item) for item in list(assembly_payload.get("available_tools") or [])],
@@ -590,11 +592,11 @@ def _preview_runtime_assembly(runtime: Any, payload: OrchestrationPreviewRequest
         session_id=payload.session_id,
         turn_id=payload.turn_id,
         agent_invocation_id=f"aginvoke:{payload.turn_id}:preview",
-        request_task_selection={
+        runtime_contract={
             "turn_id": payload.turn_id,
             "source": payload.source,
             "preview_user_goal": payload.user_goal,
-            **dict(payload.task_selection or {}),
+            **dict(payload.runtime_contract or {}),
         },
         model_selection={},
         agent_runtime_profile=agent_profile,

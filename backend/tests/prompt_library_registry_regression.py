@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from prompt_library import FOUNDATION_PROMPT_REFS, PromptLibraryRegistry, PromptResource
+from prompt_library import (
+    FOUNDATION_PROMPT_REFS,
+    GENERAL_LIFECYCLE_PROMPT_IDS,
+    PromptLibraryRegistry,
+    PromptResource,
+)
 
 
 def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_default(tmp_path: Path) -> None:
@@ -44,6 +49,20 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id["environment.general.workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation.v1"].allowed_environment_refs == ()
+    for prompt_id in GENERAL_LIFECYCLE_PROMPT_IDS:
+        resource = resource_by_id[prompt_id]
+        assert resource.category == "environment"
+        assert resource.owner_layer == "environment"
+        assert resource.resource_type == "environment_prompt"
+        assert resource.subtype.startswith("lifecycle_")
+        assert resource.allowed_invocation_kinds == ("environment",)
+        assert resource.allowed_environment_refs == ("env.general.workspace",)
+        assert resource.cache_scope == "static_environment"
+        assert resource.version == "2026-06-08"
+        assert not resource.prompt_id.endswith(".v1")
+    active_work_prompt = resource_by_id["environment.general.lifecycle.active_work_control"]
+    assert "confidence" not in active_work_prompt.content.lower()
+    assert "active_work_control action" in active_work_prompt.content
     assert not [item for item in resources if "metadata.work_role_prompt" in item.source_ref]
     assert not [item for item in resources if item.resource_id.startswith("prompt.default.")]
     assert not [item for item in resources if item.resource_type in {"task_goal_role", "stage_role", "understanding_policy"}]

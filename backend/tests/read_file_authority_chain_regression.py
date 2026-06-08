@@ -44,7 +44,7 @@ def test_read_file_is_native_only_but_model_visible_with_schema() -> None:
         session_id="session-read-file-authority",
         turn_id="turn-read-file-authority",
         agent_invocation_id="agent-invocation-read-file-authority",
-        request_task_selection={"task_environment_id": "env.coding.vibe_workspace"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),

@@ -91,6 +91,7 @@ def build_runtime_prompt_manifest(
         diagnostics={
             "packet_id": packet_id,
             "prompt_assembly_id": assembly.assembly_id,
+            "prompt_precedence": dict(assembly.manifest.get("prompt_precedence") or {}),
         },
     )
 

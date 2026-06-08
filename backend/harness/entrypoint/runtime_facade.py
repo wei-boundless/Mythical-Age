@@ -27,7 +27,6 @@ from orchestration import (
 )
 from project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
-from harness.entrypoint.current_work_boundary import decide_current_work_boundary
 from api.chat_direct_routes import run_direct_system_route
 from harness.loop.active_work import (
     ActiveWorkContext,
@@ -293,8 +292,8 @@ class HarnessRuntimeFacade:
 
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
-                runtime_selection = _task_selection_for_runtime(
-                    request_task_selection=dict(request.task_selection or {}),
+                runtime_contract = _runtime_contract_for_turn(
+                    request_runtime_contract=dict(request.runtime_contract or {}),
                     turn_id=turn_id,
                     runtime_profile=dict(request.runtime_profile or {}),
                     active_turn_present=active_turn is not None,
@@ -306,7 +305,7 @@ class HarnessRuntimeFacade:
                     session_id=request.session_id,
                     turn_id=turn_id,
                     agent_invocation_id=agent_invocation_id,
-                    request_task_selection=runtime_selection,
+                    runtime_contract=runtime_contract,
                     model_selection=dict(request.model_selection or {}),
                     environment_binding=request_environment_binding,
                     agent_runtime_profile=agent_runtime_profile,
@@ -378,17 +377,6 @@ class HarnessRuntimeFacade:
                     "runtime_branch": runtime_branch,
                 }
                 if runtime_branch.get("branch_kind") == "single_agent_turn":
-                    boundary_handled, boundary_events = await self._apply_current_work_boundary_if_required(
-                        request=request,
-                        turn_id=turn_id,
-                        turn_input_facts=turn_input_facts,
-                        active_work_context=active_work_context,
-                        runtime_branch=runtime_branch,
-                    )
-                    for event in boundary_events:
-                        yield event
-                    if boundary_handled:
-                        return
                     async for event in self._run_single_agent_turn(
                         request=request,
                         turn_id=turn_id,
@@ -479,7 +467,7 @@ class HarnessRuntimeFacade:
                 runtime_host=self.single_agent_runtime_host,
                 session_id=request.session_id,
                 turn_id=turn_id,
-                task_selection=dict(request.task_selection or {}),
+                runtime_contract=dict(request.runtime_contract or {}),
                 model_selection=dict(request.model_selection or {}),
                 action_request=action_request,
                 agent_runtime_profile=agent_runtime_profile,
@@ -522,7 +510,6 @@ class HarnessRuntimeFacade:
                     "turn_response_policy": str(control_payload.get("turn_response_policy") or ""),
                     "user_turn_kind": str(control_payload.get("user_turn_kind") or ""),
                     "answer_obligation": str(control_payload.get("answer_obligation") or ""),
-                    "confidence": control_payload.get("confidence") or 0.0,
                     "relation_to_current_work": str(control_payload.get("relation_to_current_work") or ""),
                     "evidence": str(control_payload.get("evidence") or ""),
                 },
@@ -589,110 +576,6 @@ class HarnessRuntimeFacade:
                 "content": "当前任务状态已变化，请刷新后重试。",
             }
         return None
-
-    async def _apply_current_work_boundary_if_required(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        turn_input_facts: Any,
-        active_work_context: ActiveWorkContext | None,
-        runtime_branch: dict[str, Any],
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        if active_work_context is None:
-            return False, []
-        decision = await decide_current_work_boundary(
-            model_runtime=getattr(self.model_response_executor, "model_runtime", None),
-            model_selection=dict(request.model_selection or {}),
-            turn_input_facts=turn_input_facts,
-            active_work_context=active_work_context,
-        )
-        decision_payload = decision.to_dict()
-        events: list[dict[str, Any]] = [
-            {
-                "type": "current_work_boundary_decided",
-                "decision": decision_payload,
-                "active_work": active_work_context.to_dict(),
-                "authority": "harness.entrypoint.current_work_boundary",
-            }
-        ]
-        if decision.action in {"no_current_work", "new_independent_turn_allowed"}:
-            return False, events
-
-        if decision.action == "block":
-            content = decision.response or "当前工作边界没有允许继续执行，本轮已停止。"
-            answer_channel = "blocked"
-            terminal_reason = "current_work_boundary_blocked"
-        else:
-            active_decision = active_work_turn_decision_from_payload(
-                {
-                    "authority": "harness.loop.active_work_turn_decision",
-                    "action": decision.action,
-                    "response": decision.response,
-                    "appended_instruction": decision.appended_instruction,
-                    "continuation_strategy": decision.continuation_strategy,
-                    "relation_to_current_work": decision.relation_to_current_work,
-                    "evidence": decision.evidence,
-                    "confidence": decision.confidence,
-                    "reason": decision.reason,
-                },
-                user_message=request.message,
-            )
-            if not active_decision.accepted:
-                content = active_work_control_denial_reply(active_decision)
-                answer_channel = "blocked"
-                terminal_reason = active_decision.denied_reason or active_decision.reason or "current_work_boundary_denied"
-            else:
-                active_turn_guard = self._active_turn_control_guard(
-                    request=request,
-                    active_work_context=active_work_context,
-                )
-                if active_turn_guard is not None:
-                    content = str(active_turn_guard.get("content") or "")
-                    answer_channel = "blocked"
-                    terminal_reason = str(active_turn_guard.get("terminal_reason") or "active_turn_control_blocked")
-                else:
-                    content = await self._apply_active_work_turn_decision(
-                        decision=active_decision,
-                        context=active_work_context,
-                        turn_id=turn_id,
-                        user_message=request.message,
-                        editor_context=dict(getattr(request, "editor_context", {}) or {}),
-                    )
-                    answer_channel = "ask_user" if active_decision.action == "ask_user" else "active_work_control"
-                    terminal_reason = active_decision.action
-
-        decision_record = canonical_output_decision_for_final_text(
-            content,
-            answer_channel=answer_channel,
-            answer_source="harness.current_work_boundary",
-            execution_posture="current_work_control",
-            terminal_reason=terminal_reason,
-        )
-        await self._apply_assistant_message_commit_async(
-            request.session_id,
-            {
-                "role": "assistant",
-                "content": decision_record.content,
-                "turn_id": turn_id,
-                **decision_record.to_payload(),
-            },
-        )
-        events.append(
-            final_answer_event(
-                content=decision_record.content,
-                answer_channel=answer_channel,
-                answer_source="harness.current_work_boundary",
-                terminal_reason=terminal_reason,
-                extra={
-                    "runtime_branch": dict(runtime_branch or {}),
-                    "current_work_boundary": decision_payload,
-                    "active_work": active_work_context.to_dict(),
-                    "completion_state": "current_work_boundary_handled",
-                },
-            )
-        )
-        return True, events
 
     async def _run_explicit_contract_task_turn(
         self,
@@ -1950,25 +1833,25 @@ def _refresh_existing_graph_node_task_run(
     return runtime_host.state_index.get_task_run(updated.task_run_id) or updated
 
 
-def _task_selection_for_runtime(
+def _runtime_contract_for_turn(
     *,
-    request_task_selection: dict[str, Any],
+    request_runtime_contract: dict[str, Any],
     turn_id: str,
     runtime_profile: dict[str, Any] | None = None,
     active_turn_present: bool = False,
 ) -> dict[str, Any]:
     profile_payload = {
-        **dict(request_task_selection.get("runtime_profile") or {}),
+        **dict(request_runtime_contract.get("runtime_profile") or {}),
         **dict(runtime_profile or {}),
     }
-    selection_payload = dict(request_task_selection or {})
+    contract_payload = dict(request_runtime_contract or {})
     if active_turn_present:
-        runtime_facts = dict(selection_payload.get("runtime_facts") or {})
+        runtime_facts = dict(contract_payload.get("runtime_facts") or {})
         runtime_facts["active_turn_present"] = True
         runtime_facts["active_turn_capability_policy"] = "preserve_user_granted_capabilities"
-        selection_payload["runtime_facts"] = runtime_facts
+        contract_payload["runtime_facts"] = runtime_facts
     return {
-        **selection_payload,
+        **contract_payload,
         "turn_id": turn_id,
         **({"runtime_profile": profile_payload} if profile_payload else {}),
     }
@@ -2083,10 +1966,10 @@ def _task_run_contract_from_explicit_contract(
         errors.append("completion_evidence_required")
     if errors:
         return None, errors
-    selection = dict(assembly_payload.get("task_selection") or {})
+    runtime_contract = dict(assembly_payload.get("runtime_contract") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
     task_environment_id = str(
-        selection.get("task_environment_id")
+        runtime_contract.get("task_environment_id")
         or source.get("task_environment_id")
         or source.get("environment_id")
         or environment.get("environment_id")
@@ -2097,7 +1980,7 @@ def _task_run_contract_from_explicit_contract(
         runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
     runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
         runtime_profile,
-        allowed_operations=_explicit_allowed_operations_for_contract(selection=selection, source=source),
+        allowed_operations=_explicit_allowed_operations_for_contract(runtime_contract=runtime_contract, source=source),
     )
     contract = TaskRunContract(
         contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
@@ -2239,10 +2122,10 @@ def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:
 
 
 def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
-    task_selection = dict(assembly_payload.get("task_selection") or {})
+    runtime_contract = dict(assembly_payload.get("runtime_contract") or {})
     candidates: list[dict[str, Any]] = []
     for key in ("task_contract", "task_contract_seed", "engagement_contract"):
-        value = task_selection.get(key)
+        value = runtime_contract.get(key)
         if isinstance(value, dict) and value:
             candidates.append(dict(value))
     engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
@@ -2250,7 +2133,7 @@ def _system_issued_explicit_contract_payload(assembly_payload: dict[str, Any]) -
         candidates.append(engagement_contract)
     if not candidates:
         return {}
-    system_issued = bool(task_selection.get("system_issued_contract") is True)
+    system_issued = bool(runtime_contract.get("system_issued_contract") is True)
     for candidate in candidates:
         if system_issued or candidate.get("system_issued") is True:
             return candidate
@@ -2263,25 +2146,25 @@ def _explicit_contract_source_payload(assembly_payload: dict[str, Any]) -> dict[
 
 def _explicit_allowed_operations_for_contract(
     *,
-    selection: dict[str, Any],
+    runtime_contract: dict[str, Any],
     source: dict[str, Any],
 ) -> tuple[str, ...] | None:
     runtime_profile = dict(source.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
     source_execution_permit = dict(runtime_profile.get("execution_permit") or {})
-    selection_runtime_profile = dict(selection.get("runtime_profile") or {})
-    selection_execution_permit = dict(selection.get("execution_permit") or {})
-    selection_runtime_execution_permit = dict(selection_runtime_profile.get("execution_permit") or {})
+    contract_runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
+    contract_execution_permit = dict(runtime_contract.get("execution_permit") or {})
+    contract_runtime_execution_permit = dict(contract_runtime_profile.get("execution_permit") or {})
     permission_requirements = dict(source.get("permission_requirements") or source.get("tool_scope") or {})
     operation_requirement = dict(source.get("operation_requirement") or {})
     operations: list[str] = []
     seen: set[str] = set()
     for value in (
-        selection.get("allowed_operations"),
-        selection_execution_permit.get("allowed_operations"),
-        selection_runtime_profile.get("allowed_operations"),
-        selection_runtime_execution_permit.get("allowed_operations"),
+        runtime_contract.get("allowed_operations"),
+        contract_execution_permit.get("allowed_operations"),
+        contract_runtime_profile.get("allowed_operations"),
+        contract_runtime_execution_permit.get("allowed_operations"),
         source.get("allowed_operations"),
         source_execution_permit.get("allowed_operations"),
         permission_requirements.get("allowed_operations"),

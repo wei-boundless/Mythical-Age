@@ -118,7 +118,7 @@ def test_runtime_compiler_emits_dynamic_context_report_and_projected_task_state(
 
     packet = result.packet
     manifest = packet.diagnostics["prompt_manifest"]
-    volatile_payload = _payload_after_title(packet.model_messages[-1]["content"], "Task execution current state")
+    volatile_payload = _payload_containing_title(packet.model_messages, "Task execution current state")
 
     assert "dynamic_context_report" in manifest
     assert all(item["volatility_reason"] for item in manifest["dynamic_context_report"]["section_reports"])

@@ -37,6 +37,15 @@ def agent_todo_state_store_from_backend_dir(base_dir: str | Path) -> AgentTodoSt
     return AgentTodoStateStore(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir)
 
 
+def agent_todo_state_store_from_root(root_dir: str | Path) -> AgentTodoStateStore:
+    from project_layout import ProjectLayout
+
+    resolved = Path(root_dir).resolve()
+    if resolved.name == "runtime_state" and resolved.parent.name == "storage":
+        return AgentTodoStateStore(resolved)
+    return AgentTodoStateStore(ProjectLayout.from_backend_dir(resolved).runtime_state_dir)
+
+
 def normalize_todo_items(*, items: Any = None) -> list[dict[str, Any]]:
     raw_items = list(items or [])
     return [dict(item) for item in raw_items if isinstance(item, dict)]

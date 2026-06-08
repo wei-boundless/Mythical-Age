@@ -9,7 +9,6 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
 from permissions.operations import build_default_operation_registry
-from harness.agent_control.controller import SubagentControl
 from orchestration.runtime_directive import RuntimeDirective
 from permissions import ApprovalState, ApprovalToken, PermissionContext, ResourceDecision, ResourcePolicy
 from harness.loop.action_permit import validate_tool_invocation_permit
@@ -758,6 +757,8 @@ async def _invoke_subagent_control(
     operation_gate: dict[str, Any],
     execution_record: Any | None,
 ) -> ToolObservation:
+    from harness.agent_control.controller import SubagentControl
+
     runtime_host = _runtime_host(request)
     services = _services(request)
     task_run = _task_run(request)

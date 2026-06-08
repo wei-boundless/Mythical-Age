@@ -104,7 +104,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "thinking_mode": str(args.thinking_mode or "disabled"),
         "reasoning_effort": str(args.reasoning_effort or "auto"),
     }
-    task_selection = _task_selection(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection, scenario=scenario)
+    runtime_contract = _runtime_contract(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection, scenario=scenario)
     request = HarnessRuntimeRequest(
         session_id=session_id,
         message=(
@@ -115,7 +115,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         + (
             "必须真实写入文件并验证，不要只写计划。"
         ),
-        task_selection=task_selection,
+        runtime_contract=runtime_contract,
         model_selection=model_selection,
     )
 
@@ -186,7 +186,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def _task_selection(*, run_id: str, artifact_path: str, model_selection: dict[str, Any], scenario: str = "basic") -> dict[str, Any]:
+def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[str, Any], scenario: str = "basic") -> dict[str, Any]:
     complex_scenario = str(scenario or "basic") == "complex"
     allowed_operations = [
         "op.model_response",

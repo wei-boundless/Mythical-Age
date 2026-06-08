@@ -43,14 +43,14 @@ class TaskContractIssuer:
         environment_registry = self.environment_registry or (
             task_environment_registry_from_backend_dir(self.backend_dir) if self.backend_dir is not None else default_task_environment_registry()
         )
-        task_selection = {
+        startup_contract = {
             **startup,
             **({"environment_id": environment_id} if environment_id else {}),
         }
         policy = resolve_specific_task_assembly_policy(
             task_record=record,
             execution_policy=execution,
-            task_selection=task_selection,
+            runtime_contract=startup_contract,
             environment_registry=environment_registry,
         )
         environment = environment_registry.require(policy.environment_id)

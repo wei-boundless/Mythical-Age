@@ -12,7 +12,8 @@ from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runt
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
 from .operation_projection import project_operation_authorization
-from .tool_scheduling import operation_requests_from_runtime_selection
+from .tool_scheduling import operation_requests_from_runtime_contract
+from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, build_base_prompt_mount_plan
 
 
 _SUBAGENT_TOOL_NAMES = {
@@ -96,7 +97,7 @@ class RuntimeAssembly:
     backend_dir: str = ""
     agent_profile_ref: str = ""
     model_selection: dict[str, Any] = field(default_factory=dict)
-    task_selection: dict[str, Any] = field(default_factory=dict)
+    runtime_contract: dict[str, Any] = field(default_factory=dict)
     engagement_contract: dict[str, Any] = field(default_factory=dict)
     execution_strategy: dict[str, Any] = field(default_factory=dict)
     engagement_run_ref: str = ""
@@ -105,6 +106,7 @@ class RuntimeAssembly:
     agent_prompt_refs: tuple[str, ...] = ()
     agent_prompt_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
+    prompt_mount_plan: dict[str, Any] = field(default_factory=dict)
     skill_runtime_views: tuple[dict[str, Any], ...] = ()
     selected_skill_ids: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
@@ -132,6 +134,7 @@ class RuntimeAssembly:
             for key, value in dict(self.agent_prompt_refs_by_invocation or {}).items()
         }
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
+        payload["prompt_mount_plan"] = dict(self.prompt_mount_plan)
         payload["skill_runtime_views"] = [dict(item) for item in self.skill_runtime_views]
         payload["selected_skill_ids"] = list(self.selected_skill_ids)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
@@ -144,7 +147,7 @@ def assemble_runtime(
     session_id: str,
     turn_id: str,
     agent_invocation_id: str,
-    request_task_selection: dict[str, Any],
+    runtime_contract: dict[str, Any],
     model_selection: dict[str, Any],
     agent_runtime_profile: Any | None,
     tool_instances: list[Any] | tuple[Any, ...] | None,
@@ -153,24 +156,33 @@ def assemble_runtime(
     permission_mode: str = "default",
     workspace_root: str | Path | None = None,
 ) -> RuntimeAssembly:
-    selection = dict(request_task_selection or {})
+    runtime_contract_payload = dict(runtime_contract or {})
     normalized_permission_mode = normalize_permission_mode(permission_mode)
     bound_workspace_root = _normalize_workspace_root(workspace_root)
-    engagement_contract = dict(selection.get("engagement_contract") or {})
-    explicit_operation_ceiling = _explicit_operation_ceiling_from_runtime_selection(selection)
+    engagement_contract = dict(runtime_contract_payload.get("engagement_contract") or {})
+    explicit_operation_ceiling = _explicit_operation_ceiling_from_runtime_contract(runtime_contract_payload)
     profile = build_runtime_assembly_profile(
         agent_runtime_profile=agent_runtime_profile,
-        selection=selection,
+        runtime_contract=runtime_contract_payload,
         explicit_operation_ceiling=explicit_operation_ceiling,
     )
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
         environment_binding=environment_binding,
-        selection=selection,
+        runtime_contract=runtime_contract_payload,
+    )
+    base_environment, _base_environment_diagnostics = _resolve_runtime_task_environment(
+        backend_dir=backend_dir,
+        environment_binding={"task_environment_id": GENERAL_ENVIRONMENT_ID},
+        runtime_contract={},
     )
     task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
     task_environment = _apply_bound_workspace_root(task_environment, bound_workspace_root)
-    task_requested_operations = operation_requests_from_runtime_selection(selection)
+    prompt_mount_plan = build_base_prompt_mount_plan(
+        selected_environment=task_environment,
+        base_environment=base_environment,
+    )
+    task_requested_operations = operation_requests_from_runtime_contract(runtime_contract_payload)
     operation_projection = project_operation_authorization(
         agent_allowed_operations=profile.allowed_operations,
         agent_blocked_operations=tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ()),
@@ -200,7 +212,7 @@ def assemble_runtime(
     }
     control_capabilities = _control_capabilities_for_runtime(
         profile=profile,
-        selection=selection,
+        runtime_contract=runtime_contract_payload,
         visible_tool_names=visible_tool_names,
         engagement_contract=engagement_contract,
     )
@@ -218,7 +230,7 @@ def assemble_runtime(
         allowed_operations=tuple(sorted(allowed_operations)),
     )
     selected_skill_ids = _visible_selected_skill_ids(
-        selection.get("selected_skill_ids"),
+        runtime_contract_payload.get("selected_skill_ids"),
         visible_skill_ids=tuple(str(item.get("skill_id") or "") for item in skill_runtime_views),
     )
     return RuntimeAssembly(
@@ -230,15 +242,16 @@ def assemble_runtime(
         backend_dir=str(Path(backend_dir).resolve()),
         agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         model_selection=dict(model_selection or {}),
-        task_selection=selection,
+        runtime_contract=runtime_contract_payload,
         engagement_contract=engagement_contract,
-        execution_strategy=dict(engagement_contract.get("execution_strategy") or selection.get("execution_strategy") or {}),
-        engagement_run_ref=str(selection.get("engagement_run_ref") or ""),
+        execution_strategy=dict(engagement_contract.get("execution_strategy") or runtime_contract_payload.get("execution_strategy") or {}),
+        engagement_run_ref=str(runtime_contract_payload.get("engagement_run_ref") or ""),
         task_environment=task_environment,
         permission_mode=normalized_permission_mode,
         agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
         agent_prompt_refs_by_invocation=_agent_prompt_refs_by_invocation(agent_runtime_profile),
-        environment_prompt_refs=_environment_prompt_refs(task_environment),
+        environment_prompt_refs=prompt_mount_plan.environment_prompt_refs,
+        prompt_mount_plan=prompt_mount_plan.to_dict(),
         skill_runtime_views=skill_runtime_views,
         selected_skill_ids=selected_skill_ids,
         available_tools=available_tools,
@@ -256,10 +269,11 @@ def assemble_runtime(
         diagnostics={
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
+            "prompt_mount_plan": prompt_mount_plan.to_dict(),
             "workspace_root": bound_workspace_root,
             "permission_mode": normalized_permission_mode,
-            "engagement_contract_ref": str(engagement_contract.get("contract_id") or selection.get("engagement_contract_ref") or ""),
-            "engagement_plan_ref": str(engagement_contract.get("plan_id") or selection.get("engagement_plan_ref") or ""),
+            "engagement_contract_ref": str(engagement_contract.get("contract_id") or runtime_contract_payload.get("engagement_contract_ref") or ""),
+            "engagement_plan_ref": str(engagement_contract.get("plan_id") or runtime_contract_payload.get("engagement_plan_ref") or ""),
             "operation_authorization": {
                 "allowed_operation_count": len(operation_projection.allowed_operations),
                 "denied_operation_count": len(operation_projection.denied_operations),
@@ -276,21 +290,21 @@ def assemble_runtime(
 def build_runtime_assembly_profile(
     *,
     agent_runtime_profile: Any | None = None,
-    selection: dict[str, Any] | None = None,
+    runtime_contract: dict[str, Any] | None = None,
     explicit_operation_ceiling: tuple[str, ...] | None = None,
 ) -> RuntimeAssemblyProfile:
-    selection = dict(selection or {})
+    runtime_contract = dict(runtime_contract or {})
     runtime_policy = _resolved_runtime_policy(
         agent_runtime_profile=agent_runtime_profile,
-        selection=selection,
+        runtime_contract=runtime_contract,
     )
     base_operations = _profile_operations(agent_runtime_profile)
     tool_policy = dict(runtime_policy.get("tool_exposure_policy") or {})
     explicit_tool_policy = _merge_dicts(
-        selection.get("tool_exposure_policy"),
-        selection.get("tool_policy"),
-        dict(selection.get("runtime_profile") or {}).get("tool_exposure_policy"),
-        dict(selection.get("runtime_profile") or {}).get("tool_policy"),
+        runtime_contract.get("tool_exposure_policy"),
+        runtime_contract.get("tool_policy"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("tool_exposure_policy"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("tool_policy"),
     )
     if explicit_tool_policy:
         tool_policy = {**tool_policy, **explicit_tool_policy}
@@ -350,8 +364,8 @@ def _apply_bound_workspace_root(environment: dict[str, Any], workspace_root: str
     return payload
 
 
-def _explicit_operation_ceiling_from_runtime_selection(selection: dict[str, Any]) -> tuple[str, ...] | None:
-    payload = dict(selection or {})
+def _explicit_operation_ceiling_from_runtime_contract(runtime_contract: dict[str, Any]) -> tuple[str, ...] | None:
+    payload = dict(runtime_contract or {})
     scopes: list[tuple[str, ...]] = []
     runtime_profile = dict(payload.get("runtime_profile") or {})
     execution_permit = dict(payload.get("execution_permit") or {})
@@ -413,18 +427,6 @@ def _agent_prompt_refs_by_invocation(agent_runtime_profile: Any | None) -> dict[
     return {}
 
 
-def _environment_prompt_refs(environment_payload: dict[str, Any]) -> tuple[str, ...]:
-    boundary = dict(environment_payload.get("environment_boundary") or {})
-    refs = _string_tuple(boundary.get("prompt_refs"))
-    if refs:
-        return refs
-    return tuple(
-        str(item.get("prompt_id") or "").strip()
-        for item in list(environment_payload.get("environment_prompts") or [])
-        if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
-    )
-
-
 def _skill_runtime_views_for_profile(
     *,
     backend_dir: Path,
@@ -469,17 +471,17 @@ def _visible_selected_skill_ids(value: Any, *, visible_skill_ids: tuple[str, ...
 def _resolved_runtime_policy(
     *,
     agent_runtime_profile: Any | None,
-    selection: dict[str, Any],
+    runtime_contract: dict[str, Any],
 ) -> dict[str, Any]:
     profile_metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
-    runtime_profile = dict(selection.get("runtime_profile") or {})
+    runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
     explicit_policy = _merge_dicts(
         profile_metadata.get("runtime_policy"),
         profile_metadata.get("execution_policy"),
         runtime_profile.get("runtime_policy"),
         runtime_profile.get("execution_policy"),
-        selection.get("runtime_policy"),
-        selection.get("execution_policy"),
+        runtime_contract.get("runtime_policy"),
+        runtime_contract.get("execution_policy"),
     )
     return _deep_merge_dicts(
         _DEFAULT_RUNTIME_POLICY,
@@ -491,7 +493,7 @@ def _resolve_runtime_task_environment(
     *,
     backend_dir: Path,
     environment_binding: dict[str, Any] | None = None,
-    selection: dict[str, Any],
+    runtime_contract: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = task_environment_registry_from_backend_dir(backend_dir)
     binding = dict(environment_binding or {})
@@ -504,18 +506,18 @@ def _resolve_runtime_task_environment(
     )
     explicit = _first_string(
         explicit_binding,
-        selection.get("task_environment_id"),
-        selection.get("environment_id"),
-        dict(selection.get("task_environment") or {}).get("environment_id")
-        if isinstance(selection.get("task_environment"), dict)
-        else selection.get("task_environment"),
-        dict(selection.get("runtime_profile") or {}).get("task_environment_id"),
-        dict(selection.get("runtime_profile") or {}).get("environment_id"),
+        runtime_contract.get("task_environment_id"),
+        runtime_contract.get("environment_id"),
+        dict(runtime_contract.get("task_environment") or {}).get("environment_id")
+        if isinstance(runtime_contract.get("task_environment"), dict)
+        else runtime_contract.get("task_environment"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("task_environment_id"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("environment_id"),
     )
     environment_id = explicit or "env.general.workspace"
     registry.require(environment_id)
     environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
-    source = "environment_binding" if explicit_binding else "explicit_selection" if explicit else "fallback_default"
+    source = "environment_binding" if explicit_binding else "runtime_contract" if explicit else "fallback_default"
     return (
         {
             **environment_payload,
@@ -544,14 +546,14 @@ def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
 def _control_capabilities_for_runtime(
     *,
     profile: RuntimeAssemblyProfile,
-    selection: dict[str, Any],
+    runtime_contract: dict[str, Any],
     visible_tool_names: tuple[str, ...],
     engagement_contract: dict[str, Any],
 ) -> dict[str, Any]:
     explicit = _merge_dicts(
-        selection.get("control_capabilities"),
-        dict(selection.get("runtime_profile") or {}).get("control_capabilities"),
-        dict(selection.get("runtime_profile") or {}).get("runtime_control_capabilities"),
+        runtime_contract.get("control_capabilities"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("control_capabilities"),
+        dict(runtime_contract.get("runtime_profile") or {}).get("runtime_control_capabilities"),
     )
     task_lifecycle = dict(profile.task_lifecycle_policy or {})
     context_policy = dict(profile.context_policy or {})
@@ -586,7 +588,7 @@ def _control_capabilities_for_runtime(
         if "may_use_subagents" in explicit
         else subagent_enabled
     )
-    has_explicit_contract = bool(engagement_contract or selection.get("task_contract") or selection.get("task_contract_seed"))
+    has_explicit_contract = bool(engagement_contract or runtime_contract.get("task_contract") or runtime_contract.get("task_contract_seed"))
     requires_json_action_protocol_explicit = "requires_json_action_protocol" in explicit
     supports_json_action_protocol = bool(
         may_call_tools

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from .assembly import PromptAssemblyService
+from .general_lifecycle_prompts import (
+    GENERAL_LIFECYCLE_PROMPT_IDS,
+    list_builtin_general_lifecycle_prompt_resources,
+)
 from .manifest import RuntimePromptManifest, build_runtime_prompt_manifest
 from .models import (
     PromptAssemblyRequest,
@@ -27,6 +31,8 @@ from .worker_prompts import (
 __all__ = [
     "FOUNDATION_PROMPT_REFS",
     "list_builtin_system_prompt_resources",
+    "GENERAL_LIFECYCLE_PROMPT_IDS",
+    "list_builtin_general_lifecycle_prompt_resources",
     "list_builtin_tool_prompt_resources",
     "tool_guidance_payload_for_visible_tools",
     "WORKER_PROMPT_REFS_BY_BLUEPRINT",

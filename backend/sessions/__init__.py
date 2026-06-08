@@ -76,6 +76,10 @@ class SessionManager:
         ]
         return sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
 
+    def get_session_summary(self, session_id: str) -> dict[str, Any]:
+        payload = self._read_payload(session_id)
+        return self._summary_from_payload(payload)
+
     def create_session(
         self,
         *,

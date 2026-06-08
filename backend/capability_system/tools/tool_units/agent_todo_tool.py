@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import time
 from pathlib import Path
 from typing import Any, Literal
 
+from capability_system.tools.agent_todo_state import (
+    AgentTodoStateStore,
+    agent_todo_state_store_from_root,
+    build_todo_plan,
+    normalize_todo_items,
+    render_todo_tool_payload,
+    todo_items,
+    update_todo_plan,
+)
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
@@ -46,12 +53,11 @@ class AgentTodoTool(BaseTool):
     )
     args_schema: type[BaseModel] = AgentTodoInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    _state_dir: Path = PrivateAttr()
+    _state_store: AgentTodoStateStore = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._state_dir = Path(root_dir).resolve() / ".tmp" / "agent_todo"
-        self._state_dir.mkdir(parents=True, exist_ok=True)
+        self._state_store = agent_todo_state_store_from_root(root_dir)
 
     def _run(
         self,
@@ -66,12 +72,12 @@ class AgentTodoTool(BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            normalized_items = _normalize_items(items=items, todos=todos)
-            current = self._read_state(session_id=session_id, task_id=task_id)
+            normalized_items = normalize_todo_items(items=list(items or []) or list(todos or []))
+            current = self._state_store.read(session_id=session_id, task_id=task_id)
             if operation == "view":
-                plan = _build_plan(session_id=session_id, task_id=task_id, items=_items(current))
+                plan = build_todo_plan(session_id=session_id, task_id=task_id, items=todo_items(current))
             else:
-                plan = _update_plan(
+                plan = update_todo_plan(
                     current,
                     session_id=session_id,
                     task_id=task_id,
@@ -81,19 +87,25 @@ class AgentTodoTool(BaseTool):
                     status=status,
                     notes=notes,
                 )
-                self._write_state(session_id=session_id, task_id=task_id, payload=plan)
+                self._state_store.write(session_id=session_id, task_id=task_id, payload=plan)
         except Exception as exc:
-            return f"agent_todo failed: {exc}"
-        payload = dict(plan)
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error": str(exc),
+                    "diagnostics": {
+                        "operation": str(operation or ""),
+                        "session_id": str(session_id or ""),
+                        "task_id": str(task_id or ""),
+                        "authority": "agent.todo_plan",
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        payload = render_todo_tool_payload(dict(plan))
         return json.dumps(
-            {
-                "status": "ok",
-                "plan_id": payload["plan_id"],
-                "active_item_id": payload["active_item_id"],
-                "completion_ready": payload["completion_ready"],
-                "items": payload["items"],
-                "diagnostics": payload["diagnostics"],
-            },
+            payload,
             ensure_ascii=False,
             indent=2,
         )
@@ -112,149 +124,7 @@ class AgentTodoTool(BaseTool):
     ) -> str:
         return await asyncio.to_thread(self._run, operation, session_id, task_id, items, todos, todo_id, status, notes, None)
 
-    def _state_path(self, *, session_id: str, task_id: str) -> Path:
-        return self._state_dir / f"{_safe_key(session_id)}__{_safe_key(task_id)}.json"
-
-    def _read_state(self, *, session_id: str, task_id: str) -> dict[str, Any]:
-        path = self._state_path(session_id=session_id, task_id=task_id)
-        if not path.exists():
-            return {}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-    def _write_state(self, *, session_id: str, task_id: str, payload: dict[str, Any]) -> None:
-        path = self._state_path(session_id=session_id, task_id=task_id)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _safe_key(value: str) -> str:
-    result = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
-    return result.strip("_")[:80] or "runtime"
-
-
-def _normalize_items(
-    *,
-    items: list[dict[str, Any]] | None = None,
-    todos: list[dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    raw_items = list(items or [])
-    if not raw_items and todos:
-        raw_items = list(todos or [])
-    return [dict(item) for item in raw_items if isinstance(item, dict)]
-
-
-def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [dict(item) for item in list(payload.get("items") or []) if isinstance(item, dict)]
-
-
-def _build_plan(*, session_id: str, task_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    now = time.time()
-    normalized: list[dict[str, Any]] = []
-    active_item_id = ""
-    for index, raw in enumerate(items):
-        content = str(raw.get("content") or raw.get("title") or "").strip()
-        if not content:
-            continue
-        status = str(raw.get("status") or "pending").strip()
-        if status not in {"pending", "in_progress", "completed"}:
-            status = "pending"
-        if status == "in_progress":
-            if active_item_id:
-                status = "pending"
-            else:
-                active_item_id = str(raw.get("todo_id") or _todo_id(content, index))
-        todo_id = str(raw.get("todo_id") or _todo_id(content, index))
-        item = {
-            "todo_id": todo_id,
-            "content": content,
-            "active_form": str(raw.get("active_form") or content),
-            "status": status,
-            "notes": str(raw.get("notes") or ""),
-            "evidence_expectations": [
-                str(item) for item in list(raw.get("evidence_expectations") or []) if str(item).strip()
-            ],
-            "contract_refs": [
-                str(item) for item in list(raw.get("contract_refs") or []) if str(item).strip()
-            ],
-            "updated_at": float(raw.get("updated_at") or now),
-        }
-        _copy_optional_string_field(item, raw, "owner_agent_id", aliases=("assigned_agent_id",))
-        _copy_optional_string_field(item, raw, "scope")
-        _copy_optional_string_field(item, raw, "subagent_run_ref")
-        _copy_optional_string_field(item, raw, "handoff_goal")
-        _copy_optional_string_field(item, raw, "parallel_group")
-        depends_on = [str(value).strip() for value in list(raw.get("depends_on") or []) if str(value).strip()]
-        if depends_on:
-            item["depends_on"] = depends_on
-        normalized.append(item)
-    return {
-        "plan_id": f"agent-todo:{_safe_key(session_id)}:{_safe_key(task_id)}",
-        "session_id": session_id,
-        "task_id": task_id,
-        "active_item_id": active_item_id,
-        "completion_ready": bool(normalized and all(item["status"] == "completed" for item in normalized)),
-        "items": normalized,
-        "diagnostics": {"item_count": len(normalized), "updated_at": now},
-        "authority": "agent.todo_plan",
-    }
-
-
-def _update_plan(
-    current: dict[str, Any],
-    *,
-    session_id: str,
-    task_id: str,
-    operation: str,
-    items: list[dict[str, Any]],
-    todo_id: str,
-    status: str,
-    notes: str,
-) -> dict[str, Any]:
-    existing = _items(current)
-    op = str(operation or "replace").strip()
-    target_id = str(todo_id or "").strip()
-    next_items = existing
-    if op == "replace":
-        next_items = items
-    elif op == "append":
-        next_items = [*existing, *items]
-    elif op == "clear":
-        next_items = []
-    elif op in {"start", "complete", "update_status", "remove"}:
-        next_items = []
-        for item in existing:
-            current_id = str(item.get("todo_id") or "").strip()
-            if target_id and current_id != target_id:
-                if op == "start" and item.get("status") == "in_progress":
-                    item = {**item, "status": "pending"}
-                next_items.append(item)
-                continue
-            if op == "remove":
-                continue
-            if op == "start":
-                item = {**item, "status": "in_progress"}
-            elif op == "complete":
-                item = {**item, "status": "completed"}
-            elif op == "update_status":
-                item = {**item, "status": status or item.get("status") or "pending"}
-            if notes:
-                item = {**item, "notes": notes}
-            next_items.append(item)
-    return _build_plan(session_id=session_id, task_id=task_id, items=next_items)
-
-
-def _copy_optional_string_field(target: dict[str, Any], source: dict[str, Any], key: str, *, aliases: tuple[str, ...] = ()) -> None:
-    for field in (key, *aliases):
-        value = str(source.get(field) or "").strip()
-        if value:
-            target[key] = value
-            return
-
-
-def _todo_id(content: str, index: int) -> str:
-    digest = hashlib.sha1(f"{index}:{content}".encode("utf-8")).hexdigest()[:8]
-    return f"todo:{index + 1}:{digest}"
+_build_plan = build_todo_plan
+_update_plan = update_todo_plan
 
 

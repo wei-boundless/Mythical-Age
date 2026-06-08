@@ -189,8 +189,8 @@ def operation_environment_constraint(
     return operation_channel(operation_id), _environment_id(environment_payload)
 
 
-def operation_requests_from_runtime_selection(selection: dict[str, Any] | None) -> tuple[str, ...]:
-    payload = dict(selection or {})
+def operation_requests_from_runtime_contract(runtime_contract: dict[str, Any] | None) -> tuple[str, ...]:
+    payload = dict(runtime_contract or {})
     values: list[Any] = []
     values.extend(list(payload.get("allowed_operations") or []))
     for key in ("operation_requirement", "tool_capability_requirements", "capability_requirements"):

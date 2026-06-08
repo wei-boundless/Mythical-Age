@@ -7,6 +7,7 @@ from typing import Any
 from project_layout import ProjectLayout
 
 from .agent_prompts import list_builtin_agent_prompt_resources
+from .general_lifecycle_prompts import list_builtin_general_lifecycle_prompt_resources
 from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_resource_from_dict
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .rules import list_builtin_prompt_rule_resources
@@ -80,6 +81,7 @@ class PromptLibraryRegistry:
                 *list_builtin_tool_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
                 *list_builtin_worker_prompt_resources(),
+                *list_builtin_general_lifecycle_prompt_resources(),
                 *list_builtin_environment_prompt_resources(),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )

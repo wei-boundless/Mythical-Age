@@ -208,9 +208,9 @@ def test_compression_budget_reports_tiered_cache_impact() -> None:
         reserved_output_tokens=100,
     )
 
-    assert decision.cache_impact == "preserved"
-    assert decision.cache_impact_tiers["provider_global"] == "preserved"
-    assert decision.cache_impact_tiers["task"] == "preserved"
+    assert decision.cache_impact == "global_invalidated"
+    assert decision.cache_impact_tiers["provider_global"] == "global_invalidated"
+    assert decision.cache_impact_tiers["task"] == "task_rebuilt"
     assert decision.cache_impact_tiers["volatile"] == "volatile_preserved"
 
 

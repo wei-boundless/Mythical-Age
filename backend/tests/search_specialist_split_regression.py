@@ -73,10 +73,28 @@ def test_search_specialists_are_registered_with_separate_authority() -> None:
     assert knowledge.allowed_operations == ("op.model_response", "op.mcp_retrieval")
     assert "op.memory_read" in knowledge.blocked_operations
     assert knowledge.metadata["runtime_template_id"] == "runtime.template.knowledge_search"
+    assert knowledge.metadata["worker_prompt_ref"] == "worker.prompt.knowledge_search.v1"
+    assert knowledge.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
+        "worker.prompt.knowledge_search.v1"
+    ]
 
     memory = profiles["agent:memory_searcher"]
     assert memory.allowed_operations == ("op.model_response", "op.memory_read")
     assert "op.mcp_retrieval" in memory.blocked_operations
+    assert memory.metadata["worker_prompt_ref"] == "worker.prompt.memory_search.v1"
+    assert memory.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
+        "worker.prompt.memory_search.v1"
+    ]
+
+    pdf = profiles["agent:pdf_reader"]
+    assert pdf.metadata["worker_prompt_ref"] == "worker.prompt.pdf_analysis.v1"
+    assert pdf.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.pdf_analysis.v1"]
+
+    table = profiles["agent:table_analyst"]
+    assert table.metadata["worker_prompt_ref"] == "worker.prompt.structured_data_analysis.v1"
+    assert table.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == [
+        "worker.prompt.structured_data_analysis.v1"
+    ]
 
 
 def test_spawn_subagent_tool_description_teaches_fresh_specialist_contract() -> None:

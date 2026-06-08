@@ -216,7 +216,7 @@ def test_send_command_forwards_environment(tmp_path: Path) -> None:
             "session-cli",
             "hello",
             {
-                "task_selection": {"task_environment_id": "env.development.sandbox"},
+                "environment_binding": {"task_environment_id": "env.development.sandbox"},
             },
         )
     ]

@@ -90,6 +90,22 @@ async def create_session(payload: CreateSessionRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/sessions/{session_id}")
+async def get_session_summary(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return runtime.session_manager.get_session_summary(session_id)
+
+
 @router.put("/sessions/{session_id}")
 async def rename_session(
     session_id: str,
