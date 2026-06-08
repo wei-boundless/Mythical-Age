@@ -15,6 +15,7 @@ from artifact_system.artifact_authority import (
     dedupe_artifact_refs,
     normalize_artifact_ref,
 )
+from file_management import RepositoryRootResolver, normalize_logical_path, resolve_file_environment
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
@@ -6215,13 +6216,174 @@ def _verified_artifacts(
     task_run_id: str,
     artifact_refs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    project_root = ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run_id)
-    return publish_sandbox_artifact_refs(
-        project_root=project_root,
+    project_root = _task_workspace_root(runtime_assembly, runtime_host=runtime_host)
+    repository_verified, sandbox_candidates = _verified_repository_artifacts(
+        runtime_assembly=runtime_assembly,
         sandbox_policy=sandbox_policy,
+        project_root=project_root,
         artifact_refs=artifact_refs,
     )
+    sandbox_verified = publish_sandbox_artifact_refs(
+        project_root=project_root,
+        sandbox_policy=sandbox_policy,
+        artifact_refs=sandbox_candidates,
+    )
+    return dedupe_artifact_refs([*repository_verified, *sandbox_verified])
+
+
+def _verified_repository_artifacts(
+    *,
+    runtime_assembly: dict[str, Any],
+    sandbox_policy: dict[str, Any],
+    project_root: Path,
+    artifact_refs: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    verified: list[dict[str, Any]] = []
+    sandbox_candidates: list[dict[str, Any]] = []
+    resolver: RepositoryRootResolver | None = None
+    environment: Any | None = None
+    file_policy: dict[str, Any] = {}
+    for ref in dedupe_artifact_refs(artifact_refs):
+        repository_id = str(ref.get("repository_id") or "").strip()
+        if not repository_id:
+            sandbox_candidates.append(ref)
+            continue
+        if environment is None:
+            file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
+            environment = _resolve_file_policy_environment(file_policy)
+            resolver = _file_repository_root_resolver(
+                project_root=project_root,
+                sandbox_policy=sandbox_policy,
+                file_policy=file_policy,
+            )
+        resolved_ref = _resolve_repository_artifact_ref(
+            ref,
+            repository_id=repository_id,
+            environment=environment,
+            resolver=resolver,
+        )
+        if resolved_ref is not None:
+            verified.append(resolved_ref)
+            continue
+        repository_kind = str(ref.get("repository_kind") or "").strip()
+        if repository_kind == "sandbox_workspace":
+            sandbox_candidates.append(ref)
+    return dedupe_artifact_refs(verified), dedupe_artifact_refs(sandbox_candidates)
+
+
+def _resolve_file_policy_environment(file_policy: dict[str, Any]) -> Any | None:
+    profile_id = str(file_policy.get("profile_id") or "").strip()
+    if not profile_id:
+        return None
+    try:
+        return resolve_file_environment(
+            profile_id,
+            repository_requirements=dict(file_policy.get("repository_requirements") or {}),
+        )
+    except Exception:
+        return None
+
+
+def _file_repository_root_resolver(
+    *,
+    project_root: Path,
+    sandbox_policy: dict[str, Any],
+    file_policy: dict[str, Any],
+) -> RepositoryRootResolver:
+    managed_storage_root = _configured_root(
+        file_policy.get("managed_storage_root"),
+        project_root=project_root,
+        default=project_root / ".managed-files",
+    )
+    runtime_output_root = _configured_root(
+        file_policy.get("runtime_output_root"),
+        project_root=project_root,
+        default=managed_storage_root / "runtime",
+    )
+    sandbox_root = str(sandbox_policy.get("sandbox_root") or "").strip() or None
+    return RepositoryRootResolver(
+        project_root=project_root,
+        sandbox_root=sandbox_root,
+        managed_storage_root=managed_storage_root,
+        runtime_output_root=runtime_output_root,
+    )
+
+
+def _configured_root(value: Any, *, project_root: Path, default: Path) -> Path:
+    text = str(value or "").strip()
+    if not text:
+        return default.resolve()
+    root = Path(text)
+    return root.resolve() if root.is_absolute() else (project_root / root).resolve()
+
+
+def _resolve_repository_artifact_ref(
+    ref: dict[str, Any],
+    *,
+    repository_id: str,
+    environment: Any | None,
+    resolver: RepositoryRootResolver | None,
+) -> dict[str, Any] | None:
+    if environment is None or resolver is None:
+        return None
+    repository = environment.repository(repository_id)
+    if repository is None:
+        return None
+    if repository.repository_kind == "sandbox_workspace":
+        return None
+    try:
+        binding = resolver.resolve(repository)
+    except Exception:
+        return None
+    logical_path = _repository_artifact_logical_path(ref, root=binding.root)
+    if not logical_path:
+        return None
+    target = (binding.root / logical_path).resolve()
+    if not _path_within(target, binding.root):
+        return None
+    if not target.exists() or not target.is_file():
+        return None
+    return {
+        **dict(ref),
+        "path": logical_path,
+        "absolute_path": str(target),
+        "exists": True,
+        "size_bytes": target.stat().st_size,
+        "published": True,
+        "repository_id": repository.repository_id,
+        "repository_kind": repository.repository_kind,
+        "authority": "harness.loop.task_completion_artifact_verifier",
+    }
+
+
+def _repository_artifact_logical_path(ref: dict[str, Any], *, root: Path) -> str:
+    for key in ("path", "published_path", "artifact_ref"):
+        value = str(ref.get(key) or "").strip()
+        if key == "artifact_ref":
+            value = value.removeprefix("artifact:").strip()
+        if not value:
+            continue
+        try:
+            return normalize_logical_path(value)
+        except Exception:
+            continue
+    absolute_path = str(ref.get("absolute_path") or "").strip()
+    if not absolute_path:
+        return ""
+    try:
+        target = Path(absolute_path).resolve()
+        if _path_within(target, root):
+            return target.relative_to(root).as_posix()
+    except Exception:
+        return ""
+    return ""
+
+
+def _path_within(path: Path, root: Path) -> bool:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    return resolved_path == resolved_root or resolved_root in resolved_path.parents
 
 
 def _discover_sandbox_artifact_refs(

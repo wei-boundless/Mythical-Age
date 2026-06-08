@@ -778,32 +778,33 @@ def test_provider_payload_manifest_splits_key_only_provider_options() -> None:
         "temperature": 0.0,
         "thinking_mode": "disabled",
     }
-    changed_params = {
-        **base_params,
-        "tool_call_options": {
-            "tool_choice": {"type": "function", "function": {"name": "write_file"}},
-            "parallel_tool_calls": False,
-        },
-    }
 
-    first_request = ModelRequestBuilder().build(
-        request_id="modelreq:provider-payload-key-only-options:1",
-        messages=messages,
-        tools=[tool],
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        segment_plan=segment_plan,
-        metadata={"cache_relevant_params": base_params},
-    )
-    second_request = ModelRequestBuilder().build(
-        request_id="modelreq:provider-payload-key-only-options:2",
-        messages=messages,
-        tools=[tool],
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        segment_plan=segment_plan,
-        metadata={"cache_relevant_params": changed_params},
-    )
+    serializer = CanonicalPromptSerializer()
+    planner = PromptCachePlanner()
+
+    def _build(params, suffix: str):
+        request = ModelRequestBuilder().build(
+            request_id=f"modelreq:provider-payload-key-only-options:{suffix}",
+            messages=messages,
+            tools=[tool],
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            segment_plan=segment_plan,
+            metadata={"cache_relevant_params": params},
+        )
+        segment_map = serializer.build_segment_map(
+            request_id=request.request_id,
+            messages=messages,
+            tools=[tool],
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            segment_plan=segment_plan,
+            model_request=request,
+        )
+        record = planner.plan(segment_map, provider="deepseek", model="deepseek-v4-pro", model_request=request)
+        return request, record
+
+    first_request, first_record = _build(base_params, "base")
 
     kinds = {segment.kind: segment for segment in first_request.provider_payload_manifest.segments}
     assert kinds["tool_call_options"].transport_location == "tool_call_options"
@@ -812,54 +813,77 @@ def test_provider_payload_manifest_splits_key_only_provider_options() -> None:
     assert first_request.provider_payload_manifest.cache_boundary["tool_call_options_segment_count"] == 1
     assert first_request.provider_payload_manifest.cache_boundary["response_format_segment_count"] == 1
     assert first_request.provider_payload_manifest.cache_boundary["provider_params_segment_count"] == 1
-    assert first_request.provider_payload_prefix_hash == second_request.provider_payload_prefix_hash
-    assert first_request.tool_catalog_hash == second_request.tool_catalog_hash
-    assert first_request.cache_sensitive_params_hash != second_request.cache_sensitive_params_hash
 
-    serializer = CanonicalPromptSerializer()
-    first_map = serializer.build_segment_map(
-        request_id=first_request.request_id,
-        messages=messages,
-        tools=[tool],
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        segment_plan=segment_plan,
-        model_request=first_request,
-    )
-    second_map = serializer.build_segment_map(
-        request_id=second_request.request_id,
-        messages=messages,
-        tools=[tool],
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        segment_plan=segment_plan,
-        model_request=second_request,
-    )
-    planner = PromptCachePlanner()
-    first_record = planner.plan(first_map, provider="deepseek", model="deepseek-v4-pro", model_request=first_request)
-    second_record = planner.plan(second_map, provider="deepseek", model="deepseek-v4-pro", model_request=second_request)
-    assert first_record.prefix_hash == second_record.prefix_hash
-    assert first_record.cache_key != second_record.cache_key
+    first_boundary = first_request.provider_payload_manifest.cache_boundary
 
-    usage = ModelTokenUsageRecord(
-        usage_id="tokuse:provider-payload-key-only-options:2",
-        request_id=second_request.request_id,
-        provider="deepseek",
-        model="deepseek-v4-pro",
-        source="provider_usage",
-        prompt_tokens=100,
-        cached_tokens=0,
-        total_tokens=100,
+    def _break_for_params(params, suffix: str):
+        changed_request, changed_record = _build(params, suffix)
+        assert first_request.provider_payload_prefix_hash == changed_request.provider_payload_prefix_hash
+        assert first_request.tool_catalog_hash == changed_request.tool_catalog_hash
+        assert first_request.cache_sensitive_params_hash != changed_request.cache_sensitive_params_hash
+        assert first_record.prefix_hash == changed_record.prefix_hash
+        assert first_record.cache_key != changed_record.cache_key
+        usage = ModelTokenUsageRecord(
+            usage_id=f"tokuse:provider-payload-key-only-options:{suffix}",
+            request_id=changed_request.request_id,
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="provider_usage",
+            prompt_tokens=100,
+            cached_tokens=0,
+            total_tokens=100,
+        )
+        miss_record = planner.with_provider_usage(changed_record, usage)
+        break_record = PromptCacheBreakDetector().detect(
+            cache_record=miss_record,
+            provider_usage=usage,
+            previous_cache_records=[first_record],
+            created_at=2.0,
+        )
+        assert break_record is not None
+        return changed_request.provider_payload_manifest.cache_boundary, break_record
+
+    tool_options_boundary, tool_options_break = _break_for_params(
+        {
+            **base_params,
+            "tool_call_options": {
+                "tool_choice": {"type": "function", "function": {"name": "write_file"}},
+                "parallel_tool_calls": False,
+            },
+        },
+        "tool-call-options",
     )
-    miss_record = planner.with_provider_usage(second_record, usage)
-    break_record = PromptCacheBreakDetector().detect(
-        cache_record=miss_record,
-        provider_usage=usage,
-        previous_cache_records=[first_record],
-        created_at=2.0,
+    assert first_boundary["tool_call_options_hash"] != tool_options_boundary["tool_call_options_hash"]
+    assert first_boundary["response_format_hash"] == tool_options_boundary["response_format_hash"]
+    assert first_boundary["provider_params_hash"] == tool_options_boundary["provider_params_hash"]
+    assert tool_options_break.reason == "tool_binding_options_changed"
+
+    response_format_boundary, response_format_break = _break_for_params(
+        {
+            **base_params,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "write_result", "schema": {"type": "object"}},
+            },
+        },
+        "response-format",
     )
-    assert break_record is not None
-    assert break_record.reason == "tool_binding_options_changed"
+    assert first_boundary["tool_call_options_hash"] == response_format_boundary["tool_call_options_hash"]
+    assert first_boundary["response_format_hash"] != response_format_boundary["response_format_hash"]
+    assert first_boundary["provider_params_hash"] == response_format_boundary["provider_params_hash"]
+    assert response_format_break.reason == "response_format_changed"
+
+    provider_params_boundary, provider_params_break = _break_for_params(
+        {
+            **base_params,
+            "temperature": 0.1,
+        },
+        "provider-params",
+    )
+    assert first_boundary["tool_call_options_hash"] == provider_params_boundary["tool_call_options_hash"]
+    assert first_boundary["response_format_hash"] == provider_params_boundary["response_format_hash"]
+    assert first_boundary["provider_params_hash"] != provider_params_boundary["provider_params_hash"]
+    assert provider_params_break.reason == "provider_params_changed"
 
 
 def test_tool_schema_stays_never_cache_when_provider_tools_do_not_match_tool_index() -> None:

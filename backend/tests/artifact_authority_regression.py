@@ -70,6 +70,33 @@ def test_artifact_authority_keeps_existing_agent_result_refs_without_repository(
     assert view["artifact_refs"][0]["exists"] is True
 
 
+def test_artifact_authority_preserves_managed_repository_logical_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    logical_path = "reports/summary.md"
+    artifact = workspace / ".managed-files" / "artifacts" / "managed-project" / "artifacts" / logical_path
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("managed artifact", encoding="utf-8")
+
+    view = ArtifactAuthority(workspace_root=workspace).task_artifact_view(
+        task_run_id="taskrun:artifact-authority-managed",
+        candidate_refs=[
+            {
+                "path": logical_path,
+                "absolute_path": str(artifact),
+                "repository_id": "repo.managed_project.artifacts",
+                "repository_kind": "artifact_repository",
+                "source": "write_file",
+            }
+        ],
+    )
+
+    assert view["artifact_count"] == 1
+    assert view["created_files"] == [logical_path]
+    assert view["artifact_refs"][0]["path"] == logical_path
+    assert view["artifact_refs"][0]["absolute_path"] == str(artifact.resolve())
+    assert ".managed-files" not in view["created_files"][0]
+
+
 def test_artifact_authority_extracts_tool_result_refs_from_all_payload_layers() -> None:
     refs = artifact_refs_from_tool_result_payload(
         {

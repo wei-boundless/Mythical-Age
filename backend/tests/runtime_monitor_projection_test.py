@@ -371,6 +371,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
         status="running",
         created_at=now - 5,
         updated_at=now - 1,
+        diagnostics={"executor_status": "running"},
     )
     stopped = task_run(
         task_run_id="taskrun:stopped",

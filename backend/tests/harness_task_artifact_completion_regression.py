@@ -109,6 +109,49 @@ def test_sandbox_artifact_publish_overwrites_stale_workspace_file() -> None:
     assert published_file.read_text(encoding="utf-8") == "<!doctype html><title>fresh</title><canvas></canvas>"
     assert verdict["verified_artifacts"][0]["size_bytes"] == published_file.stat().st_size
 
+def test_managed_repository_artifact_satisfies_completion_without_workspace_publish() -> None:
+    from harness.loop.task_executor import _verify_completion
+
+    runtime = build_harness_runtime()
+    project_root = Path(runtime.base_dir).resolve().parent
+    logical_path = "reports/summary.md"
+    artifact_path = project_root / ".managed-files" / "artifacts" / "managed-project" / "artifacts" / logical_path
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("managed artifact", encoding="utf-8")
+    workspace_path = project_root / logical_path
+
+    verdict = _verify_completion(
+        runtime_host=runtime.single_agent_runtime_host,
+        runtime_assembly={
+            "task_environment": {
+                "file_management": {
+                    "file_profile_refs": ["file_profile.managed_project_workspace"],
+                    "required_repository_kinds": ["project_workspace", "sandbox_workspace", "artifact_repository"],
+                },
+                "sandbox_policy": {"enabled": False},
+            }
+        },
+        task_run_id="taskrun:test:managed-artifact-completion",
+        contract={"required_artifacts": [{"artifact_kind": "markdown_document", "path": logical_path}]},
+        artifact_refs=[
+            {
+                "path": logical_path,
+                "absolute_path": str(artifact_path),
+                "kind": "markdown_document",
+                "source": "write_file",
+                "repository_id": "repo.managed_project.artifacts",
+                "repository_kind": "artifact_repository",
+                "bypass_sandbox_publish": True,
+            }
+        ],
+    )
+
+    assert verdict["ok"] is True
+    assert workspace_path.exists() is False
+    assert verdict["verified_artifacts"][0]["path"] == logical_path
+    assert verdict["verified_artifacts"][0]["absolute_path"] == str(artifact_path.resolve())
+    assert verdict["verified_artifacts"][0]["repository_id"] == "repo.managed_project.artifacts"
+
 def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
 

@@ -152,6 +152,35 @@ def test_completed_public_timeline_settles_opening_judgment_state() -> None:
     assert final["state"] == "done"
 
 
+def test_runtime_monitor_finished_task_emits_visible_done_status_without_final_text() -> None:
+    projection = project_runtime_monitor_event_public_delta(
+        _event(
+            event_id="rtevt:finished",
+            event_type="task_run_lifecycle_finished",
+            payload={
+                "task_run": {
+                    "task_run_id": "taskrun:turn:session-live:1:abc",
+                    "status": "completed",
+                    "diagnostics": {"turn_id": "turn:session-live:1"},
+                },
+                "status": "completed",
+            },
+            refs={"task_run_ref": "taskrun:turn:session-live:1:abc"},
+        )
+    )
+
+    assert projection["public_event_type"] == "done"
+    assert projection["public_timeline_delta"] == [
+        {
+            "item_id": projection["public_timeline_delta"][0]["item_id"],
+            "kind": "status_update",
+            "title": "处理已完成",
+            "state": "done",
+            "phase": "done",
+        }
+    ]
+
+
 def test_runtime_monitor_task_tool_observation_projects_payload_observation_without_raw_bool() -> None:
     projection = project_runtime_monitor_event_public_delta(
         _event(

@@ -58,14 +58,15 @@ class ArtifactAuthority:
             if resolved is None or not resolved.exists() or not resolved.is_file():
                 continue
             rel = resolved.relative_to(self.workspace_root).as_posix()
-            key = logical_path or rel
+            display_path = _display_path_for_resolved_artifact(payload, logical_path=logical_path, relative_path=rel)
+            key = display_path or logical_path or rel
             if key in seen:
                 continue
             seen.add(key)
             result.append(
                 {
                     **payload,
-                    "path": rel,
+                    "path": display_path or rel,
                     "absolute_path": str(resolved),
                     "exists": True,
                     "size_bytes": resolved.stat().st_size,
@@ -123,6 +124,16 @@ def artifact_refs_from_event_payload(payload: dict[str, Any]) -> list[dict[str, 
     observation = dict(dict(payload or {}).get("observation") or {})
     source = dict(observation.get("payload") or payload or {})
     return artifact_refs_from_tool_result_payload(source)
+
+
+def _display_path_for_resolved_artifact(payload: dict[str, Any], *, logical_path: str, relative_path: str) -> str:
+    if logical_path and _is_repository_scoped_ref(payload):
+        return logical_path
+    return relative_path
+
+
+def _is_repository_scoped_ref(payload: dict[str, Any]) -> bool:
+    return bool(str(payload.get("repository_id") or "").strip() or str(payload.get("repository_kind") or "").strip())
 
 
 def artifact_refs_from_events(events: list[Any] | tuple[Any, ...]) -> list[dict[str, Any]]:

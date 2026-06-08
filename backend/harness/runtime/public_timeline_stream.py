@@ -405,7 +405,12 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
                 "state": "done",
             }
         )
-    return {}
+    return _status_item(
+        item_id=_stable_id("done", task_run_id, terminal_reason),
+        title="处理已完成",
+        state="done",
+        phase="done",
+    )
 
 
 def _status_item(*, item_id: str, title: str, detail: str = "", state: str, phase: str = "") -> dict[str, Any]:
