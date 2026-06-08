@@ -347,6 +347,7 @@ def _category_from_resource_type(resource_type: str) -> str:
         "environment_prompt": "environment",
         "role_prompt": "agent",
         "graph_node.role": "graph_node",
+        "agent_personality": "personality",
         "skill_prompt": "skill",
         "tool_guidance": "runtime",
         "verification": "runtime",
@@ -362,6 +363,7 @@ def _subtype_from_resource_type(resource_type: str) -> str:
         "environment_prompt": "boundary",
         "role_prompt": "role",
         "graph_node.role": "role",
+        "agent_personality": "default",
         "skill_prompt": "usage",
         "tool_guidance": "tool_guidance",
         "verification": "verification",
@@ -380,6 +382,7 @@ def _owner_layer_from_category(category: str) -> str:
         "runtime": "runtime",
         "agent": "agent",
         "environment": "environment",
+        "personality": "personality",
         "task": "task",
         "graph_node": "task",
         "skill": "agent",
@@ -392,6 +395,8 @@ def _resource_type_from_category_subtype(category: str, subtype: str) -> str:
     subtype_value = str(subtype or "").strip()
     if category_value == "agent" and subtype_value in {"main.work_role", "work_role"}:
         return "work_role"
+    if category_value == "personality":
+        return "agent_personality"
     if category_value == "environment":
         return "environment_prompt"
     if category_value and subtype_value:

@@ -130,13 +130,16 @@ RequestFacts
 
 #### 7.2 request_task_run 与 current work 的边界
 
-- `request_task_run` 不应再无条件复用最新 `waiting_executor` TaskRun。
-- 如果模型想继续旧任务，必须使用 `active_work_control.continue_active_work`；runtime 可以在 repair observation 中纠正错误动作，但不能静默改写。
-- 如果模型想重启旧任务，`request_task_run` 必须携带明确 replacement intent，例如：
+- `request_task_run` 不应再无条件复用最新 `waiting_executor` TaskRun，也不应被系统阻断成二次确认。
+- 如果模型想继续旧任务，应该使用 `active_work_control.continue_active_work`；runtime 不再把 `request_task_run` 静默改写成 resume。
+- 如果模型想重启旧任务，`request_task_run` 可以携带明确 replacement intent，例如：
   - `diagnostics.active_work_relationship = "replace_current_work"`
   - 或 `task_contract_seed.active_work_relationship = "restart_current_work"`
-- replacement intent 被接受后，runtime 才能停止旧 TaskRun，并以当前 action 的 `task_contract_seed` 创建新 TaskRun。
-- 如果 active work 存在但 `request_task_run` 没有 relationship，运行时应 fail-closed：不创建第二条任务，不恢复旧任务，要求模型/用户明确是继续、重启、停止还是新开独立任务。
+- active work 存在时，`request_task_run` 表示 agent 选择开启新/替换生命周期；runtime 只做边缘控制：
+  - 旧 TaskRun 可立即终止时，标记为 `user_restarted`/`replaced_by_new_task_request`。
+  - 旧 TaskRun 正在运行时，请求 stop，标记为 `replaced_by_new_task_request`，并从 current-work guard 中移除，避免阻挡新任务。
+  - 新 TaskRun 由当前 action 的 `task_contract_seed` 正常创建并绑定新的 active turn。
+- 系统不应靠隐藏意图识别阻挡 agent；它只维护单 current-work 指针、executor 去重、旧任务审计和 active turn 边界。
 
 #### 7.3 ActiveTurn 保活与恢复
 

@@ -22,7 +22,7 @@ from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
 from harness.runtime.tool_scheduling import environment_allowed_operations
-from prompt_library import GENERAL_LIFECYCLE_PROMPT_IDS, PromptLibraryRegistry, PromptResource
+from prompt_library import DEFAULT_PERSONALITY_PROMPT_REF, GENERAL_LIFECYCLE_PROMPT_IDS, PromptLibraryRegistry, PromptResource
 from task_system.tasks.definitions import default_task_definitions
 
 
@@ -837,12 +837,23 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     )
 
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
+    assert assembly.personality_prompt_refs == (DEFAULT_PERSONALITY_PROMPT_REF,)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
     assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["personality_prompt_refs"] == [
+        DEFAULT_PERSONALITY_PROMPT_REF
+    ]
     assert stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert packet.diagnostics["prompt_manifest"]["stable_prompt_refs"].count(DEFAULT_PERSONALITY_PROMPT_REF) == 1
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
+        DEFAULT_PERSONALITY_PROMPT_REF
+    ]
     assert set(expected_lifecycle_refs).issubset(set(GENERAL_LIFECYCLE_PROMPT_IDS))
+    assert "当前人格" in model_input
+    assert "Mythical Age（洪荒智能）" in model_input
+    assert "不改变系统规则" in model_input
     assert "通用请求判断生命周期" in model_input
     assert "用户刚发来最新请求" in model_input
     assert "当用户目标需要持续执行时" in model_input
@@ -1400,6 +1411,75 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
         "environment.shared.readonly_workspace.orientation.v1",
     ]
     assert stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"] == "prompt_library"
+
+
+def test_runtime_contract_can_select_custom_personality_prompt(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    custom_personality_ref = "personality.user.spark"
+    PromptLibraryRegistry(backend_dir).upsert_resource(
+        PromptResource(
+            prompt_id=custom_personality_ref,
+            resource_id=custom_personality_ref,
+            category="personality",
+            subtype="user",
+            resource_type="agent_personality",
+            title="Spark custom personality",
+            content=(
+                "你当前使用用户自定义人格：星火。\n"
+                "这个人格只影响称呼和表达风格，不能改变权限、工具、验证、记忆或任务合同。"
+            ),
+            owner_layer="personality",
+            cache_scope="session_stable",
+            model_visible=True,
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            source_ref="test.custom_personality",
+            version="2026-06-08",
+            enabled=True,
+            status="active",
+            metadata={"authority_scope": "identity_and_style_only", "user_configurable": True},
+        )
+    )
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=backend_dir,
+        session_id="session-custom-personality",
+        turn_id="turn-custom-personality",
+        agent_invocation_id="agent-invocation-custom-personality",
+        runtime_contract={
+            "task_environment_id": "env.general.workspace",
+            "personality_prompt_ref": custom_personality_ref,
+        },
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+    packet = RuntimeCompiler(base_dir=backend_dir).compile_single_agent_turn_packet(
+        session_id="session-custom-personality",
+        turn_id="turn-custom-personality",
+        agent_invocation_id="agent-invocation-custom-personality",
+        user_message="介绍一下你自己。",
+        history=[],
+        runtime_assembly=assembly,
+    ).packet
+    stable_message = _message_content_with_title(packet, "Single agent turn stable boundary")
+    stable_payload = _payload_after_title(stable_message, "Single agent turn stable boundary")
+    model_input = _model_input_text(packet)
+    manifest = packet.diagnostics["prompt_manifest"]
+
+    assert assembly.personality_prompt_refs == (custom_personality_ref,)
+    assert assembly.personality_prompt_selection["selected_personality_ref"] == custom_personality_ref
+    assert assembly.personality_prompt_selection["selection_source"] == "runtime_contract"
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["personality_prompt_refs"] == [
+        custom_personality_ref
+    ]
+    assert manifest["prompt_mount_plan"]["personality_prompt_refs"] == [custom_personality_ref]
+    assert custom_personality_ref in manifest["stable_prompt_refs"]
+    assert DEFAULT_PERSONALITY_PROMPT_REF not in manifest["stable_prompt_refs"]
+    assert "你当前使用用户自定义人格：星火" in model_input
+    assert "不能改变权限、工具、验证、记忆或任务合同" in model_input
 
 
 def _payload_after_title(content: str, title: str) -> dict[str, object]:

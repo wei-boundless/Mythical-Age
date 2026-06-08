@@ -33,6 +33,7 @@ _LIFECYCLE_REFS = set(GENERAL_LIFECYCLE_PROMPT_IDS)
 class PromptMountPlan:
     base_environment_id: str = GENERAL_ENVIRONMENT_ID
     selected_environment_id: str = GENERAL_ENVIRONMENT_ID
+    personality_prompt_refs: tuple[str, ...] = ()
     base_prompt_refs: tuple[str, ...] = ()
     overlay_prompt_refs: tuple[str, ...] = ()
     lifecycle_prompt_refs: tuple[str, ...] = ()
@@ -43,6 +44,7 @@ class PromptMountPlan:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["personality_prompt_refs"] = list(self.personality_prompt_refs)
         payload["base_prompt_refs"] = list(self.base_prompt_refs)
         payload["overlay_prompt_refs"] = list(self.overlay_prompt_refs)
         payload["lifecycle_prompt_refs"] = list(self.lifecycle_prompt_refs)
@@ -56,6 +58,8 @@ def build_base_prompt_mount_plan(
     *,
     selected_environment: dict[str, Any],
     base_environment: dict[str, Any] | None = None,
+    personality_prompt_refs: tuple[str, ...] | list[str] = (),
+    personality_diagnostics: dict[str, Any] | None = None,
 ) -> PromptMountPlan:
     selected_payload = dict(selected_environment or {})
     base_payload = dict(base_environment or {})
@@ -73,6 +77,7 @@ def build_base_prompt_mount_plan(
     return PromptMountPlan(
         base_environment_id=base_environment_id,
         selected_environment_id=selected_environment_id,
+        personality_prompt_refs=_string_tuple(personality_prompt_refs),
         base_prompt_refs=base_refs,
         overlay_prompt_refs=overlay_refs,
         environment_prompt_refs=environment_refs,
@@ -85,6 +90,7 @@ def build_base_prompt_mount_plan(
                 ref for ref in selected_refs if ref in _LIFECYCLE_REFS
             ],
             "overlay_mode": "base_only" if selected_environment_id == GENERAL_ENVIRONMENT_ID else "general_base_plus_selected_overlay",
+            "personality": dict(personality_diagnostics or {}),
         },
     )
 
@@ -99,6 +105,7 @@ def prompt_mount_plan_from_payload(payload: Any) -> PromptMountPlan:
     return PromptMountPlan(
         base_environment_id=str(raw.get("base_environment_id") or GENERAL_ENVIRONMENT_ID),
         selected_environment_id=str(raw.get("selected_environment_id") or GENERAL_ENVIRONMENT_ID),
+        personality_prompt_refs=_string_tuple(raw.get("personality_prompt_refs")),
         base_prompt_refs=base_prompt_refs,
         overlay_prompt_refs=overlay_prompt_refs,
         lifecycle_prompt_refs=_string_tuple(raw.get("lifecycle_prompt_refs")),
@@ -140,6 +147,7 @@ def prompt_mount_plan_for_invocation(
     return PromptMountPlan(
         base_environment_id=plan.base_environment_id,
         selected_environment_id=plan.selected_environment_id,
+        personality_prompt_refs=plan.personality_prompt_refs,
         base_prompt_refs=plan.base_prompt_refs,
         overlay_prompt_refs=plan.overlay_prompt_refs,
         lifecycle_prompt_refs=lifecycle_refs,

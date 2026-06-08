@@ -749,6 +749,7 @@ def rule_metadata(
     authority: str = "prompt_library.prompt_rule",
     version: str = "v1",
     status: str = "active",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "rule_id": rule_id,
@@ -768,6 +769,7 @@ def rule_metadata(
         "authority": authority,
         "version": version,
         "status": status,
+        "metadata": dict(metadata or {}),
     }
 
 
@@ -898,7 +900,7 @@ def _cache_boundary_rejection_reason(rule: PromptRule, section: PromptSection) -
     category = str(section.category or "").strip()
     if rule_tier == "static_environment" and category != "environment":
         return "prompt_rule_static_environment_owner_mismatch"
-    if rule_tier == "session_stable" and category not in {"agent", "skill"}:
+    if rule_tier == "session_stable" and category not in {"agent", "personality", "skill"}:
         return "prompt_rule_session_stable_owner_mismatch"
     if rule_tier == "task_stable" and category not in {"task", "graph_node"}:
         return "prompt_rule_task_stable_owner_mismatch"
@@ -923,6 +925,8 @@ def _rule_scope_rejection_reason(rule: PromptRule, section: PromptSection, *, in
         return "prompt_rule_environment_category_mismatch"
     if rule_owner == "agent" and category != "agent":
         return "prompt_rule_agent_category_mismatch"
+    if rule_owner == "personality" and category != "personality":
+        return "prompt_rule_personality_category_mismatch"
     if rule_owner == "graph_node" and category not in {"runtime", "graph_node"}:
         return "prompt_rule_graph_category_mismatch"
     return ""
@@ -943,6 +947,8 @@ def _rule_owner_matches_section(rule_owner: str, section_owner: str) -> bool:
     if rule_owner == "graph_node" and section_owner in {"runtime", "task", "graph_node"}:
         return True
     if rule_owner == "file_management" and section_owner == "file_management":
+        return True
+    if rule_owner == "personality" and section_owner == "personality":
         return True
     return False
 

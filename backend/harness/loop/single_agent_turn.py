@@ -899,8 +899,6 @@ async def run_single_agent_turn(
                 async for event in start_task_from_action_request(action_request):
                     if event.get("type") == "task_run_lifecycle_reused_current":
                         request_task_terminal_reason = "session_active_task_exists"
-                    elif event.get("type") == "task_run_lifecycle_resumed_current":
-                        request_task_terminal_reason = "task_executor_scheduled"
                     elif _is_public_terminal_event(event):
                         lifecycle_public_terminal_events.append(dict(event))
                         request_task_terminal_reason = _terminal_reason_from_public_event(event, fallback=request_task_terminal_reason)
@@ -3151,13 +3149,52 @@ def _record_turn_terminal(
             },
         )
     )
-    active_registry = getattr(runtime_host, "active_turn_registry", None)
-    if active_registry is not None and terminal_reason != "task_executor_scheduled":
-        try:
-            active_registry.complete(session_id=turn_run.session_id, expected_turn_id=turn_id, terminal_reason=terminal_reason)
-        except Exception:
-            logger.debug("failed to complete active turn", exc_info=True)
+    _complete_active_turn_after_turn_terminal(
+        runtime_host,
+        session_id=turn_run.session_id,
+        turn_id=turn_id,
+        terminal_reason=terminal_reason,
+    )
     return event.to_dict()
+
+
+def _complete_active_turn_after_turn_terminal(
+    runtime_host: Any,
+    *,
+    session_id: str,
+    turn_id: str,
+    terminal_reason: str,
+) -> None:
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is None:
+        return
+    try:
+        record = active_registry.snapshot(session_id)
+    except Exception:
+        logger.debug("failed to snapshot active turn before terminal cleanup", exc_info=True)
+        return
+    if record is None or str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
+        return
+    bound_task_run_id = str(getattr(record, "bound_task_run_id", "") or "").strip()
+    if bound_task_run_id:
+        task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(bound_task_run_id)
+        task_status = str(getattr(task_run, "status", "") or "").strip()
+        if task_run is not None and task_status not in {
+            "completed",
+            "success",
+            "failed",
+            "aborted",
+            "cancelled",
+            "canceled",
+            "error",
+            "stopped",
+            "user_aborted",
+        }:
+            return
+    try:
+        active_registry.complete(session_id=session_id, expected_turn_id=turn_id, terminal_reason=terminal_reason)
+    except Exception:
+        logger.debug("failed to complete active turn", exc_info=True)
 
 
 def _terminal_status_for_turn_run(status: str) -> str:

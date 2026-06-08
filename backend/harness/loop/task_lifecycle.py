@@ -179,7 +179,7 @@ def _is_current_session_task_run(task_run: Any) -> bool:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
     control_state = str(dict(control or {}).get("state") or "").strip()
-    if control_state == "stopped":
+    if control_state in {"stop_requested", "stopped"}:
         return False
     origin = dict(diagnostics.get("origin") or {})
     origin_kind = str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
@@ -395,6 +395,12 @@ def start_task_lifecycle(
     active_registry = getattr(runtime_host, "active_turn_registry", None)
     if active_registry is not None:
         try:
+            if active_registry.resolve_current(session_id) is None:
+                active_registry.start(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    state="starting",
+                )
             active_registry.bind_task_run(
                 session_id=session_id,
                 turn_id=turn_id,

@@ -3819,16 +3819,17 @@ def test_terminal_latest_task_without_active_turn_is_not_projected_as_current_wo
     assert runtime._current_work_context_from_latest_task(session_id) is None
 
 
-def test_request_task_run_reuses_current_session_task_after_active_turn_is_lost() -> None:
+def test_request_task_run_replaces_current_session_task_after_active_turn_is_lost() -> None:
     session_id = "session-current-task-guard"
     existing_task_run_id = "taskrun:turn:session-current-task-guard:1:old"
     model = NativeToolCallModelRuntimeStub(
         agent_turn_action_request=_action_request(
             action_type="request_task_run",
             task_contract_seed={
-                "user_visible_goal": "重新启动一个重复任务。",
-                "task_run_goal": "这不应该创建第二个 TaskRun。",
-                "completion_criteria": ["同一会话未完成任务只能有一个"],
+                "user_visible_goal": "重新启动一个替换任务。",
+                "task_run_goal": "旧任务应被新的 TaskRun 接管。",
+                "completion_criteria": ["旧 current work 被边缘收口，新 TaskRun 被启动"],
+                "active_work_relationship": "replace_current_work",
             },
         )
     )
@@ -3853,6 +3854,14 @@ def test_request_task_run_reuses_current_session_task_after_active_turn_is_lost(
             },
         )
     )
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return SimpleNamespace()
+
+    host.spawn_background_task = _capture_background_task
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -3863,26 +3872,37 @@ def test_request_task_run_reuses_current_session_task_after_active_turn_is_lost(
     events = asyncio.run(_collect())
     stream_types = [str(event.get("type") or "") for event in events]
     session_task_runs = host.state_index.list_session_task_runs(session_id)
-    terminal_events = [event for event in events if event.get("type") == "agent_turn_terminal"]
+    old_task = host.state_index.get_task_run(existing_task_run_id)
+    new_tasks = [task for task in session_task_runs if task.task_run_id != existing_task_run_id]
+    trace = host.get_trace(existing_task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    active_turn = host.active_turn_registry.snapshot(session_id)
 
-    assert "task_run_lifecycle_reused_current" in stream_types
-    assert "task_run_lifecycle_started" not in stream_types
-    assert [task.task_run_id for task in session_task_runs] == [existing_task_run_id]
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "session_active_task_exists" for event in events)
-    assert terminal_events
-    assert dict(dict(terminal_events[-1].get("event") or {}).get("payload") or {}).get("terminal_reason") == "session_active_task_exists"
+    assert "task_run_lifecycle_reused_current" not in stream_types
+    assert "task_run_lifecycle_started" in stream_types
+    assert spawned
+    assert old_task is not None
+    assert dict(dict(old_task.diagnostics or {}).get("runtime_control") or {}).get("state") == "stop_requested"
+    assert dict(old_task.diagnostics or {}).get("replacement")
+    assert "task_run_stop_requested" in trace_event_types
+    assert "task_run_replaced_by_new_task_request" in trace_event_types
+    assert len(new_tasks) == 1
+    assert new_tasks[0].status == "running"
+    assert active_turn is not None
+    assert active_turn.bound_task_run_id == new_tasks[0].task_run_id
 
 
-def test_request_task_run_resumes_blocked_current_session_task_without_creating_second_task() -> None:
+def test_request_task_run_replaces_blocked_current_session_task_without_resuming_it() -> None:
     session_id = "session-current-task-blocked-resume"
     existing_task_run_id = "taskrun:turn:session-current-task-blocked-resume:1:old"
     model = NativeToolCallModelRuntimeStub(
         agent_turn_action_request=_action_request(
             action_type="request_task_run",
             task_contract_seed={
-                "user_visible_goal": "继续当前被阻塞的任务。",
-                "task_run_goal": "这应该复用同一个 TaskRun 并恢复运行态。",
-                "completion_criteria": ["同一会话仍然只有一个任务"],
+                "user_visible_goal": "重启当前被阻塞的任务。",
+                "task_run_goal": "旧阻塞 TaskRun 应被替换，新 TaskRun 接手执行。",
+                "completion_criteria": ["旧阻塞任务不被恢复，新任务正常启动"],
+                "active_work_relationship": "restart_current_work",
             },
         )
     )
@@ -3929,25 +3949,29 @@ def test_request_task_run_resumes_blocked_current_session_task_without_creating_
     stream_types = [str(event.get("type") or "") for event in events]
     session_task_runs = host.state_index.list_session_task_runs(session_id)
     task_run = host.state_index.get_task_run(existing_task_run_id)
+    new_tasks = [task for task in session_task_runs if task.task_run_id != existing_task_run_id]
     monitor = host.monitor_projector.build_global_monitor(host.state_index.list_task_runs(), now=10.0, limit=20)
     visible = {item["task_run_id"]: item for item in monitor["task_runs"]}
+    trace = host.get_trace(existing_task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
 
-    assert "task_run_lifecycle_resumed_current" in stream_types
-    assert "task_run_lifecycle_started" not in stream_types
-    assert [task.task_run_id for task in session_task_runs] == [existing_task_run_id]
+    assert "task_run_lifecycle_resumed_current" not in stream_types
+    assert "task_run_lifecycle_started" in stream_types
     assert spawned
     assert task_run is not None
-    assert task_run.status == "running"
-    assert task_run.terminal_reason == ""
+    assert task_run.status == "aborted"
+    assert task_run.terminal_reason == "user_aborted"
     diagnostics = dict(task_run.diagnostics or {})
-    assert diagnostics["latest_step"] == "task_executor_scheduled"
-    assert diagnostics["latest_step_status"] == "running"
+    assert diagnostics["latest_step"] == "task_run_replaced_by_new_task_request"
+    assert diagnostics["latest_step_status"] == "aborted"
     assert diagnostics["latest_step_summary"] != "旧阻塞信息不应该继续占据监控当前态。"
-    assert diagnostics["recovery_action"] == "resume_task_run"
-    assert dict(diagnostics["recoverable_error"])["retryable"] is True
-    assert visible[existing_task_run_id]["status"] == "running"
-    assert visible[existing_task_run_id]["bucket"] == "running"
-    assert visible[existing_task_run_id]["summary"] != "旧阻塞信息不应该继续占据监控当前态。"
+    assert diagnostics["replacement"]
+    assert "task_run_replaced_by_new_task_request" in trace_event_types
+    assert len(new_tasks) == 1
+    assert new_tasks[0].status == "running"
+    assert visible[new_tasks[0].task_run_id]["status"] == "running"
+    assert visible[new_tasks[0].task_run_id]["bucket"] == "running"
+    assert existing_task_run_id not in visible
 
 
 def test_terminal_bound_active_turn_is_cleared_and_continue_starts_new_task_run() -> None:
@@ -5342,6 +5366,7 @@ def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_
     trace = host.get_trace(task_run_id, include_payloads=True)
     trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
     updated_task = host.state_index.get_task_run(task_run_id)
+    active_turn = host.active_turn_registry.snapshot("session-active-work")
 
     assert not any("boundary" in event_type for event_type in event_types)
     assert "single_agent_turn_started" in event_types
@@ -5351,6 +5376,8 @@ def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_
     assert "task_run_executor_scheduled" in trace_event_types
     assert updated_task is not None
     assert dict(updated_task.diagnostics or {}).get("latest_interaction_turn_id")
+    assert active_turn is not None
+    assert active_turn.bound_task_run_id == task_run_id
     assert any(
         event.get("type") == "done"
         and event.get("answer_source") == "harness.single_agent_turn.active_work_control"

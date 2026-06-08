@@ -14,6 +14,7 @@ from task_system.environments import build_task_environment_catalog, task_enviro
 from .operation_projection import project_operation_authorization
 from .tool_scheduling import operation_requests_from_runtime_contract
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, build_base_prompt_mount_plan
+from .personality_prompt_controller import select_personality_prompt
 
 
 _SUBAGENT_TOOL_NAMES = {
@@ -105,6 +106,8 @@ class RuntimeAssembly:
     permission_mode: str = "default"
     agent_prompt_refs: tuple[str, ...] = ()
     agent_prompt_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
+    personality_prompt_refs: tuple[str, ...] = ()
+    personality_prompt_selection: dict[str, Any] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
     prompt_mount_plan: dict[str, Any] = field(default_factory=dict)
     skill_runtime_views: tuple[dict[str, Any], ...] = ()
@@ -133,6 +136,8 @@ class RuntimeAssembly:
             str(key): [str(item) for item in list(value or []) if str(item)]
             for key, value in dict(self.agent_prompt_refs_by_invocation or {}).items()
         }
+        payload["personality_prompt_refs"] = list(self.personality_prompt_refs)
+        payload["personality_prompt_selection"] = dict(self.personality_prompt_selection)
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
         payload["prompt_mount_plan"] = dict(self.prompt_mount_plan)
         payload["skill_runtime_views"] = [dict(item) for item in self.skill_runtime_views]
@@ -178,9 +183,15 @@ def assemble_runtime(
     )
     task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
     task_environment = _apply_bound_workspace_root(task_environment, bound_workspace_root)
+    personality_selection = select_personality_prompt(
+        runtime_contract=runtime_contract_payload,
+        agent_runtime_profile=agent_runtime_profile,
+    )
     prompt_mount_plan = build_base_prompt_mount_plan(
         selected_environment=task_environment,
         base_environment=base_environment,
+        personality_prompt_refs=personality_selection.personality_prompt_refs,
+        personality_diagnostics=personality_selection.to_dict(),
     )
     task_requested_operations = operation_requests_from_runtime_contract(runtime_contract_payload)
     operation_projection = project_operation_authorization(
@@ -250,6 +261,8 @@ def assemble_runtime(
         permission_mode=normalized_permission_mode,
         agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
         agent_prompt_refs_by_invocation=_agent_prompt_refs_by_invocation(agent_runtime_profile),
+        personality_prompt_refs=personality_selection.personality_prompt_refs,
+        personality_prompt_selection=personality_selection.to_dict(),
         environment_prompt_refs=prompt_mount_plan.environment_prompt_refs,
         prompt_mount_plan=prompt_mount_plan.to_dict(),
         skill_runtime_views=skill_runtime_views,
@@ -270,6 +283,7 @@ def assemble_runtime(
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
             "prompt_mount_plan": prompt_mount_plan.to_dict(),
+            "personality_prompt_selection": personality_selection.to_dict(),
             "workspace_root": bound_workspace_root,
             "permission_mode": normalized_permission_mode,
             "engagement_contract_ref": str(engagement_contract.get("contract_id") or runtime_contract_payload.get("engagement_contract_ref") or ""),

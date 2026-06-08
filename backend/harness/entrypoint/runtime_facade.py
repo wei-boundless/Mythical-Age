@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import time
 import uuid
@@ -451,16 +452,15 @@ class HarnessRuntimeFacade:
         active_work_context: ActiveWorkContext | None,
     ):
         async def start_task(action_request: ModelActionRequest):
-            resumed_current = await self._resume_current_task_for_task_request(
+            replacement_block = await self._prepare_current_task_for_new_task_request(
                 session_id=request.session_id,
                 turn_id=turn_id,
+                action_request=action_request,
                 answer_source="harness.single_agent_turn.request_task_run",
                 runtime_branch=runtime_branch,
-                scheduler="single_agent_turn.current_task_resume",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
             )
-            if resumed_current is not None:
-                for event in resumed_current:
+            if replacement_block is not None:
+                for event in replacement_block:
                     yield event
                 return
             async for event in start_task_lifecycle_from_action_request(
@@ -621,16 +621,15 @@ class HarnessRuntimeFacade:
                 reason=";".join(contract_errors) or "explicit_contract_invalid",
             )
             return
-        resumed_current = await self._resume_current_task_for_task_request(
+        replacement_block = await self._prepare_current_task_for_new_task_request(
             session_id=request.session_id,
             turn_id=turn_id,
+            action_request=action_request,
             answer_source="harness.explicit_contract_task",
             runtime_branch=runtime_branch,
-            scheduler="explicit_contract_task.current_task_resume",
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
         )
-        if resumed_current is not None:
-            for event in resumed_current:
+        if replacement_block is not None:
+            for event in replacement_block:
                 yield event
             return
         async for event in start_task_lifecycle_from_contract(
@@ -662,45 +661,35 @@ class HarnessRuntimeFacade:
                 )
             yield event
 
-    async def _resume_current_task_for_task_request(
+    async def _prepare_current_task_for_new_task_request(
         self,
         *,
         session_id: str,
         turn_id: str,
+        action_request: ModelActionRequest,
         answer_source: str,
         runtime_branch: dict[str, Any],
-        scheduler: str,
-        max_steps: int,
     ) -> list[dict[str, Any]] | None:
         current_task = current_session_task_run(self.single_agent_runtime_host, session_id=session_id)
         if current_task is None:
             return None
-        status = str(getattr(current_task, "status", "") or "").strip()
-        if status not in {"waiting_executor", "blocked"}:
+        current_task_id = str(getattr(current_task, "task_run_id", "") or "").strip()
+        if not current_task_id:
             return None
-        resume_result = resume_paused_task_run(
+        stop_result = stop_task_run(
             self.single_agent_runtime_host,
-            str(getattr(current_task, "task_run_id", "") or ""),
-            reason="conversation_task_request",
-            requested_by="user",
-            turn_id=turn_id,
+            current_task_id,
+            reason="replaced_by_new_task_request",
+            requested_by="agent",
         )
-        if not resume_result.get("ok"):
-            return None
-        schedule_result = self._schedule_active_task_run_executor(
-            str(getattr(current_task, "task_run_id", "") or ""),
-            scheduler=scheduler,
-            turn_id=turn_id,
-            max_steps=max_steps,
-        )
-        if not schedule_result.get("ok"):
-            content = _active_work_schedule_failure_reply(schedule_result)
+        if not stop_result.get("ok"):
+            content = "当前会话已有未完成任务，但运行时未能完成旧任务的接管收口，因此没有启动新的持续任务。"
             decision = canonical_output_decision_for_final_text(
                 content,
                 answer_channel="blocked",
-                answer_source=f"{answer_source}.current_task_schedule_failed",
+                answer_source=f"{answer_source}.current_task_replacement_failed",
                 execution_posture="task_control",
-                terminal_reason=str(schedule_result.get("reason") or "task_executor_schedule_failed"),
+                terminal_reason=str(stop_result.get("error") or "current_task_replacement_failed"),
             )
             await self._apply_assistant_message_commit_async(
                 session_id,
@@ -714,49 +703,74 @@ class HarnessRuntimeFacade:
             return [
                 error_event(
                     content=content,
-                    code="task_executor_schedule_failed",
-                    reason=str(schedule_result.get("reason") or "task_executor_schedule_failed"),
+                    code="current_task_replacement_failed",
+                    reason=str(stop_result.get("error") or "current_task_replacement_failed"),
                     extra={"runtime_branch": dict(runtime_branch or {}), "task_run": _task_run_identity(current_task)},
                 )
             ]
-        latest_task = self.single_agent_runtime_host.state_index.get_task_run(str(getattr(current_task, "task_run_id", "") or "")) or current_task
-        content = "我会继续当前会话里的任务，监控台会更新为同一个任务的最新运行状态。"
-        decision = canonical_output_decision_for_final_text(
-            content,
-            answer_channel="task_control",
-            answer_source=f"{answer_source}.current_task_resumed",
-            execution_posture="task_control",
-            terminal_reason="task_executor_scheduled",
+        self._record_current_task_replaced_by_new_request(
+            session_id=session_id,
+            task_run_id=current_task_id,
+            replacement_turn_id=turn_id,
+            replacement_request_id=str(getattr(action_request, "request_id", "") or ""),
+            relationship=_task_request_active_work_relationship(action_request),
         )
-        await self._apply_assistant_message_commit_async(
-            session_id,
-            {
-                "role": "assistant",
-                "content": decision.content,
-                "turn_id": turn_id,
-                **decision.to_payload(),
+        return None
+
+    def _record_current_task_replaced_by_new_request(
+        self,
+        *,
+        session_id: str,
+        task_run_id: str,
+        replacement_turn_id: str,
+        replacement_request_id: str,
+        relationship: str,
+    ) -> None:
+        host = self.single_agent_runtime_host
+        try:
+            host.active_turn_registry.complete_bound_task(
+                session_id=session_id,
+                task_run_id=task_run_id,
+                terminal_reason="replaced_by_new_task_request",
+            )
+        except Exception:
+            logger.debug("failed to release replaced active turn", exc_info=True)
+        task_run = host.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return
+        replacement = {
+            "replacement_turn_id": str(replacement_turn_id or ""),
+            "replacement_request_id": str(replacement_request_id or ""),
+            "relationship": str(relationship or "new_task_request"),
+            "reason": "request_task_run_while_current_work_exists",
+            "authority": "harness.entrypoint.current_work_replacement",
+        }
+        event = host.event_log.append(
+            task_run_id,
+            "task_run_replaced_by_new_task_request",
+            payload={"task_run_id": task_run_id, "replacement": replacement},
+            refs={
+                "task_run_ref": task_run_id,
+                "turn_ref": str(replacement_turn_id or ""),
+                "action_request_ref": str(replacement_request_id or ""),
             },
         )
-        return [
-            {
-                "type": "task_run_lifecycle_resumed_current",
-                "task_run": latest_task.to_dict() if hasattr(latest_task, "to_dict") else {},
-                "schedule_result": dict(schedule_result or {}),
-                "status": str(getattr(latest_task, "status", "") or ""),
-                "terminal_reason": "task_executor_scheduled",
-                "authority": "harness.entrypoint.current_session_task_resume",
-            },
-            final_answer_event(
-                content=content,
-                answer_channel="task_control",
-                answer_source=f"{answer_source}.current_task_resumed",
-                terminal_reason="task_executor_scheduled",
-                extra={
-                    "runtime_branch": dict(runtime_branch or {}),
-                    "task_run": _task_run_identity(latest_task),
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        host.state_index.upsert_task_run(
+            replace(
+                task_run,
+                updated_at=event.created_at or time.time(),
+                latest_event_offset=event.offset,
+                diagnostics={
+                    **diagnostics,
+                    "replacement": replacement,
+                    "latest_step": "task_run_replaced_by_new_task_request",
+                    "latest_step_status": str(getattr(task_run, "status", "") or ""),
+                    "latest_step_summary": "当前任务已被新的任务请求接管，旧任务保留为审计记录。",
+                    "latest_public_progress_note": "当前任务已被新的任务请求接管。",
                 },
-            ),
-        ]
+            )
+        )
 
     def _active_work_context_from_active_turn(self, session_id: str) -> ActiveWorkContext | None:
         active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(session_id)
@@ -1036,6 +1050,13 @@ class HarnessRuntimeFacade:
             intent="append_instruction_to_active_work",
             editor_context=dict(editor_context or {}),
         )
+        if result.get("ok"):
+            self._bind_current_turn_to_task_run(
+                session_id=context.session_id,
+                turn_id=turn_id,
+                task_run_id=context.task_run_id,
+                state="running_task" if context.running else "waiting_executor",
+            )
         if result.get("ok") and context.resumable:
             resume_result = resume_paused_task_run(
                 host,
@@ -1045,10 +1066,24 @@ class HarnessRuntimeFacade:
                 turn_id=turn_id,
             )
             if resume_result.get("ok"):
-                self._schedule_active_task_run_executor(
+                self._bind_current_turn_to_task_run(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    task_run_id=context.task_run_id,
+                    state="waiting_executor",
+                )
+                schedule_result = self._schedule_active_task_run_executor(
                     context.task_run_id,
                     scheduler="conversation_instruction",
                     turn_id=turn_id,
+                )
+                if not _schedule_result_allows_progress(schedule_result):
+                    return _active_work_schedule_failure_reply(schedule_result)
+                self._bind_current_turn_to_task_run(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    task_run_id=context.task_run_id,
+                    state="running_task",
                 )
         if not result.get("ok"):
             return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
@@ -1080,10 +1115,23 @@ class HarnessRuntimeFacade:
             result = request_task_run_pause(host, context.task_run_id, reason="conversation_pause", requested_by="user")
             if not result.get("ok"):
                 response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+            else:
+                self._bind_current_turn_to_task_run(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    task_run_id=context.task_run_id,
+                    state="waiting_executor",
+                )
         elif action == "stop_active_work":
             result = stop_task_run(host, context.task_run_id, reason="conversation_stop", requested_by="user")
             if not result.get("ok"):
                 response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+            else:
+                self._complete_active_turn_for_task_run(
+                    session_id=context.session_id,
+                    task_run_id=context.task_run_id,
+                    terminal_reason="conversation_stop",
+                )
         elif action == "append_instruction_to_active_work":
             response = self._apply_append_instruction_to_active_work(
                 decision=decision,
@@ -1146,18 +1194,36 @@ class HarnessRuntimeFacade:
                 turn_id=turn_id,
             )
             if result.get("ok"):
+                self._bind_current_turn_to_task_run(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    task_run_id=context.task_run_id,
+                    state="waiting_executor",
+                )
                 schedule_result = self._schedule_active_task_run_executor(
                     context.task_run_id,
                     scheduler="conversation_continue",
                     turn_id=turn_id,
                 )
-                if not schedule_result.get("ok"):
+                if not _schedule_result_allows_progress(schedule_result):
                     return _active_work_schedule_failure_reply(schedule_result)
+                self._bind_current_turn_to_task_run(
+                    session_id=context.session_id,
+                    turn_id=turn_id,
+                    task_run_id=context.task_run_id,
+                    state="running_task",
+                )
                 return default_response or "好，我接着处理。"
             return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
         if strategy == "already_running":
             if not context.running:
                 return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+            self._bind_current_turn_to_task_run(
+                session_id=context.session_id,
+                turn_id=turn_id,
+                task_run_id=context.task_run_id,
+                state="running_task",
+            )
             instruction = str(appended_instruction or "").strip()
             if instruction:
                 append_user_work_instruction(
@@ -1170,6 +1236,43 @@ class HarnessRuntimeFacade:
                 )
             return default_response or "我正在接着处理，新的进展会继续更新在这里。"
         return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
+
+    def _bind_current_turn_to_task_run(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        task_run_id: str,
+        state: str,
+    ) -> None:
+        active_registry = self.single_agent_runtime_host.active_turn_registry
+        try:
+            record = active_registry.resolve_current(session_id)
+            if record is None:
+                record = active_registry.start(session_id=session_id, turn_id=turn_id, state="starting")
+            if str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
+                return
+            existing_task_run_id = str(getattr(record, "bound_task_run_id", "") or "").strip()
+            if existing_task_run_id and existing_task_run_id != str(task_run_id or "").strip():
+                return
+            active_registry.bind_task_run(
+                session_id=session_id,
+                turn_id=turn_id,
+                task_run_id=task_run_id,
+                state="running_task" if state == "running_task" else "waiting_executor",
+            )
+        except Exception:
+            logger.debug("failed to bind current active turn to task run", exc_info=True)
+
+    def _complete_active_turn_for_task_run(self, *, session_id: str, task_run_id: str, terminal_reason: str) -> None:
+        try:
+            self.single_agent_runtime_host.active_turn_registry.complete_bound_task(
+                session_id=session_id,
+                task_run_id=task_run_id,
+                terminal_reason=terminal_reason,
+            )
+        except Exception:
+            logger.debug("failed to complete active turn for task run", exc_info=True)
 
     def _schedule_active_task_run_executor(
         self,
@@ -1747,6 +1850,39 @@ def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
     if not reason:
         reason = "unknown"
     return f"当前工作恢复调度没有成功：{reason}。断点已保留；需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
+
+
+def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
+    payload = dict(result or {})
+    if not payload.get("ok"):
+        return False
+    if payload.get("scheduled"):
+        return True
+    return str(payload.get("reason") or "").strip() == "already_running"
+
+
+def _task_request_active_work_relationship(action_request: ModelActionRequest) -> str:
+    diagnostics = dict(getattr(action_request, "diagnostics", {}) or {})
+    seed = dict(getattr(action_request, "task_contract_seed", {}) or {})
+    raw = str(
+        diagnostics.get("active_work_relationship")
+        or seed.get("active_work_relationship")
+        or seed.get("lifecycle_intent")
+        or diagnostics.get("lifecycle_intent")
+        or ""
+    ).strip().lower()
+    aliases = {
+        "replace": "replace_current_work",
+        "restart": "replace_current_work",
+        "restart_current_work": "replace_current_work",
+        "replace_active_work": "replace_current_work",
+        "replace_current_task": "replace_current_work",
+        "new_task": "new_work",
+        "new_current_work": "new_work",
+        "independent": "new_work",
+        "independent_work": "new_work",
+    }
+    return aliases.get(raw, raw or "new_task_request")
 
 
 def _task_run_identity(task_run: Any) -> dict[str, str]:

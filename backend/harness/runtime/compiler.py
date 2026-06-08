@@ -383,6 +383,12 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        personality_prompt_assembly = self._assemble_personality_prompt_layer(
+            prompt_mount_plan=prompt_mount_plan,
+            invocation_kind="single_agent_turn",
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
         environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
@@ -394,6 +400,7 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
+        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
@@ -470,6 +477,15 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
+                    content=personality_instruction,
+                    kind="personality_stable",
+                    source_ref=",".join(personality_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
                     content=_join_prompt_sections(
                         environment_instruction,
                         agent_instruction,
@@ -530,6 +546,7 @@ class RuntimeCompiler:
             invocation_kind="single_agent_turn",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
+                personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
                 agent_prompt_assembly,
@@ -702,6 +719,12 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        personality_prompt_assembly = self._assemble_personality_prompt_layer(
+            prompt_mount_plan=prompt_mount_plan,
+            invocation_kind="task_execution",
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
         environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
@@ -722,6 +745,7 @@ class RuntimeCompiler:
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
             include_storage_note=False,
         )
+        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = {"schema": schema}
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
@@ -821,6 +845,15 @@ class RuntimeCompiler:
                             ]
                         )
                     ),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=personality_instruction,
+                    kind="personality_stable",
+                    source_ref=",".join(personality_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -987,6 +1020,7 @@ class RuntimeCompiler:
             invocation_kind="task_execution",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
+                personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
                 agent_prompt_assembly,
@@ -1128,6 +1162,12 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
+        personality_prompt_assembly = self._assemble_personality_prompt_layer(
+            prompt_mount_plan=prompt_mount_plan,
+            invocation_kind="tool_observation_followup",
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
         environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
@@ -1139,6 +1179,7 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
+        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
@@ -1225,6 +1266,15 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
+                    content=personality_instruction,
+                    kind="personality_stable",
+                    source_ref=",".join(personality_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
                     content=agent_instruction,
                     kind="agent_stable",
                     source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
@@ -1284,6 +1334,7 @@ class RuntimeCompiler:
             invocation_kind="tool_observation_followup",
             assembly=_merge_prompt_assemblies(
                 prompt_assembly,
+                personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
                 agent_prompt_assembly,
@@ -1444,6 +1495,21 @@ class RuntimeCompiler:
         )
         return environment_prompt_assembly, lifecycle_prompt_assembly
 
+    def _assemble_personality_prompt_layer(
+        self,
+        *,
+        prompt_mount_plan: Any,
+        invocation_kind: str,
+        agent_profile_ref: str,
+        task_environment_ref: str,
+    ) -> PromptAssemblyResult:
+        return self._assemble_prompt_refs(
+            invocation_kind=invocation_kind,
+            prompt_refs=tuple(getattr(prompt_mount_plan, "personality_prompt_refs", ()) or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+        )
+
 
 def _validate_runtime_prompt_pack_assembly(
     assembly: PromptAssemblyResult,
@@ -1548,6 +1614,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 }
             ],
             "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
+            "active_work_relationship": "可选；当本轮已有 active_work_context 且你仍选择 request_task_run 时填写。restart_current_work/replace_current_work 表示用新任务接管旧任务；new_work 表示用户要求开启新的持续任务。",
             "plan_requirements": {
                 "requires_plan": False,
                 "reason": "为什么需要先计划；仅在高影响改动、架构重构、协议变更或用户要求计划时填写。",
@@ -1733,6 +1800,7 @@ def _single_agent_turn_output_contract(
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
+                "active_work_boundary": "When active_work_context is present, request_task_run starts a new or replacement lifecycle. Use active_work_control to continue, pause, stop, answer status, or append instructions to the current work.",
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
@@ -2600,6 +2668,7 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
     precedence = {
         "system": 0,
         "agent": 20,
+        "personality": 25,
         "runtime": 30,
         "environment": 40,
         "lifecycle": 45,
@@ -2627,7 +2696,7 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
             }
         )
     return {
-        "policy": "override>coordinator>agent>runtime>environment>lifecycle>tool>skill>project>contract",
+        "policy": "override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
         "behavior": "diagnostic_only_preserves_requested_order",
         "entries": entries,
         "authority": "harness.runtime.prompt_precedence_report",
@@ -2689,6 +2758,7 @@ def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str,
         )
     if not environment_prompt_refs:
         return {}
+    personality_prompt_refs = _string_tuple(assembly_payload.get("personality_prompt_refs"))
     selected_environment_id = str(
         environment_payload.get("environment_id")
         or environment_payload.get("task_environment_id")
@@ -2707,6 +2777,7 @@ def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str,
     return {
         "base_environment_id": GENERAL_ENVIRONMENT_ID,
         "selected_environment_id": selected_environment_id or GENERAL_ENVIRONMENT_ID,
+        "personality_prompt_refs": list(personality_prompt_refs),
         "base_prompt_refs": list(base_prompt_refs),
         "overlay_prompt_refs": list(overlay_prompt_refs),
         "environment_prompt_refs": _dedupe_strings([*base_prompt_refs, *overlay_prompt_refs]),
@@ -3053,6 +3124,13 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
         )
+        if "request_task_run" in allowed_actions:
+            lines.append(
+                "- 当前有 active_work_context 时：继续、暂停、停止、询问状态、补充当前任务要求都使用 active_work_control；"
+                "只有用户明确要求重启、从头做、替换当前任务或开启新的持续任务时，才使用 request_task_run。"
+                "这种情况下在 task_contract_seed.active_work_relationship 填 restart_current_work、replace_current_work 或 new_work；"
+                "request_task_run 不会恢复旧任务，而会让运行时把旧 current work 做边缘收口后启动新生命周期。"
+            )
     elif projection.get("invocation_kind") == "single_agent_turn":
         lines.append(
             "- 本轮没有 active_work_context；系统当前没有可控制的进行中工作。"
@@ -3098,6 +3176,13 @@ def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult, *, in
     if not content:
         return ""
     return "\n当前职责：\n" + content + "\n"
+
+
+def _personality_prompt_instruction(personality_prompt_assembly: PromptAssemblyResult) -> str:
+    content = str(personality_prompt_assembly.content or "").strip()
+    if not content:
+        return ""
+    return "\n当前人格：\n" + content + "\n"
 
 
 def _prompt_contract_instruction(prompt_contract_assembly: PromptAssemblyResult) -> str:
@@ -3250,6 +3335,7 @@ def _environment_model_visible_payload(
             {
                 "base_environment_id": mount_plan.base_environment_id,
                 "selected_environment_id": mount_plan.selected_environment_id,
+                "personality_prompt_refs": list(mount_plan.personality_prompt_refs),
                 "base_prompt_refs": list(mount_plan.base_prompt_refs),
                 "overlay_prompt_refs": list(mount_plan.overlay_prompt_refs),
                 "lifecycle_prompt_refs": list(mount_plan.lifecycle_prompt_refs),

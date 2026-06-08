@@ -199,6 +199,7 @@ _PROMPT_LAYER_PRECEDENCE = {
     "override": 0,
     "coordinator": 10,
     "agent": 20,
+    "personality": 25,
     "runtime": 30,
     "environment": 40,
     "lifecycle": 45,
@@ -227,7 +228,7 @@ def _prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[str, 
             }
         )
     return {
-        "policy": "override>coordinator>agent>runtime>environment>lifecycle>tool>skill>project>contract",
+        "policy": "override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
         "behavior": "diagnostic_only_preserves_requested_order",
         "entries": entries,
         "authority": "prompt_library.prompt_assembly_precedence",
