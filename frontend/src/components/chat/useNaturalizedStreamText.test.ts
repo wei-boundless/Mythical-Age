@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { takeNaturalizedStreamSlice } from "./useNaturalizedStreamText";
+import { createNaturalizedStreamProjector, takeNaturalizedStreamSlice } from "./useNaturalizedStreamText";
 
 describe("takeNaturalizedStreamSlice", () => {
   it("keeps short Chinese clauses together through punctuation", () => {
@@ -40,5 +40,27 @@ describe("takeNaturalizedStreamSlice", () => {
 
     expect(slice.text.length).toBeGreaterThan(1);
     expect(slice.delayMs).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("createNaturalizedStreamProjector", () => {
+  it("keeps advancing when the stream target updates faster than display ticks", () => {
+    const projector = createNaturalizedStreamProjector();
+    projector.setTarget("定位");
+    expect(projector.tick(0)).toBe("定位");
+
+    projector.setTarget("定位前端");
+    projector.setTarget("定位前端流式输出突然消失");
+    projector.setTarget("定位前端流式输出突然消失，首先要从链路两端同时排查。");
+
+    const projected = [
+      projector.tick(40),
+      projector.tick(80),
+      projector.tick(120),
+      projector.tick(160),
+    ];
+
+    expect(projected.some((value) => value.length > "定位".length)).toBe(true);
+    expect(projector.text()).toContain("前端");
   });
 });

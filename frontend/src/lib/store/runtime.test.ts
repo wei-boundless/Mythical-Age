@@ -956,6 +956,29 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("loads the default inspector file through the bound session file API", async () => {
     vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveSessionRef"
+        ? JSON.stringify({ sessionId: "session:bound", poolKey: "main-chat" })
+        : null
+    );
+    api.getSessionSummary.mockResolvedValue({
+      id: "session:bound",
+      title: "Bound",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 0,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: {
+          workspace_root: "D:/repo",
+          source: "vscode",
+          bound_at: 1,
+          last_seen_at: 1,
+          immutable: true,
+          authority: "sessions.project_binding",
+        },
+      },
+    });
     api.listSessions.mockResolvedValue([
       {
         id: "session:bound",
@@ -1054,6 +1077,98 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBeNull();
     expect(api.getProjectWorkspaceTree).toHaveBeenCalledWith("workspace:repo");
     expect(api.loadFileForSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps startup in the unbound conversation scope when project workspaces exist", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([{
+      id: "session:unbound",
+      title: "Unbound",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 0,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+      },
+    }]);
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [{
+        key: "workspace:repo",
+        workspace_root: "D:/repo",
+        name: "repo",
+        source: "session.project_binding",
+        created_at: 1,
+        last_seen_at: 2,
+        session_count: 1,
+        latest_session_at: 2,
+        available: true,
+        authority: "project_workspaces.workspace",
+      }],
+      summary: { project_count: 1 },
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(store.getState().currentSessionId).toBe("session:unbound");
+    expect(store.getState().activeProjectKey).toBe("");
+    expect(store.getState().activeProjectRoot).toBe("");
+    expect(api.listProjectWorkspaceSessions).not.toHaveBeenCalled();
+    expect(api.getProjectWorkspaceTree).not.toHaveBeenCalled();
+  });
+
+  it("clears the active project and selects an unbound session when switching to the unbound scope", async () => {
+    vi.useRealTimers();
+    const boundSession = {
+      id: "session:bound",
+      title: "Bound",
+      created_at: 1,
+      updated_at: 3,
+      message_count: 0,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: {
+          workspace_root: "D:/repo",
+          source: "project_workspace",
+          bound_at: 1,
+          last_seen_at: 3,
+          immutable: true,
+          authority: "sessions.project_binding",
+        },
+      },
+    };
+    const unboundSession = {
+      id: "session:unbound",
+      title: "Unbound",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 0,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+      },
+    };
+    api.listSessions.mockResolvedValue([boundSession, unboundSession]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeProjectKey: "workspace:repo",
+      activeProjectRoot: "D:/repo",
+      currentSessionId: "session:bound",
+      sessions: [boundSession, unboundSession],
+      projectSessions: [boundSession],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.selectProjectWorkspace("");
+    await flushPromises();
+
+    expect(store.getState().activeProjectKey).toBe("");
+    expect(store.getState().activeProjectRoot).toBe("");
+    expect(store.getState().projectSessions).toEqual([]);
+    expect(store.getState().currentSessionId).toBe("session:unbound");
+    expect(api.listProjectWorkspaceSessions).not.toHaveBeenCalled();
   });
 
   it("treats a cancelled project directory picker as a quiet no-op", async () => {
@@ -3844,6 +3959,73 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:persisted");
   });
 
+  it("restores a backend-persisted project-bound current session into its project workspace", async () => {
+    vi.useRealTimers();
+    const boundSession = {
+      id: "session:bound-current",
+      title: "Bound Current",
+      created_at: 1,
+      updated_at: 3,
+      message_count: 12,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: {
+          workspace_root: "D:/repo",
+          source: "project_workspace",
+          bound_at: 1,
+          last_seen_at: 3,
+          immutable: true,
+          authority: "sessions.project_binding",
+        },
+      },
+    };
+    api.getWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: {
+        authority: "workbench.current_session_ref",
+        session_id: "session:bound-current",
+        scope: {},
+        pool_key: "main-chat",
+        updated_at: 3,
+      },
+    });
+    api.getSessionSummary.mockResolvedValue(boundSession);
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [{
+        key: "workspace:repo",
+        workspace_root: "D:/repo",
+        name: "repo",
+        source: "session.project_binding",
+        created_at: 1,
+        last_seen_at: 3,
+        session_count: 1,
+        latest_session_at: 3,
+        available: true,
+        authority: "project_workspaces.workspace",
+      }],
+      summary: { project_count: 1 },
+    });
+    api.listProjectWorkspaceSessions.mockResolvedValue({
+      authority: "project_workspaces.sessions",
+      project_key: "workspace:repo",
+      sessions: [],
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(api.listSessions).not.toHaveBeenCalled();
+    expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
+    expect(api.listProjectWorkspaceSessions).toHaveBeenCalledWith("workspace:repo");
+    expect(store.getState().activeProjectKey).toBe("workspace:repo");
+    expect(store.getState().activeProjectRoot).toBe("D:/repo");
+    expect(store.getState().currentSessionId).toBe("session:bound-current");
+    expect(store.getState().projectSessions.map((session) => session.id)).toContain("session:bound-current");
+  });
+
   it("falls back to the session index when the remembered session is gone", async () => {
     vi.useRealTimers();
     vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
@@ -3952,6 +4134,92 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[0].content).toBe("继续修复 token 统计");
     expect(store.getState().tokenStats?.total_tokens).toBe(3);
     expect(store.getState().sessionActivity.event).toBe("");
+  });
+
+  it("keeps the local streaming assistant shell when session history refresh races with deltas", async () => {
+    const sessionId = "session:live-refresh";
+    const assistantId = "assistant:local-live";
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "请回答" },
+        { role: "assistant", content: "后端历史旧壳" },
+      ],
+      runtime_attachments: [],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      activeStreamSessionIds: [sessionId],
+      isStreaming: true,
+      sessions: [{
+        id: sessionId,
+        title: "Live",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        {
+          id: "user:local-live",
+          role: "user",
+          content: "请回答",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+        },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "遇到",
+          toolCalls: [],
+          retrievals: [],
+          runtimeProgress: [],
+          runtimePublicTimelineDraft: [],
+          sourceIndex: 1,
+        },
+      ],
+      assistantTextStreamsByMessageId: {
+        [assistantId]: {
+          messageId: assistantId,
+          messageRef: "turn:session:live-refresh:assistant",
+          streamRef: "modelreq:live-refresh",
+          latestSequence: 1,
+          canonicalContent: "遇到",
+          canonicalContentSha256: "sha256:first",
+          accumulatedUtf8Bytes: 6,
+          finalReceived: false,
+          terminal: false,
+          repairState: "none",
+          displayHintsBySequence: {},
+        },
+      },
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails(sessionId);
+
+    expect(store.getState().messages.at(-1)?.id).toBe(assistantId);
+    expect(store.getState().messages.at(-1)?.content).toBe("遇到");
+
+    const transition = reduceStreamEvent(
+      store.getState(),
+      { assistantId },
+      "assistant_text_delta",
+      {
+        sequence: 2,
+        content: "前端",
+        content_utf8_start: 6,
+        accumulated_utf8_bytes: 12,
+        accumulated_sha256: "sha256:second",
+      },
+    );
+    store.setState(() => transition.state);
+
+    expect(store.getState().messages.at(-1)?.id).toBe(assistantId);
+    expect(store.getState().messages.at(-1)?.content).toBe("遇到前端");
   });
 
   it("reattaches a persisted chat run during initialization without starting a new run", async () => {

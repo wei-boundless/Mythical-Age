@@ -82,7 +82,6 @@ class GraphHarnessConfig:
             "authority": "harness.graph_structure_identity",
             "structure_version": GRAPH_STRUCTURE_VERSION,
             "graph_id": self.graph_id,
-            "task_environment_id": self.task_environment_id,
             "root_task_ref": self.root_task_ref,
             "control": _structure_mapping(
                 self.control,
@@ -235,7 +234,7 @@ class GraphRun:
             config_snapshot_id=str(payload.get("config_snapshot_id") or payload.get("config_id") or ""),
             config_snapshot_hash=str(payload.get("config_snapshot_hash") or payload.get("config_hash") or ""),
             workspace_view=str(payload.get("workspace_view") or "chat"),
-            task_environment_id=str(payload.get("task_environment_id") or dict(payload.get("diagnostics") or {}).get("task_environment_id") or ""),
+            task_environment_id=str(payload.get("task_environment_id") or ""),
             project_id=str(payload.get("project_id") or dict(payload.get("diagnostics") or {}).get("project_id") or ""),
             session_scope_key=str(payload.get("session_scope_key") or ""),
             status=str(payload.get("status") or "running"),

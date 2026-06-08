@@ -126,10 +126,50 @@ def test_chat_run_uses_latest_vscode_context_when_payload_context_is_empty(tmp_p
         },
     )
 
-    effective = _effective_editor_context(session["id"], {})
+    effective = _effective_editor_context(
+        session["id"],
+        {},
+        session_manager=manager,
+        allow_vscode_fallback=True,
+    )
 
     assert effective["source"] == "vscode"
     assert effective["active_file"]["path"] == str(active_file)
+    store.clear()
+
+
+def test_chat_run_empty_payload_context_does_not_reuse_vscode_snapshot_without_fallback(tmp_path: Path) -> None:
+    store = get_vscode_connection_store()
+    store.clear()
+    manager = SessionManager(tmp_path / "backend")
+    project = tmp_path / "project"
+    project.mkdir()
+    session = manager.create_session(title="VS Code")
+
+    store.record_context(
+        session_manager=manager,
+        session_id=session["id"],
+        editor_context={
+            "source": "vscode",
+            "workspace_roots": [str(project)],
+            "active_file": {
+                "path": str(project / "frontend" / "App.tsx"),
+                "language_id": "typescriptreact",
+                "dirty": False,
+            },
+            "visible_files": [],
+            "diagnostics": [],
+        },
+    )
+
+    effective = _effective_editor_context(
+        session["id"],
+        {},
+        session_manager=manager,
+        allow_vscode_fallback=False,
+    )
+
+    assert effective == {}
     store.clear()
 
 

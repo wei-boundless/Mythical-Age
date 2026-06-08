@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type NaturalizedStreamSlice = {
   text: string;
@@ -16,8 +16,10 @@ const HARD_PUNCTUATION = new Set([".", "!", "?", "\u3002", "\uFF01", "\uFF1F", "
 
 export function useNaturalizedStreamText(targetText: string, enabled: boolean) {
   const [displayText, setDisplayText] = useState(targetText);
+  const targetTextRef = useRef(targetText);
 
   useEffect(() => {
+    targetTextRef.current = targetText;
     if (!enabled || prefersReducedMotion()) {
       setDisplayText(targetText);
       return;
@@ -35,29 +37,61 @@ export function useNaturalizedStreamText(targetText: string, enabled: boolean) {
     if (!enabled || prefersReducedMotion()) {
       return;
     }
-    if (displayText === targetText) {
-      return;
-    }
-    if (!targetText.startsWith(displayText)) {
-      setDisplayText(targetText);
-      return;
-    }
-    const next = takeNaturalizedStreamSlice(displayText, targetText);
-    if (!next.text) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
+    let nextAt = 0;
+    const timer = window.setInterval(() => {
+      if (Date.now() < nextAt) {
+        return;
+      }
       setDisplayText((current) => {
-        if (!targetText.startsWith(current)) {
-          return targetText;
+        const latestTargetText = targetTextRef.current;
+        if (current === latestTargetText) {
+          return current;
         }
+        if (!latestTargetText.startsWith(current)) {
+          return latestTargetText;
+        }
+        const next = takeNaturalizedStreamSlice(current, latestTargetText);
+        if (!next.text) {
+          return current;
+        }
+        nextAt = Date.now() + next.delayMs;
         return `${current}${next.text}`;
       });
-    }, next.delayMs);
-    return () => window.clearTimeout(timer);
-  }, [displayText, enabled, targetText]);
+    }, FAST_DELAY_MS);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
 
   return enabled ? displayText : targetText;
+}
+
+export function createNaturalizedStreamProjector(initialText = "") {
+  let displayText = initialText;
+  let targetText = initialText;
+  let nextAt = 0;
+  return {
+    setTarget(nextTargetText: string) {
+      targetText = nextTargetText;
+      if (!targetText.startsWith(displayText)) {
+        displayText = targetText;
+        nextAt = 0;
+      }
+    },
+    tick(now: number) {
+      if (displayText === targetText || now < nextAt) {
+        return displayText;
+      }
+      const next = takeNaturalizedStreamSlice(displayText, targetText);
+      if (!next.text) {
+        return displayText;
+      }
+      displayText = `${displayText}${next.text}`;
+      nextAt = now + next.delayMs;
+      return displayText;
+    },
+    text() {
+      return displayText;
+    },
+  };
 }
 
 export function takeNaturalizedStreamSlice(displayedText: string, targetText: string): NaturalizedStreamSlice {

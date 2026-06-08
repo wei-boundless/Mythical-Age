@@ -78,8 +78,6 @@ def project_runtime_activity(item: dict[str, Any], *, control_context: RuntimeAc
 
 def activity_state(item: dict[str, Any]) -> ActivityState:
     explicit = _text(item.get("activity_state") or dict(item.get("activity") or {}).get("activity_state"))
-    if explicit in {"running", "waiting", "paused", "stopped", "failed", "completed", "stale", "idle"}:
-        return explicit  # type: ignore[return-value]
     status = _text(item.get("status"))
     lifecycle = _text(item.get("lifecycle"))
     bucket = _text(item.get("bucket"))
@@ -103,6 +101,8 @@ def activity_state(item: dict[str, Any]) -> ActivityState:
         or bool(item.get("action_required") is True)
     ):
         return "waiting"
+    if explicit in {"running", "waiting", "paused", "stopped", "failed", "completed", "stale", "idle"}:
+        return explicit  # type: ignore[return-value]
     if status in RUNNING_STATUSES or lifecycle in {"running", "active"} or bucket == "running" or bool(item.get("is_live") is True):
         return "running"
     return "idle"

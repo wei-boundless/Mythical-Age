@@ -3933,7 +3933,15 @@ def _pause_executor_for_model_recovery(
             "recovery_action": "rerun_task_executor",
         },
     )
-    runtime_host.state_index.upsert_task_run(paused_task)
+    lifecycle = _load_lifecycle(runtime_host, task_run)
+    paused_task, _paused_lifecycle, _lifecycle_event = finish_task_lifecycle(
+        runtime_host,
+        task_run=paused_task,
+        lifecycle=lifecycle,
+        status="blocked",
+        terminal_reason="model_call_recovery_required",
+        observation_refs=(observation["observation_id"],),
+    )
     runtime_host.state_index.upsert_agent_run(
         replace(
             agent_run,

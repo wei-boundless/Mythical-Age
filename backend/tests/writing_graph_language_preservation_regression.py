@@ -11,12 +11,14 @@ from harness.graph.context_materializer import GraphContextMaterializer
 from harness.graph.models import GraphLoopState, NodeResultEnvelope, graph_harness_config_from_dict
 from harness.graph.scheduler_view import build_scheduler_view
 from harness.runtime.compiler import _graph_authorized_inputs
+from task_system import TaskFlowRegistry, apply_task_graph_standard_view_update, build_task_graph_standard_view
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
     TaskGraphEdgeDefinition,
     TaskGraphNodeDefinition,
 )
+from tests.support.writing_fixtures import load_writing_modular_config_module
 
 
 def _writing_like_graph() -> TaskGraphDefinition:
@@ -120,6 +122,31 @@ def _graph_harness_config():
     )
 
 
+def _seed_writing_modular_graphs(tmp_path: Path):
+    module = load_writing_modular_config_module()
+    registry = TaskFlowRegistry(tmp_path)
+    module._upsert_imported_module_graph(
+        registry,
+        graph_id=module.DESIGN_GRAPH_ID,
+        nodes=module.DESIGN_NODES,
+        business_edges=module.DESIGN_BUSINESS_EDGES,
+    )
+    module._upsert_imported_module_graph(
+        registry,
+        graph_id=module.CHAPTER_GRAPH_ID,
+        nodes=module.CHAPTER_NODES,
+        business_edges=module.CHAPTER_BUSINESS_EDGES,
+    )
+    module._upsert_imported_module_graph(
+        registry,
+        graph_id=module.FINALIZE_GRAPH_ID,
+        nodes=module.FINALIZE_NODES,
+        business_edges=module.FINALIZE_BUSINESS_EDGES,
+    )
+    module._upsert_master_graph(registry)
+    return module, registry
+
+
 def test_graph_harness_config_preserves_full_graph_language() -> None:
     graph_config = _graph_harness_config()
 
@@ -134,6 +161,107 @@ def test_graph_harness_config_preserves_full_graph_language() -> None:
     assert edge_types["edge.memory.read"] == "memory_read"
     assert edge_types["edge.draft.memory_commit"] == "memory_commit"
     assert edge_types["edge.review.revise"] == "revision_request"
+
+
+def test_standard_view_exposes_and_round_trips_node_prompt_contract() -> None:
+    graph = _writing_like_graph()
+    payload = build_task_graph_standard_view(graph=graph).to_dict()
+    draft = next(item for item in payload["nodes"] if item["node_id"] == "draft")
+
+    assert draft["prompt"]["role_prompt"] == "你是一名长篇小说设定起草员。"
+    assert draft["prompt"]["task_instruction"] == "请根据输入材料起草可审核的世界观设定。"
+    assert draft["prompt"]["authority"] == "task_system.task_graph_standard_node_prompt"
+
+    draft["prompt"] = {
+        **draft["prompt"],
+        "role_prompt": "你是一名迁移后的长篇小说设定起草员。",
+        "task_instruction": "只根据已授权输入起草世界观候选。",
+    }
+    updated = apply_task_graph_standard_view_update(graph=graph, payload=payload)
+    updated_draft = next(item for item in updated.nodes if item.node_id == "draft")
+    prompt_contract = dict(updated_draft.metadata.get("prompt_contract") or {})
+
+    assert prompt_contract["role_prompt"] == "你是一名迁移后的长篇小说设定起草员。"
+    assert prompt_contract["task_instruction"] == "只根据已授权输入起草世界观候选。"
+    assert updated_draft.metadata["role_prompt"] == "你是一名迁移后的长篇小说设定起草员。"
+
+
+def test_writing_modular_node_prompts_are_migrated_to_standard_graph_prompt_contracts(tmp_path: Path) -> None:
+    module, registry = _seed_writing_modular_graphs(tmp_path)
+    graph = registry.get_task_graph(module.DESIGN_GRAPH_ID)
+    assert graph is not None
+
+    source_payload = module._node_payload(next(node for node in module.DESIGN_NODES if node.node_id == "project_brief"))
+    source_prompt = dict(source_payload["metadata"]["prompt_contract"])
+    view = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
+    project_brief = next(item for item in view["nodes"] if item["node_id"] == "project_brief")
+
+    assert source_prompt["authority"] == "task_system.writing_graph.node_prompt_contract"
+    assert source_prompt["source"] == "writing_modular_novel.NodeSpec.prompt"
+    assert "你是一名中文商业网文项目启动整理员" in source_prompt["role_prompt"]
+    assert project_brief["prompt"]["role_prompt"] == source_prompt["role_prompt"]
+    assert project_brief["prompt"]["authority"] == "task_system.writing_graph.node_prompt_contract"
+    assert "系统会根据任务图边、记忆协议和产物合同" in project_brief["prompt"]["role_prompt"]
+
+
+def test_writing_chapter_standard_view_preserves_old_loop_and_edge_topology(tmp_path: Path) -> None:
+    module, registry = _seed_writing_modular_graphs(tmp_path)
+    graph = registry.get_task_graph(module.CHAPTER_GRAPH_ID)
+    assert graph is not None
+
+    payload = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
+    loop_frames = {item["frame_id"]: item for item in payload["timeline"]["loop_frames"]}
+    edges = {item["edge_id"]: item for item in payload["edges"]}
+
+    assert set(loop_frames) == {"loop.chapter_unit", "loop.chapter_batch", "loop.volume"}
+    assert loop_frames["loop.chapter_unit"]["entry_node_id"] == "chapter_draft"
+    assert loop_frames["loop.chapter_unit"]["router_node_id"] == "chapter_unit_router"
+    assert loop_frames["loop.chapter_unit"]["continue_node_id"] == "chapter_draft"
+    assert loop_frames["loop.chapter_unit"]["exit_node_id"] == "chapter_batch_assemble"
+    assert loop_frames["loop.chapter_batch"]["continue_node_id"] == "chapter_outline"
+    assert loop_frames["loop.volume"]["exit_node_id"] == "__graph_module_complete__"
+    assert loop_frames["loop.chapter_unit"]["initial_inputs"]["target_unit_count"] == module.CHAPTER_REQUESTED_COUNT
+    assert any(item.get("key") == "batch_end_index" for item in loop_frames["loop.chapter_unit"]["derived_fields"])
+
+    assert edges["edge.outline.draft"]["edge_type"] == "structured_handoff"
+    assert edges["edge.outline.draft"]["semantic"] == {}
+    assert edges["edge.revision.chapter_review.chapter_draft"]["revision"]["trigger"]["verdict"] == "revise"
+    assert edges["edge.revision.volume_review.chapter_outline"]["revision"]["target_node_id"] == "chapter_outline"
+    memory_read = edges["edge.memory_read.memory.writing.baseline.world_bible.chapter_draft"]
+    assert memory_read["memory"]["repository"] == "memory.writing.baseline"
+    assert memory_read["memory"]["collection"] == "world_bible"
+    assert memory_read["memory"]["on_missing"] == "block"
+
+
+def test_writing_master_standard_view_exposes_module_topology_and_imported_prompts(tmp_path: Path) -> None:
+    module, registry = _seed_writing_modular_graphs(tmp_path)
+    graph = registry.get_task_graph(module.MASTER_GRAPH_ID)
+    assert graph is not None
+
+    payload = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
+    module_nodes = {item["node_id"]: item for item in payload["nodes"] if item["node_type"] == "graph_module"}
+    expansion_by_graph_id = {
+        item["linked_graph_id"]: item
+        for item in payload["graph_module_expansions"]
+    }
+
+    assert set(module_nodes) == {
+        "graph_module.design_init",
+        "graph_module.chapter_cycle",
+        "graph_module.finalize",
+    }
+    assert module_nodes["graph_module.chapter_cycle"]["contracts"]["contract_bindings"]["runtime"]["graph_module_expansion"]["linked_graph_id"] == module.CHAPTER_GRAPH_ID
+    assert set(expansion_by_graph_id) == {
+        module.DESIGN_GRAPH_ID,
+        module.CHAPTER_GRAPH_ID,
+        module.FINALIZE_GRAPH_ID,
+    }
+    chapter_expansion = expansion_by_graph_id[module.CHAPTER_GRAPH_ID]
+    imported_draft = next(item for item in chapter_expansion["nodes"] if item["node_id"] == "chapter_draft")
+    assert chapter_expansion["metadata"]["expansion_status"] == "expanded"
+    assert imported_draft["scoped_node_id"] == "graph_module.chapter_cycle::chapter_draft"
+    assert imported_draft["loop"]["scope_id"] == "loop.chapter_unit"
+    assert "你是一名名家级中文商业网文单章写手" in imported_draft["prompt"]["role_prompt"]
 
 
 def test_graph_module_expansion_scopes_imported_loop_contracts() -> None:

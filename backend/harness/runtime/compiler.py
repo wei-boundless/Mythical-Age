@@ -14,7 +14,19 @@ from prompt_library import (
     default_pack_ref_for_invocation,
 )
 from prompt_library.rules import build_rule_diagnostics
-from prompt_composition import PromptCompositionLayerInput, build_shadow_prompt_composition_manifest
+from prompt_composition import (
+    PromptCompositionContentFragment,
+    PromptCompositionLayerInput,
+    build_content_fragments_from_message_specs,
+    build_model_message_spec as _message_spec,
+    build_runtime_payload_message_spec as _runtime_payload_spec,
+    build_shadow_prompt_composition_manifest,
+    render_agent_prompt_instruction,
+    render_environment_instruction,
+    render_model_messages_from_projection,
+    render_personality_prompt_instruction,
+    render_prompt_contract_instruction,
+)
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
@@ -159,7 +171,7 @@ class RuntimeCompiler:
             "authority": "harness.runtime.semantic_compaction.stable_boundary",
         }
         packet_id = f"rtpacket:{request_id}:semantic_compaction:1"
-        model_messages, segment_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind=invocation_kind,
             specs=[
@@ -172,18 +184,20 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Semantic compaction stable boundary", stable_boundary),
+                    title="Semantic compaction stable boundary",
+                    payload=stable_boundary,
                     kind="semantic_compaction_stable_boundary",
                     source_ref="semantic_compaction_stable_boundary",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="user",
-                    content=_packet_payload_content("Semantic compaction request", request_payload),
+                    title="Semantic compaction request",
+                    payload=request_payload,
                     kind="semantic_compaction_request",
                     source_ref=str(request_payload.get("request_id") or "semantic_compaction_request"),
                     cache_scope="none",
@@ -203,6 +217,11 @@ class RuntimeCompiler:
             source="harness.runtime.compiler.semantic_compaction",
         )
         model_messages = [dict(item) for item in protocol_sanitizer.messages]
+        content_fragments = build_content_fragments_from_message_specs(
+            segment_plan=segment_plan,
+            message_specs=message_specs,
+            fallback_model_messages=model_messages,
+        )
         semantic_dynamic_refs = ("semantic_compaction_request",)
         semantic_volatile_refs = ("messages", "recent_messages")
         prompt_manifest = build_runtime_prompt_manifest(
@@ -245,6 +264,12 @@ class RuntimeCompiler:
             dynamic_projection_refs=semantic_dynamic_refs,
             volatile_state_refs=semantic_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_semantic_compaction_packet"},
+        )
+        model_messages = _render_model_messages_from_prompt_composition(
+            prompt_manifest=prompt_manifest,
+            prompt_composition_manifest=prompt_composition_manifest,
+            content_fragments=content_fragments,
+            model_messages=model_messages,
         )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         envelope = RuntimeEnvelope(
@@ -291,7 +316,7 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
-                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "semantic_compaction_request_ref": str(request_payload.get("request_id") or ""),
             },
@@ -430,13 +455,13 @@ class RuntimeCompiler:
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
-        environment_instruction = _environment_instruction(
+        environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
-        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
+        personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
+        agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "control_capabilities": dict(effective_control_capabilities),
@@ -446,9 +471,13 @@ class RuntimeCompiler:
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
             "output_contract": output_contract,
-            **tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=False),
             **_project_instruction_model_payload(project_instruction_bundle),
         }
+        tool_index_payload = (
+            tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
+            if single_turn_tools
+            else {}
+        )
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
         projection_policy = _dynamic_context_projection_policy(
@@ -487,7 +516,7 @@ class RuntimeCompiler:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
             specs=[
@@ -500,15 +529,28 @@ class RuntimeCompiler:
                     cache_role="cacheable_prefix",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Single agent turn stable boundary", stable_payload),
+                    title="Single agent turn stable boundary",
+                    payload=stable_payload,
                     kind="turn_stable",
                     source_ref="single_agent_turn_stable_boundary",
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Single agent turn tool index",
+                    payload=tool_index_payload,
+                    kind="tool_index_stable",
+                    source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                )
+                if tool_index_payload
+                else None,
                 _message_spec(
                     role="system",
                     content=personality_instruction,
@@ -544,12 +586,11 @@ class RuntimeCompiler:
                     storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
                     storage_run_id=session_id,
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_join_prompt_sections(
-                        runtime_instruction,
-                        _packet_payload_content("Single agent turn dynamic runtime", dynamic_payload),
-                    ),
+                    title="Single agent turn dynamic runtime",
+                    payload=dynamic_payload,
+                    preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="single_agent_turn_runtime_delta",
                     cache_scope="none",
@@ -557,9 +598,10 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="user",
-                    content=_packet_payload_content("Single agent turn current request", current_request_payload),
+                    title="Single agent turn current request",
+                    payload=current_request_payload,
                     kind="volatile_user",
                     source_ref="single_agent_turn_current_request",
                     cache_scope="none",
@@ -576,6 +618,11 @@ class RuntimeCompiler:
             source="harness.runtime.compiler.single_agent_turn",
         )
         model_messages = [dict(item) for item in protocol_sanitizer.messages]
+        content_fragments = build_content_fragments_from_message_specs(
+            segment_plan=segment_plan,
+            message_specs=message_specs,
+            fallback_model_messages=model_messages,
+        )
         single_turn_dynamic_refs = (
             "agent_visible_runtime_projection",
             "operation_authorization",
@@ -661,6 +708,12 @@ class RuntimeCompiler:
             volatile_state_refs=single_turn_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_single_agent_turn_packet"},
         )
+        model_messages = _render_model_messages_from_prompt_composition(
+            prompt_manifest=prompt_manifest,
+            prompt_composition_manifest=prompt_composition_manifest,
+            content_fragments=content_fragments,
+            model_messages=model_messages,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -684,7 +737,7 @@ class RuntimeCompiler:
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
-                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "model_input_authority": "prompt_composition.message_projection",
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
@@ -853,14 +906,14 @@ class RuntimeCompiler:
             base_dir=self.base_dir,
             assembly_payload=assembly_payload,
         )
-        environment_instruction = _environment_instruction(
+        environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
             include_storage_note=False,
         )
-        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
+        personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
+        agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
@@ -922,7 +975,7 @@ class RuntimeCompiler:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_state_projection
         user_steering_payload = _user_steering_updates_payload(execution_state)
-        model_messages, segment_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
             specs=[
@@ -935,21 +988,21 @@ class RuntimeCompiler:
                     cache_role="cacheable_prefix",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution action schema", action_schema_payload),
+                    title="Task execution action schema",
+                    payload=action_schema_payload,
                     kind="action_schema_static",
                     source_ref=action_schema_manifest.source_ref,
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_join_prompt_sections(
-                        environment_instruction,
-                        _packet_payload_content("Task execution environment boundary", environment_stable_payload),
-                    ),
+                    title="Task execution environment boundary",
+                    payload=environment_stable_payload,
+                    preamble=environment_instruction,
                     kind="environment_stable",
                     source_ref=",".join(
                         _dedupe_strings(
@@ -981,9 +1034,10 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution agent function contract", agent_function_shared_payload),
+                    title="Task execution agent function contract",
+                    payload=agent_function_shared_payload,
                     kind="agent_function_shared_stable",
                     source_ref=str(agent_function_shared_payload.get("agent_function_shared_context", {}).get("role_family") or ""),
                     cache_scope="session",
@@ -992,27 +1046,30 @@ class RuntimeCompiler:
                 )
                 if agent_function_shared_payload
                 else None,
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
+                    title="Task execution artifact write scope",
+                    payload=artifact_execution_scope_payload,
                     kind="artifact_scope_stable",
                     source_ref=artifact_scope_manifest.source_ref,
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution tool index", tool_index_payload),
+                    title="Task execution tool index",
+                    payload=tool_index_payload,
                     kind="tool_index_stable",
                     source_ref=_short_hash(tool_catalog_manifest.tool_catalog_hash),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution graph shared context", graph_task_shared_payload),
+                    title="Task execution graph shared context",
+                    payload=graph_task_shared_payload,
                     kind="graph_task_shared_stable",
                     source_ref=str(graph_task_shared_payload.get("graph_shared_context", {}).get("shared_context_hash") or ""),
                     cache_scope="task",
@@ -1030,9 +1087,10 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution task contract", task_contract_payload),
+                    title="Task execution task contract",
+                    payload=task_contract_payload,
                     kind="task_contract_stable",
                     source_ref=task_contract_manifest.source_ref,
                     cache_scope="task",
@@ -1041,16 +1099,17 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_prompt_contract_instruction(task_prompt_assembly),
+                    content=render_prompt_contract_instruction(task_prompt_assembly),
                     kind="task_prompt_contract",
                     source_ref=",".join(task_prompt_assembly.manifest.get("stable_contract_refs") or ()),
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution graph node runtime context", graph_node_runtime_context_payload),
+                    title="Task execution graph node runtime context",
+                    payload=graph_node_runtime_context_payload,
                     kind="graph_node_runtime_context",
                     source_ref="graph_node_runtime_context",
                     cache_scope="none",
@@ -1063,12 +1122,11 @@ class RuntimeCompiler:
                 )
                 if graph_node_runtime_context_payload
                 else None,
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_join_prompt_sections(
-                        runtime_instruction,
-                        _packet_payload_content("Task execution runtime boundary", dynamic_payload),
-                    ),
+                    title="Task execution runtime boundary",
+                    payload=dynamic_payload,
+                    preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="agent_visible_runtime_projection",
                     cache_scope="none",
@@ -1076,9 +1134,10 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Task execution current state", volatile_payload),
+                    title="Task execution current state",
+                    payload=volatile_payload,
                     kind="volatile_task_state",
                     source_ref="task_execution_current_state",
                     cache_scope="none",
@@ -1086,9 +1145,10 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="user",
-                    content=_packet_payload_content("User steering updates for this task", user_steering_payload),
+                    title="User steering updates for this task",
+                    payload=user_steering_payload,
                     kind="user_steering_updates",
                     source_ref=_user_steering_source_ref(user_steering_payload),
                     cache_scope="none",
@@ -1129,6 +1189,11 @@ class RuntimeCompiler:
                 else None,
             ],
             enforce_dynamic_context_reports=True,
+        )
+        content_fragments = build_content_fragments_from_message_specs(
+            segment_plan=segment_plan,
+            message_specs=message_specs,
+            fallback_model_messages=model_messages,
         )
         task_dynamic_refs = (
             "agent_visible_runtime_projection",
@@ -1223,6 +1288,12 @@ class RuntimeCompiler:
             volatile_state_refs=task_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_task_execution_packet"},
         )
+        model_messages = _render_model_messages_from_prompt_composition(
+            prompt_manifest=prompt_manifest,
+            prompt_composition_manifest=prompt_composition_manifest,
+            content_fragments=content_fragments,
+            model_messages=model_messages,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1253,7 +1324,7 @@ class RuntimeCompiler:
                 "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "task_contract_manifest": task_contract_manifest_payload,
-                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "model_input_authority": "prompt_composition.message_projection",
                 "artifact_scope": {
                     **sandbox_execution_scope.to_diagnostics(),
                     "artifact_root_authority": artifact_scope.authority,
@@ -1362,13 +1433,13 @@ class RuntimeCompiler:
         )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
-        environment_instruction = _environment_instruction(
+        environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
             lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
-        personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
-        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
+        personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
+        agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
         stable_payload = {
             "schema": schema,
@@ -1412,7 +1483,7 @@ class RuntimeCompiler:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
             specs=[
@@ -1425,9 +1496,10 @@ class RuntimeCompiler:
                     cache_role="cacheable_prefix",
                     compression_role="preserve",
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_packet_payload_content("Observation followup stable contract", stable_payload),
+                    title="Observation followup stable contract",
+                    payload=stable_payload,
                     kind="task_stable",
                     source_ref="observation_followup_stable_contract",
                     cache_scope="session",
@@ -1490,12 +1562,11 @@ class RuntimeCompiler:
                     storage_root=dynamic_context_storage_root(self.base_dir, assembly_payload) or self.base_dir,
                     storage_run_id=session_id,
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="system",
-                    content=_join_prompt_sections(
-                        runtime_instruction,
-                        _packet_payload_content("Observation followup dynamic runtime", dynamic_payload),
-                    ),
+                    title="Observation followup dynamic runtime",
+                    payload=dynamic_payload,
+                    preamble=runtime_instruction,
                     kind="dynamic_projection",
                     source_ref="agent_visible_runtime_projection",
                     cache_scope="none",
@@ -1503,9 +1574,10 @@ class RuntimeCompiler:
                     compression_role="summarize",
                     metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
                 ),
-                _message_spec(
+                _runtime_payload_spec(
                     role="user",
-                    content=_packet_payload_content("Observation followup current request", current_request_payload),
+                    title="Observation followup current request",
+                    payload=current_request_payload,
                     kind="tool_observations",
                     source_ref="observation_followup_current_request",
                     cache_scope="none",
@@ -1515,6 +1587,11 @@ class RuntimeCompiler:
                 ),
             ],
             enforce_dynamic_context_reports=True,
+        )
+        content_fragments = build_content_fragments_from_message_specs(
+            segment_plan=segment_plan,
+            message_specs=message_specs,
+            fallback_model_messages=model_messages,
         )
         observation_dynamic_refs = ("agent_visible_runtime_projection", "operation_authorization")
         observation_volatile_refs = (
@@ -1595,6 +1672,12 @@ class RuntimeCompiler:
             volatile_state_refs=observation_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_observation_followup_packet"},
         )
+        model_messages = _render_model_messages_from_prompt_composition(
+            prompt_manifest=prompt_manifest,
+            prompt_composition_manifest=prompt_composition_manifest,
+            content_fragments=content_fragments,
+            model_messages=model_messages,
+        )
         _attach_model_message_metrics(prompt_manifest, model_messages=model_messages, segment_plan=segment_plan.to_dict())
         packet = RuntimeInvocationPacket(
             packet_id=packet_id,
@@ -1619,7 +1702,7 @@ class RuntimeCompiler:
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
-                "model_input_authority": "runtime_invocation_packet.model_messages",
+                "model_input_authority": "prompt_composition.message_projection",
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -2139,33 +2222,6 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
     )
 
 
-def _message_spec(
-    *,
-    role: str,
-    content: str,
-    kind: str,
-    source_ref: str,
-    cache_scope: str,
-    cache_role: str,
-    compression_role: str,
-    metadata: dict[str, Any] | None = None,
-    prefix: bool = False,
-) -> dict[str, Any]:
-    payload = {
-        "role": str(role or "user"),
-        "content": str(content or ""),
-        "kind": str(kind or "unknown_unplanned"),
-        "source_ref": str(source_ref or ""),
-        "cache_scope": str(cache_scope or "none"),
-        "cache_role": str(cache_role or "volatile"),
-        "compression_role": str(compression_role or "summarize"),
-        "metadata": dict(metadata or {}),
-    }
-    if prefix:
-        payload["prefix"] = True
-    return payload
-
-
 def _split_volatile_request_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     source = dict(payload or {})
     history_payload = dict(source.get("history") or {}) if isinstance(source.get("history"), dict) else {}
@@ -2186,9 +2242,10 @@ def _session_history_message_specs(
     if not clean_payload:
         return []
     return [
-        _message_spec(
+        _runtime_payload_spec(
             role="system",
-            content=_packet_payload_content(title, clean_payload),
+            title=title,
+            payload=clean_payload,
             kind="session_history",
             source_ref=source_ref,
             cache_scope="none",
@@ -2270,6 +2327,7 @@ def _provider_protocol_message_specs(
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
                     "exact_content_required_before_final": _provider_protocol_requires_rehydration(message),
+                    "content_source": "runtime.provider_protocol_replay",
                 },
                 "model_message": message,
             }
@@ -2540,7 +2598,7 @@ def _model_messages_and_segment_plan(
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
-) -> tuple[list[dict[str, Any]], Any]:
+) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...]]:
     clean_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
@@ -2562,7 +2620,7 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
-    return model_messages, segment_plan
+    return model_messages, segment_plan, tuple(clean_specs)
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -2748,6 +2806,38 @@ def _attach_prompt_composition_manifest(
     payload = composition.to_dict()
     prompt_manifest["prompt_composition"] = payload
     return payload
+
+
+def _render_model_messages_from_prompt_composition(
+    *,
+    prompt_manifest: dict[str, Any],
+    prompt_composition_manifest: dict[str, Any],
+    content_fragments: tuple[PromptCompositionContentFragment, ...],
+    model_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    render_result = render_model_messages_from_projection(
+        manifest=prompt_composition_manifest,
+        content_fragments=content_fragments,
+        source_messages=model_messages,
+    )
+    render_diagnostics = dict(render_result.diagnostics)
+    rendered_message_count = int(render_diagnostics.get("rendered_message_count") or 0)
+    source_message_fallback_count = int(render_diagnostics.get("source_message_fallback_count") or 0)
+    if rendered_message_count != len(list(model_messages or [])) or source_message_fallback_count:
+        prompt_manifest["prompt_composition_render"] = {
+            **render_diagnostics,
+            "renderer_fallback_to_source_messages": True,
+            "fallback_reason": (
+                "content_fragment_incomplete"
+                if source_message_fallback_count
+                else "message_projection_incomplete"
+            ),
+        }
+        if rendered_message_count != len(list(model_messages or [])):
+            return [dict(item) for item in list(model_messages or [])]
+        return [dict(item) for item in render_result.messages]
+    prompt_manifest["prompt_composition_render"] = render_diagnostics
+    return [dict(item) for item in render_result.messages]
 
 
 def _context_window_report(
@@ -2958,11 +3048,6 @@ def _user_steering_source_ref(payload: dict[str, Any]) -> str:
     if not steer_ids:
         return "active_task_steer_queue"
     return "active_task_steer_queue:" + _short_hash(_stable_json_hash(steer_ids))
-
-
-def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
-    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return f"{title}\n{body}"
 
 
 def _join_prompt_sections(*sections: str) -> str:
@@ -3515,103 +3600,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "只能调用本轮可见且可派发的工具；如果预期工具不可见，应说明需要切换任务环境或刷新能力投影，不要在聊天中要求用户重复授权。"
         )
     return "\n".join(lines) + "\n"
-
-
-def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult, *, invocation_kind: str = "") -> str:
-    del invocation_kind
-    content = str(agent_prompt_assembly.content or "").strip()
-    if not content:
-        return ""
-    return "\n当前职责：\n" + content + "\n"
-
-
-def _personality_prompt_instruction(personality_prompt_assembly: PromptAssemblyResult) -> str:
-    content = str(personality_prompt_assembly.content or "").strip()
-    if not content:
-        return ""
-    return "\n当前人格：\n" + content + "\n"
-
-
-def _prompt_contract_instruction(prompt_contract_assembly: PromptAssemblyResult) -> str:
-    sections = [section for section in prompt_contract_assembly.sections if str(section.content or "").strip()]
-    if not sections:
-        return ""
-    lines = ["当前任务执行要求："]
-    for section in sections:
-        title = str(section.title or "").strip()
-        content = str(section.content or "").strip()
-        if title:
-            lines.append(f"{title}：\n{content}")
-        else:
-            lines.append(content)
-    return "\n\n".join(lines) + "\n"
-
-
-def _environment_instruction(
-    environment_payload: dict[str, Any],
-    *,
-    environment_prompt_assembly: PromptAssemblyResult,
-    lifecycle_prompt_assembly: PromptAssemblyResult | None = None,
-    include_storage_note: bool = True,
-) -> str:
-    content = _environment_prompt_section_content(environment_prompt_assembly)
-    lifecycle_content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
-    environment_id = str(environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or "").strip()
-    title = str(environment_payload.get("title") or environment_id or "未命名任务环境").strip()
-    description = str(environment_payload.get("description") or "").strip()
-    identity_lines = ["当前任务环境："]
-    if environment_id:
-        identity_lines.append(f"- 环境：{title}（{environment_id}）。")
-    else:
-        identity_lines.append(f"- 环境：{title}。")
-    if description:
-        identity_lines.append(f"- 说明：{description}")
-    storage = dict(environment_payload.get("storage_space") or {})
-    storage_note = ""
-    if include_storage_note and storage:
-        storage_note = (
-            "当前环境的存储空间由系统配置："
-            f"environment_storage_root={storage.get('environment_storage_root') or ''}；"
-            f"artifact_root={storage.get('artifact_root') or ''}；"
-            "你不能自行改变环境存储边界。\n"
-        )
-    detail_sections: list[str] = []
-    if content:
-        detail_sections.append(content)
-    if lifecycle_content:
-        detail_sections.append(lifecycle_content)
-    if storage_note:
-        detail_sections.append(storage_note.rstrip())
-    if not detail_sections:
-        return "\n".join(identity_lines) + "\n"
-    return "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
-
-
-def _environment_prompt_section_content(environment_prompt_assembly: PromptAssemblyResult) -> str:
-    sections = [section for section in environment_prompt_assembly.sections if str(section.content or "").strip()]
-    if not sections:
-        return ""
-    rendered: list[str] = []
-    for section in sections:
-        prompt_ref = str(section.prompt_ref or "").strip()
-        title = str(section.title or prompt_ref or "环境提示").strip()
-        prefix = "环境资源提示" if prompt_ref.startswith("environment.resource.") else "任务环境提示"
-        rendered.append(f"【{prefix}：{title}】\n{str(section.content or '').strip()}")
-    return "\n\n".join(rendered).strip()
-
-
-def _lifecycle_prompt_section_content(lifecycle_prompt_assembly: PromptAssemblyResult | None) -> str:
-    if lifecycle_prompt_assembly is None:
-        return ""
-    sections = [section for section in lifecycle_prompt_assembly.sections if str(section.content or "").strip()]
-    if not sections:
-        return ""
-    rendered: list[str] = []
-    for section in sections:
-        prompt_ref = str(section.prompt_ref or "").strip()
-        title = str(section.title or prompt_ref or "生命周期提示").strip()
-        rendered.append(f"【生命周期提示：{title}】\n{str(section.content or '').strip()}")
-    return "\n\n".join(rendered).strip()
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:

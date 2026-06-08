@@ -21,6 +21,31 @@ describe("assistant typed stream replay", () => {
     expect(transition.state.assistantTextStreamsByMessageId[transition.session.assistantId]?.latestSequence).toBe(1);
   });
 
+  it("merges CJK deltas by UTF-8 byte offsets", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "遇到",
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: 6,
+      accumulated_sha256: "sha256:first",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 2,
+      content: "前端",
+      content_utf8_start: 6,
+      accumulated_utf8_bytes: 12,
+      accumulated_sha256: "sha256:second",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("遇到前端");
+    expect(stream?.latestSequence).toBe(2);
+    expect(stream?.repairState).toBe("none");
+  });
+
   it("applies repair replacement without waiting for legacy done content", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {

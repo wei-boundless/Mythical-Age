@@ -26,6 +26,7 @@ class TaskGraphStandardNodeSpec:
     main_chain: bool = True
     blocks_phase_exit: bool = True
     executor: dict[str, Any] = field(default_factory=dict)
+    prompt: dict[str, Any] = field(default_factory=dict)
     contracts: dict[str, Any] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     runtime: dict[str, Any] = field(default_factory=dict)
@@ -423,6 +424,7 @@ def apply_task_graph_standard_view_update(
 def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]]) -> TaskGraphStandardNodeSpec:
     metadata = dict(node.metadata or {})
     resource_info = next((item for item in resource_nodes if str(item.get("node_id") or "") == node.node_id), {})
+    prompt = _prompt_contract_from_graph_node(node, metadata=metadata)
     return TaskGraphStandardNodeSpec(
         node_id=node.node_id,
         title=node.title,
@@ -441,6 +443,7 @@ def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]
             "human_gate_policy": dict(node.human_gate_policy or {}),
             "executor_policy": dict(node.executor_policy or {}),
         },
+        prompt=prompt,
         contracts={
             "node_contract_id": node.node_contract_id,
             "input_contract_id": node.input_contract_id,
@@ -473,6 +476,37 @@ def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]
         },
         metadata=metadata,
     )
+
+
+def _prompt_contract_from_graph_node(node: Any, *, metadata: dict[str, Any]) -> dict[str, Any]:
+    contract_bindings = dict(getattr(node, "contract_bindings", {}) or {})
+    runtime_bindings = dict(contract_bindings.get("runtime") or {})
+    metadata_prompt = metadata.get("prompt_contract") if isinstance(metadata.get("prompt_contract"), dict) else {}
+    runtime_prompt = runtime_bindings.get("prompt_contract") if isinstance(runtime_bindings.get("prompt_contract"), dict) else {}
+    prompt_contract = dict(metadata_prompt or runtime_prompt or {})
+    role_prompt = str(prompt_contract.get("role_prompt") or metadata.get("role_prompt") or "").strip()
+    task_instruction = str(prompt_contract.get("task_instruction") or metadata.get("task_instruction") or "").strip()
+    output_instruction = str(prompt_contract.get("output_instruction") or metadata.get("output_instruction") or "").strip()
+    if not (role_prompt or task_instruction or output_instruction or prompt_contract):
+        return {}
+    return {
+        **prompt_contract,
+        "role_prompt": role_prompt,
+        "task_instruction": task_instruction,
+        "output_instruction": output_instruction,
+        "source": str(
+            prompt_contract.get("source")
+            or (
+                "node.metadata.prompt_contract"
+                if isinstance(metadata.get("prompt_contract"), dict) and metadata.get("prompt_contract")
+                else "node.metadata.role_prompt"
+            )
+        ),
+        "authority": str(
+            prompt_contract.get("authority")
+            or "task_system.task_graph_standard_node_prompt"
+        ),
+    }
 
 
 def _edge_spec_from_graph_edge(
@@ -805,6 +839,7 @@ def _resource_node_payloads(graph: TaskGraphDefinition) -> list[dict[str, Any]]:
 
 
 def _expanded_imported_node_payload(*, node: Any, scope_prefix: str) -> dict[str, Any]:
+    metadata = dict(node.metadata or {})
     return {
         "scoped_node_id": f"{scope_prefix}{node.node_id}",
         "node_id": node.node_id,
@@ -816,7 +851,15 @@ def _expanded_imported_node_payload(*, node: Any, scope_prefix: str) -> dict[str
         "timeline_group_id": node.timeline_group_id,
         "main_chain": bool(node.main_chain),
         "blocks_phase_exit": bool(node.blocks_phase_exit),
-        "metadata": dict(node.metadata or {}),
+        "prompt": _prompt_contract_from_graph_node(node, metadata=metadata),
+        "contracts": {
+            "node_contract_id": node.node_contract_id,
+            "input_contract_id": node.input_contract_id,
+            "output_contract_id": node.output_contract_id,
+            "contract_bindings": dict(getattr(node, "contract_bindings", {}) or {}),
+        },
+        "loop": dict(node.loop or {}),
+        "metadata": metadata,
     }
 
 
@@ -863,11 +906,16 @@ def _graph_module_expansion_issue(
 
 def _graph_node_payload_from_standard_node(payload: dict[str, Any]) -> dict[str, Any]:
     executor = dict(payload.get("executor") or {})
+    prompt = dict(payload.get("prompt") or {})
     contracts = dict(payload.get("contracts") or {})
     context = dict(payload.get("context") or {})
     runtime = dict(payload.get("runtime") or {})
     artifacts = dict(payload.get("artifacts") or {})
     resource = dict(payload.get("resource") or {})
+    metadata = _metadata_with_standard_node_prompt(
+        metadata=dict(payload.get("metadata") or {}),
+        prompt=prompt,
+    )
     return {
         "node_id": str(payload.get("node_id") or "").strip(),
         "title": str(payload.get("title") or "").strip(),
@@ -903,8 +951,33 @@ def _graph_node_payload_from_standard_node(payload: dict[str, Any]) -> dict[str,
         "review_gate_policy": dict(artifacts.get("review_gate_policy") or {}),
         "loop": dict(payload.get("loop") or {}),
         "resource_lifecycle_policy": dict(resource.get("resource_lifecycle_policy") or {}),
-        "metadata": dict(payload.get("metadata") or {}),
+        "metadata": metadata,
     }
+
+
+def _metadata_with_standard_node_prompt(*, metadata: dict[str, Any], prompt: dict[str, Any]) -> dict[str, Any]:
+    if not prompt:
+        return metadata
+    existing_prompt = metadata.get("prompt_contract") if isinstance(metadata.get("prompt_contract"), dict) else {}
+    prompt_contract = {
+        **dict(existing_prompt),
+        **prompt,
+    }
+    role_prompt = str(prompt_contract.get("role_prompt") or "").strip()
+    task_instruction = str(prompt_contract.get("task_instruction") or "").strip()
+    output_instruction = str(prompt_contract.get("output_instruction") or "").strip()
+    prompt_contract = {
+        **prompt_contract,
+        "role_prompt": role_prompt,
+        "task_instruction": task_instruction,
+        "output_instruction": output_instruction,
+        "source": str(prompt_contract.get("source") or "task_graph_standard_view.node.prompt"),
+        "authority": str(prompt_contract.get("authority") or "task_system.task_graph_standard_node_prompt"),
+    }
+    metadata["prompt_contract"] = prompt_contract
+    if role_prompt:
+        metadata["role_prompt"] = role_prompt
+    return metadata
 
 
 def _graph_edge_payload_from_standard_edge(payload: dict[str, Any]) -> dict[str, Any]:

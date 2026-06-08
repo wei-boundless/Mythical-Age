@@ -83,11 +83,50 @@ def test_tool_catalog_manifest_renders_legacy_model_visible_payload() -> None:
     assert manifest.to_model_visible_payload(include_catalog_hash=False).get("tool_catalog_hash") is None
 
 
-def test_single_agent_turn_attaches_tool_catalog_manifest_without_rendering_hash() -> None:
+def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> None:
+    tools = _tools()
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_single_agent_turn_packet(
         session_id="session:tool-catalog-single",
         turn_id="turn:tool-catalog-single",
         agent_invocation_id="aginvoke:tool-catalog-single",
+        user_message="Answer briefly.",
+        history=[],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "available_tools": tools,
+        },
+    )
+
+    packet = result.packet
+    stable_payload = _message_payload_with_title(packet, "Single agent turn stable boundary")
+    expected = build_tool_catalog_manifest(
+        invocation_kind="single_agent_turn",
+        tool_payloads=tools,
+        source_ref="runtime_assembly.available_tools",
+    ).to_model_visible_payload(include_catalog_hash=True)
+    tool_index_payload = _message_payload_with_title(packet, "Single agent turn tool index")
+    tool_segment = next(
+        segment
+        for segment in list(packet.segment_plan.get("segments") or [])
+        if dict(segment).get("kind") == "tool_index_stable"
+    )
+    prompt_manifest = dict(packet.diagnostics["prompt_manifest"])
+
+    assert "tool_catalog_hash" not in stable_payload
+    assert "available_tools" not in stable_payload
+    assert tool_index_payload == expected
+    assert packet.tool_catalog_manifest["tool_catalog_hash"] == expected["tool_catalog_hash"]
+    assert str(tool_segment.get("source_ref") or "").startswith("sha256:")
+    assert prompt_manifest["tool_catalog_manifest"] == packet.tool_catalog_manifest
+    assert packet.diagnostics["tool_catalog_manifest"] == packet.tool_catalog_manifest
+
+
+def test_single_agent_turn_model_request_promotes_matching_tool_schema() -> None:
+    result = RuntimeCompiler(base_dir=_backend_dir()).compile_single_agent_turn_packet(
+        session_id="session:tool-catalog-single-model-request",
+        turn_id="turn:tool-catalog-single-model-request",
+        agent_invocation_id="aginvoke:tool-catalog-single-model-request",
         user_message="Answer briefly.",
         history=[],
         runtime_assembly={
@@ -98,13 +137,26 @@ def test_single_agent_turn_attaches_tool_catalog_manifest_without_rendering_hash
     )
 
     packet = result.packet
-    stable_payload = _message_payload_with_title(packet, "Single agent turn stable boundary")
-    prompt_manifest = dict(packet.diagnostics["prompt_manifest"])
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:tool-catalog-single-model-request",
+        messages=packet.model_messages,
+        tools=_provider_tools(),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=packet.segment_plan,
+        metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
+    )
+    provider_tool_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "tools"
+    )
 
-    assert "tool_catalog_hash" not in stable_payload
-    assert stable_payload["available_tools"] == packet.tool_catalog_manifest["model_visible_catalog"]
-    assert prompt_manifest["tool_catalog_manifest"] == packet.tool_catalog_manifest
-    assert packet.diagnostics["tool_catalog_manifest"] == packet.tool_catalog_manifest
+    assert model_request.tool_catalog_manifest == packet.tool_catalog_manifest
+    assert provider_tool_segment.cache_role == "session_stable"
+    assert provider_tool_segment.prefix_tier == "session"
+    assert provider_tool_segment.metadata["tool_schema_cache_decision"] == "derived_from_tool_catalog_manifest"
+    assert provider_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
 
 
 def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:

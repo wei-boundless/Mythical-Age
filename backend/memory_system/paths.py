@@ -11,13 +11,15 @@ def normalize_session_id(session_id: Any) -> str:
 
 def safe_session_dir(session_root: str | Path, session_id: Any) -> Path:
     root = Path(session_root).resolve()
-    target = (root / normalize_session_id(session_id)).resolve()
+    target = (root / safe_runtime_session_key(session_id)).resolve()
     if target == root or root not in target.parents:
         raise ValueError("Invalid session_id")
     return target
 
 
 def safe_runtime_session_key(session_id: Any) -> str:
-    return normalize_session_id(session_id).replace("/", "_").replace("\\", "_").replace(":", "_")
+    value = normalize_session_id(session_id)
+    safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
+    return safe.strip("._")[:180] or "default"
 
 

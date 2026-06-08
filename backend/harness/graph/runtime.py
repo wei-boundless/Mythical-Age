@@ -44,6 +44,7 @@ class GraphRuntime:
             raise ValueError("GraphHarnessConfig content_hash mismatch")
         structure_hash = graph_config.expected_structural_hash()
         now = time.time()
+        run_diagnostics = _strip_graph_environment_scope(dict(diagnostics or {}))
         graph_run_id = f"grun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
         task_run_id = f"taskrun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
         root_task_ref = task_id.strip() or graph_config.root_task_ref or graph_config.graph_id
@@ -68,7 +69,7 @@ class GraphRuntime:
             created_at=now,
             updated_at=now,
             diagnostics={
-                **dict(diagnostics or {}),
+                **run_diagnostics,
                 "graph_run_id": graph_run_id,
                 "graph_id": graph_config.graph_id,
                 "graph_harness_config_id": graph_config.config_id,
@@ -77,7 +78,6 @@ class GraphRuntime:
                 "graph_structure_version": "graph_structure.v1",
                 "config_snapshot_id": graph_config.config_id,
                 "config_snapshot_hash": graph_config.content_hash,
-                "task_environment_id": graph_config.task_environment_id,
                 "session_scope": session_scope,
                 "session_scope_key": _session_scope_key(session_scope),
                 "runtime_scope": runtime_scope,
@@ -98,15 +98,14 @@ class GraphRuntime:
             config_snapshot_id=graph_config.config_id,
             config_snapshot_hash=graph_config.content_hash,
             workspace_view=session_scope["workspace_view"],
-            task_environment_id=session_scope["task_environment_id"],
+            task_environment_id="",
             project_id=session_scope["project_id"],
             session_scope_key=_session_scope_key(session_scope),
             status="running",
             created_at=now,
             updated_at=now,
             diagnostics={
-                **dict(diagnostics or {}),
-                "task_environment_id": graph_config.task_environment_id,
+                **run_diagnostics,
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
                 "graph_structure_hash": structure_hash,
@@ -152,7 +151,7 @@ class GraphRuntime:
             runtime_services_ref="single_agent_runtime_host",
             permission_scope=dict(graph_config.permissions or {}),
             file_scope={
-                "task_environment_id": graph_config.task_environment_id,
+                "node_default_task_environment_id": graph_config.task_environment_id,
                 "storage_space": storage_space,
                 "file_management": dict(environment.get("file_management") or {}),
                 "file_access_tables": file_access_tables,
@@ -160,7 +159,7 @@ class GraphRuntime:
                 "authority": "harness.graph_runtime_envelope.file_scope",
             },
             memory_scope={
-                "task_environment_id": graph_config.task_environment_id,
+                "node_default_task_environment_id": graph_config.task_environment_id,
                 "memory_space": memory_space,
                 "graph_memory_policy": dict(graph_config.memory or {}),
                 "runtime_scope": runtime_scope,
@@ -171,7 +170,7 @@ class GraphRuntime:
             },
             sandbox_scope={
                 **sandbox_policy,
-                "task_environment_id": graph_config.task_environment_id,
+                "node_default_task_environment_id": graph_config.task_environment_id,
                 "artifact_policy": artifact_policy,
                 "authority": "harness.graph_runtime_envelope.sandbox_scope",
             },
@@ -360,17 +359,12 @@ def _graph_runtime_scope(
     binding_contract = dict(dict(graph_config.contracts or {}).get("graph_binding_contract") or dict(graph_config.control or {}).get("graph_binding") or environment.get("graph_binding") or {})
     initial_runtime_scope = dict(initial_inputs.get("runtime_scope") or {})
     diagnostic_runtime_scope = dict(diagnostics.get("runtime_scope") or {})
-    task_environment_id = _first_scope_value(
-        graph_config.task_environment_id,
-        binding_contract.get("task_environment_id"),
-        environment.get("task_environment_id"),
-        environment.get("environment_id"),
-    )
+    for payload in (initial_runtime_scope, diagnostic_runtime_scope):
+        payload.pop("task_environment_id", None)
+        payload.pop("environment_id", None)
     scope = {
-        **dict(environment.get("runtime_scope") or {}),
         **diagnostic_runtime_scope,
         **initial_runtime_scope,
-        "task_environment_id": task_environment_id,
         "graph_id": str(graph_config.graph_id or ""),
         "graph_run_id": str(graph_run_id or ""),
         "task_run_id": str(task_run_id or ""),
@@ -407,6 +401,27 @@ def _graph_runtime_scope(
     scope["memory_namespace_id"] = graph_task_memory_namespace["namespace_id"]
     scope["authority"] = "harness.graph_runtime.runtime_scope"
     return scope
+
+
+def _strip_graph_environment_scope(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload or {})
+    result.pop("task_environment_id", None)
+    result.pop("environment_id", None)
+    runtime_scope = dict(result.get("runtime_scope") or {})
+    runtime_scope.pop("task_environment_id", None)
+    runtime_scope.pop("environment_id", None)
+    if runtime_scope:
+        result["runtime_scope"] = runtime_scope
+    else:
+        result.pop("runtime_scope", None)
+    session_scope = dict(result.get("session_scope") or {})
+    session_scope.pop("task_environment_id", None)
+    session_scope.pop("environment_id", None)
+    if session_scope:
+        result["session_scope"] = session_scope
+    else:
+        result.pop("session_scope", None)
+    return result
 
 
 def _graph_task_memory_namespace(
@@ -467,8 +482,8 @@ def _public_scope_fields(runtime_scope: dict[str, Any]) -> dict[str, str]:
 
 def _session_scope_from_runtime_scope(runtime_scope: dict[str, Any]) -> dict[str, str]:
     return {
-        "workspace_view": str(dict(runtime_scope or {}).get("workspace_view") or "task_environment").strip() or "task_environment",
-        "task_environment_id": str(dict(runtime_scope or {}).get("task_environment_id") or "").strip(),
+        "workspace_view": str(dict(runtime_scope or {}).get("workspace_view") or "graph").strip() or "graph",
+        "task_environment_id": "",
         "project_id": str(dict(runtime_scope or {}).get("project_id") or "").strip(),
     }
 

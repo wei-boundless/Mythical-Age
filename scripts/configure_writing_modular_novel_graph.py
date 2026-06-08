@@ -2358,7 +2358,7 @@ def _upsert_task_asset(
     )
     registry.upsert_task_memory_request_profile(
         task_id=task_id,
-        requested_memory_layers=("state", "task_durable", "artifact_refs"),
+        requested_memory_layers=("state", "long_term"),
         requested_topics=("writing_modular_novel", "baseline_memory", "dynamic_memory", "chapter_commits"),
         memory_priority="high",
         writeback_policy="task_graph_commit_edges",
@@ -2484,6 +2484,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         governance_policy=governance_policy,
         memory_write_policy=memory_write_policy,
     )
+    prompt_contract = _node_prompt_contract(node)
     payload = {
         "node_id": node.node_id,
         "node_type": node.node_type,
@@ -2525,6 +2526,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "metadata": {
             "managed_by": MANAGED_BY,
             "node_spec_source": "native_modular_writing_graph",
+            "prompt_contract": prompt_contract,
             "role_prompt": node.prompt,
             "resolved_agent_id": agent_id,
             "runtime_interaction_mode": "role_mode",
@@ -2541,6 +2543,19 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         },
     }
     return payload
+
+
+def _node_prompt_contract(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "contract_id": f"graph_node_prompt_contract:{node.node_id}",
+        "version": "v1",
+        "role_prompt": node.prompt,
+        "task_instruction": "",
+        "output_instruction": "",
+        "source": "writing_modular_novel.NodeSpec.prompt",
+        "prompt_is_role_natural_language": True,
+        "authority": "task_system.writing_graph.node_prompt_contract",
+    }
 
 
 def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:

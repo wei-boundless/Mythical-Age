@@ -1,6 +1,7 @@
 "use client";
 
 import { Activity, AlertTriangle, CheckCircle2, Clock3, TimerReset, Workflow } from "lucide-react";
+import React from "react";
 
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import { RunMonitorActionMenu } from "@/components/layout/RunMonitorActionMenu";
@@ -15,33 +16,57 @@ type RunTaskLaneProps = {
 };
 
 function signalIcon(signal: RunMonitorSignal) {
+  const activityState = signalText(signal.activity_state);
+  const state = signalText(signal.state);
+  if (activityState === "failed" || activityState === "stale" || state === "failed" || state === "stale") return <AlertTriangle size={15} />;
   if (signal.work_kind === "graph_task") return <Workflow size={15} />;
+  if (activityState === "completed" || activityState === "stopped") return <CheckCircle2 size={15} />;
   if (signal.is_running) return <Activity size={15} />;
-  if (signal.activity_state === "failed" || signal.activity_state === "stale") return <AlertTriangle size={15} />;
-  if (signal.activity_state === "completed" || signal.activity_state === "stopped") return <CheckCircle2 size={15} />;
   return <TimerReset size={15} />;
 }
 
 function signalStateLabel(signal: RunMonitorSignal) {
+  const activityState = signalText(signal.activity_state);
+  const state = signalText(signal.state);
+  const lifecycle = signalText(signal.lifecycle);
+  const bucket = signalText(signal.bucket);
+  if (activityState === "stale" || state === "stale" || lifecycle === "stale" || bucket === "diagnostics") return "等待检查";
+  if (activityState === "failed" || state === "failed") return "失败";
+  if (activityState === "waiting" || state === "waiting") return signal.activity_label || "等待继续";
+  if (activityState === "paused") return signal.activity_label || "已暂停";
+  if (activityState === "stopped") return signal.activity_label || "已停止";
+  if (activityState === "completed" || state === "completed") return signal.activity_label || "完成";
   if (signal.activity_label) return signal.activity_label;
-  if (signal.is_running) return "运行中";
-  if (signal.activity_state === "waiting") return "等待继续";
-  if (signal.activity_state === "paused") return "已暂停";
-  if (signal.activity_state === "stale") return "等待检查";
-  if (signal.activity_state === "failed") return "失败";
-  if (signal.activity_state === "stopped") return "已停止";
-  if (signal.activity_state === "completed") return "完成";
-  if (signal.state === "active" || signal.state === "running") return "运行中";
-  if (signal.state === "stale") return "等待检查";
-  if (signal.state === "failed") return "失败";
+  if (signal.is_running || state === "active" || state === "running" || activityState === "running") return "运行中";
   return "同步";
 }
 
 function signalSortRank(signal: RunMonitorSignal) {
-  if (signal.is_running || signal.state === "active" || signal.activity_state === "running") return 0;
-  if (signal.activity_state === "waiting" || signal.activity_state === "paused" || signal.state === "waiting") return 1;
-  if (signal.activity_state === "failed" || signal.activity_state === "stale" || signal.state === "failed" || signal.state === "stale") return 2;
+  const activityState = signalText(signal.activity_state);
+  const state = signalText(signal.state);
+  const lifecycle = signalText(signal.lifecycle);
+  const bucket = signalText(signal.bucket);
+  if (activityState === "failed" || activityState === "stale" || state === "failed" || state === "stale" || lifecycle === "stale" || bucket === "diagnostics") return 0;
+  if (signal.is_running || state === "active" || activityState === "running") return 1;
+  if (activityState === "waiting" || activityState === "paused" || state === "waiting") return 2;
   return 3;
+}
+
+function signalVisualState(signal: RunMonitorSignal) {
+  const activityState = signalText(signal.activity_state);
+  const state = signalText(signal.state);
+  const lifecycle = signalText(signal.lifecycle);
+  const bucket = signalText(signal.bucket);
+  if (activityState === "stale" || state === "stale" || lifecycle === "stale" || bucket === "diagnostics") return "stale";
+  if (activityState === "failed" || state === "failed") return "failed";
+  if (activityState === "waiting" || activityState === "paused" || state === "waiting") return "waiting";
+  if (activityState === "completed" || activityState === "stopped" || state === "completed") return "completed";
+  if (signal.is_running || activityState === "running" || state === "active" || state === "running") return "active";
+  return state || "attention";
+}
+
+function signalText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function signalOpenId(signal: RunMonitorSignal) {
@@ -61,7 +86,7 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
       <div className="run-monitor-tasks">
         {visible.length ? visible.map((signal) => (
           <div
-            className={`run-monitor-task run-monitor-task--${signal.state}`}
+            className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}`}
             key={signalOpenId(signal)}
           >
             <span className="run-monitor-task__icon">{signalIcon(signal)}</span>

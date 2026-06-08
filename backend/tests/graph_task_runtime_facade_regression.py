@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from harness import GraphHarness
 from harness.graph.model_overrides import work_order_with_model_overrides
-from harness.graph.models import NodeResultEnvelope, stable_safe_id
+from harness.graph.models import NodeResultEnvelope, safe_id, stable_safe_id
 from harness.graph.runner import GraphRunRunner
 from harness.loop.task_executor_controller import TaskExecutorController
 from runtime.shared.models import TaskRun
@@ -1548,6 +1548,13 @@ def test_graph_resume_requeues_blocked_agent_node_after_recoverable_model_failur
     assert blocked_result["status"] == "blocked"
     assert blocked_result["error"]["reason"] == "model_call_recovery_required"
     assert not blocked_result["artifact_refs"]
+    node_task_run_id = blocked_result["outputs"]["node_executor_task_run_id"]
+    lifecycle = runtime.single_agent_runtime_host.runtime_objects.get_object(
+        f"rtobj:task_lifecycle:{safe_id(node_task_run_id)}"
+    )
+    assert lifecycle["status"] == "blocked"
+    assert lifecycle["terminal_reason"] == "model_call_recovery_required"
+    assert lifecycle["observation_refs"]
 
     resumed = runtime.graph_harness.resume_run(
         graph_config=graph_config,
@@ -2630,6 +2637,99 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
         overview["artifacts"][0]["path"]
         == "storage/task_environments/development/sandbox/artifacts/project-artifact-test/world/world_candidate_round_002.md"
     )
+
+
+def test_graph_agent_retry_materializes_next_dispatch_round_artifact_without_explicit_round_index() -> None:
+    runtime = HarnessRuntimeFacade(
+        base_dir=isolated_backend_root("graph-contract-artifact-retry-round-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=TimeoutThenTaskExecutionModelRuntimeStub(),
+    )
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.contract_artifact_retry_round",
+        title="Contract Artifact Retry Round",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "task_id": "task.test.draft",
+                "agent_id": "agent:0",
+                "artifact_policy": {
+                    "enabled": True,
+                    "required": True,
+                    "default_artifact_root": "output/test_graph_artifacts",
+                    "subdir_template": "{project_slug}",
+                    "artifacts": [
+                        {
+                            "path": "world/world_candidate_round_{round_index:03d}.md",
+                            "required": True,
+                            "content_source": "final_content",
+                            "fallback_to_full_content": True,
+                        }
+                    ],
+                },
+            },
+        ),
+        edges=(),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        initial_inputs={"project_id": "project:artifact-test"},
+    )
+
+    blocked = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    resumed = runtime.graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+    completed = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    artifact_root = (
+        runtime.base_dir.parent
+        / "storage"
+        / "task_environments"
+        / "development"
+        / "sandbox"
+        / "artifacts"
+        / "project-artifact-test"
+        / "world"
+    )
+
+    assert blocked.status == "blocked"
+    assert resumed.reason == "blocked_nodes_requeued"
+    assert completed.status == "completed"
+    assert (artifact_root / "world_candidate_round_002.md").exists()
+    assert not (artifact_root / "world_candidate_round_001.md").exists()
 
 
 def test_graph_agent_node_writes_formal_memory_candidate_and_commit() -> None:

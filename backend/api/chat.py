@@ -186,10 +186,12 @@ async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
     session_id = validate_session_id(payload.session_id)
     assert_optional_session_scope(runtime.session_manager, session_id, payload.session_scope)
+    allow_vscode_context_fallback = bool(runtime.session_manager.get_project_binding(session_id))
     editor_context = _effective_editor_context(
         session_id,
         dict(payload.editor_context or {}),
         session_manager=runtime.session_manager,
+        allow_vscode_fallback=allow_vscode_context_fallback,
     )
     _bind_or_validate_editor_project(runtime, session_id, editor_context)
     request = _query_request_from_payload(payload, session_id=session_id, editor_context=editor_context)
@@ -288,9 +290,12 @@ def _effective_editor_context(
     payload_editor_context: dict[str, Any],
     *,
     session_manager: Any | None = None,
+    allow_vscode_fallback: bool = False,
 ) -> dict[str, Any]:
     if payload_editor_context:
         return dict(payload_editor_context)
+    if not allow_vscode_fallback:
+        return {}
     return get_vscode_connection_store().latest_editor_context(
         session_id,
         session_manager=session_manager,

@@ -968,7 +968,28 @@ def _artifact_template_values(*, graph_config: GraphHarnessConfig, work_order: G
         "safe_graph_run_id": safe_id(work_order.graph_run_id),
         "safe_node_id": safe_id(work_order.node_id),
     }
-    for key in ("round_index", "volume_index", "chapter_index", "unit_index", "group_index", "batch_index"):
+    dispatch_context = dict(work_order.dispatch_context or {})
+    graph_state = dict(work_order.graph_state or {})
+    node_dispatch_seq = _int_template_value(
+        values.get("node_dispatch_seq")
+        or dispatch_context.get("node_dispatch_seq")
+        or dispatch_context.get("node_dispatch_count")
+        or graph_state.get("node_dispatch_seq")
+        or graph_state.get("node_dispatch_count"),
+        1,
+    )
+    values["node_dispatch_seq"] = node_dispatch_seq
+    values["node_dispatch_count"] = node_dispatch_seq
+    values["dispatch_seq"] = node_dispatch_seq
+    values["graph_clock_seq"] = _int_template_value(
+        values.get("graph_clock_seq") or dispatch_context.get("graph_clock_seq") or graph_state.get("graph_clock_seq"),
+        1,
+    )
+    values["round_index"] = _int_template_value(
+        values.get("round_index") or dispatch_context.get("round_index") or graph_state.get("round_index"),
+        node_dispatch_seq,
+    )
+    for key in ("volume_index", "chapter_index", "unit_index", "group_index", "batch_index"):
         values[key] = _int_template_value(values.get(key), 1)
     project_id = str(values.get("project_id") or values.get("scope_id") or "").strip()
     if project_id:

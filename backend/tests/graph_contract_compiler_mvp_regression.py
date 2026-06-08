@@ -416,7 +416,10 @@ def test_materializer_uses_node_environment_and_node_session_policy() -> None:
         node=dict(config.nodes[0]),
     )
 
-    assert order.node_session_id.startswith("gsess:")
+    assert order.node_session_id.startswith("gsess-")
+    assert ":" not in order.node_session_id
+    assert "/" not in order.node_session_id
+    assert "\\" not in order.node_session_id
     assert order.node_session_policy["mode"] == "per_node_run_session"
     assert order.input_package["task_environment_id"] == "env.writer"
     assert order.input_package["runtime_profile"]["task_environment_id"] == "env.writer"
@@ -436,7 +439,7 @@ def test_graph_runtime_scope_uses_project_binding_from_published_contract() -> N
 
     assert scope["project_id"] == "project.alpha"
     assert scope["workspace_view"] == "project"
-    assert scope["task_environment_id"] == "env.graph"
+    assert "task_environment_id" not in scope
     assert scope["graph_binding_mode"] == "project_scoped"
 
 

@@ -146,6 +146,15 @@ function projectRootFromSession(session: SessionSummary | null | undefined) {
   return String(session?.conversation_state?.project_binding?.workspace_root || "").trim();
 }
 
+function workspaceRootKey(root: string) {
+  return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function sessionBelongsToProject(session: SessionSummary, workspaceRoot: string) {
+  const root = workspaceRootKey(workspaceRoot);
+  return Boolean(root && workspaceRootKey(projectRootFromSession(session)) === root);
+}
+
 function projectNameFromRoot(root: string) {
   const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
   const parts = normalized.split("/").filter(Boolean);
@@ -345,16 +354,22 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
     workspaceTreeError,
     workspaceTreeLoading,
   } = useAppStore();
-  const visibleSessions = [
-    ...(activeProjectKey ? projectSessions : sessions.filter((session) => !projectRootFromSession(session))),
-  ].sort((a, b) => b.updated_at - a.updated_at);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
-  const boundProjectRoot = activeProjectRoot || projectRootFromSession(currentSession);
+  const currentSessionProjectRoot = projectRootFromSession(currentSession);
+  const projectScopeActive = Boolean(activeProjectKey || currentSessionProjectRoot);
+  const visibleSessions = [
+    ...(projectScopeActive
+      ? activeProjectKey
+        ? projectSessions
+        : sessions.filter((session) => sessionBelongsToProject(session, currentSessionProjectRoot))
+      : sessions.filter((session) => !projectRootFromSession(session))),
+  ].sort((a, b) => b.updated_at - a.updated_at);
+  const boundProjectRoot = activeProjectKey ? activeProjectRoot : currentSessionProjectRoot;
   const projectRoot = boundProjectRoot || "普通会话不会访问项目文件";
-  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "通用会话";
+  const projectName = boundProjectRoot ? projectNameFromRoot(boundProjectRoot) : "未绑定会话";
   const projectWorkspacesErrorLabel = projectSelectionErrorMessage(projectWorkspacesError);
   const projectTreeNodes = workspaceTree?.tree.children || [];
-  const generalSessionCount = sessions.filter((session) => !projectRootFromSession(session)).length;
+  const unboundSessionCount = sessions.filter((session) => !projectRootFromSession(session)).length;
   const [openingProjectRoot, setOpeningProjectRoot] = useState(false);
   const [openProjectRootError, setOpenProjectRootError] = useState("");
   const [bindingProjectBusy, setBindingProjectBusy] = useState(false);
@@ -441,24 +456,24 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
 
         <div className="workbench-project-switcher__list">
           <button
-            aria-current={!activeProjectKey ? "page" : undefined}
+            aria-current={!projectScopeActive ? "page" : undefined}
             className={[
               "workbench-project-scope-row",
-              !activeProjectKey ? "workbench-project-scope-row--active" : "",
+              !projectScopeActive ? "workbench-project-scope-row--active" : "",
             ].filter(Boolean).join(" ")}
             disabled={projectWorkspacesLoading}
             onClick={() => {
-              if (activeProjectKey) {
+              if (projectScopeActive) {
                 void selectProjectWorkspace("");
               }
             }}
-            title="切换到通用会话"
+            title="切换到未绑定会话"
             type="button"
           >
             <span className="workbench-project-scope-row__icon"><MessageSquare size={14} /></span>
             <span className="workbench-project-scope-row__main">
-              <strong>通用会话</strong>
-              <small>{generalSessionCount} 个对话</small>
+              <strong>未绑定会话</strong>
+              <small>{unboundSessionCount} 个对话</small>
             </span>
           </button>
 
@@ -550,9 +565,9 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
           <div className="workbench-session-toolbar">
             <div>
               <strong>对话</strong>
-              <span>{boundProjectRoot ? `${visibleSessions.length} 个项目对话` : `${visibleSessions.length} 个通用对话`}</span>
+              <span>{boundProjectRoot ? `${visibleSessions.length} 个项目对话` : `${visibleSessions.length} 个未绑定对话`}</span>
             </div>
-            <button aria-label={boundProjectRoot ? "新建项目对话" : "新建通用对话"} onClick={() => void createNewSession()} type="button">
+            <button aria-label={boundProjectRoot ? "新建项目对话" : "新建未绑定对话"} onClick={() => void createNewSession()} type="button">
               <Plus size={15} />
               <span>新建</span>
             </button>
@@ -592,7 +607,7 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
             );}) : (
               <div className="workbench-empty-state">
                 <MessageSquare size={18} />
-                <strong>{boundProjectRoot ? "这个项目还没有对话" : "还没有通用对话"}</strong>
+                <strong>{boundProjectRoot ? "这个项目还没有对话" : "还没有未绑定对话"}</strong>
                 <span>{boundProjectRoot ? "新建后开始" : "可以不绑定项目直接开始"}</span>
               </div>
             )}

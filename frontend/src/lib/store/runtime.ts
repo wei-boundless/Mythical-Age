@@ -634,22 +634,29 @@ export class WorkspaceRuntime {
       ...(restoredScope ? { scope: restoredScope } : {}),
       poolKey: normalized.poolKey ?? sessionPoolKeyForScope(restoredScope),
     };
-    this.store.setState((prev) => {
-      const sessions = mergeSessionSummaries(prev.sessions, [summary]);
-      const projectRoot = sessionProjectRoot(summary);
-      const activeProject = projectRoot
-        ? prev.projectWorkspaces.find((project) => sessionBelongsToProject(summary, project.workspace_root)) ?? null
-        : null;
-      return {
+    const { projects, activeProject } = await this.resolveProjectWorkspaceForSession(summary);
+    this.store.setState((prev) => ({
+      ...prev,
+      sessions: mergeSessionSummaries(prev.sessions, [summary]),
+      projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, projects),
+      projectSessions: activeProject
+        ? mergeSessionSummaries(prev.projectSessions, [summary])
+        : prev.projectSessions,
+      activeProjectKey: activeProject?.key || "",
+      activeProjectRoot: activeProject?.workspace_root || "",
+    }));
+
+    if (activeProject) {
+      await this.selectProjectWorkspace(activeProject.key, {
+        preferredSessionId: summary.id,
+        fallbackSession: summary,
+      });
+      this.store.setState((prev) => ({
         ...prev,
-        sessions,
-        projectSessions: activeProject
-          ? mergeSessionSummaries(prev.projectSessions, [summary])
-          : prev.projectSessions,
-        activeProjectKey: activeProject?.key || "",
-        activeProjectRoot: activeProject?.workspace_root || "",
-      };
-    });
+        workspaceInitializing: false,
+      }));
+      return "restored";
+    }
 
     const restoredFromStreamCache = this.applySelectedSessionShell(summary.id, restoredRef);
     if (!restoredFromStreamCache) {
@@ -666,6 +673,27 @@ export class WorkspaceRuntime {
     return "restored";
   }
 
+  private async resolveProjectWorkspaceForSession(session: SessionSummary) {
+    const projectRoot = sessionProjectRoot(session);
+    const currentProjects = this.store.getState().projectWorkspaces;
+    if (!projectRoot) {
+      return {
+        projects: currentProjects,
+        activeProject: null,
+      };
+    }
+    const hasProject = currentProjects.some((project) => sessionBelongsToProject(session, project.workspace_root));
+    let projects = currentProjects;
+    if (!hasProject) {
+      const payload = await listProjectWorkspaces();
+      projects = Array.isArray(payload.projects) ? payload.projects : [];
+    }
+    return {
+      projects,
+      activeProject: projects.find((project) => sessionBelongsToProject(session, project.workspace_root)) ?? null,
+    };
+  }
+
   private async initializeFromSessionList(projectPayloadOverride?: Awaited<ReturnType<typeof listProjectWorkspaces>>) {
     const [projectPayload, allSessions] = await Promise.all([
       projectPayloadOverride ? Promise.resolve(projectPayloadOverride) : listProjectWorkspaces(),
@@ -678,7 +706,7 @@ export class WorkspaceRuntime {
     const currentProjectRoot = sessionProjectRoot(currentSession);
     const activeProject = currentProjectRoot
       ? projects.find((project) => sessionBelongsToProject(currentSession!, project.workspace_root))
-      : projects[0] ?? null;
+      : null;
     this.store.setState((prev) => ({
       ...prev,
       sessions,
@@ -689,17 +717,22 @@ export class WorkspaceRuntime {
 
     if (activeProject) {
       await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: currentSessionId || undefined });
-    } else if (!currentSessionId && sessions.length) {
-      const sessionId = sessions[0].id;
-      const restoredFromStreamCache = this.applySelectedSessionShell(sessionId, {
-        scope: sessions[0].scope,
-        poolKey: MAIN_CHAT_POOL_KEY,
-      });
-      if (!restoredFromStreamCache) {
-        const reattached = await this.reattachChatRunForSession(sessionId);
-        if (!reattached) {
-          void this.refreshSessionDetails(sessionId).catch(() => undefined);
-          void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
+    } else if (!currentSessionId) {
+      const nextSession = unboundMainChatSessions(sessions)[0] ?? null;
+      if (!nextSession) {
+        this.clearActiveSession();
+      } else {
+        const sessionId = nextSession.id;
+        const restoredFromStreamCache = this.applySelectedSessionShell(sessionId, {
+          scope: nextSession.scope,
+          poolKey: MAIN_CHAT_POOL_KEY,
+        });
+        if (!restoredFromStreamCache) {
+          const reattached = await this.reattachChatRunForSession(sessionId);
+          if (!reattached) {
+            void this.refreshSessionDetails(sessionId).catch(() => undefined);
+            void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
+          }
         }
       }
     } else if (currentSessionId) {
@@ -862,10 +895,11 @@ export class WorkspaceRuntime {
 
   private async selectProjectWorkspace(
     projectKey: string,
-    options: { preferredSessionId?: string } = {},
+    options: { preferredSessionId?: string; fallbackSession?: SessionSummary } = {},
   ) {
     const normalizedKey = String(projectKey || "").trim();
     if (!normalizedKey) {
+      await this.selectGeneralConversationScope();
       return;
     }
     const projectPayload = this.store.getState().projectWorkspaces.length
@@ -883,7 +917,18 @@ export class WorkspaceRuntime {
       workspaceTree: null,
       workspaceTreeError: "",
     }));
-    const projectSessions = await this.refreshProjectSessions(project.key);
+    let projectSessions = await this.refreshProjectSessions(project.key);
+    const fallbackSession = options.fallbackSession && sessionBelongsToProject(options.fallbackSession, project.workspace_root)
+      ? options.fallbackSession
+      : null;
+    if (fallbackSession && !projectSessions.some((session) => session.id === fallbackSession.id)) {
+      projectSessions = mergeSessionSummaries(projectSessions, [fallbackSession]);
+      this.store.setState((prev) => ({
+        ...prev,
+        sessions: mergeSessionSummaries(prev.sessions, [fallbackSession]),
+        projectSessions,
+      }));
+    }
     const preferred = options.preferredSessionId
       ? projectSessions.find((session) => session.id === options.preferredSessionId)
       : null;
@@ -937,6 +982,34 @@ export class WorkspaceRuntime {
       }));
       throw error;
     }
+  }
+
+  private async selectGeneralConversationScope() {
+    this.store.setState((prev) => ({
+      ...prev,
+      activeProjectKey: "",
+      activeProjectRoot: "",
+      projectSessions: [],
+      workspaceTree: null,
+      workspaceTreeError: "",
+    }));
+    const refreshedSessions = await this.refreshMainSessionPool().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+      return null;
+    });
+    const sessions = refreshedSessions ?? this.store.getState().sessions;
+    const unboundSessions = unboundMainChatSessions(sessions);
+    const currentSessionId = this.store.getState().currentSessionId || "";
+    const currentUnboundSession = currentSessionId
+      ? unboundSessions.find((session) => session.id === currentSessionId) ?? null
+      : null;
+    const nextSession = currentUnboundSession ?? unboundSessions[0] ?? null;
+    if (nextSession) {
+      await this.activateMainChatSession(nextSession);
+    } else {
+      this.clearActiveSession();
+    }
+    void this.refreshWorkspaceTree().catch(() => undefined);
   }
 
   private async removeProjectWorkspace(projectKey: string) {
@@ -1109,9 +1182,10 @@ export class WorkspaceRuntime {
           ),
           prev.messages,
         );
+        const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
         const next: StoreState = {
           ...prev,
-          messages: refreshedMessages,
+          messages: visibleMessages,
           tokenStats: tokenStatsRefreshed ? tokens : prev.tokenStats,
           conversationActiveEnvironment,
           permissionMode,
@@ -1161,6 +1235,21 @@ export class WorkspaceRuntime {
         };
       });
     }
+  }
+
+  private messagesForSessionDetailsRefresh(
+    sessionId: string,
+    current: StoreState,
+    refreshedMessages: Message[],
+  ) {
+    if (
+      current.currentSessionId === sessionId
+      && current.activeStreamSessionIds.includes(sessionId)
+      && current.messages.length > 0
+    ) {
+      return current.messages;
+    }
+    return refreshedMessages;
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {

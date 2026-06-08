@@ -172,7 +172,7 @@ def _node_session_policy(
     return _drop_empty(
         {
             "mode": mode,
-            "session_id_template": str(configured.get("session_id_template") or "gsess:{graph_run_id}:{node_id}:{dispatch_seq}"),
+            "session_id_template": str(configured.get("session_id_template") or "gsess-{graph_run_id}-{node_id}-{dispatch_seq}"),
             "history_policy": str(configured.get("history_policy") or "isolated_from_root_conversation"),
             "bind_project": True,
             "project_id": str(configured.get("project_id") or graph_binding_contract.get("project_id") or ""),

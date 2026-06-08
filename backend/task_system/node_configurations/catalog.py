@@ -63,7 +63,8 @@ def _derive_node_configurations(task_graphs: list[dict[str, Any]] | tuple[dict[s
                 "agent_profile_id": str(metadata.get("agent_profile_id") or dict(node.get("executor_policy") or {}).get("agent_profile_id") or "").strip(),
                 "agent_selection_policy": str(node.get("agent_selection_policy") or "explicit_agent").strip(),
             }
-            role_prompt = str(metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
+            prompt_contract = dict(metadata.get("prompt_contract") or {}) if isinstance(metadata.get("prompt_contract"), dict) else {}
+            role_prompt = str(prompt_contract.get("role_prompt") or metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
             specs.append(
                 TaskNodeConfigurationSpec(
                     node_config_id=node_config_id,

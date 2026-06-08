@@ -146,6 +146,40 @@ class PromptCompositionMessageProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class PromptCompositionContentFragment:
+    segment_id: str
+    kind: str
+    source_ref: str
+    ordinal: int
+    model_message_index: int
+    model_message_role: str
+    content_hash: str = ""
+    model_message_hash: str = ""
+    model_message: dict[str, Any] = field(default_factory=dict)
+    content_source: str = "runtime_sanitized_model_message"
+    materialized_from: str = "sanitized_model_message"
+    authority: str = "prompt_composition.content_fragment"
+
+    def to_model_message(self) -> dict[str, Any]:
+        return dict(self.model_message)
+
+    def to_diagnostic_dict(self) -> dict[str, Any]:
+        return {
+            "segment_id": self.segment_id,
+            "kind": self.kind,
+            "source_ref": self.source_ref,
+            "ordinal": self.ordinal,
+            "model_message_index": self.model_message_index,
+            "model_message_role": self.model_message_role,
+            "content_hash": self.content_hash,
+            "model_message_hash": self.model_message_hash,
+            "content_source": self.content_source,
+            "materialized_from": self.materialized_from,
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PromptCompositionManifest:
     manifest_id: str
     invocation_kind: str

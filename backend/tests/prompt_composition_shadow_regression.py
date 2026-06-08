@@ -4,7 +4,16 @@ from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
-from prompt_composition import PromptCompositionLayerInput, build_shadow_prompt_composition_manifest
+from prompt_composition import (
+    PromptCompositionLayerInput,
+    build_content_fragments_from_message_specs,
+    build_content_fragments_from_model_messages,
+    build_model_message_spec,
+    build_runtime_payload_message_spec,
+    build_shadow_prompt_composition_manifest,
+    render_model_messages_from_projection,
+    render_runtime_payload_fragment,
+)
 from prompt_library import PromptAssemblyRequest, PromptAssemblyResult, PromptAssemblyService, PromptSection
 
 
@@ -22,11 +31,29 @@ def _composition_manifest(packet) -> dict[str, object]:
 
 
 def _assert_shadow_manifest_covers_packet(packet) -> dict[str, object]:
+    prompt_manifest = dict(packet.diagnostics["prompt_manifest"])
     composition = _composition_manifest(packet)
+    render = dict(prompt_manifest.get("prompt_composition_render") or {})
     coverage = dict(composition.get("coverage") or {})
     segment_plan = dict(packet.segment_plan)
     segments = list(segment_plan.get("segments") or [])
     projection = list(composition.get("message_projection") or [])
+    assert packet.diagnostics["model_input_authority"] == "prompt_composition.message_projection"
+    assert render["renderer"] == "prompt_composition.message_projection"
+    assert render["rendered_message_count"] == len(packet.model_messages)
+    assert render["content_fragment_count"] == len(packet.model_messages)
+    source_counts = dict(render["content_fragment_source_counts"])
+    assert sum(source_counts.values()) == len(packet.model_messages)
+    assert source_counts.get("prompt_assembly.content", 0) >= 1
+    assert any(source != "runtime_sanitized_model_message" for source in source_counts)
+    materialized_counts = dict(render["content_fragment_materialized_from_counts"])
+    assert sum(materialized_counts.values()) == len(packet.model_messages)
+    assert materialized_counts.get("message_spec", 0) >= 1
+    assert render["rendered_from_content_fragment_count"] == len(packet.model_messages)
+    assert render["source_message_fallback_count"] == 0
+    assert render["content_hash_mismatch_count"] == 0
+    assert render["hash_mismatch_count"] == 0
+    assert render.get("renderer_fallback_to_source_messages") is not True
     assert coverage["segment_count"] == len(list(segment_plan.get("segments") or []))
     assert coverage["all_segments_explained"] is True
     assert coverage["slot_count"] >= coverage["registered_prompt_slot_count"]
@@ -96,6 +123,248 @@ def test_shadow_manifest_binds_registered_prompts_and_marks_legacy_runtime_text(
     assert coverage["runtime_shadow_slot_count"] == 1
     assert cache_boundary["status"] == "ok"
     assert cache_boundary["prefix_tier_sequence"] == ["provider_global", "session"]
+
+
+def test_message_projection_renderer_reconstructs_ordered_messages() -> None:
+    messages = [
+        {"role": "system", "content": "global runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-renderer",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "prefix_tier": "provider_global",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[1]["content"],
+                "kind": "volatile_user",
+                "source_ref": "turn.current",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    )
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="single_agent_turn",
+        packet_id="packet:prompt-composition-renderer",
+        layers=(),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+    content_fragments = build_content_fragments_from_model_messages(
+        segment_plan=segment_plan,
+        model_messages=messages,
+    )
+
+    result = render_model_messages_from_projection(manifest=manifest, content_fragments=content_fragments)
+
+    assert list(result.messages) == messages
+    assert result.diagnostics["rendered_message_count"] == 2
+    assert result.diagnostics["content_fragment_count"] == 2
+    assert result.diagnostics["content_fragment_source_counts"]["runtime_sanitized_model_message"] == 2
+    assert result.diagnostics["content_fragment_materialized_from_counts"]["sanitized_model_message"] == 2
+    assert result.diagnostics["rendered_from_content_fragment_count"] == 2
+    assert result.diagnostics["source_message_fallback_count"] == 0
+    assert result.diagnostics["renderer_fallback_to_source_messages"] is False
+    assert result.diagnostics["content_hash_mismatch_count"] == 0
+    assert result.diagnostics["hash_mismatch_count"] == 0
+    assert all("content" not in item for item in manifest["message_projection"])
+
+
+def test_message_projection_renderer_marks_source_message_fallback() -> None:
+    messages = [
+        {"role": "system", "content": "global runtime"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-renderer-fallback",
+        invocation_kind="single_agent_turn",
+        message_specs=[
+            {
+                "role": "system",
+                "content": messages[0]["content"],
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": messages[1]["content"],
+                "kind": "volatile_user",
+                "source_ref": "turn.current",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    )
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="single_agent_turn",
+        packet_id="packet:prompt-composition-renderer-fallback",
+        layers=(),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+    content_fragments = build_content_fragments_from_model_messages(
+        segment_plan=segment_plan,
+        model_messages=messages[:1],
+    )
+
+    result = render_model_messages_from_projection(
+        manifest=manifest,
+        content_fragments=content_fragments,
+        source_messages=messages,
+    )
+
+    assert list(result.messages) == messages
+    assert result.diagnostics["rendered_from_content_fragment_count"] == 1
+    assert result.diagnostics["source_message_fallback_count"] == 1
+    assert result.diagnostics["renderer_fallback_to_source_messages"] is True
+    assert result.diagnostics["fallback_reason"] == "content_fragment_incomplete"
+
+
+def test_model_message_spec_builder_assigns_content_source() -> None:
+    spec = build_model_message_spec(
+        role="system",
+        content="agent",
+        kind="agent_stable",
+        source_ref="agent.test",
+        cache_scope="session",
+        cache_role="session_stable",
+        compression_role="preserve",
+    )
+    override = build_model_message_spec(
+        role="system",
+        content="custom",
+        kind="agent_stable",
+        source_ref="agent.test",
+        cache_scope="session",
+        cache_role="session_stable",
+        compression_role="preserve",
+        metadata={"content_source": "test.override"},
+    )
+
+    assert spec["metadata"]["content_source"] == "prompt_composition.section_renderer.agent"
+    assert override["metadata"]["content_source"] == "test.override"
+
+
+def test_content_fragments_from_message_specs_prefers_registered_sources() -> None:
+    message_specs = [
+        build_model_message_spec(
+            role="system",
+            content="人格",
+            kind="personality_stable",
+            source_ref="personality.demo",
+            cache_scope="session",
+            cache_role="session_stable",
+            compression_role="preserve",
+        ),
+        build_model_message_spec(
+            role="system",
+            content="动态",
+            kind="dynamic_projection",
+            source_ref="runtime.delta",
+            cache_scope="none",
+            cache_role="volatile",
+            compression_role="summarize",
+        ),
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-source-aware-fragments",
+        invocation_kind="single_agent_turn",
+        message_specs=message_specs,
+    )
+    fallback_messages = [
+        {"role": "system", "content": "sanitized personality should not win"},
+        {"role": "system", "content": "sanitized dynamic wins"},
+    ]
+
+    fragments = build_content_fragments_from_message_specs(
+        segment_plan=segment_plan,
+        message_specs=message_specs,
+        fallback_model_messages=fallback_messages,
+    )
+
+    assert fragments[0].model_message["content"] == "人格"
+    assert fragments[0].materialized_from == "message_spec"
+    assert fragments[1].model_message["content"] == "动态"
+    assert fragments[1].materialized_from == "message_spec"
+
+
+def test_runtime_payload_fragment_renderer_uses_stable_json() -> None:
+    content = render_runtime_payload_fragment(
+        "Runtime payload",
+        {"z": 1, "a": {"b": True}, "text": "中文"},
+    )
+
+    assert content == 'Runtime payload\n{"a":{"b":true},"text":"中文","z":1}'
+
+
+def test_runtime_payload_message_spec_keeps_typed_fragment_metadata() -> None:
+    spec = build_runtime_payload_message_spec(
+        title="Runtime payload",
+        payload={"z": 1, "a": 2},
+        role="system",
+        kind="task_contract_stable",
+        source_ref="contract.demo",
+        cache_scope="task",
+        cache_role="session_stable",
+        compression_role="preserve",
+        preamble="你只根据任务合同工作。",
+        metadata={"custom": "value"},
+    )
+
+    assert spec["content"] == '你只根据任务合同工作。\nRuntime payload\n{"a":2,"z":1}\n'
+    assert spec["metadata"]["content_source"] == "runtime.task_contract_manifest"
+    assert spec["metadata"]["runtime_fragment_title"] == "Runtime payload"
+    assert spec["metadata"]["runtime_fragment_payload_keys"] == ["a", "z"]
+    assert spec["metadata"]["runtime_fragment_authority"] == "prompt_composition.runtime_fragment"
+    assert spec["metadata"]["custom"] == "value"
+
+
+def test_provider_protocol_replay_keeps_sanitized_materialization() -> None:
+    message_specs = [
+        build_model_message_spec(
+            role="tool",
+            content="raw protocol output",
+            kind="provider_protocol_history",
+            source_ref="api_transcript:1",
+            cache_scope="none",
+            cache_role="never_cache",
+            compression_role="preserve",
+            metadata={"content_source": "runtime.provider_protocol_replay"},
+        ),
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-provider-protocol",
+        invocation_kind="single_agent_turn",
+        message_specs=message_specs,
+    )
+    fallback_messages = [
+        {"role": "tool", "tool_call_id": "call-1", "content": "sanitized protocol output"},
+    ]
+
+    fragments = build_content_fragments_from_message_specs(
+        segment_plan=segment_plan,
+        message_specs=message_specs,
+        fallback_model_messages=fallback_messages,
+    )
+
+    assert fragments[0].model_message["content"] == "sanitized protocol output"
+    assert fragments[0].model_message["tool_call_id"] == "call-1"
+    assert fragments[0].materialized_from == "sanitized_model_message"
 
 
 def test_shadow_manifest_flags_stable_segment_after_volatile_boundary() -> None:

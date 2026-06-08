@@ -424,7 +424,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert stopped_actions["stop_task"]["enabled"] is False
 
 
-def test_runtime_monitor_summary_counts_project_activity_outside_attention_lane(tmp_path):
+def test_runtime_monitor_summary_counts_only_running_graph_tasks(tmp_path):
     now = time.time()
     running_graph = task_run(
         task_run_id="taskrun:graph-running",
@@ -465,10 +465,11 @@ def test_runtime_monitor_summary_counts_project_activity_outside_attention_lane(
 
     monitor = service.collect_global_runtime_monitor(limit=20)
 
-    assert [item["visibility"]["lane"] for item in monitor["projects"]] == ["projects", "projects"]
-    assert monitor["summary"]["projects"] == 2
+    assert [item["signal_id"] for item in monitor["projects"]] == ["grun:running"]
+    assert [item["visibility"]["lane"] for item in monitor["projects"]] == ["projects"]
+    assert monitor["summary"]["projects"] == 1
     assert monitor["summary"]["active"] == 1
-    assert monitor["summary"]["waiting"] == 1
+    assert monitor["summary"]["waiting"] == 0
 
 
 def test_run_monitor_projects_waiting_active_turn_as_waiting_signal():
@@ -571,6 +572,41 @@ def test_runtime_monitor_management_includes_recent_terminal_records(tmp_path):
     delete_action = next(item for item in monitor["management"]["lanes"]["recent"][0]["actions"] if item["action"] == "delete_record")
     assert clear_action["enabled"] is True
     assert delete_action["enabled"] is True
+
+
+def test_runtime_monitor_management_omits_terminal_graph_records(tmp_path):
+    completed_graph = task_run(
+        task_run_id="taskrun:graph-completed",
+        task_id="task.graph.done",
+        execution_runtime_kind="",
+        status="completed",
+        terminal_reason="completed",
+        updated_at=140.0,
+        diagnostics={
+            "graph_id": "graph.done",
+            "graph_run_id": "grun:completed",
+            "graph_harness_config_id": "ghcfg:completed",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.demo",
+            "project_id": "project.demo",
+        },
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([completed_graph]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    live_monitor = service.list_global_live_monitor(limit=20)
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert live_monitor["task_runs"] == []
+    assert monitor["signals"] == []
+    assert monitor["summary"]["projects"] == 0
+    assert monitor["summary"]["recent"] == 0
+    assert monitor["management"]["lanes"]["projects"] == []
+    assert monitor["management"]["lanes"]["recent"] == []
 
 
 def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_path):
@@ -703,6 +739,40 @@ def test_runtime_monitor_management_projects_stale_running_as_closeable_not_paus
     assert actions["resume_task"]["enabled"] is False
     assert actions["stop_task"]["enabled"] is False
     assert actions["close_runtime"]["enabled"] is True
+
+
+def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
+    now = time.time()
+    stale_graph = task_run(
+        task_run_id="taskrun:stale-graph",
+        session_id="session-stale-graph",
+        task_id="task.graph.writing",
+        execution_runtime_kind="",
+        status="running",
+        created_at=now - 900,
+        updated_at=now - 700,
+        diagnostics={
+            "graph_id": "graph.writing",
+            "graph_run_id": "grun:stale-graph",
+            "graph_harness_config_id": "ghcfg:stale-graph",
+            "workspace_view": "task_environment",
+            "task_environment_id": "env.creation.writing",
+            "project_id": "project.creation.writing",
+        },
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([stale_graph]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert monitor["signals"] == []
+    assert monitor["summary"]["active"] == 0
+    assert monitor["summary"]["projects"] == 0
+    assert monitor["management"]["lanes"]["projects"] == []
 
 
 def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypatch):
@@ -1486,7 +1556,36 @@ def test_global_monitor_uses_summary_projection_without_event_or_child_detail_fe
     assert resolver.graph_monitor_calls == []
 
 
-def test_global_graph_monitor_uses_active_graph_loop_to_avoid_false_stale_diagnostic():
+def test_project_task_run_marks_stale_graph_root_without_fetching_graph_detail():
+    graph_monitor = {
+        "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"world_design": {"status": "running"}}},
+        "active_node_work_orders": [{"node_id": "world_design"}],
+        "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
+    }
+    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        execution_runtime_kind="",
+        status="running",
+        updated_at=100.0,
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+        },
+    )
+
+    item = projector.project_task_run(run, now=300.0, include_runtime_details=False, include_graph_runtime=False)
+
+    assert item["bucket"] == "diagnostics"
+    assert item["lifecycle"] == "stale"
+    assert item["activity_state"] == "stale"
+    assert item["stale"] is True
+    assert item["graph_status"]["active_node_id"] == ""
+    assert projector.resource_resolver.graph_monitor_calls == []
+
+
+def test_global_monitor_omits_stale_graph_root_without_fetching_graph_detail():
     graph_monitor = {
         "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"world_design": {"status": "running"}}},
         "active_node_work_orders": [{"node_id": "world_design"}],
@@ -1506,13 +1605,38 @@ def test_global_graph_monitor_uses_active_graph_loop_to_avoid_false_stale_diagno
     )
 
     monitor = projector.build_global_monitor([run], now=300.0, limit=20)
-    item = monitor["task_runs"][0]
+
+    assert monitor["task_runs"] == []
+    assert monitor["summary"]["total"] == 0
+    assert projector.resource_resolver.graph_monitor_calls == []
+
+
+def test_task_graph_detail_uses_active_graph_loop_to_avoid_false_stale_diagnostic():
+    graph_monitor = {
+        "graph_loop_state": {"status": "running", "ready_node_ids": [], "node_states": {"world_design": {"status": "running"}}},
+        "active_node_work_orders": [{"node_id": "world_design"}],
+        "node_runtime_views": [{"node_id": "world_design", "status": "running"}],
+    }
+    projector = RuntimeMonitorProjector(EventLogStub(), resource_resolver=ResourceResolverStub(graph_monitor), freshness_seconds=60.0)
+    run = task_run(
+        task_run_id="taskrun:graph-root",
+        execution_runtime_kind="",
+        status="running",
+        updated_at=100.0,
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+        },
+    )
+
+    item = projector.project_task_run(run, now=300.0, include_runtime_details=False, include_graph_runtime=True)
 
     assert item["bucket"] == "running"
     assert item["lifecycle"] == "running"
     assert item["stale"] is False
-    assert item["graph_status"]["active_node_id"] == ""
-    assert projector.resource_resolver.graph_monitor_calls == []
+    assert item["graph_status"]["active_node_id"] == "world_design"
+    assert projector.resource_resolver.graph_monitor_calls == [("grun:main", "ghcfg:existing", 80)]
 
 
 def test_task_graph_monitor_item_uses_graph_run_as_task_instance_and_navigation_target():

@@ -137,6 +137,34 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
+  it("keeps non-final streamed prose visible even if the live flag drops", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "继续生成中",
+        id: "message:streaming-flag-dropped",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "work:context",
+            kind: "work_action",
+            action_kind: "read",
+            title: "正在整理上下文",
+            public_summary: "正在整理上下文",
+            state: "running",
+            stream_state: "streaming",
+          },
+        ],
+        streamingContent: false,
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("继续生成中");
+    expect(html).toContain("正在整理上下文");
+    expect(html).toContain("复制回复");
+  });
+
   it("hides routine output boundary cleanup state", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

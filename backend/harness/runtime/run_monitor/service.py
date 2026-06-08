@@ -110,14 +110,15 @@ class RuntimeMonitorService:
             status = str(getattr(task_run, "status", "") or "").strip()
             if status not in TERMINAL_TASK_RUN_STATUSES:
                 continue
-            recent.append(
-                self.projector.project_task_run(
-                    task_run,
-                    now=now,
-                    include_runtime_details=False,
-                    include_graph_runtime=False,
-                )
+            projected = self.projector.project_task_run(
+                task_run,
+                now=now,
+                include_runtime_details=False,
+                include_graph_runtime=False,
             )
+            if str(projected.get("kind") or "").strip() == "task_graph":
+                continue
+            recent.append(projected)
             if len(recent) >= max(1, int(limit or 20)):
                 break
         return recent

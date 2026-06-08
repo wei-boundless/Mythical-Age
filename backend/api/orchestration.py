@@ -548,58 +548,33 @@ def _validated_graph_request_scope(
     session_id: str,
     session_scope: dict[str, Any] | None,
 ) -> SessionScope:
-    _require_launch_session(runtime=runtime, session_id=session_id)
-    configured = _graph_config_binding_scope(graph_config)
-    requested = normalize_session_scope(session_scope) if session_scope is not None else None
+    launch_scope = _require_launch_session(runtime=runtime, session_id=session_id)
+    requested = normalize_session_scope(session_scope) if session_scope is not None else launch_scope
     if requested is not None and requested.workspace_view not in {"project", "task_environment"}:
         raise HTTPException(status_code=400, detail="graph task runs must use project or task_environment scope")
-    if (
-        requested is not None
-        and configured.task_environment_id
-        and requested.task_environment_id
-        and requested.task_environment_id != configured.task_environment_id
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Task environment scope does not match published graph binding",
-                "expected_task_environment_id": configured.task_environment_id,
-                "actual_task_environment_id": requested.task_environment_id,
-            },
-        )
-    if (
-        requested is not None
-        and configured.project_id
-        and requested.project_id
-        and requested.project_id != configured.project_id
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Project scope does not match published graph binding",
-                "expected_project_id": configured.project_id,
-                "actual_project_id": requested.project_id,
-            },
-        )
+    project_id = requested.project_id
+    task_environment_id = requested.task_environment_id
+    workspace_view = requested.workspace_view
+    if project_id:
+        workspace_view = "project"
+    elif workspace_view == "project":
+        workspace_view = "task_environment"
     resolved = normalize_session_scope(
         {
-            "workspace_view": configured.workspace_view
-            or ("project" if configured.project_id or (requested is not None and requested.project_id) else "task_environment"),
-            "task_environment_id": configured.task_environment_id or (requested.task_environment_id if requested is not None else ""),
-            "project_id": configured.project_id or (requested.project_id if requested is not None else ""),
+            "workspace_view": workspace_view or "task_environment",
+            "task_environment_id": task_environment_id,
+            "project_id": project_id,
         }
     )
-    if resolved.project_id and resolved.workspace_view != "project":
-        resolved = normalize_session_scope({**resolved.to_dict(), "workspace_view": "project"})
-    if not resolved.project_id and resolved.workspace_view == "chat":
-        resolved = normalize_session_scope({**resolved.to_dict(), "workspace_view": "task_environment"})
     if _graph_config_requires_project(graph_config) and not resolved.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required for task environment graph runs")
+        raise HTTPException(status_code=400, detail="project_id is required for graph runs with project-scoped resources")
     if resolved.project_id:
         try:
             project = ProjectInstanceRepository(runtime.base_dir).require(resolved.project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not resolved.task_environment_id:
+            resolved = normalize_session_scope({**resolved.to_dict(), "task_environment_id": project.environment_id})
         if project.environment_id != resolved.task_environment_id:
             raise HTTPException(
                 status_code=409,
@@ -656,12 +631,6 @@ def _assert_graph_run_scope(
                 "expected_scope": expected.to_dict(),
             },
         )
-    if graph_config is not None:
-        configured = _graph_config_binding_scope(graph_config)
-        if configured.task_environment_id and actual_scope.task_environment_id != configured.task_environment_id:
-            raise HTTPException(status_code=409, detail="GraphRun task environment does not match published graph binding")
-        if configured.project_id and actual_scope.project_id != configured.project_id:
-            raise HTTPException(status_code=409, detail="GraphRun project does not match published graph binding")
     session_id = str(graph_run.get("session_id") or "")
     if not session_id:
         raise HTTPException(status_code=409, detail="GraphRun is not bound to a session")
@@ -724,44 +693,15 @@ def _graph_start_initial_inputs(initial_inputs: dict[str, Any] | None, scope: Se
     return payload
 
 
-def _require_launch_session(*, runtime: Any, session_id: str) -> None:
+def _require_launch_session(*, runtime: Any, session_id: str) -> SessionScope:
     try:
-        runtime.session_manager.load_session_record(session_id)
+        record = runtime.session_manager.load_session_record(session_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=404,
             detail={"message": "Launch session not found", "session_id": session_id},
         ) from exc
-
-
-def _graph_config_binding_scope(graph_config: Any) -> SessionScope:
-    binding = _graph_binding_contract(graph_config)
-    task_environment_id = str(
-        binding.get("task_environment_id")
-        or getattr(graph_config, "task_environment_id", "")
-        or ""
-    ).strip()
-    project_id = str(binding.get("project_id") or "").strip()
-    workspace_view = str(binding.get("workspace_view") or ("project" if project_id else "task_environment")).strip()
-    return normalize_session_scope(
-        {
-            "workspace_view": workspace_view or ("project" if project_id else "task_environment"),
-            "task_environment_id": task_environment_id,
-            "project_id": project_id,
-        }
-    )
-
-
-def _graph_binding_contract(graph_config: Any) -> dict[str, Any]:
-    contracts = dict(getattr(graph_config, "contracts", {}) or {})
-    environment = dict(getattr(graph_config, "environment", {}) or {})
-    control = dict(getattr(graph_config, "control", {}) or {})
-    return dict(
-        contracts.get("graph_binding_contract")
-        or control.get("graph_binding")
-        or environment.get("graph_binding")
-        or {}
-    )
+    return normalize_session_scope(dict(record.get("scope") or {}))
 
 
 def _create_graph_run_session(*, runtime: Any, graph_config: Any, scope: SessionScope) -> str:

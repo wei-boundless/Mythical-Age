@@ -387,6 +387,15 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 - `RuntimeInvocationPacket` / runtime prompt manifest 能携带 `prompt_composition` 诊断，测试覆盖 single agent turn 与 task execution 的 shadow manifest 映射。
 - 真实 `RuntimeCompiler` 入口的 shadow manifest 已收紧到无 `legacy_runtime_text` 残留；`semantic_compaction_stable_boundary` 已归类为明确的 `semantic_compaction_boundary` 生命周期边界。
 - `PromptCompositionManifest` 已新增 `message_projection`，记录每条模型消息的 segment、role、message hash、slot binding 与 source kind；projection 不复制原始 prompt content，作为后续正式 renderer 的消费边界。
+- 新增 `prompt_composition.message_projection_renderer`，`RuntimeCompiler` 的四类入口已在正常路径通过 projection renderer 重建 `model_messages`，并将 `model_input_authority` 标记为 `prompt_composition.message_projection`。
+- renderer 已新增本轮临时 `PromptCompositionContentFragment` registry：正常路径按 `segment_id` 从 fragment registry 渲染，source messages 只作为缺 fragment 时的诊断 fallback；projection 仍不复制原始 prompt content。
+- `PromptCompositionContentFragment` registry 的构建权已从 `RuntimeCompiler` 本地 helper 迁入 `backend/prompt_composition/fragments.py`；compiler 只提供 `segment_plan` 与 sanitizer 后的 `model_messages`，不再拥有 fragment 映射规则。
+- `PromptCompositionContentFragment` 已新增 `content_source` 诊断，renderer 汇总 `content_fragment_source_counts`。`prompt_assembly.content`、`prompt_composition.section_renderer.*`、`runtime.stable_boundary`、`runtime.dynamic_context_fragment` 等来源已按 clean message spec 原生材料化；source messages 只作为缺 fragment 时的诊断 fallback。
+- 稳定 prompt section 的文本格式化权已从 `RuntimeCompiler` 迁入 `backend/prompt_composition/section_renderer.py`，覆盖 agent role、personality、task prompt contract、environment/lifecycle instruction。compiler 不再保留这些本地 formatter。
+- message spec 构建权已从 `RuntimeCompiler` 迁入 `backend/prompt_composition/message_specs.py`，包括 `content_source` 分类规则。compiler 当前通过 import alias 调用 composition builder，不再保留本地 `_message_spec` 定义。
+- `backend/prompt_composition/fragments.py` 已新增 source-aware fragment builder：`prompt_assembly.content`、`prompt_composition.section_renderer.*` 与普通 `runtime.*` 来源优先从 clean message specs 直接材料化；`runtime.provider_protocol_replay` 保留 sanitizer/protocol 投影材料化。
+- 新增 `backend/prompt_composition/runtime_fragments.py`，`RuntimeCompiler` 本地 `_packet_payload_content` 已删除；action schema、artifact scope、tool index、task contract、stable boundary、dynamic projection、history/current request 等 payload 通过 `PromptCompositionRuntimeFragment` / `build_runtime_payload_message_spec()` 包装，模型可见文本统一由 composition 层生成。
+- `prompt_composition.renderer` 已内置 fallback 诊断：缺 content fragment 时写入 `renderer_fallback_to_source_messages=True` 与 `fallback_reason`，正常 runtime packet 仍要求 `source_message_fallback_count=0`。
 - `PromptAssemblyService` / runtime prompt manifest 增加 assembly request fingerprint、section fingerprint 等稳定性诊断字段。
 - `PromptCachePlanner` 能把 prompt manifest 与 composition diagnostics 写入 cache record。
 - `PromptCacheBreakDetector` 能区分 `prompt_assembly_request_changed`、`prompt_section_fingerprint_changed`，并把 prompt assembly/composition 细节带入 break record。
@@ -395,7 +404,7 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 
 ### 未完成
 
-- `RuntimeCompiler` 尚未切换为只从 `PromptCompositionManifest` 渲染最终 messages；当前仍保留 shadow-mode 映射。
+- `RuntimeCompiler` 尚未切换为只从 `PromptCompositionManifest` 的 slot/section 原生内容渲染最终 messages；当前仍由 compiler 收集 payload facts，但 runtime payload spec、runtime fragment 文本、stable section formatter、message spec builder、fragment materialization 和 projection renderer 的主权已迁入 `prompt_composition`。
 - `ProviderPayloadManifest` 已具备首版实现，并由 `ModelRequestBuilder` 创建 provider-visible payload manifest；tool schema、messages、`tool_call_options`、`response_format`、`provider_params` 已完成首轮 segment 覆盖。后续仍需 live e2e 与更多 provider-specific 字段审计。
 - serializer 中 tool schema 的 cache role 主权已迁移给 provider payload manifest；缺少 manifest 时只能记录为 `never_cache`，不能再根据 stable tool index 自行提升。
 - `backend/prompting/*` 旧链路尚未完成删除或 legacy 隔离。
@@ -412,15 +421,129 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 - live runtime accounting 审计后，`python -m pytest backend\tests\model_runtime_regression.py::test_model_runtime_prompt_stability_records_tool_call_options -q`：1 passed；`python -m pytest backend\tests\model_runtime_regression.py -q`：56 passed；`prompt_cache_prefix_tier_regression.py + tool_catalog_manifest_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：40 passed。
 - shadow manifest legacy 分类清理后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：8 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：42 passed；`model_runtime_regression.py`：56 passed。
 - message projection 追加后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：8 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：42 passed；`model_runtime_regression.py`：56 passed。
+- projection renderer 接入 RuntimeCompiler 后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：9 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：43 passed；`model_runtime_regression.py`：56 passed；`prompt_accounting_ledger_test.py + tool_catalog_manifest_regression.py + action_schema_manifest_regression.py + artifact_scope_manifest_regression.py + project_instructions_runtime_regression.py`：31 passed；`dynamic_prompt_context_projection_test.py`：38 passed。
+- content fragment registry 接入 projection renderer 后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：9 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：43 passed；`model_runtime_regression.py`：56 passed；`prompt_accounting_ledger_test.py + tool_catalog_manifest_regression.py + action_schema_manifest_regression.py + artifact_scope_manifest_regression.py + project_instructions_runtime_regression.py`：31 passed；`dynamic_prompt_context_projection_test.py`：38 passed。
+- content fragment builder 迁入 `prompt_composition.fragments` 后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：9 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：43 passed；`model_runtime_regression.py`：56 passed。
+- content source 诊断追加后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：9 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：43 passed；`model_runtime_regression.py`：56 passed。
+- stable section renderer 迁入 `prompt_composition.section_renderer` 后，`python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：9 passed；`model_runtime_regression.py`：56 passed；`prompt_composition_shadow_regression.py + prompt_cache_prefix_tier_regression.py + prompt_cache_break_detector_regression.py + deepseek_prompt_cache_diagnostics_test.py`：43 passed。
+- content source 分类接入 segment metadata 后，真实 single-agent packet 的 `content_fragment_source_counts` 已能区分 `prompt_assembly.content`、`prompt_composition.section_renderer.turn_context`、`runtime.stable_boundary`、`runtime.dynamic_context_fragment`，且 `source_message_fallback_count=0`。验证：`prompt_composition_shadow_regression.py`：9 passed；`model_runtime_regression.py`：56 passed；prompt/cache/provider 组合：43 passed；prompt accounting/tool/action/artifact/project 组合：31 passed。
+- message spec builder 迁入 `prompt_composition.message_specs` 后，`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：10 passed；`model_runtime_regression.py`：56 passed；prompt/cache/provider 组合：44 passed；prompt accounting/tool/action/artifact/project 组合：31 passed。禁用插件用于避开本地 langsmith pytest plugin collection 干扰，不改变项目测试断言。
+- source-aware content fragment builder 接入后，真实 single-agent packet 显示 `content_fragment_materialized_from_counts={"message_spec": 2, "sanitized_model_message": 4}`，`source_message_fallback_count=0`。验证：`prompt_composition_shadow_regression.py`：11 passed；`model_runtime_regression.py`：56 passed；prompt/cache/provider 组合：45 passed；prompt accounting/tool/action/artifact/project 组合：31 passed。
 - `python backend\scripts\diagnose_deepseek_prompt_cache.py --limit 8 --json`：可正常完成；`unplanned_model_call_breaks=0`，`repeated_prefix_provider_miss` 不再作为活跃问题出现。
+- runtime fragments typed wrapper 接入后，真实 single-agent packet 显示 `content_fragment_materialized_from_counts={"message_spec": 6}`、`source_message_fallback_count=0`、`renderer_fallback_to_source_messages=False`。验证：`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest backend\tests\prompt_composition_shadow_regression.py -q`：15 passed；`model_runtime_regression.py`：56 passed；prompt/cache/provider 组合：49 passed；prompt accounting/tool/action/artifact/project 组合：31 passed。
 
 ### 当前诊断残留
 
 DeepSeek cache 诊断仍报告 1 个 `stable_segment_content_changes`，来源是图任务 `task_execution` 的 `global_static` segment。它不是 durable memory 或 utility prompt 的旧 source 污染；后续应在图任务主线中追查同一 task scope 内为何有两组 `global_static` content hash。
 
+### 阶段 1/2 收敛设计
+
+目标是一次性收敛到以下权威链，而不是继续在 `RuntimeCompiler` 内追加局部修补：
+
+```text
+PromptCompositionLayerInput
+  -> PromptCompositionPlan
+  -> PromptCompositionGraph
+  -> PromptCompositionManifest(message_projection + segment_bindings)
+  -> PromptCompositionContentRegistry
+  -> PromptCompositionRenderer
+  -> RuntimeInvocationPacket.model_messages
+  -> ProviderPayloadManifest
+```
+
+#### 目标对象与职责
+
+| 对象 | 位置 | 职责 | 不允许做的事 |
+|---|---|---|---|
+| `PromptCompositionSectionRenderer` | `backend/prompt_composition/section_renderer.py` | 渲染 registered prompt section 的 agent/personality/environment/lifecycle/task contract 文本 | 不读取 runtime state、不决定工具可见性 |
+| `PromptCompositionContentRegistry` | `backend/prompt_composition/fragments.py` | 生成 `PromptCompositionContentFragment[]`，按 `segment_id` 提供 renderer 可消费内容 | 不重新排序 messages、不吞掉缺失 fragment |
+| `PromptCompositionRuntimeFragments` | `backend/prompt_composition/runtime_fragments.py` | 把 action schema、artifact scope、tool index、task contract、stable boundary、dynamic context 转成 typed fragments | 不拼接 registered prompt section |
+| `PromptCompositionRenderer` | `backend/prompt_composition/renderer.py` | 只按 manifest `message_projection` 渲染最终 messages，记录 hash/source/fallback 诊断 | 不从 compiler 猜顺序、不静默 fallback |
+| `RuntimeCompiler` | `backend/harness/runtime/compiler.py` | 只收集 invocation facts、调用 composition builder、携带 packet diagnostics | 不拥有 stable prompt 文本格式化、不拥有 content source 分类、不拥有最终 message 顺序 |
+| `ProviderPayloadManifest` | `backend/runtime/model_gateway/*` | 接管 provider-visible messages/tools/options/params/cache boundary | 不回头改变 prompt composition 语义 |
+
+#### Content Source 分层
+
+`PromptCompositionContentFragment.content_source` 必须按真实来源分类：
+
+| content_source | 来源 | 迁移状态 |
+|---|---|---|
+| `prompt_assembly.content` | runtime/global prompt pack assembly | 当前已诊断标注，后续由 registry 直接消费 assembly |
+| `prompt_composition.section_renderer.*` | agent/personality/environment/lifecycle/task contract section renderer | formatter 已迁入 composition；下一步由 registry 直接使用 renderer 输出 |
+| `runtime.action_schema_manifest` | action schema manifest | 已由 `PromptCompositionRuntimeFragment` 统一包装与渲染；后续继续迁出 payload factory |
+| `runtime.artifact_scope_manifest` | artifact scope manifest | 已由 `PromptCompositionRuntimeFragment` 统一包装与渲染；后续继续迁出 payload factory |
+| `runtime.task_contract_manifest` | task contract manifest | 已由 `PromptCompositionRuntimeFragment` 统一包装与渲染；后续继续迁出 payload factory |
+| `runtime.tool_catalog_manifest` | tool catalog manifest/model visible tool index | 已由 `runtime_fragments.py` 统一渲染文本；provider tool schema 仍由 `ProviderPayloadManifest` 管 |
+| `runtime.stable_boundary` | compiler 当前生成的稳定运行边界 | 已由 `PromptCompositionRuntimeFragment` 统一包装与渲染；后续继续迁出 boundary payload factory |
+| `runtime.dynamic_context_fragment` | history/current request/dynamic projection/tool observations | 已由 registry 按 clean message spec 材料化；后续继续拆 typed volatile fragment |
+| `runtime.provider_protocol_replay` | provider protocol hot replay | 保留为 volatile/never-cache runtime fragment |
+
+#### 迁移顺序
+
+1. **Spec builder 主权迁移**
+   - 新增 `backend/prompt_composition/message_specs.py`。
+   - 把 `_message_spec` 与 `content_source` 分类从 `RuntimeCompiler` 移出。
+   - `RuntimeCompiler` 调用 composition 的 message spec builder；不得保留本地同名逻辑。
+
+2. **Registered section content registry**
+   - `fragments.py` 增加 registered section source resolver。
+   - 对 `global_static`、`personality_stable`、`agent_stable`、`environment_stable`、`turn_context`、`task_prompt_contract` 生成 source-aware fragments。
+   - 若 slot group 渲染内容 hash 与 segment hash 不一致，记录 `content_source_hash_mismatch`，不得静默使用错误内容。
+
+3. **Runtime fragments registry**
+   - 新增 `runtime_fragments.py`，把 action schema、artifact scope、task contract、tool index、stable boundary、dynamic projection、history/current request 转为 typed fragments。
+   - `RuntimeCompiler` 只传 typed payload，不再直接构造这些段的最终文本。
+   - 当前已完成 typed runtime fragment wrapper、公共文本 renderer 与 compiler 本地 `_packet_payload_content` 删除；下一步是把 compiler 内部 payload factory 继续迁入 runtime fragment factory。
+
+4. **Renderer hardening**
+   - `renderer.py` 正常路径禁止 source message fallback。
+   - fallback 只能用于诊断保全，并必须写入 `renderer_fallback_to_source_messages=True`。
+   - 测试覆盖四个入口：`single_agent_turn`、`task_execution`、`tool_observation_followup`、`semantic_compaction`。
+   - 当前 renderer 已直接输出 fallback 标志与 reason，四个 compiler 入口测试要求正常路径 fallback 为 0。
+
+5. **RuntimeCompiler 删除边界**
+   - 删除 compiler 本地 `_message_spec`。
+   - 删除 compiler 本地 stable prompt section formatter。
+   - 删除 compiler 对 registered prompt text 的最终拼接权。
+   - 保留 runtime payload 收集函数，但输出必须进入 `runtime_fragments.py`。
+
+6. **ProviderPayloadManifest 对接**
+   - 继续保证 provider 层只消费最终 messages/tools/options/params。
+   - 不允许 serializer/cache planner 再根据 message 内容重新判定 cache role。
+
+#### 阶段 1 完成标准
+
+- `RuntimeCompiler` 中不存在本地 `_message_spec` 定义。
+- `RuntimeCompiler` 中不存在 agent/personality/environment/lifecycle/task-contract stable prompt formatter。
+- `prompt_composition_render.source_message_fallback_count == 0`。
+- `content_fragment_source_counts` 至少覆盖：
+  - `prompt_assembly.content`
+  - `prompt_composition.section_renderer.*`
+  - `runtime.stable_boundary` 或更细 runtime manifest source
+  - `runtime.dynamic_context_fragment`
+- `message_projection` 不含 raw content。
+- 修改 registered prompt section 会改变对应 fragment hash 与 manifest diagnostics。
+
+#### 阶段 2 完成标准
+
+- `ProviderPayloadManifest` 覆盖 messages、tools、tool call options、response format、provider params。
+- tool schema cache role 不由 serializer 推断。
+- cache planner 消费 provider payload boundary，不从线性 serializer segment 自行猜测 provider prefix。
+- DeepSeek 诊断能把 miss 归因到 stable message prefix、tool catalog、tool options、response format、provider params 或 provider best-effort。
+
+#### 验证命令
+
+```powershell
+python -m pytest backend\tests\prompt_composition_shadow_regression.py -q
+python -m pytest backend\tests\model_runtime_regression.py -q
+python -m pytest backend\tests\prompt_composition_shadow_regression.py backend\tests\prompt_cache_prefix_tier_regression.py backend\tests\prompt_cache_break_detector_regression.py backend\tests\deepseek_prompt_cache_diagnostics_test.py -q
+python -m pytest backend\tests\prompt_accounting_ledger_test.py backend\tests\tool_catalog_manifest_regression.py backend\tests\action_schema_manifest_regression.py backend\tests\artifact_scope_manifest_regression.py backend\tests\project_instructions_runtime_regression.py -q
+python backend\scripts\diagnose_deepseek_prompt_cache.py --limit 8 --json
+```
+
 ### 下一阶段边界
 
-下一轮如果继续升级，必须沿阶段 1/2 继续推进两件事：一是让 `RuntimeCompiler` 退出 shadow-mode，改为消费 `PromptCompositionManifest` 渲染最终 messages；二是继续审计 live request 中 provider-specific 字段是否都进入 `ProviderPayloadManifest` 或明确被排除。不要继续在 serializer/cache planner 里追加新的推断逻辑。
+下一轮如果继续升级，必须沿阶段 1/2 继续推进两件事：一是把 compiler 内部 action schema、artifact scope、tool index、task contract、stable boundary、dynamic projection 等 payload factory 继续迁入 `prompt_composition.runtime_fragments` 或专门的 fact normalizer；二是继续审计 live request 中 provider-specific 字段是否都进入 `ProviderPayloadManifest` 或明确被排除。不要继续在 serializer/cache planner 里追加新的推断逻辑。
 
 ### 主权迁移追加收尾
 

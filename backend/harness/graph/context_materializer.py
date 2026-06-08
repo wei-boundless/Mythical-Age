@@ -41,15 +41,18 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         executor = dict(node.get("executor") or {})
         executor_type = str(executor.get("executor_type") or "agent")
+        dispatch_seq = len(tuple(dict(state.result_history or {}).get(node_id) or ())) + 1
+        graph_clock_seq = state.event_cursor + 1
         inbound_context = self.inbound_context_for_node(graph_config=graph_config, state=state, node_id=node_id)
         input_package = self.build_input_package(
             graph_config=graph_config,
             state=state,
             node=node,
             inbound_context=inbound_context,
+            dispatch_seq=dispatch_seq,
+            graph_clock_seq=graph_clock_seq,
         )
-        dispatch_seq = len(tuple(dict(state.result_history or {}).get(node_id) or ())) + 1
-        work_order_id = f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{state.event_cursor + 1}:{int(time.time() * 1000)}"
+        work_order_id = f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{graph_clock_seq}:{int(time.time() * 1000)}"
         graph_slot = self.build_graph_slot(
             graph_config=graph_config,
             state=state,
@@ -104,7 +107,10 @@ class GraphContextMaterializer:
                 "runtime_scope": _runtime_scope_from_state(state),
                 "node_session_id": node_session_id,
                 "node_session_policy": node_session_policy,
-                "graph_clock_seq": state.event_cursor + 1,
+                "graph_clock_seq": graph_clock_seq,
+                "node_dispatch_seq": dispatch_seq,
+                "node_dispatch_count": dispatch_seq,
+                "round_index": _dispatch_round_index(input_package=input_package, dispatch_seq=dispatch_seq),
                 "completed_node_ids": list(state.completed_node_ids),
                 "failed_node_ids": list(state.failed_node_ids),
                 "upstream_node_ids": list(upstream_dependency_node_ids(graph_config, node_id)),
@@ -136,7 +142,10 @@ class GraphContextMaterializer:
                 "runtime_scope": _runtime_scope_from_state(state),
                 "node_session_id": node_session_id,
                 "node_session_policy": node_session_policy,
-                "graph_clock_seq": state.event_cursor + 1,
+                "graph_clock_seq": graph_clock_seq,
+                "node_dispatch_seq": dispatch_seq,
+                "node_dispatch_count": dispatch_seq,
+                "round_index": _dispatch_round_index(input_package=input_package, dispatch_seq=dispatch_seq),
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
                 "inbound_context_count": len(inbound_context),
@@ -265,14 +274,16 @@ class GraphContextMaterializer:
         state: GraphLoopState,
         node: dict[str, Any],
         inbound_context: list[dict[str, Any]],
+        dispatch_seq: int = 1,
+        graph_clock_seq: int = 1,
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
         compiled_node_contract = _compiled_node_contract(graph_config=graph_config, node_id=node_id)
         task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
+        loop_context = self._loop_engine.context_for_node(state=state, node=node)
         initial_inputs = dict(state.initial_inputs or {})
         initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
-        loop_context = self._loop_engine.context_for_node(state=state, node=node)
         environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
@@ -309,6 +320,12 @@ class GraphContextMaterializer:
             "output_contract": dict(node.get("contracts") or {}),
             "initial_inputs": initial_inputs,
             "loop_context": loop_context,
+            "dispatch_metadata": _dispatch_metadata(
+                initial_inputs=initial_inputs,
+                loop_context=loop_context,
+                dispatch_seq=dispatch_seq,
+                graph_clock_seq=graph_clock_seq,
+            ),
             "inbound_context": inbound_context,
             "memory_view": _memory_view_request(graph_config=graph_config, node=node, task_environment_id=task_environment_id),
             "artifact_view": _artifact_view_request(graph_config=graph_config, node=node, task_environment_id=task_environment_id),
@@ -709,6 +726,55 @@ def _quality_revision_inputs(
         if previous_output:
             revision_inputs[carry_key] = previous_output
     return revision_inputs
+
+
+def _dispatch_metadata(
+    *,
+    initial_inputs: dict[str, Any],
+    loop_context: dict[str, Any],
+    dispatch_seq: int,
+    graph_clock_seq: int,
+) -> dict[str, Any]:
+    node_dispatch_seq = max(1, int(dispatch_seq or 1))
+    round_index = _explicit_round_index(initial_inputs)
+    if round_index <= 0 and _loop_frame_has_value(loop_context, "round_index"):
+        active_frame = dict(dict(loop_context or {}).get("active_frame") or {})
+        frame_values = dict(active_frame.get("values") or active_frame.get("state") or active_frame)
+        round_index = _explicit_round_index(frame_values)
+    if round_index <= 0:
+        round_index = node_dispatch_seq
+    return {
+        "node_dispatch_seq": node_dispatch_seq,
+        "node_dispatch_count": node_dispatch_seq,
+        "dispatch_seq": node_dispatch_seq,
+        "graph_clock_seq": max(1, int(graph_clock_seq or 1)),
+        "round_index": round_index,
+        "authority": "harness.graph.context_materializer.dispatch_metadata",
+    }
+
+
+def _loop_frame_has_value(loop_context: dict[str, Any], key: str) -> bool:
+    active_frame = dict(dict(loop_context or {}).get("active_frame") or {})
+    frame_values = dict(active_frame.get("values") or active_frame.get("state") or active_frame)
+    return key in frame_values and str(frame_values.get(key) or "").strip() != ""
+
+
+def _dispatch_round_index(*, input_package: dict[str, Any], dispatch_seq: int) -> int:
+    initial_inputs = dict(dict(input_package or {}).get("initial_inputs") or {})
+    dispatch_metadata = dict(dict(input_package or {}).get("dispatch_metadata") or {})
+    metadata_round_index = _explicit_round_index(dispatch_metadata)
+    if metadata_round_index > 0:
+        return metadata_round_index
+    return_index = _explicit_round_index(initial_inputs)
+    return return_index if return_index > 0 else max(1, int(dispatch_seq or 1))
+
+
+def _explicit_round_index(payload: dict[str, Any]) -> int:
+    try:
+        value = int(dict(payload or {}).get("round_index"))
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else 0
 
 
 def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1274,7 +1340,7 @@ def _node_session_id(
     mode = str(session_policy.get("mode") or "per_node_run_session").strip()
     if mode in {"root_graph_session", "reuse_graph_session"}:
         return str(state.session_id or "")
-    template = str(session_policy.get("session_id_template") or "gsess:{graph_run_id}:{node_id}:{dispatch_seq}")
+    template = str(session_policy.get("session_id_template") or "gsess-{graph_run_id}-{node_id}-{dispatch_seq}")
     values = {
         "graph_run_id": safe_id(state.graph_run_id),
         "raw_graph_run_id": state.graph_run_id,
@@ -1287,8 +1353,8 @@ def _node_session_id(
     try:
         rendered = template.format(**values)
     except Exception:
-        rendered = f"gsess:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(dispatch_seq or 1)}"
-    return str(rendered or "").strip() or f"gsess:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(dispatch_seq or 1)}"
+        rendered = f"gsess-{safe_id(state.graph_run_id)}-{safe_id(node_id)}-{int(dispatch_seq or 1)}"
+    return safe_id(str(rendered or "").strip(), limit=180) or f"gsess-{safe_id(state.graph_run_id)}-{safe_id(node_id)}-{int(dispatch_seq or 1)}"
 
 
 def _dedupe_edge_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1,0 +1,18 @@
+# Keep source files normalized to LF across Windows, macOS, and Linux.
+* text=auto eol=lf
+
+# Windows command scripts conventionally use CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets should never be line-ending normalized.
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.png binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.zip binary

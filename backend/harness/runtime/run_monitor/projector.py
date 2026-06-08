@@ -86,7 +86,11 @@ class RuntimeMonitorProjector:
         kind = self._kind_from_route(route)
         graph_monitor = self._graph_monitor(graph_run_id, graph_harness_config_id) if kind == "task_graph" and include_graph_runtime else None
         graph_status = self._graph_status(graph_monitor, graph_id=graph_id, graph_run_id=graph_run_id) if kind == "task_graph" else None
-        graph_runtime_active = _graph_monitor_has_active_runtime(graph_monitor) if include_graph_runtime else kind == "task_graph"
+        graph_runtime_active = (
+            kind == "task_graph"
+            and graph_monitor is not None
+            and _graph_monitor_has_active_runtime(graph_monitor)
+        )
         stale = control_state != "paused" and status in RUNNING_TASK_RUN_STATUSES | {"waiting_executor"} and (
             not last_activity_at or last_activity_age_seconds > self.freshness_seconds
         )
@@ -931,6 +935,13 @@ class RuntimeMonitorProjector:
         return not self._is_internal_child_run(task_run)
 
     def _is_global_live_item(self, item: dict[str, Any]) -> bool:
+        if str(item.get("kind") or "").strip() == "task_graph":
+            return (
+                str(item.get("activity_state") or "").strip() == "running"
+                and item.get("is_running") is True
+                and item.get("stale") is not True
+                and str(item.get("lifecycle") or "").strip() != "stale"
+            )
         return activity_is_monitor_visible(item)
 
     def _display_title(self, task_run: Any, diagnostics: dict[str, Any], *, lifecycle: str) -> str:
