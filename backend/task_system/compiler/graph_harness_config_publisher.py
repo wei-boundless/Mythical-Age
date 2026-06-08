@@ -18,6 +18,7 @@ from harness.graph.language import (
     harness_edge_semantic_role,
 )
 from harness.graph.models import GraphHarnessConfig, safe_id, stable_hash
+from task_system.compiler.graph_compiler import build_graph_compilation_unit
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 from task_system.graphs.graph_module_expansion import graph_module_expansion_plan_payloads
@@ -98,6 +99,53 @@ def build_graph_harness_config_from_graph(
         resource_nodes=resource_nodes,
     )
     _raise_on_protocol_alignment_errors(protocol_index.get("issues") or [])
+    permissions = dict(graph_runtime_policy.get("permissions") or graph_metadata.get("permissions") or {})
+    tools = dict(graph_runtime_policy.get("tools") or graph_metadata.get("tools") or {})
+    control_payload = {
+        "start_node_ids": list(projection["start_node_ids"]),
+        "terminal_node_ids": list(projection["terminal_node_ids"]),
+        "scheduling_policy": {
+            "mode": str(graph_runtime_policy.get("scheduling_mode") or "topology"),
+            "max_active_nodes": int(graph_runtime_policy.get("max_active_nodes") or 1),
+        },
+        "max_active_nodes": int(graph_runtime_policy.get("max_active_nodes") or 1),
+        "completion_policy": _policy_dict(graph_runtime_policy.get("completion_policy")),
+        "failure_policy": _policy_dict(graph_runtime_policy.get("failure_policy")),
+        "retry_policy": _policy_dict(graph_runtime_policy.get("retry_policy")),
+        "checkpoint_policy": _policy_dict(graph_runtime_policy.get("checkpoint_policy")),
+        "resume_policy": {"mode": "config_id_locked"},
+        "human_gate_policy": _policy_dict(graph_metadata.get("human_gate_policy")),
+        "batch_policy": {"enabled": bool(split_plans), "split_plans": split_plans},
+        "temporal_edges": _list_dicts(layered.get("temporal_edges")),
+        "revision_edges": _list_dicts(layered.get("revision_edges")),
+        "communication_protocol_id": str(
+            getattr(graph, "default_protocol_id", "") or graph_metadata.get("protocol_id") or ""
+        ),
+        "handoff_policy": str(graph_metadata.get("handoff_policy") or "handoff"),
+        "merge_policy": str(graph_runtime_policy.get("merge_policy") or graph_metadata.get("output_merge_policy") or ""),
+    }
+    compilation_unit = build_graph_compilation_unit(
+        graph_id=graph_id,
+        graph_title=str(getattr(graph, "title", "") or graph_id),
+        nodes=nodes,
+        edges=edges,
+        resource_nodes=resource_nodes,
+        environment=environment,
+        permissions=permissions,
+        tools=tools,
+        control=control_payload,
+        protocol_index=protocol_index,
+        graph_metadata=graph_metadata,
+        graph_runtime_policy=graph_runtime_policy,
+        graph_context_policy=graph_context_policy,
+    )
+    control_payload["graph_binding"] = dict(compilation_unit.graph_binding_contract)
+    control_payload["node_session_default"] = {"mode": "per_node_run_session", "authority": "task_system.graph_node_session_default"}
+    environment = {
+        **dict(environment or {}),
+        "graph_binding": dict(compilation_unit.graph_binding_contract),
+        "node_session_default": {"mode": "per_node_run_session", "authority": "task_system.graph_node_session_default"},
+    }
     issues = [
         *[dict(item) for item in list(getattr(graph, "to_dict", lambda: {})().get("issues") or []) if isinstance(item, dict)],
         *[dict(item) for item in list(layered.get("issues") or []) if isinstance(item, dict)],
@@ -110,29 +158,7 @@ def build_graph_harness_config_from_graph(
         "publish_version": publish_version,
         "task_environment_id": task_environment_id,
         "root_task_ref": str(getattr(graph, "graph_contract_id", "") or graph_id),
-        "control": {
-            "start_node_ids": list(projection["start_node_ids"]),
-            "terminal_node_ids": list(projection["terminal_node_ids"]),
-            "scheduling_policy": {
-                "mode": str(graph_runtime_policy.get("scheduling_mode") or "topology"),
-                "max_active_nodes": int(graph_runtime_policy.get("max_active_nodes") or 1),
-            },
-            "max_active_nodes": int(graph_runtime_policy.get("max_active_nodes") or 1),
-            "completion_policy": _policy_dict(graph_runtime_policy.get("completion_policy")),
-            "failure_policy": _policy_dict(graph_runtime_policy.get("failure_policy")),
-            "retry_policy": _policy_dict(graph_runtime_policy.get("retry_policy")),
-            "checkpoint_policy": _policy_dict(graph_runtime_policy.get("checkpoint_policy")),
-            "resume_policy": {"mode": "config_id_locked"},
-            "human_gate_policy": _policy_dict(graph_metadata.get("human_gate_policy")),
-            "batch_policy": {"enabled": bool(split_plans), "split_plans": split_plans},
-            "temporal_edges": _list_dicts(layered.get("temporal_edges")),
-            "revision_edges": _list_dicts(layered.get("revision_edges")),
-            "communication_protocol_id": str(
-                getattr(graph, "default_protocol_id", "") or graph_metadata.get("protocol_id") or ""
-            ),
-            "handoff_policy": str(graph_metadata.get("handoff_policy") or "handoff"),
-            "merge_policy": str(graph_runtime_policy.get("merge_policy") or graph_metadata.get("output_merge_policy") or ""),
-        },
+        "control": control_payload,
         "nodes": nodes,
         "edges": edges,
         "loop_frames": _normalize_loop_frames(_list_dicts(layered.get("loop_frames")) + _list_dicts(projection.get("loop_frames"))),
@@ -150,8 +176,8 @@ def build_graph_harness_config_from_graph(
         "artifacts": {
             "context_edges": artifact_context_edges,
         },
-        "permissions": dict(graph_runtime_policy.get("permissions") or graph_metadata.get("permissions") or {}),
-        "tools": dict(graph_runtime_policy.get("tools") or graph_metadata.get("tools") or {}),
+        "permissions": permissions,
+        "tools": tools,
         "agents": {
             "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or "agent:0"),
             "agent_group_id": str(graph_runtime_policy.get("agent_group_id") or graph_metadata.get("agent_group_id") or ""),
@@ -165,6 +191,16 @@ def build_graph_harness_config_from_graph(
             "protocol_index_version": "graph_protocol_index.v1",
             "node_protocol_index": dict(protocol_index.get("node_protocol_index") or {}),
             "edge_protocol_index": dict(protocol_index.get("edge_protocol_index") or {}),
+            "graph_compilation_unit": compilation_unit.to_dict(),
+            "compile_report": compilation_unit.compile_report.to_dict(),
+            "node_contract_index": dict(compilation_unit.node_contract_index),
+            "resource_contract_index": dict(compilation_unit.resource_contract_index),
+            "edge_contract_index": dict(compilation_unit.edge_contract_index),
+            "configurator_write_contract": dict(compilation_unit.configurator_write_contract),
+            "system_node_contract_index": dict(compilation_unit.system_node_contract_index),
+            "maintenance_contract": dict(compilation_unit.maintenance_contract),
+            "graph_binding_contract": dict(compilation_unit.graph_binding_contract),
+            "deployment_package": dict(compilation_unit.deployment_package),
             "protocol_alignment": {
                 "status": "valid",
                 "issue_count": len(list(protocol_index.get("issues") or [])),

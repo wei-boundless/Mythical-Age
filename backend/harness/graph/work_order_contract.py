@@ -93,12 +93,14 @@ def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
     task_environment_id = str(
-        getattr(graph_config, "task_environment_id", "")
-        or _graph_slot_task_environment_id(graph_slot)
+        _graph_slot_task_environment_id(graph_slot)
+        or getattr(graph_config, "task_environment_id", "")
         or ""
     )
     runtime_profile = {
         "task_environment_id": task_environment_id,
+        "node_session_id": str(getattr(work_order, "node_session_id", "") or ""),
+        "node_session_policy": dict(getattr(work_order, "node_session_policy", {}) or node_contract.get("session_policy") or {}),
         "model_requirement": dict(node_contract.get("model_requirement") or {}),
         "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
         "completion_profile": dict(node_contract.get("completion_profile") or {}),
@@ -120,6 +122,8 @@ def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str
     return {
         "task_id": work_order.task_ref,
         "task_environment_id": task_environment_id,
+        "node_session_id": str(getattr(work_order, "node_session_id", "") or ""),
+        "node_session_policy": dict(getattr(work_order, "node_session_policy", {}) or node_contract.get("session_policy") or {}),
         "runtime_profile": runtime_profile,
         "prompt_contract": dict(node_contract.get("prompt_contract") or {}),
         "allowed_operations": list(_graph_node_allowed_operations(work_order=work_order, node_contract=node_contract)),

@@ -282,6 +282,15 @@ def _contract_index(graph_config: GraphHarnessConfig) -> dict[str, Any]:
     return {
         "node_protocol_index": dict(contracts.get("node_protocol_index") or {}),
         "edge_protocol_index": dict(contracts.get("edge_protocol_index") or {}),
+        "node_contract_index": dict(contracts.get("node_contract_index") or {}),
+        "resource_contract_index": dict(contracts.get("resource_contract_index") or {}),
+        "edge_contract_index": dict(contracts.get("edge_contract_index") or {}),
+        "compile_report": dict(contracts.get("compile_report") or {}),
+        "deployment_package": dict(contracts.get("deployment_package") or {}),
+        "graph_binding_contract": dict(contracts.get("graph_binding_contract") or {}),
+        "maintenance_contract": dict(contracts.get("maintenance_contract") or {}),
+        "system_node_contract_index": dict(contracts.get("system_node_contract_index") or {}),
+        "configurator_write_contract": dict(contracts.get("configurator_write_contract") or {}),
         "node_contracts": list(contracts.get("node_contracts") or []),
         "edge_contracts": list(contracts.get("edge_contracts") or []),
         "runtime_contracts": list(contracts.get("runtime_contracts") or []),
@@ -348,19 +357,27 @@ def _graph_runtime_scope(
     diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
+    binding_contract = dict(dict(graph_config.contracts or {}).get("graph_binding_contract") or dict(graph_config.control or {}).get("graph_binding") or environment.get("graph_binding") or {})
     initial_runtime_scope = dict(initial_inputs.get("runtime_scope") or {})
     diagnostic_runtime_scope = dict(diagnostics.get("runtime_scope") or {})
+    task_environment_id = _first_scope_value(
+        graph_config.task_environment_id,
+        binding_contract.get("task_environment_id"),
+        environment.get("task_environment_id"),
+        environment.get("environment_id"),
+    )
     scope = {
         **dict(environment.get("runtime_scope") or {}),
         **diagnostic_runtime_scope,
         **initial_runtime_scope,
-        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "task_environment_id": task_environment_id,
         "graph_id": str(graph_config.graph_id or ""),
         "graph_run_id": str(graph_run_id or ""),
         "task_run_id": str(task_run_id or ""),
     }
     project_id = _first_scope_value(
         scope.get("project_id"),
+        binding_contract.get("project_id"),
         diagnostics.get("project_id"),
         initial_inputs.get("project_id"),
         initial_inputs.get("project_ref"),
@@ -373,6 +390,8 @@ def _graph_runtime_scope(
     )
     if project_id:
         scope["project_id"] = project_id
+        scope["workspace_view"] = str(scope.get("workspace_view") or binding_contract.get("workspace_view") or "project").strip() or "project"
+        scope["graph_binding_mode"] = str(binding_contract.get("binding_mode") or "project_scoped")
         scope.setdefault("scope_source", "harness.graph_runtime.explicit_project_scope")
     elif scope_id:
         scope["scope_id"] = scope_id

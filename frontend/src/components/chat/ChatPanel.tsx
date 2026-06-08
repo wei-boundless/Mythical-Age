@@ -52,6 +52,18 @@ export function ChatPanel() {
   const currentSessionActive = currentSessionReceivingStream || currentTaskIsRunning;
   const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionActive);
   const messageRenderKeys = useMemo(() => chatMessageRenderKeys(messages), [messages]);
+  const liveAssistantMessageId = useMemo(() => {
+    if (!currentSessionReceivingStream) {
+      return "";
+    }
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === "assistant") {
+        return message.id;
+      }
+    }
+    return "";
+  }, [currentSessionReceivingStream, messages]);
   const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
   const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
   const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
@@ -141,6 +153,7 @@ export function ChatPanel() {
               runtimeAttachments={message.runtimeAttachments}
               runtimeProgress={message.runtimeProgress}
               stageStatus={message.stageStatus}
+              streamingContent={message.id === liveAssistantMessageId}
               toolCalls={message.toolCalls}
             />
           ))}

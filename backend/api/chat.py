@@ -491,9 +491,6 @@ def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
 
 def _status_for_public_event(event_type: str, data: dict[str, Any] | None = None) -> str:
     if event_type == "done":
-        payload = dict(data or {})
-        if str(payload.get("terminal_reason") or "").strip() == "task_executor_scheduled":
-            return "waiting"
         return "completed"
     if event_type == "error":
         return "failed"

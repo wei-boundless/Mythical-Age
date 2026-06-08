@@ -1,6 +1,50 @@
 from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
+import harness.entrypoint.runtime_facade as runtime_facade_module
+
+
+class _BlockedRuntimeAssembly:
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": "blocked",
+            "diagnostics": {"blocked_runtime": True},
+            "control_capabilities": {},
+        }
+
+
+def test_blocked_runtime_commits_visible_fail_closed_message(monkeypatch) -> None:
+    runtime = build_harness_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(content="不应调用模型。")
+    )
+    monkeypatch.setattr(
+        runtime_facade_module,
+        "assemble_runtime",
+        lambda **_kwargs: _BlockedRuntimeAssembly(),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-blocked-runtime",
+                message="测试被阻断的运行时。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    messages = runtime.session_manager.load_session("session-blocked-runtime")
+    api_messages = runtime.session_manager.load_session_for_api("session-blocked-runtime")
+
+    assert any(event.get("type") == "error" and event.get("code") == "blocked_runtime" for event in events)
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
+    assert "当前运行环境未能完成装配" in messages[-1]["content"]
+    assert api_messages[-1]["role"] == "assistant"
+    assert api_messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
+    assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-blocked-runtime") is None
 
 def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() -> None:
     runtime = build_harness_runtime(

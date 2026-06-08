@@ -26,6 +26,8 @@ from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
+from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
+from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope_manifest
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
 from .prompt_segment_plan import build_prompt_segment_plan
@@ -781,7 +783,17 @@ class RuntimeCompiler:
                 "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
             },
         )
-        schema = task_execution_action_schema()
+        action_schema_manifest = build_action_schema_manifest(
+            invocation_kind="task_execution",
+            schema=task_execution_action_schema(),
+            source_ref="task_execution_action_schema",
+        )
+        artifact_scope_manifest = build_artifact_scope_manifest(
+            invocation_kind="task_execution",
+            sandbox_execution_scope=sandbox_execution_scope,
+            source_ref="task_execution_artifact_write_scope",
+        )
+        schema = dict(action_schema_manifest.schema)
         task_prompt_contract = _task_prompt_contract_from_runtime(
             task_run=task_run,
             contract=contract,
@@ -848,7 +860,7 @@ class RuntimeCompiler:
         )
         personality_instruction = _personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = _agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
-        action_schema_payload = {"schema": schema}
+        action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
         task_contract_payload = {
@@ -865,7 +877,7 @@ class RuntimeCompiler:
             invocation_kind="task_execution",
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
         )
-        artifact_execution_scope_payload = {"artifact_execution_scope": sandbox_execution_scope.to_model_visible_payload()}
+        artifact_execution_scope_payload = artifact_scope_manifest.to_model_visible_payload()
         environment_stable_payload = {
             "task_environment": _environment_model_visible_payload(
                 environment_payload,
@@ -922,7 +934,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_packet_payload_content("Task execution action schema", action_schema_payload),
                     kind="action_schema_static",
-                    source_ref="task_execution_action_schema",
+                    source_ref=action_schema_manifest.source_ref,
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -979,7 +991,7 @@ class RuntimeCompiler:
                     role="system",
                     content=_packet_payload_content("Task execution artifact write scope", artifact_execution_scope_payload),
                     kind="artifact_scope_stable",
-                    source_ref="task_execution_artifact_write_scope",
+                    source_ref=artifact_scope_manifest.source_ref,
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1149,6 +1161,8 @@ class RuntimeCompiler:
             dynamic_context=dynamic_context,
         )
         _attach_project_instruction_manifest(prompt_manifest, project_instruction_bundle)
+        action_schema_manifest_payload = _attach_action_schema_manifest(prompt_manifest, action_schema_manifest)
+        artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
@@ -1214,6 +1228,8 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             prompt_composition_manifest=prompt_composition_manifest,
+            action_schema_manifest=action_schema_manifest_payload,
+            artifact_scope_manifest=artifact_scope_manifest_payload,
             tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
@@ -1226,6 +1242,8 @@ class RuntimeCompiler:
             diagnostics={
                 "prompt_manifest": prompt_manifest,
                 "segment_plan": segment_plan.to_dict(),
+                "action_schema_manifest": action_schema_manifest_payload,
+                "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "model_input_authority": "runtime_invocation_packet.model_messages",
                 "artifact_scope": {
@@ -2647,6 +2665,24 @@ def _attach_model_message_metrics(
         and _valid_message_index(segment.get("model_message_index"), message_chars)
     )
     prompt_manifest["token_estimate"] = token_estimate
+
+
+def _attach_action_schema_manifest(
+    prompt_manifest: dict[str, Any],
+    action_schema_manifest: ActionSchemaManifest,
+) -> dict[str, Any]:
+    payload = action_schema_manifest.to_dict()
+    prompt_manifest["action_schema_manifest"] = payload
+    return payload
+
+
+def _attach_artifact_scope_manifest(
+    prompt_manifest: dict[str, Any],
+    artifact_scope_manifest: ArtifactScopeManifest,
+) -> dict[str, Any]:
+    payload = artifact_scope_manifest.to_dict()
+    prompt_manifest["artifact_scope_manifest"] = payload
+    return payload
 
 
 def _attach_tool_catalog_manifest(

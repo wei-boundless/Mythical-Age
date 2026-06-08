@@ -381,6 +381,8 @@ class GraphNodeWorkOrder:
     config_snapshot_id: str = ""
     config_snapshot_hash: str = ""
     executor_type: str = "agent"
+    node_session_id: str = ""
+    node_session_policy: dict[str, Any] = field(default_factory=dict)
     agent_id: str = ""
     agent_profile_id: str = ""
     message: str = ""
@@ -448,6 +450,8 @@ class GraphNodeWorkOrder:
             config_snapshot_hash=str(payload.get("config_snapshot_hash") or payload.get("config_hash") or ""),
             task_ref=str(payload.get("task_ref") or ""),
             executor_type=str(payload.get("executor_type") or "agent"),
+            node_session_id=str(payload.get("node_session_id") or ""),
+            node_session_policy=dict(payload.get("node_session_policy") or {}),
             agent_id=str(payload.get("agent_id") or ""),
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
             message=str(payload.get("message") or ""),

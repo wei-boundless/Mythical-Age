@@ -7,6 +7,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
 
+from .edge_contracts import edge_contract_or_projection
 from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .flow_packet import flow_packet_inbound_projection
 from .loop_engine import LoopEngine
@@ -62,6 +63,14 @@ class GraphContextMaterializer:
         structure_version = state.structure_version or "graph_structure.v1"
         config_snapshot_id = graph_config.config_id
         config_snapshot_hash = graph_config.content_hash
+        compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
+        node_session_policy = dict(compiled_node_contract.get("session_policy") or {})
+        node_session_id = _node_session_id(
+            state=state,
+            node_id=node_id,
+            dispatch_seq=dispatch_seq,
+            session_policy=node_session_policy,
+        )
         return GraphNodeWorkOrder(
             work_order_id=work_order_id,
             work_kind=_graph_work_kind(executor_type),
@@ -75,6 +84,8 @@ class GraphContextMaterializer:
             config_snapshot_hash=config_snapshot_hash,
             task_ref=str(node.get("task_ref") or f"task_graph.node.{graph_config.graph_id}.{node_id}"),
             executor_type=executor_type,
+            node_session_id=node_session_id,
+            node_session_policy=node_session_policy,
             node_id=node_id,
             agent_id=str(node.get("agent_id") or ""),
             agent_profile_id=str(node.get("agent_profile_id") or ""),
@@ -91,6 +102,8 @@ class GraphContextMaterializer:
                 "config_snapshot_id": config_snapshot_id,
                 "config_snapshot_hash": config_snapshot_hash,
                 "runtime_scope": _runtime_scope_from_state(state),
+                "node_session_id": node_session_id,
+                "node_session_policy": node_session_policy,
                 "graph_clock_seq": state.event_cursor + 1,
                 "completed_node_ids": list(state.completed_node_ids),
                 "failed_node_ids": list(state.failed_node_ids),
@@ -121,6 +134,8 @@ class GraphContextMaterializer:
                 "config_snapshot_id": config_snapshot_id,
                 "config_snapshot_hash": config_snapshot_hash,
                 "runtime_scope": _runtime_scope_from_state(state),
+                "node_session_id": node_session_id,
+                "node_session_policy": node_session_policy,
                 "graph_clock_seq": state.event_cursor + 1,
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
@@ -175,7 +190,7 @@ class GraphContextMaterializer:
                 "inbound_flow_packets": _inbound_flow_packets(slot_inbound_context),
                 "inbound_edge_contexts": slot_inbound_context,
                 "outbound_edge_policies": [
-                    _outbound_edge_policy(dict(edge))
+                    _outbound_edge_policy(graph_config=graph_config, edge=dict(edge))
                     for edge in build_outbound_flow_edges(graph_config, node_id)
                 ],
                 "authority": "harness.graph.edge_contract_projection",
@@ -202,7 +217,7 @@ class GraphContextMaterializer:
                 "output_policy": dict(dict(output_contract.get("contract_bindings") or {}).get("output") or {}),
                 "artifact_targets": _output_artifact_targets(input_package),
                 "formal_memory_targets": [],
-                "environment_projection": _output_environment_projection(graph_config),
+                "environment_projection": _output_environment_projection(graph_config, input_package=input_package),
                 "expected_result_contract": dict(input_package.get("expected_result_contract") or {}),
                 "authority": "harness.graph.output_contract_projection",
             },
@@ -253,6 +268,8 @@ class GraphContextMaterializer:
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
+        compiled_node_contract = _compiled_node_contract(graph_config=graph_config, node_id=node_id)
+        task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
         initial_inputs = dict(state.initial_inputs or {})
         initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
@@ -270,19 +287,20 @@ class GraphContextMaterializer:
                 "agent_profile_id": str(node.get("agent_profile_id") or ""),
             },
             "prompt_contract": prompt_contract,
-            "task_environment_id": str(graph_config.task_environment_id or ""),
+            "compiled_node_contract": compiled_node_contract,
+            "task_environment_id": task_environment_id,
             "task_environment": dict(graph_config.environment or {}),
             "runtime_scope": _runtime_scope_from_state(state),
-            "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node),
+            "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract),
             "agent_instruction": _agent_instruction(prompt_contract=prompt_contract, node=node),
             "input_contract": dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("schema", {}),
             "output_contract": dict(node.get("contracts") or {}),
             "initial_inputs": initial_inputs,
             "loop_context": loop_context,
             "inbound_context": inbound_context,
-            "memory_view": _memory_view_request(graph_config=graph_config, node=node),
-            "artifact_view": _artifact_view_request(graph_config=graph_config, node=node),
-            "file_view": _file_view_request(graph_config=graph_config, node=node),
+            "memory_view": _memory_view_request(graph_config=graph_config, node=node, task_environment_id=task_environment_id),
+            "artifact_view": _artifact_view_request(graph_config=graph_config, node=node, task_environment_id=task_environment_id),
+            "file_view": _file_view_request(graph_config=graph_config, node=node, task_environment_id=task_environment_id),
             "environment_refs": environment_refs,
             "artifact_space_ref": str(environment_refs.get("artifact_space_ref") or ""),
             "memory_space_ref": str(environment_refs.get("memory_space_ref") or ""),
@@ -290,8 +308,8 @@ class GraphContextMaterializer:
             "artifact_repository_targets": [dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)],
             "memory_repository_targets": [dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)],
             "issue_view": _issue_view_request(graph_config=graph_config, node=node),
-            "permission_summary": dict(node.get("permissions") or graph_config.permissions or {}),
-            "tool_capability_table": dict(node.get("tools") or graph_config.tools or {}),
+            "permission_summary": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or graph_config.permissions or {}),
+            "tool_capability_table": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or graph_config.tools or {}),
             "hidden_control_refs": {
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
@@ -300,7 +318,10 @@ class GraphContextMaterializer:
                 "runtime_scope": _runtime_scope_from_state(state),
                 "work_order_source": "GraphLoop.dispatch_ready",
             },
-            "expected_result_contract": dict(node.get("contracts") or {}),
+            "expected_result_contract": {
+                **dict(node.get("contracts") or {}),
+                **({"compiled_node_contract": compiled_node_contract} if compiled_node_contract else {}),
+            },
         }
 
     def inbound_context_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
@@ -758,7 +779,8 @@ def _node_contract_from_input_package(
 ) -> dict[str, Any]:
     runtime_profile = dict(input_package.get("runtime_profile") or {})
     node_contract = dict(input_package.get("output_contract") or {})
-    return {
+    compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
+    payload = {
         "node_identity": dict(input_package.get("node_identity") or {}),
         "agent_assembly": {
             "agent_id": str(node.get("agent_id") or ""),
@@ -779,6 +801,17 @@ def _node_contract_from_input_package(
         "acceptance_policy": dict(dict(node_contract.get("contract_bindings") or {}).get("acceptance") or {}),
         "authority": "harness.graph.node_contract_projection",
     }
+    if compiled_node_contract:
+        payload = {
+            **compiled_node_contract,
+            **payload,
+            "compiled_contract_id": str(compiled_node_contract.get("contract_id") or ""),
+            "environment_lock": dict(compiled_node_contract.get("environment_lock") or {}),
+            "project_binding": dict(compiled_node_contract.get("project_binding") or {}),
+            "session_policy": dict(compiled_node_contract.get("session_policy") or {}),
+            "authority": "harness.graph.node_contract_projection",
+        }
+    return payload
 
 
 def _inbound_flow_packets(inbound_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -823,21 +856,30 @@ def _inbound_packet_refs(inbound_context: list[dict[str, Any]]) -> list[dict[str
     return refs
 
 
-def _outbound_edge_policy(edge: dict[str, Any]) -> dict[str, Any]:
+def _outbound_edge_policy(*, graph_config: GraphHarnessConfig, edge: dict[str, Any]) -> dict[str, Any]:
+    edge_contract = edge_contract_or_projection(graph_config, edge)
+    packet = dict(edge_contract.get("packet") or {})
+    reliability = dict(edge_contract.get("reliability") or {})
+    protocol = dict(edge_contract.get("protocol") or {})
     return {
         "edge_id": str(edge.get("edge_id") or ""),
         "target_node_id": str(edge.get("target_node_id") or ""),
         "edge_type": str(edge.get("edge_type") or ""),
+        "edge_contract_id": str(edge_contract.get("contract_id") or ""),
+        "protocol_kind": str(protocol.get("kind") or ""),
         "scheduler_role": str(edge.get("scheduler_role") or ""),
         "semantic_role": str(edge.get("semantic_role") or ""),
-        "payload_contract_id": str(edge.get("payload_contract_id") or ""),
-        "packet_contract_id": _edge_packet_contract_id(edge),
-        "source_output_selector": _edge_source_output_selector(edge),
-        "target_context_key": _edge_target_context_key(edge),
-        "target_input_slot": _edge_target_input_slot(edge),
+        "payload_contract_id": str(packet.get("payload_contract_id") or edge.get("payload_contract_id") or ""),
+        "packet_contract_id": str(packet.get("packet_contract_id") or _edge_packet_contract_id(edge)),
+        "source_output_selector": str(packet.get("source_output_selector") or _edge_source_output_selector(edge)),
+        "target_context_key": str(packet.get("target_context_key") or _edge_target_context_key(edge)),
+        "target_input_slot": str(packet.get("target_input_slot") or _edge_target_input_slot(edge)),
         "projection_policy": dict(edge.get("context_filter_policy") or {}),
         "visibility_policy": dict(edge.get("visibility_policy") or {}),
-        "receipt_policy": {"ack_required": bool(edge.get("ack_required", True)), "ack_policy": str(edge.get("ack_policy") or "")},
+        "receipt_policy": {
+            "ack_required": bool(reliability.get("ack_required", edge.get("ack_required", True))),
+            "ack_policy": str(reliability.get("ack_policy") or edge.get("ack_policy") or ""),
+        },
         "authority": "harness.graph.outbound_edge_policy_projection",
     }
 
@@ -948,11 +990,11 @@ def _agent_instruction(*, prompt_contract: dict[str, Any], node: dict[str, Any])
     return f"请根据你的角色职责完成当前节点任务：{str(node.get('title') or node.get('node_id') or '未命名节点')}。"
 
 
-def _memory_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+def _memory_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any], task_environment_id: str = "") -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
     node_id = str(node.get("node_id") or "")
     return {
-        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "task_environment_id": str(task_environment_id or graph_config.task_environment_id or ""),
         "environment_memory_space": dict(environment.get("memory_space") or {}),
         "memory_space_ref": _memory_space_ref(graph_config),
         "node_memory_policy": dict(node.get("memory") or {}),
@@ -960,11 +1002,11 @@ def _memory_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, An
     }
 
 
-def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any], task_environment_id: str = "") -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
     node_id = str(node.get("node_id") or "")
     return {
-        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "task_environment_id": str(task_environment_id or graph_config.task_environment_id or ""),
         "environment_artifact_policy": dict(environment.get("artifact_policy") or {}),
         "environment_storage_space": dict(environment.get("storage_space") or {}),
         "artifact_space_ref": _artifact_space_ref(graph_config),
@@ -973,11 +1015,11 @@ def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, 
     }
 
 
-def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any], task_environment_id: str = "") -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
     node_id = str(node.get("node_id") or "")
     return {
-        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "task_environment_id": str(task_environment_id or graph_config.task_environment_id or ""),
         "environment_storage_space": dict(environment.get("storage_space") or {}),
         "file_management": dict(environment.get("file_management") or {}),
         "file_access_tables": list(environment.get("file_access_tables") or []),
@@ -1023,15 +1065,24 @@ def _output_artifact_targets(input_package: dict[str, Any]) -> list[dict[str, An
     return []
 
 
-def _output_environment_projection(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+def _output_environment_projection(graph_config: GraphHarnessConfig, *, input_package: dict[str, Any] | None = None) -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
+    compiled_node_contract = dict(dict(input_package or {}).get("compiled_node_contract") or {})
+    environment_lock = dict(compiled_node_contract.get("environment_lock") or {})
     storage = dict(environment.get("storage_space") or {})
     artifact_policy = dict(environment.get("artifact_policy") or {})
     return {
-        "task_environment_id": str(graph_config.task_environment_id or environment.get("environment_id") or ""),
+        "task_environment_id": str(
+            environment_lock.get("task_environment_id")
+            or dict(input_package or {}).get("task_environment_id")
+            or graph_config.task_environment_id
+            or environment.get("environment_id")
+            or ""
+        ),
         "environment_artifact_root": str(storage.get("artifact_root") or ""),
         "environment_storage_root": str(storage.get("environment_storage_root") or ""),
         "environment_artifact_repository": str(artifact_policy.get("artifact_root") or artifact_policy.get("artifact_repository_id") or ""),
+        "node_environment_lock": environment_lock,
         "authority": "harness.graph.output_environment_projection",
     }
 
@@ -1168,6 +1219,59 @@ def _node_protocol_entry(*, graph_config: GraphHarnessConfig, node_id: str) -> d
     return dict(index.get(str(node_id or "")) or {})
 
 
+def _compiled_node_contract(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
+    index = dict(dict(graph_config.contracts or {}).get("node_contract_index") or {})
+    return dict(index.get(str(node_id or "")) or {})
+
+
+def _node_effective_environment_id(
+    *,
+    graph_config: GraphHarnessConfig,
+    node: dict[str, Any],
+    compiled_node_contract: dict[str, Any],
+) -> str:
+    environment_lock = dict(compiled_node_contract.get("environment_lock") or {})
+    metadata = dict(node.get("metadata") or {})
+    runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
+    return str(
+        environment_lock.get("task_environment_id")
+        or environment_lock.get("environment_id")
+        or metadata.get("task_environment_id")
+        or metadata.get("environment_id")
+        or runtime_profile.get("task_environment_id")
+        or runtime_profile.get("environment_id")
+        or graph_config.task_environment_id
+        or ""
+    ).strip()
+
+
+def _node_session_id(
+    *,
+    state: GraphLoopState,
+    node_id: str,
+    dispatch_seq: int,
+    session_policy: dict[str, Any],
+) -> str:
+    mode = str(session_policy.get("mode") or "per_node_run_session").strip()
+    if mode in {"root_graph_session", "reuse_graph_session"}:
+        return str(state.session_id or "")
+    template = str(session_policy.get("session_id_template") or "gsess:{graph_run_id}:{node_id}:{dispatch_seq}")
+    values = {
+        "graph_run_id": safe_id(state.graph_run_id),
+        "raw_graph_run_id": state.graph_run_id,
+        "node_id": safe_id(node_id),
+        "raw_node_id": node_id,
+        "dispatch_seq": int(dispatch_seq or 1),
+        "root_session_id": safe_id(state.session_id),
+        "raw_root_session_id": state.session_id,
+    }
+    try:
+        rendered = template.format(**values)
+    except Exception:
+        rendered = f"gsess:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(dispatch_seq or 1)}"
+    return str(rendered or "").strip() or f"gsess:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(dispatch_seq or 1)}"
+
+
 def _dedupe_edge_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1201,16 +1305,22 @@ def _graph_work_kind(executor_type: str) -> str:
     return "agent"
 
 
-def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, Any], compiled_node_contract: dict[str, Any] | None = None) -> dict[str, Any]:
     metadata = dict(node.get("metadata") or {})
     runtime_profile = dict(metadata.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(metadata.get("runtime") or {})
+    compiled = dict(compiled_node_contract or {})
+    environment_lock = dict(compiled.get("environment_lock") or {})
+    task_environment_id = str(environment_lock.get("task_environment_id") or graph_config.task_environment_id or "")
     return {
         **runtime_profile,
-        "task_environment_id": str(graph_config.task_environment_id or ""),
-        "tool_policy": dict(node.get("tools") or graph_config.tools or {}),
-        "permission_policy": dict(node.get("permissions") or graph_config.permissions or {}),
+        "task_environment_id": task_environment_id,
+        "node_environment_lock": environment_lock,
+        "node_session_policy": dict(compiled.get("session_policy") or {}),
+        "graph_project_binding": dict(compiled.get("project_binding") or {}),
+        "tool_policy": dict(compiled.get("tool_contract") or node.get("tools") or graph_config.tools or {}),
+        "permission_policy": dict(compiled.get("permission_ceiling") or node.get("permissions") or graph_config.permissions or {}),
         "runtime_policy": {
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),

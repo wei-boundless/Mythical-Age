@@ -65,6 +65,8 @@ def work_order_summary(order: GraphNodeWorkOrder, *, work_order_ref: str = "") -
         "config_id": order.config_id,
         "config_hash": order.config_hash,
         "executor_type": order.executor_type,
+        "node_session_id": order.node_session_id,
+        "node_session_policy": dict(order.node_session_policy or {}),
         "agent_id": order.agent_id,
         "agent_profile_id": order.agent_profile_id,
         "idempotency_key": order.idempotency_key,

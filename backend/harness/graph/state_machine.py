@@ -44,21 +44,12 @@ class GraphStateMachine:
 
     def initial_edge_states(self, graph_config: GraphHarnessConfig) -> dict[str, dict[str, Any]]:
         edge_protocol_index = dict(dict(graph_config.contracts or {}).get("edge_protocol_index") or {})
+        edge_contract_index = dict(dict(graph_config.contracts or {}).get("edge_contract_index") or {})
         return {
-            str(edge.get("edge_id") or ""): _drop_empty(
-                {
-                    "edge_id": str(edge.get("edge_id") or ""),
-                    "source_node_id": str(edge.get("source_node_id") or ""),
-                    "target_node_id": str(edge.get("target_node_id") or ""),
-                    "status": "pending",
-                    "ack_required": bool(
-                        dict(edge_protocol_index.get(str(edge.get("edge_id") or "")) or edge).get("ack_required", True)
-                    ),
-                    "ack_policy": str(dict(edge_protocol_index.get(str(edge.get("edge_id") or "")) or edge).get("ack_policy") or ""),
-                    "protocol_ref": str(edge.get("edge_id") or "")
-                    if str(edge.get("edge_id") or "") in edge_protocol_index
-                    else "",
-                }
+            str(edge.get("edge_id") or ""): _initial_edge_state(
+                edge=edge,
+                edge_protocol_index=edge_protocol_index,
+                edge_contract_index=edge_contract_index,
             )
             for edge in graph_config.edges
             if str(edge.get("edge_id") or "")
@@ -206,3 +197,31 @@ def _active_loop_exit_node_ids(*, graph_config: GraphHarnessConfig, loop_state: 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _initial_edge_state(
+    *,
+    edge: dict[str, Any],
+    edge_protocol_index: dict[str, Any],
+    edge_contract_index: dict[str, Any],
+) -> dict[str, Any]:
+    edge_id = str(edge.get("edge_id") or "")
+    contract = dict(edge_contract_index.get(edge_id) or {})
+    reliability = dict(contract.get("reliability") or {})
+    protocol = dict(contract.get("protocol") or {})
+    legacy_projection = dict(contract.get("legacy_protocol_projection") or edge_protocol_index.get(edge_id) or edge)
+    return _drop_empty(
+        {
+            "edge_id": edge_id,
+            "source_node_id": str(edge.get("source_node_id") or ""),
+            "target_node_id": str(edge.get("target_node_id") or ""),
+            "status": "pending",
+            "ack_required": bool(reliability.get("ack_required", legacy_projection.get("ack_required", True))),
+            "ack_policy": str(reliability.get("ack_policy") or legacy_projection.get("ack_policy") or ""),
+            "protocol_kind": str(protocol.get("kind") or ""),
+            "protocol_ref": str(contract.get("contract_id") or edge_id)
+            if contract or edge_id in edge_protocol_index
+            else "",
+            "contract_authority": str(contract.get("authority") or ""),
+        }
+    )

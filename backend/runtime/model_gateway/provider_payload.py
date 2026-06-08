@@ -70,6 +70,7 @@ def build_provider_payload_manifest(
     tools: tuple[dict[str, Any], ...],
     segment_bindings: tuple[Any, ...],
     request_params: dict[str, Any] | None = None,
+    tool_catalog_manifest: dict[str, Any] | None = None,
 ) -> ProviderPayloadManifest:
     segments: list[ProviderPayloadSegment] = []
     covered_message_indexes: set[int] = set()
@@ -129,7 +130,12 @@ def build_provider_payload_manifest(
         )
     if tools:
         ordinal += 1
-        profile = _tool_schema_cache_profile(messages=messages, tools=tools, segments=tuple(segments))
+        profile = _tool_schema_cache_profile(
+            messages=messages,
+            tools=tools,
+            segments=tuple(segments),
+            tool_catalog_manifest=dict(tool_catalog_manifest or {}),
+        )
         payload = canonical_json({"tools": [dict(item) for item in tools]})
         segments.append(
             ProviderPayloadSegment(
@@ -194,6 +200,7 @@ def build_provider_payload_manifest(
         diagnostics={
             "message_segment_count": sum(1 for segment in ordered_segments if segment.transport_location == "messages"),
             "tool_segment_count": sum(1 for segment in ordered_segments if segment.transport_location == "tools"),
+            "tool_catalog_manifest_ref": str(dict(tool_catalog_manifest or {}).get("manifest_id") or ""),
             "authority": "runtime.model_gateway.provider_payload.builder",
         },
     )
@@ -204,6 +211,7 @@ def _tool_schema_cache_profile(
     messages: tuple[dict[str, Any], ...],
     tools: tuple[dict[str, Any], ...],
     segments: tuple[ProviderPayloadSegment, ...],
+    tool_catalog_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tool_index = next((segment for segment in segments if segment.kind == "tool_index_stable"), None)
     if tool_index is None:
@@ -212,13 +220,30 @@ def _tool_schema_cache_profile(
     if message_index < 0 or message_index >= len(messages):
         return _tool_schema_never_cache("stable_tool_index_message_missing")
     payload = _parse_titled_json_payload(str(dict(messages[message_index]).get("content") or ""))
-    expected = _tool_index_fingerprint(payload)
+    manifest_payload = dict(tool_catalog_manifest or {})
+    manifest_ref = str(manifest_payload.get("manifest_id") or "")
+    expected = _tool_catalog_manifest_fingerprint(manifest_payload) if manifest_payload else _tool_index_fingerprint(payload)
+    message_expected = _tool_index_fingerprint(payload)
+    if manifest_payload and message_expected.get("tools") and message_expected != expected:
+        return _tool_schema_never_cache(
+            "stable_tool_index_does_not_match_tool_catalog_manifest",
+            expected_tool_names=list(expected.get("tool_names") or []),
+            message_tool_names=list(message_expected.get("tool_names") or []),
+            tool_catalog_manifest_ref=manifest_ref,
+            stable_tool_index_segment_id=tool_index.segment_id,
+        )
     actual = _provider_tool_schema_fingerprint(tools)
     if expected != actual:
+        reason = (
+            "provider_tools_do_not_match_tool_catalog_manifest"
+            if manifest_payload
+            else "provider_tools_do_not_match_tool_index"
+        )
         return _tool_schema_never_cache(
-            "provider_tools_do_not_match_tool_index",
+            reason,
             expected_tool_names=list(expected.get("tool_names") or []),
             actual_tool_names=list(actual.get("tool_names") or []),
+            tool_catalog_manifest_ref=manifest_ref,
             stable_tool_index_segment_id=tool_index.segment_id,
         )
     if tool_index.cache_role not in {"cacheable_prefix", "session_stable"}:
@@ -232,8 +257,18 @@ def _tool_schema_cache_profile(
         "cache_role": tool_index.cache_role,
         "prefix_tier": tool_index.prefix_tier,
         "metadata": {
-            "tool_schema_cache_decision": "derived_from_stable_tool_index",
-            "cache_note": "tool_schema_cache_role_derived_from_matching_stable_tool_index",
+            "tool_schema_cache_decision": (
+                "derived_from_tool_catalog_manifest"
+                if manifest_payload
+                else "derived_from_stable_tool_index"
+            ),
+            "cache_note": (
+                "tool_schema_cache_role_derived_from_matching_tool_catalog_manifest"
+                if manifest_payload
+                else "tool_schema_cache_role_derived_from_matching_stable_tool_index"
+            ),
+            "tool_catalog_manifest_ref": manifest_ref,
+            "tool_catalog_manifest_hash": str(manifest_payload.get("tool_catalog_hash") or ""),
             "stable_tool_index_segment_id": tool_index.segment_id,
             "stable_tool_index_cache_scope": tool_index.cache_scope,
             "stable_tool_index_cache_role": tool_index.cache_role,
@@ -286,6 +321,11 @@ def _tool_index_fingerprint(payload: Any) -> dict[str, Any]:
         tools.append({"name": name, "input_schema_ref": str(item.get("input_schema_ref") or "").strip()})
     ordered = sorted(tools, key=lambda item: item["name"])
     return {"tools": ordered, "tool_names": [item["name"] for item in ordered]}
+
+
+def _tool_catalog_manifest_fingerprint(manifest: dict[str, Any]) -> dict[str, Any]:
+    available = list(dict(manifest or {}).get("model_visible_catalog") or [])
+    return _tool_index_fingerprint({"available_tools": available})
 
 
 def _provider_tool_schema_fingerprint(tools: tuple[dict[str, Any], ...]) -> dict[str, Any]:

@@ -16,6 +16,7 @@ import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment,
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
+import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
 export function ChatMessage({
   id,
@@ -29,6 +30,7 @@ export function ChatMessage({
   answerPersistPolicy,
   answerSource,
   answerLeakFlags,
+  streamingContent = false,
   retrievals,
   canEdit = false,
   onResendEdit
@@ -54,6 +56,7 @@ export function ChatMessage({
   answerSelectedSource?: string;
   answerLeakFlags?: string[];
   answerSource?: string;
+  streamingContent?: boolean;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   canEdit?: boolean;
@@ -100,12 +103,16 @@ export function ChatMessage({
   const messageDisplayContent = isUser
     ? baseDisplayContent
     : contentProjectedIntoTimeline ? "" : baseDisplayContent;
+  const naturalizedMessageDisplayContent = useNaturalizedStreamText(
+    messageDisplayContent,
+    !isUser && streamingContent && Boolean(messageDisplayContent),
+  );
   const shouldRenderContent =
     isUser
     || Boolean(image?.src)
     || imageUnavailable
-    || Boolean(messageDisplayContent.trim());
-  const copyableReplyText = !isUser && shouldRenderContent ? messageDisplayContent.trim() : "";
+    || Boolean(naturalizedMessageDisplayContent.trim());
+  const copyableReplyText = !isUser && shouldRenderContent ? naturalizedMessageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
   const submitEdit = async () => {
@@ -243,7 +250,7 @@ export function ChatMessage({
             </div>
           ) : (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {messageDisplayContent}
+              {naturalizedMessageDisplayContent}
             </ReactMarkdown>
           )}
         </div>

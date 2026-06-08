@@ -5,6 +5,7 @@ from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
+from runtime.model_gateway.model_request import ModelRequestBuilder
 
 
 def _backend_dir() -> Path:
@@ -27,6 +28,19 @@ def _tools() -> list[dict[str, object]]:
                     "path": {"type": "string", "description": "File path"},
                     "encoding": {"type": "string", "default": "utf-8"},
                 },
+            },
+        }
+    ]
+
+
+def _provider_tools() -> list[dict[str, object]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": _tools()[0]["input_schema"],
             },
         }
     ]
@@ -147,3 +161,77 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     assert stable_payload["tool_catalog_hash"] == packet.tool_catalog_manifest["tool_catalog_hash"]
     assert stable_payload["available_tools"] == packet.tool_catalog_manifest["model_visible_catalog"]
     assert dict(packet.diagnostics["prompt_manifest"])["tool_catalog_manifest"] == packet.tool_catalog_manifest
+
+
+def test_model_request_tool_schema_cache_uses_tool_catalog_manifest_metadata() -> None:
+    result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
+        session_id="session:tool-catalog-model-request",
+        task_run={"task_run_id": "taskrun:tool-catalog-model-request", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "Validate provider payload tool catalog manifest", "completion_criteria": ["manifest used"]},
+        observations=[],
+        available_tools=_tools(),
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    packet = result.packet
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:tool-catalog-manifest",
+        messages=packet.model_messages,
+        tools=_provider_tools(),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=packet.segment_plan,
+        metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
+    )
+    provider_tool_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "tools"
+    )
+
+    assert model_request.tool_catalog_manifest == packet.tool_catalog_manifest
+    assert provider_tool_segment.cache_role == "session_stable"
+    assert provider_tool_segment.prefix_tier == "task"
+    assert provider_tool_segment.metadata["tool_schema_cache_decision"] == "derived_from_tool_catalog_manifest"
+    assert provider_tool_segment.metadata["tool_catalog_manifest_ref"] == packet.tool_catalog_manifest["manifest_id"]
+
+
+def test_model_request_keeps_tool_schema_uncached_when_manifest_drifts_from_tool_index() -> None:
+    result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
+        session_id="session:tool-catalog-model-request-drift",
+        task_run={"task_run_id": "taskrun:tool-catalog-model-request-drift", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "Validate provider payload drift detection", "completion_criteria": ["drift detected"]},
+        observations=[],
+        available_tools=_tools(),
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    packet = result.packet
+    drifted_manifest = dict(packet.tool_catalog_manifest)
+    drifted_catalog = [dict(item) for item in drifted_manifest["model_visible_catalog"]]
+    drifted_catalog[0]["tool_name"] = "write_file"
+    drifted_manifest["model_visible_catalog"] = drifted_catalog
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:tool-catalog-manifest-drift",
+        messages=packet.model_messages,
+        tools=_provider_tools(),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=packet.segment_plan,
+        metadata={"tool_catalog_manifest": drifted_manifest},
+    )
+    provider_tool_segment = next(
+        segment
+        for segment in model_request.provider_payload_manifest.segments
+        if segment.transport_location == "tools"
+    )
+
+    assert provider_tool_segment.cache_role == "never_cache"
+    assert provider_tool_segment.prefix_tier == "none"
+    assert provider_tool_segment.metadata["tool_schema_cache_reason"] == "stable_tool_index_does_not_match_tool_catalog_manifest"

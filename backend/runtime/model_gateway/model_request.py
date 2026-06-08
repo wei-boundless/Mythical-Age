@@ -55,6 +55,7 @@ class ModelRequestPacket:
     provider_payload_task_prefix_hash: str = ""
     tool_catalog_hash: str = ""
     stable_tool_catalog_hash: str = ""
+    tool_catalog_manifest: dict[str, Any] = field(default_factory=dict)
     cache_sensitive_params_hash: str = ""
     cache_policy: ProviderCachePolicy = field(default_factory=lambda: ProviderCachePolicy(provider=""))
     provider_payload_manifest: ProviderPayloadManifest | None = None
@@ -66,6 +67,7 @@ class ModelRequestPacket:
         payload["messages"] = [dict(message) for message in self.messages]
         payload["tools"] = [dict(tool) for tool in self.tools]
         payload["segment_plan"] = dict(self.segment_plan)
+        payload["tool_catalog_manifest"] = dict(self.tool_catalog_manifest)
         payload["segment_bindings"] = [binding.to_dict() for binding in self.segment_bindings]
         payload["cache_policy"] = self.cache_policy.to_dict()
         payload["provider_payload_manifest"] = (
@@ -100,6 +102,8 @@ class ModelRequestBuilder:
         stable_prefix_hash = _stable_prefix_hash(bindings)
         tier_hashes = _prefix_tier_hashes(bindings)
         binding_diagnostics = _binding_diagnostics(bindings, normalized_messages)
+        metadata_payload = dict(metadata or {})
+        tool_catalog_manifest_payload = _tool_catalog_manifest_from_metadata(metadata_payload)
         canonical = canonical_json(
             {
                 "messages": list(normalized_messages),
@@ -114,7 +118,8 @@ class ModelRequestBuilder:
             messages=normalized_messages,
             tools=normalized_tools,
             segment_bindings=bindings,
-            request_params=dict(dict(metadata or {}).get("cache_relevant_params") or {}),
+            request_params=dict(metadata_payload.get("cache_relevant_params") or {}),
+            tool_catalog_manifest=tool_catalog_manifest_payload,
         )
         provider_payload_boundary = dict(provider_payload_manifest.cache_boundary or {})
         provider_payload_tiers = dict(provider_payload_boundary.get("tier_prefixes") or {})
@@ -138,6 +143,7 @@ class ModelRequestBuilder:
             provider_payload_task_prefix_hash=str(dict(provider_payload_tiers.get("task") or {}).get("provider_payload_prefix_hash") or ""),
             tool_catalog_hash=str(provider_payload_boundary.get("tool_catalog_hash") or ""),
             stable_tool_catalog_hash=str(provider_payload_boundary.get("stable_tool_catalog_hash") or ""),
+            tool_catalog_manifest=tool_catalog_manifest_payload,
             cache_sensitive_params_hash=str(provider_payload_boundary.get("cache_sensitive_params_hash") or ""),
             cache_policy=cache_policy,
             provider_payload_manifest=provider_payload_manifest,
@@ -146,10 +152,12 @@ class ModelRequestBuilder:
                 "bound_segment_count": len(bindings),
                 "provider_payload_manifest_ref": provider_payload_manifest.manifest_id,
                 "provider_payload_cache_boundary": provider_payload_boundary,
+                "tool_catalog_manifest_ref": str(tool_catalog_manifest_payload.get("manifest_id") or ""),
+                "tool_catalog_manifest_hash": str(tool_catalog_manifest_payload.get("tool_catalog_hash") or ""),
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
                 **binding_diagnostics,
                 "prefix_tier_hashes": tier_hashes,
-                **dict(metadata or {}),
+                **metadata_payload,
             },
         )
 
@@ -251,6 +259,15 @@ def _binding_diagnostics(
         "contiguous_planned_prefix_count": contiguous_prefix_count,
         "request_message_count": len(normalized_messages),
     }
+
+
+def _tool_catalog_manifest_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    direct = metadata.get("tool_catalog_manifest")
+    if isinstance(direct, dict) and direct:
+        return dict(direct)
+    prompt_manifest = dict(metadata.get("prompt_manifest") or {}) if isinstance(metadata.get("prompt_manifest"), dict) else {}
+    nested = prompt_manifest.get("tool_catalog_manifest")
+    return dict(nested) if isinstance(nested, dict) else {}
 
 
 def _cache_role(value: Any) -> str:

@@ -26,6 +26,14 @@ async def _fake_resumable_astream(_request):
     yield {"type": "done", "content": "alpha beta"}
 
 
+async def _fake_scheduled_task_handoff_astream(_request):
+    yield {
+        "type": "done",
+        "content": "任务已进入后台执行。",
+        "terminal_reason": "task_executor_scheduled",
+    }
+
+
 def _create_session(client: TestClient, title: str) -> str:
     created = client.post("/api/sessions", json={"title": title})
     assert created.status_code == 200
@@ -94,6 +102,34 @@ def test_latest_active_chat_run_returns_no_content_when_absent() -> None:
 
         assert latest.status_code == 204
         assert latest.content == b""
+
+
+def test_task_handoff_done_is_not_returned_as_active_chat_run() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        original_astream = runtime.harness_runtime.astream
+        runtime.harness_runtime.astream = _fake_scheduled_task_handoff_astream  # type: ignore[method-assign]
+        try:
+            session_id = _create_session(client, "Scheduled task stream closes")
+            run = _create_chat_run(client, session_id=session_id, message="启动后台任务")
+
+            stream = client.get(run["stream_url"])
+            assert stream.status_code == 200
+            assert "event: done" in stream.text
+            assert "task_executor_scheduled" in stream.text
+
+            latest_active = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=true")
+            assert latest_active.status_code == 204
+
+            latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=false")
+            assert latest.status_code == 200
+            latest_run = latest.json()
+            assert latest_run["stream_run_id"] == run["stream_run_id"]
+            assert latest_run["status"] == "completed"
+            assert latest_run["terminal_event"] == "done"
+            assert latest_run["is_reconnectable"] is False
+        finally:
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
 def test_latest_active_chat_run_prefers_primary_stream_over_active_turn_steer() -> None:

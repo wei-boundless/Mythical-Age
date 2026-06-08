@@ -59,7 +59,7 @@ def test_single_agent_task_projection_keeps_scheduled_executor_running() -> None
     assert "public_timeline" not in projection
 
 
-def test_chat_scheduled_done_is_waiting_and_carries_task_projection() -> None:
+def test_chat_scheduled_done_completes_stream_and_carries_task_projection() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run = _single_agent_task_run(diagnostics={"executor_status": "scheduled"})
@@ -77,7 +77,7 @@ def test_chat_scheduled_done_is_waiting_and_carries_task_projection() -> None:
         data=payload,
     )
 
-    assert _status_for_public_event("done", payload) == "waiting"
+    assert _status_for_public_event("done", payload) == "completed"
     assert payload["background_task_run_id"] == task_run.task_run_id
     assert payload["turn_handoff_completed"] is True
     assert payload["work_status"] == "running"

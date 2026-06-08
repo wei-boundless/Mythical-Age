@@ -552,15 +552,31 @@ class HarnessRuntimeFacade:
                         yield event
                     return
                 if runtime_branch.get("branch_kind") == "blocked_runtime":
+                    blocked_content = "当前运行环境未能完成装配，本轮无法继续。"
+                    await self._commit_entrypoint_fail_closed_message(
+                        session_id=request.session_id,
+                        turn_id=turn_id,
+                        content=blocked_content,
+                        answer_source="harness.entrypoint.blocked_runtime",
+                        terminal_reason="blocked_runtime",
+                    )
                     yield error_event(
-                        content="当前运行环境未能完成装配，本轮无法继续。",
+                        content=blocked_content,
                         code="blocked_runtime",
                         reason=str(runtime_branch.get("reason") or "runtime_assembly_blocked"),
                     )
                     return
 
+                unhandled_content = "当前请求没有匹配到可执行的单 agent 入口。"
+                await self._commit_entrypoint_fail_closed_message(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    content=unhandled_content,
+                    answer_source="harness.entrypoint.runtime_branch_unhandled",
+                    terminal_reason="runtime_branch_unhandled",
+                )
                 yield error_event(
-                    content="当前请求没有匹配到可执行的单 agent 入口。",
+                    content=unhandled_content,
                     code="runtime_branch_unhandled",
                     reason=str(runtime_branch.get("branch_kind") or ""),
                 )
@@ -573,6 +589,13 @@ class HarnessRuntimeFacade:
                 terminal_reason="harness.entrypoint_error",
             )
             failure_text = self._user_visible_error(exc)
+            await self._commit_entrypoint_fail_closed_message(
+                session_id=request.session_id,
+                turn_id=turn_id,
+                content=failure_text,
+                answer_source="harness.entrypoint.exception",
+                terminal_reason="harness.entrypoint_error",
+            )
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
@@ -584,6 +607,54 @@ class HarnessRuntimeFacade:
                     turn_id=started_active_turn_id,
                     terminal_reason="turn_stream_closed",
                 )
+
+    async def _commit_entrypoint_fail_closed_message(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        content: str,
+        answer_source: str,
+        terminal_reason: str,
+    ) -> bool:
+        if self._session_has_assistant_message_for_turn(session_id=session_id, turn_id=turn_id):
+            return False
+        decision = canonical_output_decision_for_final_text(
+            content,
+            answer_channel="orchestration_fail_closed",
+            answer_source=answer_source,
+            execution_posture="runtime_entrypoint",
+            terminal_reason=terminal_reason,
+        )
+        try:
+            await self._apply_assistant_message_commit_async(
+                session_id,
+                {
+                    "role": "assistant",
+                    "content": decision.content,
+                    "turn_id": turn_id,
+                    **decision.to_payload(),
+                },
+            )
+            return True
+        except Exception:
+            logger.debug("failed to commit entrypoint fail-closed assistant message", exc_info=True)
+            return False
+
+    def _session_has_assistant_message_for_turn(self, *, session_id: str, turn_id: str) -> bool:
+        try:
+            loaded = self.session_manager.load_session(session_id)
+        except Exception:
+            return False
+        messages = list(loaded.get("messages") or []) if isinstance(loaded, dict) else list(loaded or [])
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if str(message.get("role") or "") != "assistant":
+                continue
+            if str(message.get("turn_id") or "") == str(turn_id or ""):
+                return True
+        return False
 
     async def _run_single_agent_turn(
         self,
@@ -1849,9 +1920,10 @@ class HarnessRuntimeFacade:
         )
         runtime_host.runtime_objects.put_object("task_lifecycle", node_task_run_id, lifecycle.to_dict())
         graph_run = runtime_host.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(work_order.graph_run_id)}")
+        node_session_id = str(getattr(work_order, "node_session_id", "") or "")
         task_run = TaskRun(
             task_run_id=node_task_run_id,
-            session_id=str(dict(graph_run or {}).get("session_id") or work_order.graph_run_id),
+            session_id=node_session_id or str(dict(graph_run or {}).get("session_id") or work_order.graph_run_id),
             task_id=work_order.task_ref,
             task_contract_ref=contract_ref,
             owner_agent_seat_id=work_order.node_id,
@@ -1869,6 +1941,9 @@ class HarnessRuntimeFacade:
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
+                "graph_root_session_id": str(dict(graph_run or {}).get("session_id") or ""),
+                "node_session_id": node_session_id,
+                "node_session_policy": dict(getattr(work_order, "node_session_policy", {}) or {}),
                 "graph_clock_seq": _graph_node_clock_seq(work_order),
                 "runtime_scope": _graph_node_runtime_scope(work_order),
                 **_graph_node_public_scope_fields(work_order),

@@ -7,6 +7,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
 
+from .edge_contracts import edge_contract_or_projection
 from .models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope, safe_id, stable_safe_id
 
 
@@ -164,9 +165,14 @@ def build_flow_packet(
     )
     metadata = dict(edge.get("metadata") or {})
     delivery_policy = _delivery_policy(edge)
+    edge_contract = edge_contract_or_projection(graph_config, edge)
+    contract_packet = dict(edge_contract.get("packet") or {})
+    contract_reliability = dict(edge_contract.get("reliability") or {})
+    contract_protocol = dict(edge_contract.get("protocol") or {})
+    contract_delivery_policy = str(contract_packet.get("delivery_policy") or delivery_policy)
     return FlowPacket(
         packet_id=f"flowpkt:{stable_safe_id(state.graph_run_id)}:{stable_safe_id(edge_id)}:{stable_safe_id(result.result_id)}",
-        packet_type=_packet_type(edge),
+        packet_type=str(contract_packet.get("packet_type") or _packet_type(edge, protocol_kind=str(contract_protocol.get("kind") or ""))),
         graph_run_id=state.graph_run_id,
         task_run_id=state.task_run_id,
         source_unit_id=result.node_id,
@@ -175,10 +181,10 @@ def build_flow_packet(
         target_port_id=str(edge.get("target_port_id") or metadata.get("target_port_id") or ""),
         edge_id=edge_id,
         scope_id=str(edge.get("scope_id") or metadata.get("scope_id") or ""),
-        contract_id=_contract_id(edge),
-        packet_contract_id=_packet_contract_id(edge),
-        target_context_key=_target_context_key(edge),
-        target_input_slot=_target_input_slot(edge),
+        contract_id=str(contract_packet.get("payload_contract_id") or _contract_id(edge)),
+        packet_contract_id=str(contract_packet.get("packet_contract_id") or _packet_contract_id(edge)),
+        target_context_key=str(contract_packet.get("target_context_key") or _target_context_key(edge)),
+        target_input_slot=str(contract_packet.get("target_input_slot") or _target_input_slot(edge)),
         a2a_message_type=str(edge.get("a2a_message_type") or ""),
         payload_summary=str(result.handoff_summary or "")[:1200],
         payload_refs=(
@@ -194,11 +200,13 @@ def build_flow_packet(
         receipt_refs=receipt_refs,
         visible_payload=visible_payload,
         visibility={
-            "delivery_policy": delivery_policy,
-            "ack_required": bool(edge.get("ack_required", True)),
+            "delivery_policy": contract_delivery_policy,
+            "ack_required": bool(contract_reliability.get("ack_required", edge.get("ack_required", True))),
             "include_output_keys": sorted(_included_output_keys(dict(edge.get("context_filter_policy") or {}))),
             "max_chars": _int_value(dict(edge.get("context_filter_policy") or {}).get("max_chars") or dict(edge.get("context_filter_policy") or {}).get("max_output_chars"), 0),
             "artifact_ref_policy": dict(edge.get("artifact_ref_policy") or {}),
+            "edge_contract_id": str(edge_contract.get("contract_id") or ""),
+            "protocol_kind": str(contract_protocol.get("kind") or ""),
         },
         status="accepted",
         lineage={
@@ -244,10 +252,12 @@ def flow_packet_inbound_projection(packet: FlowPacket, *, packet_ref: str = "") 
     }
 
 
-def _packet_type(edge: dict[str, Any]) -> str:
+def _packet_type(edge: dict[str, Any], *, protocol_kind: str = "") -> str:
     explicit = str(edge.get("packet_type") or "").strip()
     if explicit:
         return explicit
+    if protocol_kind:
+        return f"flow_packet.{protocol_kind}"
     edge_type = str(edge.get("edge_type") or "handoff").strip() or "handoff"
     return f"flow_packet.{edge_type}"
 
