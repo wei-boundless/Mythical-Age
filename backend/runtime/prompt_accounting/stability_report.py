@@ -6,6 +6,8 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+
 from .models import ModelTokenUsageRecord, PromptSegment, PromptSegmentMap
 from .stability_models import PromptStabilityReport, PromptStabilitySection
 
@@ -27,7 +29,6 @@ class PromptStabilityReporter:
         tier_prefixes = _tier_prefixes(segment_map.segments)
         dynamic_summary = _dynamic_param_summary(model_request=model_request, segment_map=segment_map)
         dynamic_hash = _stable_hash(dynamic_summary)
-        dynamic_param_diff = _diff_dynamic_params(previous_report, dynamic_summary)
         context_window = _context_window_summary(model_request=model_request, segment_map=segment_map)
         changed_sections, first_changed = _diff_stable_sections(previous_report, stable_sections)
         stable_prefix_hash = str(
@@ -54,8 +55,6 @@ class PromptStabilityReporter:
             stable_sections=stable_sections,
             previous_report=previous_report,
             first_changed=first_changed,
-            dynamic_param_hash=dynamic_hash,
-            dynamic_param_diff=dynamic_param_diff,
         )
         return PromptStabilityReport(
             report_id=f"pstability:{segment_map.request_id}",
@@ -108,14 +107,12 @@ class PromptStabilityReporter:
             "cache_creation_tokens": int(usage.cache_creation_tokens or 0),
             "cache_hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
         }
-        reason = _likely_reason(report=report, provider_usage=provider_usage)
         return replace(
             report,
             provider_usage=provider_usage,
             diagnostics={
                 **dict(report.diagnostics or {}),
                 "provider_usage_ref": usage.usage_id,
-                "likely_break_reason": reason,
             },
         )
 
@@ -125,7 +122,10 @@ def _split_segments(segments: tuple[PromptSegment, ...]) -> tuple[list[PromptSeg
     volatile: list[PromptSegment] = []
     in_prefix = True
     for segment in segments:
-        if in_prefix and segment.cache_role in {"cacheable_prefix", "session_stable"}:
+        if in_prefix and is_cache_eligible_prefix(
+            cache_role=segment.cache_role,
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+        ):
             stable.append(segment)
             continue
         in_prefix = False
@@ -239,81 +239,30 @@ def _diagnostics(
     stable_sections: tuple[PromptStabilitySection, ...],
     previous_report: PromptStabilityReport | None,
     first_changed: dict[str, Any],
-    dynamic_param_hash: str,
-    dynamic_param_diff: dict[str, Any],
 ) -> dict[str, Any]:
-    reason = ""
-    if not stable_sections:
-        reason = "no_stable_prefix_boundary"
-    elif first_changed:
-        ordinal = int(first_changed.get("ordinal") or 0)
-        reason = "global_static_changed" if ordinal <= 1 else "stable_section_changed"
-    elif previous_report is not None and previous_report.dynamic_param_hash and previous_report.dynamic_param_hash != dynamic_param_hash:
-        reason = "dynamic_request_params_changed"
-    elif previous_report is None:
-        reason = "no_previous_report"
     return _drop_empty(
         {
-            "likely_break_reason": reason,
             "has_previous_report": previous_report is not None,
             "stable_prefix_changed": bool(first_changed),
-            "dynamic_params_changed": bool(
-                previous_report is not None
-                and previous_report.dynamic_param_hash
-                and previous_report.dynamic_param_hash != dynamic_param_hash
-            ),
-            "dynamic_param_diff": dynamic_param_diff,
         }
     )
 
 
 def _tier_prefixes(segments: tuple[PromptSegment, ...]) -> dict[str, list[PromptSegment]]:
-    rules = {
-        "provider_global": {"provider_global"},
-        "session": {"provider_global", "session"},
-        "task": {"provider_global", "session", "task"},
-    }
     result: dict[str, list[PromptSegment]] = {}
-    for tier, allowed in rules.items():
+    for tier in ("provider_global", "session", "task"):
         items: list[PromptSegment] = []
         for segment in segments:
-            if str(getattr(segment, "prefix_tier", "") or "none") in allowed:
+            if is_prefix_eligible_for_tier(
+                cache_role=segment.cache_role,
+                prefix_tier=getattr(segment, "prefix_tier", ""),
+                tier=tier,
+            ):
                 items.append(segment)
                 continue
             break
         result[tier] = items
     return result
-
-
-def _diff_dynamic_params(
-    previous_report: PromptStabilityReport | None,
-    current_summary: dict[str, Any],
-) -> dict[str, Any]:
-    if previous_report is None:
-        return {}
-    previous_summary = dict(previous_report.dynamic_param_summary or {})
-    changes: dict[str, Any] = {}
-    for key in sorted(set(previous_summary) | set(current_summary)):
-        previous_value = previous_summary.get(key)
-        current_value = current_summary.get(key)
-        if _json_stable(previous_value) != _json_stable(current_value):
-            changes[key] = {
-                "previous": previous_value,
-                "current": current_value,
-            }
-    return changes
-
-
-def _likely_reason(*, report: PromptStabilityReport, provider_usage: dict[str, Any]) -> str:
-    cached = int(provider_usage.get("cached_tokens") or 0)
-    if cached > 0:
-        return "provider_cache_hit"
-    existing = str(dict(report.diagnostics or {}).get("likely_break_reason") or "")
-    if existing and existing != "no_previous_report":
-        return existing
-    if not provider_usage:
-        return "provider_usage_missing"
-    return "provider_cache_cold_or_expired"
 
 
 def _session_cache_key(segment_map: PromptSegmentMap) -> str:

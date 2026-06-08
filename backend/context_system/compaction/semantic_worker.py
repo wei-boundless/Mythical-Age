@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
+import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 CONTEXT_COMPACTOR_AGENT_ID = "agent:context_compactor"
@@ -40,6 +42,37 @@ class SemanticCompactionWorkerResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticCompactionSummaryQuality:
+    status: Literal["pass", "unpass"]
+    coverage_signals: dict[str, bool] = field(default_factory=dict)
+    issue_summary: str = ""
+    missing_fields: tuple[str, ...] = ()
+    authority: str = "context_system.compaction.summary_quality"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["missing_fields"] = list(self.missing_fields)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticCompactionFailedSample:
+    request_id: str
+    session_id: str
+    summary_source: str
+    quality_status: Literal["unpass"]
+    issue_summary: str
+    missing_fields: tuple[str, ...] = ()
+    created_at: float = 0.0
+    authority: str = "context_system.compaction.summary_quality_failed_sample"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["missing_fields"] = list(self.missing_fields)
+        return payload
 
 
 def semantic_compactor_registration_from_worker(worker: Any) -> SemanticCompactorRegistration:
@@ -84,12 +117,181 @@ def normalize_semantic_compaction_worker_result(value: Any) -> SemanticCompactio
     )
 
 
+def evaluate_semantic_compaction_summary_quality(
+    *,
+    request_id: str,
+    session_id: str,
+    summary_source: str,
+    before_messages: list[Any] | tuple[Any, ...],
+    after_messages: list[Any] | tuple[Any, ...],
+    summary_content: str,
+    structured_summary: dict[str, Any] | None = None,
+) -> SemanticCompactionSummaryQuality:
+    before = list(before_messages or [])
+    after = list(after_messages or [])
+    summary_text = _normalized_text(summary_content)
+    after_text = _normalized_text(" ".join(_message_content(message) for message in after))
+    structured = dict(structured_summary or {})
+    current_user = _last_message_content(before, role="user")
+    current_user_preserved = (
+        True
+        if not current_user
+        else _contains_material_fragment(after_text, current_user) or _contains_material_fragment(summary_text, current_user)
+    )
+    before_tool_result_ids = _tool_result_ids(before)
+    after_tool_result_ids = _tool_result_ids(after)
+    open_tool_result_refs_preserved = (
+        True
+        if not before_tool_result_ids
+        else bool(before_tool_result_ids.intersection(after_tool_result_ids))
+        or _mentions_tool_observation(summary_text)
+    )
+    active_task_goal_preserved = bool(
+        _structured_field_present(structured, "current_goal")
+        or _mentions_goal(summary_text)
+        or (current_user and _contains_material_fragment(after_text, current_user))
+    )
+    unresolved_required = any(_mentions_unresolved(_message_content(message)) for message in before)
+    unresolved_questions_preserved = (
+        True
+        if not unresolved_required
+        else _mentions_unresolved(summary_text) or any(_mentions_unresolved(_message_content(message)) for message in after)
+    )
+    coverage = {
+        "current_user_message_preserved": current_user_preserved,
+        "open_tool_result_refs_preserved": open_tool_result_refs_preserved,
+        "active_task_goal_preserved": active_task_goal_preserved,
+        "unresolved_questions_preserved": unresolved_questions_preserved,
+    }
+    missing = [key for key, value in coverage.items() if not value]
+    if not summary_text and not structured:
+        missing.insert(0, "summary_content")
+    status: Literal["pass", "unpass"] = "pass" if not missing else "unpass"
+    return SemanticCompactionSummaryQuality(
+        status=status,
+        coverage_signals=coverage,
+        issue_summary=(
+            ""
+            if status == "pass"
+            else f"semantic compaction summary did not preserve required recovery signals for {request_id or 'unknown_request'}"
+        ),
+        missing_fields=tuple(_dedupe(missing)),
+    )
+
+
+def failed_sample_from_summary_quality(
+    quality: SemanticCompactionSummaryQuality,
+    *,
+    request_id: str,
+    session_id: str,
+    summary_source: str,
+) -> SemanticCompactionFailedSample | None:
+    if quality.status != "unpass":
+        return None
+    return SemanticCompactionFailedSample(
+        request_id=str(request_id or ""),
+        session_id=str(session_id or ""),
+        summary_source=str(summary_source or ""),
+        quality_status="unpass",
+        issue_summary=quality.issue_summary,
+        missing_fields=tuple(quality.missing_fields),
+        created_at=time.time(),
+    )
+
+
 def _structured_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     for key in ("structured_summary", "recovery_package", "checkpoint"):
         value = payload.get(key)
         if isinstance(value, dict):
             return dict(value)
     return {}
+
+
+_TOOL_RESULT_ID_RE = re.compile(r"(?:tool_call_id|call_id)\s*=\s*[\"']?([A-Za-z0-9_.:-]+)", re.IGNORECASE)
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role") or "").strip()
+    return str(getattr(message, "role", "") or "").strip()
+
+
+def _message_content(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("content") or "")
+    return str(getattr(message, "content", "") or "")
+
+
+def _last_message_content(messages: list[Any], *, role: str) -> str:
+    for message in reversed(messages):
+        if _message_role(message) == role:
+            return _message_content(message).strip()
+    return ""
+
+
+def _normalized_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _contains_material_fragment(haystack: str, source: str) -> bool:
+    haystack_text = _normalized_text(haystack)
+    source_text = _normalized_text(source)
+    if not source_text:
+        return False
+    if source_text in haystack_text:
+        return True
+    fragment = source_text[: min(48, len(source_text))].strip()
+    return len(fragment) >= 8 and fragment in haystack_text
+
+
+def _tool_result_ids(messages: list[Any]) -> set[str]:
+    result: set[str] = set()
+    for message in messages:
+        if _message_role(message) not in {"tool", "tool_result"}:
+            continue
+        meta = dict(getattr(message, "meta", {}) or {}) if not isinstance(message, dict) else dict(message.get("meta") or {})
+        for key in ("tool_call_id", "call_id"):
+            value = str(meta.get(key) or "").strip()
+            if value:
+                result.add(value)
+        result.update(_TOOL_RESULT_ID_RE.findall(_message_content(message)))
+    return result
+
+
+def _structured_field_present(structured_summary: dict[str, Any], key: str) -> bool:
+    value = structured_summary.get(key)
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict)):
+        return bool(value)
+    return value not in (None, "")
+
+
+def _mentions_tool_observation(text: str) -> bool:
+    normalized = _normalized_text(text)
+    return any(marker in normalized for marker in ("工具", "tool", "观察", "observation", "结果", "result"))
+
+
+def _mentions_goal(text: str) -> bool:
+    normalized = _normalized_text(text)
+    return any(marker in normalized for marker in ("目标", "用户目标", "current_goal", "goal", "任务"))
+
+
+def _mentions_unresolved(text: str) -> bool:
+    normalized = _normalized_text(text)
+    return any(marker in normalized for marker in ("未解决", "待确认", "需要确认", "open question", "unresolved", "？", "?"))
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def semantic_compaction_worker_exception(exc: Exception) -> SemanticCompactionWorkerResult:

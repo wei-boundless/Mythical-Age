@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
+
+from project_layout import ProjectLayout
 
 from .models import HealthManagementReceipt
 
@@ -10,6 +13,7 @@ ACTIVE_TASK_STATUSES = {"created", "queued", "running", "waiting_executor", "wai
 FAILED_TASK_STATUSES = {"failed", "aborted", "cancelled", "error"}
 MAINTENANCE_BUCKETS = {"static", "completed", "failed", "diagnostics"}
 DEFAULT_MIN_RECORD_AGE_SECONDS = 24 * 60 * 60
+DEFAULT_STALE_RUNTIME_SECONDS = 30 * 60
 
 
 class HealthTaskRecordMaintenanceService:
@@ -34,6 +38,7 @@ class HealthTaskRecordMaintenanceService:
         self.prompt_accounting_ledger = prompt_accounting_ledger
         self.store = store
         self.now = time.time() if now is None else float(now)
+        self.layout = ProjectLayout.from_runtime_root(getattr(runtime_host, "root_dir", getattr(runtime_host, "backend_dir", Path.cwd())))
 
     def build_view(
         self,
@@ -202,7 +207,14 @@ class HealthTaskRecordMaintenanceService:
         activity = _project_runtime_activity({**dict(monitor or {}), "status": str(monitor.get("status") or status)})
         activity_state = str(activity.get("activity_state") or "")
         event_count = self._event_count(task_run_id)
+        recent_event = self._recent_event_snapshot(task_run_id)
         token_summary = dict(token_summary_index.get(task_run_id) or {})
+        runtime_diagnostics = self._runtime_diagnostics(
+            task_run=task_run,
+            monitor=monitor,
+            activity=activity,
+            recent_event=recent_event,
+        )
         protection_reasons: list[str] = []
         if activity.get("is_running") is True or activity.get("is_waiting") is True or activity_state == "stale" or resource_class == "dynamic":
             protection_reasons.append("active_or_dynamic_runtime")
@@ -214,6 +226,9 @@ class HealthTaskRecordMaintenanceService:
             protection_reasons.append("task_lineage_record")
         if task_run_id in set(lineage_index.get("parent_task_run_ids") or set()):
             protection_reasons.append("task_lineage_parent")
+        for reason in list(runtime_diagnostics.get("protection_reasons") or []):
+            if reason not in protection_reasons:
+                protection_reasons.append(str(reason))
         return {
             "task_run_id": task_run_id,
             "title": str(
@@ -229,7 +244,11 @@ class HealthTaskRecordMaintenanceService:
             "updated_at": updated_at,
             "age_seconds": age_seconds,
             "event_count": event_count,
+            "latest_event": recent_event,
             "prompt_accounting_record_count": int(token_summary.get("record_count") or 0),
+            "monitor": self._monitor_summary(monitor=monitor, activity=activity),
+            "runtime_diagnostics": runtime_diagnostics,
+            "storage_refs": self._storage_refs(task_run=task_run, graph_run_id=str(runtime_diagnostics.get("graph_run_id") or "")),
             "estimated_delete_counts": {
                 "task_runs": 1,
                 "event_log_events": event_count,
@@ -253,6 +272,217 @@ class HealthTaskRecordMaintenanceService:
             except Exception:
                 return 0
         return 0
+
+    def _recent_event_snapshot(self, task_run_id: str) -> dict[str, Any]:
+        reader = getattr(self.event_log, "list_recent_events", None)
+        events: list[Any] = []
+        if callable(reader):
+            try:
+                events = list(reader(task_run_id, limit=1))
+            except TypeError:
+                try:
+                    events = list(reader(task_run_id))[-1:]
+                except Exception:
+                    events = []
+            except Exception:
+                events = []
+        elif hasattr(self.event_log, "list_events"):
+            try:
+                events = list(self.event_log.list_events(task_run_id))[-1:]
+            except Exception:
+                events = []
+        if not events:
+            return {
+                "available": False,
+                "task_run_id": task_run_id,
+                "event_type": "",
+                "event_id": "",
+                "created_at": 0.0,
+                "age_seconds": 0.0,
+            }
+        event = events[-1]
+        payload = event.to_dict() if hasattr(event, "to_dict") else dict(event or {})
+        created_at = float(payload.get("created_at") or getattr(event, "created_at", 0.0) or 0.0)
+        return {
+            "available": True,
+            "task_run_id": task_run_id,
+            "event_type": str(payload.get("event_type") or getattr(event, "event_type", "") or ""),
+            "event_id": str(payload.get("event_id") or getattr(event, "event_id", "") or ""),
+            "created_at": created_at,
+            "age_seconds": max(0.0, self.now - created_at) if created_at else 0.0,
+        }
+
+    def _runtime_diagnostics(
+        self,
+        *,
+        task_run: Any,
+        monitor: dict[str, Any],
+        activity: dict[str, Any],
+        recent_event: dict[str, Any],
+    ) -> dict[str, Any]:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        status = str(getattr(task_run, "status", "") or "")
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        graph_run_id = str(diagnostics.get("graph_run_id") or monitor.get("graph_run_id") or dict(monitor.get("graph_ref") or {}).get("graph_run_id") or "").strip()
+        graph_run = self._graph_run_object(graph_run_id)
+        graph_state = self._graph_checkpoint_state(graph_run_id)
+        flags: list[str] = []
+        protection_reasons: list[str] = []
+        recommended_actions: list[str] = []
+        activity_state = str(activity.get("activity_state") or "")
+        active_status = status in ACTIVE_TASK_STATUSES or activity.get("is_running") is True or activity.get("is_waiting") is True
+        latest_event_age = float(recent_event.get("age_seconds") or 0.0)
+        runner_terminal_reason = str(diagnostics.get("runner_terminal_reason") or dict(graph_run.get("diagnostics") or {}).get("runner_terminal_reason") or "")
+        runner_budget_exhausted = bool(diagnostics.get("runner_budget_exhausted") is True or dict(graph_run.get("diagnostics") or {}).get("runner_budget_exhausted") is True)
+        active_graph_work = self._active_graph_work(graph_state)
+
+        if active_status and latest_event_age > DEFAULT_STALE_RUNTIME_SECONDS:
+            flags.append("active_runtime_without_recent_event")
+            recommended_actions.append("inspect_recent_events")
+        if activity_state == "stale":
+            flags.append("monitor_projected_stale_runtime")
+            recommended_actions.append("inspect_runtime_monitor_signal")
+        if graph_run_id and active_graph_work["active_work_order_count"] > 0 and active_status:
+            flags.append("graph_has_active_work_orders")
+            protection_reasons.append("graph_runtime_active_work_orders")
+            recommended_actions.append("inspect_graph_checkpoint")
+        if graph_run_id and runner_budget_exhausted and status in ACTIVE_TASK_STATUSES:
+            flags.append("graph_runner_budget_exhausted_but_task_active")
+            recommended_actions.append("close_runtime")
+        if graph_run_id and runner_terminal_reason and status in ACTIVE_TASK_STATUSES and runner_terminal_reason != status:
+            flags.append("graph_runner_terminal_reason_mismatch")
+            recommended_actions.append("close_runtime")
+        graph_status = str(graph_run.get("status") or "")
+        if graph_run_id and graph_status in {"completed", "failed", "aborted", "cancelled", "canceled", "error"} and status in ACTIVE_TASK_STATUSES:
+            flags.append("graph_run_terminal_but_root_task_active")
+            recommended_actions.append("close_runtime")
+        if not flags and active_status:
+            recommended_actions.append("continue_monitoring")
+
+        return {
+            "authority": "health_system.task_record_runtime_diagnostics",
+            "task_run_id": task_run_id,
+            "graph_run_id": graph_run_id,
+            "activity_state": activity_state,
+            "is_running": bool(activity.get("is_running") is True),
+            "is_waiting": bool(activity.get("is_waiting") is True),
+            "latest_event_age_seconds": latest_event_age,
+            "stale_threshold_seconds": DEFAULT_STALE_RUNTIME_SECONDS,
+            "graph_run": self._graph_run_summary(graph_run),
+            "graph_checkpoint": active_graph_work,
+            "flags": list(dict.fromkeys(flags)),
+            "protection_reasons": list(dict.fromkeys(protection_reasons)),
+            "recommended_actions": list(dict.fromkeys(recommended_actions)),
+            "diagnostic_state": "needs_attention" if flags else "observed",
+        }
+
+    def _graph_run_object(self, graph_run_id: str) -> dict[str, Any]:
+        target = str(graph_run_id or "").strip()
+        if not target:
+            return {}
+        store = getattr(self.runtime_host, "runtime_objects", None)
+        getter = getattr(store, "get_object", None)
+        if not callable(getter):
+            return {}
+        for ref in (f"rtobj:graph_run:{_safe_runtime_object_id(target)}", f"rtobj:graph_run:{target}"):
+            try:
+                payload = dict(getter(ref) or {})
+            except Exception:
+                payload = {}
+            if payload:
+                return payload
+        return {}
+
+    def _graph_checkpoint_state(self, graph_run_id: str) -> dict[str, Any]:
+        target = str(graph_run_id or "").strip()
+        if not target:
+            return {}
+        store = getattr(self.runtime_host, "graph_checkpoint_store", None)
+        getter = getattr(store, "get_latest_state", None)
+        if callable(getter):
+            try:
+                return dict(getter(target) or {})
+            except Exception:
+                return {}
+        return {}
+
+    def _active_graph_work(self, graph_state: dict[str, Any]) -> dict[str, Any]:
+        if not graph_state:
+            return {
+                "available": False,
+                "status": "",
+                "ready_node_ids": [],
+                "running_node_ids": [],
+                "active_work_orders": {},
+                "active_work_order_count": 0,
+                "event_cursor": -1,
+                "terminal_reason": "",
+            }
+        active_work_orders = {
+            str(key): str(value)
+            for key, value in dict(graph_state.get("active_work_orders") or {}).items()
+            if str(key) and str(value)
+        }
+        ready_node_ids = [str(item) for item in list(graph_state.get("ready_node_ids") or []) if str(item)]
+        running_node_ids = [str(item) for item in list(graph_state.get("running_node_ids") or []) if str(item)]
+        return {
+            "available": True,
+            "status": str(graph_state.get("status") or ""),
+            "ready_node_ids": ready_node_ids,
+            "running_node_ids": running_node_ids,
+            "active_work_orders": active_work_orders,
+            "active_work_order_count": len(active_work_orders),
+            "event_cursor": int(graph_state.get("event_cursor") or -1),
+            "terminal_reason": str(graph_state.get("terminal_reason") or ""),
+        }
+
+    @staticmethod
+    def _graph_run_summary(graph_run: dict[str, Any]) -> dict[str, Any]:
+        if not graph_run:
+            return {"available": False}
+        diagnostics = dict(graph_run.get("diagnostics") or {})
+        return {
+            "available": True,
+            "graph_run_id": str(graph_run.get("graph_run_id") or ""),
+            "task_run_id": str(graph_run.get("task_run_id") or ""),
+            "status": str(graph_run.get("status") or ""),
+            "terminal_reason": str(graph_run.get("terminal_reason") or ""),
+            "runner_status": str(diagnostics.get("runner_status") or ""),
+            "runner_terminal_reason": str(diagnostics.get("runner_terminal_reason") or ""),
+            "runner_budget_exhausted": bool(diagnostics.get("runner_budget_exhausted") is True),
+            "updated_at": float(graph_run.get("updated_at") or 0.0),
+        }
+
+    @staticmethod
+    def _monitor_summary(*, monitor: dict[str, Any], activity: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "available": bool(monitor),
+            "bucket": str(monitor.get("bucket") or ""),
+            "lifecycle": str(monitor.get("lifecycle") or ""),
+            "activity_state": str(activity.get("activity_state") or ""),
+            "is_running": bool(activity.get("is_running") is True),
+            "is_waiting": bool(activity.get("is_waiting") is True),
+            "is_interruptible": bool(activity.get("is_interruptible") is True),
+            "is_resumable": bool(activity.get("is_resumable") is True),
+            "control_reason": str(activity.get("control_reason") or ""),
+        }
+
+    def _storage_refs(self, *, task_run: Any, graph_run_id: str) -> dict[str, str]:
+        runtime_root = self.layout.runtime_state_dir
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        refs = {
+            "runtime_root": str(runtime_root),
+            "state_index_task_runs": str(runtime_root / "state_index" / "task_runs"),
+            "event_log": str(runtime_root / "events" / _safe_runtime_object_id(task_run_id)),
+            "runtime_objects": str(runtime_root / "runtime_objects"),
+            "prompt_accounting": str(runtime_root / "prompt_accounting"),
+            "facts": str(runtime_root / "facts"),
+            "health_system": str(self.layout.health_system_dir),
+            "graph_checkpoints": str(runtime_root / "graph_checkpoints.sqlite"),
+        }
+        if graph_run_id:
+            refs["graph_run_object"] = f"rtobj:graph_run:{_safe_runtime_object_id(graph_run_id)}"
+        return refs
 
     def _monitor_by_task_run_id(self) -> dict[str, dict[str, Any]]:
         try:
@@ -433,6 +663,9 @@ class HealthTaskRecordMaintenanceService:
         resource_class = str(record.get("resource_class") or "")
         if bucket == "static":
             return resource_class == "static" and record_bucket in {"completed", "failed", "diagnostics"}
+        if bucket == "diagnostics":
+            diagnostics = dict(record.get("runtime_diagnostics") or {})
+            return record_bucket == "diagnostics" or bool(diagnostics.get("flags"))
         return resource_class == "static" and record_bucket == bucket
 
 
@@ -440,3 +673,7 @@ def _project_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
     from harness.runtime.run_monitor.activity import project_runtime_activity
 
     return dict(project_runtime_activity(payload))
+
+
+def _safe_runtime_object_id(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]

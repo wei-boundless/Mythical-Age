@@ -7,6 +7,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
 
@@ -222,15 +224,18 @@ def _tier_prefix_hashes(segments: tuple[PromptSegment, ...]) -> dict[str, str]:
     task: list[PromptSegment] = []
     stable: list[PromptSegment] = []
     for segment in segments:
-        if segment.cache_role not in {"cacheable_prefix", "session_stable"}:
+        if not is_cache_eligible_prefix(
+            cache_role=segment.cache_role,
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+        ):
             break
         stable.append(segment)
         tier = str(getattr(segment, "prefix_tier", "") or "none")
-        if tier == "provider_global" and len(provider_global) == len(stable) - 1:
+        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="provider_global") and len(provider_global) == len(stable) - 1:
             provider_global.append(segment)
-        if tier in {"provider_global", "session"} and len(session) == len(stable) - 1:
+        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="session") and len(session) == len(stable) - 1:
             session.append(segment)
-        if tier in {"provider_global", "session", "task"} and len(task) == len(stable) - 1:
+        if is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier="task") and len(task) == len(stable) - 1:
             task.append(segment)
     return {
         "stable": _segments_hash(stable),
@@ -259,7 +264,10 @@ def _baseline_segment_diagnostics(segment_map: PromptSegmentMap) -> dict[str, An
 def _stable_prefix_segments(segments: list[PromptSegment]) -> list[PromptSegment]:
     result: list[PromptSegment] = []
     for segment in segments:
-        if segment.cache_role not in {"cacheable_prefix", "session_stable"}:
+        if not is_cache_eligible_prefix(
+            cache_role=segment.cache_role,
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+        ):
             break
         result.append(segment)
     return result
@@ -268,7 +276,15 @@ def _stable_prefix_segments(segments: list[PromptSegment]) -> list[PromptSegment
 def _prefix_tier_segments(segments: list[PromptSegment], allowed_tiers: set[str]) -> list[PromptSegment]:
     result: list[PromptSegment] = []
     for segment in segments:
-        if str(getattr(segment, "prefix_tier", "") or "none") not in allowed_tiers:
+        tier = str(getattr(segment, "prefix_tier", "") or "none")
+        target = (
+            "provider_global"
+            if allowed_tiers == {"provider_global"}
+            else "session"
+            if allowed_tiers == {"provider_global", "session"}
+            else "task"
+        )
+        if not is_prefix_eligible_for_tier(cache_role=segment.cache_role, prefix_tier=tier, tier=target):
             break
         result.append(segment)
     return result

@@ -6,8 +6,10 @@ import json
 import re
 from typing import Any, Literal
 
+from context_system.budget.presets import match_context_budget_preset_for_available_context_tokens
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
+from memory_system.storage.session_memory_view import has_material_session_memory_content
 from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner
 from token_accounting import count_text_tokens
 
@@ -17,6 +19,8 @@ from .low_authority_text import compress_low_authority_text, is_low_authority_na
 from .microcompact import decide_microcompact_cache_policy
 from .semantic_worker import (
     SemanticCompactionWorkerResult,
+    evaluate_semantic_compaction_summary_quality,
+    failed_sample_from_summary_quality,
     normalize_semantic_compaction_worker_result,
     semantic_compaction_worker_exception,
     semantic_compactor_registration_from_worker,
@@ -194,6 +198,7 @@ class ContextCompactor:
         max_messages: int = 18,
         keep_recent_messages: int = 8,
         effective_history_token_budget: int = 6_000,
+        compaction_threshold_tokens: dict[str, Any] | None = None,
         warning_ratio: float = 0.65,
         microcompact_ratio: float = 0.82,
         full_compact_ratio: float = 0.94,
@@ -217,10 +222,14 @@ class ContextCompactor:
         self.keep_recent_messages = keep_recent_messages
         self.full_compact_recent_messages = min(full_compact_recent_messages, keep_recent_messages)
         self.effective_history_token_budget = effective_history_token_budget
-        if effective_history_token_budget >= 900_000:
-            self.warning_tokens = min(750_000, effective_history_token_budget)
-            self.microcompact_tokens = min(850_000, effective_history_token_budget)
-            self.full_compact_tokens = max(self.microcompact_tokens + 1, effective_history_token_budget)
+        configured_thresholds = self._configured_thresholds(
+            compaction_threshold_tokens,
+            effective_history_token_budget=effective_history_token_budget,
+        )
+        if configured_thresholds is not None:
+            self.warning_tokens = configured_thresholds["warning"]
+            self.microcompact_tokens = configured_thresholds["ready"]
+            self.full_compact_tokens = configured_thresholds["replacement"]
         else:
             self.warning_tokens = max(1, int(effective_history_token_budget * warning_ratio))
             self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
@@ -248,6 +257,40 @@ class ContextCompactor:
 
     def conversation_tokens(self, messages: list[Message]) -> int:
         return self._conversation_tokens(messages)
+
+    def _configured_thresholds(
+        self,
+        compaction_threshold_tokens: dict[str, Any] | None,
+        *,
+        effective_history_token_budget: int,
+    ) -> dict[str, int] | None:
+        raw_thresholds = dict(compaction_threshold_tokens or {})
+        if not raw_thresholds:
+            preset = match_context_budget_preset_for_available_context_tokens(effective_history_token_budget)
+            if preset is not None:
+                raw_thresholds = preset.compaction_threshold_tokens()
+        if not raw_thresholds:
+            return None
+
+        budget = max(1, int(effective_history_token_budget or 1))
+        replacement = self._positive_threshold(raw_thresholds.get("replacement"), budget)
+        replacement = min(replacement, budget)
+        ready = self._positive_threshold(raw_thresholds.get("ready"), int(replacement * 0.85))
+        warning = self._positive_threshold(raw_thresholds.get("warning"), int(replacement * 0.75))
+        ready = min(max(1, ready), replacement)
+        warning = min(max(1, warning), ready)
+        return {
+            "warning": warning,
+            "ready": ready,
+            "replacement": replacement,
+        }
+
+    def _positive_threshold(self, value: Any, fallback: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = 0
+        return max(1, parsed if parsed > 0 else int(fallback or 1))
 
     def pressure_level(
         self,
@@ -440,14 +483,21 @@ class ContextCompactor:
         summary_content: str | None = None,
         summary_target_tokens: int = 0,
         compaction_source: str = "deterministic_session_memory",
+        preserve_from_index: int | None = None,
     ) -> tuple[list[Message], Message]:
-        recent = self._select_recent_core_messages(messages, recent_count)
+        recent = self._select_full_compact_preserved_messages(
+            messages,
+            recent_count=recent_count,
+            preserve_from_index=preserve_from_index,
+        )
         session_summary = (
             summary_content.strip()
             if summary_content is not None
             else self.session_memory_manager.compact_view(max_chars_per_section=max_chars_per_section).strip()
         )
         session_summary = self._trim_summary_to_token_target(session_summary, summary_target_tokens)
+        if not has_material_session_memory_content(session_summary):
+            raise ValueError("compaction_summary_unavailable")
         summary_message = Message(
             role="system",
             content=(
@@ -463,6 +513,24 @@ class ContextCompactor:
             },
         )
         return [summary_message, *recent], summary_message
+
+    def _select_full_compact_preserved_messages(
+        self,
+        messages: list[Message],
+        *,
+        recent_count: int,
+        preserve_from_index: int | None = None,
+    ) -> list[Message]:
+        if preserve_from_index is None:
+            return self._select_recent_core_messages(messages, recent_count)
+        preserve_start = max(0, min(int(preserve_from_index or 0), len(messages)))
+        recent_core = self._select_recent_core_messages(messages, recent_count)
+        recent_ids = {id(message) for message in recent_core}
+        preserved: list[Message] = []
+        for index, message in enumerate(messages):
+            if index >= preserve_start or id(message) in recent_ids:
+                preserved.append(message)
+        return preserved
 
     def apply_strategy(
         self,
@@ -609,6 +677,14 @@ class ContextCompactor:
         recent_count = self.full_compact_recent_messages
         max_chars_per_section = 420
         summary_target_tokens = int(budget_decision.get("summary_target_tokens") or 0)
+        session_compaction_validation = self.session_memory_manager.validate_compaction_state(working)
+        session_summary_content = ""
+        session_preserve_from_index: int | None = None
+        if session_compaction_validation.get("ok"):
+            session_summary_content = self.session_memory_manager.compact_view(
+                max_chars_per_section=max_chars_per_section,
+            ).strip()
+            session_preserve_from_index = int(session_compaction_validation.get("covered_message_count") or 0)
         semantic_request = self.build_semantic_compaction_request(
             working,
             pressure_level="full_compact",
@@ -621,38 +697,109 @@ class ContextCompactor:
             reason=reason,
             reserved_output_tokens=reserved_output_tokens,
         )
+        semantic_compactor_needed = (
+            semantic_summary_content is None
+            and not has_material_session_memory_content(summary_content or "")
+            and not has_material_session_memory_content(summary_source_content or "")
+            and not session_summary_content
+        )
         semantic_worker_result = (
             self._run_registered_semantic_compactor(semantic_request)
-            if semantic_summary_content is None and self.semantic_compactor is not None
+            if semantic_compactor_needed and self.semantic_compactor is not None
             else None
         )
         semantic_worker_summary = _summary_from_semantic_worker_result(semantic_worker_result)
         resolved_summary_content = (
             semantic_summary_content
-            or semantic_worker_summary
             or summary_content
+            or session_summary_content
+            or semantic_worker_summary
         )
+        preserve_from_index = session_preserve_from_index if session_summary_content and resolved_summary_content == session_summary_content else None
         compaction_source = (
             "semantic_compactor"
             if semantic_summary_content
+            else "explicit_summary"
+            if summary_content
+            else "validated_session_memory"
+            if session_summary_content and resolved_summary_content == session_summary_content
             else str(semantic_worker_result.source)
             if semantic_worker_result and semantic_worker_result.ok
-            else "deterministic_session_memory"
+            else "explicit_summary_source"
+            if summary_source_content
+            else "unavailable"
         )
+        full_compact_diagnostics = {
+            **prompt_diagnostics,
+            "estimated_tokens_after_microcompact": tokens_after_micro,
+            "bulky_message_replaced_count": bulky_replaced,
+            "low_authority_text_compressed_count": low_authority_replaced,
+            "microcompact_cache_decision": microcompact_cache_decision.to_dict(),
+            "summary_source_tokens": self._count_tokens(summary_source_content or ""),
+            "session_compaction_state": dict(session_compaction_validation or {}),
+            "semantic_compactor_required": semantic_compactor_needed,
+            "semantic_compactor_registered": self.semantic_compactor_registration is not None,
+            "semantic_compactor_binding": (
+                self.semantic_compactor_registration.to_dict()
+                if self.semantic_compactor_registration is not None
+                else {}
+            ),
+            "semantic_compactor_result": semantic_worker_result.to_dict() if semantic_worker_result is not None else {},
+            "semantic_compaction_request": semantic_request.to_dict(),
+            "semantic_structured_summary_present": bool(
+                semantic_worker_result
+                and semantic_worker_result.ok
+                and semantic_worker_result.structured_summary
+            ),
+            "compaction_source": compaction_source,
+        }
         while True:
             if resolved_summary_content is None and summary_source_content is not None:
                 resolved_summary_content = self.session_memory_manager.compact_view(
                     content=summary_source_content,
                     max_chars_per_section=max_chars_per_section,
                 ).strip()
-            compacted, summary_message = self._build_full_compact_messages(
-                micro_messages,
-                max_chars_per_section=max_chars_per_section,
-                recent_count=recent_count,
-                summary_content=resolved_summary_content,
-                summary_target_tokens=summary_target_tokens,
-                compaction_source=compaction_source,
-            )
+            try:
+                compacted, summary_message = self._build_full_compact_messages(
+                    micro_messages,
+                    max_chars_per_section=max_chars_per_section,
+                    recent_count=recent_count,
+                    summary_content=resolved_summary_content if resolved_summary_content is not None else "",
+                    summary_target_tokens=summary_target_tokens,
+                    compaction_source=compaction_source,
+                    preserve_from_index=preserve_from_index,
+                )
+            except ValueError as exc:
+                if str(exc) != "compaction_summary_unavailable":
+                    raise
+                return self._blocked_result(
+                    working,
+                    pressure_level=pressure_level,
+                    strategy="blocked_by_empty_compaction_summary",
+                    tokens_before=tokens_before,
+                    request_id=request_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    task_run_id=task_run_id,
+                    task_environment_id=task_environment_id,
+                    trigger=trigger,
+                    reason=reason,
+                    planned_strategy=planned_strategy,
+                    block_reason="compaction_summary_unavailable",
+                    prompt_diagnostics={
+                        **full_compact_diagnostics,
+                        **self._summary_quality_diagnostics(
+                            request_id=request_id,
+                            session_id=session_id,
+                            summary_source=compaction_source,
+                            before_messages=working,
+                            after_messages=working,
+                            summary_content=resolved_summary_content or "",
+                            semantic_worker_result=semantic_worker_result,
+                        ),
+                        "pre_compact_hook": pre_hook_decision.to_dict(),
+                    },
+                )
             tokens_after = self._conversation_tokens(compacted)
             if tokens_after <= self.effective_history_token_budget:
                 break
@@ -678,16 +825,61 @@ class ContextCompactor:
                     ).strip()
                 else:
                     fallback_summary = self.session_memory_manager.compact_view(max_chars_per_section=160).strip()
-            compacted, summary_message = self._build_full_compact_messages(
-                micro_messages,
-                max_chars_per_section=160,
-                recent_count=min(2, len(micro_messages)),
-                summary_content=fallback_summary,
-                summary_target_tokens=min(summary_target_tokens, 160) if summary_target_tokens else 160,
-                compaction_source=compaction_source,
-            )
+            try:
+                compacted, summary_message = self._build_full_compact_messages(
+                    micro_messages,
+                    max_chars_per_section=160,
+                    recent_count=min(2, len(micro_messages)),
+                    summary_content=fallback_summary if fallback_summary is not None else "",
+                    summary_target_tokens=min(summary_target_tokens, 160) if summary_target_tokens else 160,
+                    compaction_source=compaction_source,
+                    preserve_from_index=preserve_from_index,
+                )
+            except ValueError as exc:
+                if str(exc) != "compaction_summary_unavailable":
+                    raise
+                return self._blocked_result(
+                    working,
+                    pressure_level=pressure_level,
+                    strategy="blocked_by_empty_compaction_summary",
+                    tokens_before=tokens_before,
+                    request_id=request_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    task_run_id=task_run_id,
+                    task_environment_id=task_environment_id,
+                    trigger=trigger,
+                    reason=reason,
+                    planned_strategy=planned_strategy,
+                    block_reason="compaction_summary_unavailable",
+                    prompt_diagnostics={
+                        **full_compact_diagnostics,
+                        **self._summary_quality_diagnostics(
+                            request_id=request_id,
+                            session_id=session_id,
+                            summary_source=compaction_source,
+                            before_messages=working,
+                            after_messages=working,
+                            summary_content=fallback_summary or "",
+                            semantic_worker_result=semantic_worker_result,
+                        ),
+                        "pre_compact_hook": pre_hook_decision.to_dict(),
+                    },
+                )
             tokens_after = self._conversation_tokens(compacted)
 
+        full_compact_diagnostics = {
+            **full_compact_diagnostics,
+            **self._summary_quality_diagnostics(
+                request_id=request_id,
+                session_id=session_id,
+                summary_source=compaction_source,
+                before_messages=working,
+                after_messages=compacted,
+                summary_content=str(getattr(summary_message, "content", "") or resolved_summary_content or ""),
+                semantic_worker_result=semantic_worker_result,
+            ),
+        }
         result = CompactResult(
             did_compact=True,
             messages=compacted,
@@ -701,30 +893,8 @@ class ContextCompactor:
             did_microcompact=replaced > 0,
             did_full_compact=True,
             replaced_message_count=replaced,
-            preserved_recent_count=min(len(micro_messages), recent_count),
-            diagnostics={
-                **prompt_diagnostics,
-                "estimated_tokens_after_microcompact": tokens_after_micro,
-                "bulky_message_replaced_count": bulky_replaced,
-                "low_authority_text_compressed_count": low_authority_replaced,
-                "microcompact_cache_decision": microcompact_cache_decision.to_dict(),
-                "summary_source_tokens": self._count_tokens(summary_source_content or ""),
-                "semantic_compactor_required": semantic_summary_content is None,
-                "semantic_compactor_registered": self.semantic_compactor_registration is not None,
-                "semantic_compactor_binding": (
-                    self.semantic_compactor_registration.to_dict()
-                    if self.semantic_compactor_registration is not None
-                    else {}
-                ),
-                "semantic_compactor_result": semantic_worker_result.to_dict() if semantic_worker_result is not None else {},
-                "semantic_compaction_request": semantic_request.to_dict(),
-                "semantic_structured_summary_present": bool(
-                    semantic_worker_result
-                    and semantic_worker_result.ok
-                    and semantic_worker_result.structured_summary
-                ),
-                "compaction_source": compaction_source,
-            },
+            preserved_recent_count=max(0, len(compacted) - 1),
+            diagnostics=full_compact_diagnostics,
         )
         return self._finalize_compact_result(
             result,
@@ -782,14 +952,15 @@ class ContextCompactor:
         return "\n".join(
             [
                 "你是一名上下文压缩员。",
-                "你只负责把已有运行历史整理成后续模型可以继续工作的恢复点。",
-                "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。",
-                "你需要保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。",
-                "你需要丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。",
-                "你必须输出 JSON 对象，核心字段是 structured_summary。",
-                "structured_summary 必须只包含从输入中能找到证据的信息，字段包括：current_goal、active_constraints、verified_facts、decisions、artifacts、invalidated_items、open_questions、next_actions、recovery_notes。",
-                "每个字段可以是字符串或字符串数组；没有证据的字段留空数组或省略。",
-                "可以附带 summary_content 作为简短人工可读概览，但系统会优先使用 structured_summary 渲染 checkpoint。",
+                "你只负责把已有运行历史整理成后续主 agent 可以继续工作的恢复点，不回答用户，也不继续执行原任务。",
+                "你不能引入新事实，不能搜索，不能修改文件，不能调用工具，不能写入记忆。",
+                "你需要保留用户目标、当前约束、用户纠错、已验证事实、决策、产物引用、已失效事项、未解决问题和下一步恢复提示。",
+                "你需要丢弃重复寒暄、旧工具原文、大段 JSON/表格/日志原文、过期状态和已被后续消息否定的信息。",
+                "你必须输出 JSON 对象，并包含 structured_summary。",
+                "structured_summary 必须只包含从输入中能找到证据的信息，字段包括 current_goal、active_constraints、verified_facts、decisions、artifacts、invalidated_items、open_questions、next_actions、recovery_notes。",
+                "没有证据的字段使用空数组或空字符串；不要用模板说明占位。",
+                "可以附带 summary_content 作为简短中文概览，但系统会优先使用 structured_summary 渲染 checkpoint。",
+                "如果输入不足以可靠压缩，输出空 structured_summary 和空 summary_content，并在 diagnostics.reason 中说明原因。",
                 "不要暴露内部运行 id，不要输出 JSON 以外的解释文本，不要把旧工具原文整段复制进摘要。",
             ]
         )
@@ -805,6 +976,41 @@ class ContextCompactor:
         except Exception as exc:
             return semantic_compaction_worker_exception(exc)
         return normalize_semantic_compaction_worker_result(raw_result)
+
+    def _summary_quality_diagnostics(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        summary_source: str,
+        before_messages: list[Message],
+        after_messages: list[Message],
+        summary_content: str,
+        semantic_worker_result: SemanticCompactionWorkerResult | None,
+    ) -> dict[str, Any]:
+        quality = evaluate_semantic_compaction_summary_quality(
+            request_id=request_id,
+            session_id=session_id,
+            summary_source=summary_source,
+            before_messages=before_messages,
+            after_messages=after_messages,
+            summary_content=summary_content,
+            structured_summary=(
+                dict(semantic_worker_result.structured_summary or {})
+                if semantic_worker_result is not None and semantic_worker_result.structured_summary
+                else {}
+            ),
+        )
+        failed_sample = failed_sample_from_summary_quality(
+            quality,
+            request_id=request_id,
+            session_id=session_id,
+            summary_source=summary_source,
+        )
+        return {
+            "summary_quality": quality.to_dict(),
+            "summary_quality_failed_sample_ledger": [failed_sample.to_dict()] if failed_sample is not None else [],
+        }
 
     def _resolve_microcompact_cache_state(
         self,

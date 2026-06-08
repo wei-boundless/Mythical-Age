@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from prompt_cache_policy import is_cache_eligible_prefix
+
 from .models import PromptSegment
 
 
@@ -124,9 +126,10 @@ class CompressionBudgetPlanner:
             return True
         if segment.compression_role == "preserve":
             return True
-        if str(getattr(segment, "prefix_tier", "") or "") in {"provider_global", "session", "task"}:
-            return True
-        if segment.cache_role in {"cacheable_prefix", "session_stable"}:
+        if is_cache_eligible_prefix(
+            cache_role=segment.cache_role,
+            prefix_tier=getattr(segment, "prefix_tier", ""),
+        ):
             return True
         return False
 

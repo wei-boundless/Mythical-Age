@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from runtime.shared.models import AgentRun, AgentRunResult, ProjectRuntimeStatus, TaskRun
 from runtime.memory.state_index import RuntimeStateIndex
 
@@ -66,6 +68,34 @@ def test_state_index_compacts_current_graph_harness_diagnostics_only_on_task_run
     assert diagnostics["graph_harness_config_summary"]["edge_count"] == 1
     assert diagnostics["graph_harness_config_summary"]["node_count"] == 2
     assert diagnostics["graph_harness_config_summary"]["module_count"] == 1
+
+
+def test_state_index_update_task_run_applies_single_locked_record_update(tmp_path) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:update",
+            session_id="session:update",
+            task_id="task.update",
+            updated_at=1,
+            diagnostics={"approval_state": {"status": "approved"}},
+        )
+    )
+
+    updated = state_index.update_task_run(
+        "taskrun:update",
+        lambda current: replace(
+            current,
+            updated_at=2,
+            diagnostics={**dict(current.diagnostics or {}), "approval_state": {"status": "consumed"}},
+        ),
+    )
+
+    stored = state_index.get_task_run("taskrun:update")
+    assert updated is not None
+    assert stored is not None
+    assert stored.updated_at == 2
+    assert stored.diagnostics["approval_state"]["status"] == "consumed"
 
 
 def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> None:
@@ -141,5 +171,22 @@ def test_state_index_indexed_lookups_do_not_load_full_record_buckets(tmp_path, m
     assert [item.task_run_id for item in state_index.list_session_task_runs("session:indexed")] == ["taskrun:indexed"]
     assert [item.agent_run_id for item in state_index.list_task_agent_runs("taskrun:indexed")] == ["agentrun:indexed"]
     assert [item.agent_run_result_id for item in state_index.list_task_agent_run_results("taskrun:indexed")] == ["agresult:indexed"]
+
+
+def test_state_index_record_read_returns_default_when_file_is_temporarily_locked(tmp_path, monkeypatch) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    record_path = state_index._bucket_record_path("task_runs", "taskrun:locked")
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.write_text('{"task_run_id":"taskrun:locked"}', encoding="utf-8")
+    original_read_text = type(record_path).read_text
+
+    def locked_read_text(self, *args, **kwargs):
+        if self == record_path:
+            raise PermissionError("file is temporarily locked")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(record_path), "read_text", locked_read_text)
+
+    assert state_index.get_task_run("taskrun:locked") is None
 
 

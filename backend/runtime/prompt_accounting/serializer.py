@@ -5,6 +5,8 @@ import json
 import time
 from typing import Any
 
+from prompt_cache_policy import normalize_cache_role, normalize_compression_role, normalize_prefix_tier
+
 from .cache_planner import stable_text_hash
 from .models import PromptSegment, PromptSegmentMap
 from .token_counter import TokenCounterRegistry
@@ -152,8 +154,8 @@ class CanonicalPromptSerializer:
 def normalize_tools(tools: list[Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for tool in list(tools or []):
-        name = str(getattr(tool, "name", "") or getattr(tool, "__name__", "") or type(tool).__name__)
-        description = str(getattr(tool, "description", "") or "")
+        name = _tool_name(tool)
+        description = _tool_description(tool)
         schema = _tool_schema(tool)
         normalized.append(
             {
@@ -243,6 +245,18 @@ def _stringify_content(content: Any) -> str:
 
 
 def _tool_schema(tool: Any) -> Any:
+    if isinstance(tool, dict):
+        function_payload = tool.get("function")
+        if isinstance(function_payload, dict):
+            for key in ("parameters", "input_schema", "schema"):
+                value = function_payload.get(key)
+                if value:
+                    return _json_stable(value)
+        for key in ("input_schema", "schema", "parameters", "args_schema"):
+            value = tool.get(key)
+            if value:
+                return _json_stable(value)
+        return {}
     for attr_name in ("args_schema", "schema", "input_schema"):
         value = getattr(tool, attr_name, None)
         if value is None:
@@ -270,6 +284,33 @@ def _tool_schema(tool: Any) -> Any:
                 continue
         return _json_stable(result)
     return {}
+
+
+def _tool_name(tool: Any) -> str:
+    if isinstance(tool, dict):
+        function_payload = tool.get("function")
+        if isinstance(function_payload, dict):
+            for key in ("name", "tool_name"):
+                text = str(function_payload.get(key) or "").strip()
+                if text:
+                    return text
+        for key in ("tool_name", "name"):
+            text = str(tool.get(key) or "").strip()
+            if text:
+                return text
+        return "dict"
+    return str(getattr(tool, "name", "") or getattr(tool, "__name__", "") or type(tool).__name__)
+
+
+def _tool_description(tool: Any) -> str:
+    if isinstance(tool, dict):
+        function_payload = tool.get("function")
+        if isinstance(function_payload, dict):
+            text = str(function_payload.get("description") or function_payload.get("display_name") or "").strip()
+            if text:
+                return text
+        return str(tool.get("description") or tool.get("display_name") or "").strip()
+    return str(getattr(tool, "description", "") or getattr(tool, "display_name", "") or "")
 
 
 def _model_request_messages(model_request: Any | None) -> list[dict[str, Any]]:
@@ -333,6 +374,13 @@ def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict
             "source_ref": str(binding.get("source_ref") or ""),
             "metadata": {
                 "planned_segment_id": str(binding.get("planned_segment_id") or ""),
+                "block_id": str(binding.get("block_id") or ""),
+                "slot": str(binding.get("slot") or ""),
+                "semantic_role": str(binding.get("semantic_role") or ""),
+                "function_cell": str(binding.get("function_cell") or ""),
+                "agent_running_cycle": str(binding.get("agent_running_cycle") or ""),
+                "override_strategy": str(binding.get("override_strategy") or ""),
+                "volatile_reason": str(binding.get("volatile_reason") or ""),
                 "planned_content_hash": str(binding.get("planned_content_hash") or ""),
                 "planned_model_message_hash": str(binding.get("planned_model_message_hash") or ""),
                 "request_content_hash": str(binding.get("request_content_hash") or ""),
@@ -361,43 +409,28 @@ def _planned_metadata(planned: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "planned": True,
         "planned_segment_id": str(planned.get("segment_id") or planned.get("planned_segment_id") or ""),
+        "block_id": str(planned.get("block_id") or ""),
+        "slot": str(planned.get("slot") or ""),
+        "semantic_role": str(planned.get("semantic_role") or ""),
+        "function_cell": str(planned.get("function_cell") or ""),
+        "agent_running_cycle": str(planned.get("agent_running_cycle") or ""),
+        "override_strategy": str(planned.get("override_strategy") or ""),
+        "volatile_reason": str(planned.get("volatile_reason") or ""),
         "planned_content_hash": str(planned.get("content_hash") or planned.get("planned_content_hash") or ""),
         **metadata,
     }
 
 
 def _cache_role(value: Any) -> str:
-    normalized = str(value or "").strip()
-    if normalized in {"cacheable_prefix", "session_stable", "volatile", "never_cache"}:
-        return normalized
-    return "volatile"
+    return normalize_cache_role(value)
 
 
 def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
-    normalized = str(value or "").strip()
-    if normalized in {"provider_global", "session", "task", "volatile", "none"}:
-        return normalized
-    if cache_role == "cacheable_prefix":
-        return "provider_global"
-    if cache_role == "session_stable":
-        scope = str(cache_scope or "").strip()
-        if scope == "task":
-            return "task"
-        if scope == "session":
-            return "session"
-        if scope == "global":
-            return "provider_global"
-        return "session"
-    if cache_role == "volatile":
-        return "volatile"
-    return "none"
+    return normalize_prefix_tier(value, cache_scope=cache_scope, cache_role=cache_role)
 
 
 def _compression_role(value: Any) -> str:
-    normalized = str(value or "").strip()
-    if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
-        return normalized
-    return "summarize"
+    return normalize_compression_role(value)
 
 
 def _authority_class(

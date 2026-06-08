@@ -22,11 +22,12 @@ class HealthGovernanceBuilder:
         self.now = time.time()
         self.store = self._build_store()
 
-    def build_overview(self, *, limit: int = 40) -> dict[str, Any]:
-        tasks = self.build_tasks(limit=limit)["tasks"]
-        monitor = self._global_monitor(limit=limit)
+    def build_overview(self, *, limit: int = 20) -> dict[str, Any]:
+        overview_limit = max(1, min(int(limit or 20), 30))
+        tasks = self.build_tasks(limit=overview_limit, event_limit=12)["tasks"]
+        monitor = self._global_monitor(limit=overview_limit)
         risks = self._risk_events(tasks=tasks, monitor=monitor)
-        token_usage = self.build_token_usage(limit=limit)
+        token_usage = self._token_usage(tasks)
         efficiency = self._efficiency(tasks)
         system_risks = self._system_risks(monitor=monitor)
         monitor_governance = self._monitor_governance(monitor=monitor)
@@ -59,9 +60,10 @@ class HealthGovernanceBuilder:
             "updated_at": self.now,
         }
 
-    def build_tasks(self, *, limit: int = 40) -> dict[str, Any]:
-        all_task_runs = list(self.state_index.list_task_runs())
-        top_level_task_runs = [item for item in all_task_runs if self._is_top_level_task_run(item)]
+    def build_tasks(self, *, limit: int = 40, event_limit: int = 40) -> dict[str, Any]:
+        scan_limit = max(80, min(max(int(limit or 40) * 8, 120), 400))
+        scanned_task_runs = self._recent_task_runs(limit=scan_limit)
+        top_level_task_runs = [item for item in scanned_task_runs if self._is_top_level_task_run(item)]
         visible_task_runs = self._operational_task_runs(top_level_task_runs)
         task_runs = sorted(
             visible_task_runs,
@@ -75,7 +77,7 @@ class HealthGovernanceBuilder:
                 task_run,
                 monitor_index=monitor_index,
                 token_summary_index=token_summary_index,
-                event_limit=40,
+                event_limit=event_limit,
                 include_trace_token_estimate=False,
                 include_runtime_relationships=False,
             )
@@ -86,7 +88,9 @@ class HealthGovernanceBuilder:
             "tasks": tasks,
             "summary": {
                 "task_count": len(tasks),
-                "hidden_child_task_count": max(0, len(all_task_runs) - len(top_level_task_runs)),
+                "scan_mode": "recent_task_runs",
+                "scanned_task_count": len(scanned_task_runs),
+                "hidden_child_task_count": max(0, len(scanned_task_runs) - len(top_level_task_runs)),
                 "hidden_history_task_count": max(0, len(top_level_task_runs) - len(visible_task_runs)),
                 "running_task_count": sum(1 for item in tasks if self._task_activity_state(item) == "running"),
                 "failed_task_count": sum(1 for item in tasks if self._task_bucket(item) == "failed"),
@@ -335,8 +339,9 @@ class HealthGovernanceBuilder:
         return "normal"
 
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
-        all_task_runs = list(self.state_index.list_task_runs())
-        top_level_task_runs = [item for item in all_task_runs if self._is_top_level_task_run(item)]
+        scan_limit = max(120, min(max(int(limit or 100) * 6, 160), 500))
+        scanned_task_runs = self._recent_task_runs(limit=scan_limit)
+        top_level_task_runs = [item for item in scanned_task_runs if self._is_top_level_task_run(item)]
         visible_task_runs = self._operational_task_runs(top_level_task_runs)
         task_runs = sorted(
             visible_task_runs,
@@ -357,7 +362,7 @@ class HealthGovernanceBuilder:
         ]
         ledger_records = self._ledger_token_run_records(
             limit=max(1, min(int(limit or 100), 100)),
-            task_runs=all_task_runs,
+            task_runs=scanned_task_runs,
         )
         ledger_record_keys = {
             str(item.get("record_key") or item.get("task_run_id") or "").strip()
@@ -586,6 +591,18 @@ class HealthGovernanceBuilder:
             except Exception:
                 return []
         return []
+
+    def _recent_task_runs(self, *, limit: int) -> list[Any]:
+        reader = getattr(self.state_index, "list_recent_task_runs", None)
+        if not callable(reader):
+            return []
+        requested = max(1, int(limit or 80))
+        try:
+            return list(reader(limit=requested))
+        except TypeError:
+            return list(reader(requested))
+        except Exception:
+            return []
 
     def _event_count(self, task_run_id: str, *, fallback: int) -> int:
         estimator = getattr(self.runtime_host.event_log, "estimated_event_count", None)

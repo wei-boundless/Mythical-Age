@@ -121,12 +121,16 @@ def build_registered_semantic_compaction_worker(
     profile = resolver(CONTEXT_COMPACTOR_AGENT_ID) if callable(resolver) else None
     if profile is None:
         return None
+    resolved_model_selection = {
+        **_model_selection_from_profile(profile),
+        **dict(model_selection or {}),
+    }
     return RegisteredSemanticCompactionWorker(
         base_dir=Path(base_dir),
         model_runtime=model_runtime,
         agent_runtime_profile=profile,
         compiler=compiler or RuntimeCompiler(base_dir=Path(base_dir)),
-        model_selection=dict(model_selection or {}),
+        model_selection=resolved_model_selection,
         task_environment_id=task_environment_id,
         permission_mode=permission_mode,
     )
@@ -144,6 +148,23 @@ def _semantic_compactor_registration_from_profile(profile: Any) -> dict[str, Any
         "allowed_operations": [str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ())],
         "blocked_operations": [str(item) for item in tuple(getattr(profile, "blocked_operations", ()) or ())],
         "allow_nested_subagents": bool(getattr(subagent_policy, "allow_nested_subagents", False)),
+    }
+
+
+def _model_selection_from_profile(profile: Any) -> dict[str, Any]:
+    model_profile = getattr(profile, "model_profile", None)
+    if model_profile is None:
+        return {}
+    if hasattr(model_profile, "to_dict"):
+        payload = model_profile.to_dict()
+    elif isinstance(model_profile, dict):
+        payload = dict(model_profile)
+    else:
+        return {}
+    return {
+        str(key): value
+        for key, value in dict(payload or {}).items()
+        if value not in (None, "", [], {})
     }
 
 
@@ -212,8 +233,7 @@ def _call_model_runtime_sync(
     kwargs: dict[str, Any] = {}
     if model_selection and _callable_accepts_kwarg(invoker, "model_spec"):
         kwargs["model_spec"] = dict(model_selection)
-    if accounting_context and _callable_accepts_kwarg(invoker, "accounting_context"):
-        kwargs["accounting_context"] = dict(accounting_context)
+    kwargs["accounting_context"] = dict(accounting_context)
     return _resolve_sync(invoker(messages, **kwargs))
 
 

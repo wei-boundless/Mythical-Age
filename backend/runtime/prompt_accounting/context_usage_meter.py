@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from context_system.budget.presets import match_context_budget_preset_for_model
+
 from .models import ModelTokenUsageRecord
 from .token_counter import TokenCounterRegistry
 
@@ -328,15 +330,17 @@ class ContextUsageMeter:
 
     def _thresholds(self, *, provider: str, model: str, context_window_tokens: int, reserved_output_tokens: int) -> dict[str, int]:
         available_input = self._input_capacity_tokens(context_window_tokens=context_window_tokens, reserved_output_tokens=reserved_output_tokens)
-        is_large_deepseek = (
-            int(context_window_tokens or 0) >= 900_000
-            and (str(provider or "").strip().lower() == "deepseek" or "deepseek" in str(model or "").strip().lower())
+        preset = match_context_budget_preset_for_model(
+            provider=provider,
+            model=model,
+            context_window_tokens=context_window_tokens,
         )
-        if is_large_deepseek:
+        if preset is not None:
+            thresholds = preset.compaction_threshold_tokens()
             return {
-                "warning": min(750_000, available_input),
-                "ready": min(850_000, available_input),
-                "replacement": min(900_000, available_input),
+                "warning": min(int(thresholds["warning"]), available_input),
+                "ready": min(int(thresholds["ready"]), available_input),
+                "replacement": min(int(thresholds["replacement"]), available_input),
             }
         return {
             "warning": max(1, int(available_input * 0.75)),

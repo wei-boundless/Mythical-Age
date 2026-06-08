@@ -6,6 +6,8 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from prompt_cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
+
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegmentMap
 
 
@@ -38,23 +40,41 @@ class PromptCachePlanner:
         collect_provider_global = True
         collect_session = True
         collect_task = True
+        collect_stable = True
         for segment in segment_map.segments:
-            if segment.cache_role in {"cacheable_prefix", "session_stable"}:
-                combined_stable_prefix.append(segment)
             tier = str(getattr(segment, "prefix_tier", "") or "none")
-            if collect_provider_global and tier == "provider_global":
+            if collect_stable and is_cache_eligible_prefix(cache_role=segment.cache_role, prefix_tier=tier):
+                combined_stable_prefix.append(segment)
+            else:
+                collect_stable = False
+            if collect_provider_global and is_prefix_eligible_for_tier(
+                cache_role=segment.cache_role,
+                prefix_tier=tier,
+                tier="provider_global",
+            ):
                 provider_global_prefix.append(segment)
             else:
                 collect_provider_global = False
-            if collect_session and tier in {"provider_global", "session"}:
+            if collect_session and is_prefix_eligible_for_tier(
+                cache_role=segment.cache_role,
+                prefix_tier=tier,
+                tier="session",
+            ):
                 session_prefix.append(segment)
             else:
                 collect_session = False
-            if collect_task and tier in {"provider_global", "session", "task"}:
+            if collect_task and is_prefix_eligible_for_tier(
+                cache_role=segment.cache_role,
+                prefix_tier=tier,
+                tier="task",
+            ):
                 task_prefix.append(segment)
             else:
                 collect_task = False
-            if not collect_task and not (segment.cache_role in {"cacheable_prefix", "session_stable"}):
+            if not collect_task and not is_cache_eligible_prefix(
+                cache_role=segment.cache_role,
+                prefix_tier=tier,
+            ):
                 break
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
         key_tier, key_prefix = _primary_cache_key_prefix(

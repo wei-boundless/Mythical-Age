@@ -46,7 +46,7 @@ def microcompact_history(
         )
         replacement_text = str(dict(budgeted.get("message") or {}).get("content") or "")
         if not replacement_text:
-            replacement_text = _fallback_summary(message, index=index, original_bytes=estimate_text_bytes(content))
+            replacement_text = _preview_replacement_text(message, index=index, original_bytes=estimate_text_bytes(content))
         compacted.append({"role": str(message.get("role") or "user"), "content": replacement_text})
         replacements.extend(item.to_dict() for item in content_replacements)
         compacted_count += 1
@@ -82,7 +82,7 @@ def _should_compact_message(message: dict[str, str], *, field_limit_bytes: int) 
     return any(token in lowered for token in ("agent_evidence_packet", "web_payload", "tool_result", "<persisted-output>")) and estimate_text_bytes(content) > max(1500, field_limit_bytes // 2)
 
 
-def _fallback_summary(message: dict[str, str], *, index: int, original_bytes: int) -> str:
+def _preview_replacement_text(message: dict[str, str], *, index: int, original_bytes: int) -> str:
     preview = str(message.get("content") or "")[:500].strip()
     payload = {
         "compacted_history_message": index,

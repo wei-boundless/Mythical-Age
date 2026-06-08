@@ -9,7 +9,11 @@ import pytest
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from context_system.compaction.compactor import ContextCompactor
 from context_system.compaction.hooks import CompactHookDecision
-from context_system.compaction.semantic_worker import SemanticCompactionWorkerResult
+from context_system.compaction.semantic_worker import (
+    SemanticCompactionWorkerResult,
+    evaluate_semantic_compaction_summary_quality,
+    failed_sample_from_summary_quality,
+)
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.semantic_compaction_adapter import build_registered_semantic_compaction_worker
@@ -17,6 +21,17 @@ from memory_system.facade import MemoryFacade
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from runtime.prompt_accounting import CompressionBudgetPlanner, PromptSegment
+
+
+def _write_valid_session_memory(manager: SessionMemoryManager, messages: list[Message], content: str) -> None:
+    manager.overwrite(content)
+    manager.write_compaction_state(
+        messages=messages,
+        run_id="test:session-memory",
+        source="test",
+        source_message_refs=[f"message:{index}" for index, _message in enumerate(messages)],
+        summary_content=content,
+    )
 
 
 def test_compression_budget_planner_reports_required_reduction_and_summary_target() -> None:
@@ -142,6 +157,129 @@ def test_context_compactor_builds_semantic_request_for_context_compactor_agent(t
     assert payload["diagnostics"]["compression_budget_decision"]["summary_target_tokens"] > 0
 
 
+def test_session_memory_manager_does_not_persist_template_as_summary(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+
+    assert manager.agent_view_path.exists()
+    assert manager.load() == ""
+    assert manager.compact_view() == ""
+    assert not manager.summary_path.exists()
+    assert not manager.compaction_view_path.exists()
+
+
+def test_context_compactor_blocks_full_compact_when_only_template_summary_exists(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    compactor = ContextCompactor(
+        manager,
+        max_messages=6,
+        keep_recent_messages=3,
+        effective_history_token_budget=220,
+        full_compact_recent_messages=2,
+    )
+    messages = [
+        Message(role="user", content="请继续"),
+        Message(role="assistant", content="旧输出 " + ("证据 " * 400)),
+        Message(role="user", content="当前请求必须保留"),
+    ]
+
+    result = compactor.apply_strategy(
+        messages,
+        pressure_level="full_compact",
+        request_id="ctxcompact:template-only",
+        reserved_output_tokens=100,
+        force_full_compact=True,
+    )
+
+    assert result.did_compact is False
+    assert result.messages == messages
+    assert result.summary_message is None
+    assert result.strategy == "blocked_by_empty_compaction_summary"
+    assert result.diagnostics["compact_boundary_receipt"]["blocked"] is True
+    assert result.diagnostics["compact_boundary_receipt"]["block_reason"] == "compaction_summary_unavailable"
+
+
+def test_context_compactor_uses_valid_session_memory_watermark_and_preserves_unsummarized_tail(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    messages = [
+        Message(role="user", content="旧请求", meta={"message_id": "msg:1"}),
+        Message(role="assistant", content="旧输出 " + ("证据 " * 240), meta={"message_id": "msg:2"}),
+        Message(role="user", content="水位之后的新请求必须原文保留", meta={"message_id": "msg:3"}),
+        Message(role="assistant", content="水位之后的新回复必须原文保留", meta={"message_id": "msg:4"}),
+    ]
+    summary = "# Active Goal\n- 使用有覆盖水位的 session memory\n"
+    manager.overwrite(summary)
+    manager.write_compaction_state(
+        messages=messages[:2],
+        run_id="memory-maintenance:test:2",
+        source="agent:1",
+        source_message_refs=["message:msg:1", "message:msg:2"],
+        summary_content=summary,
+    )
+    compactor = ContextCompactor(
+        manager,
+        max_messages=4,
+        keep_recent_messages=2,
+        effective_history_token_budget=260,
+        full_compact_recent_messages=2,
+    )
+
+    result = compactor.apply_strategy(
+        messages,
+        pressure_level="full_compact",
+        request_id="ctxcompact:valid-watermark",
+        force_full_compact=True,
+    )
+
+    assert result.did_full_compact is True
+    assert result.messages[0].meta["compaction_source"] == "validated_session_memory"
+    assert [message.content for message in result.messages[1:]] == [
+        "水位之后的新请求必须原文保留",
+        "水位之后的新回复必须原文保留",
+    ]
+    assert result.diagnostics["session_compaction_state"]["status"] == "valid"
+
+
+def test_context_compactor_blocks_stale_session_memory_watermark_without_semantic_worker(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path)
+    original = [
+        Message(role="user", content="原始请求", meta={"message_id": "msg:1"}),
+        Message(role="assistant", content="原始回复", meta={"message_id": "msg:2"}),
+    ]
+    current = [
+        Message(role="user", content="原始请求被改写", meta={"message_id": "msg:1"}),
+        Message(role="assistant", content="原始回复", meta={"message_id": "msg:2"}),
+        Message(role="user", content="当前请求必须保留", meta={"message_id": "msg:3"}),
+    ]
+    summary = "# Active Goal\n- 这条摘要覆盖的是旧消息\n"
+    manager.overwrite(summary)
+    manager.write_compaction_state(
+        messages=original,
+        run_id="memory-maintenance:test:stale",
+        source="agent:1",
+        source_message_refs=["message:msg:1", "message:msg:2"],
+        summary_content=summary,
+    )
+    compactor = ContextCompactor(
+        manager,
+        max_messages=4,
+        keep_recent_messages=2,
+        effective_history_token_budget=180,
+        full_compact_recent_messages=2,
+    )
+
+    result = compactor.apply_strategy(
+        current,
+        pressure_level="full_compact",
+        request_id="ctxcompact:stale-watermark",
+        force_full_compact=True,
+    )
+
+    assert result.did_compact is False
+    assert result.strategy == "blocked_by_empty_compaction_summary"
+    assert result.diagnostics["session_compaction_state"]["status"] == "stale"
+    assert result.diagnostics["session_compaction_state"]["reason"] == "message_fingerprint_mismatch"
+
+
 def test_microcompact_compresses_only_old_low_authority_assistant_prose(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path)
     compactor = ContextCompactor(
@@ -232,6 +370,9 @@ def test_context_compactor_uses_semantic_summary_as_checkpoint_and_keeps_recent_
     assert receipt["applied_strategy"] == "full_compact"
     assert receipt["invariant_status"] == "ok"
     assert result.diagnostics["compaction_invariants"]["current_user_message_preserved"] is True
+    assert result.diagnostics["summary_quality"]["status"] == "pass"
+    assert result.diagnostics["summary_quality"]["coverage_signals"]["current_user_message_preserved"] is True
+    assert result.diagnostics["summary_quality_failed_sample_ledger"] == []
 
 
 def test_context_compactor_rejects_unregistered_semantic_worker(tmp_path) -> None:
@@ -353,9 +494,9 @@ def test_context_compactor_renders_structured_semantic_recovery_package(tmp_path
     assert result.diagnostics["semantic_structured_summary_present"] is True
 
 
-def test_context_compactor_falls_back_when_registered_worker_returns_empty_summary(tmp_path) -> None:
+def test_context_compactor_blocks_when_registered_worker_returns_empty_summary_without_valid_session_state(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path)
-    manager.overwrite("# Active Goal\n- 使用确定性摘要兜底\n")
+    manager.overwrite("# Active Goal\n- 旧摘要没有覆盖水位\n")
     worker = _RegisteredSemanticWorker(summary="")
     compactor = ContextCompactor(
         manager,
@@ -379,11 +520,47 @@ def test_context_compactor_falls_back_when_registered_worker_returns_empty_summa
     )
 
     assert worker.requests
-    assert result.did_full_compact is True
-    assert result.messages[0].meta["compaction_source"] == "deterministic_session_memory"
-    assert "使用确定性摘要兜底" in result.messages[0].content
+    assert result.did_full_compact is False
+    assert result.summary_message is None
+    assert result.strategy == "blocked_by_empty_compaction_summary"
     assert result.diagnostics["semantic_compactor_result"]["ok"] is False
-    assert result.diagnostics["compaction_source"] == "deterministic_session_memory"
+    assert result.diagnostics["compaction_source"] == "unavailable"
+    assert result.diagnostics["session_compaction_state"]["status"] == "missing"
+    assert result.diagnostics["summary_quality"]["status"] == "unpass"
+    assert "summary_content" in result.diagnostics["summary_quality"]["missing_fields"]
+    assert result.diagnostics["summary_quality_failed_sample_ledger"][0]["quality_status"] == "unpass"
+
+
+def test_semantic_summary_quality_failed_sample_tracks_lost_current_user_message() -> None:
+    before = [
+        Message(role="user", content="旧请求"),
+        Message(role="assistant", content="旧回复"),
+        Message(role="user", content="当前请求必须保留"),
+    ]
+    after = [Message(role="system", content="旧摘要只记录历史背景")]
+
+    quality = evaluate_semantic_compaction_summary_quality(
+        request_id="ctxcompact:lost-current-user",
+        session_id="session:quality",
+        summary_source="semantic_compactor",
+        before_messages=before,
+        after_messages=after,
+        summary_content="旧摘要只记录历史背景",
+    )
+    sample = failed_sample_from_summary_quality(
+        quality,
+        request_id="ctxcompact:lost-current-user",
+        session_id="session:quality",
+        summary_source="semantic_compactor",
+    )
+
+    assert quality.status == "unpass"
+    assert quality.coverage_signals["current_user_message_preserved"] is False
+    assert "current_user_message_preserved" in quality.missing_fields
+    assert sample is not None
+    assert sample.to_dict()["request_id"] == "ctxcompact:lost-current-user"
+    assert sample.to_dict()["session_id"] == "session:quality"
+    assert sample.to_dict()["summary_source"] == "semantic_compactor"
 
 
 def test_context_compactor_agent_profile_is_registered_and_tool_restricted() -> None:
@@ -392,13 +569,21 @@ def test_context_compactor_agent_profile_is_registered_and_tool_restricted() -> 
     assert profile is not None
     assert profile.agent_profile_id == "context_compactor_agent"
     assert profile.metadata["agent_prompt_refs_by_invocation"]["semantic_compaction"] == [
-        "agent.context_compactor_agent.semantic_compaction.work_role.v1"
+        "agent.context_compactor_agent.semantic_compaction.work_role"
     ]
     assert profile.metadata["worker_kind"] == "semantic_compaction"
     assert profile.metadata["runtime_config"]["runtime_kind"] == "context_compactor"
     assert set(profile.allowed_operations) == {"op.model_response"}
     assert {"op.web_search", "op.fetch_url", "op.read_file", "op.write_file", "op.shell"} <= set(profile.blocked_operations)
     assert profile.subagent_policy.enabled is False
+    assert profile.model_profile.temperature == 0
+    assert profile.model_profile.max_output_tokens == 4096
+    assert profile.model_profile.thinking_mode == "disabled"
+    assert profile.model_profile.stream_policy["enabled"] is False
+    assert profile.model_profile.response_format == {"type": "json_object"}
+    assert profile.metadata["runtime_config"]["stop_policy"] == "recovery_point_ready_or_blocked"
+    assert profile.metadata["runtime_config"]["context_compaction"]["unavailable_summary_policy"] == "block_compaction"
+    assert "fallback" not in profile.metadata["runtime_config"]["context_compaction"]
 
 
 def test_runtime_compiler_builds_model_only_semantic_compaction_packet(tmp_path) -> None:
@@ -442,7 +627,11 @@ def test_runtime_compiler_builds_model_only_semantic_compaction_packet(tmp_path)
     assert result.packet.available_tools == ()
     assert result.packet.allowed_action_types == ("model_response",)
     assert result.envelope.task_environment_ref == "env.coding.vibe_workspace"
-    assert "runtime.pack.semantic_compaction.v1" in result.packet.prompt_pack_refs
+    assert result.packet.prompt_pack_refs == ()
+    manifest = result.packet.diagnostics["prompt_manifest"]
+    assert manifest["prompt_pack_refs"] == []
+    assert "general.runtime_protocol.system_call_protocol" in manifest["rendered_prompt_refs"]
+    assert "coding.cycles.session_compaction.way.route" in manifest["rendered_prompt_refs"]
     joined = "\n".join(str(item.get("content") or "") for item in result.packet.model_messages)
     assert "你是一名上下文压缩员" in joined
     assert "Semantic compaction request" in joined
@@ -499,6 +688,10 @@ def test_registered_semantic_compaction_worker_invokes_runtime_model(tmp_path) -
     assert model_runtime.calls
     call = model_runtime.calls[0]
     assert call["kwargs"]["accounting_context"]["cache_metric_scope"] == "semantic_compaction_worker"
+    assert call["kwargs"]["model_spec"]["temperature"] == 0
+    assert call["kwargs"]["model_spec"]["max_output_tokens"] == 4096
+    assert call["kwargs"]["model_spec"]["stream_policy"]["enabled"] is False
+    assert call["kwargs"]["model_spec"]["response_format"] == {"type": "json_object"}
     assert any("Semantic compaction request" in str(message.get("content") or "") for message in call["messages"])
     assert result.diagnostics["model_response_protocol"]["json_payload"]["structured_summary"]["current_goal"] == "继续压缩系统"
 
@@ -553,7 +746,6 @@ def test_pre_compact_hook_can_block_with_boundary_receipt(tmp_path) -> None:
 
 def test_compactor_blocks_replacement_that_would_orphan_tool_result(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path)
-    manager.overwrite("# Active Goal\n- 保留工具协议\n")
     compactor = ContextCompactor(
         manager,
         max_messages=4,
@@ -569,6 +761,7 @@ def test_compactor_blocks_replacement_that_would_orphan_tool_result(tmp_path) ->
         Message(role="tool", content='<tool_result tool_call_id="call_1">文件内容</tool_result>'),
         Message(role="user", content="继续，且不要切断工具结果"),
     ]
+    _write_valid_session_memory(manager, messages, "# Active Goal\n- 保留工具协议\n")
 
     result = compactor.apply_strategy(
         messages,

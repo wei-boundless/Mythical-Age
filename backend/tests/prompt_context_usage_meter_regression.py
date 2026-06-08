@@ -103,8 +103,8 @@ def test_context_usage_meter_uses_session_pressure_as_current_context_authority(
     assert snapshot.estimate_mode == "session_pressure"
     assert snapshot.authority == "runtime.context_management.session_pressure_snapshot"
     assert snapshot.current_context_tokens == 35_000
-    assert snapshot.compaction_pressure_ratio == 0.038889
-    assert snapshot.compaction_remaining_tokens == 865_000
+    assert snapshot.compaction_pressure_ratio == 0.041176
+    assert snapshot.compaction_remaining_tokens == 815_000
     assert snapshot.provider_prompt_tokens == 100
     assert snapshot.diagnostics["pressure_authority"] == "runtime.context_management.session_pressure"
     assert snapshot.diagnostics["provider_observed_context_tokens"] == 100
@@ -131,11 +131,13 @@ def test_context_usage_meter_reports_compaction_remaining_against_replacement_th
 
     assert snapshot.context_window_tokens == 1_000_000
     assert snapshot.input_capacity_tokens == 926_272
-    assert snapshot.replacement_threshold_tokens == 900_000
+    assert snapshot.warning_threshold_tokens == 750_000
+    assert snapshot.ready_threshold_tokens == 800_000
+    assert snapshot.replacement_threshold_tokens == 850_000
     assert snapshot.current_context_ratio == 0.035
-    assert snapshot.compaction_pressure_ratio == 0.038889
-    assert snapshot.compaction_remaining_tokens == 865_000
-    assert snapshot.compaction_remaining_ratio == 0.961111
+    assert snapshot.compaction_pressure_ratio == 0.041176
+    assert snapshot.compaction_remaining_tokens == 815_000
+    assert snapshot.compaction_remaining_ratio == 0.958824
 
 
 def test_context_usage_meter_uses_newer_local_prediction_until_provider_usage_arrives(tmp_path) -> None:
@@ -174,7 +176,7 @@ def test_context_usage_meter_uses_newer_local_prediction_until_provider_usage_ar
     assert snapshot.estimate_mode == "local_predicted_newer_than_provider"
     assert snapshot.anchor_valid is False
     assert snapshot.current_context_tokens == 88_000
-    assert snapshot.compaction_remaining_tokens == 812_000
+    assert snapshot.compaction_remaining_tokens == 762_000
     assert snapshot.cache_hit_rate_latest == round(20_000 / 35_000, 4)
     assert snapshot.diagnostics["effective_anchor_source"] == "local_prediction"
     assert snapshot.diagnostics["effective_anchor_request_id"] == "modelreq:local"
@@ -403,11 +405,13 @@ def test_deepseek_compactor_does_not_full_compact_from_message_count_alone(tmp_p
         manager,
         max_messages=4,
         keep_recent_messages=2,
-        effective_history_token_budget=900_000,
+        effective_history_token_budget=850_000,
     )
     messages = [Message(role="user", content=f"small message {index}") for index in range(20)]
 
     level = compactor.pressure_level(compactor.conversation_tokens(messages), len(messages))
 
     assert level == "normal"
-    assert compactor.full_compact_tokens == 900_000
+    assert compactor.warning_tokens == 750_000
+    assert compactor.microcompact_tokens == 800_000
+    assert compactor.full_compact_tokens == 850_000

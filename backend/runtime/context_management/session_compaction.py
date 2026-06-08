@@ -534,15 +534,14 @@ def _compaction_response(
     applied = False
     persisted: dict[str, Any] = {}
     if mode in {"run", "auto"} and not blocked and _result_rewrites_history(result):
-        compressed_context = _compressed_context_after_compact(record, getattr(result, "summary_message", None))
+        summary_message = getattr(result, "summary_message", None)
         stored_messages = _stored_messages_after_compact(list(getattr(result, "messages", []) or []))
         replace = getattr(runtime.session_manager, "replace_runtime_context", None)
         if callable(replace):
-            persisted = replace(
-                session_id,
-                messages=stored_messages,
-                compressed_context=compressed_context,
-            )
+            kwargs: dict[str, Any] = {"messages": stored_messages}
+            if summary_message is not None:
+                kwargs["compressed_context"] = _compressed_context_after_compact(record, summary_message)
+            persisted = replace(session_id, **kwargs)
             applied = True
     return {
         "authority": "runtime.context_management.session_compaction",
@@ -655,6 +654,9 @@ def _message_to_session_dict(message: Message, *, content: str) -> dict[str, Any
         "content": content,
     }
     meta = dict(message.meta or {})
+    message_id = str(meta.get("message_id") or meta.get("id") or "").strip()
+    if message_id:
+        payload["message_id"] = message_id
     if meta:
         payload["meta"] = meta
     return payload

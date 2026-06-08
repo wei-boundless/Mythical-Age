@@ -62,6 +62,37 @@ def test_compact_run_rewrites_runtime_history_and_preserves_api_transcript(tmp_p
     assert api_transcript[1]["content"] == old_assistant_prose
 
 
+def test_microcompact_run_preserves_existing_full_compact_boundary(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+    original_messages = runtime.session_manager.load_session(session_id)
+    runtime.session_manager.replace_runtime_context(
+        session_id,
+        messages=original_messages,
+        compressed_context="此前已经生成的 full compact checkpoint",
+    )
+    before_record = runtime.session_manager.get_history(session_id)
+    before_boundary = before_record["provider_protocol_compaction_created_at"]
+
+    response = asyncio.run(
+        tokens_api.run_session_compaction(
+            session_id,
+            tokens_api.CompactSessionRequest(pressure_level="microcompact"),
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    record = runtime.session_manager.get_history(session_id)
+
+    assert response["applied"] is True
+    assert response["did_microcompact"] is True
+    assert response["did_full_compact"] is False
+    assert record["compressed_context"] == "此前已经生成的 full compact checkpoint"
+    assert record["provider_protocol_compaction_created_at"] == before_boundary
+
+
 def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
@@ -114,7 +145,7 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert response["context_meter"]["diagnostics"]["session_pressure"]["provider_protocol_message_count"] == 0
     assert response["context_meter"]["reserved_output_tokens"] == 65_536
     assert response["context_meter"]["input_capacity_tokens"] == 926_272
-    assert response["context_meter"]["replacement_threshold_tokens"] == 900_000
+    assert response["context_meter"]["replacement_threshold_tokens"] == 850_000
     assert response["context_meter"]["compaction_remaining_tokens"] <= response["context_meter"]["replacement_threshold_tokens"]
     assert response["cumulative_transcript_message_count"] == 4
     assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
@@ -260,6 +291,14 @@ def _runtime_with_session(tmp_path: Path):
             {"role": "user", "content": "当前请求必须保留"},
         ],
     )
+    fake_session_memory = _FakeSessionMemory(tmp_path / "session-memory")
+    fake_session_memory.manager.write_compaction_state(
+        messages=session_manager.load_session(session_id),
+        run_id="memory-maintenance:test-api",
+        source="agent:1",
+        source_message_refs=["message:api"],
+        summary_content=fake_session_memory.manager.load(),
+    )
     return (
         SimpleNamespace(
             session_manager=session_manager,
@@ -272,7 +311,7 @@ def _runtime_with_session(tmp_path: Path):
             ),
             memory_facade=SimpleNamespace(
                 adapter=MemoryMessageAdapter(),
-                session_memory=_FakeSessionMemory(tmp_path / "session-memory"),
+                session_memory=fake_session_memory,
             ),
         ),
         session_id,
