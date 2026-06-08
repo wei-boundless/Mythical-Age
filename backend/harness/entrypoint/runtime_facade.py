@@ -16,7 +16,7 @@ from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskEx
 from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
-from runtime.context_management.session_compaction import auto_compact_session_if_needed
+from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.shared.history_assembler import assemble_runtime_history
 from permissions.policy import normalize_permission_mode
@@ -210,6 +210,91 @@ class HarnessRuntimeFacade:
             return {}
         return dict(payload) if isinstance(payload, dict) and payload else {}
 
+    def _runtime_history_and_session_context_for_record(
+        self,
+        *,
+        session_id: str,
+        history_record: dict[str, Any],
+        base_session_context: dict[str, Any] | None = None,
+        exclude_current_user_turn_id: str = "",
+        exclude_current_user_message: str = "",
+    ) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        raw_history = _history_without_current_user_request(
+            list(history_record.get("messages") or []),
+            turn_id=exclude_current_user_turn_id,
+            user_message=exclude_current_user_message,
+        )
+        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
+        api_transcript = (
+            api_transcript_loader(session_id)
+            if callable(api_transcript_loader)
+            else list(raw_history or [])
+        )
+        history_assembly = assemble_runtime_history(
+            history=raw_history,
+            compressed_context=str(history_record.get("compressed_context") or ""),
+        )
+        session_context = dict(base_session_context or {})
+        session_context["compressed_context"] = history_assembly.compressed_context
+        session_context["api_transcript"] = [
+            dict(item)
+            for item in list(api_transcript or [])
+            if isinstance(item, dict)
+        ]
+        context_recovery_package = self._context_recovery_package_for_session(session_id)
+        if context_recovery_package:
+            session_context["context_recovery_package"] = context_recovery_package
+        else:
+            session_context.pop("context_recovery_package", None)
+        provider_protocol_compaction_created_at = float(history_record.get("provider_protocol_compaction_created_at") or 0.0)
+        if provider_protocol_compaction_created_at > 0:
+            session_context["provider_protocol_compaction_created_at"] = provider_protocol_compaction_created_at
+        else:
+            session_context.pop("provider_protocol_compaction_created_at", None)
+        conversation_state = dict(history_record.get("conversation_state") or {})
+        project_binding = dict(conversation_state.get("project_binding") or {})
+        if project_binding:
+            session_context["project_binding"] = project_binding
+        return [dict(item) for item in history_assembly.model_history], session_context
+
+    async def _compact_session_context_for_single_agent_followup(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload_map = dict(payload or {})
+        session_id = str(payload_map.get("session_id") or "").strip()
+        if not session_id:
+            return {
+                "compaction": {
+                    "applied": False,
+                    "strategy": "none",
+                    "skipped_reason": "missing_session_id",
+                }
+            }
+        compaction = compact_session_history(
+            self,
+            session_id=session_id,
+            mode="auto",
+            pressure_level="auto",
+            reason=str(payload_map.get("reason") or "mid_turn_tool_observation_followup"),
+            pressure_source="context",
+            context_snapshot=payload_map.get("context_snapshot"),
+        )
+        history_record = self.session_manager.load_session_record(session_id)
+        history, session_context = self._runtime_history_and_session_context_for_record(
+            session_id=session_id,
+            history_record=history_record,
+            exclude_current_user_turn_id=str(payload_map.get("turn_id") or ""),
+            exclude_current_user_message=str(payload_map.get("user_message") or ""),
+            base_session_context=(
+                dict(payload_map.get("session_context") or {})
+                if isinstance(payload_map.get("session_context"), dict)
+                else {}
+            ),
+        )
+        return {
+            "compaction": dict(compaction or {}),
+            "history": history,
+            "session_context": session_context,
+        }
+
     def _event_coverage_for_active_turn(self, *, session_id: str, turn_id: str) -> dict[str, Any]:
         active_registry = getattr(self.single_agent_runtime_host, "active_turn_registry", None)
         if active_registry is None:
@@ -345,6 +430,17 @@ class HarnessRuntimeFacade:
                     yield direct_system_route_event
                     return
 
+                active_work_context = self._active_work_context_from_active_turn(request.session_id)
+                fast_steer_events = await self._active_turn_steer_fast_path(
+                    request=request,
+                    turn_id=turn_id,
+                    active_work_context=active_work_context,
+                )
+                if fast_steer_events is not None:
+                    for event in fast_steer_events:
+                        yield event
+                    return
+
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
                 runtime_contract = _runtime_contract_for_turn(
@@ -380,7 +476,6 @@ class HarnessRuntimeFacade:
                 }
 
                 runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
-                active_work_context = self._active_work_context_from_active_turn(request.session_id)
                 if active_work_context is None:
                     active_work_context = self._current_work_context_from_latest_task(request.session_id)
                 recent_work_outcome: dict[str, Any] = {}
@@ -471,14 +566,11 @@ class HarnessRuntimeFacade:
                 return
         except Exception as exc:
             logger.exception("HarnessRuntimeFacade failed while streaming request.")
-            try:
-                self.single_agent_runtime_host.active_turn_registry.complete(
-                    session_id=request.session_id,
-                    expected_turn_id=turn_id,
-                    terminal_reason="harness.entrypoint_error",
-                )
-            except Exception:
-                logger.debug("failed to release active turn after query runtime error", exc_info=True)
+            self._release_transient_active_turn(
+                session_id=request.session_id,
+                turn_id=turn_id,
+                terminal_reason="harness.entrypoint_error",
+            )
             failure_text = self._user_visible_error(exc)
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):
@@ -603,8 +695,186 @@ class HarnessRuntimeFacade:
             stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
             start_task_from_action_request=start_task,
             apply_active_work_control=apply_active_work_control,
+            compact_session_context=self._compact_session_context_for_single_agent_followup,
         ):
                 yield event
+
+    async def _active_turn_steer_fast_path(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        active_work_context: ActiveWorkContext | None,
+    ) -> list[dict[str, Any]] | None:
+        policy = str(getattr(request, "active_turn_input_policy", "") or "auto").strip().lower() or "auto"
+        if policy not in {"auto", "steer"}:
+            return None
+        expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        if not expected_active_turn_id:
+            return None
+        if active_work_context is None or not active_work_context.running:
+            return None
+        if str(active_work_context.authority or "") != "harness.runtime.active_turn_context":
+            return None
+        if str(active_work_context.control_state or "") in {"paused", "pause_requested", "stopped", "stop_requested"}:
+            return None
+        branch_event = self._active_turn_steer_branch_event(reason="expected_active_turn_matched")
+        guard = self._active_turn_control_guard(request=request, active_work_context=active_work_context)
+        if guard is not None:
+            terminal_events = await self._active_turn_steer_terminal_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                content=str(guard.get("content") or "当前任务状态已变化，请刷新后重试。"),
+                status="blocked",
+                terminal_reason=str(guard.get("terminal_reason") or "expected_active_turn_mismatch"),
+                completion_state="blocked",
+            )
+            return [branch_event, *terminal_events]
+        result = append_user_work_instruction(
+            self.single_agent_runtime_host,
+            active_work_context.task_run_id,
+            content=str(getattr(request, "message", "") or ""),
+            turn_id=turn_id,
+            intent="conversation_steer_while_running",
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+        )
+        if not result.get("ok"):
+            terminal_events = await self._active_turn_steer_terminal_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                content=active_work_status_reply(
+                    self._active_work_context_from_active_turn(active_work_context.session_id)
+                    or active_work_context
+                ),
+                status="blocked",
+                terminal_reason=str(result.get("error") or "active_turn_steer_rejected"),
+                completion_state="blocked",
+            )
+            return [branch_event, *terminal_events]
+        content = "我已收到这条补充要求，会把它接入当前任务。"
+        task_run = dict(result.get("task_run") or {})
+        self._bind_current_turn_to_task_run(
+            session_id=active_work_context.session_id,
+            turn_id=expected_active_turn_id,
+            task_run_id=active_work_context.task_run_id,
+            state="running_task",
+        )
+        active_turn_payload = self._active_turn_payload_for_context(
+            context=active_work_context,
+            turn_id=expected_active_turn_id,
+        )
+        active_event = {
+            "type": "active_task_steer_accepted",
+            "summary": content,
+            "status": "accepted",
+            "terminal_reason": "append_instruction_to_active_work",
+            "runtime_task_run_id": active_work_context.task_run_id,
+            "active_turn_id": expected_active_turn_id,
+            "active_turn": active_turn_payload,
+            "runtime_branch": {
+                "branch_kind": "active_turn_steer",
+                "invocation_kind": "active_turn_input",
+                "reason": "expected_active_turn_matched",
+                "authority": "harness.entrypoint.active_turn_steer_fast_path",
+            },
+            "active_work": {
+                "action": "append_instruction_to_active_work",
+                "relation_to_current_work": "current_work",
+                "continuation_strategy": "already_running",
+                "turn_response_policy": "answer_then_active_work",
+            },
+            "task_run": task_run,
+            "task_run_id": active_work_context.task_run_id,
+        }
+        terminal_events = await self._active_turn_steer_terminal_events(
+            request=request,
+            turn_id=turn_id,
+            context=active_work_context,
+            content=content,
+            status="completed",
+            terminal_reason="append_instruction_to_active_work",
+            completion_state="task_steer_accepted",
+        )
+        return [branch_event, active_event, *terminal_events]
+
+    def _active_turn_steer_branch_event(self, *, reason: str) -> dict[str, Any]:
+        return {
+            "type": "runtime_branch_decided",
+            "runtime_branch": {
+                "branch_kind": "active_turn_steer",
+                "invocation_kind": "active_turn_input",
+                "reason": str(reason or "active_turn_steer"),
+                "authority": "harness.entrypoint.active_turn_steer_fast_path",
+            },
+        }
+
+    async def _active_turn_steer_terminal_events(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        context: ActiveWorkContext,
+        content: str,
+        status: str,
+        terminal_reason: str,
+        completion_state: str,
+    ) -> list[dict[str, Any]]:
+        answer_channel = "blocked" if status == "blocked" else "active_work_control"
+        decision = canonical_output_decision_for_final_text(
+            content,
+            answer_channel=answer_channel,
+            answer_source="harness.entrypoint.active_turn_steer",
+            execution_posture="active_work_control",
+            terminal_reason=terminal_reason,
+        )
+        await self._apply_assistant_message_commit_async(
+            context.session_id,
+            {
+                "role": "assistant",
+                "content": decision.content,
+                "turn_id": turn_id,
+                "task_run_id": context.task_run_id,
+                **decision.to_payload(),
+            },
+        )
+        return [
+            final_answer_event(
+                content=decision.content,
+                answer_channel=answer_channel,
+                answer_source="harness.entrypoint.active_turn_steer",
+                terminal_reason=terminal_reason,
+                execution_posture="active_work_control",
+                extra={
+                    "completion_state": completion_state,
+                    "summary": decision.content if completion_state == "task_steer_accepted" else "",
+                    "runtime_task_run_id": context.task_run_id,
+                    "task_run_id": context.task_run_id,
+                    "active_turn_id": str(getattr(request, "expected_active_turn_id", "") or "").strip(),
+                    "active_turn": self._active_turn_payload_for_context(
+                        context=context,
+                        turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
+                    ),
+                    "runtime_branch": {
+                        "branch_kind": "active_turn_steer",
+                        "invocation_kind": "active_turn_input",
+                        "authority": "harness.entrypoint.active_turn_steer_fast_path",
+                    },
+                },
+            )
+        ]
+
+    def _active_turn_payload_for_context(self, *, context: ActiveWorkContext, turn_id: str) -> dict[str, Any]:
+        active_turn = self.single_agent_runtime_host.active_turn_registry.snapshot(context.session_id)
+        if active_turn is not None:
+            return active_turn.to_dict()
+        return {
+            "session_id": context.session_id,
+            "turn_id": str(turn_id or context.active_work_id or "").strip(),
+            "bound_task_run_id": context.task_run_id,
+            "state": "running_task" if context.running else "waiting_executor",
+        }
 
     def _active_turn_control_guard(
         self,
@@ -2024,6 +2294,36 @@ def _request_permission_mode(
         if provider_mode:
             return normalize_permission_mode(provider_mode)
     return "full_access"
+
+
+def _history_without_current_user_request(
+    history: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    user_message: str,
+) -> list[dict[str, Any]]:
+    target_turn_id = str(turn_id or "").strip()
+    target_content = str(user_message or "")
+    if not target_turn_id:
+        return [dict(item) for item in list(history or []) if isinstance(item, dict)]
+    result: list[dict[str, Any]] = []
+    for item in list(history or []):
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip()
+        item_turn_id = str(item.get("turn_id") or "").strip()
+        content = str(item.get("content") or "")
+        current_turn_match = item_turn_id == target_turn_id
+        compacted_current_request_match = not item_turn_id and bool(target_content) and content == target_content
+        is_current_user_request = (
+            role == "user"
+            and (current_turn_match or compacted_current_request_match)
+            and (not target_content or content == target_content)
+        )
+        if is_current_user_request:
+            continue
+        result.append(dict(item))
+    return result
 
 
 def _graph_model_override_diagnostics(work_order: Any) -> dict[str, Any]:

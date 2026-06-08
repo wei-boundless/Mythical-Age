@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
+from prompt_ref_migrations import migrate_prompt_pack_payload, migrate_prompt_resource_payload
 
 from .agent_prompts import list_builtin_agent_prompt_resources
 from .general_lifecycle_prompts import list_builtin_general_lifecycle_prompt_resources
@@ -117,21 +118,23 @@ class PromptLibraryRegistry:
         )
 
     def upsert_resource(self, resource: PromptResource) -> PromptResource:
-        target = str(resource.resource_id or "").strip()
+        normalized_resource = prompt_resource_from_dict(migrate_prompt_resource_payload(resource.to_dict()))
+        target = str(normalized_resource.resource_id or "").strip()
         if not target:
             raise ValueError("PromptResource requires resource_id")
         resources = [item for item in self._list_stored_resources(normalize=True) if item.resource_id != target]
-        resources.append(resource)
+        resources.append(normalized_resource)
         resources.sort(key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
         _write_json(_resources_path(self.base_dir), {"resources": [item.to_dict() for item in resources]})
-        return resource
+        return normalized_resource
 
     def upsert_resources(self, resources: list[PromptResource] | tuple[PromptResource, ...]) -> tuple[PromptResource, ...]:
         existing = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
         for resource in resources:
-            if not str(resource.resource_id or "").strip():
+            normalized_resource = prompt_resource_from_dict(migrate_prompt_resource_payload(resource.to_dict()))
+            if not str(normalized_resource.resource_id or "").strip():
                 continue
-            existing[resource.resource_id] = resource
+            existing[normalized_resource.resource_id] = normalized_resource
         ordered = sorted(existing.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
         _write_json(_resources_path(self.base_dir), {"resources": [item.to_dict() for item in ordered]})
         return tuple(ordered)
@@ -168,19 +171,25 @@ class PromptLibraryRegistry:
         return next((item for item in self.list_packs() if item.pack_id == target), None)
 
     def upsert_pack(self, pack: PromptPack) -> PromptPack:
-        packs = [item for item in self._list_stored_packs(normalize=True) if item.pack_id != pack.pack_id]
-        packs.append(pack)
+        normalized_pack = prompt_pack_from_dict(migrate_prompt_pack_payload(pack.to_dict()))
+        packs = [item for item in self._list_stored_packs(normalize=True) if item.pack_id != normalized_pack.pack_id]
+        packs.append(normalized_pack)
         packs.sort(key=lambda item: (item.invocation_kind, item.pack_id))
         _write_json(_packs_path(self.base_dir), {"packs": [item.to_dict() for item in packs]})
-        return pack
+        return normalized_pack
 
     def _list_stored_resources(self, *, normalize: bool) -> list[PromptResource]:
         payload = _read_json(_resources_path(self.base_dir), {"resources": []})
-        resources = [
-            prompt_resource_from_dict(item)
-            for item in list(payload.get("resources") or [])
-            if isinstance(item, dict)
-        ]
+        resources_by_id: dict[str, PromptResource] = {}
+        for item in list(payload.get("resources") or []):
+            if not isinstance(item, dict):
+                continue
+            resource = prompt_resource_from_dict(migrate_prompt_resource_payload(item))
+            resources_by_id[resource.resource_id] = resource
+        resources = sorted(
+            resources_by_id.values(),
+            key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id),
+        )
         if normalize:
             normalized = [item.to_dict() for item in resources]
             if payload.get("resources") != normalized:
@@ -189,11 +198,13 @@ class PromptLibraryRegistry:
 
     def _list_stored_packs(self, *, normalize: bool) -> list[PromptPack]:
         payload = _read_json(_packs_path(self.base_dir), {"packs": []})
-        packs = [
-            prompt_pack_from_dict(item)
-            for item in list(payload.get("packs") or [])
-            if isinstance(item, dict)
-        ]
+        packs_by_id: dict[str, PromptPack] = {}
+        for item in list(payload.get("packs") or []):
+            if not isinstance(item, dict):
+                continue
+            pack = prompt_pack_from_dict(migrate_prompt_pack_payload(item))
+            packs_by_id[pack.pack_id] = pack
+        packs = sorted(packs_by_id.values(), key=lambda item: (item.invocation_kind, item.pack_id))
         if normalize:
             normalized = [item.to_dict() for item in packs]
             if payload.get("packs") != normalized:

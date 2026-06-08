@@ -136,6 +136,18 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
+        if _background_task_running(runtime_host, f"task-run-executor:{task_run_id}") or _background_task_running(
+            runtime_host,
+            f"task-run-executor-recover:{task_run_id}",
+        ):
+            return _schedule_result(
+                ok=True,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="already_running",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
         background_task_name = f"task-run-executor-recover:{task_run_id}"
         runtime_host.spawn_background_task(
             self._runner(task_run_id=task_run_id, scheduler=scheduler, max_steps=max_steps),
@@ -362,6 +374,14 @@ def _is_session_deleted(runtime_host: Any, task_run: Any) -> bool:
         return bool(checker(str(getattr(task_run, "session_id", "") or "")))
     except Exception:
         return False
+
+
+def _background_task_running(runtime_host: Any, name: str) -> bool:
+    tasks_by_name = getattr(runtime_host, "_background_tasks_by_name", {})
+    if not isinstance(tasks_by_name, dict):
+        return False
+    tasks = tasks_by_name.get(name, set())
+    return any(not getattr(task, "done", lambda: True)() for task in list(tasks or []))
 
 
 def _origin_kind(task_run: Any) -> str:

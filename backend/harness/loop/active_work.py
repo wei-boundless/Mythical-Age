@@ -86,7 +86,7 @@ class ActiveWorkTurnDecision:
 def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, user_message: str = "") -> ActiveWorkTurnDecision:
     raw = dict(payload or {})
     authority = str(raw.get("authority") or "harness.loop.active_work_turn_decision").strip()
-    action = str(raw.get("action") or raw.get("intent") or "").strip()
+    action = str(raw.get("action") or "").strip()
     if authority != "harness.loop.active_work_turn_decision":
         return _denied_active_work_decision("active_work_turn_decision_authority_invalid")
     if action not in _ALLOWED_ACTIONS:

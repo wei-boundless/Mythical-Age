@@ -243,6 +243,21 @@ class SubagentControl:
         if child is None:
             return {"ok": False, "status": "blocked", "error": "subagent_run_not_found_or_not_owned", "subagent_run_ref": subagent_run_ref}
         terminal = "completed" if child.status == "completed" else "killed"
+        task_run_control: dict[str, Any] = {}
+        if terminal == "killed":
+            task_run_control = _request_child_task_run_stop(
+                self.runtime_host,
+                child_task_run_id=child.task_run_id,
+                reason=reason.strip() or "closed_by_parent_agent",
+            )
+            if task_run_control and not bool(task_run_control.get("ok")):
+                return {
+                    "ok": False,
+                    "status": "blocked",
+                    "error": str(task_run_control.get("error") or "subagent_task_run_close_rejected"),
+                    "subagent_run_ref": child.agent_run_id,
+                    "task_run_control": task_run_control,
+                }
         updated = replace(
             child,
             status=terminal,
@@ -263,7 +278,13 @@ class SubagentControl:
             refs={},
         )
         self._append_event(task_run.task_run_id, "subagent_closed", child_run=updated, message=message)
-        return {"ok": True, "status": updated.status, "subagent_run_ref": updated.agent_run_id, "message_ref": message.message_id}
+        return {
+            "ok": True,
+            "status": updated.status,
+            "subagent_run_ref": updated.agent_run_id,
+            "message_ref": message.message_id,
+            **({"task_run_control": task_run_control} if task_run_control else {}),
+        }
 
     def _spawn_allowed(self, *, policy: dict[str, Any], task_run: Any, parent_agent_run: AgentRun, target_agent_id: str) -> tuple[bool, str]:
         if not bool(policy.get("enabled") is True):
@@ -486,6 +507,29 @@ def _child_status_summary(task_run: Any) -> str:
     if terminal_reason:
         return f"subagent task status: {status}, reason: {terminal_reason}"
     return f"subagent task status: {status}"
+
+
+def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, reason: str) -> dict[str, Any]:
+    task_run_id = str(child_task_run_id or "").strip()
+    if not task_run_id:
+        return {"ok": False, "error": "child_task_run_id_missing"}
+    child_task = runtime_host.state_index.get_task_run(task_run_id)
+    if child_task is None:
+        return {"ok": False, "error": "child_task_run_not_found", "task_run_id": task_run_id}
+    status = str(getattr(child_task, "status", "") or "").strip()
+    if status in {"completed", "success", "failed", "aborted", "cancelled", "canceled", "error"}:
+        return {"ok": True, "accepted": False, "task_run_id": task_run_id, "status": status}
+    from harness.loop.task_executor import stop_task_run
+
+    return dict(
+        stop_task_run(
+            runtime_host,
+            task_run_id,
+            reason=reason,
+            requested_by="parent_agent",
+        )
+        or {}
+    )
 
 
 def _child_summary(child: AgentRun) -> dict[str, Any]:

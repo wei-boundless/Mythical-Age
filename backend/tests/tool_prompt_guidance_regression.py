@@ -8,6 +8,7 @@ from capability_system.tools.authorization import build_authorized_tool_set
 from capability_system.tools.native_tool_catalog import get_tool_definitions
 from harness.runtime.compiler import RuntimeCompiler
 from prompt_library import PromptLibraryRegistry, tool_guidance_payload_for_visible_tools
+from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME
 
 
 def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_path: Path) -> None:
@@ -21,6 +22,7 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
     subagent_guidance = resources["tool.guidance.subagent"]
     browser_guidance = resources["tool.guidance.browser"]
     web_guidance = resources["tool.guidance.web_fetch"]
+    persisted_guidance = resources["tool.guidance.read_persisted_tool_result"]
 
     assert read_guidance.category == "tool"
     assert read_guidance.owner_layer == "tool"
@@ -33,17 +35,33 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
         "tool_observation_followup",
     )
     assert "has_more" in read_guidance.content
-    assert "content_preview、code_structure 或 persisted-output" in read_guidance.content
+    assert "content_preview、code_structure 或 <persisted-output>" in read_guidance.content
     assert "old_text not found" in edit_guidance.content
     assert "写入内容必须完整可用" in write_guidance.content
     assert "Windows PowerShell" in terminal_guidance.content
-    assert "项目固定节点" in terminal_guidance.content
+    assert "项目固定节点" not in terminal_guidance.content
+    assert "Next.js" not in terminal_guidance.content
     assert "recommended_parent_action" in subagent_guidance.content
     assert "不能把子 agent 的建议自动当作最终用户答复" in subagent_guidance.content
     assert "console/network 证据" in browser_guidance.content
+    assert "前端和后端目标" not in browser_guidance.content
     assert "不要只凭搜索摘要下结论" in web_guidance.content
     assert "来源之间冲突" in web_guidance.content
     assert "source_urls" in web_guidance.content
+    assert "rehydration_plan" in persisted_guidance.content
+    assert "不证明当前文件、网页、服务或版本库状态" in persisted_guidance.content
+    assert "必须重新使用 read_file 读取当前精确行窗口" in persisted_guidance.content
+
+
+def test_every_schema_plus_guidance_native_tool_has_registered_guidance_mapping() -> None:
+    missing = [
+        definition.name
+        for definition in get_tool_definitions()
+        if definition.prompt_exposure_policy == "schema_plus_guidance"
+        and definition.name not in _TOOL_GUIDANCE_REFS_BY_NAME
+    ]
+
+    assert missing == []
 
 
 def test_schema_plus_guidance_tools_remain_prompt_visible() -> None:
@@ -64,6 +82,7 @@ def test_tool_guidance_payload_only_uses_visible_schema_plus_guidance_tools() ->
     payload = tool_guidance_payload_for_visible_tools(
         [
             {"tool_name": "read_file", "prompt_exposure_policy": "schema_plus_guidance"},
+            {"tool_name": "read_persisted_tool_result", "prompt_exposure_policy": "schema_plus_guidance"},
             {"tool_name": "write_file", "prompt_exposure_policy": "schema_only"},
             {"tool_name": "python_repl", "prompt_exposure_policy": "hidden"},
             {"tool_name": "fetch_url", "prompt_exposure_policy": "schema_plus_guidance"},
@@ -74,6 +93,7 @@ def test_tool_guidance_payload_only_uses_visible_schema_plus_guidance_tools() ->
     content = json.dumps(payload["tool_guidance"], ensure_ascii=False)
 
     assert "tool.guidance.read_file" in refs
+    assert "tool.guidance.read_persisted_tool_result" in refs
     assert "tool.guidance.web_fetch" in refs
     assert "tool.guidance.write_file" not in refs
     assert "tool.guidance.read_file.v1" not in refs

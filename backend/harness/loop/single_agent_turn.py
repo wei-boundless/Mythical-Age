@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from project_layout import ProjectLayout
@@ -50,6 +52,7 @@ logger = logging.getLogger(__name__)
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[dict[str, Any]], Awaitable[str | dict[str, Any]]]
+CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 _STEER_ACTIVE_WORK_ACTIONS = {
     "continue_active_work",
@@ -80,6 +83,7 @@ _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
     "single_agent_turn_invalid_json_action",
     "single_agent_turn_json_action_required",
 }
+_INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
 
 
 def _meaningful_visible_answer(content: str) -> bool:
@@ -149,6 +153,7 @@ async def run_single_agent_turn(
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
     apply_active_work_control: ApplyActiveWorkControl,
+    compact_session_context: CompactSessionContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
     terminal_recorded = False
@@ -165,6 +170,25 @@ async def run_single_agent_turn(
         compiler = RuntimeCompiler()
         active_work_payload = _active_work_payload(active_work_context)
         active_work_for_turn = active_work_payload
+        def active_work_event_refs() -> dict[str, Any]:
+            task_run_id = str(active_work_payload.get("task_run_id") or "").strip()
+            if not task_run_id:
+                return {}
+            active_work_id = str(active_work_payload.get("active_work_id") or "").strip()
+            active_turn_id = active_work_id if active_work_id.startswith("turn:") else turn_id
+            state = "running_task" if bool(active_work_payload.get("running")) else "waiting_executor"
+            return {
+                "runtime_task_run_id": task_run_id,
+                "task_run_id": task_run_id,
+                "active_turn_id": active_turn_id,
+                "active_turn": {
+                    "session_id": session_id,
+                    "turn_id": active_turn_id,
+                    "bound_task_run_id": task_run_id,
+                    "state": state,
+                },
+            }
+
         compilation = compiler.compile_single_agent_turn_packet(
             session_id=session_id,
             turn_id=turn_id,
@@ -230,7 +254,8 @@ async def run_single_agent_turn(
                 terminal_reason=terminal_reason,
                 extra=dict(final_extra or {}),
             )
-        response = await _invoke_single_turn_model(
+        response = None
+        async for model_event in _invoke_single_turn_model_with_stream_events(
             model_runtime=model_runtime,
             model_messages=model_messages,
             model_selection=dict(model_selection or {}),
@@ -245,7 +270,12 @@ async def run_single_agent_turn(
                 "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
             },
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
-        )
+            allow_content_delta=not single_agent_requires_json_action,
+        ):
+            if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
+                response = model_event.get("response")
+                continue
+            yield model_event
         tool_iteration = 0
         tool_observation_payloads: list[dict[str, Any]] = []
         repaired_or_parsed_final_action: SingleAgentActionParse | None = None
@@ -333,7 +363,8 @@ async def run_single_agent_turn(
                     packet_id=compilation.packet.packet_id,
                     tool_iteration=tool_iteration + 1,
                 )
-                synthesis_response = await _invoke_single_turn_model(
+                synthesis_response = None
+                async for model_event in _invoke_single_turn_model_with_stream_events(
                     model_runtime=model_runtime,
                     model_messages=synthesis_messages,
                     model_selection=dict(model_selection or {}),
@@ -352,7 +383,12 @@ async def run_single_agent_turn(
                         },
                     },
                     native_tools=[],
-                )
+                    allow_content_delta=True,
+                ):
+                    if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
+                        synthesis_response = model_event.get("response")
+                        continue
+                    yield model_event
                 if isinstance(synthesis_response, dict) and synthesis_response.get("type") == "error":
                     yield synthesis_response
                     content = "我已经连续检查了几次，但无工具收口也没有成功生成可靠回复。本轮先停止，避免继续无效操作。"
@@ -676,6 +712,7 @@ async def run_single_agent_turn(
                 model_messages=model_messages,
             )
             if mid_turn_snapshot.auto_replacement_allowed:
+                mid_turn_compaction: dict[str, Any] = {}
                 if runtime_host is not None and turn_run is not None:
                     requested_event = runtime_host.event_log.append(
                         turn_run.turn_run_id,
@@ -689,6 +726,63 @@ async def run_single_agent_turn(
                         refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
                     )
                     yield {"type": "context_compaction_requested", "event": requested_event.to_dict()}
+                if compact_session_context is not None:
+                    try:
+                        maybe_compaction = compact_session_context(
+                            {
+                                "session_id": session_id,
+                                "turn_id": turn_id,
+                                "user_message": user_message,
+                                "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                                "tool_iteration": tool_iteration,
+                                "trigger": "mid_turn_tool_observation_followup",
+                                "reason": "mid_turn_tool_observation_followup",
+                                "context_snapshot": mid_turn_snapshot,
+                                "context_meter": mid_turn_snapshot.to_dict(),
+                                "model_selection": dict(model_selection or {}),
+                                "session_context": dict(session_context or {}),
+                            }
+                        )
+                        resolved_compaction = await maybe_compaction if inspect.isawaitable(maybe_compaction) else maybe_compaction
+                        mid_turn_compaction = dict(resolved_compaction or {}) if isinstance(resolved_compaction, dict) else {}
+                    except Exception as exc:
+                        logger.exception("mid-turn context compaction failed")
+                        mid_turn_compaction = {
+                            "compaction": {
+                                "applied": False,
+                                "strategy": "failed",
+                                "error": str(exc) or "mid_turn_context_compaction_failed",
+                            }
+                        }
+                        if runtime_host is not None and turn_run is not None:
+                            failed_event = runtime_host.event_log.append(
+                                turn_run.turn_run_id,
+                                "context_compaction_failed",
+                                payload={
+                                    "turn_id": turn_id,
+                                    "trigger": "mid_turn_tool_observation_followup",
+                                    "tool_iteration": tool_iteration,
+                                    "error": str(exc) or "mid_turn_context_compaction_failed",
+                                    "context_meter": mid_turn_snapshot.to_dict(),
+                                },
+                                refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
+                            )
+                            yield {"type": "context_compaction_failed", "event": failed_event.to_dict()}
+                    if bool(dict(mid_turn_compaction.get("compaction") or {}).get("applied")):
+                        refreshed_history = [
+                            dict(item)
+                            for item in list(mid_turn_compaction.get("history") or [])
+                            if isinstance(item, dict)
+                        ]
+                        refreshed_session_context = (
+                            dict(mid_turn_compaction.get("session_context") or {})
+                            if isinstance(mid_turn_compaction.get("session_context"), dict)
+                            else {}
+                        )
+                        if refreshed_history:
+                            history = refreshed_history
+                        if refreshed_session_context:
+                            session_context = refreshed_session_context
                 followup_compilation = compiler.compile_observation_followup_packet(
                     session_id=session_id,
                     turn_id=turn_id,
@@ -718,21 +812,31 @@ async def run_single_agent_turn(
                 }
                 followup_packet_ref = followup_compilation.packet.packet_id
                 if runtime_host is not None and turn_run is not None:
+                    compaction_payload = dict(mid_turn_compaction.get("compaction") or {})
+                    recovery_package = dict(session_context.get("context_recovery_package") or {})
+                    package_coverage = dict(recovery_package.get("coverage") or {}) if recovery_package else {}
                     compacted_event = runtime_host.event_log.append(
                         turn_run.turn_run_id,
                         "context_compacted",
                         payload={
                             "turn_id": turn_id,
                             "trigger": "mid_turn_tool_observation_followup",
-                            "strategy": "observation_followup_recompile",
+                            "applied": bool(compaction_payload.get("applied")),
+                            "strategy": str(compaction_payload.get("strategy") or "observation_followup_recompile"),
+                            "skipped_reason": str(compaction_payload.get("skipped_reason") or ""),
+                            "blocked_reason": str(compaction_payload.get("blocked_reason") or ""),
                             "packet_ref": followup_packet_ref,
                             "preserved_observation_count": len(tool_observation_payloads),
                             "context_meter": mid_turn_snapshot.to_dict(),
+                            "context_recovery_package_present": bool(recovery_package),
+                            "context_recovery_package_source": str(recovery_package.get("source") or "") if recovery_package else "",
+                            "context_recovery_package_covered_message_count": int(package_coverage.get("covered_message_count") or 0),
                         },
                         refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id, "runtime_invocation_packet_ref": followup_packet_ref},
                     )
                     yield {"type": "context_compacted", "event": compacted_event.to_dict()}
-            response = await _invoke_single_turn_model(
+            response = None
+            async for model_event in _invoke_single_turn_model_with_stream_events(
                 model_runtime=model_runtime,
                 model_messages=model_messages,
                 model_selection=dict(model_selection or {}),
@@ -747,7 +851,12 @@ async def run_single_agent_turn(
                     "prompt_manifest": followup_prompt_manifest,
                 },
                 native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
-            )
+                allow_content_delta=not single_agent_requires_json_action,
+            ):
+                if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
+                    response = model_event.get("response")
+                    continue
+                yield model_event
         if isinstance(response, dict) and response.get("type") == "error":
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
@@ -1061,6 +1170,7 @@ async def run_single_agent_turn(
                         "summary": content,
                         "status": "accepted",
                         "terminal_reason": resolved_action,
+                        **active_work_event_refs(),
                         "runtime_branch": dict(runtime_branch or {}),
                         "active_work": dict(active_control),
                     }
@@ -1095,6 +1205,7 @@ async def run_single_agent_turn(
                         "active_work": dict(active_control),
                         "completion_state": "blocked" if active_status == "blocked" else ("task_steer_accepted" if is_task_steer else "completed"),
                         "summary": content if is_task_steer else "",
+                        **active_work_event_refs(),
                     },
                 ):
                     yield event
@@ -1217,6 +1328,152 @@ async def _invoke_single_turn_model(
         code="model_runtime_unavailable",
         reason="model_runtime_unavailable",
     )
+
+
+async def _invoke_single_turn_model_with_stream_events(
+    *,
+    model_runtime: Any,
+    model_messages: list[dict[str, Any]],
+    model_selection: dict[str, Any],
+    accounting_context: dict[str, Any],
+    native_tools: list[dict[str, Any]],
+    allow_content_delta: bool,
+) -> AsyncIterator[dict[str, Any]]:
+    stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
+    stream_enabled = bool(stream_policy.get("enabled") is True)
+    if not stream_enabled:
+        response = await _invoke_single_turn_model(
+            model_runtime=model_runtime,
+            model_messages=model_messages,
+            model_selection=model_selection,
+            accounting_context=accounting_context,
+            native_tools=native_tools,
+        )
+        yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+        return
+
+    model_messages = _sanitize_model_messages(
+        model_messages,
+        turn_id=str(accounting_context.get("turn_id") or ""),
+        source=str(accounting_context.get("source") or "harness.loop.single_agent_turn.invoke_stream"),
+    )
+    tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
+    plain_streamer = getattr(model_runtime, "astream_messages", None)
+    emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False) and bool(allow_content_delta)
+    delta_index = 0
+    raw_content = ""
+    aggregated_response: Any = None
+    try:
+        if native_tools and callable(tool_streamer):
+            tool_call_options = build_round_tool_call_options(max_tool_calls=len(native_tools))
+            async for chunk in tool_streamer(
+                model_messages,
+                native_tools,
+                model_spec=model_selection,
+                tool_call_options=tool_call_options,
+                accounting_context=accounting_context,
+            ):
+                aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
+                delta_text = _model_stream_chunk_text(chunk)
+                if not delta_text:
+                    continue
+                raw_content += delta_text
+                if emit_content_delta and _public_stream_delta_allowed(raw_content):
+                    delta_index += 1
+                    yield _single_agent_content_delta_event(
+                        delta_text,
+                        delta_index=delta_index,
+                        raw_content=raw_content,
+                        accounting_context=accounting_context,
+                    )
+        elif callable(plain_streamer):
+            async for chunk in plain_streamer(
+                model_messages,
+                model_spec=model_selection,
+                accounting_context=accounting_context,
+            ):
+                aggregated_response = _merge_model_stream_chunk(aggregated_response, chunk)
+                delta_text = _model_stream_chunk_text(chunk)
+                if not delta_text:
+                    continue
+                raw_content += delta_text
+                if emit_content_delta and _public_stream_delta_allowed(raw_content):
+                    delta_index += 1
+                    yield _single_agent_content_delta_event(
+                        delta_text,
+                        delta_index=delta_index,
+                        raw_content=raw_content,
+                        accounting_context=accounting_context,
+                    )
+        else:
+            response = await _invoke_single_turn_model(
+                model_runtime=model_runtime,
+                model_messages=model_messages,
+                model_selection=model_selection,
+                accounting_context=accounting_context,
+                native_tools=native_tools,
+            )
+            yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+            return
+    except Exception as exc:
+        logger.exception("single agent turn streaming model invocation failed")
+        yield {
+            "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+            "response": error_event(
+                content="模型生成本轮回复时失败。",
+                code="single_agent_turn_model_failed",
+                reason=str(exc),
+            ),
+        }
+        return
+    response = aggregated_response if aggregated_response is not None else raw_content
+    yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response}
+
+
+def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
+    if current is None:
+        return chunk
+    try:
+        return current + chunk
+    except Exception:
+        current_text = stringify_content(getattr(current, "content", current))
+        chunk_text = stringify_content(getattr(chunk, "content", chunk))
+        return SimpleNamespace(content=current_text + chunk_text)
+
+
+def _model_stream_chunk_text(chunk: Any) -> str:
+    return stringify_content(getattr(chunk, "content", chunk))
+
+
+def _public_stream_delta_allowed(raw_content: str) -> bool:
+    text = str(raw_content or "").lstrip()
+    if not text:
+        return False
+    lowered = text[:80].lower()
+    if lowered.startswith(("{", "[", "```json")):
+        return False
+    if any(marker in lowered for marker in ('"action_type"', '"tool_call"', '"authority"', "model_action_request")):
+        return False
+    return not contains_internal_protocol(text) and not contains_inline_pseudo_tool_call(text)
+
+
+def _single_agent_content_delta_event(
+    content: str,
+    *,
+    delta_index: int,
+    raw_content: str,
+    accounting_context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "type": "content_delta",
+        "content": content,
+        "delta_index": delta_index,
+        "delta_chars": len(content),
+        "accumulated_chars": len(raw_content),
+        "request_id": str(accounting_context.get("request_id") or ""),
+        "packet_ref": str(accounting_context.get("packet_ref") or ""),
+        "source": str(accounting_context.get("source") or "harness.single_agent_turn"),
+    }
 
 
 async def _repair_single_agent_action_parse(

@@ -24,6 +24,23 @@ class RuntimeMonitorActionService:
         action = _action_name(payload)
         monitor = self.monitor_service.collect_global_runtime_monitor(limit=80)
         signal = _find_signal(monitor, payload)
+        revision_check = _source_revision_check(payload=payload, monitor=monitor)
+        if not revision_check.get("fresh"):
+            return {
+                "authority": self.authority,
+                "mode": "preflight",
+                "accepted": False,
+                "action": action,
+                "target": _target(payload=payload, signal=signal),
+                "effects": {
+                    "error": "runtime_monitor_revision_stale",
+                    **revision_check,
+                },
+                "disabled_reason": "runtime_monitor_revision_stale",
+                "receipt": _receipt(action=action, accepted=False, mode="preflight", reason="runtime_monitor_revision_stale"),
+                "monitor": monitor,
+                "updated_at": time.time(),
+            }
         check = self._action_check(action=action, payload=payload, signal=signal)
         effects = self._preview_effects(action=action, payload=payload, signal=signal)
         return {
@@ -278,7 +295,10 @@ class RuntimeMonitorActionService:
                 max_steps=max(1, min(int(payload.get("max_steps") or 12), 50)),
             )
             result["schedule"] = schedule
-            if not schedule.get("ok") or not schedule.get("scheduled"):
+            result["background_started"] = bool(schedule.get("scheduled"))
+            if str(schedule.get("reason") or "").strip() == "already_running":
+                result["executor_already_running"] = True
+            if not _schedule_result_allows_progress(schedule):
                 result["error"] = str(schedule.get("reason") or "task_run_schedule_rejected")
         return result
 
@@ -291,6 +311,30 @@ class RuntimeMonitorActionService:
 
 def _action_name(payload: dict[str, Any]) -> str:
     return str(payload.get("action") or "").strip()
+
+
+def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
+    if not result.get("ok"):
+        return False
+    if result.get("scheduled"):
+        return True
+    return str(result.get("reason") or "").strip() == "already_running"
+
+
+def _source_revision_check(*, payload: dict[str, Any], monitor: dict[str, Any]) -> dict[str, Any]:
+    source_revision = str(payload.get("source_revision") or "").strip()
+    current_revision = str(monitor.get("revision") or "").strip()
+    if not source_revision or not current_revision:
+        return {
+            "fresh": True,
+            "source_revision": source_revision,
+            "current_revision": current_revision,
+        }
+    return {
+        "fresh": source_revision == current_revision,
+        "source_revision": source_revision,
+        "current_revision": current_revision,
+    }
 
 
 def _find_signal(monitor: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:

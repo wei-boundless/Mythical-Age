@@ -458,7 +458,7 @@ class RuntimeMonitorProjector:
                 session_id=session_id,
                 session_scope={"workspace_view": "chat"},
             ),
-            "pending_user_steer_count": len(tuple(getattr(active_turn, "pending_input_refs", ()) or ())),
+            "pending_user_steer_count": 0,
             "latest_user_steer_ref": "",
             "active_contract_revision_count": 0,
             "latest_contract_revision_ref": "",

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry, default_agent_runtime_profiles
+from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import WorkerAgentFactory, default_worker_agent_blueprints
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest
 from prompt_library import PromptAssemblyRequest, PromptAssemblyService, PromptLibraryRegistry
@@ -204,3 +206,69 @@ def test_worker_prompt_profile_roundtrip_from_registry(tmp_path: Path) -> None:
 
     assert profile is not None
     assert profile.metadata["agent_prompt_refs_by_invocation"]["task_execution"] == ["worker.prompt.verification"]
+
+
+def test_runtime_profile_registry_migrates_legacy_prompt_refs_on_load(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    AgentRegistry(backend_dir).upsert_agent(
+        agent_id="agent:legacy_prompt",
+        agent_name="Legacy Prompt Agent",
+        description="Legacy prompt migration fixture.",
+    )
+    registry = AgentRuntimeRegistry(backend_dir)
+    registry.path.parent.mkdir(parents=True, exist_ok=True)
+    registry.path.write_text(
+        json.dumps(
+            {
+                "profiles": [
+                    {
+                        "agent_profile_id": "legacy_prompt_profile",
+                        "agent_id": "agent:legacy_prompt",
+                        "extra_allowed_operations": ["op.model_response"],
+                        "metadata": {
+                            "worker_prompt_ref": "worker.prompt.verification.v1",
+                            "agent_prompt_refs": [
+                                "agent.main_interactive_agent.task_execution.work_role.v1"
+                            ],
+                            "agent_prompt_refs_by_invocation": {
+                                "task_execution": ["worker.prompt.review.v1"]
+                            },
+                            "prompt_pack_refs": ["runtime.pack.single_agent_turn.v1"],
+                            "prompt_pack_refs_by_invocation": {
+                                "task_execution": ["runtime.pack.task_execution.v1"]
+                            },
+                            "runtime_policy": {
+                                "prompt_pack_refs_by_invocation": {
+                                    "task_execution": ["runtime.pack.graph_node_execution.v1"]
+                                }
+                            },
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    profile = registry.get_profile("agent:legacy_prompt")
+
+    assert profile is not None
+    assert profile.metadata["worker_prompt_ref"] == "worker.prompt.verification"
+    assert profile.metadata["agent_prompt_refs"] == [
+        "agent.main_interactive_agent.task_execution.work_role"
+    ]
+    assert profile.metadata["agent_prompt_refs_by_invocation"] == {
+        "task_execution": ["worker.prompt.review"]
+    }
+    assert profile.metadata["prompt_pack_refs"] == ["runtime.pack.single_agent_turn"]
+    assert profile.metadata["prompt_pack_refs_by_invocation"] == {
+        "task_execution": ["runtime.pack.task_execution"]
+    }
+    assert profile.metadata["runtime_policy"]["prompt_pack_refs_by_invocation"] == {
+        "task_execution": ["runtime.pack.graph_node_execution"]
+    }
+    persisted_profiles = json.loads(registry.path.read_text(encoding="utf-8"))["profiles"]
+    persisted_profile = next(item for item in persisted_profiles if item["agent_id"] == "agent:legacy_prompt")
+    assert "worker.prompt.verification.v1" not in json.dumps(persisted_profile, ensure_ascii=False)

@@ -125,6 +125,8 @@ export function ChatInput({
     setSubmitting(true);
     try {
       await taskPrimaryAction.onAction();
+    } catch (error) {
+      console.error("Failed to run chat task action", error);
     } finally {
       setSubmitting(false);
     }
@@ -191,7 +193,9 @@ export function ChatInput({
                 aria-label="选择运行权限模式"
                 disabled={disabled || permissionOptions.length <= 1}
                 onChange={(event) => {
-                  void onSelectPermissionMode(event.target.value);
+                  void Promise.resolve(onSelectPermissionMode(event.target.value)).catch((error) => {
+                    console.error("Failed to update permission mode", error);
+                  });
                 }}
                 value={activePermissionMode}
               >

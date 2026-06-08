@@ -59,4 +59,12 @@ describe("ChatInput", () => {
     expect(html).toContain("aria-pressed=\"false\"");
     expect(html).toContain("流式");
   });
+
+  it("locks the stream display toggle to the next turn while streaming", () => {
+    const html = renderChatInput({ streaming: true });
+
+    expect(html).toContain("aria-label=\"关闭流式显示\"");
+    expect(html).toContain("title=\"本轮运行中，下一轮可切换流式显示\"");
+    expect(html).toContain("aria-label=\"停止本轮生成\"");
+  });
 });

@@ -1773,6 +1773,63 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("does not project runtime events from a stale run monitor snapshot", () => {
+    const taskRunId = "taskrun:turn:session:stale-stream:1:abc";
+    const currentMonitor = monitorForTest([
+      itemForMonitor({
+        task_run_id: taskRunId,
+        session_id: "session:stale-stream",
+        task_id: "task:turn:session:stale-stream:1",
+      }),
+    ], { revision: "rtmon:2:test" });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stale-stream",
+      runMonitor: currentMonitor as any,
+      runMonitorRevision: "rtmon:2:test",
+      activeTurnSnapshot: {
+        turn_id: "turn:session:stale-stream:1",
+        task_run_id: taskRunId,
+      },
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      source: "runtime_event_log",
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:stale-stream",
+          task_id: "task:turn:session:stale-stream:1",
+        }),
+      ], { revision: "rtmon:1:test" }),
+      runtime_event: {
+        event_id: "rtevt:stale:1",
+        run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 1,
+        created_at: 9,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_executor_started",
+          status: "running",
+          public_progress_note: "旧事件不应投影。",
+        },
+        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:stale-stream:1" },
+        authority: "orchestration.runtime_event",
+      },
+    });
+
+    expect(store.getState().runMonitorRevision).toBe("rtmon:2:test");
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+  });
+
   it("projects live tool observation summaries as observation rows", () => {
     const taskRunId = "taskrun:turn:session:observation:1:abc";
     const store = createStore<StoreState>({
@@ -2186,6 +2243,92 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("submits active-task steer immediately while the main chat stream is still open", async () => {
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("active_task_steer_accepted", {
+        summary: "我已收到这条补充要求，会把它接入当前任务。",
+        status: "accepted",
+        runtime_task_run_id: "taskrun:streaming",
+        active_turn_id: "turn:session:streaming:1",
+      });
+      handlers.onEvent("done", {
+        content: "我已收到这条补充要求，会把它接入当前任务。",
+        completion_state: "task_steer_accepted",
+        answer_channel: "active_work_control",
+        runtime_task_run_id: "taskrun:streaming",
+        active_turn_id: "turn:session:streaming:1",
+      });
+      return { terminalEvent: "done", streamRunId: "strun:steer", eventLogId: "chatrun:steer", lastEventOffset: 2 };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:streaming",
+      activeStreamSessionIds: ["session:streaming"],
+      isStreaming: true,
+      activeTurnSnapshot: {
+        turn_id: "turn:session:streaming:1",
+        task_run_id: "taskrun:streaming",
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: itemForMonitor({
+        session_id: "session:streaming",
+        task_run_id: "taskrun:streaming",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+      }) as any,
+      messages: [
+        { id: "assistant:main", role: "assistant", content: "正在处理。", toolCalls: [], retrievals: [], sourceIndex: 0 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("补充：先检查边界。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+      message: "补充：先检查边界。",
+      session_id: "session:streaming",
+      expected_active_turn_id: "turn:session:streaming:1",
+      active_turn_input_policy: "steer",
+    });
+    expect(api.streamChat.mock.calls[0]?.[2]).toMatchObject({ persistCursor: false });
+    expect(store.getState().activeStreamSessionIds).toEqual(["session:streaming"]);
+    expect(store.getState().taskGraphLiveMonitor?.task_run_id).toBe("taskrun:streaming");
+    expect(store.getState().messages.some((message) => message.content === "补充：先检查边界。")).toBe(true);
+    expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
+  });
+
+  it("keeps active stream input queued when the active task is paused", async () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:paused",
+      activeStreamSessionIds: ["session:paused"],
+      isStreaming: true,
+      activeTurnSnapshot: {
+        turn_id: "turn:session:paused:1",
+        task_run_id: "taskrun:paused",
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: itemForMonitor({
+        session_id: "session:paused",
+        task_run_id: "taskrun:paused",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        control_state: "paused",
+        runtime_control: { state: "paused" },
+      }) as any,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("暂停后补充。");
+
+    expect(api.streamChat).not.toHaveBeenCalled();
+    expect(store.getState().sessionActivity).toMatchObject({
+      event: "user_input_queued",
+      title: "已加入发送队列",
+    });
+  });
+
   it("keeps the active task turn gate after an active-work control turn completes", async () => {
     let callIndex = 0;
     api.streamChat.mockImplementation(async (_payload, handlers) => {
@@ -2303,11 +2446,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
         summary: "已加入当前任务队列，会在当前执行中优先纳入。",
-        active_turn: {
-          turn_id: "turn:session-queue-only:1",
-          bound_task_run_id: taskRunId,
-          state: "running_task",
-        },
+        active_turn_id: "turn:session-queue-only:1",
+        runtime_task_run_id: taskRunId,
         task_run: {
           task_run_id: taskRunId,
           status: "running",
@@ -2381,6 +2521,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         text: "我已收到这条补充要求，会把它接入当前任务。",
       }),
     ]));
+    expect(store.getState().activeTurnSnapshot).toMatchObject({
+      turn_id: "turn:session-queue-only:1",
+      task_run_id: taskRunId,
+    });
   });
 
   it("queues user input locally while the current stream is active and flushes it after handoff", async () => {
@@ -2758,6 +2902,46 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12, "turn:session-control:1");
     expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat", "turn:session-control:1");
     expect(store.getState().sessionActivity.title).toBe("已暂停");
+  });
+
+  it("surfaces active task control failures without throwing from chat actions", async () => {
+    const taskRunId = "taskrun:turn:session-control-error:1:abc";
+    api.pauseOrchestrationHarnessTaskRun.mockRejectedValue(new Error("active_turn_mismatch"));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-control-error",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-control-error:1",
+        task_run_id: taskRunId,
+      },
+      taskGraphLiveMonitor: {
+        authority: "single_agent_runtime_monitor.item",
+        task_run_id: taskRunId,
+        session_id: "session-control-error",
+        task_id: "task:turn:session-control-error:1",
+        execution_runtime_kind: "single_agent_task",
+        task_run: { task_run_id: taskRunId },
+        loop_state: {},
+        has_graph_run: false,
+        status: "running",
+        terminal_reason: "",
+        updated_at: 1,
+      },
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await expect(runtime.actions.pauseActiveTaskRun()).resolves.toBeUndefined();
+
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "error",
+      title: "暂停失败",
+      detail: "active_turn_mismatch",
+      event: "active_task_pause_failed",
+    });
+    expect(store.getState().sessionActivitiesById["session-control-error"]).toMatchObject({
+      level: "error",
+      title: "暂停失败",
+    });
   });
 
   it("approves a waiting tool approval before resuming the active task run", async () => {

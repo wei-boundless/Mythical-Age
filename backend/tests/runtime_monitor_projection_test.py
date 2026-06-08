@@ -396,6 +396,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert waiting_signal["is_resumable"] is False
     assert waiting_actions["resume_task"]["enabled"] is False
     assert waiting_actions["stop_task"]["enabled"] is False
+    assert waiting_actions["close_runtime"]["enabled"] is False
 
     paused_signal = signals["taskrun:paused"]
     paused_actions = {item["action"]: item for item in paused_signal["actions"]}
@@ -403,6 +404,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert paused_signal["is_resumable"] is True
     assert paused_actions["resume_task"]["enabled"] is True
     assert paused_actions["stop_task"]["enabled"] is False
+    assert paused_actions["close_runtime"]["enabled"] is False
 
     running_signal = signals["taskrun:running"]
     running_actions = {item["action"]: item for item in running_signal["actions"]}
@@ -410,6 +412,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert running_actions["pause_task"]["enabled"] is True
     assert running_actions["stop_task"]["enabled"] is True
     assert running_actions["resume_task"]["enabled"] is False
+    assert running_actions["close_runtime"]["enabled"] is False
 
     stopped_signal = signals["taskrun:stopped"]
     stopped_actions = {item["action"]: item for item in stopped_signal["actions"]}
@@ -598,6 +601,44 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
     assert result["monitor"]["management"]["lanes"]["recent"] == []
 
 
+def test_runtime_monitor_action_rejects_stale_source_revision(tmp_path):
+    completed = task_run(
+        task_run_id="taskrun:completed",
+        status="completed",
+        terminal_reason="completed",
+        updated_at=140.0,
+        diagnostics={"title": "已完成任务"},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([completed]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+
+    result = asyncio.run(
+        action_service.execute(
+            {
+                "action": "clear_from_monitor",
+                "signal_id": "taskrun:completed",
+                "source_revision": "rtmon:1:stale",
+            }
+        )
+    )
+
+    assert result["accepted"] is False
+    assert result["disabled_reason"] == "runtime_monitor_revision_stale"
+    assert result["effects"]["error"] == "runtime_monitor_revision_stale"
+    assert result["effects"]["current_revision"]
+    assert result["monitor"]["management"]["lanes"]["hidden"] == []
+    assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
+
+
 def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable(tmp_path):
     now = time.time()
     stale_waiting = task_run(
@@ -664,6 +705,54 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
     assert stop_calls == [(runtime_host, "taskrun:stale-close", "runtime_monitor_close_runtime", "user")]
     hidden = result["monitor"]["management"]["lanes"]["hidden"]
     assert [item["signal_id"] for item in hidden] == ["taskrun:stale-close"]
+
+
+def test_runtime_monitor_resume_treats_already_running_schedule_as_accepted(tmp_path, monkeypatch):
+    paused = task_run(
+        task_run_id="taskrun:paused-resume",
+        session_id="session-paused-resume",
+        status="waiting_executor",
+        created_at=120.0,
+        updated_at=150.0,
+        diagnostics={"runtime_control": {"state": "paused"}},
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([paused]),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    class HarnessRuntimeStub:
+        single_agent_runtime_host = runtime_host
+
+        def schedule_task_run_executor(self, task_run_id, *, scheduler="", max_steps=12):
+            return {
+                "ok": True,
+                "scheduled": False,
+                "reason": "already_running",
+                "task_run_id": task_run_id,
+                "scheduler": scheduler,
+                "max_steps": max_steps,
+            }
+
+    runtime = SimpleNamespace(
+        base_dir=tmp_path / "backend",
+        harness_runtime=HarnessRuntimeStub(),
+    )
+    action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+
+    def fake_resume_paused_task_run(host, task_run_id, *, reason="", requested_by="user"):
+        return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason, "requested_by": requested_by}
+
+    monkeypatch.setattr("harness.loop.task_executor.resume_paused_task_run", fake_resume_paused_task_run)
+
+    result = asyncio.run(action_service.execute({"action": "resume_task", "signal_id": "taskrun:paused-resume"}))
+
+    assert result["accepted"] is True
+    assert result["effects"]["background_started"] is False
+    assert result["effects"]["executor_already_running"] is True
+    assert "error" not in result["effects"]
 
 
 def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):

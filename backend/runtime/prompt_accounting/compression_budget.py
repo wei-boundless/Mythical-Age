@@ -175,7 +175,7 @@ class CompressionBudgetPlanner:
         if compressible_tokens <= 0 or compressible_budget <= 0:
             return 0
         # Reserve most post-compact budget for hard-required context and the
-        # live tail; the handoff summary should be dense, not a second history.
+        # live tail; the context recovery package should be dense, not a second history.
         ceiling = max(160, min(1400, int(compressible_budget * 0.35)))
         floor = 120 if hard_required_tokens else 80
         return max(floor, min(ceiling, compressible_tokens))

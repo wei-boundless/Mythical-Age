@@ -92,7 +92,7 @@ export function defaultEnvironmentDraft(): EnvironmentDraft {
     group_id: "environment_group.general",
     environment_kind: "custom",
     enabled: true,
-    prompt_id: "environment.custom.workspace.v1",
+    prompt_id: "environment.custom.workspace",
     prompt_content: [
       "你正在一个自定义任务环境中执行任务。",
       "你只能使用当前环境装载的文件 Profile、仓库资源、记忆、知识库、检索索引和产物空间。",
@@ -179,7 +179,7 @@ export function environmentDraftFromItem(item: TaskEnvironmentItem | null | unde
     group_id: String(record.group_id || "environment_group.general"),
     environment_kind: String(record.environment_kind || "custom"),
     enabled: record.enabled !== false,
-    prompt_id: String(firstPrompt.prompt_id || `environment.${String(record.environment_id || "custom").replace(/^env\./, "")}.v1`),
+    prompt_id: String(firstPrompt.prompt_id || `environment.${String(record.environment_id || "custom").replace(/^env\./, "")}`),
     prompt_content: String(firstPrompt.content || ""),
     storage_namespace: String(resourceSpace.storage_namespace || ""),
     workspace_policy: recordFieldString(resourceSpace, "workspace_policy"),
@@ -261,7 +261,7 @@ export function environmentPayloadFromDraft(draft: EnvironmentDraft): TaskEnviro
       environment_id: environmentId,
       environment_prompts: draft.prompt_content.trim()
         ? [{
-          prompt_id: draft.prompt_id.trim() || `environment.${environmentId.replace(/^env\./, "")}.v1`,
+          prompt_id: draft.prompt_id.trim() || `environment.${environmentId.replace(/^env\./, "")}`,
           content: draft.prompt_content.trim(),
           version: "v1",
           prompt_kind: "environment",

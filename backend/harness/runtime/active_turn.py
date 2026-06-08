@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import uuid
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
@@ -33,7 +32,6 @@ class ActiveTurnRecord:
     owner_instance_id: str = ""
     steerable: bool = True
     terminal_reason: str = ""
-    pending_input_refs: tuple[str, ...] = ()
     authority: str = "harness.runtime.active_turn"
 
     def __post_init__(self) -> None:
@@ -45,35 +43,7 @@ class ActiveTurnRecord:
             raise ValueError("ActiveTurnRecord requires turn_id")
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["pending_input_refs"] = list(self.pending_input_refs)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class TurnSteerResult:
-    ok: bool
-    status: str
-    active_turn: ActiveTurnRecord | None = None
-    actual_turn_id: str = ""
-    task_run_id: str = ""
-    steer: dict[str, Any] | None = None
-    pending_input_ref: str = ""
-    message: str = ""
-    authority: str = "harness.runtime.active_turn_steer_result"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "ok": self.ok,
-            "status": self.status,
-            "active_turn": self.active_turn.to_dict() if self.active_turn is not None else None,
-            "actual_turn_id": self.actual_turn_id,
-            "task_run_id": self.task_run_id,
-            "steer": dict(self.steer or {}),
-            "pending_input_ref": self.pending_input_ref,
-            "message": self.message,
-            "authority": self.authority,
-        }
+        return asdict(self)
 
 
 class ActiveTurnRegistry:
@@ -152,7 +122,6 @@ class ActiveTurnRegistry:
             owner_instance_id=str(getattr(self.runtime_host, "instance_id", "") or ""),
             steerable=bool(steerable),
             bound_task_run_id=current.bound_task_run_id if current is not None else "",
-            pending_input_refs=current.pending_input_refs if current is not None else (),
         )
         self._write(record)
         return record
@@ -206,21 +175,8 @@ class ActiveTurnRegistry:
                 "authority": "harness.runtime.active_turn.clear_session",
                 "session_id": "",
                 "deleted": False,
-                "pending_input_refs_deleted": [],
             }
         payload = self._read_session_payload(normalized)
-        pending_refs = [
-            str(item)
-            for item in list(payload.get("pending_input_refs") or [])
-            if str(item)
-        ]
-        deleted_pending: list[str] = []
-        for ref in pending_refs:
-            try:
-                if self.runtime_host.runtime_objects.delete_ref(ref):
-                    deleted_pending.append(ref)
-            except Exception:
-                continue
         ref = f"rtobj:{self.object_kind}:{self._session_object_id(normalized)}"
         deleted = False
         if payload:
@@ -238,73 +194,7 @@ class ActiveTurnRegistry:
             "authority": "harness.runtime.active_turn.clear_session",
             "session_id": normalized,
             "deleted": deleted,
-            "pending_input_refs_deleted": deleted_pending,
         }
-
-    def steer(
-        self,
-        *,
-        session_id: str,
-        expected_turn_id: str,
-        user_message: str,
-        stream_run_id: str = "",
-    ) -> TurnSteerResult:
-        record = self.snapshot(session_id)
-        if record is None:
-            return TurnSteerResult(ok=False, status="no_active_turn", message="当前没有正在运行的任务。")
-        if not expected_turn_id:
-            return TurnSteerResult(
-                ok=False,
-                status="expected_turn_id_required",
-                active_turn=record,
-                actual_turn_id=record.turn_id,
-                message="当前有正在运行的任务，需要携带 expected_active_turn_id。",
-            )
-        if record.turn_id != expected_turn_id:
-            return TurnSteerResult(
-                ok=False,
-                status="expected_turn_mismatch",
-                active_turn=record,
-                actual_turn_id=record.turn_id,
-                message="当前任务已变化，请刷新后重试。",
-            )
-        if not record.steerable:
-            return TurnSteerResult(
-                ok=False,
-                status="active_turn_not_steerable",
-                active_turn=record,
-                actual_turn_id=record.turn_id,
-                message="当前任务暂不能接收新的补充输入。",
-            )
-        if stream_run_id:
-            record = self._update(record, stream_run_id=str(stream_run_id or "").strip())
-        content = str(user_message or "").strip()
-        if not content:
-            return TurnSteerResult(ok=False, status="empty_input", active_turn=record, actual_turn_id=record.turn_id)
-        pending_id = f"active-turn-input:{record.turn_id}:{uuid.uuid4().hex[:12]}"
-        ref = self.runtime_host.runtime_objects.put_object(
-            "active_turn_pending_input",
-            pending_id,
-            {
-                "pending_input_id": pending_id,
-                "session_id": record.session_id,
-                "turn_id": record.turn_id,
-                "stream_run_id": stream_run_id,
-                "content": content,
-                "created_at": time.time(),
-                "authority": "harness.runtime.active_turn_pending_input",
-            },
-        )
-        updated = self._update(record, pending_input_refs=(*record.pending_input_refs, ref))
-        return TurnSteerResult(
-            ok=True,
-            status="queued",
-            active_turn=updated,
-            actual_turn_id=updated.turn_id,
-            task_run_id=updated.bound_task_run_id,
-            pending_input_ref=ref,
-            message="已收到，会纳入当前处理。",
-        )
 
     def _update(self, record: ActiveTurnRecord, **changes: Any) -> ActiveTurnRecord:
         updated = replace(record, updated_at=time.time(), **changes)
@@ -359,7 +249,6 @@ def _record_from_payload(payload: dict[str, Any]) -> ActiveTurnRecord | None:
             owner_instance_id=str(payload.get("owner_instance_id") or ""),
             steerable=bool(payload.get("steerable", True)),
             terminal_reason=str(payload.get("terminal_reason") or ""),
-            pending_input_refs=tuple(str(item) for item in list(payload.get("pending_input_refs") or []) if str(item)),
         )
     except Exception:
         return None

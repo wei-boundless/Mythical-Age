@@ -40,7 +40,7 @@ def test_task_environment_api_upserts_and_deletes_configured_environment(tmp_pat
                     group_id="environment_group.custom_api",
                     environment_prompts=[
                         {
-                            "prompt_id": "environment.custom.api.v1",
+                            "prompt_id": "environment.custom.api",
                             "content": "你处在 API 配置的任务环境中。",
                         }
                     ],

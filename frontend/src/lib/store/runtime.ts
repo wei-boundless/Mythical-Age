@@ -1369,6 +1369,136 @@ export class WorkspaceRuntime {
     }
   }
 
+  private async submitActiveTurnSteerDuringActiveStream(
+    sessionId: string,
+    content: string,
+    options: { queuedUserMessageId?: string } = {},
+  ) {
+    const preflightState = this.store.getState();
+    if (!this.shouldQueueActiveTurnInput(preflightState, sessionId)) {
+      if (options.queuedUserMessageId) {
+        const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
+        this.queuedUserInputsBySession.set(sessionId, [
+          { content, messageId: options.queuedUserMessageId },
+          ...queued,
+        ]);
+      } else {
+        this.enqueueUserInputForSession(sessionId, content);
+      }
+      return;
+    }
+
+    const activeTurnForRequest = preflightState.currentSessionId === sessionId
+      ? preflightState.activeTurnSnapshot
+      : null;
+    const activeStreamSessionIds = this.store.getState().activeStreamSessionIds;
+    let transition = startQueuedActiveTurn(preflightState, content, { existingUserMessageId: options.queuedUserMessageId });
+    const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
+    transition = {
+      ...transition,
+      state: {
+        ...transition.state,
+        messages: transition.state.messages.map((message) =>
+          transition.session.userId && message.id === transition.session.userId
+            ? { ...message, sourceIndex: nextSourceIndex }
+            : transition.session.assistantId && message.id === transition.session.assistantId
+              ? { ...message, sourceIndex: nextSourceIndex + 1 }
+              : message
+        ),
+      },
+    };
+    let streamState: StoreState = {
+      ...transition.state,
+      activeStreamSessionIds,
+      isStreaming: activeStreamSessionIds.length > 0,
+    };
+    streamState = this.captureSessionActivity(streamState, sessionId);
+    this.streamingSessionCache.set(sessionId, {
+      messages: streamState.messages,
+      orchestrationSnapshot: streamState.orchestrationSnapshot,
+      activeTurnSnapshot: streamState.activeTurnSnapshot,
+    });
+    if (this.store.getState().currentSessionId === sessionId) {
+      this.applyVisibleStreamState(streamState, activeStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
+    }
+
+    try {
+      const requestState = this.store.getState();
+      const permissionMode = this.permissionModeForSession(sessionId, requestState);
+      await streamChat(
+        {
+          message: content,
+          session_id: sessionId,
+          session_scope: this.sessionScopeForSession(sessionId),
+          environment_binding: this.chatEnvironmentBindingPayload(requestState),
+          model_selection: this.chatModelSelectionPayload(requestState),
+          permission_mode: permissionMode,
+          expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
+          active_turn_input_policy: "steer",
+          editor_context: this.chatEditorContextPayload(requestState, sessionId),
+        },
+        {
+          onEvent: (event, data) => {
+            if (this.removedStreamingSessionIds.has(sessionId)) {
+              return;
+            }
+            const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
+            const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
+            transition = reduceStreamEvent(baseState, transition.session, event, data);
+            const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
+            streamState = {
+              ...transition.state,
+              currentSessionId: sessionId,
+              activeStreamSessionIds: currentActiveStreamSessionIds,
+              isStreaming: currentActiveStreamSessionIds.length > 0,
+            };
+            streamState = this.captureSessionActivity(streamState, sessionId);
+            if (currentActiveStreamSessionIds.includes(sessionId)) {
+              this.streamingSessionCache.set(sessionId, {
+                messages: streamState.messages,
+                orchestrationSnapshot: streamState.orchestrationSnapshot,
+                activeTurnSnapshot: streamState.activeTurnSnapshot,
+              });
+            }
+            if (isCurrentStreamSession) {
+              this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
+            }
+          },
+        },
+        { persistCursor: false },
+      );
+    } catch (error) {
+      const transitionAfterError = reduceStreamEvent(
+        this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
+        transition.session,
+        "error",
+        { error: error instanceof Error ? error.message : "unknown error" },
+      );
+      const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
+      streamState = {
+        ...transitionAfterError.state,
+        currentSessionId: sessionId,
+        activeStreamSessionIds: currentActiveStreamSessionIds,
+        isStreaming: currentActiveStreamSessionIds.length > 0,
+      };
+      streamState = this.captureSessionActivity(streamState, sessionId);
+      if (currentActiveStreamSessionIds.includes(sessionId)) {
+        this.streamingSessionCache.set(sessionId, {
+          messages: streamState.messages,
+          orchestrationSnapshot: streamState.orchestrationSnapshot,
+          activeTurnSnapshot: streamState.activeTurnSnapshot,
+        });
+      }
+      if (this.store.getState().currentSessionId === sessionId) {
+        this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
+      }
+    } finally {
+      if (!this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+        this.streamingSessionCache.delete(sessionId);
+      }
+    }
+  }
+
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
     const activeStreamSessionIds = prev.activeStreamSessionIds.filter((id) => id !== sessionId);
     return {
@@ -1481,13 +1611,17 @@ export class WorkspaceRuntime {
     };
   }
 
-  private applyVisibleStreamState(streamState: StoreState, activeStreamSessionIds: string[]) {
+  private applyVisibleStreamState(
+    streamState: StoreState,
+    activeStreamSessionIds: string[],
+    options: { preserveTaskGraphLiveMonitor?: boolean } = {},
+  ) {
     this.store.setState((prev) => ({
       ...prev,
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
-      taskGraphLiveMonitor: null,
+      taskGraphLiveMonitor: options.preserveTaskGraphLiveMonitor ? prev.taskGraphLiveMonitor : null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
       sessionActivity: streamState.sessionActivity,
@@ -2015,10 +2149,10 @@ export class WorkspaceRuntime {
   }
 
   private applyActiveTurnSnapshotFromChatRun(run: { active_turn_snapshot?: Record<string, unknown> | null } | null | undefined) {
-    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run?.active_turn_snapshot);
-    if (!activeTurnSnapshot) {
+    if (!run || !Object.prototype.hasOwnProperty.call(run, "active_turn_snapshot")) {
       return;
     }
+    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run?.active_turn_snapshot);
     this.store.setState((prev) => ({
       ...prev,
       activeTurnSnapshot,
@@ -2248,7 +2382,12 @@ export class WorkspaceRuntime {
       }));
       throw error;
     }
-    if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+    const activeStreamState = this.store.getState();
+    if (activeStreamState.activeStreamSessionIds.includes(sessionId)) {
+      if (this.shouldQueueActiveTurnInput(activeStreamState, sessionId)) {
+        await this.submitActiveTurnSteerDuringActiveStream(sessionId, trimmed, options);
+        return;
+      }
       if (options.queuedUserMessageId) {
         const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
         this.queuedUserInputsBySession.set(sessionId, [
@@ -2481,8 +2620,19 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
-    await this.refreshActiveSessionMonitor();
+    this.setActiveTaskControlActivity({
+      taskRunId,
+      level: "running",
+      title: "正在暂停",
+      detail: "暂停请求已发送，等待当前步骤停在可继续边界。",
+      event: "active_task_pause_requested",
+    });
+    try {
+      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
+      await this.refreshActiveSessionMonitor();
+    } catch (error) {
+      this.setActiveTaskControlError("pause", taskRunId, error);
+    }
   }
 
   private async resumeActiveTaskRun() {
@@ -2491,12 +2641,24 @@ export class WorkspaceRuntime {
       return;
     }
     const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    if (this.activeTaskRunStatus(taskRunId) === "waiting_approval") {
-      await approveOrchestrationHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
-    } else {
-      await resumeOrchestrationHarnessTaskRun(taskRunId, 12, expectedTurnId);
+    const approvingToolCall = this.activeTaskRunStatus(taskRunId) === "waiting_approval";
+    this.setActiveTaskControlActivity({
+      taskRunId,
+      level: "running",
+      title: approvingToolCall ? "正在确认" : "正在继续",
+      detail: approvingToolCall ? "确认请求已发送，等待工具调用继续。" : "继续请求已发送，等待当前任务恢复执行。",
+      event: approvingToolCall ? "active_task_approval_requested" : "active_task_resume_requested",
+    });
+    try {
+      if (approvingToolCall) {
+        await approveOrchestrationHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
+      } else {
+        await resumeOrchestrationHarnessTaskRun(taskRunId, 12, expectedTurnId);
+      }
+      await this.refreshActiveSessionMonitor();
+    } catch (error) {
+      this.setActiveTaskControlError(approvingToolCall ? "approve" : "resume", taskRunId, error);
     }
-    await this.refreshActiveSessionMonitor();
   }
 
   private async stopActiveTaskRun() {
@@ -2504,8 +2666,88 @@ export class WorkspaceRuntime {
     if (!taskRunId) {
       return;
     }
-    await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
-    await this.refreshActiveSessionMonitor();
+    this.setActiveTaskControlActivity({
+      taskRunId,
+      level: "running",
+      title: "正在停止",
+      detail: "停止请求已发送，当前步骤收口后会结束。",
+      event: "active_task_stop_requested",
+    });
+    try {
+      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
+      await this.refreshActiveSessionMonitor();
+    } catch (error) {
+      this.setActiveTaskControlError("stop", taskRunId, error);
+    }
+  }
+
+  private setActiveTaskControlActivity(input: {
+    taskRunId: string;
+    level: StoreState["sessionActivity"]["level"];
+    title: string;
+    detail: string;
+    event: string;
+  }) {
+    const sessionId = this.store.getState().currentSessionId;
+    this.store.setState((prev) => ({
+      ...prev,
+      sessionActivity: sessionId
+        ? {
+            level: input.level,
+            title: input.title,
+            detail: input.detail,
+            event: input.event,
+            receipt: {
+              level: input.level,
+              title: input.title,
+              body: input.detail,
+              debug: {
+                event: input.event,
+                taskRunId: input.taskRunId,
+              },
+            },
+            updatedAt: Date.now(),
+          }
+        : prev.sessionActivity,
+      sessionActivitiesById: sessionId
+        ? {
+            ...prev.sessionActivitiesById,
+            [sessionId]: {
+              level: input.level,
+              title: input.title,
+              detail: input.detail,
+              event: input.event,
+              receipt: {
+                level: input.level,
+                title: input.title,
+                body: input.detail,
+                debug: {
+                  event: input.event,
+                  taskRunId: input.taskRunId,
+                },
+              },
+              updatedAt: Date.now(),
+            },
+          }
+        : prev.sessionActivitiesById,
+    }));
+  }
+
+  private setActiveTaskControlError(action: "approve" | "pause" | "resume" | "stop", taskRunId: string, error: unknown) {
+    const titles: Record<typeof action, string> = {
+      approve: "确认失败",
+      pause: "暂停失败",
+      resume: "继续失败",
+      stop: "停止失败",
+    };
+    const fallback = `${titles[action]}，请稍后重试或在运行监控里查看当前状态。`;
+    this.setActiveTaskControlActivity({
+      taskRunId,
+      level: "error",
+      title: titles[action],
+      detail: this.errorMessage(error, fallback),
+      event: `active_task_${action}_failed`,
+    });
   }
 
   private activeControllableTaskRunId() {
@@ -2576,7 +2818,7 @@ export class WorkspaceRuntime {
         );
       }
     }
-    return String(snapshot?.state ?? "").trim() === "running_task";
+    return false;
   }
 
   private async refreshActiveSessionMonitor() {

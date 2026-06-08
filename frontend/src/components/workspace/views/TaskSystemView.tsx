@@ -229,7 +229,7 @@ export function TaskSystemView() {
     setEnvironmentDraft({
       ...defaultEnvironmentDraft(),
       environment_id: `env.custom.workspace_${suffix}`,
-      prompt_id: `environment.custom.workspace_${suffix}.v1`,
+      prompt_id: `environment.custom.workspace_${suffix}`,
       storage_namespace: `custom/workspace_${suffix}`,
     });
     setActiveDomain("environments");

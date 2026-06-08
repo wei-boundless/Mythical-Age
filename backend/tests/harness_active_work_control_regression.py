@@ -34,6 +34,48 @@ def test_plain_single_agent_turn_releases_active_turn_before_next_message() -> N
     assert not any(event.get("type") == "error" and event.get("code") == "expected_turn_id_required" for event in second_events)
     assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-plain-followup") is None
 
+def test_entrypoint_error_preserves_bound_nonterminal_active_turn() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(content="不会到达模型。")
+    )
+    session_id = "session-entrypoint-error-active-turn"
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:entrypoint-error-active-turn",
+        session_id=session_id,
+        status="waiting_executor",
+    )
+
+    async def _failing_single_agent_turn(**kwargs):
+        runtime._bind_current_turn_to_task_run(
+            session_id=session_id,
+            turn_id=str(kwargs.get("turn_id") or ""),
+            task_run_id=task_run_id,
+            state="waiting_executor",
+        )
+        raise RuntimeError("synthetic entrypoint failure")
+        yield {}
+
+    runtime._run_single_agent_turn = _failing_single_agent_turn  # type: ignore[method-assign]
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="继续当前任务。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    active_turn = runtime.single_agent_runtime_host.active_turn_registry.snapshot(session_id)
+
+    assert any(event.get("type") == "error" for event in events)
+    assert active_turn is not None
+    assert active_turn.bound_task_run_id == task_run_id
+
 def test_waiting_executor_with_stale_running_diagnostics_is_resumable_not_running() -> None:
     from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
 
@@ -440,6 +482,22 @@ def test_active_work_turn_policy_rejects_non_control_subaction() -> None:
     assert decision.accepted is False
     assert decision.denied_reason == "active_work_control_action_not_allowed"
 
+def test_active_work_turn_policy_does_not_treat_intent_as_action() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "intent": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "response": "好，我接着处理。",
+        },
+        user_message="继续",
+    )
+
+    assert decision.accepted is False
+    assert decision.denied_reason == "active_work_control_action_not_allowed"
+
 def test_active_work_relation_mismatch_blocks_without_control_side_effects() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
@@ -639,7 +697,7 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
     assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
 
-def test_running_active_turn_input_uses_main_active_work_control() -> None:
+def test_running_active_turn_input_queues_steer_without_model_roundtrip() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "action": "append_instruction_to_active_work",
@@ -685,18 +743,34 @@ def test_running_active_turn_input_uses_main_active_work_control() -> None:
     trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
     session_messages = runtime.session_manager.load_session("session-active-work")
 
-    assert "single_agent_turn_started" in event_types
+    assert "single_agent_turn_started" not in event_types
+    assert "runtime_assembly_compiled" not in event_types
+    assert any(
+        event.get("type") == "runtime_branch_decided"
+        and dict(event.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
+        for event in events
+    )
     assert not any("boundary" in event_type for event_type in event_types)
     assert "active_task_steer_accepted" in event_types
-    assert model.active_work_decision_count == 1
+    assert model.active_work_decision_count == 0
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
+    active_event = next(event for event in events if event.get("type") == "active_task_steer_accepted")
+    assert active_event.get("runtime_task_run_id") == task_run_id
+    assert active_event.get("active_turn_id") == "turn:active:current"
+    assert dict(active_event.get("active_turn") or {}).get("bound_task_run_id") == task_run_id
+    active_turn = host.active_turn_registry.snapshot("session-active-work")
+    assert active_turn is not None
+    assert active_turn.bound_task_run_id == task_run_id
     assert "active_task_steer_recorded" in trace_event_types
     assert any(
         event.get("type") == "done"
-        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
+        and event.get("answer_source") == "harness.entrypoint.active_turn_steer"
         and event.get("terminal_reason") == "append_instruction_to_active_work"
-        and "已记录补充要求" in str(event.get("content") or "")
+        and event.get("completion_state") == "task_steer_accepted"
+        and event.get("runtime_task_run_id") == task_run_id
+        and dict(event.get("active_turn") or {}).get("bound_task_run_id") == task_run_id
+        and "补充要求" in str(event.get("content") or "")
         for event in events
     )
     assert [str(item.get("role") or "") for item in session_messages] == ["user", "assistant"]

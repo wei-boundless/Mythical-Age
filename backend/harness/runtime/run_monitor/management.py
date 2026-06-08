@@ -248,9 +248,7 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     pause_enabled = bool(task_run_id) and interruptible and not terminal
     resume_enabled = bool(task_run_id) and resumable and not terminal
     stop_enabled = bool(task_run_id) and interruptible and not terminal
-    close_enabled = bool(task_run_id) and not terminal and (
-        running or stale or activity_state in {"waiting", "paused"}
-    )
+    close_enabled = bool(task_run_id) and not terminal and stale and not running
     actions.extend(
         [
             _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),

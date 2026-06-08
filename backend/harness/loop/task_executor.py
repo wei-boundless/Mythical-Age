@@ -2626,18 +2626,24 @@ async def _execute_task_tool_call(
     signal = peek_executor_signal(runtime_host, task_run_id=task_run.task_run_id, executor_epoch=executor_epoch)
     if signal is not None:
         raise TaskRunExecutorInterrupted(signal)
-    control_result = _apply_runtime_control_boundary(runtime_host, task_run=task_run, agent_run=None, boundary="before_tool_execution")
+    latest_task_run = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
+    signal = _executor_control_signal_from_task_run(
+        latest_task_run,
+        executor_epoch=executor_epoch,
+        default_reason="before_tool_execution",
+    )
+    if signal is not None:
+        raise TaskRunExecutorInterrupted(signal)
+    control_result = _apply_runtime_control_boundary(runtime_host, task_run=latest_task_run, agent_run=None, boundary="before_tool_execution")
     if control_result is not None:
-        raise TaskRunExecutorInterrupted(
-            ExecutorControlSignal(
-                kind="stop",
-                task_run_id=task_run.task_run_id,
-                executor_epoch=executor_epoch,
-                reason=str(dict(control_result.get("task_run") or {}).get("terminal_reason") or "task_run_stopped"),
-                requested_by="system",
-                requested_at=time.time(),
-            )
+        task_after_boundary = runtime_host.state_index.get_task_run(task_run.task_run_id) or latest_task_run
+        signal = _executor_control_signal_from_boundary_result(
+            control_result,
+            task_run=task_after_boundary,
+            executor_epoch=executor_epoch,
         )
+        raise TaskRunExecutorInterrupted(signal)
+    task_run = runtime_host.state_index.get_task_run(task_run.task_run_id) or latest_task_run
     tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
@@ -3965,6 +3971,62 @@ def _apply_runtime_control_boundary(runtime_host: Any, *, task_run: Any, agent_r
     if state == _TASK_RUN_REPLAN_REQUESTED:
         return _replan_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary, signal=None)
     return None
+
+
+def _executor_control_signal_from_task_run(
+    task_run: Any,
+    *,
+    executor_epoch: int,
+    default_reason: str,
+) -> ExecutorControlSignal | None:
+    state = task_run_control_state(task_run)
+    recovery_state = recovery_state_for_task_run(task_run)
+    if recovery_state.stopped or state in {_TASK_RUN_STOP_REQUESTED, _TASK_RUN_STOPPED}:
+        kind = "stop"
+    elif state in {_TASK_RUN_PAUSE_REQUESTED, _TASK_RUN_PAUSED}:
+        kind = "pause"
+    elif state in {_TASK_RUN_REPLAN_REQUESTED, _TASK_RUN_INTERRUPTED_FOR_REPLAN}:
+        kind = "replan"
+    else:
+        return None
+    control = _runtime_control_payload(task_run)
+    return ExecutorControlSignal(
+        kind=kind,  # type: ignore[arg-type]
+        task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
+        executor_epoch=int(executor_epoch or 0),
+        reason=str(control.get("reason") or default_reason),
+        requested_by=str(control.get("requested_by") or "system"),
+        requested_at=float(control.get("requested_at") or time.time()),
+    )
+
+
+def _executor_control_signal_from_boundary_result(
+    result: dict[str, Any],
+    *,
+    task_run: Any,
+    executor_epoch: int,
+) -> ExecutorControlSignal:
+    signal = _executor_control_signal_from_task_run(
+        task_run,
+        executor_epoch=executor_epoch,
+        default_reason=str(result.get("error") or result.get("reason") or "runtime_control_boundary"),
+    )
+    if signal is not None:
+        return signal
+    error = str(result.get("error") or result.get("reason") or "").strip()
+    kind = "stop"
+    if error == "task_run_paused":
+        kind = "pause"
+    elif error == "user_interrupt_replan_required":
+        kind = "replan"
+    return ExecutorControlSignal(
+        kind=kind,  # type: ignore[arg-type]
+        task_run_id=str(getattr(task_run, "task_run_id", "") or dict(result.get("task_run") or {}).get("task_run_id") or ""),
+        executor_epoch=int(executor_epoch or 0),
+        reason=error or str(dict(result.get("task_run") or {}).get("terminal_reason") or "runtime_control_boundary"),
+        requested_by="system",
+        requested_at=time.time(),
+    )
 
 
 def _stop_executor_for_terminal_control(runtime_host: Any, *, task_run: Any, agent_run: Any | None, boundary: str) -> dict[str, Any]:

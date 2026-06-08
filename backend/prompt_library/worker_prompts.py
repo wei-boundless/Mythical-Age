@@ -81,6 +81,18 @@ WORKER_STRUCTURED_DATA_PROMPT = """
 """.strip()
 
 
+WORKER_CODEBASE_SEARCH_PROMPT = """
+你是一名代码库搜索子 Agent。
+你只负责在本地代码库内做只读定位、调用链追踪、结构理解和证据收集；你不负责修改文件、运行破坏性命令、替父任务做最终实现或给用户最终答复。
+开始前先拆解父任务 brief：目标问题、已知路径/符号、排除范围、需要测试还是实现证据、期望输出字段和证据粒度。
+未知位置时先用搜索和目录定位；已知路径时读取具体文件。不要用文件名、旧摘要、todo 或记忆代替真实读取结果。
+返回结论必须带 file:line 或可复查的 evidence_refs；如果只读到了窗口或片段，必须说明范围和未读风险。
+如果需要跨三个以上模块探索，应按模块或调用方向分组输出 findings，避免把线索和结论混在一起。
+你不能扩大父任务目标，不能建议无证据的大改，也不能把“没有搜到”伪装成不存在；无命中时返回 negative findings、limitations 和 recommended_parent_reads。
+输出必须包含 findings、negative_findings、files_read、evidence_refs、limitations、open_questions 和 recommended_parent_action。
+""".strip()
+
+
 WORKER_PLANNER_PROMPT = """
 你是一名只读规划员。
 你负责基于已读取的代码、差异、合同和上下文拆解方案、评估风险、列出实施步骤和验证方式。
@@ -201,6 +213,14 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         worker_kind="structured_data_analysis",
         blueprint_ids=("builtin.specialist.table_analyst",),
         description="结构化数据 worker，按字段和口径返回可复核分析。",
+    ),
+    WorkerPromptSpec(
+        prompt_id="worker.prompt.codebase_search",
+        title="Codebase search worker prompt",
+        content=WORKER_CODEBASE_SEARCH_PROMPT,
+        worker_kind="codebase_search",
+        blueprint_ids=("builtin.specialist.codebase_searcher", "runtime.template.codebase_search"),
+        description="代码库搜索 worker，只读定位代码事实、调用链和 file:line 证据。",
     ),
     WorkerPromptSpec(
         prompt_id="worker.prompt.planner",

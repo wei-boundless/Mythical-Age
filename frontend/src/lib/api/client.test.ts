@@ -163,6 +163,42 @@ describe("streamChat", () => {
     expect(events).toEqual([{ event: "done", data: { content: "ok", event_offset: 1 } }]);
   });
 
+  it("can consume a short stream without replacing the session reconnect cursor", async () => {
+    const storage = new Map<string, string>([[
+      "chat.stream.cursor.session:steer",
+      JSON.stringify({
+        streamRunId: "strun:main",
+        eventLogId: "chatrun:main",
+        lastEventOffset: 8,
+        lastEventId: "main:8",
+      }),
+    ]]);
+    const localStorage = {
+      getItem: vi.fn((key: string) => storage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        storage.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        storage.delete(key);
+      }),
+    };
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader(['id: strun:test:chatrun:test:1\nevent: done\ndata: {"content":"ok","event_offset":1}\n\n']),
+    ]));
+
+    const result = await streamChat(
+      { message: "补充要求", session_id: "session:steer", expected_active_turn_id: "turn:active" },
+      { onEvent: () => undefined },
+      { persistCursor: false },
+    );
+
+    expect(result.terminalEvent).toBe("done");
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+    expect(localStorage.removeItem).not.toHaveBeenCalled();
+    expect(storage.get("chat.stream.cursor.session:steer")).toContain("strun:main");
+  });
+
   it("keeps reading after output_boundary until the backend sends done", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);

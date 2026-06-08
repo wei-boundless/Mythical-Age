@@ -31,6 +31,16 @@ class _FakeEvent:
         self.payload = payload or {}
         self.refs = refs or {}
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "task_run_id": self.task_run_id,
+            "event_type": self.event_type,
+            "payload": self.payload,
+            "refs": self.refs,
+            "created_at": self.created_at,
+            "offset": self.offset,
+        }
+
 
 class _FakeEventLog:
     def __init__(self) -> None:
@@ -115,15 +125,84 @@ def test_active_child_subagent_summaries_only_returns_owned_running_children() -
         assert summaries[0]["status"] == "running"
 
 
+def test_close_subagent_requests_child_task_run_stop(monkeypatch) -> None:
+    asyncio.run(_close_subagent_requests_child_task_run_stop(monkeypatch))
+
+
+async def _close_subagent_requests_child_task_run_stop(monkeypatch) -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = RuntimeStateIndex(root)
+        parent_task = TaskRun(task_run_id="tr-close-parent", session_id="s1", task_id="task:parent")
+        child_task = TaskRun(
+            task_run_id="tr-close-parent:subagent:child",
+            session_id="s1",
+            task_id="task:child",
+            status="running",
+            execution_runtime_kind="subagent_task",
+        )
+        parent = AgentRun(
+            agent_run_id="ag-close-parent",
+            task_run_id=parent_task.task_run_id,
+            agent_id="agent:0",
+            agent_profile_id="main_interactive_agent",
+            status="running",
+        )
+        child = AgentRun(
+            agent_run_id="ag-close-child",
+            task_run_id=child_task.task_run_id,
+            agent_id="agent:knowledge_searcher",
+            agent_profile_id="knowledge_search_agent",
+            role="subagent_worker",
+            spawn_mode="subagent",
+            parent_agent_run_ref=parent.agent_run_id,
+            status="running",
+            diagnostics={"subagent_control": {"parent_task_run_id": parent_task.task_run_id}},
+        )
+        state.upsert_task_run(parent_task)
+        state.upsert_task_run(child_task)
+        state.upsert_agent_run(parent)
+        state.upsert_agent_run(child)
+        host = type("Host", (), {"backend_dir": root, "state_index": state, "event_log": _FakeEventLog()})()
+        controller = SubagentControl(host)
+        stop_calls = []
+
+        def fake_stop_task_run(runtime_host, task_run_id, *, reason="", requested_by="user"):
+            stop_calls.append((runtime_host, task_run_id, reason, requested_by))
+            return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason}
+
+        monkeypatch.setattr("harness.loop.task_executor.stop_task_run", fake_stop_task_run)
+
+        closed = await controller.close(
+            task_run=parent_task,
+            parent_agent_run=parent,
+            subagent_run_ref=child.agent_run_id,
+            reason="parent no longer needs this search",
+        )
+
+        assert closed["ok"] is True
+        assert closed["status"] == "killed"
+        assert closed["task_run_control"]["accepted"] is True
+        assert stop_calls == [
+            (
+                host,
+                child_task.task_run_id,
+                "parent no longer needs this search",
+                "parent_agent",
+            )
+        ]
+
+
 async def _subagent_control_lifecycle_roundtrip() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         state = RuntimeStateIndex(root)
+        runtime_objects = RuntimeObjectStore(root)
         task = TaskRun(task_run_id="tr1", session_id="s1", task_id="task1")
         state.upsert_task_run(task)
         parent = AgentRun(agent_run_id="ag1", task_run_id="tr1", agent_id="agent:0", agent_profile_id="main_interactive_agent", status="running")
         state.upsert_agent_run(parent)
-        host = type("Host", (), {"backend_dir": root, "state_index": state, "event_log": _FakeEventLog()})()
+        host = type("Host", (), {"backend_dir": root, "state_index": state, "runtime_objects": runtime_objects, "event_log": _FakeEventLog()})()
         controller = SubagentControl(host)
         assembly = {
             "profile": {

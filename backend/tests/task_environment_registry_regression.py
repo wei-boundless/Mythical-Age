@@ -430,7 +430,8 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "environment.rule.general_workspace",
     ]
     assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
-    assert "工具选择、文件读写" in model_input
+    assert "开始实现前先建立项目事实" in model_input
+    assert "优先用专用搜索和读取工具定位代码" in model_input
     assert "old_text 必须来自当前读取结果" in model_input
     assert "next_start_line" in model_input
     assert "不要重复读取相同行窗口" in model_input
@@ -440,7 +441,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "Windows PowerShell" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
     assert "你处在通用开发沙盒任务环境中" in model_input
-    assert "你处在 coding 或 development 环境时" in model_input
+    assert "当你正在处理开发类工作" in model_input
     assert "通用项目工作区资源" in model_input
     assert "当前环境包含沙盒工作资源" in model_input
     assert "不属于本任务的变更" in model_input
@@ -510,10 +511,57 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "项目工作区是 coding 任务的主要工作面" in model_input
     assert "artifact 目录是交付证据和发布面" in model_input
-    assert "不要反复读取同一文件窗口" in model_input
+    assert "修改前必须读到目标文件当前真实内容和目标区域的精确行窗口" in model_input
     assert "大范围探索" in model_input
-    assert "不把某个任务类型的循环控制写进工具或文件状态里" in model_input
-    assert "coding 规则只在当前 coding/development 环境内适用" in model_input
+    assert "只使用本轮实际可见的工具和动作格式" in model_input
+    assert "不要把计划、todo、启动命令、没有看到错误或未复核 artifact 当作完成证据" in model_input
+    assert "你的工程判断需要先定性问题" in model_input
+    assert "优先修根因，不只修表象" in model_input
+    assert "最小修改不是保留坏结构" in model_input
+    assert "收口前自审改动边界" in model_input
+    assert "coding.rule.engineering_judgment" not in stable_payload["task_environment"]["environment_prompt_refs"]
+    assert "不要因为处在 coding 工作区，就擅自扩大任务范围" in model_input
+    assert "处理写作或通用任务时，不要套用代码修改、测试、shell 或 git 规则" in model_input
+
+
+def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
+    registry = PromptLibraryRegistry(BACKEND_DIR)
+    coding_refs = [
+        "environment.resource.managed_project_workspace.orientation",
+        "environment.resource.sandbox_overlay.orientation",
+        "environment.coding.vibe_workspace.orientation",
+        "environment.rule.coding_workspace",
+        "coding.rule.codebase_inspection",
+        "coding.rule.large_scope_exploration",
+        "coding.rule.editing",
+        "coding.rule.verification",
+        "coding.rule.debug_discipline",
+        "coding.rule.git_safety",
+        "coding.rule.windows_shell",
+        "coding.rule.task_progress",
+    ]
+
+    content_by_ref = {}
+    for prompt_ref in coding_refs:
+        resource = registry.get_active_resource(prompt_ref)
+        assert resource is not None
+        content_by_ref[prompt_ref] = resource.content
+
+    combined = "\n".join(content_by_ref.values())
+    assert "这是 runtime 节点" not in combined
+    assert "根据任务图执行" not in combined
+    assert "runtime packet" not in combined
+    assert ".v1" not in combined
+    assert "confidence" not in combined.lower()
+    assert "只使用本轮实际可见的工具和动作格式" in content_by_ref["environment.rule.coding_workspace"]
+    assert "tool guidance" not in content_by_ref["environment.rule.coding_workspace"]
+    assert "这个环境不是任务分类器" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "被系统选中" not in content_by_ref["environment.rule.coding_workspace"]
+    assert "不授予工具" not in content_by_ref["environment.rule.coding_workspace"]
+    assert "你的工程判断需要先定性问题" in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "coding.rule.engineering_judgment" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "evidence matrix" in content_by_ref["coding.rule.large_scope_exploration"]
+    assert "固定项目节点真实启动验证" in content_by_ref["coding.rule.verification"]
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -875,8 +923,8 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     assert "当前人格" in model_input
     assert "Mythical Age（洪荒智能）" in model_input
     assert "不改变系统规则" in model_input
-    assert "你负责在当前会话中理解用户最新请求" in model_input
-    assert "本段只定义本轮动作协议；身份风格由 personality prompt 提供" in model_input
+    assert "你负责把用户最新一句话放回当前会话语境中理解" in model_input
+    assert "你现在处在单轮会话动作协议中。你会同时看到身份风格" in model_input
     assert "通用请求判断生命周期" in model_input
     assert "用户刚发来最新请求" in model_input
     assert "在采取有副作用或高影响行动前" in model_input
@@ -1048,7 +1096,7 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
                             "environment_id": "env.custom.lab",
                             "environment_prompts": [
                                 {
-                                    "prompt_id": "environment.custom.lab.v1",
+                                    "prompt_id": "environment.custom.lab",
                                     "content": "你处在自定义实验环境中。只能在环境声明的 artifact/storage 边界内写入。",
                                 }
                             ],
@@ -1095,7 +1143,7 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
     assert payload["environment_boundary"]["prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
-        "environment.custom.lab.v1",
+        "environment.custom.lab",
     ]
     assert (
         payload["environment_boundary"]["boundary_contract"]["environment_prompts_source"]
@@ -1154,7 +1202,7 @@ def test_task_environment_repository_persists_upsert_and_delete(tmp_path: Path) 
             "group_id": "environment_group.custom_repo",
             "environment_prompts": [
                 {
-                    "prompt_id": "environment.custom.repo.v1",
+                    "prompt_id": "environment.custom.repo",
                     "content": "你处在仓库持久化测试环境中。",
                 }
             ],
@@ -1169,6 +1217,55 @@ def test_task_environment_repository_persists_upsert_and_delete(tmp_path: Path) 
     repository.delete_environment("env.custom.repo")
     registry_after_delete = task_environment_registry_from_backend_dir(backend_dir)
     assert registry_after_delete.get("env.custom.repo") is None
+
+
+def test_task_environment_repository_migrates_legacy_prompt_refs_on_load(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    config_path = config_dir / "environments.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "record": {
+                            "environment_id": "env.custom.legacy_prompts",
+                            "title": "Legacy Prompt Environment",
+                            "group_id": "environment_group.general",
+                            "environment_kind": "custom",
+                        },
+                        "spec": {
+                            "spec_id": "envspec.custom.legacy_prompts.v1",
+                            "environment_id": "env.custom.legacy_prompts",
+                            "environment_prompts": [
+                                {"prompt_id": "runtime.rule.file_management.generic.v1"},
+                                {"prompt_id": "environment.rule.general_workspace.v1"},
+                            ],
+                            "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
+                            "resource_space": {"storage_namespace": "custom/legacy-prompts"},
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    _, environments = TaskEnvironmentRepository(backend_dir).load()
+    environment = next(item for item in environments if item.record.environment_id == "env.custom.legacy_prompts")
+
+    assert [item.prompt_id for item in environment.spec.environment_prompts] == [
+        "runtime.rule.file_management.generic",
+        "environment.rule.general_workspace",
+    ]
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    persisted_prompts = persisted["environments"][0]["spec"]["environment_prompts"]
+    assert [item["prompt_id"] for item in persisted_prompts] == [
+        "runtime.rule.file_management.generic",
+        "environment.rule.general_workspace",
+    ]
 
 
 def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path) -> None:
@@ -1191,8 +1288,8 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
                             "environment_id": "env.custom.runtime",
                             "environment_prompts": [
                                 {
-                                    "prompt_id": "environment.custom.runtime.v1",
-                                    "content": "你处在自定义 runtime 环境中。环境只声明边界，不授予工具。",
+                                    "prompt_id": "environment.custom.runtime",
+                                    "content": "你处在自定义 runtime 环境中。环境只声明边界；可用工具以本轮可见工具列表为准。",
                                 }
                             ],
                             "file_management": {
@@ -1246,7 +1343,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
     assert environment["environment_boundary"]["prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
-        "environment.custom.runtime.v1",
+        "environment.custom.runtime",
     ]
     assert environment["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
     assert tool_names == set()
@@ -1272,7 +1369,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
                             "environment_id": "env.custom.prompted",
                             "environment_prompts": [
                                 {
-                                    "prompt_id": "environment.custom.prompted.v1",
+                                    "prompt_id": "environment.custom.prompted",
                                     "content": "你处在自定义提示环境中。这里的环境 prompt 来自任务环境配置。",
                                 }
                             ],
@@ -1331,7 +1428,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
-        "environment.custom.prompted.v1",
+        "environment.custom.prompted",
     ]
     assert "environment_prompts" not in stable_payload["task_environment"]
     assert "你处在自定义提示环境中" not in json.dumps(stable_payload, ensure_ascii=False)
@@ -1345,8 +1442,8 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
     backend_dir = tmp_path / "backend"
     PromptLibraryRegistry(backend_dir).upsert_resource(
         PromptResource(
-            prompt_id="environment.shared.readonly_workspace.orientation.v1",
-            resource_id="environment.shared.readonly_workspace.orientation.v1",
+            prompt_id="environment.shared.readonly_workspace.orientation",
+            resource_id="environment.shared.readonly_workspace.orientation",
             category="environment",
             subtype="orientation",
             resource_type="environment_prompt",
@@ -1378,7 +1475,7 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
                             "spec_id": "envspec.custom.reused_prompt.v1",
                             "environment_id": "env.custom.reused_prompt",
                             "environment_prompts": [
-                                {"prompt_id": "environment.shared.readonly_workspace.orientation.v1"}
+                                {"prompt_id": "environment.shared.readonly_workspace.orientation"}
                             ],
                             "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
                             "resource_space": {"storage_namespace": "custom/reused-prompt"},
@@ -1435,7 +1532,7 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
         "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
-        "environment.shared.readonly_workspace.orientation.v1",
+        "environment.shared.readonly_workspace.orientation",
     ]
     assert stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"] == "prompt_library"
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from file_management import default_file_environment_registry
 from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from prompt_ref_migrations import migrate_prompt_ref
 
 from .models import (
     ArtifactPolicy,
@@ -40,6 +41,10 @@ class TaskEnvironmentRepository:
     def load(self) -> tuple[tuple[TaskEnvironmentGroup, ...], tuple[TaskEnvironmentDefinition, ...]]:
         with json_file_lock(self.config_path):
             payload = self._read_payload()
+            normalized_payload = _normalize_environment_config_prompt_refs(payload)
+            if normalized_payload != payload:
+                self._write_payload(normalized_payload)
+                payload = normalized_payload
         groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
         environments = tuple(
             _definition_from_payload(item)
@@ -64,7 +69,8 @@ class TaskEnvironmentRepository:
     def upsert_environment(self, environment: TaskEnvironmentDefinition | dict[str, Any]) -> dict[str, Any]:
         with json_file_lock(self.config_path):
             payload = self._read_payload()
-            definition = environment if isinstance(environment, TaskEnvironmentDefinition) else _definition_from_payload(environment)
+            definition_payload = environment.to_dict() if isinstance(environment, TaskEnvironmentDefinition) else dict(environment)
+            definition = _definition_from_payload(_normalize_environment_payload_prompt_refs(definition_payload))
             groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
             group_ids = {group.group_id for group in groups}
             if definition.record.group_id not in group_ids and not _is_default_group_id(definition.record.group_id):
@@ -176,7 +182,11 @@ def _definition_from_payload(payload: Any) -> TaskEnvironmentDefinition:
         spec_id=str(spec_payload.get("spec_id") or ""),
         environment_id=str(spec_payload.get("environment_id") or ""),
         environment_prompts=tuple(
-            _dataclass_from_payload(EnvironmentPrompt, item, path="environment.spec.environment_prompts")
+            _dataclass_from_payload(
+                EnvironmentPrompt,
+                _normalize_environment_prompt_payload(item),
+                path="environment.spec.environment_prompts",
+            )
             for item in _list_payload(spec_payload.get("environment_prompts"), path="environment.spec.environment_prompts")
         ),
         sandbox_policy=_dataclass_from_payload(
@@ -226,6 +236,43 @@ def _group_from_payload(payload: Any) -> TaskEnvironmentGroup:
     if not isinstance(payload, dict):
         raise TaskEnvironmentConfigError("environment group item must be an object")
     return _dataclass_from_payload(TaskEnvironmentGroup, payload, path="environment.group")
+
+
+def _normalize_environment_config_prompt_refs(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized["environments"] = [
+        _normalize_environment_payload_prompt_refs(item) if isinstance(item, dict) else item
+        for item in _list_payload(payload.get("environments"), path="$.environments")
+    ]
+    return normalized
+
+
+def _normalize_environment_payload_prompt_refs(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    if isinstance(normalized.get("spec"), dict):
+        spec = dict(normalized.get("spec") or {})
+        if "environment_prompts" in spec:
+            spec["environment_prompts"] = [
+                _normalize_environment_prompt_payload(item)
+                for item in _list_payload(spec.get("environment_prompts"), path="environment.spec.environment_prompts")
+            ]
+        normalized["spec"] = spec
+        return normalized
+    if "environment_prompts" in normalized:
+        normalized["environment_prompts"] = [
+            _normalize_environment_prompt_payload(item)
+            for item in _list_payload(normalized.get("environment_prompts"), path="environment.environment_prompts")
+        ]
+    return normalized
+
+
+def _normalize_environment_prompt_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    if "prompt_id" in normalized:
+        normalized["prompt_id"] = migrate_prompt_ref(normalized.get("prompt_id"))
+    return normalized
 
 
 def _dataclass_from_payload(model: type, payload: dict[str, Any], *, path: str):

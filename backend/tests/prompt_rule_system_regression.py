@@ -20,10 +20,10 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert prompt_rules["coverage"]["has_system_foundation"] is True
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
-    assert prompt_rules["coverage"]["has_intent_feedback"] is True
+    assert prompt_rules["coverage"]["has_turn_decision_alignment"] is True
     assert "runtime.task_execution" in prompt_rules["rule_refs"]
     assert "runtime.rule.system_call_protocol" in prompt_rules["rule_refs"]
-    assert "runtime.rule.intent_feedback" in prompt_rules["rule_refs"]
+    assert "runtime.rule.turn_decision_alignment" in prompt_rules["rule_refs"]
     assert "runtime.rule.output_boundary" in prompt_rules["rule_refs"]
     assert "runtime.rule.error_recovery" in prompt_rules["rule_refs"]
     assert "runtime.rule.subagent_invocation_protocol" in prompt_rules["rule_refs"]
@@ -35,7 +35,7 @@ def test_runtime_pack_manifest_reports_prompt_rule_coverage(tmp_path: Path) -> N
     assert "system.foundation.current_request_authority" in compiled.rule_kinds
     assert "system.foundation.truth_and_verification" in compiled.rule_kinds
     assert "runtime.system_call_protocol" in compiled.rule_kinds
-    assert "runtime.intent_feedback" in compiled.rule_kinds
+    assert "runtime.turn_decision_alignment" in compiled.rule_kinds
     assert "runtime.output_boundary" in compiled.rule_kinds
     assert "runtime.subagent_invocation_protocol" in compiled.rule_kinds
 
@@ -90,7 +90,7 @@ def test_foundation_is_not_in_semantic_compaction_pack(tmp_path: Path) -> None:
     assert "runtime.semantic_compaction" in assembly.manifest["stable_prompt_refs"]
 
 
-def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path) -> None:
+def test_non_graph_runtime_protocol_requires_turn_decision_alignment_rule(tmp_path: Path) -> None:
     assembly = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
             invocation_kind="task_execution",
@@ -104,10 +104,10 @@ def test_non_graph_runtime_protocol_requires_intent_feedback_rule(tmp_path: Path
     prompt_rules = assembly.manifest["prompt_rules"]
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
-    assert prompt_rules["coverage"]["has_intent_feedback"] is False
+    assert prompt_rules["coverage"]["has_turn_decision_alignment"] is False
     assert any(
         item["reason"] == "prompt_rule_requirement_missing"
-        and item["requires"] == "runtime.rule.intent_feedback"
+        and item["requires"] == "runtime.rule.turn_decision_alignment"
         for item in prompt_rules["rejected_rules"]
     )
     with pytest.raises(ValueError, match="prompt_rule_requirement_missing"):
@@ -183,7 +183,7 @@ def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
 def test_prompt_rule_compiler_rejects_cache_tier_scope_mismatch() -> None:
     section = PromptSection(
         section_id="runtime.bad_environment_rule:1",
-        prompt_ref="test.rule.bad_environment_scope.v1",
+        prompt_ref="test.rule.bad_environment_scope",
         category="runtime",
         subtype="rule",
         title="Bad environment-scoped rule",
@@ -192,8 +192,8 @@ def test_prompt_rule_compiler_rejects_cache_tier_scope_mismatch() -> None:
         cache_scope="static",
         metadata={
             "prompt_rule": rule_metadata(
-                rule_id="test.rule.bad_environment_scope.v1",
-                prompt_ref="test.rule.bad_environment_scope.v1",
+                rule_id="test.rule.bad_environment_scope",
+                prompt_ref="test.rule.bad_environment_scope",
                 rule_kind="environment.boundary",
                 owner_layer="environment",
                 cache_tier="static_environment",
@@ -209,7 +209,7 @@ def test_prompt_rule_compiler_rejects_cache_tier_scope_mismatch() -> None:
 def test_prompt_rule_compiler_rejects_invocation_scope_mismatch() -> None:
     section = PromptSection(
         section_id="runtime.single_turn_only:1",
-        prompt_ref="test.rule.single_turn_only.v1",
+        prompt_ref="test.rule.single_turn_only",
         category="runtime",
         subtype="rule",
         title="Single turn only rule",
@@ -218,8 +218,8 @@ def test_prompt_rule_compiler_rejects_invocation_scope_mismatch() -> None:
         cache_scope="static",
         metadata={
             "prompt_rule": rule_metadata(
-                rule_id="test.rule.single_turn_only.v1",
-                prompt_ref="test.rule.single_turn_only.v1",
+                rule_id="test.rule.single_turn_only",
+                prompt_ref="test.rule.single_turn_only",
                 rule_kind="runtime.test_scope",
                 owner_layer="runtime",
                 allowed_invocation_kinds=("single_agent_turn",),
@@ -236,7 +236,7 @@ def test_prompt_rule_compiler_rejects_invocation_scope_mismatch() -> None:
 def test_prompt_rule_compiler_rejects_developer_style_prompt_text() -> None:
     section = PromptSection(
         section_id="runtime.bad_style:1",
-        prompt_ref="test.rule.bad_style.v1",
+        prompt_ref="test.rule.bad_style",
         category="runtime",
         subtype="rule",
         title="Bad style rule",
@@ -245,8 +245,8 @@ def test_prompt_rule_compiler_rejects_developer_style_prompt_text() -> None:
         cache_scope="static",
         metadata={
             "prompt_rule": rule_metadata(
-                rule_id="test.rule.bad_style.v1",
-                prompt_ref="test.rule.bad_style.v1",
+                rule_id="test.rule.bad_style",
+                prompt_ref="test.rule.bad_style",
                 rule_kind="runtime.bad_style",
                 owner_layer="runtime",
                 allowed_invocation_kinds=("task_execution",),
@@ -308,15 +308,15 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
     model_input = "\n".join(str(message["content"]) for message in packet.model_messages)
     manifest = packet.diagnostics["prompt_manifest"]
     assert manifest["prompt_rules"]["coverage"]["has_system_call_protocol"] is True
-    assert manifest["prompt_rules"]["coverage"]["has_intent_feedback"] is True
+    assert manifest["prompt_rules"]["coverage"]["has_turn_decision_alignment"] is True
     assert "runtime.rule.system_call_protocol" in manifest["stable_prompt_refs"]
-    assert "runtime.rule.intent_feedback" in manifest["stable_prompt_refs"]
+    assert "runtime.rule.turn_decision_alignment" in manifest["stable_prompt_refs"]
     assert "environment.rule.writing_workspace" in manifest["stable_prompt_refs"]
     assert "coding.rule.editing" not in manifest["stable_prompt_refs"]
     assert "coding.rule.verification" not in manifest["stable_prompt_refs"]
     assert "coding.rule.debug_discipline" not in manifest["stable_prompt_refs"]
-    assert "写作环境不继承 coding 的测试、shell、git 或代码编辑规则" in model_input
-    assert "你处在 coding 或 development 环境时" not in model_input
+    assert "处理创作写作时，不要套用代码测试、shell、git 或代码编辑规则" in model_input
+    assert "当当前环境是 coding 或 development" not in model_input
     assert "调试纪律" not in model_input
 
 
@@ -331,11 +331,11 @@ def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> No
     prompt_rules = assembly.manifest["prompt_rules"]
     assert prompt_rules["coverage"]["has_runtime_protocol"] is True
     assert prompt_rules["coverage"]["has_system_call_protocol"] is True
-    assert prompt_rules["coverage"]["has_intent_feedback"] is False
+    assert prompt_rules["coverage"]["has_turn_decision_alignment"] is False
     assert "runtime.graph_node_execution" in prompt_rules["rule_refs"]
     assert "runtime.task_execution" not in prompt_rules["rule_refs"]
     assert "runtime.rule.system_call_protocol" in prompt_rules["rule_refs"]
-    assert "runtime.rule.intent_feedback" not in prompt_rules["rule_refs"]
+    assert "runtime.rule.turn_decision_alignment" not in prompt_rules["rule_refs"]
     assert "runtime.rule.tool_use" not in prompt_rules["rule_refs"]
     assert "graph.rule.node_boundary" in prompt_rules["rule_refs"]
     assert prompt_rules["rejected_rules"] == []

@@ -5437,8 +5437,10 @@ async function consumeChatRunStream(
     signal?: AbortSignal;
     initialCursor?: ChatStreamCursor | null;
     replayFromStart?: boolean;
+    persistCursor?: boolean;
   } = {}
 ): Promise<StreamResult> {
+  const persistCursor = options.persistCursor !== false;
   let lastEventOffset = options.replayFromStart
     ? -1
     : Number(options.initialCursor?.lastEventOffset ?? run.latest_event_offset ?? -1);
@@ -5446,12 +5448,14 @@ async function consumeChatRunStream(
   let terminalEvent: StreamResult["terminalEvent"] | "" = "";
   let reconnectAttempt = 0;
 
-  saveChatStreamCursor(sessionId, {
-    streamRunId: run.stream_run_id,
-    eventLogId: run.event_log_id,
-    lastEventOffset,
-    lastEventId,
-  });
+  if (persistCursor) {
+    saveChatStreamCursor(sessionId, {
+      streamRunId: run.stream_run_id,
+      eventLogId: run.event_log_id,
+      lastEventOffset,
+      lastEventId,
+    });
+  }
 
   const consumeBlock = (block: string) => {
     const parsed = parseSseBlock(block);
@@ -5465,12 +5469,14 @@ async function consumeChatRunStream(
       }
       lastEventOffset = eventOffset;
       lastEventId = parsed.id || `${run.stream_run_id}:${run.event_log_id}:${lastEventOffset}`;
-      saveChatStreamCursor(sessionId, {
-        streamRunId: run.stream_run_id,
-        eventLogId: run.event_log_id,
-        lastEventOffset,
-        lastEventId,
-      });
+      if (persistCursor) {
+        saveChatStreamCursor(sessionId, {
+          streamRunId: run.stream_run_id,
+          eventLogId: run.event_log_id,
+          lastEventOffset,
+          lastEventId,
+        });
+      }
     }
     if (reconnectAttempt > 0) {
       handlers.onEvent("stream_reconnected", {
@@ -5488,7 +5494,9 @@ async function consumeChatRunStream(
 
   while (!terminalEvent) {
     if (options.signal?.aborted) {
-      clearChatStreamCursor(sessionId);
+      if (persistCursor) {
+        clearChatStreamCursor(sessionId);
+      }
       throw new DOMException("Aborted", "AbortError");
     }
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -5551,7 +5559,9 @@ async function consumeChatRunStream(
       }
     } catch (error) {
       if (options.signal?.aborted) {
-        clearChatStreamCursor(sessionId);
+        if (persistCursor) {
+          clearChatStreamCursor(sessionId);
+        }
         throw error;
       }
       reconnectReason = error instanceof Error && error.message.trim()
@@ -5589,7 +5599,9 @@ async function consumeChatRunStream(
     }
   }
 
-  clearChatStreamCursor(sessionId);
+  if (persistCursor) {
+    clearChatStreamCursor(sessionId);
+  }
 
   return {
     terminalEvent,
@@ -5607,6 +5619,7 @@ export async function streamExistingChatRun(
     signal?: AbortSignal;
     initialCursor?: ChatStreamCursor | null;
     replayFromStart?: boolean;
+    persistCursor?: boolean;
   } = {}
 ) {
   const run = await resumeChatRun(streamRunId);
@@ -5618,6 +5631,7 @@ export async function streamChat(
   handlers: StreamHandlers,
   options: {
     signal?: AbortSignal;
+    persistCursor?: boolean;
   } = {}
 ): Promise<StreamResult> {
   const run = await createChatRun(payload);

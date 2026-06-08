@@ -256,6 +256,65 @@ def test_task_tool_batch_group_returns_completed_results_before_interrupt(monkey
     assert [observation["observation_id"] for _row, observation in result["results"]] == ["obs:completed-before-pause"]
     assert result["interrupt"].signal.kind == "pause"
 
+def test_tool_execution_boundary_preserves_pause_signal_without_stopping_task() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:tool-boundary-pause")
+    task_run = host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    host.state_index.upsert_task_run(
+        replace(
+            task_run,
+            status="running",
+            terminal_reason="",
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "executor_status": "running",
+                "executor_epoch": 7,
+                "runtime_control": {
+                    "state": "pause_requested",
+                    "requested_by": "user",
+                    "requested_at": 12.0,
+                    "reason": "pause before tool",
+                    "authority": "orchestration.task_run_control",
+                },
+            },
+        )
+    )
+    action = ModelActionRequest(
+        request_id="model-action:tool-boundary-pause",
+        turn_id=task_run_id,
+        action_type="tool_call",
+        tool_call={"tool_name": "read_file", "args": {"path": "README.md"}},
+    )
+
+    async def _run_call() -> None:
+        latest = host.state_index.get_task_run(task_run_id)
+        assert latest is not None
+        await task_executor_module._execute_task_tool_call(
+            host,
+            services=SimpleNamespace(),
+            task_run=latest,
+            packet_ref="packet:tool-boundary-pause",
+            action_request=action,
+            admission=SimpleNamespace(decision="allow"),
+            runtime_assembly={},
+            runtime_tool_plan=SimpleNamespace(),
+        )
+
+    try:
+        asyncio.run(_run_call())
+    except TaskRunExecutorInterrupted as exc:
+        assert exc.signal.kind == "pause"
+    else:
+        raise AssertionError("pause control did not interrupt tool execution")
+
+    latest = host.state_index.get_task_run(task_run_id)
+    assert latest is not None
+    assert latest.status == "running"
+    assert latest.terminal_reason != "user_aborted"
+    assert dict(dict(latest.diagnostics or {}).get("runtime_control") or {}).get("state") == "pause_requested"
+
 def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
     runtime = build_harness_runtime()
     task_run_id = _seed_active_work(runtime, task_run_id="taskrun:missing-scheduler")
@@ -1086,6 +1145,50 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
     assert diagnostics.get("executor_status") == "waiting_executor"
     assert diagnostics.get("latest_step_summary") == "后端运行时已重启，当前工作已恢复为可继续状态。"
     assert diagnostics.get("latest_public_progress_note") == "后端运行时已重启，当前工作已恢复为可继续状态。"
+
+def test_scheduled_executor_recovery_does_not_spawn_duplicate_live_runner() -> None:
+    from harness.loop.task_executor_controller import TaskExecutorController
+
+    class _LiveTask:
+        def done(self) -> bool:
+            return False
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:scheduled-live-runner"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-scheduled-live-runner",
+            task_id="task:scheduled-live-runner",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            diagnostics={
+                "executor_status": "scheduled",
+                "latest_step": "task_executor_scheduled",
+                "latest_step_summary": "执行器刚被调度，后台任务仍在当前进程中。",
+            },
+        )
+    )
+    host._background_tasks_by_name[f"task-run-executor:{task_run_id}"] = {_LiveTask()}
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return _LiveTask()
+
+    host.spawn_background_task = _capture_background_task
+
+    result = TaskExecutorController(runtime_host=host, execute_task_run_callback=runtime.execute_task_run).recover_scheduled(
+        task_run_id,
+        scheduler="test_duplicate_recovery",
+    )
+
+    assert result["ok"] is True
+    assert result["scheduled"] is False
+    assert result["reason"] == "already_running"
+    assert spawned == []
 
 def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
     from harness.loop.task_executor_controller import TaskExecutorController

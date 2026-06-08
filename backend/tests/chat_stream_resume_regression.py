@@ -93,6 +93,70 @@ def test_latest_active_chat_run_returns_no_content_when_absent() -> None:
         assert latest.content == b""
 
 
+def test_latest_active_chat_run_prefers_primary_stream_over_active_turn_steer() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        host = runtime.harness_runtime.single_agent_runtime_host
+        session_id = _create_session(client, "Primary run over steer")
+        primary = host.run_registry.create_run(
+            session_id=session_id,
+            diagnostics={
+                "source": "api.chat",
+                "expected_active_turn_id": "",
+                "active_turn_input_policy": "auto",
+            },
+        )
+        primary = host.run_registry.mark_running(primary)
+        host.run_registry.mark_event(primary, latest_event_offset=0, status="running")
+        steer = host.run_registry.create_run(
+            session_id=session_id,
+            diagnostics={
+                "source": "api.chat",
+                "expected_active_turn_id": "turn:session:latest:1",
+                "active_turn_input_policy": "steer",
+            },
+        )
+        steer = host.run_registry.mark_running(steer)
+        host.run_registry.mark_event(steer, latest_event_offset=0, status="running")
+
+        latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=true")
+
+        assert latest.status_code == 200
+        assert latest.json()["stream_run_id"] == primary.stream_run_id
+
+
+def test_latest_active_chat_run_keeps_auto_active_turn_runs_reconnectable() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        host = runtime.harness_runtime.single_agent_runtime_host
+        session_id = _create_session(client, "Auto active run remains latest")
+        primary = host.run_registry.create_run(
+            session_id=session_id,
+            diagnostics={
+                "source": "api.chat",
+                "expected_active_turn_id": "",
+                "active_turn_input_policy": "auto",
+            },
+        )
+        primary = host.run_registry.mark_running(primary)
+        host.run_registry.mark_event(primary, latest_event_offset=0, status="running")
+        auto_followup = host.run_registry.create_run(
+            session_id=session_id,
+            diagnostics={
+                "source": "api.chat",
+                "expected_active_turn_id": "turn:session:latest:auto",
+                "active_turn_input_policy": "auto",
+            },
+        )
+        auto_followup = host.run_registry.mark_running(auto_followup)
+        host.run_registry.mark_event(auto_followup, latest_event_offset=0, status="running")
+
+        latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=true")
+
+        assert latest.status_code == 200
+        assert latest.json()["stream_run_id"] == auto_followup.stream_run_id
+
+
 def test_chat_run_event_stream_resumes_from_last_event_id_header() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()

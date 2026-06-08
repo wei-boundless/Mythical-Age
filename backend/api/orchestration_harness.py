@@ -91,6 +91,7 @@ async def execute_harness_task_run(
         raise HTTPException(status_code=404, detail="TaskRun not found")
     if str(getattr(task_run, "execution_runtime_kind", "") or "") not in {"single_agent_task", "subagent_task"}:
         raise HTTPException(status_code=409, detail="not_single_agent_task_run")
+    _assert_expected_active_turn(runtime_host, task_run_id, payload.expected_active_turn_id if payload is not None else "")
     max_steps = payload.max_steps if payload is not None else 12
     schedule_result = runtime.harness_runtime.schedule_or_recover_task_run_executor(
         task_run_id,
@@ -98,17 +99,18 @@ async def execute_harness_task_run(
         max_steps=max_steps,
         recovered_from="scheduled_executor_claim",
     )
-    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+    if not _schedule_result_allows_progress(schedule_result):
         raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         "ok": True,
         "accepted": True,
-        "background_started": True,
+        "background_started": bool(schedule_result.get("scheduled")),
         "task_run_id": task_run_id,
         "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
         "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+        **({"executor_already_running": True} if _schedule_result_already_running(schedule_result) else {}),
         **({"recovered_from": schedule_result.get("recovered_from")} if schedule_result.get("recovered_from") else {}),
     }
 
@@ -156,12 +158,13 @@ async def resume_harness_task_run(
         scheduler="task_run_resume_api",
         max_steps=max_steps,
     )
-    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+    if not _schedule_result_allows_progress(schedule_result):
         raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         **result,
-        "background_started": True,
+        "background_started": bool(schedule_result.get("scheduled")),
+        **({"executor_already_running": True} if _schedule_result_already_running(schedule_result) else {}),
         "task_run_id": task_run_id,
         "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
@@ -204,13 +207,14 @@ async def approve_harness_task_run_tool_call(
         scheduler="task_run_approval_resume_api",
         max_steps=max_steps,
     )
-    if not schedule_result.get("ok") or not schedule_result.get("scheduled"):
+    if not _schedule_result_allows_progress(schedule_result):
         raise HTTPException(status_code=409, detail=_schedule_rejection_detail(schedule_result, fallback_status=str(getattr(task_run, "status", "") or "")))
     updated_task_run = runtime_host.state_index.get_task_run(task_run_id) or task_run
     return {
         **resume_result,
         "approval": approval_result,
-        "background_started": True,
+        "background_started": bool(schedule_result.get("scheduled")),
+        **({"executor_already_running": True} if _schedule_result_already_running(schedule_result) else {}),
         "task_run_id": task_run_id,
         "status": updated_task_run.status,
         "monitor_url": f"/api/orchestration/runtime-monitor/task-runs/{task_run_id}",
@@ -263,7 +267,7 @@ def _assert_expected_active_turn(runtime_host: Any, task_run_id: str, expected_a
         return
     active_turn = runtime_host.active_turn_registry.snapshot(_task_run_session_id(runtime_host, task_run_id))
     if active_turn is None:
-        raise HTTPException(status_code=409, detail="active_turn_not_found")
+        return
     if active_turn.turn_id != expected:
         raise HTTPException(status_code=409, detail="active_turn_mismatch")
     if active_turn.bound_task_run_id != task_run_id:
@@ -285,6 +289,18 @@ def _schedule_rejection_detail(result: dict[str, Any], *, fallback_status: str =
         status = reason.split(":", 1)[1] or fallback_status
         return f"task_run_not_executable:{status}"
     return reason
+
+
+def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
+    if not result.get("ok"):
+        return False
+    if result.get("scheduled"):
+        return True
+    return _schedule_result_already_running(result)
+
+
+def _schedule_result_already_running(result: dict[str, Any]) -> bool:
+    return str(result.get("reason") or "").strip() == "already_running"
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}/artifacts")

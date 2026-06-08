@@ -171,6 +171,10 @@ async def get_latest_chat_run_for_session(
         if active_only:
             return Response(status_code=204)
         raise HTTPException(status_code=404, detail="chat run not found")
+    if active_only:
+        primary_candidates = [run for run in candidates if not _is_active_turn_steer_run(run)]
+        if primary_candidates:
+            return _run_response(runtime, primary_candidates[0])
     return _run_response(runtime, candidates[0])
 
 
@@ -437,6 +441,13 @@ def _get_run_or_404(runtime: Any, stream_run_id: str) -> RuntimeRun:
     if run is None:
         raise HTTPException(status_code=404, detail="chat run not found")
     return run
+
+
+def _is_active_turn_steer_run(run: RuntimeRun) -> bool:
+    diagnostics = dict(run.diagnostics or {})
+    expected_active_turn_id = str(diagnostics.get("expected_active_turn_id") or "").strip()
+    policy = str(diagnostics.get("active_turn_input_policy") or "").strip().lower()
+    return bool(expected_active_turn_id and policy == "steer")
 
 
 def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:

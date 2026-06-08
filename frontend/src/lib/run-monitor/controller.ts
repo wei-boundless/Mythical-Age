@@ -19,6 +19,7 @@ import {
 import {
   applyRunMonitorSnapshot,
   findRunMonitorSignal,
+  isStaleRunMonitorRevision,
   runMonitorRevision,
   selectRunMonitorSignal,
   signalDetailTaskRunId,
@@ -179,6 +180,9 @@ export class RunMonitorController {
 
   applyStreamPayload(payload: RunMonitorEventPayload | null) {
     if (!payload) return;
+    const incomingRevision = payload.monitor ? runMonitorRevision(payload.monitor) : "";
+    const currentRevision = this.store.getState().runMonitorRevision;
+    const stalePayload = Boolean(payload.monitor && isStaleRunMonitorRevision(incomingRevision, currentRevision));
     if (payload.monitor) {
       this.applySnapshot(payload.monitor, {
         lastEvent: payload.runtime_event ?? null,
@@ -188,7 +192,7 @@ export class RunMonitorController {
         this.hydrateCurrentSessionFromStream();
       }
     }
-    if (payload.runtime_event) {
+    if (payload.runtime_event && !stalePayload) {
       this.store.setState((prev) => this.host.patchRuntimeAttachmentFromRuntimeEvent(prev, payload.runtime_event as NonNullable<RunMonitorEventPayload["runtime_event"]>));
     }
   }

@@ -7,7 +7,10 @@ from prompt_library import (
     DEFAULT_PERSONALITY_PROMPT_REF,
     FOUNDATION_PROMPT_REFS,
     GENERAL_LIFECYCLE_PROMPT_IDS,
+    PromptAssemblyRequest,
+    PromptAssemblyService,
     PromptLibraryRegistry,
+    PromptPack,
     PromptResource,
 )
 
@@ -26,6 +29,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "runtime.semantic_compaction.v1",
         "runtime.rule.system_call_protocol.v1",
         "runtime.rule.intent_feedback.v1",
+        "runtime.rule.turn_decision_alignment.v1",
         "runtime.rule.tool_use.v1",
         "runtime.rule.output_boundary.v1",
         "runtime.rule.error_recovery.v1",
@@ -92,7 +96,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id["runtime.single_agent_turn"].category == "runtime"
     assert resource_by_id["runtime.task_execution"].category == "runtime"
     assert resource_by_id["runtime.rule.system_call_protocol"].category == "runtime"
-    assert resource_by_id["runtime.rule.intent_feedback"].category == "runtime"
+    assert resource_by_id["runtime.rule.turn_decision_alignment"].category == "runtime"
     assert resource_by_id["runtime.rule.tool_use"].category == "runtime"
     assert resource_by_id["runtime.rule.subagent_invocation_protocol"].category == "runtime"
     assert resource_by_id["runtime.rule.file_management.generic"].resource_type == "environment.file_management_rule"
@@ -142,11 +146,11 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id["runtime.task_execution"].rule_kind == "runtime.protocol"
     assert rule_by_id["runtime.task_execution"].requires == (
         "runtime.rule.system_call_protocol",
-        "runtime.rule.intent_feedback",
+        "runtime.rule.turn_decision_alignment",
     )
     assert rule_by_id["runtime.graph_node_execution"].requires == ("runtime.rule.system_call_protocol",)
     assert rule_by_id["runtime.rule.system_call_protocol"].rule_kind == "runtime.system_call_protocol"
-    assert rule_by_id["runtime.rule.intent_feedback"].rule_kind == "runtime.intent_feedback"
+    assert rule_by_id["runtime.rule.turn_decision_alignment"].rule_kind == "runtime.turn_decision_alignment"
     assert rule_by_id["runtime.rule.tool_use"].rule_kind == "runtime.tool_use"
     assert rule_by_id["runtime.rule.subagent_invocation_protocol"].rule_kind == "runtime.subagent_invocation_protocol"
     assert rule_by_id["coding.rule.large_scope_exploration"].rule_kind == "coding.large_scope_exploration"
@@ -156,6 +160,50 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].cache_tier == "session_stable"
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].owner_layer == "personality"
     assert rule_by_id["coding.rule.editing"].requires == ("runtime.rule.file_management.generic",)
+
+
+def test_builtin_model_visible_prompts_use_agent_runtime_situation_language(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+    forbidden_markers = (
+        "关键词分类器",
+        "环境切换器",
+        "系统装配",
+        "系统已经为",
+        "runtime payload",
+        "personality prompt",
+        "当前内容只约束",
+        "该环境用于",
+        "这个任务环境是当前",
+        "runtime 权限",
+        "当前 runtime 明确",
+        "runtime 曾经省略",
+        "不授予工具",
+        "被系统选中",
+        "这个环境不是任务分类器",
+        "runtime packet",
+        "这个 prompt",
+        "该 prompt",
+        "prompt 用于",
+        "本段只",
+        "本段告诉",
+    )
+
+    violations = []
+    for resource in registry.list_resources():
+        if not resource.model_visible:
+            continue
+        content = str(resource.content or "")
+        hits = [marker for marker in forbidden_markers if marker in content]
+        if hits:
+            violations.append((resource.prompt_id, hits))
+
+    assert violations == []
+
+    runtime_protocol = registry.get_resource("runtime.task_execution")
+    assert runtime_protocol is not None
+    assert "JSON" in runtime_protocol.content
+    assert "action_type" in runtime_protocol.content
+    assert "schema" in runtime_protocol.content
 
 
 def test_graph_node_runtime_protocol_includes_respond_action_json_shape(tmp_path: Path) -> None:
@@ -169,6 +217,19 @@ def test_graph_node_runtime_protocol_includes_respond_action_json_shape(tmp_path
     assert 'action_type 通常使用 "respond"' in resource.content
     assert "交付内容必须全部放入 final_answer" in resource.content
     assert "不要把正文、汇总稿、审核报告、记忆提交包或说明文字写在 JSON 外" in resource.content
+
+
+def test_runtime_protocol_prompts_include_active_work_control_action(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    single_turn = registry.get_resource("runtime.single_agent_turn")
+    observation_followup = registry.get_resource("runtime.observation_followup")
+
+    assert single_turn is not None
+    assert observation_followup is not None
+    assert "active_work_control" in single_turn.content
+    assert "active_work_control" in observation_followup.content
+    assert "用户明确控制当前工作时使用 active_work_control" in observation_followup.content
 
 
 def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: Path) -> None:
@@ -217,6 +278,118 @@ def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Pat
     assert resource.title == "覆盖后的 single agent turn"
     assert resource.content == "这是用户覆盖后的 single agent turn prompt。"
     assert resource.source_ref == "test.override"
+
+
+def test_prompt_library_storage_migrates_legacy_prompt_refs_without_runtime_alias(tmp_path: Path) -> None:
+    storage_dir = tmp_path / "storage" / "prompt_library"
+    storage_dir.mkdir(parents=True)
+    resources_path = storage_dir / "prompt_resources.json"
+    packs_path = storage_dir / "prompt_packs.json"
+    resources_path.write_text(
+        json.dumps(
+            {
+                "resources": [
+                    {
+                        "prompt_id": "runtime.single_agent_turn.v1",
+                        "resource_id": "runtime.single_agent_turn.v1",
+                        "category": "runtime",
+                        "subtype": "single_agent_turn",
+                        "resource_type": "runtime.single_agent_turn",
+                        "title": "Legacy override",
+                        "content": "这是迁移后的 single agent turn 覆盖 prompt。",
+                        "allowed_invocation_kinds": ["single_agent_turn"],
+                        "metadata": {
+                            "prompt_rule": {
+                                "rule_id": "runtime.single_agent_turn.v1",
+                                "prompt_ref": "runtime.single_agent_turn.v1",
+                                "rule_kind": "runtime.protocol",
+                                "requires": ["runtime.rule.system_call_protocol.v1"],
+                            }
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    packs_path.write_text(
+        json.dumps(
+            {
+                "packs": [
+                    {
+                        "pack_id": "runtime.pack.task_execution.v1",
+                        "invocation_kind": "task_execution",
+                        "ordered_prompt_refs": ["runtime.task_execution.v1", "tool.guidance.git.v1"],
+                        "title": "Legacy task execution pack",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    registry = PromptLibraryRegistry(tmp_path)
+    resource = registry.get_resource("runtime.single_agent_turn")
+    pack = registry.get_pack("runtime.pack.task_execution")
+
+    assert resource is not None
+    assert resource.content == "这是迁移后的 single agent turn 覆盖 prompt。"
+    assert resource.metadata["prompt_rule"]["rule_id"] == "runtime.single_agent_turn"
+    assert resource.metadata["prompt_rule"]["requires"] == ["runtime.rule.system_call_protocol"]
+    assert registry.get_resource("runtime.single_agent_turn.v1") is None
+    assert pack is not None
+    assert pack.ordered_prompt_refs == (
+        "runtime.task_execution",
+        "tool.guidance.git_read",
+        "tool.guidance.git_write",
+    )
+    persisted_resources = json.loads(resources_path.read_text(encoding="utf-8"))["resources"]
+    persisted_packs = json.loads(packs_path.read_text(encoding="utf-8"))["packs"]
+    assert persisted_resources[0]["prompt_id"] == "runtime.single_agent_turn"
+    assert persisted_resources[0]["resource_id"] == "runtime.single_agent_turn"
+    assert persisted_packs[0]["pack_id"] == "runtime.pack.task_execution"
+    assert persisted_packs[0]["ordered_prompt_refs"] == [
+        "runtime.task_execution",
+        "tool.guidance.git_read",
+        "tool.guidance.git_write",
+    ]
+
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_refs=("runtime.task_execution.v1",),
+        )
+    )
+    assert assembly.sections == ()
+    assert assembly.rejected_refs == (
+        {"ref": "runtime.task_execution.v1", "reason": "prompt_not_found_or_inactive"},
+    )
+
+    saved_resource = registry.upsert_resource(
+        PromptResource(
+            prompt_id="worker.prompt.review.v1",
+            resource_id="worker.prompt.review.v1",
+            category="agent",
+            subtype="worker.role",
+            resource_type="work_role",
+            title="Legacy review prompt",
+            content="你是一名审查员。",
+            allowed_invocation_kinds=("task_execution",),
+        )
+    )
+    saved_pack = registry.upsert_pack(
+        PromptPack(
+            pack_id="runtime.pack.observation_followup.v1",
+            invocation_kind="tool_observation_followup",
+            ordered_prompt_refs=("runtime.observation_followup.v1",),
+        )
+    )
+
+    assert saved_resource.resource_id == "worker.prompt.review"
+    assert saved_pack.pack_id == "runtime.pack.observation_followup"
+    assert saved_pack.ordered_prompt_refs == ("runtime.observation_followup",)
 
 
 def test_task_graph_node_role_prompt_writes_graph_node_role_resource(tmp_path: Path) -> None:

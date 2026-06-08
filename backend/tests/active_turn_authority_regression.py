@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 import pytest
 
-from api.orchestration_harness import _assert_expected_active_turn
+import api.orchestration_harness as orchestration_harness
+from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.runtime import SingleAgentRuntimeHost
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract, finish_task_lifecycle, start_task_lifecycle
 from harness.loop.model_action_protocol import ModelActionRequest
@@ -35,7 +37,13 @@ def test_active_turn_does_not_derive_from_historical_task_run(tmp_path: Path) ->
     assert host.active_turn_registry.snapshot("session:test") is None
 
 
-def test_active_turn_binds_task_and_steer_only_queues_pending_input(tmp_path: Path) -> None:
+def test_schedule_progress_accepts_already_running_executor() -> None:
+    assert _schedule_result_allows_progress({"ok": True, "scheduled": True, "reason": "scheduled"}) is True
+    assert _schedule_result_allows_progress({"ok": True, "scheduled": False, "reason": "already_running"}) is True
+    assert _schedule_result_allows_progress({"ok": False, "scheduled": False, "reason": "not_executable:completed"}) is False
+
+
+def test_active_turn_binds_task_without_owning_steer_queue(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
     action_request = ModelActionRequest(
@@ -66,19 +74,8 @@ def test_active_turn_binds_task_and_steer_only_queues_pending_input(tmp_path: Pa
     active = host.active_turn_registry.snapshot("session:test")
     assert active is not None
     assert active.bound_task_run_id == task_run.task_run_id
+    assert "pending_input_refs" not in active.to_dict()
     assert task_run.diagnostics["runtime_permission_mode"] == "plan"
-
-    result = host.active_turn_registry.steer(
-        session_id="session:test",
-        expected_turn_id="turn:session:test:1",
-        user_message="请把验收标准补充为必须有可运行产物。",
-    )
-
-    assert result.ok is True
-    assert result.status == "queued"
-    assert result.task_run_id == task_run.task_run_id
-    assert result.pending_input_ref.startswith("rtobj:active_turn_pending_input:")
-    assert result.steer in (None, {})
     updated = host.state_index.get_task_run(task_run.task_run_id)
     assert updated is not None
     assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
@@ -147,20 +144,6 @@ def test_historical_task_finish_does_not_release_current_active_turn(tmp_path: P
     assert active.bound_task_run_id == "taskrun:current"
 
 
-def test_active_turn_steer_requires_expected_turn_id(tmp_path: Path) -> None:
-    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
-    host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
-
-    result = host.active_turn_registry.steer(
-        session_id="session:test",
-        expected_turn_id="",
-        user_message="补充要求",
-    )
-
-    assert result.ok is False
-    assert result.status == "expected_turn_id_required"
-
-
 def test_task_run_control_accepts_matching_active_turn(tmp_path: Path) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     task_run = TaskRun(
@@ -202,6 +185,48 @@ def test_task_run_control_rejects_mismatched_active_turn(tmp_path: Path) -> None
 
     with pytest.raises(HTTPException) as exc:
         _assert_expected_active_turn(host, "taskrun:current", "turn:session:test:old")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "active_turn_mismatch"
+
+
+def test_execute_task_run_rejects_mismatched_active_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:current",
+        session_id="session:test",
+        task_id="task:current",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        created_at=1,
+        updated_at=2,
+    )
+    host.state_index.upsert_task_run(task_run)
+    host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
+    host.active_turn_registry.bind_task_run(
+        session_id="session:test",
+        turn_id="turn:session:test:1",
+        task_run_id="taskrun:current",
+    )
+    harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=host,
+        schedule_or_recover_task_run_executor=lambda *_args, **_kwargs: pytest.fail("execute scheduled despite active turn mismatch"),
+    )
+    monkeypatch.setattr(
+        orchestration_harness,
+        "require_runtime",
+        lambda: SimpleNamespace(harness_runtime=harness_runtime),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        import asyncio
+
+        asyncio.run(
+            orchestration_harness.execute_harness_task_run(
+                "taskrun:current",
+                orchestration_harness.TaskRunExecuteRequest(expected_active_turn_id="turn:session:test:old"),
+            )
+        )
 
     assert exc.value.status_code == 409
     assert exc.value.detail == "active_turn_mismatch"

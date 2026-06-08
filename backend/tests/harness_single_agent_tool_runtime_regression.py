@@ -165,6 +165,200 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert dict(list(replayed_tool_call["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
 
+def test_single_agent_turn_stream_policy_emits_content_delta_before_done(tmp_path: Path) -> None:
+    model = StreamingMessageModelRuntimeStub(chunks=["第一段", "，第二段。"])
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-stream",
+                message="直接回答。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_content_delta": True,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    deltas = [str(event.get("content") or "") for event in events if event.get("type") == "content_delta"]
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert deltas == ["第一段", "，第二段。"]
+    assert done["content"] == "第一段，第二段。"
+    event_types = [event.get("type") for event in events]
+    assert event_types.index("content_delta") < event_types.index("done")
+
+def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
+    action = json.dumps(
+        _action_request(
+            action_type="respond",
+            final_answer="流式安全收口。",
+        ),
+        ensure_ascii=False,
+    )
+    model = StreamingMessageModelRuntimeStub(chunks=[action[:24], action[24:]])
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-single-turn-stream-json",
+                message="直接回答。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_content_delta": True,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert [event for event in events if event.get("type") == "content_delta"] == []
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "流式安全收口。" for event in events)
+
+def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_package_and_recompiles_followup(tmp_path: Path) -> None:
+    runtime_root = _runtime_test_root(tmp_path)
+    session_manager = SessionManager(runtime_root)
+    session = session_manager.create_session(title="Mid turn context replacement")
+    session_id = str(session["id"])
+    old_messages: list[dict[str, object]] = []
+    for index in range(12):
+        role = "user" if index % 2 == 0 else "assistant"
+        content = f"历史消息 {index}: 压缩系统背景 " + ("背景 " * 30)
+        if index == 1:
+            content = "VERY_OLD_RAW_PAYLOAD_SENTINEL " + ("旧工具原文 " * 380)
+        old_messages.append(
+            {
+                "role": role,
+                "content": content,
+                "message_id": f"msg:old:{index}",
+            }
+        )
+    session_manager.append_messages(session_id, old_messages)
+    memory_facade = MemoryFacade(
+        runtime_root,
+        context_budget_provider=lambda: {
+            "available_context_tokens": 220,
+            "compaction_threshold_tokens": {"warning": 120, "ready": 160, "replacement": 200},
+        },
+    )
+    session_summary = "\n".join(
+        [
+            "# Active Goal",
+            "- 升级上下文压缩恢复系统",
+            "",
+            "# Key User Requests",
+            "- 摘要必须服务下一轮上下文恢复，不能只是展示文本",
+            "",
+            "# Files and Functions",
+            "- backend/harness/loop/single_agent_turn.py",
+            "- backend/harness/entrypoint/runtime_facade.py",
+            "",
+            "# Next Step",
+            "- 工具观察后如达到阈值，先压缩 session，再重新编译 follow-up 包",
+        ]
+    )
+    manager = memory_facade.session_memory.manager(session_id)
+    manager.overwrite(session_summary)
+    manager.write_compaction_state(
+        messages=list(session_manager.get_history(session_id)["messages"]),
+        run_id="memory-maintenance:mid-turn-context-replacement",
+        source="agent:1",
+        summary_content=session_summary,
+        covered_event_run_id="turnrun:previous",
+        covered_event_offset_start=0,
+        covered_event_offset_end=12,
+    )
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-read-requirements",
+                        "name": "read_file",
+                        "args": {"path": "requirements.txt", "line_count": 20},
+                    }
+                ]
+            },
+            {"content": "已经基于恢复包和工具结果继续。"},
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=runtime_root,
+        session_manager=session_manager,
+        memory_facade=memory_facade,
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id=session_id,
+                message="当前用户要求不能丢，请先看依赖文件。",
+                model_selection={
+                    "context_window_tokens": 1200,
+                    "reserved_output_tokens": 0,
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    compacted_event = next(event for event in events if event.get("type") == "context_compacted")
+    compacted_payload = dict(dict(compacted_event.get("event") or {}).get("payload") or {})
+    record = session_manager.get_history(session_id)
+    followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
+    followup_text = "\n".join(str(item.get("content") or "") for item in followup_messages)
+    followup_history_payload = _packet_payload_after_title(
+        next(
+            str(item.get("content") or "")
+            for item in followup_messages
+            if "Observation followup session history" in str(item.get("content") or "")
+        ),
+        "Observation followup session history",
+    )
+    followup_active_history = [
+        dict(item)
+        for item in list(followup_history_payload.get("active_history") or [])
+        if isinstance(item, dict)
+    ]
+
+    assert compacted_payload["applied"] is True
+    assert compacted_payload["strategy"] == "full_compact"
+    assert compacted_payload["context_recovery_package_present"] is True
+    assert compacted_payload["context_recovery_package_source"] == "agent:1"
+    assert record["provider_protocol_compaction_created_at"] > 0
+    assert "# Context Recovery Package" in record["compressed_context"]
+    assert "升级上下文压缩恢复系统" in record["compressed_context"]
+    assert len(record["messages"]) < len(old_messages) + 2
+    assert "context_recovery_package" in followup_text
+    assert "升级上下文压缩恢复系统" in followup_text
+    assert "当前用户要求不能丢" in followup_text
+    assert all(str(item.get("content") or "") != "当前用户要求不能丢，请先看依赖文件。" for item in followup_active_history)
+    assert "VERY_OLD_RAW_PAYLOAD_SENTINEL" not in followup_text
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经基于恢复包和工具结果继续。" for event in events)
+
 def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answers(tmp_path: Path) -> None:
     model = NativeToolCallSequenceModelRuntimeStub(
         [

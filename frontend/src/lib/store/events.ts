@@ -1189,6 +1189,8 @@ export function reduceStreamEvent(
           activeTurn.task_run_id
           ?? activeTurn.bound_task_run_id
           ?? data.runtime_task_run_id
+          ?? data.task_run_id
+          ?? recordValue(data.task_run).task_run_id
           ?? "",
         ).trim() || undefined,
         state: String(activeTurn.state ?? "").trim() || undefined,

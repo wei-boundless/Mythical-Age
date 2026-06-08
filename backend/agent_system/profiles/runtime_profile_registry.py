@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
+from prompt_ref_migrations import migrate_runtime_profile_prompt_metadata
 
 from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
@@ -476,6 +477,10 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 },
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "runtime.template.codebase_search",
+                "worker_prompt_ref": "worker.prompt.codebase_search",
+                "agent_prompt_refs_by_invocation": {
+                    "task_execution": ["worker.prompt.codebase_search"],
+                },
                 "runtime_config": {
                     "template_id": "runtime.template.codebase_search",
                     "runtime_kind": "codebase_search_agent",
@@ -730,7 +735,7 @@ class AgentRuntimeRegistry:
         if contains_raw_secret(model_profile):
             raise ValueError("model_profile must use credential_ref instead of raw secrets")
         current = self.get_profile(target)
-        metadata_payload = dict(metadata or {})
+        metadata_payload = migrate_runtime_profile_prompt_metadata(dict(metadata or {}))
         requested_packages = current.allowed_tool_packages if allowed_tool_packages is None and current else (allowed_tool_packages or ())
         requested_extra_operations = (
             tuple(str(item).strip() for item in allowed_operations if str(item).strip())
@@ -854,7 +859,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         next_payload["agent_id"],
         payload.get("allowed_memory_scopes"),
     )
-    metadata = dict(payload.get("metadata") or {})
+    metadata = migrate_runtime_profile_prompt_metadata(dict(payload.get("metadata") or {}))
     metadata.pop("legacy_agent_id", None)
     metadata.pop("allowed_task_modes", None)
     runtime_template_id = _infer_runtime_template_id(next_payload["agent_id"], {**next_payload, "metadata": metadata})

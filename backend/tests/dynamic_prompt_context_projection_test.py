@@ -978,7 +978,7 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
     assert "agent.main_interactive_agent.task_execution.work_role" in manifest["stable_prompt_refs"]
     assert "agent.main_interactive_agent.single_agent_turn.work_role" not in manifest["stable_prompt_refs"]
     assert "你正在执行一个已经建立的持续任务合同" in model_input
-    assert "不负责重新判断是否应该建立任务生命周期" in model_input
+    assert "你不重新判断是否应该开启任务生命周期" in model_input
     assert "请求持续任务生命周期" not in model_input
     assert "工具选择、文件读写、命令、git、todo、浏览器和子 agent 的具体契约" in model_input
     assert "准备 action_type=respond 前" in model_input

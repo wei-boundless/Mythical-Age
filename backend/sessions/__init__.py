@@ -523,7 +523,7 @@ class SessionManager:
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_path, path)
+            _replace_file_atomically(tmp_path, path)
         except OSError as exc:
             if tmp_path is not None:
                 try:
@@ -550,6 +550,18 @@ class SessionManager:
                 self._session_locks[safe] = lock
         with lock:
             yield
+
+
+def _replace_file_atomically(source: Path, target: Path) -> None:
+    retry_delays = (0.01, 0.025, 0.05, 0.1)
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt >= len(retry_delays):
+                raise
+            time.sleep(retry_delays[attempt])
 
 
 def _unreadable_session_payload(path: Path, *, error: str) -> dict[str, Any]:
