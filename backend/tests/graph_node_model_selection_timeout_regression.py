@@ -25,7 +25,7 @@ def test_model_action_uses_long_timeout_for_large_output_selection() -> None:
 def test_graph_node_model_requirement_overrides_agent_profile_model_family() -> None:
     task_run = SimpleNamespace(
         diagnostics={
-            "runtime_task_selection": {
+            "runtime_contract": {
                 "runtime_profile": {
                     "model_requirement": {
                         "provider_family": "deepseek",
@@ -63,7 +63,7 @@ def test_graph_node_model_requirement_overrides_agent_profile_model_family() -> 
 def test_task_model_selection_drops_metadata_only_profile_payload() -> None:
     task_run = SimpleNamespace(
         diagnostics={
-            "runtime_task_selection": {
+            "runtime_contract": {
                 "runtime_profile": {},
             }
         }

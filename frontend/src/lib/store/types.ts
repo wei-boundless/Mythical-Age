@@ -328,7 +328,6 @@ export type StoreState = {
   selectedChatMode: ChatMode;
   chatThinkingMode: ChatThinkingMode;
   skills: SkillSummary[];
-  pendingEphemeralSystemMessages: string[];
   inspectorPath: string;
   inspectorContent: string;
   inspectorDirty: boolean;

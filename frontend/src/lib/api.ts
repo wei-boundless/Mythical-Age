@@ -4294,7 +4294,6 @@ export async function mergeDurableMemories(payload: {
 export async function runOrchestrationDryRun(payload: {
   session_id: string;
   message: string;
-  ephemeral_system_messages?: string[];
   explicit_subtasks?: Array<Record<string, unknown>>;
 }) {
   return request<OrchestrationSnapshot>("/orchestration/dry-run", {
@@ -5303,8 +5302,7 @@ export type ChatRunCreatePayload = {
   message: string;
   session_id: string;
   session_scope?: Partial<SessionScope>;
-  ephemeral_system_messages?: string[];
-  task_selection?: Record<string, unknown>;
+  environment_binding?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
   permission_mode?: string;

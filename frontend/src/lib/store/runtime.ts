@@ -2026,10 +2026,8 @@ export class WorkspaceRuntime {
     this.stoppedStreamingSessionIds.delete(sessionId);
     const abortController = new AbortController();
     this.streamAbortControllers.set(sessionId, abortController);
-    const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
     const imageGeneration = this.chatImageGenerationPayload(state);
     const isImageGenerationTurn = Boolean(imageGeneration);
-    let consumedEphemeralSystemMessages = false;
     let streamEndedWithError = false;
     const preflightState = this.store.getState();
     const activeTurnSnapshotForTransition = preflightState.currentSessionId === sessionId
@@ -2106,8 +2104,7 @@ export class WorkspaceRuntime {
           message: trimmed,
           session_id: sessionId,
           session_scope: this.sessionScopeForSession(sessionId),
-          ephemeral_system_messages: ephemeralSystemMessages,
-          task_selection: this.chatTaskSelectionPayload(requestState),
+          environment_binding: this.chatEnvironmentBindingPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
           expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
@@ -2157,7 +2154,6 @@ export class WorkspaceRuntime {
         },
         { signal: abortController.signal }
       );
-      consumedEphemeralSystemMessages = streamResult.terminalEvent === "done";
       streamEndedWithError = streamResult.terminalEvent === "error";
       if (streamResult.terminalEvent === "stopped") {
         this.stoppedStreamingSessionIds.add(sessionId);
@@ -2198,14 +2194,6 @@ export class WorkspaceRuntime {
       }
     } finally {
       this.streamAbortControllers.delete(sessionId);
-      const shouldClearEphemeral = (prev: StoreState) =>
-        consumedEphemeralSystemMessages
-        && ephemeralSystemMessages.length > 0
-        && prev.pendingEphemeralSystemMessages.join("\n") === ephemeralSystemMessages.join("\n");
-      const shouldRestoreEphemeral = (prev: StoreState) =>
-        !consumedEphemeralSystemMessages
-        && ephemeralSystemMessages.length > 0
-        && !prev.pendingEphemeralSystemMessages.length;
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
         next.sessionActivitiesById = {
@@ -2216,16 +2204,6 @@ export class WorkspaceRuntime {
           next.sessionActivity = next.currentSessionId === sessionId
             ? streamState.sessionActivity
             : this.visibleSessionActivity(next);
-        }
-        if (
-          shouldClearEphemeral(prev)
-        ) {
-          next.pendingEphemeralSystemMessages = [];
-        }
-        if (
-          shouldRestoreEphemeral(prev)
-        ) {
-          next.pendingEphemeralSystemMessages = ephemeralSystemMessages;
         }
         return next;
       });
@@ -2490,7 +2468,7 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, chatThinkingMode: normalizeChatThinkingMode(mode) }));
   }
 
-  private chatTaskSelectionPayload(state: StoreState): Record<string, unknown> | undefined {
+  private chatEnvironmentBindingPayload(state: StoreState): Record<string, unknown> | undefined {
     const activeEnvironment = state.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment();
     const taskEnvironmentId = String(activeEnvironment.task_environment_id ?? "").trim();
     if (!taskEnvironmentId) {

@@ -18,8 +18,29 @@ import type {
 // ============================================================
 //  技能详情面板
 // ============================================================
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + safeRadius, y);
+  ctx.lineTo(x + width - safeRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  ctx.lineTo(x + width, y + height - safeRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  ctx.lineTo(x + safeRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  ctx.lineTo(x, y + safeRadius);
+  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+  ctx.closePath();
+}
+
 function renderSkillsPanel(ctx: CanvasRenderingContext2D, state: GameState): void {
-  const { GAME_W, GAME_H } = state;
   const p = state.player;
   const panelW = 520;
   const panelH = 420;
@@ -34,7 +55,7 @@ function renderSkillsPanel(ctx: CanvasRenderingContext2D, state: GameState): voi
   ctx.fillStyle = "#111133";
   ctx.strokeStyle = "#8899dd";
   ctx.lineWidth = 2;
-  roundRect(ctx, panelX, panelY, panelW, panelH, 10);
+  drawRoundedRect(ctx, panelX, panelY, panelW, panelH, 10);
   ctx.fill();
   ctx.stroke();
 
@@ -75,7 +96,7 @@ function renderSkillsPanel(ctx: CanvasRenderingContext2D, state: GameState): voi
     ctx.fillStyle = unlocked ? "#1a1a3a" : "#1a1a1a";
     ctx.strokeStyle = unlocked ? "#4466aa" : "#333";
     ctx.lineWidth = 1;
-    roundRect(ctx, cx, cy, cardW, cardH, 6);
+    drawRoundedRect(ctx, cx, cy, cardW, cardH, 6);
     ctx.fill();
     ctx.stroke();
 

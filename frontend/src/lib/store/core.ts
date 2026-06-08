@@ -76,7 +76,6 @@ export function getDefaultState(): StoreState {
     selectedChatMode: "chat",
     chatThinkingMode: "normal",
     skills: [],
-    pendingEphemeralSystemMessages: [],
     inspectorPath: "durable_memory/index/MEMORY.md",
     inspectorContent: "",
     inspectorDirty: false,

@@ -374,9 +374,9 @@ class SubagentControl:
         expected_outputs: list[str],
         runtime_assembly: dict[str, Any],
     ) -> None:
-        task_selection = dict(dict(parent_task_run.diagnostics or {}).get("runtime_task_selection") or dict(parent_task_run.diagnostics or {}).get("task_selection") or {})
-        runtime_profile = dict(task_selection.get("runtime_profile") or {})
-        task_selection["runtime_profile"] = runtime_profile
+        runtime_contract = dict(dict(parent_task_run.diagnostics or {}).get("runtime_contract") or {})
+        runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
+        runtime_contract["runtime_profile"] = runtime_profile
         contract_payload = {
             "contract_id": f"subagent-contract:{child_task_run_id}",
             "contract_source": "subagent_control",
@@ -412,7 +412,7 @@ class SubagentControl:
             updated_at=time.time(),
             diagnostics={
                 "contract": contract_payload,
-                "runtime_task_selection": task_selection,
+                "runtime_contract": runtime_contract,
                 "model_selection": dict(dict(parent_task_run.diagnostics or {}).get("model_selection") or {}),
                 "origin": {
                     "origin_kind": "subagent_spawned",

@@ -56,7 +56,7 @@ def test_generic_task_continuation_does_not_open_long_term_memory() -> None:
             session_context={},
             agent_runtime_profile=profile,
             runtime_assembly={},
-            task_selection={},
+            environment_binding={},
             active_work_context=None,
             recent_work_outcome=None,
         )
@@ -78,7 +78,7 @@ def test_explicit_memory_read_opens_long_term_memory() -> None:
             session_context={},
             agent_runtime_profile=profile,
             runtime_assembly={},
-            task_selection={},
+            environment_binding={},
             active_work_context=None,
             recent_work_outcome=None,
         )
@@ -86,6 +86,33 @@ def test_explicit_memory_read_opens_long_term_memory() -> None:
 
     assert bundle.profiles[-1]["requested_memory_layers"] == ["state", "long_term"]
     assert bundle.profiles[-1]["allow_long_term_memory"] is True
+
+
+def test_environment_binding_alone_does_not_open_long_term_memory() -> None:
+    bundle = _CapturingBundleService()
+    profile = SimpleNamespace(agent_profile_id="main_interactive_agent", allowed_memory_scopes=("long_term_candidate",))
+
+    asyncio.run(
+        _provider(bundle).for_turn(
+            session_id="session-runtime-memory-environment-only",
+            turn_id="turn:1",
+            user_message="检查当前文件。",
+            session_context={},
+            agent_runtime_profile=profile,
+            runtime_assembly={},
+            environment_binding={
+                "task_environment_id": "env.coding.vibe_workspace",
+                "environment_id": "env.coding.vibe_workspace",
+                "binding_kind": "conversation_active_task_environment",
+            },
+            active_work_context=None,
+            recent_work_outcome=None,
+        )
+    )
+
+    assert bundle.profiles[-1]["requested_memory_layers"] == ["state"]
+    assert bundle.profiles[-1]["allow_long_term_memory"] is False
+    assert bundle.profiles[-1]["task_environment_id"] == "env.coding.vibe_workspace"
 
 
 def test_task_execution_rejects_non_runtime_memory_profile_layers_before_bundle_call() -> None:

@@ -32,7 +32,7 @@ class RuntimeMemoryContextProvider:
         turn_id: str = "",
         task_run_id: str = "",
         main_context: dict[str, Any] | None = None,
-        task_selection: dict[str, Any] | None = None,
+        environment_binding: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
         recent_work_outcome: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
@@ -43,7 +43,7 @@ class RuntimeMemoryContextProvider:
             session_record=self._load_session_record(session_id),
             turn_id=turn_id,
             task_run_id=task_run_id,
-            task_selection=task_selection,
+            environment_binding=environment_binding,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
         ).to_dict()
@@ -57,7 +57,7 @@ class RuntimeMemoryContextProvider:
         session_context: dict[str, Any],
         agent_runtime_profile: Any,
         runtime_assembly: Any,
-        task_selection: dict[str, Any],
+        environment_binding: dict[str, Any] | None,
         active_work_context: dict[str, Any] | None,
         recent_work_outcome: dict[str, Any] | None,
     ) -> dict[str, Any]:
@@ -67,7 +67,7 @@ class RuntimeMemoryContextProvider:
         environment_context = self.environment_context(
             session_id=session_id,
             turn_id=turn_id,
-            task_selection=task_selection,
+            environment_binding=environment_binding,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
             runtime_assembly=runtime_assembly,
@@ -76,7 +76,6 @@ class RuntimeMemoryContextProvider:
             _memory_intent_requests_read(memory_intent)
             or should_consider_long_term_memory(
                 user_message=user_message,
-                task_selection=task_selection,
                 active_work_context=active_work_context,
                 recent_work_outcome=recent_work_outcome,
             )
@@ -246,11 +245,10 @@ class RuntimeMemoryContextProvider:
 def should_inject_session_emphasis(
     *,
     user_message: str,
-    task_selection: dict[str, Any],
     active_work_context: dict[str, Any] | None,
     recent_work_outcome: dict[str, Any] | None,
 ) -> bool:
-    if task_selection or active_work_context or recent_work_outcome:
+    if active_work_context or recent_work_outcome:
         return True
     content = str(user_message or "").strip().lower()
     if not content:
@@ -282,11 +280,10 @@ def should_inject_session_emphasis(
 def should_consider_long_term_memory(
     *,
     user_message: str,
-    task_selection: dict[str, Any],
     active_work_context: dict[str, Any] | None,
     recent_work_outcome: dict[str, Any] | None,
 ) -> bool:
-    if task_selection or active_work_context or recent_work_outcome:
+    if active_work_context or recent_work_outcome:
         return True
     content = str(user_message or "").strip().lower()
     if not content:
@@ -374,7 +371,7 @@ def _runtime_memory_main_context(
             "environment_kind": str(environment_context.get("environment_kind") or ""),
             "project_id": str(environment_context.get("project_id") or ""),
         },
-        "turn_input": _compact_mapping(turn_input_facts, keys=("user_intent", "task_selection", "expected_active_turn_id")),
+        "turn_input": _compact_mapping(turn_input_facts, keys=("user_intent", "environment_binding", "expected_active_turn_id")),
         "active_work": _compact_mapping(
             active_work_context or {},
             keys=("task_run_id", "task_id", "status", "current_step", "summary"),

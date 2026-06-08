@@ -89,7 +89,7 @@ def _graph_node_runtime_profile(
     return payload
 
 
-def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:
+def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str, Any]:
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
     task_environment_id = str(
@@ -118,11 +118,12 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
         },
     }
     return {
-        "selected_task_id": work_order.task_ref,
+        "task_id": work_order.task_ref,
         "task_environment_id": task_environment_id,
         "runtime_profile": runtime_profile,
         "prompt_contract": dict(node_contract.get("prompt_contract") or {}),
         "allowed_operations": list(_graph_node_allowed_operations(work_order=work_order, node_contract=node_contract)),
+        "authority": "harness.graph.graph_node_runtime_contract",
     }
 
 

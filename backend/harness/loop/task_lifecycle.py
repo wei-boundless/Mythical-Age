@@ -333,7 +333,7 @@ def start_task_lifecycle(
             "origin": origin,
             **origin,
             "contract": contract.to_dict(),
-            "runtime_task_selection": _runtime_task_selection_from_contract(
+            "runtime_contract": _runtime_contract_from_task_run_contract(
                 contract,
                 selected_skill_ids=action_request.selected_skill_ids,
             ),
@@ -1006,29 +1006,30 @@ def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _runtime_task_selection_from_contract(
+def _runtime_contract_from_task_run_contract(
     contract: TaskRunContract,
     *,
     selected_skill_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
     allowed_operations = _explicit_allowed_operations_from_contract(contract)
-    selection = {
+    runtime_contract = {
         "runtime_profile": runtime_profile,
+        "authority": "harness.loop.task_run_runtime_contract",
     }
     if allowed_operations is not None:
-        selection["allowed_operations"] = list(allowed_operations)
+        runtime_contract["allowed_operations"] = list(allowed_operations)
     if contract.task_environment_id:
-        selection["task_environment_id"] = contract.task_environment_id
+        runtime_contract["task_environment_id"] = contract.task_environment_id
     if selected_skill_ids:
-        selection["selected_skill_ids"] = list(selected_skill_ids)
+        runtime_contract["selected_skill_ids"] = list(selected_skill_ids)
     if contract.external_plan_ref:
-        selection["engagement_plan_ref"] = contract.external_plan_ref
+        runtime_contract["engagement_plan_ref"] = contract.external_plan_ref
     if contract.source_contract_ref:
-        selection["engagement_contract_ref"] = contract.source_contract_ref
+        runtime_contract["engagement_contract_ref"] = contract.source_contract_ref
         if str(runtime_profile.get("engagement_run_ref") or "").strip():
-            selection["engagement_run_ref"] = str(runtime_profile.get("engagement_run_ref") or "").strip()
-        selection["engagement_contract"] = {
+            runtime_contract["engagement_run_ref"] = str(runtime_profile.get("engagement_run_ref") or "").strip()
+        runtime_contract["engagement_contract"] = {
             "contract_id": contract.source_contract_ref,
             "plan_id": contract.external_plan_ref,
             "task_environment_id": contract.task_environment_id,
@@ -1044,7 +1045,7 @@ def _runtime_task_selection_from_contract(
             "recovery_policy": dict(contract.recovery_policy or {}),
             "authority": "task_system.engagement_contract_projection",
         }
-    return selection
+    return runtime_contract
 
 
 def _explicit_allowed_operations_from_contract(contract: TaskRunContract) -> tuple[str, ...] | None:

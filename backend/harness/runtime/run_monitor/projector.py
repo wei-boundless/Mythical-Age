@@ -807,25 +807,25 @@ class RuntimeMonitorProjector:
     def _session_scope(self, task_run: Any, diagnostics: dict[str, Any]) -> dict[str, str]:
         session_id = str(getattr(task_run, "session_id", "") or "").strip()
         runtime_scope = dict(diagnostics.get("runtime_scope") or {})
-        task_selection = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
+        runtime_contract = dict(diagnostics.get("runtime_contract") or {})
         resolved = {
             "workspace_view": str(
                 diagnostics.get("workspace_view")
                 or runtime_scope.get("workspace_view")
-                or task_selection.get("workspace_view")
+                or runtime_contract.get("workspace_view")
                 or ""
             ).strip(),
             "task_environment_id": str(
                 diagnostics.get("task_environment_id")
                 or runtime_scope.get("task_environment_id")
-                or task_selection.get("task_environment_id")
-                or task_selection.get("environment_id")
+                or runtime_contract.get("task_environment_id")
+                or runtime_contract.get("environment_id")
                 or ""
             ).strip(),
             "project_id": str(
                 diagnostics.get("project_id")
                 or runtime_scope.get("project_id")
-                or task_selection.get("project_id")
+                or runtime_contract.get("project_id")
                 or ""
             ).strip(),
         }

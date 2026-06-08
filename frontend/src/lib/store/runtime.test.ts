@@ -653,7 +653,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("surfaces project file open failures instead of leaving stale inspector content", async () => {
     api.loadFile.mockRejectedValue(new Error("Path is not visible in the project file tree"));
-    const store = createStore({
+    const store = createStore<StoreState>({
       ...getDefaultState(),
       inspectorPath: "AGENTS.md",
       inspectorContent: "previous content",
@@ -3582,7 +3582,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   });
 
   it("hydrates the selected session when an active stream marker has no visible cache", async () => {
-    const store = createStore({
+    const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:stale-active",
       sessions: [{
@@ -3633,7 +3633,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   });
 
   it("hydrates monitor snapshots when the current active stream has no visible messages", async () => {
-    const store = createStore({
+    const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:monitor-empty",
       activeStreamSessionIds: ["session:monitor-empty"],
@@ -4350,7 +4350,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("你好");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+    expect(api.streamChat.mock.calls[0]?.[0]).not.toHaveProperty("task_selection");
+    expect(api.streamChat.mock.calls[0]?.[0]?.environment_binding).toMatchObject({
       task_environment_id: "env.general.workspace",
       environment_id: "env.general.workspace",
       environment_label: "env.general.workspace",
@@ -4380,7 +4381,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       undefined,
     );
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+    expect(api.streamChat.mock.calls[0]?.[0]).not.toHaveProperty("task_selection");
+    expect(api.streamChat.mock.calls[0]?.[0]?.environment_binding).toMatchObject({
       task_environment_id: "env.development.sandbox",
       environment_id: "env.development.sandbox",
       environment_label: "开发沙盒",
@@ -4620,7 +4622,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+    expect(api.streamChat.mock.calls[0]?.[0]).not.toHaveProperty("task_selection");
+    expect(api.streamChat.mock.calls[0]?.[0]?.environment_binding).toMatchObject({
       task_environment_id: "env.general.workspace",
       environment_id: "env.general.workspace",
       binding_kind: "conversation_active_task_environment",
@@ -4656,11 +4659,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通后续聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(2);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+    expect(api.streamChat.mock.calls[0]?.[0]).not.toHaveProperty("task_selection");
+    expect(api.streamChat.mock.calls[0]?.[0]?.environment_binding).toMatchObject({
       task_environment_id: "env.general.workspace",
       binding_kind: "conversation_active_task_environment",
     });
-    expect(api.streamChat.mock.calls[1]?.[0]?.task_selection).toMatchObject({
+    expect(api.streamChat.mock.calls[1]?.[0]).not.toHaveProperty("task_selection");
+    expect(api.streamChat.mock.calls[1]?.[0]?.environment_binding).toMatchObject({
       task_environment_id: "env.general.workspace",
       binding_kind: "conversation_active_task_environment",
     });

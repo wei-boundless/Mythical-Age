@@ -64,9 +64,9 @@ from harness.graph.work_order_contract import (
     _graph_node_contract_from_work_order,
     _graph_node_origin,
     _graph_node_public_scope_fields,
+    _graph_node_runtime_contract,
     _graph_node_runtime_scope,
     _graph_node_task_run_id,
-    _graph_node_task_selection,
     _validate_existing_graph_node_task_run,
 )
 from runtime.shared.models import AgentRun, TaskRun
@@ -292,7 +292,8 @@ class HarnessRuntimeFacade:
                     return
 
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
-                runtime_task_selection = _task_selection_for_runtime(
+                request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
+                runtime_selection = _task_selection_for_runtime(
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
                     runtime_profile=dict(request.runtime_profile or {}),
@@ -305,8 +306,9 @@ class HarnessRuntimeFacade:
                     session_id=request.session_id,
                     turn_id=turn_id,
                     agent_invocation_id=agent_invocation_id,
-                    request_task_selection=runtime_task_selection,
+                    request_task_selection=runtime_selection,
                     model_selection=dict(request.model_selection or {}),
+                    environment_binding=request_environment_binding,
                     agent_runtime_profile=agent_runtime_profile,
                     tool_instances=tool_instances,
                     definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
@@ -341,7 +343,7 @@ class HarnessRuntimeFacade:
                     active_turn=active_turn,
                     active_work_candidate=active_work_context,
                     recent_work_outcome_candidate=recent_work_outcome,
-                    task_selection=dict(request.task_selection or {}),
+                    environment_binding=request_environment_binding,
                     runtime_profile=dict(request.runtime_profile or {}),
                     editor_context=editor_context,
                 )
@@ -351,7 +353,7 @@ class HarnessRuntimeFacade:
                     session_id=request.session_id,
                     turn_id=turn_id,
                     user_message=request.message,
-                    task_selection=dict(request.task_selection or {}),
+                    environment_binding=request_environment_binding,
                     active_work_context=active_work_context,
                     recent_work_outcome=recent_work_outcome,
                     runtime_assembly=runtime_assembly,
@@ -365,7 +367,7 @@ class HarnessRuntimeFacade:
                     session_context=session_context,
                     agent_runtime_profile=agent_runtime_profile,
                     runtime_assembly=runtime_assembly,
-                    task_selection=dict(request.task_selection or {}),
+                    environment_binding=request_environment_binding,
                     active_work_context=active_work_context,
                     recent_work_outcome=recent_work_outcome,
                 )
@@ -1428,7 +1430,7 @@ class HarnessRuntimeFacade:
             )
         origin = _graph_node_origin(work_order)
         contract = _graph_node_contract_from_work_order(work_order)
-        runtime_selection = _graph_node_task_selection(graph_config, work_order)
+        runtime_contract = _graph_node_runtime_contract(graph_config, work_order)
         model_override_diagnostics = _graph_model_override_diagnostics(work_order)
         node_agent_id = _graph_node_agent_id(graph_config, work_order)
         node_profile = self._resolve_graph_node_profile(node_agent_id=node_agent_id, work_order=work_order, graph_config=graph_config)
@@ -1466,7 +1468,7 @@ class HarnessRuntimeFacade:
                 "graph_clock_seq": _graph_node_clock_seq(work_order),
                 "runtime_scope": _graph_node_runtime_scope(work_order),
                 **_graph_node_public_scope_fields(work_order),
-                "runtime_task_selection": runtime_selection,
+                "runtime_contract": runtime_contract,
                 "contract": contract.to_dict(),
                 **({"graph_model_override": model_override_diagnostics} if model_override_diagnostics else {}),
             },
@@ -1717,7 +1719,7 @@ class HarnessRuntimeFacade:
         session_id: str,
         turn_id: str = "",
         user_message: str,
-        task_selection: dict[str, Any],
+        environment_binding: dict[str, Any] | None,
         active_work_context: dict[str, Any] | None,
         recent_work_outcome: dict[str, Any] | None,
         runtime_assembly: Any | None = None,
@@ -1727,7 +1729,6 @@ class HarnessRuntimeFacade:
             return []
         if not should_inject_session_emphasis(
             user_message=user_message,
-            task_selection=task_selection,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
         ):
@@ -1735,7 +1736,7 @@ class HarnessRuntimeFacade:
         environment_context = self._memory_environment_context_for_turn(
             session_id=session_id,
             turn_id=turn_id,
-            task_selection=task_selection,
+            environment_binding=environment_binding,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
             runtime_assembly=runtime_assembly,
@@ -1755,7 +1756,7 @@ class HarnessRuntimeFacade:
         turn_id: str = "",
         task_run_id: str = "",
         main_context: dict[str, Any] | None = None,
-        task_selection: dict[str, Any] | None = None,
+        environment_binding: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
         recent_work_outcome: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
@@ -1765,7 +1766,7 @@ class HarnessRuntimeFacade:
             turn_id=turn_id,
             task_run_id=task_run_id,
             main_context=main_context,
-            task_selection=task_selection,
+            environment_binding=environment_binding,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
             runtime_assembly=runtime_assembly,
@@ -1780,7 +1781,7 @@ class HarnessRuntimeFacade:
         session_context: dict[str, Any],
         agent_runtime_profile: Any,
         runtime_assembly: Any,
-        task_selection: dict[str, Any],
+        environment_binding: dict[str, Any] | None,
         active_work_context: dict[str, Any] | None,
         recent_work_outcome: dict[str, Any] | None,
     ) -> dict[str, Any]:
@@ -1791,7 +1792,7 @@ class HarnessRuntimeFacade:
             session_context=session_context,
             agent_runtime_profile=agent_runtime_profile,
             runtime_assembly=runtime_assembly,
-            task_selection=task_selection,
+            environment_binding=environment_binding,
             active_work_context=active_work_context,
             recent_work_outcome=recent_work_outcome,
         )
@@ -1930,11 +1931,11 @@ def _refresh_existing_graph_node_task_run(
         return task_run
 
     contract = _graph_node_contract_from_work_order(work_order)
-    runtime_selection = _graph_node_task_selection(graph_config, work_order)
+    runtime_contract = _graph_node_runtime_contract(graph_config, work_order)
     contract_ref = runtime_host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     diagnostics.pop("model_selection", None)
-    diagnostics["runtime_task_selection"] = runtime_selection
+    diagnostics["runtime_contract"] = runtime_contract
     diagnostics["contract"] = contract.to_dict()
     diagnostics["graph_model_override"] = model_override_diagnostics
     updated = TaskRun(

@@ -1942,7 +1942,7 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     task_run = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=start.node_work_orders[0])
     contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
     diagnostics = dict(task_run.diagnostics or {})
-    selection = dict(diagnostics.get("runtime_task_selection") or {})
+    runtime_contract = dict(diagnostics.get("runtime_contract") or {})
 
     assert diagnostics["origin_kind"] == "graph_node_assigned"
     assert diagnostics["parent_run_ref"] == start.graph_run.graph_run_id
@@ -1950,7 +1950,8 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     assert contract["task_environment_id"] == "env.development.sandbox"
     assert contract["prompt_contract"]["role_prompt"] == "你是一名图节点执行员。"
     assert contract["runtime_profile"]["runtime_policy"]["source"] == "graph_slot.node_contract"
-    assert selection["task_environment_id"] == "env.development.sandbox"
+    assert runtime_contract["task_environment_id"] == "env.development.sandbox"
+    assert runtime_contract["task_id"] == "task.test.execute"
     assert selection["prompt_contract"]["task_instruction"] == "只完成当前节点任务。"
     assert selection["runtime_profile"]["tool_policy"] == {}
 
@@ -2000,7 +2001,7 @@ def test_graph_node_task_run_records_runtime_model_override() -> None:
 
     task_run = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
     diagnostics = dict(task_run.diagnostics or {})
-    runtime_profile = dict(dict(diagnostics.get("runtime_task_selection") or {}).get("runtime_profile") or {})
+    runtime_profile = dict(dict(diagnostics.get("runtime_contract") or {}).get("runtime_profile") or {})
     contract = _runtime_object_payload(runtime, task_run.task_contract_ref)
 
     assert override_diagnostics["effective"]["model"] == "deepseek-v4-pro"
@@ -2064,7 +2065,7 @@ def test_existing_waiting_graph_node_task_run_refreshes_runtime_model_override()
 
     refreshed = runtime._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
     diagnostics = dict(refreshed.diagnostics or {})
-    runtime_profile = dict(dict(diagnostics.get("runtime_task_selection") or {}).get("runtime_profile") or {})
+    runtime_profile = dict(dict(diagnostics.get("runtime_contract") or {}).get("runtime_profile") or {})
     contract = _runtime_object_payload(runtime, refreshed.task_contract_ref)
 
     assert "model_selection" not in diagnostics

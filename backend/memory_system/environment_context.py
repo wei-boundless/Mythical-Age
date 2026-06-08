@@ -26,7 +26,7 @@ def resolve_memory_environment_context(
     session_record: dict[str, Any] | None = None,
     turn_id: str = "",
     task_run_id: str = "",
-    task_selection: dict[str, Any] | None = None,
+    environment_binding: dict[str, Any] | None = None,
     active_work_context: dict[str, Any] | None = None,
     recent_work_outcome: dict[str, Any] | None = None,
 ) -> MemoryEnvironmentContext:
@@ -46,7 +46,7 @@ def resolve_memory_environment_context(
         session_record=session_record,
         turn_id=turn_id,
         task_run_id=task_run_id,
-        task_selection=task_selection,
+        environment_binding=environment_binding,
         active_work_context=active_work_context,
         recent_work_outcome=recent_work_outcome,
     ):
@@ -72,7 +72,7 @@ def _candidate_sources(
     session_record: dict[str, Any] | None,
     turn_id: str,
     task_run_id: str,
-    task_selection: dict[str, Any] | None,
+    environment_binding: dict[str, Any] | None,
     active_work_context: dict[str, Any] | None,
     recent_work_outcome: dict[str, Any] | None,
 ) -> list[tuple[str, Any]]:
@@ -85,7 +85,7 @@ def _candidate_sources(
         ("main_context.task_environment", main.get("task_environment") if isinstance(main.get("task_environment"), dict) else {}),
         ("main_context", main),
         ("runtime_assembly.task_environment", assembly.get("task_environment") if isinstance(assembly.get("task_environment"), dict) else {}),
-        ("task_selection", task_selection or {}),
+        ("environment_binding", environment_binding or {}),
         ("active_work_context", _dict_payload(active_work_context)),
         ("recent_work_outcome", _dict_payload(recent_work_outcome)),
         (

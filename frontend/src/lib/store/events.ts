@@ -10,7 +10,7 @@ import {
   type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
-import { shouldDisplayAssistantContent, shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
+import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 
 import type { Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
@@ -258,6 +258,18 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
     answerSelectedSource: stringValue(data.answer_selected_source) || undefined,
     answerLeakFlags: stringArrayValue(data.answer_leak_flags),
   };
+}
+
+function shouldKeepStreamAssistantText(event: string, data: Record<string, unknown>) {
+  const metadata = answerMetadataFromEvent(data);
+  if (shouldDisplayAssistantStreamContent(metadata)) {
+    return true;
+  }
+  if (event !== "assistant_text") {
+    return false;
+  }
+  return stringValue(metadata.answerChannel) === "task_control"
+    && stringValue(metadata.answerSource) === "harness.single_agent_turn.request_task_run";
 }
 
 function assistantDoneContentFromEvent(data: Record<string, unknown>) {
@@ -1259,11 +1271,10 @@ export function reduceStreamEvent(
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
-    const keepExistingContent = shouldDisplayAssistantContent(answerMetadata);
     const doneContent = assistantDoneContentFromEvent(data);
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) =>
-        keepExistingContent && message.content
+        message.content.trim()
           ? {
               ...message,
               ...answerMetadata,
@@ -1298,7 +1309,7 @@ export function reduceStreamEvent(
         if (message.content.trim()) {
           return message;
         }
-        if (!shouldDisplayAssistantStreamContent(answerMetadataFromEvent(data))) {
+        if (!shouldKeepStreamAssistantText(event, data)) {
           return message;
         }
         const candidate = String(data.content ?? "").trim();

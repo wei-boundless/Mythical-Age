@@ -652,7 +652,7 @@ async def execute_task_run(
         session_id=task_run.session_id,
         turn_id=turn_id,
         agent_invocation_id=f"aginvoke:{task_run.task_run_id}:executor",
-        request_task_selection=_task_selection_from_task_run(task_run),
+        request_task_selection=_runtime_contract_from_task_run(task_run),
         model_selection=model_selection,
         agent_runtime_profile=agent_profile,
         tool_instances=services.all_tool_instances(),
@@ -2754,9 +2754,9 @@ def _task_runtime_permission_mode(
     return "full_access"
 
 
-def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
+def _runtime_contract_from_task_run(task_run: Any) -> dict[str, Any]:
     diagnostics = dict(task_run.diagnostics or {})
-    original = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
+    original = dict(diagnostics.get("runtime_contract") or {})
     runtime_profile = dict(original.get("runtime_profile") or {})
     return {
         **original,
@@ -2769,8 +2769,8 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
     selection = diagnostics.get("model_selection")
     if isinstance(selection, dict) and selection:
         return dict(selection)
-    task_selection = dict(diagnostics.get("runtime_task_selection") or diagnostics.get("task_selection") or {})
-    runtime_profile = dict(task_selection.get("runtime_profile") or {})
+    runtime_contract = dict(diagnostics.get("runtime_contract") or {})
+    runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
     requirement = dict(runtime_profile.get("model_requirement") or {})
     model_profile = getattr(agent_profile, "model_profile", None)
     profile_payload = model_profile.to_dict() if hasattr(model_profile, "to_dict") else (dict(model_profile) if isinstance(model_profile, dict) else {})

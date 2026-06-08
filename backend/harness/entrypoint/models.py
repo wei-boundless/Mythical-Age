@@ -20,6 +20,7 @@ class HarnessRuntimeRequest:
     history: list[dict[str, Any]] | None = None
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
     runtime_profile: dict[str, Any] = field(default_factory=dict)
+    environment_binding: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)
     model_selection: dict[str, Any] = field(default_factory=dict)
     image_generation: dict[str, Any] = field(default_factory=dict)

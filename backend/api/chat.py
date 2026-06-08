@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
@@ -113,12 +113,14 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., min_length=1)
     session_id: str
     stream: bool = True
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     runtime_profile: dict[str, Any] = Field(default_factory=dict)
-    task_selection: dict[str, Any] = Field(default_factory=dict)
+    environment_binding: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
     permission_mode: str = ""
@@ -216,7 +218,7 @@ def _query_request_from_payload(
         message=payload.message,
         explicit_subtasks=list(payload.explicit_subtasks or []),
         runtime_profile=dict(payload.runtime_profile or {}),
-        task_selection=dict(payload.task_selection or {}),
+        environment_binding=dict(payload.environment_binding or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
         permission_mode=str(payload.permission_mode or ""),

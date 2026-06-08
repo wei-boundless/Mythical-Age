@@ -149,6 +149,7 @@ def assemble_runtime(
     agent_runtime_profile: Any | None,
     tool_instances: list[Any] | tuple[Any, ...] | None,
     definitions_by_name: dict[str, Any],
+    environment_binding: dict[str, Any] | None = None,
     permission_mode: str = "default",
     workspace_root: str | Path | None = None,
 ) -> RuntimeAssembly:
@@ -164,6 +165,7 @@ def assemble_runtime(
     )
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
         backend_dir=backend_dir,
+        environment_binding=environment_binding,
         selection=selection,
     )
     task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
@@ -488,10 +490,20 @@ def _resolved_runtime_policy(
 def _resolve_runtime_task_environment(
     *,
     backend_dir: Path,
+    environment_binding: dict[str, Any] | None = None,
     selection: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = task_environment_registry_from_backend_dir(backend_dir)
+    binding = dict(environment_binding or {})
+    explicit_binding = _first_string(
+        binding.get("task_environment_id"),
+        binding.get("environment_id"),
+        dict(binding.get("task_environment") or {}).get("environment_id")
+        if isinstance(binding.get("task_environment"), dict)
+        else binding.get("task_environment"),
+    )
     explicit = _first_string(
+        explicit_binding,
         selection.get("task_environment_id"),
         selection.get("environment_id"),
         dict(selection.get("task_environment") or {}).get("environment_id")
@@ -503,7 +515,7 @@ def _resolve_runtime_task_environment(
     environment_id = explicit or "env.general.workspace"
     registry.require(environment_id)
     environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
-    source = "explicit_selection" if explicit else "fallback_default"
+    source = "environment_binding" if explicit_binding else "explicit_selection" if explicit else "fallback_default"
     return (
         {
             **environment_payload,

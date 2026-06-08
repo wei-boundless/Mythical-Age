@@ -21,7 +21,7 @@ class TurnInputFacts:
     active_turn: dict[str, Any] = field(default_factory=dict)
     active_work_candidate: dict[str, Any] = field(default_factory=dict)
     recent_work_outcome_candidate: dict[str, Any] = field(default_factory=dict)
-    task_selection: dict[str, Any] = field(default_factory=dict)
+    environment_binding: dict[str, Any] = field(default_factory=dict)
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     editor_context: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.turn_input_facts"
@@ -52,7 +52,7 @@ def build_turn_input_facts(
     active_turn: Any | None = None,
     active_work_candidate: Any | None = None,
     recent_work_outcome_candidate: dict[str, Any] | None = None,
-    task_selection: dict[str, Any] | None = None,
+    environment_binding: dict[str, Any] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     editor_context: dict[str, Any] | None = None,
 ) -> TurnInputFacts:
@@ -65,7 +65,7 @@ def build_turn_input_facts(
         active_turn=_payload_from_object(active_turn),
         active_work_candidate=_payload_from_object(active_work_candidate),
         recent_work_outcome_candidate=dict(recent_work_outcome_candidate or {}),
-        task_selection=dict(task_selection or {}),
+        environment_binding=dict(environment_binding or {}),
         runtime_profile=dict(runtime_profile or {}),
         editor_context=dict(editor_context or {}),
     )
