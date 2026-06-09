@@ -15,6 +15,7 @@ from sessions import InvalidSessionId
 from task_system import TaskFlowRegistry
 from task_system.graph_instances import GraphTaskInstanceFileService, GraphTaskInstanceRepository
 from task_system.graph_instances.edge_control_service import HumanEdgeDecisionService
+from task_system.writing_graphs import WritingGraphDeskProjectionService
 
 
 router = APIRouter()
@@ -225,31 +226,43 @@ async def get_graph_task_instance_monitor(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     instance = _require_instance(runtime, instance_id)
-    registry = TaskFlowRegistry(runtime.base_dir)
-    graph_config = registry.get_published_graph_harness_config(instance.graph_id)
-    graph_monitor = None
-    if instance.active_graph_run_id:
-        graph_monitor = runtime.harness_runtime.graph_harness.get_graph_run_monitor(
-            instance.active_graph_run_id,
-            graph_config=graph_config,
-            event_limit=event_limit,
-            include_config=False,
-        )
-    node_sessions = _instance_sessions(runtime, instance.graph_task_instance_id, root_session_id=instance.root_session_id)
-    artifacts = GraphTaskInstanceFileService(runtime.base_dir).artifacts(instance.graph_task_instance_id)
-    human_controls = HumanEdgeDecisionService(runtime.base_dir).human_controls(
-        instance_id=instance.graph_task_instance_id,
-        graph_config=graph_config,
-        state=runtime.harness_runtime.graph_harness.graph_loop.get_state(instance.active_graph_run_id) if instance.active_graph_run_id else None,
-    )
+    event_limit_value = _query_int(event_limit, default=40)
+    payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit_value)
     return {
         "authority": "api.graph_task_instances.monitor",
         "instance": instance.to_dict(),
-        "graph_monitor": graph_monitor,
-        "node_sessions": node_sessions,
-        "artifacts": artifacts,
-        "human_controls": human_controls,
-        "summary": _instance_monitor_summary(instance.to_dict(), graph_monitor, node_sessions, artifacts),
+        "graph_monitor": payload["graph_monitor"],
+        "node_sessions": payload["node_sessions"],
+        "artifacts": payload["artifacts"],
+        "human_controls": payload["human_controls"],
+        "summary": _instance_monitor_summary(instance.to_dict(), payload["graph_monitor"], payload["node_sessions"], payload["artifacts"]),
+    }
+
+
+@router.get("/orchestration/writing-graph-instances/{instance_id}/desk")
+async def get_writing_graph_instance_desk(
+    instance_id: str,
+    event_limit: int = Query(default=80, ge=1, le=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    instance = _require_instance(runtime, instance_id)
+    event_limit_value = _query_int(event_limit, default=80)
+    monitor_payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit_value)
+    file_service = GraphTaskInstanceFileService(runtime.base_dir)
+    file_tree = file_service.tree(instance.graph_task_instance_id, max_depth=8, max_entries=2000)
+    desk = WritingGraphDeskProjectionService(runtime.base_dir).build(
+        instance=instance,
+        file_tree=file_tree,
+        artifacts=monitor_payload["artifacts"],
+        node_sessions=monitor_payload["node_sessions"],
+        human_controls=monitor_payload["human_controls"],
+        graph_monitor=monitor_payload["graph_monitor"],
+    )
+    projection_authority = str(desk.get("authority") or "")
+    return {
+        **desk,
+        "authority": "api.graph_task_instances.writing_desk",
+        "projection_authority": projection_authority,
     }
 
 
@@ -380,6 +393,33 @@ def _instance_sessions(runtime: Any, instance_id: str, *, root_session_id: str =
     ]
 
 
+def _instance_monitor_payload(runtime: Any, instance: Any, *, event_limit: int = 40) -> dict[str, Any]:
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph_config = registry.get_published_graph_harness_config(instance.graph_id)
+    graph_monitor = None
+    if instance.active_graph_run_id:
+        graph_monitor = runtime.harness_runtime.graph_harness.get_graph_run_monitor(
+            instance.active_graph_run_id,
+            graph_config=graph_config,
+            event_limit=event_limit,
+            include_config=False,
+        )
+    node_sessions = _instance_sessions(runtime, instance.graph_task_instance_id, root_session_id=instance.root_session_id)
+    artifacts = GraphTaskInstanceFileService(runtime.base_dir).artifacts(instance.graph_task_instance_id)
+    human_controls = HumanEdgeDecisionService(runtime.base_dir).human_controls(
+        instance_id=instance.graph_task_instance_id,
+        graph_config=graph_config,
+        state=runtime.harness_runtime.graph_harness.graph_loop.get_state(instance.active_graph_run_id) if instance.active_graph_run_id else None,
+    )
+    return {
+        "authority": "api.graph_task_instances.monitor_payload",
+        "graph_monitor": graph_monitor,
+        "node_sessions": node_sessions,
+        "artifacts": artifacts,
+        "human_controls": human_controls,
+    }
+
+
 def _status_from_start(start: dict[str, Any]) -> str:
     graph_run = dict(start.get("graph_run") or {})
     task_run = dict(start.get("task_run") or {})
@@ -412,3 +452,10 @@ def _instance_monitor_summary(
 def _safe_session_fragment(value: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in str(value or "").strip())
     return safe.strip(".-") or "graph-task-instance"
+
+
+def _query_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

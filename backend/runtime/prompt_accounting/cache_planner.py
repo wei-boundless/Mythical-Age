@@ -301,6 +301,11 @@ def _plan_from_provider_payload_boundary(
         model_request=model_request,
         boundary=boundary,
     )
+    token_diagnostics = _provider_payload_prefix_token_diagnostics(
+        segment_map=segment_map,
+        diagnostics=diagnostics,
+        tier=key_tier,
+    )
     if not prefix_hash:
         return PromptCacheRecord(
             cache_record_id=f"pcache:{segment_map.request_id}",
@@ -317,6 +322,7 @@ def _plan_from_provider_payload_boundary(
             diagnostics={
                 **diagnostics,
                 **provider_diagnostics,
+                **token_diagnostics,
                 "prefix_hash_source": "provider_payload_manifest",
             },
         )
@@ -354,16 +360,15 @@ def _plan_from_provider_payload_boundary(
         diagnostics={
             **diagnostics,
             **provider_diagnostics,
+            **token_diagnostics,
             "prefix_key_tier": key_tier,
             "prefix_hash_source": "provider_payload_manifest",
             "provider_payload_stable_segment_count": int(selected_prefix.get("segment_count") or 0),
             "provider_payload_message_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
             "provider_payload_tool_prefix_segment_count": int(selected_prefix.get("tool_segment_count") or 0),
-            "stable_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
-            "stable_prefix_predicted_tokens": _prefix_predicted_tokens_for_tier(
-                diagnostics,
-                tier=key_tier,
-            ),
+            "stable_prefix_segment_count": int(selected_prefix.get("segment_count") or 0),
+            "stable_message_prefix_segment_count": int(selected_prefix.get("message_segment_count") or 0),
+            "stable_prefix_predicted_tokens": int(token_diagnostics.get("provider_payload_prefix_predicted_tokens") or 0),
         },
     )
 
@@ -377,6 +382,35 @@ def _prefix_predicted_tokens_for_tier(diagnostics: dict[str, Any], *, tier: str)
     if normalized == "provider_global":
         return int(diagnostics.get("provider_global_prefix_predicted_tokens") or 0)
     return 0
+
+
+def _provider_payload_prefix_token_diagnostics(
+    *,
+    segment_map: PromptSegmentMap,
+    diagnostics: dict[str, Any],
+    tier: str,
+) -> dict[str, int]:
+    message_tokens = _prefix_predicted_tokens_for_tier(diagnostics, tier=tier)
+    tool_tokens = _provider_payload_tool_prefix_predicted_tokens(segment_map, tier=tier)
+    return {
+        "provider_payload_message_prefix_predicted_tokens": message_tokens,
+        "provider_payload_tool_prefix_predicted_tokens": tool_tokens,
+        "provider_payload_prefix_predicted_tokens": message_tokens + tool_tokens,
+    }
+
+
+def _provider_payload_tool_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
+    total = 0
+    for segment in segment_map.segments:
+        if str(segment.kind or "") != "tool_schema_catalog":
+            continue
+        if is_prefix_eligible_for_tier(
+            cache_role=segment.cache_role,
+            prefix_tier=segment.prefix_tier,
+            tier=tier,
+        ):
+            total += int(segment.predicted_tokens or 0)
+    return total
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

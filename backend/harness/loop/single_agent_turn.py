@@ -2378,7 +2378,7 @@ def _action_request_from_native_tool_calls(
         active_work_relationship = str(args.get("active_work_relationship") or "").strip()
         if active_work_relationship:
             contract_seed["active_work_relationship"] = active_work_relationship
-        public_note = str(args.get("public_progress_note") or "").strip() or "正在建立任务运行。"
+        public_note = str(args.get("public_progress_note") or "").strip()
         return ModelActionRequest(
             request_id=f"model-action:{turn_id}:single-agent-request-task-run",
             turn_id=turn_id,

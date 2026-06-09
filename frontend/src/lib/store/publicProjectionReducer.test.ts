@@ -108,4 +108,33 @@ describe("public projection reducer contract", () => {
       status: "running",
     });
   });
+
+  it("uses thinking stage status for tool-window projection without creating body text", () => {
+    let transition = startStreamingTurn(getDefaultState(), "inspect files");
+    transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:tool",
+        lifecycle: "running",
+        source_authority: "tool",
+        surface: "tool_window",
+        items: [
+          {
+            item_id: "tool:1",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "正在执行操作",
+            subject_label: "docs",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("");
+    expect(assistant?.stageStatus).toBe("正在思考");
+  });
 });

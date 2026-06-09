@@ -1003,6 +1003,7 @@ class RuntimeCompiler:
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_state_projection
+        task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -1143,6 +1144,7 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution graph node runtime context",
@@ -1969,10 +1971,10 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
             "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
         ],
-        "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run/respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run/respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”“正在建立任务运行”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "可选；thinking|waiting_for_tool|tool_returned|responding|blocked",
-            "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
+            "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
             "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；request_task_run 时是建立任务运行；block 时是说明阻塞。tool_call 时通常留空或只保留 completion_status=waiting_for_tool，不要把工具调用动作改写成公开判断文本。",
             "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
@@ -2038,10 +2040,10 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
-            "current_judgment": "可选；你对当前公开状态的简短说明。只能写本轮已经确定的事实或边界，不写隐藏推理。",
+            "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
             "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；block 时是说明阻塞。tool_call 时通常留空或只保留 completion_status=waiting_for_tool，不要把工具调用动作改写成公开判断文本。",
             "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
@@ -2344,6 +2346,37 @@ def _session_history_message_specs(
             },
         )
     ]
+
+
+def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for index, raw_entry in enumerate(tuple(entries or ()), start=1):
+        entry = _drop_empty_payload(dict(raw_entry or {}))
+        if not entry:
+            continue
+        entry_ref = str(entry.get("observation_ref") or entry.get("entry_ref") or index)
+        specs.append(
+            _runtime_payload_spec(
+                role="system",
+                title=f"Task execution replayed state evidence {index}",
+                payload={"task_state_replay_entry": entry},
+                kind="task_state_replay_entry",
+                source_ref=f"task_state_replay:{entry_ref}",
+                cache_scope="task",
+                cache_role="session_stable",
+                compression_role="preserve",
+                metadata={
+                    "authority_class": "runtime_state",
+                    "cache_impact": "task_prefix_append_only",
+                    "projection_strategy": "bounded_task_state_replay_entry",
+                    "task_state_replay_entry_index": index,
+                    "task_state_replay_entry_ref": entry_ref,
+                    "content_source": "runtime.dynamic_context.task_state_replay_entry",
+                    "runtime_fragment_role": "append_only_task_state_evidence",
+                },
+            )
+        )
+    return specs
 
 
 def _provider_protocol_message_specs(

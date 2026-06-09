@@ -129,6 +129,22 @@ def test_projector_does_not_project_done_content_as_body() -> None:
     assert all(item.get("slot") != "body" for item in projected.get("public_timeline_delta", []))
 
 
+def test_projector_does_not_create_generic_done_status_without_summary() -> None:
+    projected = project_public_projection_event(
+        "done",
+        {
+            "content": "Done content must not become a generic status.",
+            "answer_channel": "conversation",
+        },
+        session_id="session-envelope",
+        sequence=10,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope.get("items", []) == []
+    assert "public_timeline_delta" not in projected
+
+
 def test_typed_assistant_stream_events_do_not_duplicate_body_items() -> None:
     for event_type in ("assistant_text_delta", "assistant_text_final", "assistant_stream_repair"):
         projected = project_public_projection_event(
@@ -147,6 +163,34 @@ def test_typed_assistant_stream_events_do_not_duplicate_body_items() -> None:
         assert envelope["surface"] == "assistant_body"
         assert envelope.get("items", []) == []
         assert "public_timeline_delta" not in projected
+
+
+def test_typed_assistant_stream_events_ignore_stale_payload_delta() -> None:
+    projected = project_public_projection_event(
+        "assistant_text_delta",
+        {
+            "content": "typed stream text",
+            "answer_channel": "conversation",
+            "answer_source": "model",
+            "public_timeline_delta": [
+                {
+                    "item_id": "stale-body",
+                    "kind": "assistant_text",
+                    "slot": "body",
+                    "surface": "assistant_body",
+                    "source_authority": "model",
+                    "text": "stale payload body must not be projected",
+                    "state": "running",
+                }
+            ],
+        },
+        session_id="session-envelope",
+        sequence=5,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope.get("items", []) == []
+    assert "public_timeline_delta" not in projected
 
 
 def test_public_anchor_is_honored_by_projection_envelope() -> None:
@@ -221,3 +265,35 @@ def test_generic_request_task_run_progress_is_not_projected_as_model_body() -> N
     )
 
     assert delta == []
+
+
+def test_tool_admission_can_carry_model_opening_judgment_and_tool_window() -> None:
+    projected = project_public_projection_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "rtevt:tool-opening",
+                "payload": {
+                    "model_action_request": {
+                        "request_id": "act:tool-opening",
+                        "action_type": "tool_call",
+                        "public_action_state": {
+                            "current_judgment": "我会先确认 docs 目录是否存在，再决定是否读取计划文件。",
+                        },
+                        "tool_call": {
+                            "name": "path_exists",
+                            "args": {"path": "docs"},
+                        },
+                    }
+                },
+            }
+        },
+        session_id="session-envelope",
+        sequence=13,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope["source_authority"] == "model"
+    assert envelope["surface"] == "assistant_body"
+    assert any(item.get("slot") == "body" and "确认 docs 目录" in item.get("text", "") for item in envelope["items"])
+    assert any(item.get("slot") == "tool" and item.get("surface") == "tool_window" for item in envelope["items"])

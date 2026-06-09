@@ -55,6 +55,24 @@ describe("ChatMessage", () => {
     expect(user).not.toContain("复制回复");
   });
 
+  it("renders lightweight stage status without treating it as assistant prose", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "assistant:thinking-stage",
+        retrievals: [],
+        role: "assistant",
+        stageStatus: "正在思考",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("chat-message-shell__stage-status");
+    expect(html).toContain("正在思考");
+    expect(html).not.toContain("chat-message-shell__content");
+    expect(html).not.toContain("复制回复");
+  });
+
   it("does not render blocked tool-loop guard metadata as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

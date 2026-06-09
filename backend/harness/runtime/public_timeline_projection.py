@@ -16,6 +16,18 @@ SUPPRESSED_TEXT = {
     "running",
     "working",
     "ready_to_finish",
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在处理",
+    "正在处理当前请求",
+    "正在处理当前请求。",
+    "正在处理任务",
+    "正在建立任务运行",
+    "正在建立任务运行。",
+    "已开始处理当前请求",
+    "已开始处理当前请求。",
     "true",
     "false",
     "null",
@@ -228,7 +240,7 @@ def public_action_title(*, action_kind: str, phase: str) -> str:
         "image": ("正在生成图像", "图像已生成", "图像生成未完成"),
         "artifact": ("产物就绪", "产物就绪", "产物未完成"),
     }
-    running, done, adjusting = labels.get(action_kind, ("正在处理任务", "结果已返回", "步骤未完成"))
+    running, done, adjusting = labels.get(action_kind, ("正在执行操作", "结果已返回", "步骤未完成"))
     if phase == "done":
         return done
     if phase == "adjusting":

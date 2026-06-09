@@ -1474,6 +1474,11 @@ def test_model_runtime_prompt_accounting_records_cache_efficiency_metrics(tmp_pa
     assert cache_record.diagnostics["unplanned_message_count"] == 0
     assert cache_record.diagnostics["provider_cached_tokens"] == 8
     assert cache_record.diagnostics["cache_efficiency"] > 0
+    assert cache_record.diagnostics["provider_payload_prefix_predicted_tokens"] > cache_record.diagnostics["provider_global_prefix_predicted_tokens"]
+    assert cache_record.diagnostics["cache_efficiency"] == round(
+        8 / cache_record.diagnostics["provider_payload_prefix_predicted_tokens"],
+        4,
+    )
     assert cache_record.diagnostics["duration_seconds"] >= 0
     assert provider_usage.diagnostics["duration_seconds"] >= 0
 

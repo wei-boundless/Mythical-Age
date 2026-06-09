@@ -208,6 +208,7 @@ def diagnose(
     prefix_groups = _build_prefix_groups(
         cache_records=cache_records,
         usage_by_request=usage_by_request,
+        scope_by_request=scope_by_request,
         min_repeats=min_prefix_repeats,
         limit=limit,
     )
@@ -441,6 +442,7 @@ def _build_prefix_groups(
     *,
     cache_records: list[dict[str, Any]],
     usage_by_request: dict[str, dict[str, Any]],
+    scope_by_request: dict[str, str],
     min_repeats: int,
     limit: int,
 ) -> list[dict[str, Any]]:
@@ -471,6 +473,15 @@ def _build_prefix_groups(
         post_warm_provider_returned_cache_hit_tokens = 0
         post_warm_provider_returned_cache_miss_tokens = 0
         post_warm_provider_returned_cache_usage_records = 0
+        scope_counts = Counter(
+            scope_by_request.get(str(row.get("request_id") or ""), "agent_runtime")
+            for row in records
+        )
+        stable_prefix_token_values = [
+            _record_stable_prefix_tokens(row)
+            for row in records
+            if _record_stable_prefix_tokens(row) > 0
+        ]
         statuses = Counter(str(row.get("status") or "unknown") for row in records)
         cache_keys = sorted({str(row.get("cache_key") or "") for row in records if str(row.get("cache_key") or "")})
         observed_provider_index = 0
@@ -549,6 +560,9 @@ def _build_prefix_groups(
                     available=post_warm_provider_returned_cache_usage_records > 0,
                 ),
                 "statuses": dict(sorted(statuses.items())),
+                "scope_counts": dict(sorted(scope_counts.items())),
+                "primary_scope": scope_counts.most_common(1)[0][0] if scope_counts else "unknown",
+                "max_stable_prefix_predicted_tokens": max(stable_prefix_token_values) if stable_prefix_token_values else 0,
                 "request_ids": [str(row.get("request_id") or "") for row in records[-5:]],
                 "latest_created_at": _float(records[-1].get("created_at")),
             }
@@ -795,6 +809,7 @@ def _build_issues(
         group
         for group in prefix_groups
         if int(group.get("post_warm_provider_misses") or 0) > 0 and int(group.get("count") or 0) > 1
+        and _repeated_miss_group_is_cache_health_signal(group)
     ]
     if repeated_miss_groups:
         issues.append(
@@ -803,6 +818,21 @@ def _build_issues(
                 "code": "repeated_prefix_provider_miss",
                 "message": "重复 stable prefix 在首个冷启动请求之后仍有 DeepSeek 未命中。优先检查请求间隔、重试路径、真实 base_url、以及 provider usage 是否缺失。",
                 "groups": len(repeated_miss_groups),
+            }
+        )
+    low_value_repeated_miss_groups = [
+        group
+        for group in prefix_groups
+        if int(group.get("post_warm_provider_misses") or 0) > 0 and int(group.get("count") or 0) > 1
+        and not _repeated_miss_group_is_cache_health_signal(group)
+    ]
+    if low_value_repeated_miss_groups:
+        issues.append(
+            {
+                "severity": "low",
+                "code": "low_value_utility_repeated_prefix_miss",
+                "message": "重复 prefix miss 主要来自短 utility 调用或非 agent_runtime scope，缓存收益低，不应按主 agent prompt cache 故障处理。",
+                "groups": len(low_value_repeated_miss_groups),
             }
         )
     if volatile_stable_segments:
@@ -823,7 +853,17 @@ def _build_issues(
                 "segments": len(unstable_stable_segments),
             }
         )
-    if provider_usage and hit_rate < 0.2:
+    if provider_usage and hit_rate < 0.2 and len(provider_usage) < 3 and not prefix_groups:
+        issues.append(
+            {
+                "severity": "low",
+                "code": "insufficient_repeated_prefix_sample",
+                "message": "当前 provider_usage 样本过少，且没有重复 stable prefix 组。低命中更可能是冷启动、近期 prompt 改动或 cache 尚未预热，暂不能判定为系统性缓存失效。",
+                "provider_usage_records": len(provider_usage),
+                "hit_rate": hit_rate,
+            }
+        )
+    elif provider_usage and hit_rate < 0.2:
         issues.append(
             {
                 "severity": "medium",
@@ -845,6 +885,23 @@ def _stable_prefix_segments(segment_map: dict[str, Any]) -> list[dict[str, Any]]
             continue
         break
     return result
+
+
+def _record_stable_prefix_tokens(row: dict[str, Any]) -> int:
+    diagnostics = dict(row.get("diagnostics") or {})
+    return _int(
+        diagnostics.get("provider_payload_prefix_predicted_tokens")
+        or diagnostics.get("stable_prefix_predicted_tokens")
+        or diagnostics.get("session_prefix_predicted_tokens")
+        or diagnostics.get("provider_global_prefix_predicted_tokens")
+    )
+
+
+def _repeated_miss_group_is_cache_health_signal(group: dict[str, Any]) -> bool:
+    primary_scope = str(group.get("primary_scope") or "")
+    if primary_scope == "agent_runtime":
+        return True
+    return _int(group.get("max_stable_prefix_predicted_tokens")) >= 1024
 
 
 def _packet_invocation_kind(segment_map: dict[str, Any]) -> str:

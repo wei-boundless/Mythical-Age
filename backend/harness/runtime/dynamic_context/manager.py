@@ -85,7 +85,7 @@ class DynamicContextManager:
             history_projection=history_projection,
             observation_projection=observation_projection,
         )
-        volatile_state = self._volatile_state_projection(
+        volatile_state, task_state_replay_entries = self._volatile_state_projection(
             request,
             envelope_projection=envelope_projection,
             execution_projection=execution_projection,
@@ -99,6 +99,8 @@ class DynamicContextManager:
             volatile_payload=volatile_state or volatile_request,
             dynamic_payload=dynamic_payload,
         )
+        if task_state_replay_entries:
+            budget_report["task_state_replay_prefix_chars"] = estimate_chars(task_state_replay_entries)
         context_refs = [
             str(baseline_refs.get("runtime_baseline_hash") or ""),
         ]
@@ -112,6 +114,7 @@ class DynamicContextManager:
             stable_runtime_baseline_refs=baseline_refs,
             dynamic_runtime_delta=runtime_delta,
             dynamic_runtime_projection=dynamic_payload,
+            task_state_replay_entries=task_state_replay_entries,
             volatile_request_projection=volatile_request,
             volatile_state_projection=volatile_state,
             tool_result_refs=tuple(str(item.get("tool_result_ref") or item.get("replacement_ref") or "") for item in tool_results if item),
@@ -124,6 +127,7 @@ class DynamicContextManager:
                 dynamic_payload=dynamic_payload,
                 volatile_request=volatile_request,
                 volatile_state=volatile_state,
+                task_state_replay_entries=task_state_replay_entries,
                 tool_record_count=len(tool_records),
                 observation_record_count=len(observation_records),
             ),
@@ -187,23 +191,25 @@ class DynamicContextManager:
         execution_projection: dict[str, Any],
         observation_projection: dict[str, Any],
         work_history_projection: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
         if request.invocation_kind != "task_execution":
-            return {}
+            return {}, ()
+        task_state = self.task_state_projector.project(
+            execution_projection=execution_projection,
+            observation_projection=observation_projection,
+            work_history_projection=work_history_projection,
+            task_run_state=self.execution_state_projector.task_run_state(request.task_run),
+            envelope_projection=envelope_projection,
+            include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
+        )
+        replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(task_state)
         payload = {
-            "task_state": self.task_state_projector.project(
-                execution_projection=execution_projection,
-                observation_projection=observation_projection,
-                work_history_projection=work_history_projection,
-                task_run_state=self.execution_state_projector.task_run_state(request.task_run),
-                envelope_projection=envelope_projection,
-                include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
-            ),
+            "task_state": task_state_cursor,
         }
         editor_context = _editor_context_projection(request.editor_context)
         if editor_context:
             payload["editor_context"] = editor_context
-        return drop_empty(payload)
+        return drop_empty(payload), replay_entries
 
     def _section_reports(
         self,
@@ -212,6 +218,7 @@ class DynamicContextManager:
         dynamic_payload: dict[str, Any],
         volatile_request: dict[str, Any],
         volatile_state: dict[str, Any],
+        task_state_replay_entries: tuple[dict[str, Any], ...],
         tool_record_count: int,
         observation_record_count: int,
     ) -> tuple[VolatileSectionReport, ...]:
@@ -263,6 +270,19 @@ class DynamicContextManager:
                     output_chars=estimate_chars(volatile_state),
                     projection_strategy="white_listed_task_state_projection",
                     refs=(),
+                )
+            )
+        if task_state_replay_entries:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:task_state_replay_prefix",
+                    source="task_state_replay_prefix",
+                    volatility_reason="task execution observations append over time; already recorded replay entries are byte-stable task-prefix evidence",
+                    input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
+                    output_chars=estimate_chars(task_state_replay_entries),
+                    projection_strategy="append_only_task_state_replay_entries",
+                    cache_impact="task_prefix_append_only",
+                    refs=tuple(_task_state_replay_refs(task_state_replay_entries)),
                 )
             )
         editor_context = _editor_context_projection(request.editor_context)
@@ -494,6 +514,15 @@ def _editor_context_refs(editor_context: dict[str, Any]) -> list[str]:
         path = str(item.get("path") or "").strip()
         if path and path not in refs:
             refs.append(path)
+    return refs
+
+
+def _task_state_replay_refs(entries: tuple[dict[str, Any], ...]) -> list[str]:
+    refs: list[str] = []
+    for entry in entries:
+        ref = str(dict(entry or {}).get("observation_ref") or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
     return refs
 
 

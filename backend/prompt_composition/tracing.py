@@ -14,6 +14,7 @@ DYNAMIC_SEGMENT_KINDS = {
     "session_history",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
+    "task_state_replay_entry",
     "tool_observations",
     "user_steering_updates",
     "volatile_task_state",

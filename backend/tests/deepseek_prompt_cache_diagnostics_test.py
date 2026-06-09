@@ -31,6 +31,25 @@ def test_deepseek_cache_diagnosis_flags_repeated_prefix_miss(tmp_path: Path) -> 
     assert any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
 
 
+def test_deepseek_cache_diagnosis_marks_single_low_hit_as_insufficient_sample(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [_cache_record("req:single", "key:single", "hit")],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [_provider_usage("req:single", prompt_tokens=10_000, cached_tokens=100)],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    issue_codes = {issue["code"] for issue in result.issues}
+    assert "insufficient_repeated_prefix_sample" in issue_codes
+    assert "low_deepseek_cache_hit_rate" not in issue_codes
+
+
 def test_deepseek_cache_diagnosis_does_not_flag_first_cold_miss(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()
@@ -57,6 +76,61 @@ def test_deepseek_cache_diagnosis_does_not_flag_first_cold_miss(tmp_path: Path) 
     assert result.prefix_groups[0]["post_warm_provider_misses"] == 0
     assert result.prefix_groups[0]["post_warm_hit_rate"] == 0.9167
     assert not any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
+
+
+def test_deepseek_cache_diagnosis_downgrades_short_utility_repeated_miss(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {
+                **_cache_record("req:utility:1", "key:utility", "miss"),
+                "created_at": 1,
+                "diagnostics": {
+                    "provider_cache_policy": {"mode": "automatic_prefix", "provider": "deepseek"},
+                    "stable_prefix_predicted_tokens": 140,
+                },
+            },
+            {
+                **_cache_record("req:utility:2", "key:utility", "miss"),
+                "created_at": 2,
+                "diagnostics": {
+                    "provider_cache_policy": {"mode": "automatic_prefix", "provider": "deepseek"},
+                    "stable_prefix_predicted_tokens": 140,
+                },
+            },
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            {
+                **_provider_usage("req:utility:1", prompt_tokens=700, cached_tokens=0),
+                "created_at": 1,
+                "usage_id": "tokuse:req:utility:1:local_prediction",
+                "diagnostics": {"cache_metric_scope": "durable_memory_recall"},
+                "source": "local_prediction",
+            },
+            {**_provider_usage("req:utility:1", prompt_tokens=700, cached_tokens=0), "created_at": 1.1},
+            {
+                **_provider_usage("req:utility:2", prompt_tokens=700, cached_tokens=0),
+                "created_at": 2,
+                "usage_id": "tokuse:req:utility:2:local_prediction",
+                "diagnostics": {"cache_metric_scope": "durable_memory_recall"},
+                "source": "local_prediction",
+            },
+            {**_provider_usage("req:utility:2", prompt_tokens=700, cached_tokens=0), "created_at": 2.1},
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    issue_codes = {issue["code"] for issue in result.issues}
+    assert result.prefix_groups[0]["primary_scope"] == "durable_memory_recall"
+    assert result.prefix_groups[0]["max_stable_prefix_predicted_tokens"] == 140
+    assert "low_value_utility_repeated_prefix_miss" in issue_codes
+    assert "repeated_prefix_provider_miss" not in issue_codes
 
 
 def test_deepseek_cache_diagnosis_groups_by_provider_prefix_and_reports_post_warm_returned_rate(tmp_path: Path) -> None:

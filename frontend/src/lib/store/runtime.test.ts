@@ -5879,7 +5879,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
     expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
-    expect(assistant?.stageStatus).toBe("正在整理上下文");
+    expect(assistant?.stageStatus).toBe("正在思考");
   });
 
   it("ignores raw tool runtime requests without reviving legacy tool results", () => {
@@ -5953,8 +5953,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(transition.state.sessionActivity).toMatchObject({
       level: "running",
-      title: "正在整理上下文",
-      detail: "准备判断下一步",
+      title: "正在思考",
+      detail: "",
     });
 
     transition = reduceStreamEvent(transition.state, transition.session, "turn_tool_observation_recorded", {
@@ -5986,7 +5986,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const assistant = transition.state.messages.at(-1);
     expect(transition.state.sessionActivity).toMatchObject({
       level: "running",
-      title: "正在整理上下文",
+      title: "正在思考",
     });
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
   });
@@ -6011,7 +6011,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("正在整理上下文");
+    expect(assistant?.stageStatus).toBe("正在思考");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
@@ -6054,7 +6054,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("正在整理上下文");
+    expect(assistant?.stageStatus).toBe("正在思考");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 

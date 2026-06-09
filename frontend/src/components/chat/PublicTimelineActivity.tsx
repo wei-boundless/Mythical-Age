@@ -164,7 +164,7 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
   if (!current || typeof current !== "object" || Array.isArray(current)) {
     return null;
   }
-  const title = cleanPublicTimelineText(current.title ?? current.phase ?? "正在处理");
+  const title = cleanPublicTimelineText(current.title ?? current.phase);
   const detail = cleanPublicTimelineText(current.detail);
   if (!title && !detail) {
     return null;
@@ -178,7 +178,7 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
   return {
     id: `${projectionId}:current:${cleanPublicTimelineText(current.event_ref) || title || detail}`,
     kind: "status",
-    text: title || "正在处理",
+    text: title || detail,
     detail,
   };
 }
@@ -323,7 +323,16 @@ function isGenericToolCallStage(title: string, detail: string) {
 function isGenericStatusActivity(title: string, detail: string) {
   const normalizedTitle = title.replace(/\s+/g, "");
   const normalizedDetail = detail.replace(/\s+/g, "");
-  return ["正在思考", "正在处理", "正在建立任务运行"].includes(normalizedTitle.replace(/[。.]$/g, ""))
+  return [
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在思考",
+    "正在处理",
+    "正在处理任务",
+    "正在建立任务运行",
+  ].includes(normalizedTitle.replace(/[。.]$/g, ""))
     && (!normalizedDetail || normalizedDetail === normalizedTitle);
 }
 
@@ -382,6 +391,9 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
       continue;
     }
     const detail = kind === "tool" ? toolDetailText(item, text) : statusDetailText(item, text);
+    if (kind === "status" && isGenericStatusActivity(text, detail)) {
+      continue;
+    }
     entries.push({
       collapsed: kind === "tool" ? shouldCollapseToolWindow(item, index, latestBodyIndex) : undefined,
       detail,

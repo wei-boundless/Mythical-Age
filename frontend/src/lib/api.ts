@@ -3009,6 +3009,69 @@ export type GraphTaskInstanceMonitor = {
 
 export type HumanEdgeDecisionKind = "pass" | "revise" | "replace";
 
+export type WritingChapterIndexItem = {
+  authority?: string;
+  chapter_id: string;
+  title: string;
+  path: string;
+  status: string;
+  source?: string;
+  chapter_number?: number | null;
+  updated_at?: number;
+  size?: number;
+  selection_reason?: string;
+};
+
+export type WritingChapterAction = {
+  authority?: string;
+  action: "approve" | "request_revision" | "replace_with_user_text" | string;
+  decision: HumanEdgeDecisionKind;
+  label: string;
+  description?: string;
+  enabled: boolean;
+  control_id: string;
+  edge_id: string;
+  source_node_id?: string;
+  target_node_id?: string;
+  reason?: string;
+};
+
+export type WritingAssetCategory = {
+  authority?: string;
+  category_id: string;
+  title: string;
+  items: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
+};
+
+export type WritingGraphInstanceDesk = {
+  authority: string;
+  projection_authority?: string;
+  graph_task_instance_id: string;
+  instance: GraphTaskInstanceSummary;
+  chapter_index: WritingChapterIndexItem[];
+  current_chapter: Partial<WritingChapterIndexItem> & Record<string, unknown>;
+  reader: {
+    authority?: string;
+    path: string;
+    content: string;
+    content_kind: string;
+    empty?: boolean;
+  };
+  writing_assets: {
+    authority?: string;
+    categories: WritingAssetCategory[];
+    summary?: Record<string, unknown>;
+  };
+  chapter_actions: WritingChapterAction[];
+  node_sessions: SessionSummary[];
+  artifacts: GraphTaskInstanceArtifacts;
+  human_controls?: GraphTaskInstanceHumanControls;
+  file_tree?: GraphTaskInstanceFileTree;
+  graph_debug_ref?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+};
+
 export type HumanEdgeControlView = {
   authority?: string;
   control_id: string;
@@ -4925,6 +4988,14 @@ export async function getGraphTaskInstanceMonitor(instanceId: string, eventLimit
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<GraphTaskInstanceMonitor>(
     `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/monitor?${params.toString()}`
+  );
+}
+
+export async function getWritingGraphInstanceDesk(instanceId: string, eventLimit = 80) {
+  const params = new URLSearchParams();
+  params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
+  return request<WritingGraphInstanceDesk>(
+    `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/desk?${params.toString()}`
   );
 }
 

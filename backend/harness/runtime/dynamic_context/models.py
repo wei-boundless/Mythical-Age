@@ -57,6 +57,7 @@ class DynamicContextProjection:
     stable_runtime_baseline_refs: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_delta: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_projection: dict[str, Any] = field(default_factory=dict)
+    task_state_replay_entries: tuple[dict[str, Any], ...] = ()
     volatile_request_projection: dict[str, Any] = field(default_factory=dict)
     volatile_state_projection: dict[str, Any] = field(default_factory=dict)
     tool_result_refs: tuple[str, ...] = ()
@@ -74,6 +75,12 @@ class DynamicContextProjection:
                 "authority": self.authority,
                 "stable_runtime_baseline_refs": dict(self.stable_runtime_baseline_refs),
                 "dynamic_runtime_delta": dict(self.dynamic_runtime_delta),
+                "task_state_replay_entry_count": len(self.task_state_replay_entries),
+                "task_state_replay_entry_refs": [
+                    str(item.get("observation_ref") or item.get("entry_ref") or "")
+                    for item in self.task_state_replay_entries
+                    if str(item.get("observation_ref") or item.get("entry_ref") or "")
+                ],
                 "tool_result_refs": list(self.tool_result_refs),
                 "observation_refs": list(self.observation_refs),
                 "context_refs": list(self.context_refs),

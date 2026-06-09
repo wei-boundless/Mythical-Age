@@ -7,6 +7,25 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from .models import compact_text, dict_tuple, drop_empty
 
 
+_PROMPT_CACHE_UNSTABLE_REPLAY_KEYS = {
+    "agent_invocation_id",
+    "attempt",
+    "active_contract_revisions",
+    "current_facts",
+    "executor_status",
+    "graph_run_id",
+    "graph_work_order_id",
+    "observations",
+    "pending_user_steers",
+    "runtime_assembly_id",
+    "runtime_controls",
+    "state_refs",
+    "task_run_id",
+    "turn_id",
+    "work_order_id",
+}
+
+
 class TaskStateProjector:
     def project(
         self,
@@ -69,6 +88,162 @@ class TaskStateProjector:
             payload["task_run_state"] = _task_run_state_projection(task_run_state)
             payload["runtime_boundary"] = _runtime_boundary_projection(envelope_projection)
         return drop_empty(payload)
+
+    def split_for_prompt_cache(
+        self,
+        task_state: dict[str, Any],
+        *,
+        replay_entry_limit: int = 12,
+        cursor_result_limit: int = 2,
+        cursor_failure_limit: int = 2,
+    ) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+        state = dict(task_state or {})
+        if not state:
+            return (), {}
+        replay_entries = tuple(
+            _task_state_replay_entries(
+                state,
+                limit=max(1, int(replay_entry_limit or 12)),
+            )
+        )
+        cursor = _task_state_cursor_projection(
+            state,
+            replay_entries=replay_entries,
+            result_limit=max(1, int(cursor_result_limit or 2)),
+            failure_limit=max(1, int(cursor_failure_limit or 2)),
+        )
+        return replay_entries, cursor
+
+
+def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    index_by_key: dict[str, int] = {}
+    for entry_kind, items in (
+        ("tool_result", dict_tuple(task_state.get("latest_tool_results"))),
+        ("active_failure", dict_tuple(task_state.get("active_failures"))),
+        ("historical_failure", dict_tuple(task_state.get("historical_failures"))),
+    ):
+        for item in items:
+            entry = _replay_entry_projection(entry_kind, item)
+            if not entry:
+                continue
+            key = _replay_entry_key(entry)
+            if key in index_by_key:
+                index = index_by_key[key]
+                merged = _merge_projection(entries[index], entry)
+                merged["entry_kind"] = _merged_entry_kind(entries[index].get("entry_kind"), entry.get("entry_kind"))
+                entries[index] = merged
+                continue
+            index_by_key[key] = len(entries)
+            entries.append(entry)
+    return entries[-limit:]
+
+
+def _task_state_cursor_projection(
+    task_state: dict[str, Any],
+    *,
+    replay_entries: tuple[dict[str, Any], ...],
+    result_limit: int,
+    failure_limit: int,
+) -> dict[str, Any]:
+    cursor = dict(task_state or {})
+    latest_results = dict_tuple(cursor.get("latest_tool_results"))
+    active_failures = dict_tuple(cursor.get("active_failures"))
+    if latest_results:
+        cursor["latest_tool_results"] = list(latest_results[-result_limit:])
+    else:
+        cursor.pop("latest_tool_results", None)
+    if active_failures:
+        cursor["active_failures"] = list(active_failures[-failure_limit:])
+    else:
+        cursor.pop("active_failures", None)
+    cursor.pop("historical_failures", None)
+    if replay_entries:
+        cursor["replay_prefix"] = drop_empty(
+            {
+                "entry_count": len(replay_entries),
+                "latest_entry_ref": _entry_ref(replay_entries[-1]),
+                "instruction": (
+                    "上方 task_state_replay_entry 是本任务已发生的工具结果和失败证据。"
+                    "不要重复已经失败或已经完成的同类尝试；若历史证据与当前状态冲突，以当前 task_state 为准。"
+                ),
+                "authority": "harness.runtime.dynamic_context.task_state_replay_cursor",
+            }
+        )
+    return drop_empty(cursor)
+
+
+def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str, Any]:
+    error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
+    projected = drop_empty(
+        {
+            "entry_kind": str(entry_kind or ""),
+            "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+            "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+            "status": str(item.get("status") or ""),
+            "path": _projection_path(item),
+            "visibility": str(item.get("visibility") or ""),
+            "reason": str(item.get("reason") or error.get("code") or ""),
+            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=300),
+            "error": _replay_safe_value(error),
+            "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
+            "artifact_refs": _replay_safe_value(list(dict_tuple(item.get("artifact_refs")))),
+            "replacement_ref": str(item.get("replacement_ref") or ""),
+            "code_structure": _replay_safe_value(dict(item.get("code_structure") or {})),
+            "content_range": _replay_safe_value(dict(item.get("content_range") or {})),
+            "evidence_policy": _replay_safe_value(dict(item.get("evidence_policy") or {})),
+            "preview": compact_text(item.get("preview") or "", limit=1200),
+            "tool_guidance": compact_text(item.get("tool_guidance") or "", limit=500),
+            "rehydration_plan": _replay_safe_value(dict(item.get("rehydration_plan") or {})),
+            "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
+            "authority": "harness.runtime.dynamic_context.task_state_replay_entry",
+        }
+    )
+    if set(projected).issubset({"entry_kind", "authority"}):
+        return {}
+    return projected
+
+
+def _replay_entry_key(entry: dict[str, Any]) -> str:
+    ref = str(entry.get("observation_ref") or "").strip()
+    if ref:
+        return f"observation:{ref}"
+    semantic = _semantic_projection_key(entry)
+    if semantic:
+        return semantic
+    return _ref_projection_key(entry)
+
+
+def _merged_entry_kind(first: Any, second: Any) -> str:
+    kinds = [str(item or "") for item in (first, second) if str(item or "")]
+    if not kinds:
+        return ""
+    ordered = []
+    for kind in kinds:
+        if kind not in ordered:
+            ordered.append(kind)
+    return "+".join(ordered)
+
+
+def _entry_ref(entry: dict[str, Any]) -> str:
+    ref = str(entry.get("observation_ref") or "").strip()
+    if ref:
+        return ref
+    return _replay_entry_key(entry)
+
+
+def _replay_safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _replay_safe_value(item)
+            for key, item in value.items()
+            if str(key) not in _PROMPT_CACHE_UNSTABLE_REPLAY_KEYS
+        }
+    if isinstance(value, list):
+        return [_replay_safe_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_replay_safe_value(item) for item in value]
+    return value
 
 
 def _latest_results(

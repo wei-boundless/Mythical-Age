@@ -25,6 +25,8 @@ def test_native_request_task_run_normalizes_string_completion_criteria_without_c
     )
 
     assert action is not None
+    assert action.public_progress_note == ""
+    assert action.public_action_state.get("next_action") == ""
     seed = action.task_contract_seed
     assert seed["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
     assert seed["required_artifacts"] == [{"artifact_kind": "markdown_document", "user_visible_name": "审查报告"}]

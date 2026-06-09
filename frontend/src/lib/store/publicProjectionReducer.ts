@@ -271,6 +271,9 @@ function stageStatusFromEnvelope(envelope: PublicProjectionEnvelope) {
   if (envelope.surface === "assistant_body") {
     return envelope.terminal?.event === "done" ? "完成" : "";
   }
+  if (envelope.surface === "tool_window") {
+    return envelope.lifecycle === "done" ? "" : "正在思考";
+  }
   const item = latestUsefulItem(projectionItems(envelope));
   return text(item?.title ?? item?.text);
 }

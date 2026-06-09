@@ -1324,7 +1324,7 @@ class ModelRuntime:
             if cache_record is not None:
                 updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
                 stable_prefix_predicted_tokens = int(
-                    dict(updated_cache_record.diagnostics or {}).get("provider_global_prefix_predicted_tokens")
+                    dict(updated_cache_record.diagnostics or {}).get("provider_payload_prefix_predicted_tokens")
                     or dict(updated_cache_record.diagnostics or {}).get("stable_prefix_predicted_tokens")
                     or 0
                 )

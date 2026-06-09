@@ -28,7 +28,18 @@ _SUPPRESSED_TEXT = {
     "completed",
     "running",
     "working",
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在处理",
+    "正在处理当前请求",
+    "正在处理当前请求。",
+    "正在处理任务",
+    "正在建立任务运行",
     "正在建立任务运行。",
+    "已开始处理当前请求",
+    "已开始处理当前请求。",
     "回答已生成并写回会话",
     "会话输出完成",
 }
@@ -92,10 +103,14 @@ def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, An
     if event_type == "task_run_lifecycle_event":
         return [_task_run_lifecycle_item(data)]
     if event_type == "runtime_status":
+        title = _visible_text(data.get("title"))
+        detail = _visible_text(data.get("detail"))
+        if not title and not detail:
+            return []
         return [_status_item(
             item_id=_stable_id("status", str(data.get("runtime_task_run_id") or ""), str(data.get("title") or data.get("detail") or "")),
-            title=_visible_text(data.get("title")) or "正在处理",
-            detail=_visible_text(data.get("detail")),
+            title=title or detail,
+            detail=detail if detail != title else "",
             state=str(data.get("state") or "running"),
             phase=str(data.get("phase") or ""),
         )]
@@ -209,6 +224,14 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         if feedback:
             items.append(feedback)
         return items
+    feedback = _agent_feedback_item_from_model_action(
+        item_id=_stable_id("agent-feedback", str(event.get("event_id") or ""), str(request.get("public_progress_note") or "")),
+        request=request,
+        state="running",
+        trace_ref=str(event.get("event_id") or ""),
+    )
+    if feedback:
+        items.append(feedback)
     tool_name, target = _tool_details_from_event(request)
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-admission", tool_name, target)
     item_id = _work_action_id(data=data, event=event, tool_name=tool_name, target=target, fallback=trace_ref)
@@ -476,9 +499,11 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
             detail=summary,
             state="running",
         )
+    if not summary:
+        return {}
     return _status_item(
         item_id=_stable_id("done", task_run_id, terminal_reason),
-        title=summary or "处理已完成",
+        title=summary,
         state="done",
         phase="done",
     )

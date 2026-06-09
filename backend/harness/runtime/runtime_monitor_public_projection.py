@@ -685,8 +685,6 @@ def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:
             "phase": "waiting",
         }
     return {
-        "title": "开始处理",
-        "detail": payload.get("summary") or payload.get("public_progress_note") or "已开始处理当前请求。",
         "state": "running",
     }
 

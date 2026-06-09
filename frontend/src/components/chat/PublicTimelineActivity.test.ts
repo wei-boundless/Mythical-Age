@@ -538,6 +538,35 @@ describe("PublicTimelineActivity", () => {
     expect(html).toBe("");
   });
 
+  it("does not render generic system status as public activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "status:generic-running",
+            kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "正在处理任务",
+            state: "running",
+          },
+          {
+            item_id: "status:generic-done",
+            kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "处理完成",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toBe("");
+  });
+
   it("preserves markdown paragraphs for model body timeline text", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

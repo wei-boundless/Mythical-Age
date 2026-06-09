@@ -169,6 +169,43 @@ def test_graph_task_definition_can_create_multiple_project_instances(tmp_path: P
     assert {"input", "working", "artifacts", "memory", "logs", "runs"}.issubset(child_names)
 
 
+def test_writing_graph_instance_desk_projects_chapters_assets_and_reader(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _graph("graph.test.writing_desk_projection")
+    _upsert_graph(registry, graph)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作投影项目")
+    files = GraphTaskInstanceFileService(backend_dir)
+    files.write_file(instance.graph_task_instance_id, "chapters/chapter-001.md", "第一章正文")
+    files.write_file(instance.graph_task_instance_id, "outline/outline.md", "大纲")
+    files.write_file(instance.graph_task_instance_id, "characters/characters.md", "角色表")
+    files.write_file(instance.graph_task_instance_id, "chapters/chapter-002.md", "第二章正文")
+
+    original = instance_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        desk = asyncio.run(instance_api.get_writing_graph_instance_desk(instance.graph_task_instance_id))
+    finally:
+        instance_api.require_runtime = original  # type: ignore[assignment]
+
+    assert desk["authority"] == "api.graph_task_instances.writing_desk"
+    assert [item["path"] for item in desk["chapter_index"]] == [
+        "chapters/chapter-001.md",
+        "chapters/chapter-002.md",
+    ]
+    assert desk["current_chapter"]["path"] == "chapters/chapter-002.md"
+    assert desk["reader"]["content"] == "第二章正文"
+    categories = {item["category_id"]: item for item in desk["writing_assets"]["categories"]}
+    assert [item["path"] for item in categories["chapters"]["items"]] == [
+        "chapters/chapter-001.md",
+        "chapters/chapter-002.md",
+    ]
+    assert categories["outline"]["items"][0]["path"] == "outline/outline.md"
+    assert categories["characters"]["items"][0]["path"] == "characters/characters.md"
+    assert desk["summary"]["chapter_count"] == 2
+
+
 def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     registry = TaskFlowRegistry(backend_dir)
@@ -222,6 +259,43 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     assert runtime_scope["artifact_root"].startswith("storage/graph_task_instances/")
     assert "/runs/" in runtime_scope["artifact_root"]
     assert runtime_scope["artifact_root"].endswith("/artifacts")
+
+
+def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _handoff_graph("graph.test.writing_desk_human_actions")
+    _upsert_graph(registry, graph)
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工审核投影项目")
+
+    original_instance_runtime = instance_api.require_runtime
+    original_orchestration_runtime = orchestration_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        asyncio.run(
+            instance_api.start_graph_task_instance_run(
+                instance.graph_task_instance_id,
+                instance_api.GraphTaskInstanceRunStartRequest(
+                    run_mode="dispatch_only",
+                    dispatch_ready=False,
+                ),
+            )
+        )
+        desk = asyncio.run(instance_api.get_writing_graph_instance_desk(instance.graph_task_instance_id))
+    finally:
+        instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
+        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+
+    actions = desk["chapter_actions"]
+    assert [(item["action"], item["decision"], item["label"]) for item in actions] == [
+        ("approve", "pass", "通过本章"),
+        ("replace_with_user_text", "replace", "采用我的改写稿"),
+    ]
+    assert {item["edge_id"] for item in actions} == {"edge.draft.review"}
+    assert desk["summary"]["action_count"] == 2
 
 
 def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edge(tmp_path: Path) -> None:

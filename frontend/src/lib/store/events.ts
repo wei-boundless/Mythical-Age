@@ -1197,7 +1197,7 @@ export function startStreamingTurn(
     retrievals: [],
     runtimeProgress: [],
     runtimePublicTimelineDraft: [],
-    stageStatus: "正在整理上下文"
+    stageStatus: "正在思考"
   };
 
   return {
@@ -1216,13 +1216,12 @@ export function startStreamingTurn(
       ],
       sessionActivity: {
         level: "running",
-        title: "正在整理上下文",
-        detail: "准备判断下一步",
+        title: "正在思考",
+        detail: "",
         event: "user_message",
         receipt: {
           level: "running",
-          title: "正在整理上下文",
-          body: "准备判断下一步",
+          title: "正在思考",
           debug: { event: "user_message" },
         },
         updatedAt: Date.now()

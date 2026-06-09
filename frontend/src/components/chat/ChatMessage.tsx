@@ -23,6 +23,7 @@ export function ChatMessage({
   role,
   content,
   image,
+  stageStatus,
   runtimeAttachments = [],
   runtimePublicTimelineDraft,
   answerChannel,
@@ -100,6 +101,7 @@ export function ChatMessage({
     ? withoutRedundantTaskProjectionFinalAnswers(taskProjections, baseDisplayContent)
     : taskProjections;
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjectionsForActivity);
+  const normalizedStageStatus = !isUser ? String(stageStatus ?? "").trim() : "";
   const askUserQuestionContent = !isUser ? askUserQuestionFromPublicTimelineItems(publicTimelineItems) : "";
   const messageDisplayContent = isUser
     ? baseDisplayContent
@@ -113,6 +115,10 @@ export function ChatMessage({
     || Boolean(image?.src)
     || imageUnavailable
     || Boolean(naturalizedMessageDisplayContent.trim());
+  const shouldRenderStageStatus = !isUser
+    && !shouldRenderContent
+    && !hasPublicTimelineActivity
+    && Boolean(normalizedStageStatus);
   const copyableReplyText = !isUser && shouldRenderContent ? naturalizedMessageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -178,6 +184,11 @@ export function ChatMessage({
       {!isUser && <RetrievalCard results={retrievals} />}
       {!isUser && hasPublicTimelineActivity ? (
         <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjectionsForActivity} />
+      ) : null}
+      {shouldRenderStageStatus ? (
+        <div aria-live="polite" className="chat-message-shell__stage-status">
+          {normalizedStageStatus}
+        </div>
       ) : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>

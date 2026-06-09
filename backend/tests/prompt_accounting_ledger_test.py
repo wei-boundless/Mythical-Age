@@ -184,10 +184,19 @@ def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes()
             "prompt_cache_miss_tokens": 33000,
         },
     )
+    cache_read_only_response = SimpleNamespace(
+        content="ok",
+        usage_metadata={
+            "input_tokens": 1000,
+            "output_tokens": 5,
+            "input_token_details": {"cache_read": 125},
+        },
+    )
 
     openai_usage = extract_provider_usage(openai_response, request_id="modelreq:openai")
     anthropic_usage = extract_provider_usage(anthropic_response, request_id="modelreq:anthropic")
     deepseek_usage = extract_provider_usage(deepseek_response, request_id="modelreq:deepseek")
+    cache_read_only_usage = extract_provider_usage(cache_read_only_response, request_id="modelreq:cache-read")
 
     assert openai_usage is not None
     assert openai_usage.prompt_tokens == 20
@@ -208,6 +217,13 @@ def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes()
     assert deepseek_usage.diagnostics["provider_cache_hit_rate_source"] == "provider_hit_miss_tokens"
     assert deepseek_usage.completion_tokens == 4
     assert deepseek_usage.total_tokens == 37356
+    assert cache_read_only_usage is not None
+    assert cache_read_only_usage.prompt_tokens == 1000
+    assert cache_read_only_usage.cached_tokens == 125
+    assert cache_read_only_usage.cache_miss_tokens == 0
+    assert cache_read_only_usage.diagnostics["provider_cache_hit_rate"] == 0.125
+    assert cache_read_only_usage.diagnostics["provider_cache_hit_rate_source"] == "prompt_tokens"
+    assert cache_read_only_usage.diagnostics["prompt_cache_read_ratio"] == 0.125
 
 
 def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None:
@@ -367,11 +383,13 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "artifact_scope_stable",
         "tool_index_stable",
         "task_contract_stable",
+        "task_state_replay_entry",
         "dynamic_projection",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
         "cacheable_prefix",
+        "session_stable",
         "session_stable",
         "session_stable",
         "session_stable",
@@ -396,9 +414,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert model_request.task_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["prefix_key_tier"] == "task"
     assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 6
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 7
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
-    assert cache_record.diagnostics["task_prefix_segment_count"] == 6
+    assert cache_record.diagnostics["task_prefix_segment_count"] == 7
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -437,7 +455,7 @@ def test_task_prompt_contract_requires_explicit_prompt_contract() -> None:
     assert model_input.count("你是一名运行时提示审查员") == 1
 
 
-def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates() -> None:
+def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     base_kwargs = {
         "session_id": "session:append-only",
         "task_run": {
@@ -478,9 +496,21 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
 
     first_messages = first.packet.model_messages
     second_messages = second.packet.model_messages
-    assert first_messages[:-2] == second_messages[:-2]
-    assert first_messages[-2] == second_messages[-2]
-    assert first_messages[-1] != second_messages[-1]
+    first_replay_messages = [
+        message for message in first_messages if str(message["content"]).startswith("Task execution replayed state evidence")
+    ]
+    second_replay_messages = [
+        message for message in second_messages if str(message["content"]).startswith("Task execution replayed state evidence")
+    ]
+    assert len(first_replay_messages) == 1
+    assert len(second_replay_messages) == 2
+    assert first_replay_messages[0] == second_replay_messages[0]
+    assert "obs:first" in first_replay_messages[0]["content"]
+    assert "obs:second" in second_replay_messages[1]["content"]
+
+    second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
+    assert second_kinds.index("task_state_replay_entry") < second_kinds.index("dynamic_projection")
+    assert second_kinds[-1] == "volatile_task_state"
 
     first_request = ModelRequestBuilder().build(
         request_id="modelreq:first-append-only",
@@ -496,7 +526,11 @@ def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates(
         model="deepseek-v4-pro",
         segment_plan=second.packet.segment_plan,
     )
-    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
+    assert first_request.provider_global_prefix_hash == second_request.provider_global_prefix_hash
+    assert first_request.session_prefix_hash == second_request.session_prefix_hash
+    assert first_request.task_prefix_hash != second_request.task_prefix_hash
+    assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
+    assert second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"].count("task_state_replay_entry") == 2
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
 
@@ -763,8 +797,8 @@ def test_task_execution_prompt_directs_long_artifacts_into_tool_actions() -> Non
 
     model_input = _model_input_text(result.packet)
 
-    assert "每一轮只能提交一个 action JSON" in model_input
-    assert "不要在 JSON 外继续输出正文、代码块、解释或产物内容" in model_input
+    assert "当前持续任务执行协议每次只能提交一个 JSON action" in model_input
+    assert "不要把交付物正文作为普通回答或 Markdown 输出" in model_input
     assert "优先调用 write_file 或 terminal" in model_input
     assert "先写入一个完整可运行的紧凑版本" in model_input
 

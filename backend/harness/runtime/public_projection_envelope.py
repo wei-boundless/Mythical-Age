@@ -22,17 +22,21 @@ def build_public_projection_envelope(
 ) -> dict[str, Any]:
     event_type = _text(public_event_type) or "message"
     payload = dict(data or {})
-    items = [dict(item) for item in list(public_timeline_delta or payload.get("public_timeline_delta") or []) if isinstance(item, dict)]
+    source_items = public_timeline_delta if public_timeline_delta is not None else payload.get("public_timeline_delta")
+    items = [dict(item) for item in list(source_items or []) if isinstance(item, dict)]
     projection = _record(task_projection or payload.get("task_projection_delta") or payload.get("task_projection"))
     anchor = _anchor(payload, projection=projection)
     source_authority, surface = _source_and_surface(event_type, payload, projection=projection)
     terminal = _terminal(event_type, payload)
     if terminal.get("visible") is False:
         items = []
-    if source_authority != "model" or surface != "assistant_body":
-        items = [item for item in items if _text(item.get("slot")) != "body"]
     projected_items = [_projection_item(item) for item in items]
     projected_items = [item for item in projected_items if item]
+    has_model_body_item = any(_is_model_body_projection_item(item) for item in projected_items)
+    if event_type == "model_action_admission" and has_model_body_item:
+        source_authority, surface = "model", "assistant_body"
+    if source_authority != "model" or surface != "assistant_body":
+        projected_items = [item for item in projected_items if _text(item.get("slot")) != "body"]
     envelope = {
         "authority": PUBLIC_PROJECTION_ENVELOPE_AUTHORITY,
         "projection_id": _projection_id(event_type, payload, anchor, sequence),
@@ -189,6 +193,14 @@ def _projection_item(item: dict[str, Any]) -> dict[str, Any]:
     if slot == "body" and (source_authority != "model" or surface != "assistant_body"):
         return {}
     return _compact({**item, "slot": slot, "surface": surface, "source_authority": source_authority})
+
+
+def _is_model_body_projection_item(item: dict[str, Any]) -> bool:
+    return (
+        _text(item.get("slot")) == "body"
+        and _text(item.get("source_authority")) == "model"
+        and _text(item.get("surface")) == "assistant_body"
+    )
 
 
 def _model_action_type(data: dict[str, Any]) -> str:

@@ -17016,6 +17016,17 @@ html[data-workspace-tone] .agent-workbench {
   padding-right: 0;
 }
 
+.agent-workbench .chat-message-shell__stage-status {
+  grid-column: 1;
+  justify-self: start;
+  min-height: 24px;
+  color: #64748b;
+  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
 .agent-workbench .chat-message-shell--user .chat-message-shell__content {
   width: max-content;
   max-width: min(82%, 760px);
@@ -21075,7 +21086,6 @@ body {
 .graph-foreground-panel--create > button,
 .graph-foreground-node-output > button,
 .graph-foreground-session-card > button,
-.graph-foreground-library__editor > button,
 .graph-foreground-library__writer > button,
 .graph-foreground-asset-tabs button {
   min-height: 30px;
@@ -21099,7 +21109,6 @@ body {
 .graph-foreground-panel--create > button:hover,
 .graph-foreground-node-output > button:hover,
 .graph-foreground-session-card > button:hover,
-.graph-foreground-library__editor > button:hover,
 .graph-foreground-library__writer > button:hover,
 .graph-foreground-asset-tabs button:hover,
 .graph-foreground-asset-tabs__active {
@@ -22201,21 +22210,58 @@ body {
   padding: 8px;
 }
 
-.graph-foreground-file-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 8px;
-}
-
 .graph-foreground-mode-switch {
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 7px;
   background: #f8fafc;
   display: inline-flex;
   gap: 3px;
-  margin: 8px 10px 0 0;
+  margin: 0;
   padding: 3px;
+}
+
+.graph-foreground-reader-stage {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-foreground-reader-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+
+.graph-foreground-reader-tools > button {
+  min-height: 30px;
+  border: 1px solid rgba(14, 116, 144, 0.28);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  white-space: nowrap;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.graph-foreground-reader-tools > button:hover {
+  border-color: #0e7490;
+  background: #ecfeff;
+  color: #155e75;
+}
+
+.graph-foreground-edit-path {
+  padding: 0 10px;
+}
+
+.graph-foreground-library__editor .graph-foreground-edit-path label {
+  padding: 8px 0 0;
 }
 
 .graph-foreground-mode-switch button {
@@ -22244,6 +22290,14 @@ body {
   background: #fffbeb;
   margin-top: 8px;
   padding: 8px 10px;
+}
+
+.graph-foreground-chapter-actions--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-top: 0;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.06);
 }
 
 .graph-foreground-chapter-actions > div:last-child {
@@ -22293,6 +22347,26 @@ body {
   font-size: 16px;
   line-height: 1.82;
   padding: 24px clamp(18px, 4vw, 44px);
+}
+
+.graph-foreground-session-screen--focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.graph-foreground-session-screen--focus .graph-foreground-chapter-rail,
+.graph-foreground-session-screen--focus .graph-foreground-session-side,
+.graph-foreground-session-screen--focus .graph-foreground-library__writer,
+.graph-foreground-session-screen--focus .graph-foreground-assets > header {
+  display: none;
+}
+
+.graph-foreground-session-screen--focus .graph-foreground-assets--session {
+  min-height: calc(100vh - 150px);
+}
+
+.graph-foreground-session-screen--focus .graph-foreground-file-preview--reader,
+.graph-foreground-session-screen--focus .graph-foreground-file-editor-textarea {
+  max-height: calc(100vh - 255px);
 }
 
 .graph-foreground-file-preview--reader > * {

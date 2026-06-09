@@ -4,12 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Bot,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
-  Eye,
   FileText,
-  FolderTree,
   GitBranch,
   LayoutDashboard,
   MessageSquare,
@@ -17,16 +13,14 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
-  Save,
   Search,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import {
   createGraphTaskInstance,
   getGraphTaskInstanceFileTree,
   getGraphTaskInstanceMonitor,
+  getWritingGraphInstanceDesk,
   listGraphTaskInstances,
   listGraphTasks,
   readGraphTaskInstanceFile,
@@ -36,13 +30,17 @@ import {
   type GraphTaskDefinitionSummary,
   type HumanEdgeControlView,
   type HumanEdgeDecisionKind,
+  type GraphTaskInstanceHumanControls,
   type GraphTaskInstanceFileTree,
   type GraphTaskInstanceMonitor,
   type GraphTaskInstanceSummary,
   type SessionScope,
   type SessionSummary,
+  type WritingChapterAction,
+  type WritingGraphInstanceDesk,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import { WritingChapterDesk } from "./WritingChapterDesk";
 
 type GraphTaskForegroundViewProps = {
   requestedGraphId?: string;
@@ -70,15 +68,6 @@ type NodeRuntimeCard = {
   title: string;
   updatedAt: unknown;
 };
-
-const FILE_PATH_TEMPLATES = [
-  { label: "任务简报", path: "input/brief.md" },
-  { label: "世界观", path: "world/world.md" },
-  { label: "角色表", path: "characters/characters.md" },
-  { label: "大纲", path: "outline/outline.md" },
-  { label: "正文 001", path: "chapters/chapter-001.md" },
-  { label: "审校记录", path: "review/review-notes.md" },
-] as const;
 
 const INSTANCE_FILTERS: Array<{ label: string; value: InstanceFilter }> = [
   { label: "全部", value: "all" },
@@ -393,8 +382,7 @@ function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null): NodeRu
   });
 }
 
-function humanControlItems(monitor: GraphTaskInstanceMonitor | null): HumanEdgeControlView[] {
-  const controls = monitor?.human_controls;
+function humanControlItemsFromControls(controls: GraphTaskInstanceHumanControls | null | undefined): HumanEdgeControlView[] {
   const pending = Array.isArray(controls?.pending) ? controls.pending : [];
   const available = Array.isArray(controls?.available) ? controls.available : [];
   const byId = new Map<string, HumanEdgeControlView>();
@@ -405,8 +393,17 @@ function humanControlItems(monitor: GraphTaskInstanceMonitor | null): HumanEdgeC
   return Array.from(byId.values());
 }
 
+function humanControlItems(monitor: GraphTaskInstanceMonitor | null): HumanEdgeControlView[] {
+  return humanControlItemsFromControls(monitor?.human_controls);
+}
+
 function humanDecisionHistory(monitor: GraphTaskInstanceMonitor | null): Array<Record<string, unknown>> {
   const history = monitor?.human_controls?.history;
+  return Array.isArray(history) ? history : [];
+}
+
+function humanDecisionHistoryFromControls(controls: GraphTaskInstanceHumanControls | null | undefined): Array<Record<string, unknown>> {
+  const history = controls?.history;
   return Array.isArray(history) ? history : [];
 }
 
@@ -458,6 +455,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [instances, setInstances] = useState<GraphTaskInstanceSummary[]>([]);
   const [selectedInstanceId, setSelectedInstanceId] = useState("");
   const [monitor, setMonitor] = useState<GraphTaskInstanceMonitor | null>(null);
+  const [writingDesk, setWritingDesk] = useState<WritingGraphInstanceDesk | null>(null);
   const [fileTree, setFileTree] = useState<GraphTaskInstanceFileTree | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
@@ -469,9 +467,10 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [graphSearch, setGraphSearch] = useState("");
   const [instanceSearch, setInstanceSearch] = useState("");
   const [instanceFilter, setInstanceFilter] = useState<InstanceFilter>("all");
-  const [fileEditorMode, setFileEditorMode] = useState<FileEditorMode>("edit");
+  const [fileEditorMode, setFileEditorMode] = useState<FileEditorMode>("preview");
   const [assetTab, setAssetTab] = useState<AssetTab>("library");
   const [consoleScreen, setConsoleScreen] = useState<ConsoleScreen>("sessions");
+  const [readerFocusMode, setReaderFocusMode] = useState(false);
   const [selectedHumanControlId, setSelectedHumanControlId] = useState("");
   const [decisionDrawerOpen, setDecisionDrawerOpen] = useState(false);
   const [decisionKind, setDecisionKind] = useState<HumanEdgeDecisionKind>("pass");
@@ -483,6 +482,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [loadingGraphs, setLoadingGraphs] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
   const [loadingMonitor, setLoadingMonitor] = useState(false);
+  const [loadingWritingDesk, setLoadingWritingDesk] = useState(false);
   const [action, setAction] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -536,12 +536,24 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const rootTreeNode = useMemo(() => parseTreeNode(fileTree?.tree), [fileTree]);
   const flatFiles = useMemo(() => flattenFileTree(rootTreeNode), [rootTreeNode]);
   const chapterFiles = useMemo(() => flatFiles.filter(isChapterFile), [flatFiles]);
+  const projectedChapterFiles = useMemo<FileTreeNode[]>(() => {
+    const chapters = Array.isArray(writingDesk?.chapter_index) ? writingDesk.chapter_index : [];
+    return chapters
+      .filter((chapter) => stringValue(chapter.path))
+      .map((chapter) => ({
+        children: [],
+        kind: "file",
+        name: stringValue(chapter.title, stringValue(chapter.path)),
+        path: stringValue(chapter.path),
+      }));
+  }, [writingDesk]);
+  const writingChapterFiles = projectedChapterFiles.length ? projectedChapterFiles : chapterFiles;
   const visibleChapterFiles = useMemo(() => {
-    const files = chapterFiles.length ? chapterFiles : flatFiles;
+    const files = writingChapterFiles.length ? writingChapterFiles : flatFiles;
     const query = normalizedQuery(fileSearch);
     if (!query) return files;
     return files.filter((file) => `${file.name} ${file.path}`.toLowerCase().includes(query));
-  }, [chapterFiles, fileSearch, flatFiles]);
+  }, [fileSearch, flatFiles, writingChapterFiles]);
   const selectedFileName = selectedFilePath
     ? selectedFilePath.split(/[\\/]/).filter(Boolean).at(-1) || selectedFilePath
     : "";
@@ -557,12 +569,22 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     () => selectedNode ? artifacts.filter((artifact) => artifactNodeId(artifact) === selectedNode.nodeId).slice(0, 8) : [],
     [artifacts, selectedNode],
   );
-  const humanControls = useMemo(() => humanControlItems(monitor), [monitor]);
+  const humanControls = useMemo(
+    () => writingDesk?.human_controls ? humanControlItemsFromControls(writingDesk.human_controls) : humanControlItems(monitor),
+    [monitor, writingDesk],
+  );
   const selectedHumanControl = useMemo(
     () => humanControls.find((control) => control.control_id === selectedHumanControlId) ?? humanControls[0] ?? null,
     [humanControls, selectedHumanControlId],
   );
-  const decisionHistory = useMemo(() => humanDecisionHistory(monitor), [monitor]);
+  const decisionHistory = useMemo(
+    () => writingDesk?.human_controls ? humanDecisionHistoryFromControls(writingDesk.human_controls) : humanDecisionHistory(monitor),
+    [monitor, writingDesk],
+  );
+  const chapterActions = useMemo<WritingChapterAction[]>(
+    () => Array.isArray(writingDesk?.chapter_actions) ? writingDesk.chapter_actions : [],
+    [writingDesk],
+  );
   const humanActionCount = humanControls.length;
 
   const loadGraphs = useCallback(async () => {
@@ -588,6 +610,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     if (!graphId) {
       setInstances([]);
       setSelectedInstanceId("");
+      setWritingDesk(null);
       return;
     }
     setLoadingInstances(true);
@@ -644,6 +667,33 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }, []);
 
+  const loadWritingDesk = useCallback(async (instanceId: string, options: { adoptReader?: boolean } = {}) => {
+    if (!instanceId) {
+      setWritingDesk(null);
+      return;
+    }
+    setLoadingWritingDesk(true);
+    try {
+      const payload = await getWritingGraphInstanceDesk(instanceId, 100);
+      setWritingDesk(payload);
+      if (payload.file_tree) {
+        setFileTree(payload.file_tree);
+      }
+      const readerPath = stringValue(payload.reader?.path);
+      const readerContent = String(payload.reader?.content ?? "");
+      if (readerPath && options.adoptReader) {
+        setSelectedFilePath(readerPath);
+        setFileContent(readerContent);
+        setFileEditorMode("preview");
+      }
+    } catch (caught) {
+      setWritingDesk(null);
+      setError(caught instanceof Error ? caught.message : "写作台投影加载失败");
+    } finally {
+      setLoadingWritingDesk(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadGraphs();
   }, [loadGraphs]);
@@ -657,29 +707,33 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   useEffect(() => {
     if (!selectedGraphId) return;
     setMonitor(null);
+    setWritingDesk(null);
     setFileTree(null);
     setSelectedFilePath("");
     setFileContent("");
     setSelectedNodeId("");
     setAssetTab("library");
     setConsoleScreen("sessions");
+    setReaderFocusMode(false);
     void loadInstances(selectedGraphId);
   }, [loadInstances, selectedGraphId]);
 
   useEffect(() => {
     if (!selectedInstanceId) {
       setMonitor(null);
+      setWritingDesk(null);
       setFileTree(null);
       setSelectedNodeId("");
       return;
     }
     void refreshInstance(selectedInstanceId);
-  }, [refreshInstance, selectedInstanceId]);
+    void loadWritingDesk(selectedInstanceId, { adoptReader: true });
+  }, [loadWritingDesk, refreshInstance, selectedInstanceId]);
 
   useEffect(() => {
-    if (!selectedInstanceId || (assetTab !== "library" && consoleScreen !== "sessions")) return;
+    if (!selectedInstanceId || writingDesk?.file_tree || (assetTab !== "library" && consoleScreen !== "sessions")) return;
     void loadProjectFileTree(selectedInstanceId);
-  }, [assetTab, consoleScreen, loadProjectFileTree, selectedInstanceId]);
+  }, [assetTab, consoleScreen, loadProjectFileTree, selectedInstanceId, writingDesk]);
 
   useEffect(() => {
     if (!selectedGraph) return;
@@ -729,6 +783,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setNewInstanceDescription("");
       setNotice("项目实例已创建。");
       await refreshInstance(payload.instance.graph_task_instance_id);
+      await loadWritingDesk(payload.instance.graph_task_instance_id, { adoptReader: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建项目实例失败");
     } finally {
@@ -769,6 +824,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setConsoleScreen("sessions");
       setNotice("运行已提交后台。");
       await refreshInstance(payload.instance.graph_task_instance_id);
+      await loadWritingDesk(payload.instance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "启动图任务运行失败");
     } finally {
@@ -814,6 +870,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       await writeGraphTaskInstanceFile(selectedInstance.graph_task_instance_id, selectedFilePath.trim(), fileContent);
       setNotice(`已保存 ${selectedFilePath.trim()}`);
       await refreshInstance(selectedInstance.graph_task_instance_id);
+      await loadWritingDesk(selectedInstance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存项目文件失败");
     } finally {
@@ -834,6 +891,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setNewFileContent("");
       setNotice(`已写入 ${payload.path}`);
       await refreshInstance(selectedInstance.graph_task_instance_id);
+      await loadWritingDesk(selectedInstance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "写入项目文件失败");
     } finally {
@@ -850,6 +908,11 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     setDecisionReplacePath(selectedFilePath || "chapters/chapter-001.md");
     setDecisionReplaceContent(fileContent);
     setDecisionDrawerOpen(true);
+  }
+
+  function openChapterAction(chapterAction: WritingChapterAction) {
+    const control = humanControls.find((item) => item.control_id === chapterAction.control_id) ?? selectedHumanControl;
+    openHumanDecision(control, chapterAction.decision);
   }
 
   async function submitHumanDecision() {
@@ -893,6 +956,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         await loadProjectFileTree(selectedInstance.graph_task_instance_id);
       }
       await refreshInstance(selectedInstance.graph_task_instance_id);
+      await loadWritingDesk(selectedInstance.graph_task_instance_id);
       setNotice(`${writingDecisionLabel(decisionKind)}已应用。`);
       setDecisionDrawerOpen(false);
     } catch (caught) {
@@ -1127,9 +1191,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
               <em className={`graph-foreground-status graph-foreground-status--${statusTone(selectedInstance.status)}`}>
                 {statusLabel(selectedInstance.status)}
               </em>
-              <button disabled={loadingMonitor} onClick={() => void refreshInstance(selectedInstance.graph_task_instance_id)} type="button">
+              <button disabled={loadingMonitor || loadingWritingDesk} onClick={() => { void refreshInstance(selectedInstance.graph_task_instance_id); void loadWritingDesk(selectedInstance.graph_task_instance_id); }} type="button">
                 <RefreshCw size={14} />
-                <span>{loadingMonitor ? "刷新中" : "刷新监控"}</span>
+                <span>{loadingMonitor || loadingWritingDesk ? "刷新中" : "刷新项目"}</span>
               </button>
             </div>
           </section>
@@ -1338,244 +1402,46 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             </aside>
           </div>
           ) : (
-          <div className="graph-foreground-session-screen">
-            <aside className="graph-foreground-chapter-rail" aria-label="章节文件">
-              <header>
-                <div>
-                  <span>章节</span>
-                  <strong>{chapterFiles.length || flatFiles.length} 个文件</strong>
-                </div>
-                <FileText size={15} />
-              </header>
-              <label className="graph-foreground-search">
-                <Search size={14} />
-                <input onChange={(event) => setFileSearch(event.target.value)} placeholder="搜索章节或文件" value={fileSearch} />
-              </label>
-              <div className="graph-foreground-chapter-list">
-                {visibleChapterFiles.slice(0, 120).map((file) => (
-                  <button
-                    className={selectedFilePath === file.path ? "graph-foreground-chapter-row graph-foreground-chapter-row--active" : "graph-foreground-chapter-row"}
-                    key={file.path}
-                    onClick={() => void loadFile(file.path)}
-                    type="button"
-                  >
-                    <strong>{file.name}</strong>
-                    <small>{file.path}</small>
-                  </button>
-                ))}
-                {!flatFiles.length ? <div className="boundary-empty">正式库还没有可查看文件。</div> : null}
-                {flatFiles.length && !visibleChapterFiles.length ? <div className="boundary-empty">没有匹配的章节或文件。</div> : null}
-              </div>
-            </aside>
-
-          <section className="graph-foreground-assets graph-foreground-assets--session" aria-label="项目资产区">
-            <header>
-              <div>
-                <span>写作台</span>
-                <strong>{assetTab === "library" ? "正文阅读" : "运行产物"}</strong>
-              </div>
-              <div className="graph-foreground-asset-tabs" role="tablist" aria-label="项目资产页签">
-                <button aria-selected={assetTab === "library"} className={assetTab === "library" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("library")} type="button">
-                  <FolderTree size={13} />
-                  正文
-                </button>
-                <button aria-selected={assetTab === "artifacts"} className={assetTab === "artifacts" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("artifacts")} type="button">
-                  <FileText size={13} />
-                  运行产物
-                </button>
-              </div>
-            </header>
-            {assetTab === "library" ? (
-              <div className="graph-foreground-library__body graph-foreground-library__body--session">
-                <div className="graph-foreground-library__editor">
-                  <div className="graph-foreground-reader-head">
-                    <div>
-                      <span>文章阅读</span>
-                      <strong>{selectedFileName || "选择章节开始阅读"}</strong>
-                      <small>{selectedFilePath || "从左侧章节列表打开项目文件"}</small>
-                    </div>
-                    <div className="graph-foreground-reader-nav" aria-label="章节切换">
-                      <button disabled={!previousChapterFile} onClick={() => previousChapterFile && void loadFile(previousChapterFile.path)} type="button">
-                        <ChevronLeft size={14} />
-                        <span>上一章</span>
-                      </button>
-                      <button disabled={!nextChapterFile} onClick={() => nextChapterFile && void loadFile(nextChapterFile.path)} type="button">
-                        <span>下一章</span>
-                        <ChevronRight size={14} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="graph-foreground-file-head">
-                    <label>
-                      <span>当前文件</span>
-                      <input onChange={(event) => setSelectedFilePath(event.target.value)} placeholder="选择或输入文件路径" value={selectedFilePath} />
-                    </label>
-                    <div className="graph-foreground-mode-switch" role="group" aria-label="文件显示模式">
-                      <button aria-pressed={fileEditorMode === "edit"} className={fileEditorMode === "edit" ? "graph-foreground-mode-switch__active" : undefined} onClick={() => setFileEditorMode("edit")} type="button">
-                        <PencilLine size={13} />
-                        编辑
-                      </button>
-                      <button aria-pressed={fileEditorMode === "preview"} className={fileEditorMode === "preview" ? "graph-foreground-mode-switch__active" : undefined} onClick={() => setFileEditorMode("preview")} type="button">
-                        <Eye size={13} />
-                        阅读
-                      </button>
-                    </div>
-                  </div>
-                  <div className="graph-foreground-chapter-actions" aria-label="章节传播动作">
-                    <div>
-                      <span>章节审核</span>
-                      <strong>{selectedHumanControl ? controlTitle(selectedHumanControl) : "当前无可处理边"}</strong>
-                    </div>
-                    <div>
-                      {(["pass", "revise", "replace"] as HumanEdgeDecisionKind[]).map((kind) => {
-                        const enabled = Boolean(selectedHumanControl?.allowed_decisions.includes(kind));
-                        return (
-                          <button disabled={!enabled || action === "human-edge-decision"} key={kind} onClick={() => openHumanDecision(selectedHumanControl, kind)} type="button">
-                            {kind === "replace" ? <PencilLine size={13} /> : kind === "revise" ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
-                            <span>{writingDecisionLabel(kind)}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {fileEditorMode === "edit" ? (
-                    <textarea className="graph-foreground-file-editor-textarea" onChange={(event) => setFileContent(event.target.value)} placeholder="选择文件后编辑内容" value={fileContent} />
-                  ) : (
-                    <div className="graph-foreground-file-preview graph-foreground-file-preview--reader markdown">
-                      {fileContent.trim() ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {fileContent}
-                        </ReactMarkdown>
-                      ) : (
-                        <div className="graph-foreground-reader-empty">
-                          <FileText size={22} />
-                          <strong>选择一章开始阅读</strong>
-                          <span>左侧会列出正式库里的章节或文件。</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <button disabled={!selectedFilePath.trim() || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
-                    <Save size={14} />
-                    <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
-                  </button>
-                </div>
-                <div className="graph-foreground-library__writer">
-                  <label>
-                    <span>写入正文库</span>
-                    <input onChange={(event) => setNewFilePath(event.target.value)} placeholder="input/brief.md" value={newFilePath} />
-                  </label>
-                  <div className="graph-foreground-template-grid">
-                    {FILE_PATH_TEMPLATES.map((template) => (
-                      <button className={newFilePath === template.path ? "graph-foreground-template-grid__active" : undefined} key={template.path} onClick={() => setNewFilePath(template.path)} type="button">
-                        <strong>{template.label}</strong>
-                        <small>{template.path}</small>
-                      </button>
-                    ))}
-                  </div>
-                  <textarea onChange={(event) => setNewFileContent(event.target.value)} placeholder="输入要写入项目正式库的内容" value={newFileContent} />
-                  <button disabled={!newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
-                    <FileText size={14} />
-                    <span>{action === "write-file" ? "写入中" : "写入正文库"}</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="graph-foreground-artifacts-pane">
-                <label className="graph-foreground-search">
-                  <Search size={14} />
-                  <input onChange={(event) => setArtifactSearch(event.target.value)} placeholder="搜索产物" value={artifactSearch} />
-                </label>
-                <div className="graph-foreground-artifact-list">
-                  {filteredArtifacts.slice(0, 80).map((artifact) => {
-                    const path = stringValue(artifact.path);
-                    return (
-                      <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
-                        <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
-                        <small>{path || "没有文件路径"}</small>
-                        <span>{numberValue(artifact.size)} bytes · {timestampLabel(artifact.updated_at)}</span>
-                      </button>
-                    );
-                  })}
-                  {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
-                  {artifacts.length && !filteredArtifacts.length ? <div className="boundary-empty">没有匹配的运行产物。</div> : null}
-                </div>
-              </div>
-            )}
-          </section>
-
-            <aside className="graph-foreground-session-side" aria-label="节点会话和产物">
-              <section className="graph-foreground-panel graph-foreground-session-card">
-                <header>
-                  <div>
-                    <span>节点会话</span>
-                    <strong>{selectedNode?.title || "选择节点"}</strong>
-                  </div>
-                  <MessageSquare size={15} />
-                </header>
-                <div className="graph-foreground-node-list">
-                  {nodeCards.map((node) => (
-                    <button
-                      aria-current={selectedNode?.nodeId === node.nodeId ? "true" : undefined}
-                      className={classNames("graph-foreground-node-list-row", selectedNode?.nodeId === node.nodeId && "graph-foreground-node-list-row--active")}
-                      key={node.nodeId}
-                      onClick={() => setSelectedNodeId(node.nodeId)}
-                      type="button"
-                    >
-                      <span>{statusLabel(node.status)}</span>
-                      <strong>{node.title}</strong>
-                      <small>{node.session ? `${node.session.message_count ?? 0} 条消息` : "暂无会话"}</small>
-                    </button>
-                  ))}
-                  {!nodeCards.length ? <div className="boundary-empty">暂无节点会话。</div> : null}
-                </div>
-                <button disabled={!selectedNode?.session} onClick={() => void openSession(selectedNode?.session ?? null)} type="button">
-                  <MessageSquare size={14} />
-                  <span>{selectedNode?.session ? "打开节点会话" : "暂无节点会话"}</span>
-                </button>
-              </section>
-
-              <section className="graph-foreground-panel graph-foreground-session-card">
-                <header>
-                  <div>
-                    <span>运行产物</span>
-                    <strong>{artifacts.length} 个产物</strong>
-                  </div>
-                  <FolderTree size={15} />
-                </header>
-                <div className="graph-foreground-artifact-list graph-foreground-artifact-list--side">
-                  {filteredArtifacts.slice(0, 30).map((artifact) => {
-                    const path = stringValue(artifact.path);
-                    return (
-                      <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
-                        <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
-                        <small>{path || "没有文件路径"}</small>
-                      </button>
-                    );
-                  })}
-                  {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
-                </div>
-              </section>
-              <section className="graph-foreground-panel graph-foreground-session-card">
-                <header>
-                  <div>
-                    <span>审核记录</span>
-                    <strong>{decisionHistory.length} 条记录</strong>
-                  </div>
-                  <GitBranch size={15} />
-                </header>
-                <div className="graph-foreground-human-history">
-                  {decisionHistory.slice(0, 12).map((item) => (
-                    <article key={stringValue(item.decision_id, `${item.edge_id}-${item.created_at}`)}>
-                      <strong>{stringValue(item.decision, "decision")} · {stringValue(item.edge_id, "edge")}</strong>
-                      <span>{stringValue(item.status, "submitted")} · {timestampLabel(item.updated_at ?? item.created_at)}</span>
-                    </article>
-                  ))}
-                  {!decisionHistory.length ? <div className="boundary-empty">章节审核记录会显示在这里。</div> : null}
-                </div>
-              </section>
-            </aside>
-          </div>
+          <WritingChapterDesk
+            action={action}
+            artifactSearch={artifactSearch}
+            artifacts={artifacts}
+            assetTab={assetTab}
+            chapterActions={chapterActions}
+            chapterFiles={writingChapterFiles}
+            decisionHistory={decisionHistory}
+            fileContent={fileContent}
+            fileEditorMode={fileEditorMode}
+            fileSearch={fileSearch}
+            filteredArtifacts={filteredArtifacts}
+            flatFiles={flatFiles}
+            focusMode={readerFocusMode}
+            loadFile={loadFile}
+            newFileContent={newFileContent}
+            newFilePath={newFilePath}
+            nextChapterFile={nextChapterFile}
+            nodeCards={nodeCards}
+            openChapterAction={openChapterAction}
+            openSession={openSession}
+            previousChapterFile={previousChapterFile}
+            saveSelectedFile={saveSelectedFile}
+            selectedFileName={selectedFileName}
+            selectedFilePath={selectedFilePath}
+            selectedHumanControl={selectedHumanControl}
+            selectedNode={selectedNode}
+            setArtifactSearch={setArtifactSearch}
+            setAssetTab={setAssetTab}
+            setFileContent={setFileContent}
+            setFileEditorMode={setFileEditorMode}
+            setFileSearch={setFileSearch}
+            setFocusMode={setReaderFocusMode}
+            setNewFileContent={setNewFileContent}
+            setNewFilePath={setNewFilePath}
+            setSelectedFilePath={setSelectedFilePath}
+            setSelectedNodeId={setSelectedNodeId}
+            visibleChapterFiles={visibleChapterFiles}
+            writeNewFile={writeNewFile}
+          />
           )}
         </div>
       )}

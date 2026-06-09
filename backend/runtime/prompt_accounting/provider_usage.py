@@ -86,6 +86,19 @@ def extract_provider_usage(
         total_tokens = prompt_tokens + completion_tokens + reasoning_tokens
     if prompt_tokens <= 0 and completion_tokens <= 0 and total_tokens <= 0 and cached_tokens <= 0:
         return None
+    prompt_cache_read_ratio = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
+    provider_cache_hit_rate = (
+        round(cached_tokens / (cached_tokens + provider_cache_miss_tokens), 4)
+        if provider_hit_miss_available and (cached_tokens + provider_cache_miss_tokens) > 0
+        else prompt_cache_read_ratio
+    )
+    provider_cache_hit_rate_source = (
+        "provider_hit_miss_tokens"
+        if provider_hit_miss_available
+        else "prompt_tokens"
+        if prompt_tokens > 0
+        else ""
+    )
     timestamp = time.time() if created_at is None else float(created_at or 0.0)
     return ModelTokenUsageRecord(
         usage_id=f"tokuse:{request_id}:provider_usage",
@@ -109,12 +122,9 @@ def extract_provider_usage(
             "raw_usage_keys": sorted(str(key) for key in usage.keys()),
             "provider_cache_hit_tokens": cached_tokens,
             "provider_cache_miss_tokens": provider_cache_miss_tokens,
-            "provider_cache_hit_rate": round(cached_tokens / (cached_tokens + provider_cache_miss_tokens), 4)
-            if (cached_tokens + provider_cache_miss_tokens) > 0
-            else 0.0,
-            "provider_cache_hit_rate_source": "provider_hit_miss_tokens"
-            if provider_hit_miss_available
-            else "",
+            "provider_cache_hit_rate": provider_cache_hit_rate,
+            "provider_cache_hit_rate_source": provider_cache_hit_rate_source,
+            "prompt_cache_read_ratio": prompt_cache_read_ratio,
         },
     )
 

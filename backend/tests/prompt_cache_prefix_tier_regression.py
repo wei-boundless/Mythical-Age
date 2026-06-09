@@ -689,6 +689,14 @@ def test_prompt_cache_planner_uses_provider_payload_boundary_for_stable_tool_sch
     assert cache_record.diagnostics["prefix_hash_source"] == "provider_payload_manifest"
     assert cache_record.diagnostics["provider_payload_tool_prefix_segment_count"] == 1
     assert cache_record.diagnostics["tool_catalog_hash"] == model_request.tool_catalog_hash
+    tool_schema_segment = next(segment for segment in segment_map.segments if segment.kind == "tool_schema_catalog")
+    assert cache_record.diagnostics["provider_payload_tool_prefix_predicted_tokens"] == tool_schema_segment.predicted_tokens
+    assert cache_record.diagnostics["provider_payload_prefix_predicted_tokens"] == (
+        cache_record.diagnostics["provider_payload_message_prefix_predicted_tokens"]
+        + tool_schema_segment.predicted_tokens
+    )
+    assert cache_record.diagnostics["stable_prefix_predicted_tokens"] == cache_record.diagnostics["provider_payload_prefix_predicted_tokens"]
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == cache_record.diagnostics["provider_payload_stable_segment_count"]
 
     changed_request = ModelRequestBuilder().build(
         request_id="modelreq:provider-payload-cache-boundary:changed",
