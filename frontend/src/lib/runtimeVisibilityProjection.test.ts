@@ -237,10 +237,12 @@ describe("runtimeVisibilityProjection", () => {
     });
     expect(requested.progressEntry).toMatchObject({
       kind: "tool",
+      body: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",
       toolName: "write_file",
       runId: "turnrun:turn:session-a:7",
       statusText: "写入中",
     });
+    expect(requested.progressEntry?.publicNote).toBeUndefined();
     expect(returned).toMatchObject({
       activityTitle: "写入完成",
       activityDetail: "storage/task_environments/general/workspace/artifacts/wuxia_rpg/templates/index.html",

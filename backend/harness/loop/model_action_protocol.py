@@ -3,9 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from harness.loop.active_work import active_work_action_from_payload
-
-
 ModelActionType = Literal[
     "respond",
     "ask_user",
@@ -139,9 +136,9 @@ def model_action_request_from_payload(
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
-    if require_public_progress_note and not public_progress_note:
+    if require_public_progress_note and action_type != "tool_call" and not public_progress_note:
         errors.append("public_progress_note_required")
-    if require_public_action_state and not _has_public_action_state(public_action_state):
+    if require_public_action_state and action_type != "tool_call" and not _has_public_action_state(public_action_state):
         errors.append("public_action_state_required")
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
@@ -163,6 +160,8 @@ def model_action_request_from_payload(
         if not plan_id:
             errors.append("plan_id_required_for_request_registered_engagement")
     if action_type == "active_work_control":
+        from harness.loop.active_work import active_work_action_from_payload
+
         action = active_work_action_from_payload({
             **dict(raw),
             **dict(active_work_control),

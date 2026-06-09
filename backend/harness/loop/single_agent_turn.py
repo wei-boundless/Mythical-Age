@@ -2269,13 +2269,12 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
-        public_note = _native_tool_public_progress_note(tool_name, args)
         return ModelActionRequest(
             request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{_stable_action_suffix(call_id or tool_name)}",
             turn_id=turn_id,
             action_type="tool_call",
-            public_progress_note=public_note,
-            public_action_state={"current_judgment": public_note, "completion_status": "waiting_for_tool"},
+            public_progress_note="",
+            public_action_state={"completion_status": "waiting_for_tool"},
             tool_call={"tool_name": tool_name, "name": tool_name, "id": call_id, "args": args},
             diagnostics={
                 "origin_kind": "single_agent_turn_native_tool_call",
@@ -2289,24 +2288,6 @@ def _tool_action_request_from_native_tool_calls(
             },
         )
     return None
-
-
-def _native_tool_public_progress_note(tool_name: str, args: dict[str, Any]) -> str:
-    normalized = str(tool_name or "").strip().lower()
-    target = _native_tool_public_target(args)
-    if normalized in {"search_text", "search_files", "glob_paths"} or any(token in normalized for token in ("search", "grep", "glob")):
-        return f"我先搜索 {target} 的相关引用，再根据结果判断下一步。" if target else "我先定位相关引用，再根据结果判断下一步。"
-    if normalized in {"read_file", "read_path"} or "read" in normalized:
-        return f"我先读取 {target}，把判断建立在真实上下文上。" if target else "我先读取相关上下文，再继续判断。"
-    if normalized in {"path_exists", "stat_path", "list_dir"}:
-        return f"我先确认 {target} 的当前状态。" if target else "我先确认目标状态，再继续推进。"
-    if normalized in {"write_file", "edit_file", "apply_patch"} or any(token in normalized for token in ("write", "edit", "patch")):
-        return f"我会更新 {target}，随后验证改动是否生效。" if target else "我会先落下改动，再验证结果。"
-    if normalized in {"terminal", "shell", "run_command", "powershell"} or any(token in normalized for token in ("terminal", "shell", "command")):
-        return "我会运行必要的验证命令，再根据结果判断是否继续修正。"
-    if normalized in {"image_generate", "image_generation", "generate_image"}:
-        return "我会生成图像资源，拿到结果后确认是否可用。"
-    return "我先执行当前必要动作，拿到结果后再继续判断。"
 
 
 def _native_tool_public_target(args: dict[str, Any]) -> str:
@@ -2361,7 +2342,7 @@ def _active_work_action_request_from_native_tool_calls(
             request_id=f"model-action:{turn_id}:single-agent-active-work-control",
             turn_id=turn_id,
             action_type="active_work_control",
-            public_progress_note="正在处理当前工作控制请求。",
+            public_progress_note="",
             active_work_control=active_work_control,
             diagnostics={
                 "origin_kind": "single_agent_turn_native_action",

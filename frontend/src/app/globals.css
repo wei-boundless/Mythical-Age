@@ -21096,7 +21096,9 @@ body {
 .graph-task-instance-workbench__actions button,
 .graph-task-instance-hero__status button,
 .graph-task-instance-panel--create button,
-.graph-task-file-editor button {
+.graph-task-file-editor > button,
+.graph-task-file-toolbar button,
+.graph-task-artifact-toolbar button {
   border: 1px solid rgba(14, 116, 144, 0.28);
   border-radius: 7px;
   background: #ffffff;
@@ -21115,7 +21117,9 @@ body {
 .graph-task-instance-workbench__actions button:hover,
 .graph-task-instance-hero__status button:hover,
 .graph-task-instance-panel--create button:hover,
-.graph-task-file-editor button:hover {
+.graph-task-file-editor > button:hover,
+.graph-task-file-toolbar button:hover,
+.graph-task-artifact-toolbar button:hover {
   border-color: #0e7490;
   background: #ecfeff;
   color: #155e75;
@@ -21182,7 +21186,8 @@ body {
 
 .graph-task-instance-workbench__rail,
 .graph-task-instance-workbench__files,
-.graph-task-instance-workbench__main {
+.graph-task-instance-workbench__main,
+.graph-task-instance-workbench__sessions {
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -21198,8 +21203,19 @@ body {
   align-items: start;
 }
 
+.graph-task-instance-workbench__main {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.graph-task-instance-workbench__sessions {
+  grid-column: 2;
+  grid-row: 3;
+}
+
 .graph-task-instance-workbench__rail {
-  grid-row: 1 / span 2;
+  grid-column: 1;
+  grid-row: 1 / span 3;
 }
 
 .graph-task-instance-panel,
@@ -21267,6 +21283,59 @@ body {
   max-height: 360px;
 }
 
+.graph-task-file-toolbar,
+.graph-task-artifact-toolbar {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.graph-task-artifact-toolbar {
+  background: #f8fafc;
+}
+
+.graph-task-filter-input {
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 7px;
+  background: #ffffff;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  min-width: 0;
+  padding: 0 9px;
+  width: 100%;
+}
+
+.graph-task-filter-input svg {
+  color: #64748b;
+}
+
+.graph-task-filter-input input {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #0f172a;
+  font: inherit;
+  line-height: 1.45;
+  min-width: 0;
+  padding: 0;
+}
+
+.graph-task-filter-input input:focus {
+  outline: 0;
+}
+
+.graph-task-file-toolbar button,
+.graph-task-artifact-toolbar button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
 .graph-task-definition-row,
 .graph-task-instance-row,
 .graph-task-node-session-row,
@@ -21298,7 +21367,8 @@ body {
 .graph-task-definition-row--active,
 .graph-task-instance-row--active,
 .graph-task-node-session-row--active,
-.graph-task-file-tree__row--active {
+.graph-task-file-tree__row--active,
+.graph-task-artifact-list__row--active {
   border-color: rgba(14, 116, 144, 0.48);
   background: #ecfeff;
 }
@@ -21402,7 +21472,7 @@ body {
 }
 
 .graph-task-instance-panel--create button,
-.graph-task-file-editor button {
+.graph-task-file-editor > button {
   margin: 10px 12px 0;
 }
 
@@ -21583,9 +21653,123 @@ body {
   padding-bottom: 12px;
 }
 
+.graph-task-file-editor__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graph-task-file-editor-mode {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 7px;
+  background: #f8fafc;
+  display: inline-flex;
+  gap: 3px;
+  margin: 10px 12px 0 0;
+  padding: 3px;
+}
+
+.graph-task-file-editor-mode button {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.graph-task-file-editor-mode button:hover {
+  background: #ffffff;
+  color: #155e75;
+}
+
+.graph-task-file-editor-mode__button--active,
+.graph-task-file-editor-mode__button--active:hover {
+  border-color: rgba(14, 116, 144, 0.22) !important;
+  background: #ffffff !important;
+  color: #0e7490 !important;
+}
+
 .graph-task-file-editor textarea {
   margin: 10px 12px 0;
   width: calc(100% - 24px);
+}
+
+.graph-task-file-preview {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1e293b;
+  line-height: 1.65;
+  margin: 10px 12px 0;
+  max-height: 430px;
+  min-height: 286px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 12px 14px;
+  width: calc(100% - 24px);
+}
+
+.graph-task-file-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+
+.graph-task-file-template-grid button {
+  border: 1px solid rgba(217, 119, 6, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #334155;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  min-height: 48px;
+  margin: 0;
+  min-width: 0;
+  padding: 7px 8px;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.graph-task-file-template-grid button:hover {
+  border-color: rgba(217, 119, 6, 0.38);
+  background: #ffffff;
+  color: #92400e;
+}
+
+.graph-task-file-template-grid__button--active,
+.graph-task-file-template-grid__button--active:hover {
+  border-color: rgba(217, 119, 6, 0.52) !important;
+  background: #fffbeb !important;
+  color: #92400e !important;
+}
+
+.graph-task-file-template-grid span,
+.graph-task-file-template-grid small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-task-file-template-grid span {
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.graph-task-file-template-grid small {
+  color: #64748b;
+  font-size: 11px;
 }
 
 .graph-task-file-editor--new {
@@ -21610,16 +21794,20 @@ body {
 .graph-task-file-panel__editor-stack {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  grid-template-columns: 1fr;
   align-items: stretch;
 }
 
 .graph-task-file-panel__editor-stack .graph-task-file-editor + .graph-task-file-editor {
-  border-left: 1px solid rgba(15, 23, 42, 0.08);
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .graph-task-artifact-list button {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.graph-task-artifact-list button:disabled {
+  background: #f8fafc;
 }
 
 @media (max-width: 1280px) {
@@ -21636,9 +21824,17 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .graph-task-instance-workbench__sessions {
+    grid-column: 1 / -1;
+  }
+
   .graph-task-file-panel__body,
   .graph-task-file-panel__editor-stack {
     grid-template-columns: 1fr;
+  }
+
+  .graph-task-file-template-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .graph-task-file-panel__browser,
@@ -21657,7 +21853,9 @@ body {
   }
 
   .graph-task-instance-workbench__rail,
-  .graph-task-instance-workbench__files {
+  .graph-task-instance-workbench__main,
+  .graph-task-instance-workbench__files,
+  .graph-task-instance-workbench__sessions {
     grid-column: 1;
     grid-row: auto;
   }
@@ -21693,5 +21891,25 @@ body {
   .graph-task-node-session-row span {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .graph-task-file-toolbar,
+  .graph-task-artifact-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .graph-task-file-editor__head {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .graph-task-file-editor-mode {
+    align-self: flex-start;
+    margin: 0 12px;
+  }
+
+  .graph-task-file-template-grid {
+    grid-template-columns: 1fr;
   }
 }

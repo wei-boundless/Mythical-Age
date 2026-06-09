@@ -580,15 +580,13 @@ function turnModelActionAdmissionProjection(eventType: string, data: Record<stri
   const allowed = text(admission.decision) !== "deny";
   const title = allowed ? activity.startedTitle : "工具请求受限";
   const detail = allowed ? activity.display : publicRuntimeText(admission.user_visible_reason ?? admission.system_reason) || activity.display;
-  const publicNote = publicRuntimeText(actionRequest.public_progress_note);
   return {
     stageStatus: `${title} ${detail}`.trim(),
     activityTitle: title,
     activityDetail: detail,
     level: allowed ? "running" : "warning",
     progressEntry: entry(eventType, `${title} ${detail}`.trim(), {
-      body: publicNote || preview || "已发起工具请求",
-      publicNote,
+      body: preview || detail || "已发起工具请求",
       kind: "tool",
       statusText: allowed ? activity.statusRunning : "受限",
       toolName,

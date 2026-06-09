@@ -192,47 +192,52 @@ def build_progress_presentation(
 def _apply_model_action(unit: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     action_type = _text(action.get("action_type"))
     progress_note = action.get("public_progress_note")
-    _set_if_visible(unit, "agent_feedback", progress_note)
     if action_type == "tool_call":
         _apply_tool_action(unit, action, {}, event)
-        _set_if_visible(unit, "action", progress_note or unit.get("action"))
     elif action_type == "respond":
+        _set_if_visible(unit, "agent_feedback", progress_note)
         _set_if_better(unit, "kind", "terminal")
         _set_if_better(unit, "title", "正在整理回复")
         _set_if_visible(unit, "action", progress_note)
         _set_if_better(unit, "state", "running")
     elif action_type == "ask_user":
+        _set_if_visible(unit, "agent_feedback", progress_note)
         _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "等待补充信息")
         _set_if_visible(unit, "action", progress_note or action.get("user_question"))
         _set_if_better(unit, "state", "waiting")
     elif action_type == "block":
+        _set_if_visible(unit, "agent_feedback", progress_note)
         _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "当前步骤受阻")
         _set_if_visible(unit, "judgment", action.get("blocking_reason") or progress_note)
         _set_if_better(unit, "state", "error")
     else:
+        _set_if_visible(unit, "agent_feedback", progress_note)
         _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "正在思考")
         _set_if_visible(unit, "action", progress_note or "正在思考。")
         _set_if_better(unit, "state", "running")
-    _apply_agent_public_action_state(unit, action=action, public_state=_record(action.get("public_action_state")))
+    if action_type != "tool_call":
+        _apply_agent_public_action_state(unit, action=action, public_state=_record(action.get("public_action_state")))
     _append_trace_ref(unit, event)
 
 
 def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     public_state = _record(payload.get("public_action_state"))
     completion_status = payload.get("completion_status") or public_state.get("completion_status")
+    action_type = _text(action.get("action_type") or payload.get("action_type"))
     if action:
         _apply_model_action(unit, action, event)
     else:
         _set_if_better(unit, "kind", "stage")
         _set_if_better(unit, "title", "正在思考")
-    _set_if_visible(unit, "agent_feedback", payload.get("public_progress_note") or payload.get("summary"))
-    _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary") or "正在思考。")
-    _apply_agent_public_action_state(unit, action=action, public_state=public_state)
-    if completion_status:
-        _set_if_visible(unit, "risk", completion_status)
+    if action_type != "tool_call":
+        _set_if_visible(unit, "agent_feedback", payload.get("public_progress_note") or payload.get("summary"))
+        _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary") or "正在思考。")
+        _apply_agent_public_action_state(unit, action=action, public_state=public_state)
+        if completion_status:
+            _set_if_visible(unit, "risk", completion_status)
     _set_if_better(unit, "state", _state_from_status(payload.get("status")))
     _append_trace_ref(unit, event)
 
@@ -335,6 +340,8 @@ def _apply_tool_action(unit: dict[str, Any], action: dict[str, Any], payload: di
     tool_args = _record(tool_call.get("args") or tool_call.get("tool_args"))
     target = _tool_target_preview(tool_args)
     if tool_name:
+        unit["tool_name"] = tool_name
+        unit["tool_target"] = target
         _set_if_better(unit, "kind", _work_kind_from_tool(tool_name))
         _set_if_better(unit, "title", _tool_title(tool_name, target))
         _set_if_visible(unit, "action", _tool_action_sentence(tool_name, target))
@@ -362,6 +369,8 @@ def _apply_tool_observation(unit: dict[str, Any], observation: dict[str, Any], e
     tool_args = _record(payload.get("tool_args"))
     target = _tool_target_preview(tool_args)
     evidence = _tool_evidence(tool_name=tool_name, tool_args=tool_args, observation=observation)
+    unit["tool_name"] = tool_name
+    unit["tool_target"] = target
     _set_if_better(unit, "kind", _work_kind_from_tool(tool_name))
     _set_if_better(unit, "title", _tool_title(tool_name, target))
     _set_if_visible(unit, "action", _tool_action_sentence(tool_name, target))
@@ -660,6 +669,8 @@ def _normalize_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         "judgment": _visible_text(unit.get("judgment")),
         "action": _visible_text(unit.get("action")),
         "agent_feedback": _visible_text(unit.get("agent_feedback")),
+        "tool_name": _tool_name(unit.get("tool_name")),
+        "tool_target": _visible_text(unit.get("tool_target"), limit=180),
         "evidence": evidence,
         "todo_plan": _record(unit.get("todo_plan")),
         "next_action": _visible_text(unit.get("next_action")),
@@ -685,6 +696,8 @@ def _new_work_unit(key: str, *, kind: str) -> dict[str, Any]:
         "judgment": "",
         "action": "",
         "agent_feedback": "",
+        "tool_name": "",
+        "tool_target": "",
         "evidence": [],
         "todo_plan": {},
         "next_action": "",

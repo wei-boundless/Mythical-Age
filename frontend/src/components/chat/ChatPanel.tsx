@@ -11,6 +11,7 @@ import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPane
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
+import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { Message, TokenStats } from "@/lib/store/types";
@@ -226,16 +227,20 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
       }),
     },
   );
-  if (latestAssistant.content.trim()) {
+  const visibleAssistantContent = shouldDisplayAssistantContent({
+    answerCanonicalState: latestAssistant.answerCanonicalState,
+    answerChannel: latestAssistant.answerChannel,
+    answerPersistPolicy: latestAssistant.answerPersistPolicy,
+    answerSource: latestAssistant.answerSource,
+    answerLeakFlags: latestAssistant.answerLeakFlags,
+  }) && latestAssistant.content.trim();
+  if (visibleAssistantContent) {
     return true;
   }
   if (publicTimeline.some(isAskUserQuestionItem)) {
     return true;
   }
   if (!latestAssistant.content.trim() && publicTimeline.some(isMessageLevelAssistantFeedback)) {
-    return true;
-  }
-  if (latestAssistant.content.trim() && latestAssistant.answerChannel === "active_work_control") {
     return true;
   }
   return false;
@@ -403,5 +408,4 @@ function formatTokenCount(value: unknown) {
 function formatExactTokenCount(value: unknown) {
   return Math.max(0, Math.round(Number(value || 0))).toLocaleString("en-US");
 }
-
 

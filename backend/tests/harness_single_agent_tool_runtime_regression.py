@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
 
-def test_native_tool_call_action_gets_public_agent_intent() -> None:
+def test_native_tool_call_action_keeps_agent_text_out_of_tool_projection() -> None:
     from harness.loop.single_agent_turn import _tool_action_request_from_native_tool_calls
 
     request = _tool_action_request_from_native_tool_calls(
@@ -19,10 +19,15 @@ def test_native_tool_call_action_gets_public_agent_intent() -> None:
     )
 
     assert request is not None
-    assert request.public_progress_note == "我先搜索 requestAnimationFrame 的相关引用，再根据结果判断下一步。"
-    assert request.public_action_state["current_judgment"] == request.public_progress_note
-    assert "已发起工具调用" not in request.public_progress_note
-    assert "search_text" not in request.public_progress_note
+    assert request.action_type == "tool_call"
+    assert request.public_progress_note == ""
+    assert request.public_action_state == {"completion_status": "waiting_for_tool"}
+    assert request.tool_call == {
+        "tool_name": "search_text",
+        "name": "search_text",
+        "id": "call-search-animation-loop",
+        "args": {"query": "requestAnimationFrame"},
+    }
 
 def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp_path: Path) -> None:
     class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):

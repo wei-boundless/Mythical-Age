@@ -77,10 +77,11 @@ const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID]);
 function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor | null): PublicChatTimelineItem {
   return {
     item_id: `stream-restore:${streamRunId}`,
-    kind: "assistant_text",
-    text: cursor
-      ? "我正在接回刚才的运行，已经拿到上次进度，继续同步后续结果。"
-      : "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+    kind: "status_update",
+    surface: "status",
+    source_authority: "system",
+    title: "同步运行进度",
+    detail: recoveredChatRunActivityDetail(cursor),
     state: "running",
     stream_state: "streaming",
   };

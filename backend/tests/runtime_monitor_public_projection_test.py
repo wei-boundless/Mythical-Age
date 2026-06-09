@@ -116,9 +116,9 @@ def test_runtime_monitor_admission_checked_recovers_action_request_for_public_de
 
     assert projection["public_event_type"] == "model_action_admission"
     kinds = [item["kind"] for item in projection["public_timeline_delta"]]
-    assert kinds == ["opening_judgment", "work_action"]
-    assert projection["public_timeline_delta"][0]["text"] == "我先读取当前前端 store 的实时事件合并逻辑。"
-    assert projection["public_timeline_delta"][1]["subject_label"] == "store/runtime.ts"
+    assert kinds == ["work_action"]
+    assert projection["public_timeline_delta"][0]["subject_label"] == "store/runtime.ts"
+    assert projection["public_timeline_delta"][0]["public_summary"] == "正在读取上下文 store/runtime.ts"
 
 
 def test_completed_public_timeline_settles_opening_judgment_state() -> None:

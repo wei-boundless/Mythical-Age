@@ -109,9 +109,11 @@ def test_progress_presenter_translates_path_exists_false_without_visible_raw_boo
     assert len(presentation["work_units"]) == 1
     unit = presentation["work_units"][0]
     assert unit["title"] == "确认 artifact 路径"
-    assert unit["judgment"] == "需要先确认 artifact 路径状态。"
+    assert unit["judgment"] == ""
+    assert unit["tool_name"] == "path_exists"
+    assert unit["tool_target"] == "storage/task_environments/general/workspace/calculator.html"
     assert unit["evidence"][0]["summary"] == "目标文件尚未存在，路径检查已完成。"
-    assert unit["next_action"] == "检查 calculator.html 是否存在。"
+    assert unit["next_action"] == ""
 
     visible_text = json.dumps(
         {"mission": presentation["mission"], "work_units": presentation["work_units"]},
@@ -264,7 +266,9 @@ def test_progress_presenter_keeps_tool_error_as_evidence_not_split_trace_card() 
 
     assert len(presentation["work_units"]) == 1
     unit = presentation["work_units"][0]
-    assert unit["judgment"] == "需要生成主角资源。"
+    assert unit["judgment"] == ""
+    assert unit["tool_name"] == "image_generate"
+    assert unit["tool_target"] == ""
     assert unit["state"] == "error"
     assert unit["evidence"] == [
         {
@@ -489,7 +493,7 @@ def test_duplicate_tool_guard_is_not_public_activity() -> None:
     assert "重复工具调用" not in visible
 
 
-def test_agent_feedback_survives_tool_activity_projection() -> None:
+def test_tool_admission_projects_work_action_without_agent_feedback() -> None:
     events = [
         {
             "event_id": "rtevt:model-action",
@@ -525,10 +529,10 @@ def test_agent_feedback_survives_tool_activity_projection() -> None:
     presentation = build_progress_presentation(events=events, task_run=_task_run(), monitor={})
     timeline = build_public_chat_timeline(progress_presentation=presentation, status="running")
 
-    assert [item["kind"] for item in timeline] == ["opening_judgment", "work_action"]
-    assert timeline[0]["title"] == "开局判断"
-    assert timeline[0]["text"] == "我先检查文件写入权限和可用路径，然后创建游戏文件。"
-    assert timeline[1]["title"] == "正在确认目标"
+    assert [item["kind"] for item in timeline] == ["work_action"]
+    assert timeline[0]["title"] == "正在确认目标"
+    assert timeline[0]["subject_label"] == "output"
+    assert "我先检查文件写入权限" not in json.dumps(timeline, ensure_ascii=False)
 
 
 def test_progress_presentation_recovers_agent_todo_as_public_plan() -> None:

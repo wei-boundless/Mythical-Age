@@ -218,7 +218,7 @@ def _item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         return public_work_action_item(
             item_id=unit_id,
             tool_name=_tool_name_from_unit(unit),
-            raw_target=detail or title,
+            raw_target=unit.get("tool_target") or detail or title,
             summary=detail or title,
             observation=evidence_detail,
             state=state,
@@ -410,6 +410,9 @@ def _public_item_kind(unit: dict[str, Any]) -> str:
 
 
 def _tool_name_from_unit(unit: dict[str, Any]) -> str:
+    explicit = _text(unit.get("tool_name"))
+    if explicit:
+        return explicit
     kind = _text(unit.get("kind"))
     if _unit_mentions_memory(unit):
         return "memory_search"

@@ -134,6 +134,8 @@ def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
 def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     answer_channel = str(data.get("answer_channel") or "").strip().lower()
     answer_source = str(data.get("answer_source") or "").strip()
+    if answer_channel == "active_work_control":
+        return {}
     if event_type == "answer_candidate" or not _is_public_assistant_text(
         answer_channel=answer_channel,
         answer_source=answer_source,
@@ -181,15 +183,15 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     if control_item:
         return [control_item]
     items: list[dict[str, Any]] = []
-    feedback = _agent_feedback_item_from_model_action(
-        item_id=_stable_id("agent-feedback", str(event.get("event_id") or ""), str(request.get("public_progress_note") or "")),
-        request=request,
-        state="running",
-        trace_ref=str(event.get("event_id") or ""),
-    )
-    if feedback:
-        items.append(feedback)
     if action_type != "tool_call":
+        feedback = _agent_feedback_item_from_model_action(
+            item_id=_stable_id("agent-feedback", str(event.get("event_id") or ""), str(request.get("public_progress_note") or "")),
+            request=request,
+            state="running",
+            trace_ref=str(event.get("event_id") or ""),
+        )
+        if feedback:
+            items.append(feedback)
         return items
     tool_name, target = _tool_details_from_event(request)
     trace_ref = str(event.get("event_id") or "") or _stable_id("tool-admission", tool_name, target)
@@ -198,7 +200,6 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         item_id=item_id,
         tool_name=tool_name,
         raw_target=target,
-        summary=request.get("public_progress_note"),
         state="running",
         trace_refs=[trace_ref],
     )
@@ -231,11 +232,12 @@ def _control_action_item_from_model_action(
             state=state,
         )
     if action_type == "active_work_control":
+        title, fallback = _active_work_control_status_text(request)
         note = _visible_agent_feedback(request.get("public_progress_note")) or _visible_agent_feedback(_record(request.get("public_action_state")).get("current_judgment"))
         return _status_item(
             item_id=item_id,
-            title="已收到补充要求",
-            detail=note,
+            title=title,
+            detail=note or fallback,
             state=state,
             phase="active_work_control",
         )

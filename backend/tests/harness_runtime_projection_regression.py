@@ -160,7 +160,7 @@ def test_public_stream_projection_rewrites_raw_edit_failure_observation() -> Non
     assert "Edit failed" not in visible
     assert "old_text" not in visible
 
-def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> None:
+def test_public_stream_projection_keeps_tool_admission_out_of_agent_feedback() -> None:
     projected = _project_public_stream_event(
         "model_action_admission",
         {
@@ -184,10 +184,10 @@ def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> N
     assert projected is not None
     _, data = projected
     items = data["public_timeline_delta"]
-    assert [item["kind"] for item in items] == ["opening_judgment", "work_action"]
-    assert items[0]["text"] == "我先定位主页面里动画循环的真实引用，再判断要改哪里。"
-    assert items[1]["action_kind"] == "search"
-    assert items[1]["public_summary"] == "正在搜索引用 requestAnimationFrame"
+    assert [item["kind"] for item in items] == ["work_action"]
+    assert items[0]["action_kind"] == "search"
+    assert items[0]["public_summary"] == "正在搜索引用 requestAnimationFrame"
+    assert "我先定位" not in json.dumps(items, ensure_ascii=False)
 
 def test_public_stream_projection_projects_ask_user_as_status_not_body() -> None:
     projected = _project_public_stream_event(

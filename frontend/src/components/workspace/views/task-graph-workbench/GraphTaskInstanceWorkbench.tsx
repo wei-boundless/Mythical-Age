@@ -1,17 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   Bot,
+  Eye,
   FileText,
   FolderTree,
   GitBranch,
   MessageSquare,
+  PencilLine,
   PlayCircle,
   Plus,
   RefreshCw,
   Save,
+  Search,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   createGraphTaskInstance,
@@ -45,6 +50,17 @@ type FileTreeNode = {
   name: string;
   path: string;
 };
+
+type FileEditorMode = "edit" | "preview";
+
+const FILE_PATH_TEMPLATES = [
+  { label: "任务简报", path: "input/brief.md" },
+  { label: "世界观", path: "world/world.md" },
+  { label: "角色表", path: "characters/characters.md" },
+  { label: "大纲", path: "outline/outline.md" },
+  { label: "正文 001", path: "chapters/chapter-001.md" },
+  { label: "审校记录", path: "review/review-notes.md" },
+] as const;
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -164,6 +180,43 @@ function parseTreeNode(value: unknown): FileTreeNode {
   };
 }
 
+function normalizedQuery(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function fileTreeMatches(node: FileTreeNode, query: string) {
+  if (!query) return true;
+  return `${node.name} ${node.path}`.toLowerCase().includes(query);
+}
+
+function filterFileTreeNode(node: FileTreeNode, query: string): FileTreeNode | null {
+  if (!query) return node;
+  const children = node.children
+    .map((child) => filterFileTreeNode(child, query))
+    .filter((child): child is FileTreeNode => Boolean(child));
+  if (fileTreeMatches(node, query) || children.length) {
+    return { ...node, children };
+  }
+  return null;
+}
+
+function countFileTreeFiles(node: FileTreeNode | null): number {
+  if (!node) return 0;
+  return (node.kind === "file" && node.path ? 1 : 0)
+    + node.children.reduce((total, child) => total + countFileTreeFiles(child), 0);
+}
+
+function artifactMatches(artifact: Record<string, unknown>, query: string) {
+  if (!query) return true;
+  return [
+    artifact.name,
+    artifact.path,
+    artifact.artifact_id,
+    artifact.kind,
+    artifact.type,
+  ].map((value) => String(value ?? "").toLowerCase()).join(" ").includes(query);
+}
+
 function monitorCounts(monitor: GraphTaskInstanceMonitor | null) {
   const summary = recordOf(monitor?.summary);
   return {
@@ -272,6 +325,11 @@ export function GraphTaskInstanceWorkbench({
   const [fileContent, setFileContent] = useState("");
   const [newFilePath, setNewFilePath] = useState("input/brief.md");
   const [newFileContent, setNewFileContent] = useState("");
+  const [fileSearch, setFileSearch] = useState("");
+  const [artifactSearch, setArtifactSearch] = useState("");
+  const [fileEditorMode, setFileEditorMode] = useState<FileEditorMode>("edit");
+  const deferredFileSearch = useDeferredValue(fileSearch);
+  const deferredArtifactSearch = useDeferredValue(artifactSearch);
   const counts = monitorCounts(monitor);
   const selectedInstance = useMemo(
     () => instances.find((instance) => instance.graph_task_instance_id === selectedInstanceId)
@@ -282,6 +340,17 @@ export function GraphTaskInstanceWorkbench({
   );
   const rootTreeNode = useMemo(() => parseTreeNode(fileTree?.tree), [fileTree]);
   const artifacts = monitor?.artifacts.artifacts ?? [];
+  const fileQuery = normalizedQuery(deferredFileSearch);
+  const artifactQuery = normalizedQuery(deferredArtifactSearch);
+  const filteredRootTreeNode = useMemo(
+    () => filterFileTreeNode(rootTreeNode, fileQuery),
+    [fileQuery, rootTreeNode],
+  );
+  const visibleFileCount = useMemo(() => countFileTreeFiles(filteredRootTreeNode), [filteredRootTreeNode]);
+  const filteredArtifacts = useMemo(
+    () => artifacts.filter((artifact) => artifactMatches(artifact, artifactQuery)),
+    [artifactQuery, artifacts],
+  );
   const nodeSessions = monitor?.node_sessions ?? [];
   const sortedInstances = useMemo(() => sortInstancesForOperations(instances), [instances]);
   const activeInstanceCount = useMemo(
@@ -707,6 +776,192 @@ export function GraphTaskInstanceWorkbench({
             <span>Artifacts <strong>{counts.artifacts}</strong></span>
           </section>
 
+        </main>
+
+        <section className="graph-task-instance-workbench__files" aria-label="项目文件和产物">
+          <section className="graph-task-instance-panel graph-task-file-panel">
+            <header className="graph-task-instance-panel__head">
+              <div>
+                <span>文件中心</span>
+                <strong>{fileTree?.total_entries ?? 0} 项 · {fileQuery ? `${visibleFileCount} 个匹配文件` : `${visibleFileCount} 个文件`}</strong>
+              </div>
+              <FolderTree size={16} />
+            </header>
+            <div className="graph-task-file-panel__body">
+              <div className="graph-task-file-panel__browser">
+                <div className="graph-task-file-toolbar">
+                  <label className="graph-task-filter-input">
+                    <Search size={14} />
+                    <input
+                      onChange={(event) => setFileSearch(event.target.value)}
+                      placeholder="搜索文件路径或名称"
+                      value={fileSearch}
+                    />
+                  </label>
+                  {fileSearch ? (
+                    <button onClick={() => setFileSearch("")} type="button">
+                      清除
+                    </button>
+                  ) : null}
+                </div>
+                <div className="graph-task-file-tree">
+                  {fileTree && filteredRootTreeNode ? (
+                    <GraphTaskFileTree
+                      node={filteredRootTreeNode}
+                      onSelectFile={(path) => void loadFile(path)}
+                      selectedPath={selectedFilePath}
+                    />
+                  ) : fileTree ? (
+                    <div className="boundary-empty">没有匹配的项目文件。</div>
+                  ) : (
+                    <div className="boundary-empty">选择实例后显示项目文件。</div>
+                  )}
+                </div>
+              </div>
+              <div className="graph-task-file-panel__editor-stack">
+                <div className="graph-task-file-editor">
+                  <div className="graph-task-file-editor__head">
+                    <label>
+                      <span>当前文件</span>
+                      <input
+                        onChange={(event) => setSelectedFilePath(event.target.value)}
+                        placeholder="选择或输入文件路径"
+                        value={selectedFilePath}
+                      />
+                    </label>
+                    <div className="graph-task-file-editor-mode" role="group" aria-label="当前文件显示模式">
+                      <button
+                        aria-pressed={fileEditorMode === "edit"}
+                        className={fileEditorMode === "edit" ? "graph-task-file-editor-mode__button--active" : undefined}
+                        onClick={() => setFileEditorMode("edit")}
+                        title="编辑"
+                        type="button"
+                      >
+                        <PencilLine size={14} />
+                        <span>编辑</span>
+                      </button>
+                      <button
+                        aria-pressed={fileEditorMode === "preview"}
+                        className={fileEditorMode === "preview" ? "graph-task-file-editor-mode__button--active" : undefined}
+                        onClick={() => setFileEditorMode("preview")}
+                        title="预览"
+                        type="button"
+                      >
+                        <Eye size={14} />
+                        <span>预览</span>
+                      </button>
+                    </div>
+                  </div>
+                  {fileEditorMode === "edit" ? (
+                    <textarea
+                      disabled={!selectedInstance}
+                      onChange={(event) => setFileContent(event.target.value)}
+                      placeholder="选择文件后编辑内容"
+                      rows={12}
+                      value={fileContent}
+                    />
+                  ) : (
+                    <div className="graph-task-file-preview markdown" aria-label="当前文件预览">
+                      {fileContent.trim() ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {fileContent}
+                        </ReactMarkdown>
+                      ) : (
+                        <p>选择文件后显示预览。</p>
+                      )}
+                    </div>
+                  )}
+                  <button disabled={!selectedInstance || !selectedFilePath || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
+                    <Save size={14} />
+                    <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
+                  </button>
+                </div>
+                <div className="graph-task-file-editor graph-task-file-editor--new">
+                  <label>
+                    <span>写入文件</span>
+                    <input
+                      onChange={(event) => setNewFilePath(event.target.value)}
+                      placeholder="input/brief.md"
+                      value={newFilePath}
+                    />
+                  </label>
+                  <div className="graph-task-file-template-grid" aria-label="常用写作文件路径">
+                    {FILE_PATH_TEMPLATES.map((template) => (
+                      <button
+                        className={newFilePath === template.path ? "graph-task-file-template-grid__button--active" : undefined}
+                        key={template.path}
+                        onClick={() => setNewFilePath(template.path)}
+                        type="button"
+                      >
+                        <span>{template.label}</span>
+                        <small>{template.path}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    disabled={!selectedInstance}
+                    onChange={(event) => setNewFileContent(event.target.value)}
+                    placeholder="输入需要放入项目文件区的内容"
+                    rows={5}
+                    value={newFileContent}
+                  />
+                  <button disabled={!selectedInstance || !newFilePath.trim() || action === "new-file"} onClick={() => void createOrOverwriteFile()} type="button">
+                    <FileText size={14} />
+                    <span>{action === "new-file" ? "写入中" : "写入项目文件"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="graph-task-instance-panel graph-task-artifact-panel">
+            <header className="graph-task-instance-panel__head">
+              <div>
+                <span>产物</span>
+                <strong>{artifacts.length} 个文件{artifactQuery ? ` · ${filteredArtifacts.length} 个匹配` : ""}</strong>
+              </div>
+              <FileText size={16} />
+            </header>
+            <div className="graph-task-artifact-toolbar">
+              <label className="graph-task-filter-input">
+                <Search size={14} />
+                <input
+                  onChange={(event) => setArtifactSearch(event.target.value)}
+                  placeholder="搜索产物路径、名称或类型"
+                  value={artifactSearch}
+                />
+              </label>
+              {artifactSearch ? (
+                <button onClick={() => setArtifactSearch("")} type="button">
+                  清除
+                </button>
+              ) : null}
+            </div>
+            <div className="graph-task-artifact-list">
+              {filteredArtifacts.slice(0, 60).map((artifact) => {
+                const path = stringValue(artifact.path);
+                return (
+                  <button
+                    className={path && path === selectedFilePath ? "graph-task-artifact-list__row--active" : undefined}
+                    disabled={!path}
+                    key={stringValue(artifact.artifact_id, path)}
+                    onClick={() => path && void loadFile(path)}
+                    title={path ? "载入当前文件编辑器" : "这个产物没有可读取路径"}
+                    type="button"
+                  >
+                    <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
+                    <small>{path || "没有文件路径"}</small>
+                    <span>{numberValue(artifact.size)} bytes · {timestampLabel(artifact.updated_at)}</span>
+                  </button>
+                );
+              })}
+              {!artifacts.length ? <div className="boundary-empty">运行产物会进入实例项目空间。</div> : null}
+              {artifacts.length && !filteredArtifacts.length ? <div className="boundary-empty">没有匹配的运行产物。</div> : null}
+            </div>
+          </section>
+        </section>
+
+        <section className="graph-task-instance-workbench__sessions" aria-label="节点会话">
           <section className="graph-task-instance-panel graph-task-node-session-panel">
             <header className="graph-task-instance-panel__head">
               <div>
@@ -733,101 +988,6 @@ export function GraphTaskInstanceWorkbench({
                 );
               })}
               {!nodeSessions.length ? <div className="boundary-empty">运行后会在这里看到项目主会话和节点会话。</div> : null}
-            </div>
-          </section>
-        </main>
-
-        <section className="graph-task-instance-workbench__files" aria-label="项目文件和产物">
-          <section className="graph-task-instance-panel graph-task-file-panel">
-            <header className="graph-task-instance-panel__head">
-              <div>
-                <span>文件中心</span>
-                <strong>{fileTree?.total_entries ?? 0} 项</strong>
-              </div>
-              <FolderTree size={16} />
-            </header>
-            <div className="graph-task-file-panel__body">
-              <div className="graph-task-file-panel__browser">
-                <div className="graph-task-file-tree">
-                  {fileTree ? (
-                    <GraphTaskFileTree
-                      node={rootTreeNode}
-                      onSelectFile={(path) => void loadFile(path)}
-                      selectedPath={selectedFilePath}
-                    />
-                  ) : (
-                    <div className="boundary-empty">选择实例后显示项目文件。</div>
-                  )}
-                </div>
-              </div>
-              <div className="graph-task-file-panel__editor-stack">
-                <div className="graph-task-file-editor">
-                  <label>
-                    <span>当前文件</span>
-                    <input
-                      onChange={(event) => setSelectedFilePath(event.target.value)}
-                      placeholder="选择或输入文件路径"
-                      value={selectedFilePath}
-                    />
-                  </label>
-                  <textarea
-                    disabled={!selectedInstance}
-                    onChange={(event) => setFileContent(event.target.value)}
-                    placeholder="选择文件后编辑内容"
-                    rows={10}
-                    value={fileContent}
-                  />
-                  <button disabled={!selectedInstance || !selectedFilePath || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
-                    <Save size={14} />
-                    <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
-                  </button>
-                </div>
-                <div className="graph-task-file-editor graph-task-file-editor--new">
-                  <label>
-                    <span>写入文件</span>
-                    <input
-                      onChange={(event) => setNewFilePath(event.target.value)}
-                      placeholder="input/brief.md"
-                      value={newFilePath}
-                    />
-                  </label>
-                  <textarea
-                    disabled={!selectedInstance}
-                    onChange={(event) => setNewFileContent(event.target.value)}
-                    placeholder="输入需要放入项目文件区的内容"
-                    rows={5}
-                    value={newFileContent}
-                  />
-                  <button disabled={!selectedInstance || !newFilePath.trim() || action === "new-file"} onClick={() => void createOrOverwriteFile()} type="button">
-                    <FileText size={14} />
-                    <span>{action === "new-file" ? "写入中" : "写入项目文件"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="graph-task-instance-panel graph-task-artifact-panel">
-            <header className="graph-task-instance-panel__head">
-              <div>
-                <span>产物</span>
-                <strong>{artifacts.length} 个文件</strong>
-              </div>
-              <FileText size={16} />
-            </header>
-            <div className="graph-task-artifact-list">
-              {artifacts.slice(0, 30).map((artifact) => (
-                <button
-                  key={stringValue(artifact.artifact_id, stringValue(artifact.path))}
-                  onClick={() => void loadFile(stringValue(artifact.path))}
-                  type="button"
-                >
-                  <strong>{stringValue(artifact.name, stringValue(artifact.path))}</strong>
-                  <small>{stringValue(artifact.path)}</small>
-                  <span>{numberValue(artifact.size)} bytes · {timestampLabel(artifact.updated_at)}</span>
-                </button>
-              ))}
-              {!artifacts.length ? <div className="boundary-empty">运行产物会进入实例项目空间。</div> : null}
             </div>
           </section>
         </section>

@@ -245,12 +245,12 @@ def _denied_active_work_decision(
 def active_work_control_denial_reply(decision: ActiveWorkTurnDecision) -> str:
     reason = str(decision.denied_reason or decision.reason or "").strip()
     if reason == "active_work_relation_declared_independent":
-        return "我没有控制当前工作，因为这次动作没有明确指向当前工作。请重新提出独立问题，或直接说明要继续、暂停、停止或补充当前工作。"
+        return "这次输入未指向当前工作。可以直接提出独立问题，或明确说明要继续、暂停、停止、补充当前工作。"
     if reason == "active_work_relation_ambiguous":
-        return "我没有控制当前工作，因为这次动作没有明确指向当前工作。请直接说明要继续、暂停、停止、补充要求还是询问当前进展。"
+        return "这次输入未明确指向当前工作。请说明要继续、暂停、停止、补充要求，还是询问当前进展。"
     if reason == "active_work_control_action_not_allowed":
-        return "我没有控制当前工作，因为本轮返回的当前工作动作不在允许范围内。请重新提出独立问题，或说明要继续、暂停、停止、补充要求还是询问当前进展。"
-    return "我没有控制当前工作，因为本轮当前工作动作没有通过运行边界校验。请重新说明你要如何处理当前工作。"
+        return "这次当前工作控制动作不在可用范围内。请重新提出独立问题，或说明要继续、暂停、停止、补充要求还是询问当前进展。"
+    return "这次当前工作控制请求没有通过运行边界校验。请重新说明要如何处理当前工作。"
 
 
 def _normalize_relation_to_current_work(value: Any) -> str:

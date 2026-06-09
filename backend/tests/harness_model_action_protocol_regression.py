@@ -327,23 +327,23 @@ def test_model_action_request_accepts_public_progress_note() -> None:
             "authority": "harness.loop.model_action_request",
             "request_id": "model-action:test:progress",
             "turn_id": "turn:test:1",
-            "action_type": "tool_call",
-            "public_progress_note": "我先检查现有文件，确认下一步修改范围。",
+            "action_type": "respond",
+            "public_progress_note": "正在整理当前回复。",
             "public_action_state": {
-                "current_judgment": "读取 README 可以降低误改风险。",
-                "next_action": "调用 read_file 读取 README.md。",
+                "current_judgment": "当前信息足以直接回复。",
+                "next_action": "整理回复。",
             },
-            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "final_answer": "这是当前回复。",
         },
         turn_id="turn:test:1",
     )
 
     assert diagnostics["status"] == "accepted"
     assert action is not None
-    assert action.public_progress_note == "我先检查现有文件，确认下一步修改范围。"
-    assert action.public_action_state["next_action"] == "调用 read_file 读取 README.md。"
+    assert action.public_progress_note == "正在整理当前回复。"
+    assert action.public_action_state["next_action"] == "整理回复。"
 
-def test_task_model_action_request_requires_public_progress_note() -> None:
+def test_task_model_action_request_requires_public_progress_note_for_public_response() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -351,8 +351,9 @@ def test_task_model_action_request_requires_public_progress_note() -> None:
             "authority": "harness.loop.model_action_request",
             "request_id": "model-action:test:missing-progress",
             "turn_id": "taskrun:test:progress-required",
-            "action_type": "tool_call",
-            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+            "action_type": "respond",
+            "public_action_state": {"completion_status": "ready_to_finish"},
+            "final_answer": "已完成。",
         },
         turn_id="taskrun:test:progress-required",
         require_public_progress_note=True,
@@ -362,7 +363,7 @@ def test_task_model_action_request_requires_public_progress_note() -> None:
     assert diagnostics["status"] == "invalid"
     assert "public_progress_note_required" in diagnostics["validation_errors"]
 
-def test_task_model_action_request_requires_public_action_state_when_enabled() -> None:
+def test_task_model_action_request_does_not_require_public_text_for_tool_call() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -371,7 +372,6 @@ def test_task_model_action_request_requires_public_action_state_when_enabled() -
             "request_id": "model-action:test:missing-report",
             "turn_id": "taskrun:test:progress-report-required",
             "action_type": "tool_call",
-            "public_progress_note": "我准备读取文件。",
             "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
         },
         turn_id="taskrun:test:progress-report-required",
@@ -379,9 +379,10 @@ def test_task_model_action_request_requires_public_action_state_when_enabled() -
         require_public_action_state=True,
     )
 
-    assert action is None
-    assert diagnostics["status"] == "invalid"
-    assert "public_action_state_required" in diagnostics["validation_errors"]
+    assert action is not None
+    assert diagnostics["status"] == "accepted"
+    assert action.public_progress_note == ""
+    assert action.public_action_state == {}
 
 def test_task_model_action_request_rejects_action_outside_packet_contract() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
