@@ -95,6 +95,9 @@ class AppRuntime:
         if self._background_services_started:
             return
         host = runtime.harness_runtime.single_agent_runtime_host
+        task_executor_recovery = getattr(runtime.harness_runtime, "start_runtime_recovered_task_run_executors", None)
+        if callable(task_executor_recovery):
+            task_executor_recovery()
         supervisor = self.graph_breakpoint_supervisor
         command_supervisor = self.graph_breakpoint_command_supervisor
         if supervisor is not None:

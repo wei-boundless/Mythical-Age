@@ -377,14 +377,14 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     registry = host.run_registry
     replay = host.stream_replay
     terminal_event = ""
-    current = registry.mark_running(run)
+    current = _safe_mark_run_running(registry, run)
     try:
         start_event = replay.append_public_event(
             current,
             public_event_type="chat_run_started",
             data={"status": "running"},
         )
-        current = registry.mark_event(current, latest_event_offset=start_event.offset, status="running")
+        current = _safe_mark_run_event(registry, current, latest_event_offset=start_event.offset, status="running")
         async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
             runtime_refs = _runtime_run_refs_for_public_event(runtime, request.session_id, event)
@@ -413,7 +413,8 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             }
             if public_event_type != "error":
                 diagnostics.update({"orphaned_by": None, "reason": None, "cancelled": None})
-            current = registry.mark_event(
+            current = _safe_mark_run_event(
+                registry,
                 current,
                 latest_event_offset=logged.offset,
                 status=_status_for_public_event(public_event_type, data),
@@ -424,8 +425,10 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 break
     except asyncio.CancelledError:
         logger.info("Chat run background task was cancelled.", extra={"stream_run_id": run.stream_run_id})
-        current = registry.update_run(
+        current = _safe_update_run(
+            registry,
             run.stream_run_id,
+            fallback=current,
             status="orphaned",
             diagnostics={"cancelled": True, "reason": "stream_cancelled"},
         )
@@ -446,7 +449,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 "code": "stream_exception",
             },
         )
-        current = registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event="error")
         host.close_chat_turn_run_for_stream_failure_best_effort(
             current,
             code="stream_exception",
@@ -463,12 +466,54 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 "code": "missing_terminal_event",
             },
         )
-        current = registry.mark_event(current, latest_event_offset=logged.offset, status="failed", terminal_event="error")
+        current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event="error")
         host.close_chat_turn_run_for_stream_failure_best_effort(
             current,
             code="missing_terminal_event",
             reason="Chat stream ended without a terminal event.",
         )
+
+
+def _safe_mark_run_running(registry: Any, run: RuntimeRun) -> RuntimeRun:
+    try:
+        return registry.mark_running(run)
+    except Exception:
+        logger.warning("Failed to update chat run status to running.", extra={"stream_run_id": run.stream_run_id}, exc_info=True)
+        return run
+
+
+def _safe_mark_run_event(
+    registry: Any,
+    current: RuntimeRun,
+    *,
+    latest_event_offset: int,
+    status: str | None = None,
+    terminal_event: str = "",
+    diagnostics: dict[str, Any] | None = None,
+) -> RuntimeRun:
+    try:
+        return registry.mark_event(
+            current,
+            latest_event_offset=latest_event_offset,
+            status=status,  # type: ignore[arg-type]
+            terminal_event=terminal_event,
+            diagnostics=diagnostics,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to update chat run event cursor.",
+            extra={"stream_run_id": current.stream_run_id, "latest_event_offset": latest_event_offset},
+            exc_info=True,
+        )
+        return current
+
+
+def _safe_update_run(registry: Any, stream_run_id: str, *, fallback: RuntimeRun, **updates: Any) -> RuntimeRun:
+    try:
+        return registry.update_run(stream_run_id, **updates)
+    except Exception:
+        logger.warning("Failed to update chat run registry.", extra={"stream_run_id": stream_run_id}, exc_info=True)
+        return fallback
 
 
 async def _stream_run_events(runtime: Any, run: RuntimeRun, *, after_offset: int):

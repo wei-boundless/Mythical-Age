@@ -83,11 +83,14 @@ export function ChatMessage({
   const taskProjections = isUser
     ? []
     : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
+  const runtimePublicTimelineForMessage = taskProjections.length
+    ? controlTimelineItems(runtimePublicTimelineDraft)
+    : runtimePublicTimelineDraft;
   const basePublicTimelineItems = isUser
     ? []
     : mergedPublicTimelineItems(
       runtimeAttachments,
-      runtimePublicTimelineDraft,
+      runtimePublicTimelineForMessage,
       terminalState,
     );
   const hasBasePublicTimelineActivity = publicTimelineHasDisplayableActivity(basePublicTimelineItems, taskProjections);
@@ -299,6 +302,10 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   return attachments.flatMap((attachment) =>
     attachment.task_projection ? [attachment.task_projection] : [],
   );
+}
+
+function controlTimelineItems(items: PublicChatTimelineItem[] | undefined) {
+  return (items ?? []).filter(isPublicTimelineControlItem);
 }
 
 function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {

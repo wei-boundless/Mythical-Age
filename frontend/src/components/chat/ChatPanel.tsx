@@ -212,9 +212,13 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   const persisted = (latestAssistant.runtimeAttachments ?? []).flatMap((attachment) =>
     attachment.task_projection ? [] : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
   );
+  const hasTaskProjection = (latestAssistant.runtimeAttachments ?? []).some((attachment) => Boolean(attachment.task_projection));
+  const runtimePublicTimelineDraft = hasTaskProjection
+    ? (latestAssistant.runtimePublicTimelineDraft ?? []).filter(isPublicTimelineControlItem)
+    : latestAssistant.runtimePublicTimelineDraft;
   const publicTimeline = mergePublicTimelineItems(
     persisted,
-    latestAssistant.runtimePublicTimelineDraft,
+    runtimePublicTimelineDraft,
     {
       terminalState: publicTimelineTerminalStateFromAnswer({
         answerCanonicalState: latestAssistant.answerCanonicalState,

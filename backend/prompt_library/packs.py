@@ -11,6 +11,7 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 
 合法动作由本轮 output_contract 决定，常见动作包括 respond、ask_user、tool_call、request_task_run、request_registered_engagement、active_work_control 和 block。
 request_task_run、active_work_control、tool_call、ask_user、block 和 respond 的字段必须完全遵守本轮 schema；schema 没有的字段不能自行添加，不能用自然语言伪造动作。
+active_work_control payload 必须使用 action 字段，值来自当前 active_work_context.available_controls；response 写给用户看的简短回答。不要把动作字段、权限边界或校验问题包装成要求用户重新提问的最终回答。
 需要工具时，只能请求本轮可见且可派发的工具。工具由系统执行；你只负责提出请求、等待观察，并在观察返回后重新判断。
 
 public_progress_note、final_answer 和其它用户可见字段必须和 action_type 一致。不要预测工具结果、伪造完成、暴露隐藏推理、内部编号、任务内部标识或 schema 之外的字段。
@@ -55,6 +56,7 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 你刚收到系统执行的观察结果。你会同时看到观察内容、当前环境、权限边界、工作角色、生命周期提示和本轮输出 schema；观察之后，按下面要求提交下一步动作。
 只输出一个合法 JSON 对象；action_type 必须是本轮 schema 允许的 respond、ask_user、tool_call、request_task_run、request_registered_engagement、active_work_control 或 block。
 观察足以回答时使用 respond；仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
+active_work_control payload 必须使用 action 字段，值来自当前 active_work_context.available_controls；不要把动作格式或系统校验问题转成要求用户重新提问的最终回答。
 如果观察结果指出 task_contract_invalid，需要修正合同字段后重新提交 request_task_run。
 用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、系统结构或协议字段。
 """.strip()

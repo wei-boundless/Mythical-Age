@@ -466,7 +466,7 @@ def test_active_work_turn_policy_does_not_rewrite_direct_answer_action() -> None
     assert decision.continuation_strategy == "same_run_resume"
     assert decision.denied_reason == ""
 
-def test_active_work_turn_policy_rejects_non_control_subaction() -> None:
+def test_active_work_turn_policy_downgrades_non_control_subaction_to_answer() -> None:
     from harness.loop.active_work import active_work_turn_decision_from_payload
 
     decision = active_work_turn_decision_from_payload(
@@ -479,10 +479,13 @@ def test_active_work_turn_policy_rejects_non_control_subaction() -> None:
         user_message="解释一下 checkpoint",
     )
 
-    assert decision.accepted is False
-    assert decision.denied_reason == "active_work_control_action_not_allowed"
+    assert decision.accepted is True
+    assert decision.action == "answer_about_active_work"
+    assert decision.response == "这应该作为普通回复，而不是当前工作控制。"
+    assert decision.denied_reason == ""
+    assert decision.continuation_strategy == "none"
 
-def test_active_work_turn_policy_does_not_treat_intent_as_action() -> None:
+def test_active_work_turn_policy_accepts_intent_as_control_action_alias() -> None:
     from harness.loop.active_work import active_work_turn_decision_from_payload
 
     decision = active_work_turn_decision_from_payload(
@@ -495,8 +498,9 @@ def test_active_work_turn_policy_does_not_treat_intent_as_action() -> None:
         user_message="继续",
     )
 
-    assert decision.accepted is False
-    assert decision.denied_reason == "active_work_control_action_not_allowed"
+    assert decision.accepted is True
+    assert decision.action == "continue_active_work"
+    assert decision.denied_reason == ""
 
 def test_active_work_relation_mismatch_blocks_without_control_side_effects() -> None:
     model = _ActiveWorkDecisionModelRuntime([
@@ -998,6 +1002,50 @@ def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_
         and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
         and event.get("terminal_reason") == "continue_active_work"
         and "接着处理" in str(event.get("content") or "")
+        for event in events
+    )
+
+def test_main_agent_active_work_control_accepts_intent_alias_without_blocking() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "intent": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "continuation_strategy": "same_run_resume",
+            "evidence": "用户要求续接当前等待中的任务",
+            "response": "好，我接着处理当前任务。",
+        }
+    ])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-control-intent-alias")
+    host = runtime.single_agent_runtime_host
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="继续。",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    trace_event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 1
+    assert "task_run_resume_requested" in trace_event_types
+    assert not any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "blocked"
+        and event.get("terminal_reason") == "active_work_control_action_not_allowed"
+        for event in events
+    )
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
+        and event.get("terminal_reason") == "continue_active_work"
         for event in events
     )
 

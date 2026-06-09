@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PublicTimelineActivity } from "./PublicTimelineActivity";
 
 describe("PublicTimelineActivity", () => {
-  it("renders task projection todo and current action without public timeline inference", () => {
+  it("renders task projection todo without runtime state activities", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         taskProjections: [
@@ -36,11 +36,11 @@ describe("PublicTimelineActivity", () => {
 
     expect(html).toContain("处理清单");
     expect(html).toContain("当前：正在接入投影附件");
-    expect(html).toContain("正在重构投影系统");
-    expect(html).toContain("已确认旧反推链路");
+    expect(html).not.toContain("正在重构投影系统");
+    expect(html).not.toContain("已确认旧反推链路");
   });
 
-  it("hides completed low-signal task projection activities", () => {
+  it("does not render task projection runtime activities in the chat body", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         taskProjections: [
@@ -95,8 +95,8 @@ describe("PublicTimelineActivity", () => {
     );
 
     expect(html).toContain("处理清单");
-    expect(html).toContain("写入报告");
-    expect(html).toContain("正在思考");
+    expect(html).not.toContain("写入报告");
+    expect(html).not.toContain("正在思考");
     expect(html).not.toContain("执行 agent_todo");
     expect(html).not.toContain("读取文件内容");
     expect(html).not.toContain("执行 2 个工具调用");

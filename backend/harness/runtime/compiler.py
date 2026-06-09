@@ -2210,6 +2210,14 @@ def _single_agent_turn_output_contract(
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
+                "required_fields": ["action", "relation_to_current_work"],
+                "payload_schema": {
+                    "action": "one of allowed_controls; use this exact field name for the control decision",
+                    "response": "short user-visible answer or acknowledgement; do not ask the user to restate an already clear control request",
+                    "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
+                    "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
+                    "continuation_strategy": "same_run_resume, already_running, defer, or none",
+                },
                 "allowed_controls": [
                     "continue_active_work",
                     "pause_active_work",
@@ -2269,7 +2277,8 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
             ],
             "decision_boundary": (
                 "active_work_context represents the current non-terminal active turn or latest resumable executor checkpoint. "
-                "Historical work summaries, old artifacts, and terminal task records are not controllable current work."
+                "Historical work summaries, old artifacts, and terminal task records are not controllable current work. "
+                "The agent owns semantic scheduling; the system only exposes available controls and edge validation."
             ),
         }
     )
@@ -3756,6 +3765,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
+            "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
+            "response 是给用户看的简短回答，不要输出要求用户重新提出问题的阻断话术。"
         )
         if "request_task_run" in allowed_actions:
             lines.append(

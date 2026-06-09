@@ -374,6 +374,45 @@ def test_disconnected_event_stream_does_not_cancel_background_chat_run() -> None
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
 
+def test_chat_run_registry_cursor_write_failure_does_not_abort_stream() -> None:
+    with isolated_app_client(app) as client:
+        runtime = app_runtime.require_ready()
+        host = runtime.harness_runtime.single_agent_runtime_host
+        original_astream = runtime.harness_runtime.astream
+        original_mark_event = host.run_registry.mark_event
+        failures = {"remaining": 1}
+
+        async def fake_done_astream(_request):
+            yield {"type": "token", "content": "started"}
+            yield {"type": "done", "content": "finished despite cursor write failure"}
+
+        def flaky_mark_event(*args, **kwargs):
+            if failures["remaining"] > 0:
+                failures["remaining"] -= 1
+                raise PermissionError("simulated locked runtime run registry")
+            return original_mark_event(*args, **kwargs)
+
+        runtime.harness_runtime.astream = fake_done_astream  # type: ignore[method-assign]
+        host.run_registry.mark_event = flaky_mark_event  # type: ignore[method-assign]
+        try:
+            session_id = _create_session(client, "Run registry cursor write is best effort")
+            run = _create_chat_run(client, session_id=session_id, message="do not abort on cursor write")
+
+            stream = client.get(run["stream_url"])
+
+            assert stream.status_code == 200
+            assert failures["remaining"] == 0
+            assert "finished despite cursor write failure" in stream.text
+            assert "event: done" in stream.text
+            assert "stream_exception" not in stream.text
+            latest = client.get(f"/api/chat/sessions/{session_id}/latest-run?active_only=false")
+            assert latest.status_code == 200
+            assert latest.json()["status"] == "completed"
+        finally:
+            runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
+            host.run_registry.mark_event = original_mark_event  # type: ignore[method-assign]
+
+
 def test_runtime_startup_marks_previous_process_active_chat_runs_orphaned(tmp_path) -> None:
     registry = RuntimeRunRegistry(tmp_path)
     stale = registry.create_run(

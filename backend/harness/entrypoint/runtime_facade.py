@@ -721,6 +721,7 @@ class HarnessRuntimeFacade:
                 return active_turn_guard
             decision = active_work_turn_decision_from_payload(
                 {
+                    **dict(control_payload or {}),
                     "authority": "harness.loop.active_work_turn_decision",
                     "action": str(control_payload.get("action") or ""),
                     "response": str(control_payload.get("response") or ""),
@@ -1818,6 +1819,31 @@ class HarnessRuntimeFacade:
             max_steps=max_steps,
             recovered_from=recovered_from,
         )
+
+    def start_runtime_recovered_task_run_executors(
+        self,
+        *,
+        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
+    ) -> dict[str, Any]:
+        recovery = dict(getattr(self, "task_executor_recovery", {}) or {})
+        task_run_ids = [
+            str(item or "").strip()
+            for item in list(recovery.get("task_run_ids") or [])
+            if str(item or "").strip()
+        ]
+        schedule_result = self.task_executor_controller.schedule_runtime_start_recovered_executors(
+            task_run_ids,
+            scheduler="runtime_start_recovery",
+            max_steps=max_steps,
+        )
+        self.task_executor_recovery = {
+            **recovery,
+            "executor_restart_schedule": schedule_result,
+        }
+        runtime_components = dict(getattr(self, "runtime_components", {}) or {})
+        runtime_components["task_executor_recovery"] = self.task_executor_recovery
+        self.runtime_components = runtime_components
+        return schedule_result
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -2951,6 +2977,4 @@ def _first_contract_text(*values: Any) -> str:
         if text:
             return text
     return ""
-
-
 

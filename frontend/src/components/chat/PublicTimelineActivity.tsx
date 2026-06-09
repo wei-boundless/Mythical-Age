@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { isPublicTimelineBodyItem, looksLikeRawToolOutput, publicTimelineBodyText } from "@/components/chat/agentRunProjection";
-import type { PublicChatTimelineItem, PublicTodoItem, SingleAgentTaskProjection, SingleAgentTaskProjectionActivity } from "@/lib/api";
+import type { PublicChatTimelineItem, PublicTodoItem, SingleAgentTaskProjection } from "@/lib/api";
 import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/store/publicTimeline";
 
 type PublicTimelineActivityProps = {
@@ -107,19 +107,6 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
         todo,
       });
     }
-    const currentAction = taskProjectionCurrentAction(projection);
-    if (currentAction) {
-      entries.push(currentAction);
-    }
-    for (const activity of projection.activities ?? []) {
-      if (isLowSignalCompletedProjectionActivity(activity)) {
-        continue;
-      }
-      const entry = taskProjectionActivityEntry(activity, projectionId);
-      if (entry) {
-        entries.push(entry);
-      }
-    }
     const finalAnswer = cleanPublicTimelineText(projection.final_answer);
     if (finalAnswer) {
       entries.push({
@@ -138,67 +125,6 @@ function taskProjectionTodo(projection: SingleAgentTaskProjection): TodoProjecti
     return null;
   }
   return todoProjectionFromItems(todo.items, cleanPublicTimelineText(todo.active_item_id), Boolean(todo.completion_ready));
-}
-
-function taskProjectionCurrentAction(projection: SingleAgentTaskProjection): ActivityEntry | null {
-  const action = projection.current_action && typeof projection.current_action === "object" && !Array.isArray(projection.current_action)
-    ? projection.current_action as Record<string, unknown>
-    : {};
-  const title = cleanPublicTimelineText(action.title || action.detail || projection.user_visible_goal);
-  if (!title) {
-    return null;
-  }
-  const state = cleanPublicTimelineText(action.state || projection.status).toLowerCase();
-  return {
-    id: `${cleanPublicTimelineText(projection.projection_id || projection.task_run_id)}:current-action`,
-    kind: ["failed", "error", "blocked"].includes(state) ? "stopped" : "status",
-    detail: cleanPublicTimelineText(action.detail) && cleanPublicTimelineText(action.detail) !== title
-      ? shortText(action.detail, 360)
-      : "",
-    text: shortText(title, 220),
-  };
-}
-
-function taskProjectionActivityEntry(activity: SingleAgentTaskProjectionActivity, projectionId: string): ActivityEntry | null {
-  const text = cleanPublicTimelineText(activity.title || activity.detail);
-  if (!text) {
-    return null;
-  }
-  const state = cleanPublicTimelineText(activity.state).toLowerCase();
-  const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
-  const detail = projectionActivityDetail(activity, text);
-  return {
-    id: cleanPublicTimelineText(activity.activity_id) || `${projectionId}:activity:${kind}:${text}`,
-    kind: kind === "final" ? "body" : ["failed", "error", "blocked"].includes(state) || kind === "error" ? "stopped" : "status",
-    detail,
-    text: shortText(text, 220),
-  };
-}
-
-function projectionActivityDetail(activity: SingleAgentTaskProjectionActivity, text: string) {
-  const detail = cleanPublicTimelineText(activity.detail);
-  if (!detail || detail === text) {
-    return "";
-  }
-  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
-  const lowered = detail.toLowerCase();
-  if (sourceKind === "stage" && (lowered.includes("工具调用") || lowered.includes("agent todo"))) {
-    return "";
-  }
-  return shortText(detail, 360);
-}
-
-function isLowSignalCompletedProjectionActivity(activity: SingleAgentTaskProjectionActivity) {
-  const state = cleanPublicTimelineText(activity.state).toLowerCase();
-  if (!["completed", "complete", "done", "ready", "passed", "success"].includes(state)) {
-    return false;
-  }
-  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
-  if (sourceKind === "inspect_path") {
-    return true;
-  }
-  const text = `${cleanPublicTimelineText(activity.title)}\n${cleanPublicTimelineText(activity.detail)}`.toLowerCase();
-  return sourceKind === "tool_action" && text.includes("agent_todo");
 }
 
 function dedupeActivityEntries(entries: ActivityEntry[]) {

@@ -1146,6 +1146,105 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
     assert diagnostics.get("latest_step_summary") == "后端运行时已重启，当前工作已恢复为可继续状态。"
     assert diagnostics.get("latest_public_progress_note") == "后端运行时已重启，当前工作已恢复为可继续状态。"
 
+def test_runtime_start_recovery_reschedules_recovered_executor() -> None:
+    from harness.loop.task_executor_controller import TaskExecutorController
+
+    class _SpawnedTask:
+        def done(self) -> bool:
+            return False
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:runtime-start-reschedule"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-runtime-start-reschedule",
+            task_id="task:runtime-start-reschedule",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            diagnostics={
+                "executor_status": "scheduled",
+                "latest_step": "task_executor_scheduled",
+                "latest_step_summary": "执行器在上一进程中持有运行权。",
+            },
+        )
+    )
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=runtime.execute_task_run)
+    recovery = controller.recover_interrupted_executor_leases()
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return _SpawnedTask()
+
+    host.spawn_background_task = _capture_background_task
+
+    schedule = controller.schedule_runtime_start_recovered_executors(recovery["task_run_ids"], scheduler="test_runtime_start")
+    task_run = host.state_index.get_task_run(task_run_id)
+
+    assert schedule["scheduled_count"] == 1
+    assert schedule["scheduled_task_run_ids"] == [task_run_id]
+    assert spawned == [f"task-run-executor:{task_run_id}"]
+    assert task_run is not None
+    assert task_run.status == "running"
+    diagnostics = dict(task_run.diagnostics or {})
+    assert diagnostics.get("executor_status") == "scheduled"
+    assert diagnostics.get("executor_recovered_from") == "runtime_start_recovery"
+
+def test_runtime_start_recovery_does_not_reschedule_paused_executor() -> None:
+    from harness.loop.task_executor_controller import TaskExecutorController
+
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:runtime-start-paused"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-runtime-start-paused",
+            task_id="task:runtime-start-paused",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            terminal_reason="waiting_executor",
+            diagnostics={
+                "executor_status": "waiting_executor",
+                "recovery_action": "rerun_task_executor",
+                "recoverable_error": {
+                    "error_code": "task_executor_interrupted_by_runtime_restart",
+                    "retryable": True,
+                    "user_message": "后端运行时已重启，任务可以继续续跑。",
+                },
+                "runtime_control": {
+                    "state": "paused",
+                    "requested_by": "user",
+                    "requested_at": 100.0,
+                    "reason": "用户暂停",
+                    "authority": "orchestration.task_run_control",
+                },
+            },
+        )
+    )
+    controller = TaskExecutorController(runtime_host=host, execute_task_run_callback=runtime.execute_task_run)
+    spawned: list[str] = []
+
+    def _capture_background_task(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return object()
+
+    host.spawn_background_task = _capture_background_task
+
+    schedule = controller.schedule_runtime_start_recovered_executors(scheduler="test_runtime_start")
+    task_run = host.state_index.get_task_run(task_run_id)
+
+    assert schedule["scheduled_count"] == 0
+    assert schedule["skipped"] == [{"task_run_id": task_run_id, "reason": "not_executable:waiting_executor"}]
+    assert spawned == []
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    assert dict(dict(task_run.diagnostics or {}).get("runtime_control") or {}).get("state") == "paused"
+
 def test_scheduled_executor_recovery_does_not_spawn_duplicate_live_runner() -> None:
     from harness.loop.task_executor_controller import TaskExecutorController
 

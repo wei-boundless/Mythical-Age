@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from harness.loop.active_work import active_work_action_from_payload
+
 
 ModelActionType = Literal[
     "respond",
@@ -161,7 +163,10 @@ def model_action_request_from_payload(
         if not plan_id:
             errors.append("plan_id_required_for_request_registered_engagement")
     if action_type == "active_work_control":
-        action = str(active_work_control.get("action") or raw.get("action") or "").strip()
+        action = active_work_action_from_payload({
+            **dict(raw),
+            **dict(active_work_control),
+        })
         if not action:
             errors.append("active_work_action_required")
     if errors:

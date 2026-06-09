@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import threading
 import time
@@ -8,6 +7,8 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
+
+from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, read_json_dict, write_json_dict
 
 
 RuntimeRunStatus = Literal["starting", "running", "waiting", "completed", "failed", "stopped", "orphaned"]
@@ -86,10 +87,8 @@ class RuntimeRunRegistry:
         if not path.exists():
             return None
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        if not isinstance(payload, dict):
+            payload = read_json_dict(path, label=f"runtime run {stream_run_id}")
+        except (JsonFileStoreError, JsonFilePayloadCorrupt):
             return None
         payload["event_log_id"] = str(payload.get("event_log_id") or payload.get("task_run_id") or "").strip()
         payload.pop("task_run_id", None)
@@ -107,10 +106,8 @@ class RuntimeRunRegistry:
         runs: list[RuntimeRun] = []
         for path in self.run_dir.glob("*.json"):
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(payload, dict):
+                payload = read_json_dict(path, label=f"runtime run {path.stem}")
+            except (JsonFileStoreError, JsonFilePayloadCorrupt):
                 continue
             payload["event_log_id"] = str(payload.get("event_log_id") or payload.get("task_run_id") or "").strip()
             payload.pop("task_run_id", None)
@@ -213,13 +210,7 @@ class RuntimeRunRegistry:
     def upsert(self, run: RuntimeRun) -> RuntimeRun:
         with self._lock:
             path = self._run_path(run.stream_run_id)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
-            tmp.write_text(json.dumps(run.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-            try:
-                os.replace(tmp, path)
-            finally:
-                tmp.unlink(missing_ok=True)
+            write_json_dict(path, run.to_dict(), label=f"runtime run {run.stream_run_id}")
         return run
 
     def _run_path(self, stream_run_id: str) -> Path:

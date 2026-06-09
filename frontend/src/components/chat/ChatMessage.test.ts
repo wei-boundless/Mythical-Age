@@ -251,6 +251,80 @@ describe("ChatMessage", () => {
     expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
   });
 
+  it("keeps task runtime status and tool activity out of the chat body when a task projection exists", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:task-projection-runtime-draft",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:projection",
+            anchor_turn_id: "turn:projection",
+            run_id: "taskrun:projection",
+            task_run_id: "taskrun:projection",
+            status: "running",
+            task_projection: {
+              projection_id: "projection:taskrun",
+              authority: "runtime_projection",
+              task_run_id: "taskrun:projection",
+              status: "running",
+              todo: {
+                active_item_id: "todo:1",
+                completion_ready: false,
+                items: [
+                  { todo_id: "todo:1", content: "审查运行状态", active_form: "正在审查运行状态", status: "in_progress" },
+                  { todo_id: "todo:2", content: "输出修复结果", status: "pending" },
+                ],
+              },
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "stage:thinking",
+            kind: "status_update",
+            title: "正在思考",
+            state: "running",
+          },
+          {
+            item_id: "tool:read",
+            kind: "work_action",
+            action_kind: "inspect",
+            title: "读取文件内容",
+            subject_label: "backend/api/chat.py",
+            public_summary: "读取文件内容 backend/api/chat.py",
+            state: "done",
+          },
+          {
+            item_id: "verify:evidence",
+            kind: "verification",
+            title: "补齐验收证据",
+            state: "running",
+          },
+          {
+            item_id: "ask:user",
+            kind: "status_update",
+            phase: "waiting_user",
+            title: "等待补充信息",
+            detail: "请选择要优先验证的页面。",
+            state: "waiting",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("处理清单");
+    expect(html).toContain("当前：正在审查运行状态");
+    expect(html).not.toContain("正在思考");
+    expect(html).not.toContain("读取文件内容");
+    expect(html).not.toContain("补齐验收证据");
+    expect(html).not.toContain("backend/api/chat.py");
+    expect(html).toContain("请选择要优先验证的页面。");
+  });
+
   it("renders an explicit opening judgment even before activity rows exist", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

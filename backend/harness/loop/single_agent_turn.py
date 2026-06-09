@@ -15,6 +15,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from project_layout import ProjectLayout
 from harness.task_contract_normalization import contract_dict_list, contract_string_list
 from harness.loop.admission import AdmissionDecision, admit_model_action
+from harness.loop.active_work import active_work_action_from_payload
 from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
@@ -2333,7 +2334,7 @@ def _active_work_action_request_from_native_tool_calls(
         if str(call.get("name") or "").strip() != "active_work_control":
             continue
         args = dict(call.get("args") or {})
-        action = str(args.get("action") or "").strip()
+        action = active_work_action_from_payload(args)
         if action not in {
             "continue_active_work",
             "pause_active_work",

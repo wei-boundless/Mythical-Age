@@ -96,6 +96,49 @@ function statusLabel(value: unknown) {
   return labels[status] ?? status;
 }
 
+function statusTone(value: unknown) {
+  const status = stringValue(value, "idle").toLowerCase();
+  if (["running", "dispatching", "pending"].includes(status)) return "active";
+  if (["blocked", "failed", "error"].includes(status)) return "attention";
+  if (["completed", "done"].includes(status)) return "success";
+  if (["paused", "stopped"].includes(status)) return "paused";
+  return "idle";
+}
+
+function timestampValue(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return numeric > 10_000_000_000 ? numeric : numeric * 1000;
+}
+
+function instancePriority(instance: GraphTaskInstanceSummary) {
+  const tone = statusTone(instance.status);
+  if (tone === "attention") return 0;
+  if (tone === "active") return 1;
+  if (tone === "paused") return 2;
+  if (tone === "idle") return 3;
+  if (tone === "success") return 4;
+  return 5;
+}
+
+function sortInstancesForOperations(instances: GraphTaskInstanceSummary[]) {
+  return [...instances].sort((left, right) => {
+    const priority = instancePriority(left) - instancePriority(right);
+    if (priority) return priority;
+    return timestampValue(right.updated_at) - timestampValue(left.updated_at);
+  });
+}
+
+function nextActionText(instance: GraphTaskInstanceSummary | null, counts: ReturnType<typeof monitorCounts>) {
+  if (!instance) return "先创建或选择一个实例项目。";
+  if (counts.failed || counts.blocked) return "优先查看阻塞节点、节点会话和运行监控。";
+  const tone = statusTone(instance.status);
+  if (tone === "active") return "运行中，重点观察节点会话、产物和失败计数。";
+  if (tone === "success") return "已完成，检查产物并决定是否开启下一轮。";
+  if (tone === "paused") return "已暂停，可以从运行监控继续或重新提交。";
+  return "实例已就绪，可以启动后台运行。";
+}
+
 function graphTaskScope(instanceId: string): Partial<SessionScope> {
   return {
     workspace_view: "graph_task",
@@ -240,6 +283,16 @@ export function GraphTaskInstanceWorkbench({
   const rootTreeNode = useMemo(() => parseTreeNode(fileTree?.tree), [fileTree]);
   const artifacts = monitor?.artifacts.artifacts ?? [];
   const nodeSessions = monitor?.node_sessions ?? [];
+  const sortedInstances = useMemo(() => sortInstancesForOperations(instances), [instances]);
+  const activeInstanceCount = useMemo(
+    () => instances.filter((instance) => statusTone(instance.status) === "active").length,
+    [instances],
+  );
+  const attentionInstanceCount = useMemo(
+    () => instances.filter((instance) => statusTone(instance.status) === "attention").length,
+    [instances],
+  );
+  const nextAction = nextActionText(selectedInstance, counts);
 
   useEffect(() => {
     if (graphTasks.length) return;
@@ -272,12 +325,13 @@ export function GraphTaskInstanceWorkbench({
     setError("");
     try {
       const payload = await listGraphTaskInstances(graphId);
-      setInstances(payload.instances);
+      const sortedPayloadInstances = sortInstancesForOperations(payload.instances);
+      setInstances(sortedPayloadInstances);
       setSelectedInstanceId((current) => {
-        if (current && payload.instances.some((instance) => instance.graph_task_instance_id === current)) {
+        if (current && sortedPayloadInstances.some((instance) => instance.graph_task_instance_id === current)) {
           return current;
         }
-        return payload.instances[0]?.graph_task_instance_id ?? "";
+        return sortedPayloadInstances[0]?.graph_task_instance_id ?? "";
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "图任务实例加载失败");
@@ -493,6 +547,29 @@ export function GraphTaskInstanceWorkbench({
       {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
       {notice ? <div className="boundary-notice">{notice}</div> : null}
 
+      <section className="graph-task-ops-summary" aria-label="图任务项目总览">
+        <article>
+          <span>图定义</span>
+          <strong>{graphTaskOptions.length}</strong>
+          <small>{selectedGraph?.publish_state || "未选择"}</small>
+        </article>
+        <article className={activeInstanceCount ? "graph-task-ops-summary__tile--active" : ""}>
+          <span>运行中</span>
+          <strong>{activeInstanceCount}</strong>
+          <small>{instances.length} 个实例项目</small>
+        </article>
+        <article className={attentionInstanceCount ? "graph-task-ops-summary__tile--attention" : ""}>
+          <span>需处理</span>
+          <strong>{attentionInstanceCount + counts.failed + counts.blocked}</strong>
+          <small>失败、阻塞或停滞优先</small>
+        </article>
+        <article>
+          <span>当前资产</span>
+          <strong>{counts.sessions + counts.artifacts}</strong>
+          <small>{counts.sessions} 会话 · {counts.artifacts} 产物</small>
+        </article>
+      </section>
+
       <div className="graph-task-instance-workbench__body">
         <aside className="graph-task-instance-workbench__rail" aria-label="图定义和实例项目">
           <section className="graph-task-instance-panel">
@@ -531,19 +608,24 @@ export function GraphTaskInstanceWorkbench({
               </div>
             </header>
             <div className="graph-task-instance-list">
-              {instances.map((instance) => {
+              {sortedInstances.map((instance) => {
                 const active = instance.graph_task_instance_id === selectedInstance?.graph_task_instance_id;
+                const tone = statusTone(instance.status);
                 return (
                   <button
                     aria-current={active ? "page" : undefined}
-                    className={classNames("graph-task-instance-row", active && "graph-task-instance-row--active")}
+                    className={classNames(
+                      "graph-task-instance-row",
+                      `graph-task-instance-row--tone-${tone}`,
+                      active && "graph-task-instance-row--active",
+                    )}
                     key={instance.graph_task_instance_id}
                     onClick={() => setSelectedInstanceId(instance.graph_task_instance_id)}
                     type="button"
                   >
                     <strong>{instance.title || instance.graph_task_instance_id}</strong>
                     <small>{instance.graph_task_instance_id}</small>
-                    <span>{statusLabel(instance.status)} · {timestampLabel(instance.updated_at)}</span>
+                    <span className="graph-task-instance-row__status">{statusLabel(instance.status)} · {timestampLabel(instance.updated_at)}</span>
                   </button>
                 );
               })}
@@ -590,7 +672,9 @@ export function GraphTaskInstanceWorkbench({
               <small>{selectedInstance?.graph_task_instance_id || "实例是图任务的项目级运行容器"}</small>
             </div>
             <div className="graph-task-instance-hero__status">
-              <em>{statusLabel(selectedInstance?.status)}</em>
+              <em className={`graph-task-instance-status-pill graph-task-instance-status-pill--${statusTone(selectedInstance?.status)}`}>
+                {statusLabel(selectedInstance?.status)}
+              </em>
               <button disabled={!selectedInstance || action === "start"} onClick={() => void startRun()} type="button">
                 <PlayCircle size={15} />
                 <span>{action === "start" ? "提交中" : "启动运行"}</span>
@@ -598,12 +682,27 @@ export function GraphTaskInstanceWorkbench({
             </div>
           </section>
 
+          <section className={classNames(
+            "graph-task-next-action",
+            Boolean(counts.failed || counts.blocked || attentionInstanceCount) && "graph-task-next-action--attention",
+          )} aria-label="下一动作">
+            <div>
+              <span>下一动作</span>
+              <strong>{nextAction}</strong>
+            </div>
+            <small>
+              {selectedInstance
+                ? `${selectedInstance.graph_task_instance_id} · ${timestampLabel(selectedInstance.updated_at)}`
+                : "没有实例时无法启动图运行"}
+            </small>
+          </section>
+
           <section className="graph-task-instance-metrics" aria-label="运行指标">
             <span>Ready <strong>{counts.ready}</strong></span>
-            <span>Running <strong>{counts.running}</strong></span>
-            <span>Done <strong>{counts.completed}</strong></span>
-            <span>Failed <strong>{counts.failed}</strong></span>
-            <span>Blocked <strong>{counts.blocked}</strong></span>
+            <span className={counts.running ? "graph-task-instance-metric--active" : ""}>Running <strong>{counts.running}</strong></span>
+            <span className={counts.completed ? "graph-task-instance-metric--success" : ""}>Done <strong>{counts.completed}</strong></span>
+            <span className={counts.failed ? "graph-task-instance-metric--attention" : ""}>Failed <strong>{counts.failed}</strong></span>
+            <span className={counts.blocked ? "graph-task-instance-metric--attention" : ""}>Blocked <strong>{counts.blocked}</strong></span>
             <span>Sessions <strong>{counts.sessions}</strong></span>
             <span>Artifacts <strong>{counts.artifacts}</strong></span>
           </section>
@@ -638,67 +737,73 @@ export function GraphTaskInstanceWorkbench({
           </section>
         </main>
 
-        <aside className="graph-task-instance-workbench__files" aria-label="项目文件和产物">
+        <section className="graph-task-instance-workbench__files" aria-label="项目文件和产物">
           <section className="graph-task-instance-panel graph-task-file-panel">
             <header className="graph-task-instance-panel__head">
               <div>
-                <span>项目文件</span>
+                <span>文件中心</span>
                 <strong>{fileTree?.total_entries ?? 0} 项</strong>
               </div>
               <FolderTree size={16} />
             </header>
-            <div className="graph-task-file-tree">
-              {fileTree ? (
-                <GraphTaskFileTree
-                  node={rootTreeNode}
-                  onSelectFile={(path) => void loadFile(path)}
-                  selectedPath={selectedFilePath}
-                />
-              ) : (
-                <div className="boundary-empty">选择实例后显示项目文件。</div>
-              )}
-            </div>
-            <div className="graph-task-file-editor">
-              <label>
-                <span>当前文件</span>
-                <input
-                  onChange={(event) => setSelectedFilePath(event.target.value)}
-                  placeholder="选择或输入文件路径"
-                  value={selectedFilePath}
-                />
-              </label>
-              <textarea
-                disabled={!selectedInstance}
-                onChange={(event) => setFileContent(event.target.value)}
-                placeholder="选择文件后编辑内容"
-                rows={8}
-                value={fileContent}
-              />
-              <button disabled={!selectedInstance || !selectedFilePath || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
-                <Save size={14} />
-                <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
-              </button>
-            </div>
-            <div className="graph-task-file-editor graph-task-file-editor--new">
-              <label>
-                <span>写入文件</span>
-                <input
-                  onChange={(event) => setNewFilePath(event.target.value)}
-                  placeholder="input/brief.md"
-                  value={newFilePath}
-                />
-              </label>
-              <textarea
-                disabled={!selectedInstance}
-                onChange={(event) => setNewFileContent(event.target.value)}
-                placeholder="输入需要放入项目文件区的内容"
-                rows={4}
-                value={newFileContent}
-              />
-              <button disabled={!selectedInstance || !newFilePath.trim() || action === "new-file"} onClick={() => void createOrOverwriteFile()} type="button">
-                <FileText size={14} />
-                <span>{action === "new-file" ? "写入中" : "写入项目文件"}</span>
-              </button>
+            <div className="graph-task-file-panel__body">
+              <div className="graph-task-file-panel__browser">
+                <div className="graph-task-file-tree">
+                  {fileTree ? (
+                    <GraphTaskFileTree
+                      node={rootTreeNode}
+                      onSelectFile={(path) => void loadFile(path)}
+                      selectedPath={selectedFilePath}
+                    />
+                  ) : (
+                    <div className="boundary-empty">选择实例后显示项目文件。</div>
+                  )}
+                </div>
+              </div>
+              <div className="graph-task-file-panel__editor-stack">
+                <div className="graph-task-file-editor">
+                  <label>
+                    <span>当前文件</span>
+                    <input
+                      onChange={(event) => setSelectedFilePath(event.target.value)}
+                      placeholder="选择或输入文件路径"
+                      value={selectedFilePath}
+                    />
+                  </label>
+                  <textarea
+                    disabled={!selectedInstance}
+                    onChange={(event) => setFileContent(event.target.value)}
+                    placeholder="选择文件后编辑内容"
+                    rows={10}
+                    value={fileContent}
+                  />
+                  <button disabled={!selectedInstance || !selectedFilePath || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
+                    <Save size={14} />
+                    <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
+                  </button>
+                </div>
+                <div className="graph-task-file-editor graph-task-file-editor--new">
+                  <label>
+                    <span>写入文件</span>
+                    <input
+                      onChange={(event) => setNewFilePath(event.target.value)}
+                      placeholder="input/brief.md"
+                      value={newFilePath}
+                    />
+                  </label>
+                  <textarea
+                    disabled={!selectedInstance}
+                    onChange={(event) => setNewFileContent(event.target.value)}
+                    placeholder="输入需要放入项目文件区的内容"
+                    rows={5}
+                    value={newFileContent}
+                  />
+                  <button disabled={!selectedInstance || !newFilePath.trim() || action === "new-file"} onClick={() => void createOrOverwriteFile()} type="button">
+                    <FileText size={14} />
+                    <span>{action === "new-file" ? "写入中" : "写入项目文件"}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -725,7 +830,7 @@ export function GraphTaskInstanceWorkbench({
               {!artifacts.length ? <div className="boundary-empty">运行产物会进入实例项目空间。</div> : null}
             </div>
           </section>
-        </aside>
+        </section>
       </div>
     </section>
   );

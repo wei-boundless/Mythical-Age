@@ -114,6 +114,78 @@ describe("ChatPanel", () => {
     ], false)).toBe(true);
   });
 
+  it("does not treat task runtime draft status as chat-body feedback when a task projection exists", () => {
+    expect(shouldSuppressSessionActivityBar([
+      message({
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:projection",
+            anchor_turn_id: "turn:projection",
+            run_id: "taskrun:projection",
+            task_run_id: "taskrun:projection",
+            status: "running",
+            task_projection: {
+              projection_id: "projection:taskrun",
+              authority: "runtime_projection",
+              task_run_id: "taskrun:projection",
+              status: "running",
+              todo: {
+                active_item_id: "todo:1",
+                completion_ready: false,
+                items: [{ todo_id: "todo:1", content: "处理任务", status: "in_progress" }],
+              },
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "stage:thinking",
+            kind: "status_update",
+            title: "正在思考",
+            state: "running",
+          },
+        ],
+      }),
+    ], true)).toBe(false);
+  });
+
+  it("still suppresses footer status for ask-user control when a task projection exists", () => {
+    expect(shouldSuppressSessionActivityBar([
+      message({
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:projection",
+            anchor_turn_id: "turn:projection",
+            run_id: "taskrun:projection",
+            task_run_id: "taskrun:projection",
+            status: "waiting_executor",
+            task_projection: {
+              projection_id: "projection:taskrun",
+              authority: "runtime_projection",
+              task_run_id: "taskrun:projection",
+              status: "waiting_user",
+              todo: {
+                active_item_id: "todo:1",
+                completion_ready: false,
+                items: [{ todo_id: "todo:1", content: "等待补充", status: "in_progress" }],
+              },
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "control:ask-user",
+            kind: "status_update",
+            phase: "waiting_user",
+            title: "等待补充信息",
+            detail: "请补充要优先审查的范围。",
+            state: "waiting",
+          },
+        ],
+      }),
+    ], false)).toBe(true);
+  });
+
   it("shows context pressure ratio even when pressure is normal", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {

@@ -33,6 +33,67 @@ _CURRENT_WORK_ACTIONS = {
     "answer_about_active_work",
     "answer_then_continue_active_work",
 }
+_ACTION_FIELD_ALIASES = (
+    "action",
+    "intent",
+    "control_action",
+    "active_work_action",
+    "subaction",
+    "operation",
+)
+_ACTION_ALIASES = {
+    "continue": "continue_active_work",
+    "resume": "continue_active_work",
+    "resume_active_work": "continue_active_work",
+    "continue_work": "continue_active_work",
+    "continue_current_work": "continue_active_work",
+    "pause": "pause_active_work",
+    "pause_work": "pause_active_work",
+    "pause_current_work": "pause_active_work",
+    "stop": "stop_active_work",
+    "cancel": "stop_active_work",
+    "abort": "stop_active_work",
+    "stop_work": "stop_active_work",
+    "stop_current_work": "stop_active_work",
+    "append_instruction": "append_instruction_to_active_work",
+    "append_instructions": "append_instruction_to_active_work",
+    "append_user_instruction": "append_instruction_to_active_work",
+    "add_instruction": "append_instruction_to_active_work",
+    "add_requirement": "append_instruction_to_active_work",
+    "steer": "append_instruction_to_active_work",
+    "status": "answer_about_active_work",
+    "progress": "answer_about_active_work",
+    "answer_status": "answer_about_active_work",
+    "answer_about_work": "answer_about_active_work",
+    "answer_then_continue": "answer_then_continue_active_work",
+    "reply_then_continue": "answer_then_continue_active_work",
+    "answer_then_resume": "answer_then_continue_active_work",
+}
+_NON_CONTROL_RESPONSE_ACTIONS = {
+    "respond",
+    "normal_response",
+    "answer",
+    "reply",
+}
+
+
+def active_work_action_from_payload(payload: dict[str, Any] | None) -> str:
+    raw = dict(payload or {})
+    for field in _ACTION_FIELD_ALIASES:
+        action = _normalize_action_name(raw.get(field))
+        if action:
+            return action
+    return ""
+
+
+def _normalize_action_name(value: Any) -> str:
+    action = str(value or "").strip()
+    if not action:
+        return ""
+    normalized = action.lower().replace("-", "_").replace(" ", "_")
+    return _ACTION_ALIASES.get(normalized, normalized)
+
+
 @dataclass(frozen=True, slots=True)
 class ActiveWorkContext:
     session_id: str
@@ -86,12 +147,26 @@ class ActiveWorkTurnDecision:
 def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, user_message: str = "") -> ActiveWorkTurnDecision:
     raw = dict(payload or {})
     authority = str(raw.get("authority") or "harness.loop.active_work_turn_decision").strip()
-    action = str(raw.get("action") or "").strip()
+    action = active_work_action_from_payload(raw)
     if authority != "harness.loop.active_work_turn_decision":
         return _denied_active_work_decision("active_work_turn_decision_authority_invalid")
+    response = public_active_work_text(str(raw.get("response") or raw.get("final_answer") or ""))
+    if action in _NON_CONTROL_RESPONSE_ACTIONS:
+        return ActiveWorkTurnDecision(
+            action="answer_about_active_work",
+            response=response,
+            reason="normalized_non_control_response",
+            relation_to_current_work=_normalize_relation_to_current_work(
+                raw.get("relation_to_current_work") or raw.get("relation")
+            ),
+            evidence=str(raw.get("evidence") or raw.get("routing_evidence") or "").strip(),
+            turn_response_policy="answer_only",
+            user_turn_kind=_normalize_user_turn_kind(raw.get("user_turn_kind") or raw.get("turn_kind") or raw.get("utterance_kind")),
+            answer_obligation="direct_answer_required",
+            continuation_strategy="none",
+        )
     if action not in _ALLOWED_ACTIONS:
         return _denied_active_work_decision("active_work_control_action_not_allowed")
-    response = public_active_work_text(str(raw.get("response") or ""))
     appended_instruction = str(raw.get("appended_instruction") or "").strip()
     if action == "append_instruction_to_active_work" and not appended_instruction:
         appended_instruction = str(user_message or "").strip()
