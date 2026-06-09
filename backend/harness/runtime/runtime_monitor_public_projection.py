@@ -435,6 +435,8 @@ def _public_event_type(event_type: str, event: dict[str, Any]) -> str:
         return "runtime_status"
     if event_type in {"task_run_lifecycle_waiting_executor", "task_run_executor_scheduled"}:
         return "runtime_status"
+    if event_type == "active_work_control_observed":
+        return "runtime_status"
     if event_type in {"active_task_steer_recorded", "active_task_steer_accepted"}:
         return "active_task_steer_accepted"
     if event_type in {"task_run_lifecycle_finished", "agent_turn_terminal"}:
@@ -463,6 +465,9 @@ def _public_event_data(
     anchor = _public_anchor(event, monitor=monitor)
     base = {
         "event": event,
+        "runtime_event_id": _text(event.get("event_id")),
+        "runtime_run_id": _text(event.get("run_id")),
+        "created_at": event.get("created_at"),
         "runtime_task_run_id": anchor.get("task_run_id") or _text(event.get("run_id")),
         "task_run_id": anchor.get("task_run_id") or "",
         "turn_run_id": anchor.get("turn_run_id") or "",
@@ -483,7 +488,7 @@ def _public_event_data(
             "public_action_state": payload.get("public_action_state"),
         }
     if public_event_type == "runtime_status":
-        return {**base, **_runtime_status_data(event)}
+        return {key: value for key, value in {**base, **_runtime_status_data(event)}.items() if key != "event"}
     if public_event_type == "assistant_text":
         return {
             **base,
@@ -650,6 +655,13 @@ def _terminal_data(event: dict[str, Any], *, public_event_type: str) -> dict[str
 def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:
     event_type = _text(event.get("event_type"))
     payload = _record(event.get("payload"))
+    if event_type == "active_work_control_observed":
+        return {
+            "title": payload.get("title") or "当前工作控制",
+            "detail": payload.get("detail") or "当前工作控制状态已更新。",
+            "state": payload.get("state") or "running",
+            "phase": payload.get("phase") or "active_work_control",
+        }
     if event_type in {"task_run_lifecycle_waiting_executor", "task_run_executor_scheduled"}:
         return {
             "title": "等待继续",

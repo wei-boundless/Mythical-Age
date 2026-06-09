@@ -70,13 +70,13 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("hides the footer activity when active work control feedback is already in assistant prose", () => {
+  it("keeps footer activity when runtime control has no assistant prose", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
-        answerChannel: "active_work_control",
-        content: "已加入当前任务队列，会在当前执行中优先纳入。",
+        answerChannel: "runtime_control",
+        content: "",
       }),
-    ], false)).toBe(true);
+    ], false)).toBe(false);
   });
 
   it("keeps footer activity for waiting public timeline without backend projection", () => {

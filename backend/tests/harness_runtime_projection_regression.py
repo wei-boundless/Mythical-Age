@@ -55,7 +55,7 @@ def test_public_stream_projection_hides_raw_shell_command_from_main_projection()
     assert "ItemType" not in visible
     assert "frontend/src/app/adventure-island" not in visible
 
-def test_public_stream_projection_emits_handoff_status_delta() -> None:
+def test_public_stream_projection_does_not_duplicate_handoff_status_delta() -> None:
     projected = _project_public_stream_event(
         "done",
         {
@@ -68,8 +68,7 @@ def test_public_stream_projection_emits_handoff_status_delta() -> None:
 
     assert projected is not None
     _, data = projected
-    assert data["public_timeline_delta"][0]["kind"] == "status_update"
-    assert data["public_timeline_delta"][0]["title"] == "后台任务已接管"
+    assert "public_timeline_delta" not in data
 
 def test_public_stream_projection_uses_inspection_language_for_path_exists() -> None:
     projected = _project_public_stream_event(
@@ -536,6 +535,43 @@ def test_chat_public_projection_filters_internal_runtime_payloads() -> None:
         "reason": "default_agent_runtime_turn",
     }
 
+
+def test_chat_public_projection_keeps_runtime_status_as_status_only() -> None:
+    projected = _project_public_stream_event(
+        "runtime_status",
+        {
+            "type": "runtime_status",
+            "title": "当前工作控制未执行",
+            "detail": "边界校验未通过，模型会继续处理当前请求。",
+            "state": "warning",
+            "phase": "active_work_control",
+            "runtime_event_id": "rtevt:active-work-control",
+            "runtime_run_id": "turnrun:active-work-control",
+            "created_at": 66,
+            "event": {
+                "event_id": "rtevt:active-work-control",
+                "payload": {
+                    "observation": {
+                        "observation_kind": "active_work_control",
+                        "admission": {"decision": "deny"},
+                        "runtime_branch": {"diagnostics": {"secret": "hidden"}},
+                    }
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    event_type, data = projected
+    assert event_type == "runtime_status"
+    assert data["runtime_event_id"] == "rtevt:active-work-control"
+    serialized = json.dumps(data, ensure_ascii=False)
+    assert "event" not in data
+    assert "observation" not in serialized
+    assert "admission" not in serialized
+    assert "hidden" not in serialized
+
+
 def test_chat_public_projection_redacts_internal_packet_fields_from_allowed_events() -> None:
     projected = _project_public_stream_event(
         "agent_turn_terminal",
@@ -626,7 +662,7 @@ def test_chat_stream_runtime_refs_do_not_treat_bare_turn_ref_as_active_task_turn
         "task_run_id": "",
     }
 
-def test_chat_stream_runtime_refs_supplement_bound_active_task_for_control_done() -> None:
+def test_chat_stream_runtime_refs_supplement_bound_active_task_for_runtime_status() -> None:
     runtime = build_harness_runtime()
     task_run_id = _seed_active_work(
         runtime,
@@ -650,9 +686,9 @@ def test_chat_stream_runtime_refs_supplement_bound_active_task_for_control_done(
         SimpleNamespace(harness_runtime=runtime),
         "session-active-control-public-ref",
         {
-            "type": "done",
-            "answer_channel": "active_work_control",
-            "completion_state": "task_steer_accepted",
+            "type": "runtime_status",
+            "phase": "active_work_control",
+            "state": "running",
         },
     )
 

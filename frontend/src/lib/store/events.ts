@@ -139,7 +139,7 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   }
   if (event === "done") {
     if (isTaskRunHandoffEvent(data)) {
-      return "后台任务已接管";
+      return "";
     }
     if (stringValue(data.completion_state) === "partial_timeout") {
       return "部分完成";
@@ -199,7 +199,7 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   }
   if (event === "done") {
     if (isTaskRunHandoffEvent(data)) {
-      return "当前会话已有后台任务在执行，后续输入会进入当前任务控制。";
+      return "";
     }
     if (stringValue(data.completion_state) === "task_steer_accepted") {
       return stringValue(data.summary) || "当前任务已继续接收这次输入。";
@@ -270,6 +270,9 @@ function shouldKeepStreamAssistantText(event: string, data: Record<string, unkno
 }
 
 function assistantDoneContentFromEvent(data: Record<string, unknown>) {
+  if (stringValue(data.answer_channel) === "runtime_control") {
+    return "";
+  }
   const content = stringValue(data.content);
   if (content && !isMachineReference(content) && !isRawToolOutputText(content)) {
     return content;
@@ -559,12 +562,13 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
     const taskSteerAccepted = stringValue(data.completion_state) === "task_steer_accepted";
     const taskRunHandoff = isTaskRunHandoffEvent(data);
+    if (taskRunHandoff) {
+      return null;
+    }
     return {
-      level: taskRunHandoff ? "waiting" : partialTimeout ? "warning" : "success",
-      title: taskRunHandoff ? "后台任务已接管" : taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
-      body: taskRunHandoff
-        ? "当前会话已有后台任务在执行，后续输入会进入当前任务控制。"
-        : taskSteerAccepted
+      level: partialTimeout ? "warning" : "success",
+      title: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      body: taskSteerAccepted
         ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
         : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
       artifacts: paths.map((path) => ({ label: "文件已更新", path })),
@@ -607,6 +611,9 @@ function patchSessionActivity(
   data: Record<string, unknown>,
   fallbackTitle = ""
 ): StoreState {
+  if (event === "done" && isTaskRunHandoffEvent(data)) {
+    return state;
+  }
   const title = stageStatusForEvent(event, data) || fallbackTitle;
   if (!title) {
     return state;
@@ -799,6 +806,9 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
   if (event === "done") {
+    if (isTaskRunHandoffEvent(data)) {
+      return "";
+    }
     if (stringValue(data.completion_state) === "task_steer_accepted") {
       const summary = stringValue(data.summary ?? data.message);
       return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "已收到补充要求";
@@ -1293,7 +1303,6 @@ export function startQueuedActiveTurn(
   options: { existingUserMessageId?: string } = {},
 ): StreamTransition {
   const userId = options.existingUserMessageId || makeId();
-  const assistantId = makeId();
   const userMessage: Message = {
     id: userId,
     role: "user",
@@ -1301,38 +1310,17 @@ export function startQueuedActiveTurn(
     toolCalls: [],
     retrievals: []
   };
-  const assistantMessage: Message = {
-    id: assistantId,
-    role: "assistant",
-    content: "",
-    toolCalls: [],
-    retrievals: [],
-    runtimeProgress: [],
-    runtimePublicTimelineDraft: [
-      {
-        item_id: `active-turn-steer-local:${userId}`,
-        kind: "assistant_text",
-        text: "我已收到这条补充要求，会把它接入当前任务。",
-        state: "running",
-        stream_state: "streaming",
-      },
-    ],
-    stageStatus: "正在纳入补充要求",
-  };
 
   return {
     state: {
       ...state,
-      messages: [
-        ...(options.existingUserMessageId
-          ? state.messages.map((message) =>
-            message.id === options.existingUserMessageId
-              ? { ...message, content: userContent.trim() }
-              : message
-          )
-          : [...state.messages, userMessage]),
-        assistantMessage,
-      ],
+      messages: options.existingUserMessageId
+        ? state.messages.map((message) =>
+          message.id === options.existingUserMessageId
+            ? { ...message, content: userContent.trim() }
+            : message
+        )
+        : [...state.messages, userMessage],
       sessionActivity: {
         level: "running",
         title: "正在纳入补充要求",
@@ -1348,7 +1336,7 @@ export function startQueuedActiveTurn(
       }
     },
     session: {
-      assistantId,
+      assistantId: "",
       userId,
       queueOnly: true,
     }
@@ -1371,6 +1359,9 @@ export function reduceStreamEvent(
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
     : {};
+  const taskRunHandoffId = isTaskRunHandoffEvent(data)
+    ? String(data.runtime_task_run_id ?? recordValue(data.task_run).task_run_id ?? "").trim()
+    : "";
   const activeTurnSnapshot = activeTurnId || String(activeTurn.turn_id ?? "").trim()
     ? {
         turn_id: activeTurnId || String(activeTurn.turn_id ?? "").trim(),
@@ -1383,13 +1374,10 @@ export function reduceStreamEvent(
           ?? recordValue(data.task_run).task_run_id
           ?? "",
         ).trim() || undefined,
-        state: String(activeTurn.state ?? "").trim() || undefined,
+        state: String(activeTurn.state ?? "").trim() || (taskRunHandoffId ? "waiting_executor" : undefined),
         updated_at: Number(activeTurn.updated_at ?? 0) || undefined,
       }
     : null;
-  const taskRunHandoffId = isTaskRunHandoffEvent(data)
-    ? String(data.runtime_task_run_id ?? recordValue(data.task_run).task_run_id ?? "").trim()
-    : "";
   const taskRunHandoffSnapshot = taskRunHandoffId
     ? {
         turn_id: state.activeTurnSnapshot?.turn_id || "",

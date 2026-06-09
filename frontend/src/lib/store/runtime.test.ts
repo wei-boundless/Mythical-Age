@@ -306,6 +306,39 @@ async function flushPromises(times = 5) {
   }
 }
 
+function emitRuntimeControlSteerDone(
+  handlers: { onEvent: (event: string, data: Record<string, unknown>) => void },
+  {
+    taskRunId,
+    activeTurnId,
+    detail = "补充要求已进入当前工作队列。",
+    completionState = "task_steer_accepted",
+  }: {
+    taskRunId: string;
+    activeTurnId: string;
+    detail?: string;
+    completionState?: string;
+  },
+) {
+  handlers.onEvent("runtime_status", {
+    title: "已收到补充要求",
+    detail,
+    state: "running",
+    phase: "active_turn_steer",
+    runtime_task_run_id: taskRunId,
+    active_turn_id: activeTurnId,
+  });
+  handlers.onEvent("done", {
+    content: "",
+    answer_channel: "runtime_control",
+    answer_source: "harness.entrypoint.active_turn_steer",
+    terminal_reason: "append_instruction_to_active_work",
+    completion_state: completionState,
+    runtime_task_run_id: taskRunId,
+    active_turn_id: activeTurnId,
+  });
+}
+
 function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<string, unknown> = {}) {
   const signals = items.map(monitorSignalForTest);
   const primary = signals.filter((signal) => signal.is_running === true);
@@ -2369,26 +2402,40 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expected_active_turn_id: "turn:session:background:1",
       active_turn_input_policy: "auto",
     });
-    expect(store.getState().sessionActivity).toMatchObject({
-      level: "waiting",
-      title: "后台任务已接管",
+    expect(store.getState().sessionActivity.event).not.toBe("done");
+    expect(store.getState().sessionActivity.receipt?.debug?.event).not.toBe("done");
+  });
+
+  it("keeps task handoff done events invisible in session activity", () => {
+    let transition = startStreamingTurn(getDefaultState(), "开始后台任务");
+    const activityBeforeHandoffDone = transition.state.sessionActivity;
+
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "任务已进入后台执行。",
+      answer_channel: "task_control",
+      terminal_reason: "task_executor_scheduled",
+      runtime_task_run_id: "taskrun:background",
+      active_turn_id: "turn:session:background:1",
+    });
+
+    expect(transition.state.sessionActivity).toBe(activityBeforeHandoffDone);
+    expect(transition.state.activeTurnSnapshot).toMatchObject({
+      task_run_id: "taskrun:background",
+      state: "waiting_executor",
     });
   });
 
   it("submits active-task steer immediately while the main chat stream is still open", async () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
-        summary: "我已收到这条补充要求，会把它接入当前任务。",
+        summary: "补充要求已进入当前工作队列。",
         status: "accepted",
         runtime_task_run_id: "taskrun:streaming",
         active_turn_id: "turn:session:streaming:1",
       });
-      handlers.onEvent("done", {
-        content: "我已收到这条补充要求，会把它接入当前任务。",
-        completion_state: "task_steer_accepted",
-        answer_channel: "active_work_control",
-        runtime_task_run_id: "taskrun:streaming",
-        active_turn_id: "turn:session:streaming:1",
+      emitRuntimeControlSteerDone(handlers, {
+        taskRunId: "taskrun:streaming",
+        activeTurnId: "turn:session:streaming:1",
       });
       return { terminalEvent: "done", streamRunId: "strun:steer", eventLogId: "chatrun:steer", lastEventOffset: 2 };
     });
@@ -2461,7 +2508,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("keeps the active task turn gate after an active-work control turn completes", async () => {
+  it("keeps the active task turn gate after a runtime control turn completes", async () => {
     let callIndex = 0;
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       callIndex += 1;
@@ -2474,13 +2521,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           active_turn_id: "turn:session:background:1",
         });
       } else {
-        handlers.onEvent("done", {
-          content: "已收到，会纳入当前处理。",
-          answer_channel: "active_work_control",
-          terminal_reason: "append_instruction_to_active_work",
-          completion_state: "task_steer_accepted",
-          runtime_task_run_id: "taskrun:background",
-          active_turn_id: "turn:session:background:1",
+        emitRuntimeControlSteerDone(handlers, {
+          taskRunId: "taskrun:background",
+          activeTurnId: "turn:session:background:1",
+          detail: "已收到，会纳入当前处理。",
         });
       }
       return { terminalEvent: "done" };
@@ -2573,7 +2617,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("sends running active task input as an auto active-work request with visible assistant feedback", async () => {
+  it("sends running active task input as an auto active-work request with visible status feedback", async () => {
     const taskRunId = "taskrun:turn:session-queue-only:1:abc";
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
@@ -2586,12 +2630,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           execution_runtime_kind: "single_agent_task",
         },
       });
-      handlers.onEvent("done", {
-        content: "已加入当前任务队列，会在当前执行中优先纳入。",
-        answer_channel: "active_work_control",
-        completion_state: "task_steer_accepted",
-        runtime_task_run_id: taskRunId,
-        active_turn_id: "turn:session-queue-only:1",
+      emitRuntimeControlSteerDone(handlers, {
+        taskRunId,
+        activeTurnId: "turn:session-queue-only:1",
+        detail: "已加入当前任务队列，会在当前执行中优先纳入。",
       });
       return { terminalEvent: "done" };
     });
@@ -2641,18 +2683,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
     expect(store.getState().messages.at(-1)).toMatchObject({
-      role: "assistant",
-      content: "已加入当前任务队列，会在当前执行中优先纳入。",
-      answerChannel: "active_work_control",
+      role: "user",
+      content: "补充一个限制条件",
     });
-    expect(store.getState().messages.at(-1)?.runtimePublicTimelineDraft).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "assistant_text",
-        text: "我已收到这条补充要求，会把它接入当前任务。",
-      }),
-    ]));
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "success",
+      title: "已收到补充要求",
+    });
     expect(store.getState().activeTurnSnapshot).toMatchObject({
       turn_id: "turn:session-queue-only:1",
       task_run_id: taskRunId,
@@ -2666,12 +2705,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       .mockImplementationOnce(async (_payload, handlers) => {
         await new Promise<void>((resolve) => {
           finishFirstStream = () => {
-            handlers.onEvent("done", {
-              content: "已加入当前任务队列，会在当前执行中优先纳入。",
-              answer_channel: "active_work_control",
-              completion_state: "task_steer_accepted",
-              runtime_task_run_id: taskRunId,
-              active_turn_id: "turn:session-auto-active-stream:1",
+            emitRuntimeControlSteerDone(handlers, {
+              taskRunId,
+              activeTurnId: "turn:session-auto-active-stream:1",
+              detail: "已加入当前任务队列，会在当前执行中优先纳入。",
             });
             resolve();
           };
@@ -2679,12 +2716,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         return { terminalEvent: "done" };
       })
       .mockImplementationOnce(async (_payload, handlers) => {
-        handlers.onEvent("done", {
-          content: "第二条补充已处理。",
-          answer_channel: "active_work_control",
-          completion_state: "task_steer_accepted",
-          runtime_task_run_id: taskRunId,
-          active_turn_id: "turn:session-auto-active-stream:1",
+        emitRuntimeControlSteerDone(handlers, {
+          taskRunId,
+          activeTurnId: "turn:session-auto-active-stream:1",
+          detail: "第二条补充已处理。",
         });
         return { terminalEvent: "done" };
       });
@@ -2791,12 +2826,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         return { terminalEvent: "done" };
       })
       .mockImplementationOnce(async (_payload, handlers) => {
-        handlers.onEvent("done", {
-          content: "已加入当前任务队列，会在当前执行中优先纳入。",
-          answer_channel: "active_work_control",
-          completion_state: "task_steer_accepted",
-          runtime_task_run_id: taskRunId,
-          active_turn_id: "turn:session-stream-queue:1",
+        emitRuntimeControlSteerDone(handlers, {
+          taskRunId,
+          activeTurnId: "turn:session-stream-queue:1",
+          detail: "已加入当前任务队列，会在当前执行中优先纳入。",
         });
         return { terminalEvent: "done" };
       });
@@ -2856,11 +2889,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expected_active_turn_id: "turn:session-stream-queue:1",
       active_turn_input_policy: "auto",
     });
-    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
-    expect(store.getState().messages.at(-1)).toMatchObject({
-      role: "assistant",
-      content: "已加入当前任务队列，会在当前执行中优先纳入。",
-      answerChannel: "active_work_control",
+    expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "running",
+      title: "正在处理",
     });
   });
 
@@ -3438,25 +3470,28 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_debug_only");
   });
 
-  it("renders task steer acknowledgements as assistant prose for queued active work", () => {
+  it("renders task steer acknowledgements as status for queued active work", () => {
     let transition = startQueuedActiveTurn(getDefaultState(), "补充限制条件");
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
+      title: "已收到补充要求",
+      detail: "已加入当前任务队列，会在当前执行中优先纳入。",
+      state: "running",
+      phase: "active_turn_steer",
+      runtime_task_run_id: "taskrun:background",
+      active_turn_id: "turn:session:background:1",
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
-      content: "已加入当前任务队列，会在当前执行中优先纳入。",
-      answer_channel: "active_work_control",
+      content: "",
+      answer_channel: "runtime_control",
       completion_state: "task_steer_accepted",
       runtime_task_run_id: "taskrun:background",
       active_turn_id: "turn:session:background:1",
     });
 
-    expect(transition.state.messages).toHaveLength(2);
+    expect(transition.state.messages).toHaveLength(1);
     expect(transition.state.messages[0]).toMatchObject({
       role: "user",
       content: "补充限制条件",
-    });
-    expect(transition.state.messages[1]).toMatchObject({
-      role: "assistant",
-      content: "已加入当前任务队列，会在当前执行中优先纳入。",
-      answerChannel: "active_work_control",
     });
     expect(transition.state.sessionActivity).toMatchObject({
       level: "success",
@@ -4417,8 +4452,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
     expect(recoveryFeedbackDuringAttach).toMatchObject({
-      kind: "assistant_text",
-      text: "我正在接回刚才的运行，已经拿到上次进度，继续同步后续结果。",
+      kind: "status_update",
+      surface: "status",
+      source_authority: "system",
+      title: "同步运行进度",
+      detail: "已拿到上次进度，继续同步后续结果。",
       state: "running",
     });
     expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");
@@ -4478,8 +4516,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     );
     expect(recoveryFeedbackDuringAttach).toMatchObject({
-      kind: "assistant_text",
-      text: "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+      kind: "status_update",
+      surface: "status",
+      source_authority: "system",
+      title: "同步运行进度",
+      detail: "正在同步这个会话里仍在运行的进度。",
       state: "running",
     });
   });
@@ -4640,8 +4681,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     );
     expect(recoveryFeedbackDuringAttach).toMatchObject({
-      kind: "assistant_text",
-      text: "我找到这个会话里仍在运行的任务，正在同步已有进度。",
+      kind: "status_update",
+      surface: "status",
+      source_authority: "system",
+      title: "同步运行进度",
+      detail: "正在同步这个会话里仍在运行的进度。",
       state: "running",
     });
   });
@@ -5551,6 +5595,47 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(api.listSessions).not.toHaveBeenCalled();
     expect(api.getSessionTimeline).not.toHaveBeenCalled();
+  });
+
+  it("does not reset a selected coding environment when opening the workbench shell", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "orchestration",
+      currentSessionId: "session:coding",
+      taskEnvironmentCatalog: TASK_ENVIRONMENT_CATALOG,
+      conversationActiveEnvironment: {
+        task_environment_id: "env.coding.vibe_workspace",
+        environment_label: "Vibe 编码工作区",
+        source: "workspace-mode",
+        updated_at: 1,
+      },
+      activeSessionScope: {
+        workspace_view: "chat",
+      },
+      sessions: [{
+        id: "session:coding",
+        title: "Coding",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+        scope: {
+          workspace_view: "chat",
+        },
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.setWorkspaceView("chat");
+    await flushPromises();
+
+    expect(store.getState().activeWorkspaceView).toBe("code-environment");
+    expect(store.getState().conversationActiveEnvironment).toMatchObject({
+      task_environment_id: "env.coding.vibe_workspace",
+      environment_label: "Vibe 编码工作区",
+      source: "workspace-mode",
+    });
+    expect(api.setSessionActiveTaskEnvironment).not.toHaveBeenCalled();
   });
 
   it("returns to the general task environment after clearing an explicit binding", async () => {

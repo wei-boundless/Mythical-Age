@@ -20982,58 +20982,16 @@ body {
   min-height: 0;
 }
 
-.graph-task-workspace-mode-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.graph-task-workspace-mode-card {
-  min-height: 74px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0f172a;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 6px;
-  padding: 14px 16px;
-  text-align: left;
-  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
-}
-
-.graph-task-workspace-mode-card strong {
-  font-size: 15px;
-  font-weight: 760;
-}
-
-.graph-task-workspace-mode-card span {
-  color: #475569;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.graph-task-workspace-mode-card:hover {
-  border-color: rgba(14, 116, 144, 0.45);
-  background: #f8fafc;
-}
-
-.graph-task-workspace-mode-card--active {
-  border-color: #0e7490;
-  background: #ecfeff;
-}
-
-.graph-task-workspace-mode-card--active span {
-  color: #155e75;
-}
-
-.graph-task-instance-workbench {
+.graph-task-system-page {
   min-height: 0;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 8px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.graph-foreground-shell {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
   background: #f8fafc;
   color: #0f172a;
   display: flex;
@@ -21042,63 +21000,66 @@ body {
   padding: 12px;
 }
 
-.graph-task-instance-workbench__header {
+.graph-foreground-topbar {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.1);
-  padding: 4px 2px 12px;
+  padding: 12px 14px;
 }
 
-.graph-task-instance-workbench__header > div:first-child {
+.graph-foreground-topbar > div:first-child {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.graph-task-instance-workbench__header span,
-.graph-task-instance-panel__head span,
-.graph-task-instance-hero span {
+.graph-foreground-topbar span,
+.graph-foreground-panel header span,
+.graph-foreground-run-head span,
+.graph-foreground-next-action span,
+.graph-foreground-run-summary span,
+.graph-foreground-canvas header span {
   color: #64748b;
   font-size: 11px;
-  font-weight: 740;
+  font-weight: 780;
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.graph-task-instance-workbench__header strong {
+.graph-foreground-topbar strong {
   color: #0f172a;
   font-size: 18px;
-  font-weight: 780;
   line-height: 1.25;
 }
 
-.graph-task-instance-workbench__header small,
-.graph-task-instance-hero small {
-  color: #475569;
+.graph-foreground-topbar small,
+.graph-foreground-canvas header small {
+  color: #64748b;
   overflow-wrap: anywhere;
 }
 
-.graph-task-instance-workbench__actions,
-.graph-task-instance-hero__status {
+.graph-foreground-topbar__actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.graph-task-instance-workbench button {
+.graph-foreground-shell button {
   font: inherit;
 }
 
-.graph-task-instance-workbench__actions button,
-.graph-task-instance-hero__status button,
-.graph-task-instance-panel--create button,
-.graph-task-file-editor > button,
-.graph-task-file-toolbar button,
-.graph-task-artifact-toolbar button {
+.graph-foreground-topbar__actions button,
+.graph-foreground-panel--create > button,
+.graph-foreground-next-action button,
+.graph-foreground-node-output > button,
+.graph-foreground-library__editor > button,
+.graph-foreground-library__writer > button {
   border: 1px solid rgba(14, 116, 144, 0.28);
   border-radius: 7px;
   background: #ffffff;
@@ -21110,130 +21071,94 @@ body {
   gap: 7px;
   min-height: 34px;
   padding: 0 12px;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
   white-space: nowrap;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
-.graph-task-instance-workbench__actions button:hover,
-.graph-task-instance-hero__status button:hover,
-.graph-task-instance-panel--create button:hover,
-.graph-task-file-editor > button:hover,
-.graph-task-file-toolbar button:hover,
-.graph-task-artifact-toolbar button:hover {
+.graph-foreground-topbar__actions button:hover,
+.graph-foreground-panel--create > button:hover,
+.graph-foreground-next-action button:hover,
+.graph-foreground-node-output > button:hover,
+.graph-foreground-library__editor > button:hover,
+.graph-foreground-library__writer > button:hover {
   border-color: #0e7490;
   background: #ecfeff;
   color: #155e75;
 }
 
-.graph-task-instance-workbench button:disabled {
+.graph-foreground-shell button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.graph-task-ops-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.graph-task-ops-summary article {
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 8px;
-  background: #ffffff;
-  display: grid;
-  gap: 4px;
-  min-height: 72px;
-  padding: 11px 12px;
-}
-
-.graph-task-ops-summary span,
-.graph-task-next-action span {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 780;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.graph-task-ops-summary strong {
-  color: #0f172a;
-  font-size: 24px;
-  line-height: 1;
-}
-
-.graph-task-ops-summary small,
-.graph-task-next-action small {
-  color: #475569;
-  line-height: 1.35;
-}
-
-.graph-task-ops-summary__tile--active {
-  border-color: rgba(14, 116, 144, 0.24) !important;
-  background: #ecfeff !important;
-}
-
-.graph-task-ops-summary__tile--attention {
-  border-color: rgba(217, 119, 6, 0.3) !important;
-  background: #fffbeb !important;
-}
-
-.graph-task-instance-workbench__body {
+.graph-foreground-layout {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   gap: 12px;
-}
-
-.graph-task-instance-workbench__rail,
-.graph-task-instance-workbench__files,
-.graph-task-instance-workbench__main,
-.graph-task-instance-workbench__sessions {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.graph-task-instance-workbench__files {
-  grid-column: 2;
-  grid-row: 2;
-  display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.75fr);
   align-items: start;
 }
 
-.graph-task-instance-workbench__main {
-  grid-column: 2;
-  grid-row: 1;
+.graph-foreground-rail,
+.graph-foreground-workspace,
+.graph-foreground-runtime-row,
+.graph-foreground-main,
+.graph-foreground-inspector,
+.graph-foreground-library {
+  min-width: 0;
+  min-height: 0;
 }
 
-.graph-task-instance-workbench__sessions {
-  grid-column: 2;
-  grid-row: 3;
+.graph-foreground-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.graph-task-instance-workbench__rail {
-  grid-column: 1;
-  grid-row: 1 / span 3;
+.graph-foreground-workspace {
+  display: grid;
+  gap: 12px;
+  align-items: start;
 }
 
-.graph-task-instance-panel,
-.graph-task-instance-hero,
-.graph-task-instance-metrics {
+.graph-foreground-runtime-row {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) minmax(300px, 360px);
+  gap: 12px;
+  align-items: start;
+}
+
+.graph-foreground-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.graph-foreground-library {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.36fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.graph-foreground-panel,
+.graph-foreground-run-head,
+.graph-foreground-next-action,
+.graph-foreground-run-summary article,
+.graph-foreground-canvas {
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 8px;
   background: #ffffff;
 }
 
-.graph-task-instance-panel {
+.graph-foreground-panel {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
 }
 
-.graph-task-instance-panel__head {
+.graph-foreground-panel header,
+.graph-foreground-canvas header {
   min-height: 44px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   display: flex;
@@ -21243,61 +21168,21 @@ body {
   padding: 10px 12px;
 }
 
-.graph-task-instance-panel__head > div {
+.graph-foreground-panel header > div,
+.graph-foreground-canvas header > div {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 3px;
 }
 
-.graph-task-instance-panel__head strong {
+.graph-foreground-panel header strong,
+.graph-foreground-canvas header strong {
   color: #0f172a;
   font-size: 13px;
   line-height: 1.3;
 }
 
-.graph-task-definition-list,
-.graph-task-instance-list,
-.graph-task-node-session-list,
-.graph-task-artifact-list,
-.graph-task-file-tree {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: auto;
-  padding: 10px;
-}
-
-.graph-task-definition-list,
-.graph-task-instance-list {
-  max-height: 260px;
-}
-
-.graph-task-node-session-list {
-  max-height: 430px;
-}
-
-.graph-task-file-tree,
-.graph-task-artifact-list {
-  max-height: 360px;
-}
-
-.graph-task-file-toolbar,
-.graph-task-artifact-toolbar {
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-}
-
-.graph-task-artifact-toolbar {
-  background: #f8fafc;
-}
-
-.graph-task-filter-input {
+.graph-foreground-search {
   border: 1px solid rgba(15, 23, 42, 0.14);
   border-radius: 7px;
   background: #ffffff;
@@ -21306,41 +21191,46 @@ body {
   align-items: center;
   gap: 7px;
   min-height: 34px;
-  min-width: 0;
+  margin: 10px;
   padding: 0 9px;
-  width: 100%;
 }
 
-.graph-task-filter-input svg {
+.graph-foreground-search svg {
   color: #64748b;
 }
 
-.graph-task-filter-input input {
-  background: transparent;
+.graph-foreground-search input {
   border: 0;
-  border-radius: 0;
+  background: transparent;
   color: #0f172a;
   font: inherit;
-  line-height: 1.45;
   min-width: 0;
+  outline: 0;
   padding: 0;
 }
 
-.graph-task-filter-input input:focus {
-  outline: 0;
+.graph-foreground-list,
+.graph-foreground-file-tree,
+.graph-foreground-artifact-list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  padding: 10px;
 }
 
-.graph-task-file-toolbar button,
-.graph-task-artifact-toolbar button {
-  min-height: 34px;
-  padding: 0 10px;
+.graph-foreground-list {
+  max-height: 245px;
 }
 
-.graph-task-definition-row,
-.graph-task-instance-row,
-.graph-task-node-session-row,
-.graph-task-artifact-list button,
-.graph-task-file-tree__row {
+.graph-foreground-list--instances {
+  max-height: 300px;
+}
+
+.graph-foreground-list-row,
+.graph-foreground-artifact-list button,
+.graph-foreground-file-tree__row {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -21355,107 +21245,95 @@ body {
   transition: background 160ms ease, border-color 160ms ease;
 }
 
-.graph-task-definition-row:hover,
-.graph-task-instance-row:hover,
-.graph-task-node-session-row:hover,
-.graph-task-artifact-list button:hover,
-.graph-task-file-tree__row:hover {
-  border-color: rgba(14, 116, 144, 0.24);
-  background: #f0fdfa;
-}
-
-.graph-task-definition-row--active,
-.graph-task-instance-row--active,
-.graph-task-node-session-row--active,
-.graph-task-file-tree__row--active,
-.graph-task-artifact-list__row--active {
-  border-color: rgba(14, 116, 144, 0.48);
+.graph-foreground-list-row:hover,
+.graph-foreground-artifact-list button:hover,
+.graph-foreground-file-tree__row:hover,
+.graph-foreground-list-row--active,
+.graph-foreground-file-tree__row--active {
+  border-color: rgba(14, 116, 144, 0.44);
   background: #ecfeff;
 }
 
-.graph-task-instance-row--active.graph-task-instance-row--tone-attention {
-  border-color: rgba(217, 119, 6, 0.48);
+.graph-foreground-list-row--tone-attention.graph-foreground-list-row--active {
+  border-color: rgba(217, 119, 6, 0.45);
   background: #fffbeb;
 }
 
-.graph-task-instance-row__status {
-  border-radius: 999px;
-  justify-self: start;
-  padding: 3px 7px;
-}
-
-.graph-task-instance-row--active .graph-task-instance-row__status,
-.graph-task-instance-row--active.graph-task-instance-row--tone-idle .graph-task-instance-row__status {
-  background: rgba(14, 116, 144, 0.1);
-  color: #155e75;
-}
-
-.graph-task-instance-row--active.graph-task-instance-row--tone-active .graph-task-instance-row__status {
-  background: rgba(14, 116, 144, 0.14);
-  color: #0f766e;
-}
-
-.graph-task-instance-row--active.graph-task-instance-row--tone-attention .graph-task-instance-row__status {
-  background: rgba(217, 119, 6, 0.13);
-  color: #92400e;
-}
-
-.graph-task-instance-row--active.graph-task-instance-row--tone-success .graph-task-instance-row__status {
-  background: rgba(21, 128, 61, 0.12);
-  color: #166534;
-}
-
-.graph-task-definition-row strong,
-.graph-task-instance-row strong,
-.graph-task-node-session-row strong,
-.graph-task-artifact-list strong {
+.graph-foreground-list-row strong,
+.graph-foreground-list-row small,
+.graph-foreground-list-row span,
+.graph-foreground-artifact-list strong,
+.graph-foreground-artifact-list small,
+.graph-foreground-artifact-list span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.graph-task-definition-row small,
-.graph-task-instance-row small,
-.graph-task-node-session-row small,
-.graph-task-artifact-list small {
+.graph-foreground-list-row small,
+.graph-foreground-artifact-list small {
   color: #64748b;
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-.graph-task-definition-row span,
-.graph-task-instance-row span,
-.graph-task-node-session-row span,
-.graph-task-artifact-list span {
+.graph-foreground-list-row span,
+.graph-foreground-artifact-list span {
   color: #475569;
   font-size: 12px;
-  line-height: 1.35;
 }
 
-.graph-task-instance-panel--create {
+.graph-foreground-segmented {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 10px 10px;
+}
+
+.graph-foreground-segmented button {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.graph-foreground-segmented button:hover,
+.graph-foreground-segmented__button--active {
+  border-color: rgba(14, 116, 144, 0.35);
+  background: #ecfeff;
+  color: #155e75;
+}
+
+.graph-foreground-panel--create {
   padding-bottom: 10px;
 }
 
-.graph-task-instance-panel--create label,
-.graph-task-file-editor label {
+.graph-foreground-panel--create label,
+.graph-foreground-library__editor label,
+.graph-foreground-library__writer label {
   color: #334155;
   display: grid;
   gap: 6px;
   padding: 10px 12px 0;
 }
 
-.graph-task-instance-panel--create label span,
-.graph-task-file-editor label span {
+.graph-foreground-panel--create label span,
+.graph-foreground-library__editor label span,
+.graph-foreground-library__writer label span {
   color: #475569;
   font-size: 12px;
   font-weight: 680;
 }
 
-.graph-task-instance-panel--create input,
-.graph-task-instance-panel--create textarea,
-.graph-task-file-editor input,
-.graph-task-file-editor textarea {
+.graph-foreground-panel--create input,
+.graph-foreground-panel--create textarea,
+.graph-foreground-library__editor input,
+.graph-foreground-library__editor textarea,
+.graph-foreground-library__writer input,
+.graph-foreground-library__writer textarea {
   width: 100%;
   border: 1px solid rgba(15, 23, 42, 0.14);
   border-radius: 7px;
@@ -21466,181 +21344,374 @@ body {
   padding: 9px 10px;
 }
 
-.graph-task-instance-panel--create textarea,
-.graph-task-file-editor textarea {
+.graph-foreground-panel--create textarea,
+.graph-foreground-library__editor textarea,
+.graph-foreground-library__writer textarea {
   resize: vertical;
 }
 
-.graph-task-instance-panel--create button,
-.graph-task-file-editor > button {
+.graph-foreground-panel--create > button,
+.graph-foreground-library__editor > button,
+.graph-foreground-library__writer > button,
+.graph-foreground-node-output > button {
   margin: 10px 12px 0;
 }
 
-.graph-task-instance-hero {
+.graph-foreground-run-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px;
+  gap: 14px;
+  padding: 13px 14px;
 }
 
-.graph-task-instance-hero > div:first-child {
+.graph-foreground-run-head > div {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  gap: 4px;
 }
 
-.graph-task-instance-hero strong {
+.graph-foreground-run-head strong {
   color: #0f172a;
   font-size: 18px;
-  font-weight: 780;
   line-height: 1.25;
 }
 
-.graph-task-instance-hero__status em {
-  font-style: normal;
+.graph-foreground-run-head small {
+  color: #64748b;
+  overflow-wrap: anywhere;
 }
 
-.graph-task-instance-status-pill {
-  border: 1px solid rgba(21, 128, 61, 0.26);
+.graph-foreground-status {
+  border: 1px solid rgba(100, 116, 139, 0.24);
   border-radius: 999px;
-  background: #f0fdf4;
-  color: #166534;
+  background: #f8fafc;
+  color: #475569;
   font-size: 12px;
+  font-style: normal;
   font-weight: 760;
   padding: 6px 10px;
+  white-space: nowrap;
 }
 
-.graph-task-instance-status-pill--active {
+.graph-foreground-status--active,
+.graph-foreground-node-output__status--active {
   border-color: rgba(14, 116, 144, 0.28);
   background: #ecfeff;
   color: #155e75;
 }
 
-.graph-task-instance-status-pill--attention {
+.graph-foreground-status--attention,
+.graph-foreground-node-output__status--attention {
   border-color: rgba(217, 119, 6, 0.32);
   background: #fffbeb;
   color: #92400e;
 }
 
-.graph-task-instance-status-pill--paused,
-.graph-task-instance-status-pill--idle {
-  border-color: rgba(100, 116, 139, 0.24);
-  background: #f8fafc;
-  color: #475569;
+.graph-foreground-status--success,
+.graph-foreground-node-output__status--success {
+  border-color: rgba(21, 128, 61, 0.28);
+  background: #f0fdf4;
+  color: #166534;
 }
 
-.graph-task-next-action {
-  border: 1px solid rgba(14, 116, 144, 0.18);
-  border-radius: 8px;
-  background: #f0fdfa;
+.graph-foreground-next-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: 12px;
+  background: #f0fdfa;
+  border-color: rgba(14, 116, 144, 0.18);
+  padding: 11px 12px;
 }
 
-.graph-task-next-action > div {
+.graph-foreground-next-action--attention {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+}
+
+.graph-foreground-next-action > div {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-.graph-task-next-action strong {
+.graph-foreground-next-action strong {
   color: #0f172a;
   font-size: 14px;
   line-height: 1.35;
 }
 
-.graph-task-next-action--attention {
-  border-color: rgba(217, 119, 6, 0.28);
-  background: #fffbeb;
+.graph-foreground-run-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.graph-task-instance-metrics {
+.graph-foreground-run-summary article {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-}
-
-.graph-task-instance-metrics span {
-  background: #f8fafc;
-  color: #475569;
-  display: grid;
-  gap: 3px;
-  min-height: 58px;
+  gap: 5px;
+  min-height: 90px;
   padding: 10px;
-  place-items: center;
-  text-align: center;
 }
 
-.graph-task-instance-metrics strong {
+.graph-foreground-run-summary strong {
   color: #0f172a;
-  font-size: 20px;
-  line-height: 1;
-}
-
-.graph-task-instance-metric--active {
-  background: #ecfeff !important;
-  color: #155e75 !important;
-}
-
-.graph-task-instance-metric--success {
-  background: #f0fdf4 !important;
-  color: #166534 !important;
-}
-
-.graph-task-instance-metric--attention {
-  background: #fff7ed !important;
-  color: #9a3412 !important;
-}
-
-.graph-task-node-session-row {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.graph-task-node-session-row svg {
-  color: #0e7490;
-  grid-row: span 2;
-}
-
-.graph-task-node-session-row small {
-  grid-column: 2 / 4;
-}
-
-.graph-task-node-session-row span {
-  justify-self: end;
-}
-
-.graph-task-file-tree__node {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.graph-task-file-tree__row {
-  grid-template-columns: 42px minmax(0, 1fr);
-  min-height: 34px;
-  padding: 7px 8px;
-}
-
-.graph-task-file-tree__row span {
-  color: #0e7490;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.graph-task-file-tree__row strong {
+  font-size: 15px;
+  line-height: 1.3;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.graph-task-file-tree__children {
+.graph-foreground-run-summary small {
+  color: #64748b;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-foreground-summary-card--attention {
+  border-color: rgba(217, 119, 6, 0.28) !important;
+  background: #fffbeb !important;
+}
+
+.graph-foreground-progress {
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  height: 7px;
+  overflow: hidden;
+}
+
+.graph-foreground-progress i {
+  background: #0e7490;
+  display: block;
+  height: 100%;
+}
+
+.graph-foreground-canvas {
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.graph-foreground-node-grid {
+  min-height: 315px;
+  max-height: 520px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.graph-foreground-node-card {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  min-height: 158px;
+  min-width: 0;
+  padding: 11px;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.graph-foreground-node-card:hover,
+.graph-foreground-node-card--active {
+  border-color: rgba(14, 116, 144, 0.4);
+  background: #ecfeff;
+}
+
+.graph-foreground-node-card--attention,
+.graph-foreground-node-card--attention:hover {
+  border-color: rgba(217, 119, 6, 0.34);
+  background: #fffbeb;
+}
+
+.graph-foreground-node-card--success {
+  border-color: rgba(21, 128, 61, 0.22);
+}
+
+.graph-foreground-node-card span {
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 760;
+  justify-self: start;
+  padding: 4px 7px;
+}
+
+.graph-foreground-node-card strong,
+.graph-foreground-node-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-foreground-node-card small,
+.graph-foreground-node-card p {
+  color: #64748b;
+}
+
+.graph-foreground-node-card p {
+  display: -webkit-box;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  min-height: 34px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.graph-foreground-node-card footer {
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.graph-foreground-node-card footer b {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.graph-foreground-canvas-empty {
+  border: 1px dashed rgba(100, 116, 139, 0.25);
+  border-radius: 8px;
+  color: #64748b;
+  grid-column: 1 / -1;
+  min-height: 260px;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  place-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.graph-foreground-node-output {
+  min-height: 520px;
+  max-height: 720px;
+}
+
+.graph-foreground-node-output__status {
+  border: 1px solid rgba(100, 116, 139, 0.18);
+  border-radius: 8px;
+  background: #f8fafc;
+  display: grid;
+  gap: 4px;
+  margin: 10px 12px 0;
+  padding: 10px;
+}
+
+.graph-foreground-node-output__status span {
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.graph-foreground-node-output__body {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  line-height: 1.6;
+  margin: 10px 12px 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.graph-foreground-node-output__body p {
+  margin: 0;
+}
+
+.graph-foreground-node-output__artifacts {
+  display: grid;
+  gap: 6px;
+  margin: 12px;
+}
+
+.graph-foreground-node-output__artifacts > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.graph-foreground-node-output__artifacts button {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.graph-foreground-node-output__artifacts button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-foreground-library__files {
+  overflow: hidden;
+}
+
+.graph-foreground-library__body {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.45fr) minmax(320px, 0.8fr) minmax(260px, 0.55fr);
+  min-height: 0;
+}
+
+.graph-foreground-library__browser,
+.graph-foreground-library__editor,
+.graph-foreground-library__writer {
+  min-width: 0;
+}
+
+.graph-foreground-library__browser,
+.graph-foreground-library__editor {
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.graph-foreground-file-tree {
+  max-height: 430px;
+}
+
+.graph-foreground-file-tree__node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.graph-foreground-file-tree__row {
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 34px;
+  padding: 7px 8px;
+}
+
+.graph-foreground-file-tree__row span {
+  color: #0e7490;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.graph-foreground-file-tree__children {
   border-left: 1px solid rgba(15, 23, 42, 0.12);
   display: flex;
   flex-direction: column;
@@ -21649,19 +21720,14 @@ body {
   padding-left: 8px;
 }
 
-.graph-task-file-editor {
-  padding-bottom: 12px;
-}
-
-.graph-task-file-editor__head {
+.graph-foreground-file-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
-  min-width: 0;
 }
 
-.graph-task-file-editor-mode {
+.graph-foreground-mode-switch {
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 7px;
   background: #f8fafc;
@@ -21671,7 +21737,7 @@ body {
   padding: 3px;
 }
 
-.graph-task-file-editor-mode button {
+.graph-foreground-mode-switch button {
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;
@@ -21681,51 +21747,50 @@ body {
   align-items: center;
   gap: 5px;
   min-height: 28px;
-  margin: 0;
   padding: 0 8px;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
-.graph-task-file-editor-mode button:hover {
-  background: #ffffff;
-  color: #155e75;
-}
-
-.graph-task-file-editor-mode__button--active,
-.graph-task-file-editor-mode__button--active:hover {
+.graph-foreground-mode-switch__active,
+.graph-foreground-mode-switch__active:hover {
   border-color: rgba(14, 116, 144, 0.22) !important;
   background: #ffffff !important;
   color: #0e7490 !important;
 }
 
-.graph-task-file-editor textarea {
+.graph-foreground-library__editor textarea,
+.graph-foreground-library__writer textarea {
   margin: 10px 12px 0;
+  min-height: 240px;
   width: calc(100% - 24px);
 }
 
-.graph-task-file-preview {
+.graph-foreground-library__writer textarea {
+  min-height: 150px;
+}
+
+.graph-foreground-file-preview {
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 7px;
   background: #ffffff;
   color: #1e293b;
   line-height: 1.65;
   margin: 10px 12px 0;
-  max-height: 430px;
-  min-height: 286px;
+  max-height: 340px;
+  min-height: 240px;
   overflow: auto;
   overflow-wrap: anywhere;
   padding: 12px 14px;
   width: calc(100% - 24px);
 }
 
-.graph-task-file-template-grid {
+.graph-foreground-template-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin: 8px 12px 0;
 }
 
-.graph-task-file-template-grid button {
+.graph-foreground-template-grid button {
   border: 1px solid rgba(217, 119, 6, 0.18);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.72);
@@ -21733,183 +21798,91 @@ body {
   cursor: pointer;
   display: grid;
   gap: 3px;
-  min-height: 48px;
-  margin: 0;
+  min-height: 46px;
   min-width: 0;
   padding: 7px 8px;
   text-align: left;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
-.graph-task-file-template-grid button:hover {
-  border-color: rgba(217, 119, 6, 0.38);
-  background: #ffffff;
-  color: #92400e;
-}
-
-.graph-task-file-template-grid__button--active,
-.graph-task-file-template-grid__button--active:hover {
+.graph-foreground-template-grid__active,
+.graph-foreground-template-grid__active:hover {
   border-color: rgba(217, 119, 6, 0.52) !important;
   background: #fffbeb !important;
   color: #92400e !important;
 }
 
-.graph-task-file-template-grid span,
-.graph-task-file-template-grid small {
+.graph-foreground-template-grid strong,
+.graph-foreground-template-grid small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.graph-task-file-template-grid span {
-  font-size: 12px;
-  font-weight: 740;
-}
-
-.graph-task-file-template-grid small {
+.graph-foreground-template-grid small {
   color: #64748b;
   font-size: 11px;
 }
 
-.graph-task-file-editor--new {
-  background: #fff7ed;
-}
-
-.graph-task-file-panel {
-  overflow: hidden;
-}
-
-.graph-task-file-panel__body {
+.graph-foreground-library__artifacts {
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(230px, 0.7fr) minmax(0, 1.3fr);
 }
 
-.graph-task-file-panel__browser {
-  min-width: 0;
-  border-right: 1px solid rgba(15, 23, 42, 0.08);
+.graph-foreground-artifact-list {
+  max-height: 528px;
 }
 
-.graph-task-file-panel__editor-stack {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-.graph-task-file-panel__editor-stack .graph-task-file-editor + .graph-task-file-editor {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.graph-task-artifact-list button {
+.graph-foreground-artifact-list button {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.graph-task-artifact-list button:disabled {
-  background: #f8fafc;
+@media (max-width: 1120px) {
+  .graph-foreground-layout {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .graph-foreground-runtime-row,
+  .graph-foreground-library {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-@media (max-width: 1280px) {
-  .graph-task-ops-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 980px) {
+  .graph-foreground-shell {
+    padding: 10px;
   }
 
-  .graph-task-instance-workbench__body {
-    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  .graph-foreground-topbar,
+  .graph-foreground-run-head,
+  .graph-foreground-next-action {
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .graph-task-instance-workbench__files {
-    grid-column: 1 / -1;
+  .graph-foreground-layout,
+  .graph-foreground-runtime-row,
+  .graph-foreground-library,
+  .graph-foreground-library__body {
     grid-template-columns: 1fr;
   }
 
-  .graph-task-instance-workbench__sessions {
-    grid-column: 1 / -1;
-  }
-
-  .graph-task-file-panel__body,
-  .graph-task-file-panel__editor-stack {
+  .graph-foreground-run-summary,
+  .graph-foreground-node-grid {
     grid-template-columns: 1fr;
   }
 
-  .graph-task-file-template-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .graph-task-file-panel__browser,
-  .graph-task-file-panel__editor-stack .graph-task-file-editor + .graph-task-file-editor {
-    border-left: 0;
+  .graph-foreground-library__browser,
+  .graph-foreground-library__editor {
     border-right: 0;
-    border-top: 1px solid rgba(15, 23, 42, 0.08);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   }
-}
 
-@media (max-width: 900px) {
-  .graph-task-workspace-mode-switch,
-  .graph-task-instance-workbench__body,
-  .graph-task-instance-workbench__files {
+  .graph-foreground-file-head {
     grid-template-columns: 1fr;
   }
 
-  .graph-task-instance-workbench__rail,
-  .graph-task-instance-workbench__main,
-  .graph-task-instance-workbench__files,
-  .graph-task-instance-workbench__sessions {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .graph-task-instance-workbench__header,
-  .graph-task-instance-hero {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .graph-task-instance-workbench__actions,
-  .graph-task-instance-hero__status {
-    justify-content: flex-start;
-  }
-
-  .graph-task-ops-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .graph-task-next-action {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .graph-task-instance-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .graph-task-node-session-row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .graph-task-node-session-row span {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .graph-task-file-toolbar,
-  .graph-task-artifact-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .graph-task-file-editor__head {
-    align-items: stretch;
-    grid-template-columns: 1fr;
-  }
-
-  .graph-task-file-editor-mode {
+  .graph-foreground-mode-switch {
     align-self: flex-start;
     margin: 0 12px;
-  }
-
-  .graph-task-file-template-grid {
-    grid-template-columns: 1fr;
   }
 }

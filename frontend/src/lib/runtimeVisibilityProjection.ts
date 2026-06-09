@@ -846,6 +846,39 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       }),
     };
   }
+  if (event === "runtime_status") {
+    const title = publicRuntimeText(data.title) || "正在处理";
+    const detail = publicRuntimeText(data.detail);
+    const state = text(data.state);
+    const level: SessionActivityLevel = state === "warning"
+      ? "warning"
+      : state === "error" || state === "failed"
+        ? "error"
+        : state === "waiting"
+          ? "waiting"
+          : state === "stopped"
+            ? "stopped"
+            : state === "done" || state === "completed" || state === "success"
+              ? "success"
+              : "running";
+    return {
+      stageStatus: title,
+      activityTitle: title,
+      activityDetail: detail,
+      level,
+      progressEntry: entry("runtime_status", title, {
+        body: detail,
+        publicNote: detail,
+        level,
+        kind: "stage",
+        statusText: state || "进行中",
+        runId: text(data.runtime_run_id),
+        taskRunId: formalTaskRunId(data.runtime_task_run_id, data.task_run_id, data.runtime_run_id),
+        eventId: text(data.runtime_event_id),
+        createdAt: numberValue(data.created_at) ?? Date.now(),
+      }),
+    };
+  }
   if (event === "runtime_step_summary") {
     const step = text(data.step);
     const eventPayload = record(record(data.event).payload);
@@ -1040,10 +1073,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   if (event === "done") {
     if (isTaskRunHandoffEvent(data)) {
       return {
-        stageStatus: "后台任务已接管",
-        activityTitle: "后台任务已接管",
-        activityDetail: "当前会话已有后台任务在执行，后续输入会进入当前任务控制。",
-        level: "waiting",
         terminalEvent: "done",
       };
     }

@@ -1171,6 +1171,46 @@ def test_observation_followup_projects_session_context_with_observations() -> No
     assert volatile_payload["observations"]["latest_observations"][0]["summary"] == "read_file ok"
 
 
+def test_observation_followup_projects_active_work_control_observation_details() -> None:
+    result = RuntimeCompiler().compile_observation_followup_packet(
+        session_id="session:active-work-followup",
+        turn_id="turn:active-work-followup",
+        agent_invocation_id="aginvoke:active-work-followup",
+        user_message="按这个补充方向继续。",
+        history=[{"role": "user", "content": "继续当前工作。"}],
+        session_context={},
+        observations=[
+            {
+                "authority": "harness.loop.active_work_control_observation",
+                "observation_kind": "active_work_control",
+                "applied": False,
+                "status": "blocked",
+                "terminal_reason": "active_work_resume_failed",
+                "runtime_result": "当前工作没有成功恢复：task_run_waiting_approval_requires_grant",
+                "active_work_control": {"action": "append_instruction_to_active_work"},
+                "admission": {"decision": "allow"},
+                "followup_instruction": "基于该观察继续判断；不要仅因控制未执行就要求用户重复已经明确的请求。",
+            }
+        ],
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Observation followup current request")
+    observation = volatile_payload["observations"]["latest_observations"][0]
+
+    assert observation["observation_kind"] == "active_work_control"
+    assert observation["control_action"] == "append_instruction_to_active_work"
+    assert observation["applied"] is False
+    assert observation["terminal_reason"] == "active_work_resume_failed"
+    assert observation["runtime_result"] == "当前工作没有成功恢复：task_run_waiting_approval_requires_grant"
+    assert observation["summary"] == "当前工作没有成功恢复：task_run_waiting_approval_requires_grant"
+    assert "不要仅因控制未执行" in observation["followup_instruction"]
+    assert "admission" not in observation
+
+
 def test_single_agent_turn_projects_compressed_context_as_session_context() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:single-turn-context",

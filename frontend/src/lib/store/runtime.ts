@@ -3673,7 +3673,11 @@ export class WorkspaceRuntime {
   }
 
   private setWorkspaceView(view: WorkspaceView) {
-    if (this.isTaskEnvironmentWorkspaceView(view)) {
+    if (view === "chat") {
+      this.openCurrentTaskEnvironmentWorkspace();
+      return;
+    }
+    if (view === "code-environment") {
       this.setTaskEnvironmentWorkspaceView(view);
       return;
     }
@@ -3681,8 +3685,19 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
   }
 
-  private isTaskEnvironmentWorkspaceView(view: WorkspaceView): view is TaskEnvironmentWorkspaceView {
-    return view === "chat" || view === "code-environment";
+  private openCurrentTaskEnvironmentWorkspace() {
+    const activeEnvironmentId = String(
+      this.store.getState().conversationActiveEnvironment?.task_environment_id || "",
+    ).trim();
+    const view = activeEnvironmentId
+      ? this.workspaceViewForTaskEnvironment(activeEnvironmentId)
+      : "chat";
+    const workspaceView = view === "creative" ? "chat" : view;
+    this.syncWorkspaceViewUrl(workspaceView);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: workspaceView,
+    }));
   }
 
   private setTaskEnvironmentWorkspaceView(view: TaskEnvironmentWorkspaceView) {

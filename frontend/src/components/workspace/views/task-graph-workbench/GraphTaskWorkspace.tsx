@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { GraphTaskInstanceWorkbench } from "@/components/workspace/views/task-graph-workbench/GraphTaskInstanceWorkbench";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
 import {
   asRecord,
@@ -64,15 +63,6 @@ type DomainRecord = {
   tasks: SpecificTaskRecord[];
   entry_policy: TaskSystemOverview["task_management"]["entry_policies"][number] | null;
 };
-
-type GraphTaskWorkspaceMode = "instances" | "editor";
-type GraphTaskWorkspaceSurface = "combined" | "operations" | "configuration";
-
-function workspaceModeForSurface(surface: GraphTaskWorkspaceSurface, initialMode: GraphTaskWorkspaceMode): GraphTaskWorkspaceMode {
-  if (surface === "operations") return "instances";
-  if (surface === "configuration") return "editor";
-  return initialMode;
-}
 
 function dictOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -270,15 +260,11 @@ function deriveTaskGraphSpec(
 }
 
 export function GraphTaskWorkspace({
-  initialMode = "instances",
   requestedGraphId = "",
   onSelectedGraphChange,
-  surface = "combined",
 }: {
-  initialMode?: GraphTaskWorkspaceMode;
   requestedGraphId?: string;
   onSelectedGraphChange?: (graphId: string) => void;
-  surface?: GraphTaskWorkspaceSurface;
 }) {
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -286,7 +272,6 @@ export function GraphTaskWorkspace({
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [workspaceMode, setWorkspaceMode] = useState<GraphTaskWorkspaceMode>(() => workspaceModeForSurface(surface, initialMode));
   const [editorEnvironmentId, setEditorEnvironmentId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
@@ -305,10 +290,6 @@ export function GraphTaskWorkspace({
   useEffect(() => {
     requestedGraphIdRef.current = requestedGraphId.trim();
   }, [requestedGraphId]);
-
-  useEffect(() => {
-    setWorkspaceMode(workspaceModeForSurface(surface, initialMode));
-  }, [initialMode, surface]);
 
   const loadOrchestrationAgentCatalog = useCallback(async () => {
     if (orchestrationAgentCatalogLoadRef.current) {
@@ -1060,93 +1041,61 @@ export function GraphTaskWorkspace({
 
   return (
     <section className="task-graph-editor-page task-graph-editor-page--embedded graph-task-workspace-shell" aria-label="图任务工作区">
-      {surface === "combined" ? (
-        <nav className="graph-task-workspace-mode-switch" aria-label="图任务工作区层级">
-          <button
-            aria-current={workspaceMode === "instances" ? "page" : undefined}
-            className={workspaceMode === "instances" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
-            onClick={() => setWorkspaceMode("instances")}
-            type="button"
-          >
-            <strong>实例项目</strong>
-            <span>运行、监控、节点会话、文件产物</span>
-          </button>
-          <button
-            aria-current={workspaceMode === "editor" ? "page" : undefined}
-            className={workspaceMode === "editor" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
-            onClick={() => setWorkspaceMode("editor")}
-            type="button"
-          >
-            <strong>图定义编辑</strong>
-            <span>拓扑、节点、边契约、发布校验</span>
-          </button>
-        </nav>
-      ) : null}
       {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
       {notice ? <div className="boundary-notice">{notice}</div> : null}
-      {workspaceMode === "instances" ? (
-        <GraphTaskInstanceWorkbench
-          graphTasks={editorTaskGraphs}
-          onOpenEditor={() => setWorkspaceMode("editor")}
-          onSelectedGraphChange={setGraphWorkbenchSelectedGraphId}
-          selectedGraphId={activeTaskGraphId}
-          showEditorAction={surface === "combined"}
-        />
-      ) : (
-        <TaskGraphWorkbench
-          addTaskGraphNode={addTaskGraphNode}
-          addTaskGraphRoleNode={addTaskGraphRoleNode}
-          addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
-          addTaskGraphTaskNode={addTaskGraphTaskNode}
-          a2aCatalog={a2aCatalog}
-          agentGroupOptions={editorAgentGroupOptions}
-          boundTaskGraphTaskIds={boundTaskGraphTaskIds}
-          contractSpecs={editorContractSpecs}
-          taskGraphs={editorTaskGraphs}
-          domainTaskOptions={editorDomainTaskOptions}
-          editorIssueCount={editorIssueCount}
-          editorValid={editorValid}
-          activeGraphEdges={activeGraphEdges}
-          activeGraphNodes={activeGraphNodes}
-          handleTopologyNodeClick={handleTopologyNodeClick}
-          linkingFromNodeId={linkingFromNodeId}
-          taskGraphEditorSelection={taskGraphEditorSelection}
-          setTaskGraphEditorSelection={setTaskGraphEditorSelection}
-          removeTaskGraphEdge={removeTaskGraphEdge}
-          removeTaskGraphNode={removeTaskGraphNode}
-          reverseTaskGraphEdge={reverseTaskGraphEdge}
-          saveTaskGraphStack={saveTaskGraphStack}
-          saving={saving}
-          selectedTaskGraph={editorSelectedTaskGraph}
-          selectedTaskGraphId={editorTaskGraphId}
-          selectedDomain={editorDomain}
-          selectedDomainTasks={editorEnvironmentTasks}
-          selectedGraphEdge={selectedGraphEdge}
-          selectedGraphEdgeId={selectedGraphEdgeId}
-          selectedGraphNode={selectedGraphNode}
-          selectedGraphNodeId={selectedGraphNodeId}
-          setLinkingFromNodeId={setLinkingFromNodeId}
-          setSelectedTaskGraphId={setGraphWorkbenchSelectedGraphId}
-          setSelectedGraphEdgeId={setSelectedGraphEdgeId}
-          setSelectedGraphNodeId={setSelectedGraphNodeId}
-          taskGraphDirty={topologyDirty}
-          taskGraphDraftV2={taskGraphDraftV2}
-          workspaceSlot={editorWorkspaceSlot}
-          taskGraphStandardView={taskGraphStandardView}
-          taskGraphStandardViewStale={taskGraphStandardViewStale}
-          taskGraphStandardViewError={taskGraphStandardViewError}
-          taskGraphStandardViewLoading={taskGraphStandardViewLoading}
-          refreshTaskGraphStandardView={refreshTaskGraphStandardView}
-          updateTaskGraphDraft={updateTaskGraphDraft}
-          updateTaskGraphEdge={updateTaskGraphEdge}
-          updateTaskGraphMetadata={updateTaskGraphMetadata}
-          updateTaskGraphNode={updateTaskGraphNode}
-          updateTaskGraphPublishState={updateTaskGraphPublishState}
-          updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
-          orchestrationAgentCatalog={orchestrationAgentCatalog}
-          semanticRelationPresets={semanticRelationPresets}
-        />
-      )}
+      <TaskGraphWorkbench
+        addTaskGraphNode={addTaskGraphNode}
+        addTaskGraphRoleNode={addTaskGraphRoleNode}
+        addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
+        addTaskGraphTaskNode={addTaskGraphTaskNode}
+        a2aCatalog={a2aCatalog}
+        agentGroupOptions={editorAgentGroupOptions}
+        boundTaskGraphTaskIds={boundTaskGraphTaskIds}
+        contractSpecs={editorContractSpecs}
+        taskGraphs={editorTaskGraphs}
+        domainTaskOptions={editorDomainTaskOptions}
+        editorIssueCount={editorIssueCount}
+        editorValid={editorValid}
+        activeGraphEdges={activeGraphEdges}
+        activeGraphNodes={activeGraphNodes}
+        handleTopologyNodeClick={handleTopologyNodeClick}
+        linkingFromNodeId={linkingFromNodeId}
+        taskGraphEditorSelection={taskGraphEditorSelection}
+        setTaskGraphEditorSelection={setTaskGraphEditorSelection}
+        removeTaskGraphEdge={removeTaskGraphEdge}
+        removeTaskGraphNode={removeTaskGraphNode}
+        reverseTaskGraphEdge={reverseTaskGraphEdge}
+        saveTaskGraphStack={saveTaskGraphStack}
+        saving={saving}
+        selectedTaskGraph={editorSelectedTaskGraph}
+        selectedTaskGraphId={editorTaskGraphId}
+        selectedDomain={editorDomain}
+        selectedDomainTasks={editorEnvironmentTasks}
+        selectedGraphEdge={selectedGraphEdge}
+        selectedGraphEdgeId={selectedGraphEdgeId}
+        selectedGraphNode={selectedGraphNode}
+        selectedGraphNodeId={selectedGraphNodeId}
+        setLinkingFromNodeId={setLinkingFromNodeId}
+        setSelectedTaskGraphId={setGraphWorkbenchSelectedGraphId}
+        setSelectedGraphEdgeId={setSelectedGraphEdgeId}
+        setSelectedGraphNodeId={setSelectedGraphNodeId}
+        taskGraphDirty={topologyDirty}
+        taskGraphDraftV2={taskGraphDraftV2}
+        workspaceSlot={editorWorkspaceSlot}
+        taskGraphStandardView={taskGraphStandardView}
+        taskGraphStandardViewStale={taskGraphStandardViewStale}
+        taskGraphStandardViewError={taskGraphStandardViewError}
+        taskGraphStandardViewLoading={taskGraphStandardViewLoading}
+        refreshTaskGraphStandardView={refreshTaskGraphStandardView}
+        updateTaskGraphDraft={updateTaskGraphDraft}
+        updateTaskGraphEdge={updateTaskGraphEdge}
+        updateTaskGraphMetadata={updateTaskGraphMetadata}
+        updateTaskGraphNode={updateTaskGraphNode}
+        updateTaskGraphPublishState={updateTaskGraphPublishState}
+        updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
+        orchestrationAgentCatalog={orchestrationAgentCatalog}
+        semanticRelationPresets={semanticRelationPresets}
+      />
     </section>
   );
 }

@@ -33,7 +33,7 @@ from api.chat_direct_routes import run_direct_system_route
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
-    active_work_control_denial_reply,
+    active_work_control_denial_observation,
     active_work_turn_decision_from_payload,
     active_work_status_reply,
     default_reply_for_action,
@@ -741,7 +741,7 @@ class HarnessRuntimeFacade:
                 return {
                     "status": "blocked",
                     "terminal_reason": decision.denied_reason or decision.reason or "active_work_control_denied",
-                    "content": active_work_control_denial_reply(decision),
+                    "content": active_work_control_denial_observation(decision),
                 }
             return await self._apply_active_work_turn_decision(
                 decision=decision,
@@ -861,7 +861,7 @@ class HarnessRuntimeFacade:
                 completion_state="blocked",
             )
             return [branch_event, *terminal_events]
-        content = "我已收到这条补充要求，会把它接入当前任务。"
+        content = "补充要求已进入当前工作队列。"
         task_run = dict(result.get("task_run") or {})
         self._bind_current_turn_to_task_run(
             session_id=active_work_context.session_id,
@@ -949,26 +949,6 @@ class HarnessRuntimeFacade:
         terminal_reason: str,
         completion_state: str,
     ) -> list[dict[str, Any]]:
-        answer_channel = "blocked" if status == "blocked" else "active_work_control"
-        decision = canonical_output_decision_for_final_text(
-            content,
-            answer_channel=answer_channel,
-            answer_source="harness.entrypoint.active_turn_steer",
-            execution_posture="active_work_control",
-            terminal_reason=terminal_reason,
-        )
-        message_payload: dict[str, Any] = {
-            "role": "assistant",
-            "content": decision.content,
-            "turn_id": turn_id,
-            **decision.to_payload(),
-        }
-        if context is not None and context.task_run_id:
-            message_payload["task_run_id"] = context.task_run_id
-        await self._apply_assistant_message_commit_async(
-            request.session_id,
-            message_payload,
-        )
         expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
         active_turn_payload = self._active_turn_payload_for_context(
             context=context,
@@ -977,7 +957,7 @@ class HarnessRuntimeFacade:
         )
         extra = {
             "completion_state": completion_state,
-            "summary": decision.content if completion_state == "task_steer_accepted" else "",
+            "summary": str(content or "") if completion_state == "task_steer_accepted" else "",
             "active_turn_id": expected_active_turn_id,
             "active_turn": active_turn_payload,
             "runtime_branch": {
@@ -989,15 +969,31 @@ class HarnessRuntimeFacade:
         if context is not None and context.task_run_id:
             extra["runtime_task_run_id"] = context.task_run_id
             extra["task_run_id"] = context.task_run_id
+        status_title = "当前补充未接入" if status == "blocked" else "已收到补充要求"
+        status_detail = str(content or "").strip() or (
+            "当前工作控制未执行。" if status == "blocked" else "补充要求已进入当前工作队列。"
+        )
+        runtime_status_event = {
+            "type": "runtime_status",
+            "title": status_title,
+            "detail": status_detail,
+            "state": "warning" if status == "blocked" else "running",
+            "phase": "active_turn_steer",
+            "terminal_reason": terminal_reason,
+            **extra,
+        }
+        done_event = {
+            "type": "done",
+            "content": "",
+            "answer_channel": "runtime_control",
+            "answer_source": "harness.entrypoint.active_turn_steer",
+            "terminal_reason": terminal_reason,
+            "execution_posture": "active_work_control",
+            **extra,
+        }
         return [
-            final_answer_event(
-                content=decision.content,
-                answer_channel=answer_channel,
-                answer_source="harness.entrypoint.active_turn_steer",
-                terminal_reason=terminal_reason,
-                execution_posture="active_work_control",
-                extra=extra,
-            )
+            runtime_status_event,
+            done_event,
         ]
 
     def _active_turn_payload_for_context(
@@ -2977,4 +2973,3 @@ def _first_contract_text(*values: Any) -> str:
         if text:
             return text
     return ""
-

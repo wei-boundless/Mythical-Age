@@ -97,6 +97,7 @@ class ObservationProjector:
         summary_source = (
             source.get("summary")
             or source.get("content")
+            or source.get("runtime_result")
             or source.get("text")
             or observation.get("summary")
             or observation.get("content")
@@ -112,6 +113,7 @@ class ObservationProjector:
                 "visibility": _visibility(source),
                 "summary": compact_text(summary_source, limit=int(projection_policy.get("observation_summary_chars") or 600)),
                 "error": compact_text(error, limit=500),
+                **_active_work_control_projection(source),
                 "structured_error": structured_error,
                 "tool_result": _compact_tool_result(tool_projection),
                 "artifact_refs": dedupe_artifact_refs(artifact_refs),
@@ -141,6 +143,22 @@ def _visibility(source: dict[str, Any]) -> str:
     freshness = dict(source.get("runtime_freshness") or {})
     value = str(source.get("visibility") or freshness.get("visibility") or "")
     return value if value in {"active", "historical"} else "active"
+
+
+def _active_work_control_projection(source: dict[str, Any]) -> dict[str, Any]:
+    if str(source.get("observation_kind") or "") != "active_work_control":
+        return {}
+    control = dict(source.get("active_work_control") or {})
+    return drop_empty(
+        {
+            "observation_kind": "active_work_control",
+            "control_action": str(control.get("resolved_action") or control.get("action") or ""),
+            "applied": source.get("applied") if isinstance(source.get("applied"), bool) else None,
+            "terminal_reason": compact_text(source.get("terminal_reason") or "", limit=160),
+            "runtime_result": compact_text(source.get("runtime_result") or "", limit=800),
+            "followup_instruction": compact_text(source.get("followup_instruction") or "", limit=300),
+        }
+    )
 
 
 def _tool_projection_policy_for_observation(projection_policy: dict[str, Any], *, source: dict[str, Any]) -> dict[str, Any]:

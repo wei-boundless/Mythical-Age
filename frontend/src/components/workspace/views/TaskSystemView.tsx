@@ -568,10 +568,8 @@ export function TaskSystemView() {
       <section className={`task-management-stage task-management-stage--${activeDomain}`}>
         {activeDomain === "graphs" ? (
           <GraphTaskWorkspace
-            initialMode="editor"
             onSelectedGraphChange={setSelectedTaskSystemGraphId}
             requestedGraphId={selectedTaskSystemGraphId}
-            surface="configuration"
           />
         ) : null}
 

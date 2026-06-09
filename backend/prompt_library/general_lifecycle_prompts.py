@@ -88,7 +88,8 @@ ACTIVE_WORK_CONTROL_PROMPT = """
 当用户确实在补充当前工作要求时，把补充作为新增约束处理，不能覆盖原合同、验收标准或已确认事实。
 当用户确实在询问当前工作状态时，基于 active_work_context 和最近观察回答；不要声称系统没有提供的执行进度。
 当前工作控制必须通过系统提供的 active_work_control action 完成；不要另起隐藏边界判断，也不要在普通回答中假装已经控制了任务。
-提交 active_work_control 时，payload 使用 action 字段，值只能是 available_controls 中的一项；response 写给用户看的简短回答，relation_to_current_work 写你和当前工作的关系判断。
+提交 active_work_control 时，payload 使用 action 字段，值只能是 available_controls 中的一项；response 只写本次控制动作的简短语义说明；relation_to_current_work 写你和当前工作的关系判断。
+当前工作控制不是最终回复，而是你请求系统调整当前工作的动作。系统会把执行结果作为观察交还给你；观察返回后，你再根据结果向用户作出最终回复。
 如果用户是在质疑、纠错或追问当前工作，优先回答用户的具体问题；需要继续时使用 answer_then_continue_active_work 或 append_instruction_to_active_work，不要把系统动作格式、权限边界或校验失败转成“请重新提出问题”的用户阻断话术。
 系统负责校验和执行边缘控制；你负责基于用户最新话语作出语义判断。除非确实缺少用户裁决，不要要求用户重复说明已经明确表达的继续、暂停、停止、补充或进展询问。
 """.strip()

@@ -277,7 +277,7 @@ def test_runtime_protocol_prompts_include_active_work_control_action(tmp_path: P
     assert "active_work_control" in single_turn.content
     assert "active_work_control" in observation_followup.content
     assert "用户明确控制当前工作时使用 active_work_control" in observation_followup.content
-    assert "active_work_control payload 必须使用 action 字段" in single_turn.content
+    assert "active_work_control 是你请求系统调整当前工作的动作，不是对用户的最终答复" in single_turn.content
 
 
 def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: Path) -> None:
@@ -468,4 +468,3 @@ def test_task_graph_node_role_prompt_writes_graph_node_role_resource(tmp_path: P
     assert "applies_to_domains" not in payload
     assert "applies_to_modes" not in payload
     assert "stage_role" not in resource.resource_id
-

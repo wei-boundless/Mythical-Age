@@ -723,13 +723,14 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
             evidence_type="model_action",
         )
     if action_type == "active_work_control":
+        title, body = _active_work_status_text_from_action(dict(action_request.get("active_work_control") or {}).get("action"))
         return _entry(
             event,
-            title="已收到补充要求",
-            body=public_note or "已收到补充要求。",
+            title=title,
+            body=public_note or body,
             kind="stage",
             level="success",
-            status="completed",
+            status="active_work_control",
             public_note=public_note,
             evidence_type="model_action",
         )
@@ -818,6 +819,21 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         ),
         artifacts=_turn_tool_observation_artifacts(observation),
     )
+
+
+def _active_work_status_text_from_action(value: Any) -> tuple[str, str]:
+    action = str(value or "").strip()
+    if action == "continue_active_work":
+        return "继续当前工作", "当前工作已进入继续处理流程。"
+    if action == "pause_active_work":
+        return "暂停当前工作", "暂停请求已记录。"
+    if action == "stop_active_work":
+        return "停止当前工作", "停止请求已记录。"
+    if action == "append_instruction_to_active_work":
+        return "已收到补充要求", "补充要求已进入当前工作队列。"
+    if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
+        return "查看当前进展", "当前工作进展已同步。"
+    return "当前工作控制", "当前工作控制状态已更新。"
 
 
 def _tool_call_preview(tool_call: dict[str, Any]) -> str:

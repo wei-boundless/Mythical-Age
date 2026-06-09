@@ -530,17 +530,20 @@ def test_active_work_relation_mismatch_blocks_without_control_side_effects() -> 
     event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
 
     assert model.active_work_decision_count == 1
+    assert model.active_work_followup_count == 1
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert any(
-        event.get("type") == "done"
-        and event.get("answer_channel") == "blocked"
-        and event.get("terminal_reason") == "active_work_relation_declared_independent"
-        and "没有控制当前工作" in str(event.get("content") or "")
+        event.get("type") == "runtime_status"
+        and event.get("phase") == "active_work_control"
+        and event.get("state") == "warning"
         for event in events
     )
     assert any(
-        event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "active_work_relation_declared_independent"
+        event.get("type") == "done"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and event.get("terminal_reason") == "respond"
+        and "这不应该控制当前工作" in str(event.get("content") or "")
         for event in events
     )
     assert "active_task_steer_recorded" not in event_types
@@ -604,10 +607,13 @@ def test_append_instruction_reports_resume_failure_without_accepting_steer(monke
     assert "task_run_resume_requested" not in event_types
     assert "task_run_executor_scheduled" not in event_types
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert model.active_work_followup_count == 1
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
     assert any(
         event.get("type") == "done"
-        and event.get("answer_channel") == "blocked"
-        and event.get("terminal_reason") == "active_work_resume_failed"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and event.get("terminal_reason") == "respond"
         and "当前工作没有成功恢复：task_run_waiting_approval_requires_grant" in str(event.get("content") or "")
         for event in events
     )
@@ -648,9 +654,13 @@ def test_append_instruction_to_waiting_approval_reports_queued_without_resume() 
     assert "task_run_resume_requested" not in event_types
     assert "task_run_executor_scheduled" not in event_types
     assert any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert model.active_work_followup_count == 1
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
     assert any(
         event.get("type") == "done"
-        and event.get("answer_channel") == "active_work_control"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and event.get("terminal_reason") == "respond"
         and "补充要求已记录" in str(event.get("content") or "")
         and "等待确认" in str(event.get("content") or "")
         and "按这个补充方向继续处理" not in str(event.get("content") or "")
@@ -697,9 +707,17 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert "single_agent_turn_started" in event_types
     assert "active_task_steer_accepted" not in event_types
     assert model.active_work_decision_count == 1
+    assert model.active_work_followup_count == 1
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
-    assert any(event.get("type") == "done" and "当前工作还在等待继续执行" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and "当前工作还在等待继续执行" in str(event.get("content") or "")
+        for event in events
+    )
 
 def test_running_active_turn_input_queues_steer_without_model_roundtrip() -> None:
     model = _ActiveWorkDecisionModelRuntime([
@@ -768,16 +786,23 @@ def test_running_active_turn_input_queues_steer_without_model_roundtrip() -> Non
     assert active_turn.bound_task_run_id == task_run_id
     assert "active_task_steer_recorded" in trace_event_types
     assert any(
+        event.get("type") == "runtime_status"
+        and event.get("phase") == "active_turn_steer"
+        and event.get("state") == "running"
+        for event in events
+    )
+    assert any(
         event.get("type") == "done"
+        and event.get("answer_channel") == "runtime_control"
         and event.get("answer_source") == "harness.entrypoint.active_turn_steer"
         and event.get("terminal_reason") == "append_instruction_to_active_work"
         and event.get("completion_state") == "task_steer_accepted"
         and event.get("runtime_task_run_id") == task_run_id
         and dict(event.get("active_turn") or {}).get("bound_task_run_id") == task_run_id
-        and "补充要求" in str(event.get("content") or "")
+        and str(event.get("content") or "") == ""
         for event in events
     )
-    assert [str(item.get("role") or "") for item in session_messages] == ["user", "assistant"]
+    assert [str(item.get("role") or "") for item in session_messages] == ["user"]
 
 def test_auto_active_turn_input_uses_model_decision_even_when_task_running() -> None:
     model = _ActiveWorkDecisionModelRuntime([
@@ -832,12 +857,18 @@ def test_auto_active_turn_input_uses_model_decision_even_when_task_running() -> 
     )
     assert "active_task_steer_accepted" in event_types
     assert model.active_work_decision_count == 1
+    assert model.active_work_followup_count == 1
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
     assert any(
+        event.get("type") == "runtime_status"
+        and event.get("phase") == "active_work_control"
+        for event in events
+    )
+    assert any(
         event.get("type") == "done"
-        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
-        and event.get("completion_state") == "task_steer_accepted"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
         for event in events
     )
 
@@ -877,7 +908,13 @@ def test_explicit_active_turn_steer_without_active_context_blocks_without_model_
     assert model.active_work_decision_count == 0
     assert dict(branch.get("runtime_branch") or {}).get("branch_kind") == "active_turn_steer"
     assert dict(branch.get("runtime_branch") or {}).get("reason") == "active_turn_steer_not_running"
-    assert done.get("answer_channel") == "blocked"
+    assert any(
+        event.get("type") == "runtime_status"
+        and event.get("phase") == "active_turn_steer"
+        and event.get("state") == "warning"
+        for event in events
+    )
+    assert done.get("answer_channel") == "runtime_control"
     assert done.get("answer_source") == "harness.entrypoint.active_turn_steer"
     assert done.get("terminal_reason") == "active_turn_steer_not_running"
     assert done.get("completion_state") == "blocked"
@@ -948,7 +985,13 @@ def test_explicit_active_turn_steer_paused_context_blocks_without_model_roundtri
     assert "active_task_steer_accepted" not in event_types
     assert "active_task_steer_recorded" not in trace_event_types
     assert model.active_work_decision_count == 0
-    assert done.get("answer_channel") == "blocked"
+    assert any(
+        event.get("type") == "runtime_status"
+        and event.get("phase") == "active_turn_steer"
+        and event.get("state") == "warning"
+        for event in events
+    )
+    assert done.get("answer_channel") == "runtime_control"
     assert done.get("answer_source") == "harness.entrypoint.active_turn_steer"
     assert done.get("terminal_reason") == "active_turn_steer_control_state_paused"
     assert done.get("completion_state") == "blocked"
@@ -997,10 +1040,13 @@ def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_
     assert dict(updated_task.diagnostics or {}).get("latest_interaction_turn_id")
     assert active_turn is not None
     assert active_turn.bound_task_run_id == task_run_id
+    assert model.active_work_followup_count == 1
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
     assert any(
         event.get("type") == "done"
-        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
-        and event.get("terminal_reason") == "continue_active_work"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and event.get("terminal_reason") == "respond"
         and "接着处理" in str(event.get("content") or "")
         for event in events
     )
@@ -1042,10 +1088,13 @@ def test_main_agent_active_work_control_accepts_intent_alias_without_blocking() 
         and event.get("terminal_reason") == "active_work_control_action_not_allowed"
         for event in events
     )
+    assert model.active_work_followup_count == 1
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
     assert any(
         event.get("type") == "done"
-        and event.get("answer_source") == "harness.single_agent_turn.active_work_control"
-        and event.get("terminal_reason") == "continue_active_work"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and event.get("terminal_reason") == "respond"
         for event in events
     )
 
@@ -1182,9 +1231,17 @@ def test_active_work_control_allows_missing_expected_active_turn_id_when_bound_t
     event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
 
     assert model.active_work_decision_count == 1
+    assert model.active_work_followup_count == 1
     assert "task_run_resume_requested" in event_types
     assert "task_run_executor_scheduled" in event_types
-    assert any(event.get("type") == "done" and "继续当前工作" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and "继续当前工作" in str(event.get("content") or "")
+        for event in events
+    )
 
 def test_active_work_control_rejects_missing_expected_id_when_bound_task_changed() -> None:
     from harness.loop.active_work import ActiveWorkContext
@@ -1254,10 +1311,18 @@ def test_active_work_control_rejects_stale_expected_active_turn_id() -> None:
     event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
 
     assert model.active_work_decision_count == 1
-    assert any(event.get("type") == "done" and "当前任务状态已变化" in str(event.get("content") or "") for event in events)
+    assert model.active_work_followup_count == 1
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
     assert any(
-        event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "expected_active_turn_mismatch"
+        event.get("type") == "done"
+        and event.get("answer_channel") == "conversation"
+        and event.get("answer_source") == "harness.single_agent_turn.respond"
+        and "当前任务状态已变化" in str(event.get("content") or "")
+        for event in events
+    )
+    assert any(
+        event.get("type") == "runtime_status"
+        and event.get("terminal_reason") == "expected_active_turn_mismatch"
         for event in events
     )
     assert "active_task_steer_recorded" not in event_types

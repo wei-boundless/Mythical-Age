@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
+import { GraphTaskForegroundView } from "@/components/workspace/views/task-graph-foreground/GraphTaskForegroundView";
 import { useAppStore } from "@/lib/store";
 
 export function GraphTaskSystemView() {
@@ -17,10 +17,7 @@ export function GraphTaskSystemView() {
 
   return (
     <section className="graph-task-system-page" aria-label="图任务系统">
-      <GraphTaskWorkspace
-        requestedGraphId={requestedGraphId}
-        surface="operations"
-      />
+      <GraphTaskForegroundView requestedGraphId={requestedGraphId} />
     </section>
   );
 }

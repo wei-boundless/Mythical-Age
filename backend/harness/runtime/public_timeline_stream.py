@@ -244,6 +244,26 @@ def _control_action_item_from_model_action(
     return {}
 
 
+def _active_work_control_status_text(request: dict[str, Any]) -> tuple[str, str]:
+    control = _record(request.get("active_work_control"))
+    action = str(control.get("resolved_action") or control.get("action") or "").strip()
+    return _active_work_status_text_from_action(action)
+
+
+def _active_work_status_text_from_action(action: str) -> tuple[str, str]:
+    if action == "continue_active_work":
+        return "继续当前工作", "当前工作已进入继续处理流程。"
+    if action == "pause_active_work":
+        return "暂停当前工作", "暂停请求已记录。"
+    if action == "stop_active_work":
+        return "停止当前工作", "停止请求已记录。"
+    if action == "append_instruction_to_active_work":
+        return "已收到补充要求", "补充要求已进入当前工作队列。"
+    if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
+        return "查看当前进展", "当前工作进展已同步。"
+    return "当前工作控制", "当前工作控制状态已更新。"
+
+
 def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:
     event = _record(data.get("event"))
     payload = _record(event.get("payload"))
@@ -424,12 +444,7 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
     summary = _visible_text(data.get("receipt_summary") or data.get("summary") or data.get("message"))
     content = _visible_text(data.get("content"))
     if terminal_reason == "task_executor_scheduled" or answer_channel == "task_control":
-        return _status_item(
-            item_id=_stable_id("handoff", task_run_id, terminal_reason),
-            title="后台任务已接管",
-            detail="后续执行会继续投影到当前会话。",
-            state="running",
-        )
+        return {}
     if str(data.get("completion_state") or "").strip() == "task_steer_accepted":
         return _status_item(
             item_id=_stable_id("steer-done", task_run_id, summary),

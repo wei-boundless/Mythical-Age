@@ -68,6 +68,34 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.activityDetail).toBe("我先核对当前文件状态，确认可以从断点继续。");
   });
 
+  it("projects runtime status without requiring internal event payloads", () => {
+    const projection = projectRuntimeStreamEvent("runtime_status", {
+      title: "当前工作控制未执行",
+      detail: "边界校验未通过，模型会继续处理当前请求。",
+      state: "warning",
+      phase: "active_work_control",
+      runtime_event_id: "rtevt:active-work-control",
+      runtime_run_id: "turnrun:active-work",
+      runtime_task_run_id: "taskrun:active-work",
+      created_at: 66,
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "当前工作控制未执行",
+      activityTitle: "当前工作控制未执行",
+      activityDetail: "边界校验未通过，模型会继续处理当前请求。",
+      level: "warning",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      id: "rtevt:active-work-control",
+      kind: "stage",
+      level: "warning",
+      statusText: "warning",
+      createdAt: 66,
+    });
+    expect(projection.progressEntry?.body).not.toContain("active_work_control_observation");
+  });
+
   it("projects stale waiting task lifecycle events as diagnostic state", () => {
     const projection = projectRuntimeStreamEvent("task_run_lifecycle_event", {
       event: {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -217,6 +218,8 @@ class _ActiveWorkDecisionModelRuntime:
     def __init__(self, decisions: list[dict[str, object]]) -> None:
         self.decisions = list(decisions)
         self.active_work_decision_count = 0
+        self.active_work_followup_count = 0
+        self.last_active_work_decision: dict[str, object] = {}
 
     async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
         del tools
@@ -232,6 +235,7 @@ class _ActiveWorkDecisionModelRuntime:
                 "response": "现在是正在处理。",
             })
             decision.pop("authority", None)
+            self.last_active_work_decision = dict(decision)
             if str(decision.get("action") or "") in {"normal_response", "start_new_work"}:
                 return SimpleNamespace(content="普通回复。", tool_calls=[])
             return SimpleNamespace(
@@ -245,7 +249,8 @@ class _ActiveWorkDecisionModelRuntime:
                 ),
                 tool_calls=[],
             )
-        return SimpleNamespace(content="普通回复。", tool_calls=[])
+        self.active_work_followup_count += 1
+        return SimpleNamespace(content=self._active_work_followup_answer(messages), tool_calls=[])
 
     def _allows_active_work_control(self, messages) -> bool:
         marker = "Single agent turn stable boundary\n"
@@ -266,9 +271,64 @@ class _ActiveWorkDecisionModelRuntime:
 
     async def invoke_messages(self, messages, **_kwargs):
         response = await self._active_work_response(messages)
-        if str(getattr(response, "content", "") or "") == "普通回复。":
-            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
+        content = str(getattr(response, "content", "") or "")
+        if content and not content.lstrip().startswith("{"):
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer=content), ensure_ascii=False))
         return response
+
+    def _active_work_followup_answer(self, messages) -> str:
+        observation = self._active_work_observation(messages)
+        runtime_result = str(observation.get("runtime_result") or "").strip()
+        status = str(observation.get("status") or "").strip()
+        terminal_reason = str(observation.get("terminal_reason") or "").strip()
+        control_action = str(observation.get("action") or self.last_active_work_decision.get("action") or self.last_active_work_decision.get("intent") or "").strip()
+        decision_response = str(self.last_active_work_decision.get("response") or "").strip()
+        if terminal_reason in {
+            "active_work_relation_declared_independent",
+            "active_work_relation_ambiguous",
+            "active_work_control_action_not_allowed",
+        }:
+            return decision_response or "普通回复。"
+        if status == "blocked":
+            return runtime_result or decision_response or "当前工作控制没有完成。"
+        if control_action == "append_instruction_to_active_work" and runtime_result:
+            return runtime_result
+        if control_action == "answer_about_active_work" and decision_response:
+            return decision_response
+        return decision_response or runtime_result or "普通回复。"
+
+    def _active_work_observation(self, messages) -> dict[str, str]:
+        content = "\n".join(str(dict(message).get("content") or "") for message in list(messages or []) if isinstance(message, dict))
+        if (
+            "active_work_control_observation" not in content
+            and "当前工作控制观察" not in content
+            and '"observation_kind":"active_work_control"' not in content
+            and '"observation_kind": "active_work_control"' not in content
+        ):
+            return {}
+        anchor = max(
+            content.rfind('"observation_kind":"active_work_control"'),
+            content.rfind('"observation_kind": "active_work_control"'),
+            content.rfind("active_work_control_observation"),
+            content.rfind("当前工作控制观察"),
+        )
+        observation_content = content[max(0, anchor - 1000): anchor + 4000] if anchor >= 0 else content
+        return {
+            "status": self._json_text_field(observation_content, "status"),
+            "terminal_reason": self._json_text_field(observation_content, "terminal_reason"),
+            "runtime_result": self._json_text_field(observation_content, "runtime_result"),
+            "action": self._json_text_field(observation_content, "control_action") or self._json_nested_action(observation_content),
+        }
+
+    @staticmethod
+    def _json_text_field(content: str, field: str) -> str:
+        match = re.search(rf'"{re.escape(field)}"\s*:\s*"([^"]*)"', content)
+        return match.group(1) if match else ""
+
+    @staticmethod
+    def _json_nested_action(content: str) -> str:
+        match = re.search(r'"active_work_control"\s*:\s*\{.*?"(?:resolved_action|action)"\s*:\s*"([^"]*)"', content, flags=re.S)
+        return match.group(1) if match else ""
 
 
 class _TaskExecutorSequenceModelRuntime:

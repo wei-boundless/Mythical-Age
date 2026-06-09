@@ -2213,7 +2213,7 @@ def _single_agent_turn_output_contract(
                 "required_fields": ["action", "relation_to_current_work"],
                 "payload_schema": {
                     "action": "one of allowed_controls; use this exact field name for the control decision",
-                    "response": "short user-visible answer or acknowledgement; do not ask the user to restate an already clear control request",
+                    "response": "本次控制动作的简短语义说明；系统会把它连同执行结果作为观察返回，它不是最终用户回复",
                     "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
                     "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
                     "continuation_strategy": "same_run_resume, already_running, defer, or none",
@@ -3766,7 +3766,9 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
-            "response 是给用户看的简短回答，不要输出要求用户重新提出问题的阻断话术。"
+            "response 只写本次控制动作的简短语义说明。"
+            "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后你再根据结果向用户作出最终回复。"
+            "不要输出要求用户重新提出问题的阻断话术。"
         )
         if "request_task_run" in allowed_actions:
             lines.append(

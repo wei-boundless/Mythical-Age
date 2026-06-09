@@ -918,7 +918,7 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     assert "Mythical Age（洪荒智能）" in model_input
     assert "不改变系统规则" in model_input
     assert "你负责把用户最新一句话放回当前会话语境中理解" in model_input
-    assert "你现在处在单轮会话动作协议中。你会同时看到身份风格" in model_input
+    assert "你负责本轮会话的行动裁决。你会同时看到身份风格" in model_input
     assert "通用请求判断生命周期" in model_input
     assert "用户刚发来最新请求" in model_input
     assert "在采取有副作用或高影响行动前" in model_input
