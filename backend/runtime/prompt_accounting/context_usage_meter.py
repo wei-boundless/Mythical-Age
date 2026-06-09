@@ -364,14 +364,23 @@ class ContextUsageMeter:
         }
 
     def _cache_hit_rate_for_records(self, records: list[ModelTokenUsageRecord]) -> float:
-        prompt_tokens = sum(int(record.prompt_tokens or 0) for record in records)
+        returned_records = [record for record in records if _provider_hit_miss_available(record)]
+        if returned_records:
+            cached_tokens = sum(int(record.cached_tokens or record.cache_read_tokens or 0) for record in returned_records)
+            miss_tokens = sum(int(record.cache_miss_tokens or 0) for record in returned_records)
+            return round(cached_tokens / (cached_tokens + miss_tokens), 4) if (cached_tokens + miss_tokens) > 0 else 0.0
         cached_tokens = sum(int(record.cached_tokens or record.cache_read_tokens or 0) for record in records)
+        prompt_tokens = sum(int(record.prompt_tokens or 0) for record in records)
         return round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
 
     def _cache_hit_rate(self, record: ModelTokenUsageRecord | None) -> float:
         if record is None or int(record.prompt_tokens or 0) <= 0:
             return 0.0
-        return round(max(int(record.cached_tokens or 0), int(record.cache_read_tokens or 0)) / int(record.prompt_tokens or 0), 4)
+        cached_tokens = max(int(record.cached_tokens or 0), int(record.cache_read_tokens or 0))
+        miss_tokens = int(record.cache_miss_tokens or 0)
+        if _provider_hit_miss_available(record):
+            return round(cached_tokens / (cached_tokens + miss_tokens), 4) if (cached_tokens + miss_tokens) > 0 else 0.0
+        return round(cached_tokens / int(record.prompt_tokens or 0), 4)
 
     def _invalidation_reason(self, *, context_fingerprint: str, previous_context_fingerprint: str) -> str:
         current = str(context_fingerprint or "").strip()
@@ -379,3 +388,10 @@ class ContextUsageMeter:
         if current and previous and current != previous:
             return "environment_fingerprint_changed"
         return ""
+
+
+def _provider_hit_miss_available(record: ModelTokenUsageRecord) -> bool:
+    if int(record.cache_miss_tokens or 0) > 0:
+        return True
+    diagnostics = dict(record.diagnostics or {})
+    return str(diagnostics.get("provider_cache_hit_rate_source") or "") == "provider_hit_miss_tokens"

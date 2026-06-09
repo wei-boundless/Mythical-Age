@@ -137,6 +137,32 @@ def test_chapter_progress_receipt_cannot_override_runtime_volume_index() -> None
     assert receipt["volume_index"] == 2
 
 
+def test_chapter_progress_receipt_accepts_cumulative_committed_prefix_for_current_batch() -> None:
+    receipt = normalize_chapter_progress_receipt(
+        {
+            "authority": "harness.writing.chapter_progress_receipt",
+            "volume_index": 1,
+            "batch_start_index": 11,
+            "batch_end_index": 20,
+            "expected_chapter_indexes": list(range(11, 21)),
+            "committed_chapter_indexes": list(range(1, 12)),
+            "missing_chapter_indexes": list(range(12, 21)),
+            "unexpected_chapter_indexes": [],
+            "committed_words": 3600,
+            "next_chapter_index": 12,
+            "batch_complete": False,
+            "volume_complete": False,
+            "commit_allowed": True,
+        },
+        initial_inputs={"volume_index": 1, "batch_start_index": 11, "batch_end_index": 20},
+    )
+
+    assert receipt["committed_chapter_indexes"] == [11]
+    assert receipt["missing_chapter_indexes"] == list(range(12, 21))
+    assert receipt["next_chapter_index"] == 12
+    assert receipt["batch_complete"] is False
+
+
 def test_chapter_progress_receipt_partial_commit_continues_from_next_missing_chapter(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = replace(_chapter_loop_config(), control={"max_active_nodes": 2}, content_hash="")

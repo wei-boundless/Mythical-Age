@@ -329,12 +329,13 @@ def test_task_graph_start_api_uses_launch_session_project_scope_without_conversa
     assert payload["launch_session_id"] == launch_session["id"]
     assert payload["graph_session_id"] != launch_session["id"]
     assert payload["graph_run"]["workspace_view"] == "project"
-    assert payload["graph_run"]["task_environment_id"] == "env.coding.vibe_workspace"
+    assert payload["graph_run"]["task_environment_id"] == ""
     assert payload["graph_run"]["project_id"] == "project.development.codebase.langchain_agent"
     assert payload["task_run"]["diagnostics"]["runtime_scope"]["project_id"] == "project.development.codebase.langchain_agent"
+    assert "task_environment_id" not in payload["task_run"]["diagnostics"]["runtime_scope"]
     assert runtime.session_manager.get_task_binding(str(launch_session["id"])) == {}
     graph_session = runtime.session_manager.get_history(payload["graph_session_id"])
-    assert graph_session["scope"] == request_scope
+    assert graph_session["scope"] == {**request_scope, "task_environment_id": ""}
     assert runtime.session_manager.get_task_binding(payload["graph_session_id"])["graph_run_id"] == payload["graph_run_id"]
 
 
@@ -408,12 +409,15 @@ def test_project_scoped_run_uses_request_instance_scope_for_monitor(tmp_path: Pa
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
     assert payload["graph_run"]["workspace_view"] == "project"
+    assert payload["graph_run"]["task_environment_id"] == ""
     assert payload["graph_run"]["project_id"] == request_scope["project_id"]
     assert payload["task_run"]["diagnostics"]["runtime_scope"]["workspace_view"] == "project"
-    assert payload["graph_run"]["session_scope_key"] == "project|env.coding.vibe_workspace|project.development.codebase.langchain_agent"
+    assert "task_environment_id" not in payload["task_run"]["diagnostics"]["runtime_scope"]
+    assert payload["graph_run"]["session_scope_key"] == "project||project.development.codebase.langchain_agent"
     graph_session = runtime.session_manager.get_history(payload["graph_session_id"])
-    assert graph_session["scope"] == request_scope
+    assert graph_session["scope"] == {**request_scope, "task_environment_id": ""}
     assert monitor["graph_run"]["workspace_view"] == "project"
+    assert monitor["graph_run"]["task_environment_id"] == ""
     assert monitor["graph_run"]["project_id"] == request_scope["project_id"]
     assert monitor["active_node_work_order_count"] == 1
 

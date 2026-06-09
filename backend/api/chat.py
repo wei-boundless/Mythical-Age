@@ -172,6 +172,7 @@ class ChatRequest(BaseModel):
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     runtime_profile: dict[str, Any] = Field(default_factory=dict)
     environment_binding: dict[str, Any] = Field(default_factory=dict)
+    runtime_contract: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
     permission_mode: str = ""
@@ -276,6 +277,7 @@ def _query_request_from_payload(
         explicit_subtasks=list(payload.explicit_subtasks or []),
         runtime_profile=dict(payload.runtime_profile or {}),
         environment_binding=dict(payload.environment_binding or {}),
+        runtime_contract=dict(payload.runtime_contract or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
         permission_mode=str(payload.permission_mode or ""),
@@ -726,4 +728,3 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     if active_turn_id:
         refs["active_turn_id"] = active_turn_id
     return refs
-

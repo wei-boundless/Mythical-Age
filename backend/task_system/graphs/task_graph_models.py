@@ -134,6 +134,7 @@ class TaskGraphNodeDefinition:
     progress_commit_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
     stream_policy: dict[str, Any] = field(default_factory=dict)
+    runtime_policy: dict[str, Any] = field(default_factory=dict)
     artifact_target: str = ""
     output_path: str = ""
     execution_mode: str = "sync"
@@ -263,6 +264,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     revision_context_policy = dict(payload.get("revision_context_policy") or {})
     quality_retry_policy = dict(payload.get("quality_retry_policy") or {})
     progress_commit_policy = dict(payload.get("progress_commit_policy") or {})
+    runtime_policy = dict(payload.get("runtime_policy") or {})
     execution_mode = str(payload.get("execution_mode") or "sync").strip() or "sync"
     wait_policy = str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
     join_policy = str(payload.get("join_policy") or "all_success").strip() or "all_success"
@@ -323,6 +325,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         progress_commit_policy=progress_commit_policy,
         artifact_policy=artifact_policy,
         stream_policy=stream_policy,
+        runtime_policy=runtime_policy,
         artifact_target=str(payload.get("artifact_target") or "").strip(),
         output_path=str(payload.get("output_path") or "").strip(),
         execution_mode=execution_mode,

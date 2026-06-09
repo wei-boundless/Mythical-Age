@@ -50,6 +50,7 @@ _DEFAULT_RUNTIME_POLICY: dict[str, Any] = {
     "step_summary_policy": {"enabled": True, "detail": "stepwise"},
     "approval_policy": {"permission_scope": "agent_profile_ceiling"},
     "artifact_policy": {},
+    "prompt_policy": {},
     "prompt_pack_refs_by_invocation": {},
     "operation_authorization_projection": {},
 }
@@ -72,6 +73,7 @@ class RuntimeAssemblyProfile:
     memory_policy: dict[str, Any] = field(default_factory=dict)
     self_review_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
+    prompt_policy: dict[str, Any] = field(default_factory=dict)
     permission_policy: dict[str, Any] = field(default_factory=dict)
     step_summary_policy: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.assembly_profile"
@@ -349,6 +351,7 @@ def build_runtime_assembly_profile(
         memory_policy=dict(runtime_policy.get("memory_policy") or {}),
         self_review_policy=dict(runtime_policy.get("self_review_policy") or {}),
         artifact_policy=dict(runtime_policy.get("artifact_policy") or {}),
+        prompt_policy=dict(runtime_policy.get("prompt_policy") or {}),
         permission_policy=dict(runtime_policy.get("approval_policy") or runtime_policy.get("permission_policy") or {}),
         step_summary_policy=dict(runtime_policy.get("step_summary_policy") or {}),
     )

@@ -1329,6 +1329,17 @@ class ModelRuntime:
                     or 0
                 )
                 cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
+                cache_miss_tokens = int(provider_usage.cache_miss_tokens or 0)
+                provider_returned_cache_hit_rate = (
+                    round(cached_tokens / (cached_tokens + cache_miss_tokens), 4)
+                    if (cached_tokens + cache_miss_tokens) > 0
+                    and (
+                        cache_miss_tokens > 0
+                        or str(dict(provider_usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
+                        == "provider_hit_miss_tokens"
+                    )
+                    else None
+                )
                 cache_efficiency = (
                     round(cached_tokens / stable_prefix_predicted_tokens, 4)
                     if stable_prefix_predicted_tokens > 0
@@ -1342,6 +1353,8 @@ class ModelRuntime:
                         "provider_prompt_tokens": int(provider_usage.prompt_tokens or 0),
                         "provider_total_tokens": int(provider_usage.total_tokens or 0),
                         "provider_cached_tokens": cached_tokens,
+                        "provider_cache_miss_tokens": cache_miss_tokens,
+                        "provider_returned_cache_hit_rate": provider_returned_cache_hit_rate,
                         "cache_efficiency": cache_efficiency,
                     },
                 )
@@ -1625,8 +1638,8 @@ class ModelRuntime:
         if isinstance(exc, ModelRuntimeError):
             return exc
 
-        detail = str(exc) or exc.__class__.__name__
-        lowered = _exception_chain_text(exc).lower()
+        detail = _compact_error_detail(_exception_chain_text(exc), limit=1000)
+        lowered = detail.lower()
 
         if isinstance(exc, asyncio.TimeoutError) or any(
             token in lowered for token in ("timed out", "timeout", "deadline exceeded")

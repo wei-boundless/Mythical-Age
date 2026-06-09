@@ -171,11 +171,37 @@ def diagnose(
     unplanned_breaks = [row for row in cache_breaks if str(row.get("reason") or "") == "unplanned_model_call"]
     cache_break_reason_counts = Counter(str(row.get("reason") or "unknown") for row in cache_breaks)
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
-    cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in provider_usage)
+    cached_tokens = sum(_cached_tokens(row) for row in provider_usage)
+    provider_returned_usage = [row for row in provider_usage if _provider_returned_hit_miss_available(row)]
+    provider_returned_cache_hit_tokens = sum(_cached_tokens(row) for row in provider_returned_usage)
+    provider_returned_cache_miss_tokens = sum(_provider_returned_miss_tokens(row) for row in provider_returned_usage)
     cache_miss_tokens = max(0, prompt_tokens - cached_tokens)
     hit_rate = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
     agent_prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in agent_provider_usage)
-    agent_cached_tokens = sum(max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens"))) for row in agent_provider_usage)
+    agent_cached_tokens = sum(_cached_tokens(row) for row in agent_provider_usage)
+    agent_provider_returned_usage = [row for row in agent_provider_usage if _provider_returned_hit_miss_available(row)]
+    agent_provider_returned_cache_hit_tokens = sum(_cached_tokens(row) for row in agent_provider_returned_usage)
+    agent_provider_returned_cache_miss_tokens = sum(_provider_returned_miss_tokens(row) for row in agent_provider_returned_usage)
+    post_warm_usage = provider_usage[1:] if len(provider_usage) > 1 else []
+    post_warm_prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in post_warm_usage)
+    post_warm_cached_tokens = sum(_cached_tokens(row) for row in post_warm_usage)
+    post_warm_provider_returned_usage = [row for row in post_warm_usage if _provider_returned_hit_miss_available(row)]
+    post_warm_provider_returned_cache_hit_tokens = sum(_cached_tokens(row) for row in post_warm_provider_returned_usage)
+    post_warm_provider_returned_cache_miss_tokens = sum(
+        _provider_returned_miss_tokens(row) for row in post_warm_provider_returned_usage
+    )
+    agent_post_warm_usage = agent_provider_usage[1:] if len(agent_provider_usage) > 1 else []
+    agent_post_warm_prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in agent_post_warm_usage)
+    agent_post_warm_cached_tokens = sum(_cached_tokens(row) for row in agent_post_warm_usage)
+    agent_post_warm_provider_returned_usage = [
+        row for row in agent_post_warm_usage if _provider_returned_hit_miss_available(row)
+    ]
+    agent_post_warm_provider_returned_cache_hit_tokens = sum(
+        _cached_tokens(row) for row in agent_post_warm_provider_returned_usage
+    )
+    agent_post_warm_provider_returned_cache_miss_tokens = sum(
+        _provider_returned_miss_tokens(row) for row in agent_post_warm_provider_returned_usage
+    )
     status_counts = Counter(str(row.get("status") or "unknown") for row in cache_records)
     policy_counts = Counter(_provider_cache_policy_mode(row) for row in cache_records)
 
@@ -232,10 +258,53 @@ def diagnose(
         "cached_tokens": cached_tokens,
         "cache_miss_tokens": cache_miss_tokens,
         "deepseek_cache_hit_rate": hit_rate,
+        "provider_returned_cache_miss_tokens": provider_returned_cache_miss_tokens,
+        "provider_returned_cache_usage_records": len(provider_returned_usage),
+        "provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+            provider_returned_cache_hit_tokens,
+            provider_returned_cache_miss_tokens,
+            available=bool(provider_returned_usage),
+        ),
+        "post_warm_prompt_tokens": post_warm_prompt_tokens,
+        "post_warm_cached_tokens": post_warm_cached_tokens,
+        "post_warm_cache_miss_tokens": max(0, post_warm_prompt_tokens - post_warm_cached_tokens),
+        "post_warm_deepseek_cache_hit_rate": round(post_warm_cached_tokens / post_warm_prompt_tokens, 4)
+        if post_warm_prompt_tokens > 0
+        else 0.0,
+        "post_warm_provider_returned_cache_miss_tokens": post_warm_provider_returned_cache_miss_tokens,
+        "post_warm_provider_returned_cache_usage_records": len(post_warm_provider_returned_usage),
+        "post_warm_provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+            post_warm_provider_returned_cache_hit_tokens,
+            post_warm_provider_returned_cache_miss_tokens,
+            available=bool(post_warm_provider_returned_usage),
+        ),
         "agent_runtime_prompt_tokens": agent_prompt_tokens,
         "agent_runtime_cached_tokens": agent_cached_tokens,
         "agent_runtime_cache_miss_tokens": max(0, agent_prompt_tokens - agent_cached_tokens),
         "agent_runtime_deepseek_cache_hit_rate": round(agent_cached_tokens / agent_prompt_tokens, 4) if agent_prompt_tokens > 0 else 0.0,
+        "agent_runtime_provider_returned_cache_miss_tokens": agent_provider_returned_cache_miss_tokens,
+        "agent_runtime_provider_returned_cache_usage_records": len(agent_provider_returned_usage),
+        "agent_runtime_provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+            agent_provider_returned_cache_hit_tokens,
+            agent_provider_returned_cache_miss_tokens,
+            available=bool(agent_provider_returned_usage),
+        ),
+        "agent_runtime_post_warm_prompt_tokens": agent_post_warm_prompt_tokens,
+        "agent_runtime_post_warm_cached_tokens": agent_post_warm_cached_tokens,
+        "agent_runtime_post_warm_cache_miss_tokens": max(0, agent_post_warm_prompt_tokens - agent_post_warm_cached_tokens),
+        "agent_runtime_post_warm_deepseek_cache_hit_rate": round(
+            agent_post_warm_cached_tokens / agent_post_warm_prompt_tokens,
+            4,
+        )
+        if agent_post_warm_prompt_tokens > 0
+        else 0.0,
+        "agent_runtime_post_warm_provider_returned_cache_miss_tokens": agent_post_warm_provider_returned_cache_miss_tokens,
+        "agent_runtime_post_warm_provider_returned_cache_usage_records": len(agent_post_warm_provider_returned_usage),
+        "agent_runtime_post_warm_provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+            agent_post_warm_provider_returned_cache_hit_tokens,
+            agent_post_warm_provider_returned_cache_miss_tokens,
+            available=bool(agent_post_warm_provider_returned_usage),
+        ),
         "cache_metric_scope_counts": dict(sorted(cache_metric_scope_counts.items())),
         "cache_metric_scope_usage": scoped_usage,
         "cache_status_counts": dict(sorted(status_counts.items())),
@@ -377,7 +446,7 @@ def _build_prefix_groups(
 ) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in cache_records:
-        key = str(row.get("cache_key") or row.get("prefix_hash") or "")
+        key = str(row.get("prefix_hash") or row.get("cache_key") or "")
         if key:
             grouped[key].append(row)
 
@@ -396,25 +465,42 @@ def _build_prefix_groups(
         prompt_tokens = 0
         post_warm_cached_tokens = 0
         post_warm_prompt_tokens = 0
+        provider_returned_cache_hit_tokens = 0
+        provider_returned_cache_miss_tokens = 0
+        provider_returned_cache_usage_records = 0
+        post_warm_provider_returned_cache_hit_tokens = 0
+        post_warm_provider_returned_cache_miss_tokens = 0
+        post_warm_provider_returned_cache_usage_records = 0
         statuses = Counter(str(row.get("status") or "unknown") for row in records)
+        cache_keys = sorted({str(row.get("cache_key") or "") for row in records if str(row.get("cache_key") or "")})
         observed_provider_index = 0
         for row in records:
             usage = usage_by_request.get(str(row.get("request_id") or ""))
             if usage is None:
                 provider_missing += 1
                 continue
-            current_cached = max(_int(usage.get("cached_tokens")), _int(usage.get("cache_read_tokens")))
+            current_cached = _cached_tokens(usage)
             current_prompt = _int(usage.get("prompt_tokens"))
+            current_returned_miss = _provider_returned_miss_tokens(usage)
+            current_returned_available = _provider_returned_hit_miss_available(usage)
             is_warmup_observation = observed_provider_index == 0
             observed_provider_index += 1
             cached_tokens += current_cached
             prompt_tokens += current_prompt
+            if current_returned_available:
+                provider_returned_cache_hit_tokens += current_cached
+                provider_returned_cache_miss_tokens += current_returned_miss
+                provider_returned_cache_usage_records += 1
             if current_cached > 0:
                 provider_hits += 1
                 if not is_warmup_observation:
                     post_warm_provider_hits += 1
                     post_warm_cached_tokens += current_cached
                     post_warm_prompt_tokens += current_prompt
+                    if current_returned_available:
+                        post_warm_provider_returned_cache_hit_tokens += current_cached
+                        post_warm_provider_returned_cache_miss_tokens += current_returned_miss
+                        post_warm_provider_returned_cache_usage_records += 1
             else:
                 provider_misses += 1
                 if is_warmup_observation:
@@ -422,11 +508,18 @@ def _build_prefix_groups(
                 else:
                     post_warm_provider_misses += 1
                     post_warm_prompt_tokens += current_prompt
+                    if current_returned_available:
+                        post_warm_provider_returned_cache_hit_tokens += current_cached
+                        post_warm_provider_returned_cache_miss_tokens += current_returned_miss
+                        post_warm_provider_returned_cache_usage_records += 1
         result.append(
             {
                 "cache_key": cache_key,
+                "group_key_kind": "prefix_hash" if str(records[-1].get("prefix_hash") or "") else "cache_key",
                 "prefix_hash": str(records[-1].get("prefix_hash") or ""),
                 "count": len(records),
+                "cache_key_count": len(cache_keys),
+                "sample_cache_keys": cache_keys[:5],
                 "provider_hits": provider_hits,
                 "provider_misses": provider_misses,
                 "provider_usage_missing": provider_missing,
@@ -436,11 +529,25 @@ def _build_prefix_groups(
                 "cached_tokens": cached_tokens,
                 "prompt_tokens": prompt_tokens,
                 "hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
+                "provider_returned_cache_miss_tokens": provider_returned_cache_miss_tokens,
+                "provider_returned_cache_usage_records": provider_returned_cache_usage_records,
+                "provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+                    provider_returned_cache_hit_tokens,
+                    provider_returned_cache_miss_tokens,
+                    available=provider_returned_cache_usage_records > 0,
+                ),
                 "post_warm_cached_tokens": post_warm_cached_tokens,
                 "post_warm_prompt_tokens": post_warm_prompt_tokens,
                 "post_warm_hit_rate": round(post_warm_cached_tokens / post_warm_prompt_tokens, 4)
                 if post_warm_prompt_tokens > 0
                 else 0.0,
+                "post_warm_provider_returned_cache_miss_tokens": post_warm_provider_returned_cache_miss_tokens,
+                "post_warm_provider_returned_cache_usage_records": post_warm_provider_returned_cache_usage_records,
+                "post_warm_provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+                    post_warm_provider_returned_cache_hit_tokens,
+                    post_warm_provider_returned_cache_miss_tokens,
+                    available=post_warm_provider_returned_cache_usage_records > 0,
+                ),
                 "statuses": dict(sorted(statuses.items())),
                 "request_ids": [str(row.get("request_id") or "") for row in records[-5:]],
                 "latest_created_at": _float(records[-1].get("created_at")),
@@ -559,7 +666,8 @@ def _recent_requests(
         stability = stability_by_request.get(request_id) or {}
         cache_break = cache_break_by_request.get(request_id) or {}
         cache_diag = dict(row.get("diagnostics") or {})
-        cached_tokens = max(_int((usage or {}).get("cached_tokens")), _int((usage or {}).get("cache_read_tokens")))
+        cached_tokens = _cached_tokens(usage or {})
+        provider_returned_miss_tokens = _provider_returned_miss_tokens(usage or {})
         prompt_tokens = _int((usage or local or {}).get("prompt_tokens"))
         first_changed = dict(stability.get("first_changed_section") or {})
         result.append(
@@ -569,7 +677,13 @@ def _recent_requests(
                 "provider_usage": usage is not None,
                 "prompt_tokens": prompt_tokens,
                 "cached_tokens": cached_tokens,
+                "provider_returned_cache_miss_tokens": provider_returned_miss_tokens,
                 "hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
+                "provider_returned_cache_hit_rate": _provider_returned_hit_rate(
+                    cached_tokens,
+                    provider_returned_miss_tokens,
+                    available=bool(usage and _provider_returned_hit_miss_available(usage)),
+                ),
                 "cache_metric_scope": _cache_metric_scope(local or usage or {}),
                 "call_purpose": str(dict((local or usage or {}).get("diagnostics") or {}).get("call_purpose") or ""),
                 "provider_global_prefix_tokens": _int(dict(row.get("diagnostics") or {}).get("provider_global_prefix_predicted_tokens")),
@@ -629,7 +743,9 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
                 "likely_break_reason": str(diagnostics.get("likely_break_reason") or ""),
                 "dynamic_param_diff": _dynamic_param_diff_label(dict(diagnostics.get("dynamic_param_diff") or {})),
                 "cached_tokens": _int(provider_usage.get("cached_tokens")),
+                "provider_returned_cache_miss_tokens": _provider_returned_miss_tokens(provider_usage),
                 "hit_rate": _float(provider_usage.get("cache_hit_rate")),
+                "provider_returned_cache_hit_rate": _optional_float(provider_usage.get("provider_returned_cache_hit_rate")),
             }
         )
     return result
@@ -795,18 +911,34 @@ def _scope_usage_summary(
                 "cached_tokens": 0,
                 "cache_miss_tokens": 0,
                 "deepseek_cache_hit_rate": 0.0,
+                "provider_returned_cache_miss_tokens": 0,
+                "provider_returned_cache_hit_tokens": 0,
+                "provider_returned_cache_usage_records": 0,
+                "provider_returned_cache_hit_rate": None,
             },
         )
         prompt_tokens = _int(row.get("prompt_tokens"))
-        cached_tokens = max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens")))
+        cached_tokens = _cached_tokens(row)
+        provider_returned_miss_tokens = _provider_returned_miss_tokens(row)
         bucket["provider_usage_records"] += 1
         bucket["prompt_tokens"] += prompt_tokens
         bucket["cached_tokens"] += cached_tokens
+        if _provider_returned_hit_miss_available(row):
+            bucket["provider_returned_cache_hit_tokens"] += cached_tokens
+            bucket["provider_returned_cache_miss_tokens"] += provider_returned_miss_tokens
+            bucket["provider_returned_cache_usage_records"] += 1
     for bucket in buckets.values():
         prompt_tokens = int(bucket["prompt_tokens"] or 0)
         cached_tokens = int(bucket["cached_tokens"] or 0)
+        provider_returned_hit_tokens = int(bucket["provider_returned_cache_hit_tokens"] or 0)
+        provider_returned_miss_tokens = int(bucket["provider_returned_cache_miss_tokens"] or 0)
         bucket["cache_miss_tokens"] = max(0, prompt_tokens - cached_tokens)
         bucket["deepseek_cache_hit_rate"] = round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
+        bucket["provider_returned_cache_hit_rate"] = _provider_returned_hit_rate(
+            provider_returned_hit_tokens,
+            provider_returned_miss_tokens,
+            available=int(bucket["provider_returned_cache_usage_records"] or 0) > 0,
+        )
     return dict(sorted(buckets.items()))
 
 
@@ -836,14 +968,32 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"prompt={summary['prompt_tokens']} "
         f"cached={summary['cached_tokens']} "
         f"miss={summary['cache_miss_tokens']} "
-        f"deepseek_hit_rate={summary['deepseek_cache_hit_rate']:.2%}"
+        f"deepseek_hit_rate={summary['deepseek_cache_hit_rate']:.2%} "
+        f"provider_returned_hit_rate={_format_rate(summary.get('provider_returned_cache_hit_rate'))}"
+    )
+    print(
+        "post_warm_tokens: "
+        f"prompt={summary.get('post_warm_prompt_tokens', 0)} "
+        f"cached={summary.get('post_warm_cached_tokens', 0)} "
+        f"miss={summary.get('post_warm_cache_miss_tokens', 0)} "
+        f"deepseek_hit_rate={float(summary.get('post_warm_deepseek_cache_hit_rate') or 0.0):.2%} "
+        f"provider_returned_hit_rate={_format_rate(summary.get('post_warm_provider_returned_cache_hit_rate'))}"
     )
     print(
         "agent_runtime_tokens: "
         f"prompt={summary['agent_runtime_prompt_tokens']} "
         f"cached={summary['agent_runtime_cached_tokens']} "
         f"miss={summary['agent_runtime_cache_miss_tokens']} "
-        f"deepseek_hit_rate={summary['agent_runtime_deepseek_cache_hit_rate']:.2%}"
+        f"deepseek_hit_rate={summary['agent_runtime_deepseek_cache_hit_rate']:.2%} "
+        f"provider_returned_hit_rate={_format_rate(summary.get('agent_runtime_provider_returned_cache_hit_rate'))}"
+    )
+    print(
+        "agent_runtime_post_warm_tokens: "
+        f"prompt={summary.get('agent_runtime_post_warm_prompt_tokens', 0)} "
+        f"cached={summary.get('agent_runtime_post_warm_cached_tokens', 0)} "
+        f"miss={summary.get('agent_runtime_post_warm_cache_miss_tokens', 0)} "
+        f"deepseek_hit_rate={float(summary.get('agent_runtime_post_warm_deepseek_cache_hit_rate') or 0.0):.2%} "
+        f"provider_returned_hit_rate={_format_rate(summary.get('agent_runtime_post_warm_provider_returned_cache_hit_rate'))}"
     )
     print(f"cache_metric_scope_counts: {json.dumps(summary['cache_metric_scope_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"cache_metric_scope_usage: {json.dumps(summary['cache_metric_scope_usage'], ensure_ascii=False, sort_keys=True)}")
@@ -856,7 +1006,7 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "repeated_prefix_groups",
         payload["prefix_groups"],
-        fields=("count", "provider_hits", "provider_misses", "provider_usage_missing", "hit_rate", "prompt_tokens", "cached_tokens", "prefix_hash"),
+        fields=("count", "cache_key_count", "provider_hits", "provider_misses", "provider_usage_missing", "hit_rate", "post_warm_hit_rate", "provider_returned_cache_hit_rate", "post_warm_provider_returned_cache_hit_rate", "prompt_tokens", "cached_tokens", "prefix_hash"),
     )
     _print_section(
         "volatile_segments_inside_stable_prefix",
@@ -871,12 +1021,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "provider_returned_cache_miss_tokens", "hit_rate", "provider_returned_cache_hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
     )
     _print_section(
         "prompt_stability_reports",
         payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "task_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_returned_cache_hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
     )
 
 
@@ -891,6 +1041,39 @@ def _print_section(title: str, rows: list[dict[str, Any]], *, fields: tuple[str,
         print(f"- {index}. " + " ".join(parts))
 
 
+def _cached_tokens(row: dict[str, Any]) -> int:
+    return max(_int(row.get("cached_tokens")), _int(row.get("cache_read_tokens")))
+
+
+def _provider_returned_miss_tokens(row: dict[str, Any]) -> int:
+    return _int(row.get("cache_miss_tokens"))
+
+
+def _provider_returned_hit_miss_available(row: dict[str, Any]) -> bool:
+    if _int(row.get("cache_miss_tokens")) > 0:
+        return True
+    diagnostics = dict(row.get("diagnostics") or {})
+    return str(diagnostics.get("provider_cache_hit_rate_source") or "") == "provider_hit_miss_tokens"
+
+
+def _provider_returned_hit_rate(cached_tokens: int, cache_miss_tokens: int, *, available: bool) -> float | None:
+    if not available:
+        return None
+    total = int(cached_tokens or 0) + int(cache_miss_tokens or 0)
+    if total <= 0:
+        return 0.0
+    return round(int(cached_tokens or 0) / total, 4)
+
+
+def _format_rate(value: Any) -> str:
+    if value is None:
+        return "unavailable"
+    try:
+        return f"{float(value):.2%}"
+    except (TypeError, ValueError):
+        return "unavailable"
+
+
 def _int(value: Any) -> int:
     try:
         return max(0, int(value or 0))
@@ -903,6 +1086,15 @@ def _float(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _changed_section_label(value: dict[str, Any]) -> str:

@@ -59,6 +59,42 @@ def test_deepseek_cache_diagnosis_does_not_flag_first_cold_miss(tmp_path: Path) 
     assert not any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
 
 
+def test_deepseek_cache_diagnosis_groups_by_provider_prefix_and_reports_post_warm_returned_rate(tmp_path: Path) -> None:
+    ledger_dir = tmp_path / "prompt_accounting"
+    ledger_dir.mkdir()
+    _write_jsonl(
+        ledger_dir / "prompt_cache.jsonl",
+        [
+            {**_cache_record("req:1", "key:internal:1", "miss"), "prefix_hash": "hash:provider:same", "created_at": 1},
+            {**_cache_record("req:2", "key:internal:2", "hit"), "prefix_hash": "hash:provider:same", "created_at": 2},
+            {**_cache_record("req:3", "key:internal:3", "hit"), "prefix_hash": "hash:provider:same", "created_at": 3},
+        ],
+    )
+    _write_jsonl(
+        ledger_dir / "token_usage.jsonl",
+        [
+            {**_provider_usage("req:1", prompt_tokens=1000, cached_tokens=0, cache_miss_tokens=1000), "created_at": 1},
+            {**_provider_usage("req:2", prompt_tokens=1000, cached_tokens=900, cache_miss_tokens=100), "created_at": 2},
+            {**_provider_usage("req:3", prompt_tokens=1000, cached_tokens=950, cache_miss_tokens=50), "created_at": 3},
+        ],
+    )
+
+    result = diagnose(ledger_dir=ledger_dir)
+
+    assert result.summary["provider_returned_cache_usage_records"] == 3
+    assert result.summary["provider_returned_cache_hit_rate"] == 0.6167
+    assert result.summary["post_warm_provider_returned_cache_hit_rate"] == 0.925
+    assert result.summary["post_warm_deepseek_cache_hit_rate"] == 0.925
+    assert len(result.prefix_groups) == 1
+    group = result.prefix_groups[0]
+    assert group["prefix_hash"] == "hash:provider:same"
+    assert group["count"] == 3
+    assert group["cache_key_count"] == 3
+    assert group["post_warm_hit_rate"] == 0.925
+    assert group["post_warm_provider_returned_cache_hit_rate"] == 0.925
+    assert not any(issue["code"] == "repeated_prefix_provider_miss" for issue in result.issues)
+
+
 def test_deepseek_cache_diagnosis_reads_recent_tail_window_for_large_ledgers(tmp_path: Path) -> None:
     ledger_dir = tmp_path / "prompt_accounting"
     ledger_dir.mkdir()
@@ -569,8 +605,14 @@ def _cache_record(request_id: str, cache_key: str, status: str) -> dict:
     }
 
 
-def _provider_usage(request_id: str, *, prompt_tokens: int, cached_tokens: int) -> dict:
-    return {
+def _provider_usage(
+    request_id: str,
+    *,
+    prompt_tokens: int,
+    cached_tokens: int,
+    cache_miss_tokens: int | None = None,
+) -> dict:
+    payload = {
         "usage_id": f"tokuse:{request_id}:provider_usage",
         "request_id": request_id,
         "provider": "deepseek",
@@ -582,6 +624,10 @@ def _provider_usage(request_id: str, *, prompt_tokens: int, cached_tokens: int) 
         "total_tokens": prompt_tokens,
         "created_at": 2,
     }
+    if cache_miss_tokens is not None:
+        payload["cache_miss_tokens"] = cache_miss_tokens
+        payload["diagnostics"] = {"provider_cache_hit_rate_source": "provider_hit_miss_tokens"}
+    return payload
 
 
 def _segment(

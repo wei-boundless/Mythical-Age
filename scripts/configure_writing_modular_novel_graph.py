@@ -80,6 +80,13 @@ WRITING_CHAPTER_DRAFT_OUTPUT_TOKENS = 32768
 WRITING_MEMORY_OUTPUT_TOKENS = 12288
 WRITING_REVIEW_OUTPUT_TOKENS = 8192
 WRITING_ROUTER_OUTPUT_TOKENS = 4096
+WRITING_GRAPH_NODE_PROMPT_POLICY = {
+    "environment_prompt_visibility": "hidden",
+    "environment_payload_visibility": "hidden",
+    "project_instruction_visibility": "hidden",
+    "personality_prompt_visibility": "hidden",
+    "runtime_environment_boundary_visibility": "hidden",
+}
 REPOSITORY_NODES = (
     {
         "node_id": "memory.writing.baseline",
@@ -1859,6 +1866,9 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "agent_mode": "text_artifact_worker",
                 "interaction_mode": "role_mode",
                 "runtime_mode": "text_artifact_runtime",
+                "runtime_policy": {
+                    "prompt_policy": dict(WRITING_GRAPH_NODE_PROMPT_POLICY),
+                },
                 "text_artifact_runtime": True,
                 "preexpanded_context_required": True,
                 "pseudo_tool_output_forbidden": True,
@@ -2469,13 +2479,12 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     if dynamic_expansion_policy:
         runtime_bindings["dynamic_expansion"] = dict(dynamic_expansion_policy)
     node_runtime_policy = {
+        "prompt_policy": dict(WRITING_GRAPH_NODE_PROMPT_POLICY),
         "subagent_policy": node_subagent_policy,
         "control_capabilities": {
             "may_use_subagents": bool(node_subagent_policy.get("enabled") is True),
         },
     }
-    if not node_runtime_policy["subagent_policy"]:
-        node_runtime_policy = {}
     contract_bindings = _node_contract_bindings(
         node,
         artifact_policy=artifact_policy,
@@ -2540,6 +2549,9 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "outline_thread_policy": outline_thread_policy,
             "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
             "dynamic_expansion_policy": _dynamic_expansion_policy(node),
+            "runtime_profile": {
+                "runtime_policy": dict(node_runtime_policy),
+            },
         },
     }
     return payload
@@ -2560,6 +2572,9 @@ def _node_prompt_contract(node: NodeSpec) -> dict[str, Any]:
 
 def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
     lifecycle_policy = _repository_lifecycle_policy(spec)
+    runtime_policy = {
+        "prompt_policy": dict(WRITING_GRAPH_NODE_PROMPT_POLICY),
+    }
     return {
         "node_id": spec["node_id"],
         "node_type": spec["node_type"],
@@ -2583,6 +2598,7 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
                 "library_role": spec["library_role"],
             }
         },
+        "runtime_policy": runtime_policy,
         "metadata": {
             "managed_by": MANAGED_BY,
             "repository_id": spec["repository_id"],
@@ -2597,6 +2613,9 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
             "library_role": spec["library_role"],
             "write_owner_node_ids": list(spec["write_owner_node_ids"]),
             "readable_by": list(spec["readable_by"]),
+            "runtime_profile": {
+                "runtime_policy": dict(runtime_policy),
+            },
         },
     }
 
@@ -3825,6 +3844,9 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
 
 def _graph_module_node(node_id: str, title: str, linked_graph_id: str, phase_id: str, sequence_index: int) -> dict[str, Any]:
     block_id = node_id.removeprefix("graph_module.")
+    runtime_policy = {
+        "prompt_policy": dict(WRITING_GRAPH_NODE_PROMPT_POLICY),
+    }
     return {
         "node_id": node_id,
         "node_type": "graph_module",
@@ -3849,6 +3871,7 @@ def _graph_module_node(node_id: str, title: str, linked_graph_id: str, phase_id:
             "handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_module_handoff", "visibility_policy": "committed_only"},
             "runtime": {"graph_module_expansion": {"linked_graph_id": linked_graph_id, "version_ref": "published", "isolation_policy": "compile_time_inline_expansion"}},
         },
+        "runtime_policy": runtime_policy,
         "metadata": {
             "managed_by": MANAGED_BY,
             "graph_module": True,
@@ -3864,6 +3887,9 @@ def _graph_module_node(node_id: str, title: str, linked_graph_id: str, phase_id:
             "detach_policy": "preserve_version_anchor",
             "execution_mode": "compile_time_inline_expansion",
             "graph_module_expansion_plan_id": f"graph_module_expansion.{block_id}",
+            "runtime_profile": {
+                "runtime_policy": dict(runtime_policy),
+            },
         },
     }
 

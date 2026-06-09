@@ -13,6 +13,15 @@ from harness.runtime.compiler import RuntimeCompiler
 from harness.graph.work_order_contract import _graph_node_contract_from_work_order
 
 
+GRAPH_NODE_MINIMAL_PROMPT_POLICY = {
+    "environment_prompt_visibility": "hidden",
+    "environment_payload_visibility": "hidden",
+    "project_instruction_visibility": "hidden",
+    "personality_prompt_visibility": "hidden",
+    "runtime_environment_boundary_visibility": "hidden",
+}
+
+
 def _message_content_with_title(packet, title: str) -> str:
     for message in packet.model_messages:
         content = str(message.get("content") or "")
@@ -107,6 +116,7 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
                 "interaction_policy": {"style": "task_execution"},
                 "context_policy": {"task_run_context": "disabled"},
                 "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+                "prompt_policy": dict(GRAPH_NODE_MINIMAL_PROMPT_POLICY),
                 "operation_authorization_projection": {"model_visible": "summary_without_denials"},
             },
             "task_environment": {"environment_id": "env.test"},
@@ -121,19 +131,25 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
     assert "task_run" not in stable_payload
     assert "other_node_79" not in task_contract_content
     all_message_content = "".join(message["content"] for message in packet.model_messages)
+    manifest = packet.diagnostics["prompt_manifest"]
     assert "graph_identity" not in all_message_content
     assert "state_refs" not in all_message_content
     assert "runtime_controls" not in all_message_content
     assert "input_package" not in all_message_content
     assert "graph_slot" not in all_message_content
     assert "memory_contract" not in all_message_content
+    assert "Task execution environment boundary" not in all_message_content
+    assert "当前任务环境" not in all_message_content
+    assert "project.instructions.scoped" not in manifest.get("project_instruction_refs", [])
+    assert "personality.default.mythical_age" not in manifest["stable_prompt_refs"]
+    assert not any(str(ref).startswith("environment.") for ref in manifest["stable_prompt_refs"])
+    assert "runtime.rule.file_management.generic" not in manifest["stable_prompt_refs"]
     assert "acceptance_policy" not in all_message_content
     assert "你正在持续任务生命周期中执行一个已建立的任务合同。" not in all_message_content
     assert "写入交付物时优先使用 write_file" not in all_message_content
     assert "denied_operations" not in all_message_content
     assert "task_run_id" not in all_message_content
     assert packet.prompt_pack_refs == ("runtime.pack.graph_node_execution",)
-    manifest = packet.diagnostics["prompt_manifest"]
     assert "runtime.graph_node_execution" in manifest["stable_prompt_refs"]
     assert "runtime.task_execution" not in manifest["stable_prompt_refs"]
     assert not any(str(ref).startswith("task_prompt_contract:") for ref in manifest["stable_contract_refs"])

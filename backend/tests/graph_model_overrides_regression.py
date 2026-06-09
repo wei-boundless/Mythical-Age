@@ -137,6 +137,7 @@ def test_runtime_overrides_allow_output_token_limits() -> None:
                         "credential_ref": "env:DEEPSEEK_WRITING_API_KEY",
                         "preferred_output_tokens": 65536,
                         "max_output_tokens": 65536,
+                        "streaming_required": True,
                     }
                 }
             }
@@ -145,6 +146,7 @@ def test_runtime_overrides_allow_output_token_limits() -> None:
 
     assert payload["model_overrides"]["role_groups"]["writing"]["max_output_tokens"] == 65536
     assert payload["model_overrides"]["role_groups"]["writing"]["preferred_output_tokens"] == 65536
+    assert payload["model_overrides"]["role_groups"]["writing"]["streaming_required"] is True
 
 
 def test_temporary_runtime_override_beats_persistent_runtime_settings() -> None:

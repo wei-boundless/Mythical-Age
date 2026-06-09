@@ -33,6 +33,7 @@ _ALLOWED_MODEL_FIELDS = {
     "thinking_mode",
     "reasoning_effort",
     "stream_policy",
+    "streaming_required",
     "fallback_allowed",
 }
 
@@ -257,6 +258,8 @@ def _public_model_requirement(value: dict[str, Any]) -> dict[str, Any]:
         "max_output_tokens",
         "thinking_mode",
         "reasoning_effort",
+        "streaming_required",
+        "stream_policy",
     )
     return {key: value.get(key) for key in keys if key in value}
 

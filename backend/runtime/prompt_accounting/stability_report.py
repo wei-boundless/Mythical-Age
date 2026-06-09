@@ -118,14 +118,24 @@ class PromptStabilityReporter:
         if usage is None:
             return report
         cached_tokens = max(int(usage.cached_tokens or 0), int(usage.cache_read_tokens or 0))
+        cache_miss_tokens = int(usage.cache_miss_tokens or 0)
         prompt_tokens = int(usage.prompt_tokens or 0)
+        provider_returned_hit_miss_available = (
+            cache_miss_tokens > 0
+            or str(dict(usage.diagnostics or {}).get("provider_cache_hit_rate_source") or "")
+            == "provider_hit_miss_tokens"
+        )
         provider_usage = {
             "usage_id": usage.usage_id,
             "prompt_tokens": prompt_tokens,
             "cached_tokens": cached_tokens,
             "cache_read_tokens": int(usage.cache_read_tokens or 0),
             "cache_creation_tokens": int(usage.cache_creation_tokens or 0),
+            "cache_miss_tokens": cache_miss_tokens,
             "cache_hit_rate": round(cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0,
+            "provider_returned_cache_hit_rate": round(cached_tokens / (cached_tokens + cache_miss_tokens), 4)
+            if provider_returned_hit_miss_available and (cached_tokens + cache_miss_tokens) > 0
+            else None,
         }
         likely_break_reason = _likely_break_reason_with_provider_usage(
             diagnostics=dict(report.diagnostics or {}),

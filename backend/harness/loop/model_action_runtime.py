@@ -25,6 +25,27 @@ async def call_model_invoker(
     return await await_if_needed(invoker(messages))
 
 
+def call_model_streamer(
+    streamer: Any,
+    messages: list[Any],
+    *,
+    model_selection: dict[str, Any],
+    accounting_context: dict[str, Any] | None = None,
+) -> Any:
+    model_selection = normalize_model_selection_for_invocation(model_selection)
+    supports_model_spec = _callable_accepts_kwarg(streamer, "model_spec")
+    supports_accounting_context = _callable_accepts_kwarg(streamer, "accounting_context")
+    kwargs: dict[str, Any] = {}
+    if model_selection:
+        if supports_model_spec:
+            kwargs["model_spec"] = model_selection
+    if accounting_context and supports_accounting_context:
+        kwargs["accounting_context"] = accounting_context
+    if kwargs:
+        return streamer(messages, **kwargs)
+    return streamer(messages)
+
+
 def _callable_accepts_kwarg(callback: Any, kwarg: str) -> bool:
     try:
         signature = inspect.signature(callback)

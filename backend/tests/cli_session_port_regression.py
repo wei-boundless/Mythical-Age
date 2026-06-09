@@ -271,6 +271,73 @@ def test_task_run_watch_exits_on_waiting_executor() -> None:
     assert "任务保持可续跑状态" in stdout.getvalue()
 
 
+def test_task_run_start_sends_explicit_contract_and_prints_task_id(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    store = CliStateStore(state_path)
+    store.update(api_base="http://127.0.0.1:8003/api", selected_session_id="session-cli")
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        json.dumps(
+            {
+                "user_visible_goal": "完成 CLI 长任务启动测试。",
+                "task_run_goal": "完成 CLI 长任务启动测试。",
+                "completion_criteria": ["启动 TaskRun"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeClient:
+        api_base = "http://127.0.0.1:8003/api"
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+        def stream_chat(self, *, session_id: str, message: str, extra_payload=None):
+            self.calls.append((session_id, message, extra_payload))
+            yield SimpleNamespace(
+                event="task_run_lifecycle_started",
+                data={
+                    "event": {
+                        "payload": {
+                            "task_run": {"task_run_id": "taskrun:cli-start"},
+                        }
+                    }
+                },
+            )
+            yield SimpleNamespace(event="done", data={"content": ""})
+
+    client = FakeClient()
+    args = build_parser().parse_args(
+        [
+            "task-run",
+            "start",
+            "--contract-file",
+            str(contract_path),
+            "--task-environment-id",
+            "env.development.sandbox",
+            "--no-watch",
+        ]
+    )
+    stdout = io.StringIO()
+
+    code = run_command(args, client=client, store=store, stdout=stdout, stderr=io.StringIO())  # type: ignore[arg-type]
+
+    assert code == 0
+    assert client.calls[0][0] == "session-cli"
+    assert client.calls[0][1] == "启动任务：完成 CLI 长任务启动测试。"
+    extra_payload = dict(client.calls[0][2] or {})
+    runtime_contract = dict(extra_payload["runtime_contract"])  # type: ignore[index]
+    task_contract = dict(runtime_contract["task_contract"])  # type: ignore[index]
+    assert runtime_contract["system_issued_contract"] is True
+    assert runtime_contract["task_environment_id"] == "env.development.sandbox"
+    assert task_contract["system_issued"] is True
+    assert task_contract["task_environment_id"] == "env.development.sandbox"
+    assert dict(extra_payload["environment_binding"])["task_environment_id"] == "env.development.sandbox"  # type: ignore[index]
+    assert "task_run_id taskrun:cli-start" in stdout.getvalue()
+
+
 def test_task_run_watch_exits_on_aborted() -> None:
     class FakeClient:
         def __init__(self) -> None:

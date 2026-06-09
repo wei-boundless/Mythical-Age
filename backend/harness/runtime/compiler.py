@@ -797,6 +797,11 @@ class RuntimeCompiler:
         graph_slot = _graph_slot_from_contract(contract)
         task_run_context_enabled = _task_run_context_enabled(profile_payload)
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
+        prompt_policy = _runtime_prompt_policy(
+            profile_payload=profile_payload,
+            assembly_payload=assembly_payload,
+            contract=contract,
+        )
         operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="task_execution",
@@ -806,6 +811,7 @@ class RuntimeCompiler:
             operation_authorization=operation_authorization,
             available_tools=tool_payloads,
             permission_mode=permission_mode,
+            prompt_policy=prompt_policy,
         )
         planning_protocol = _planning_protocol_payload(
             invocation_kind="task_execution",
@@ -828,7 +834,7 @@ class RuntimeCompiler:
             },
             artifact_policy=artifact_scope.to_artifact_policy(dict(environment_payload.get("artifact_policy") or {})),
             permission_policy=permission_policy,
-            prompt_policy={"invocation_kind": "task_execution"},
+            prompt_policy={"invocation_kind": "task_execution", **prompt_policy},
             output_policy={"format": "model_action_request_json", "planning_protocol": planning_protocol},
             graph_slot=graph_slot,
             diagnostics={
@@ -886,33 +892,53 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        personality_prompt_assembly = self._assemble_personality_prompt_layer(
-            prompt_mount_plan=prompt_mount_plan,
-            invocation_kind="task_execution",
-            agent_profile_ref=agent_profile_ref,
-            task_environment_ref=task_environment_ref,
+        personality_prompt_assembly = (
+            self._assemble_personality_prompt_layer(
+                prompt_mount_plan=prompt_mount_plan,
+                invocation_kind="task_execution",
+                agent_profile_ref=agent_profile_ref,
+                task_environment_ref=task_environment_ref,
+            )
+            if _prompt_policy_visible(prompt_policy, "personality_prompt_visibility", default=True)
+            else _empty_prompt_assembly("personality", "promptasm:empty:task_execution_personality_policy_hidden")
         )
-        environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
-            prompt_mount_plan=prompt_mount_plan,
-            agent_profile_ref=agent_profile_ref,
-        )
-        project_instruction_bundle = collect_project_instruction_bundle(
-            base_dir=self.base_dir,
-            target_paths=_project_instruction_target_paths(contract=contract, task_run=task_run),
-            cache_scope="task_stable",
+        if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True):
+            environment_prompt_assembly, lifecycle_prompt_assembly = self._assemble_environment_prompt_layers(
+                prompt_mount_plan=prompt_mount_plan,
+                agent_profile_ref=agent_profile_ref,
+            )
+        else:
+            environment_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:environment_policy_hidden")
+            lifecycle_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:lifecycle_policy_hidden")
+        project_instruction_bundle = (
+            collect_project_instruction_bundle(
+                base_dir=self.base_dir,
+                target_paths=_project_instruction_target_paths(contract=contract, task_run=task_run),
+                cache_scope="task_stable",
+            )
+            if _prompt_policy_visible(prompt_policy, "project_instruction_visibility", default=True)
+            else ProjectInstructionBundle(cache_scope="task_stable")
         )
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         active_skill_instruction, active_skill_meta = _active_skill_instruction(
             base_dir=self.base_dir,
             assembly_payload=assembly_payload,
         )
-        environment_instruction = render_environment_instruction(
-            environment_payload,
-            environment_prompt_assembly=environment_prompt_assembly,
-            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
-            include_storage_note=False,
+        environment_instruction = (
+            render_environment_instruction(
+                environment_payload,
+                environment_prompt_assembly=environment_prompt_assembly,
+                lifecycle_prompt_assembly=lifecycle_prompt_assembly,
+                include_storage_note=False,
+            )
+            if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
+            else ""
         )
-        personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
+        personality_instruction = (
+            render_personality_prompt_instruction(personality_prompt_assembly)
+            if _prompt_policy_visible(prompt_policy, "personality_prompt_visibility", default=True)
+            else ""
+        )
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="task_execution")
         action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
@@ -936,13 +962,13 @@ class RuntimeCompiler:
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
         )
         artifact_execution_scope_payload = artifact_scope_manifest.to_model_visible_payload()
-        environment_stable_payload = {
-            "task_environment": _environment_model_visible_payload(
+        environment_stable_payload = {}
+        if _prompt_policy_visible(prompt_policy, "environment_payload_visibility", default=True):
+            environment_stable_payload["task_environment"] = _environment_model_visible_payload(
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
-            ),
-            **_project_instruction_model_payload(project_instruction_bundle),
-        }
+            )
+        environment_stable_payload.update(_project_instruction_model_payload(project_instruction_bundle))
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
@@ -964,6 +990,7 @@ class RuntimeCompiler:
                     overrides={
                         "agent_visible_runtime_projection": agent_visible_runtime_projection,
                         "operation_authorization": operation_authorization,
+                        "prompt_policy": prompt_policy,
                         "include_task_run_context": task_run_context_enabled,
                     },
                 ),
@@ -998,32 +1025,40 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution environment boundary",
-                    payload=environment_stable_payload,
-                    preamble=environment_instruction,
-                    kind="environment_stable",
-                    source_ref=",".join(
-                        _dedupe_strings(
-                            [
-                                *prompt_mount_plan.environment_prompt_refs,
-                                *prompt_mount_plan.lifecycle_prompt_refs,
-                            ]
-                        )
-                    ),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
+                (
+                    _runtime_payload_spec(
+                        role="system",
+                        title="Task execution environment boundary",
+                        payload=environment_stable_payload,
+                        preamble=environment_instruction,
+                        kind="environment_stable",
+                        source_ref=",".join(
+                            _dedupe_strings(
+                                [
+                                    *prompt_mount_plan.environment_prompt_refs,
+                                    *prompt_mount_plan.lifecycle_prompt_refs,
+                                ]
+                            )
+                        ),
+                        cache_scope="session",
+                        cache_role="session_stable",
+                        compression_role="preserve",
+                    )
+                    if environment_instruction.strip() or environment_stable_payload
+                    else None
                 ),
-                _message_spec(
-                    role="system",
-                    content=personality_instruction,
-                    kind="personality_stable",
-                    source_ref=",".join(personality_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
+                (
+                    _message_spec(
+                        role="system",
+                        content=personality_instruction,
+                        kind="personality_stable",
+                        source_ref=",".join(personality_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                        cache_scope="session",
+                        cache_role="session_stable",
+                        compression_role="preserve",
+                    )
+                    if personality_instruction.strip()
+                    else None
                 ),
                 _message_spec(
                     role="system",
@@ -1223,7 +1258,10 @@ class RuntimeCompiler:
             volatile_state_refs=task_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
-        prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
+        prompt_manifest["prompt_mount_plan"] = _prompt_mount_plan_manifest_payload(
+            prompt_mount_plan,
+            prompt_policy=prompt_policy,
+        )
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
             session_context={},
@@ -1235,39 +1273,46 @@ class RuntimeCompiler:
         artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         task_contract_manifest_payload = _attach_task_contract_manifest(prompt_manifest, task_contract_manifest)
-        prompt_composition_manifest = _attach_prompt_composition_manifest(
-            prompt_manifest,
-            invocation_kind="task_execution",
-            packet_id=packet_id,
-            layers=(
-                PromptCompositionLayerInput(
-                    layer_id="runtime_pack",
-                    slot_layer="global_static",
-                    assembly=prompt_assembly,
-                    message_kinds=("global_static",),
-                    lifecycle="global_static",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="environment",
-                    slot_layer="environment_stable",
-                    assembly=environment_prompt_assembly,
-                    message_kinds=("environment_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="lifecycle",
-                    slot_layer="lifecycle_stable",
-                    assembly=lifecycle_prompt_assembly,
-                    message_kinds=("environment_stable",),
-                    lifecycle="session_stable",
-                ),
+        prompt_composition_layers = [
+            PromptCompositionLayerInput(
+                layer_id="runtime_pack",
+                slot_layer="global_static",
+                assembly=prompt_assembly,
+                message_kinds=("global_static",),
+                lifecycle="global_static",
+            ),
+        ]
+        if environment_instruction.strip() or environment_stable_payload:
+            prompt_composition_layers.extend(
+                [
+                    PromptCompositionLayerInput(
+                        layer_id="environment",
+                        slot_layer="environment_stable",
+                        assembly=environment_prompt_assembly,
+                        message_kinds=("environment_stable",),
+                        lifecycle="session_stable",
+                    ),
+                    PromptCompositionLayerInput(
+                        layer_id="lifecycle",
+                        slot_layer="lifecycle_stable",
+                        assembly=lifecycle_prompt_assembly,
+                        message_kinds=("environment_stable",),
+                        lifecycle="session_stable",
+                    ),
+                ]
+            )
+        if personality_instruction.strip():
+            prompt_composition_layers.append(
                 PromptCompositionLayerInput(
                     layer_id="personality",
                     slot_layer="personality_stable",
                     assembly=personality_prompt_assembly,
                     message_kinds=("personality_stable",),
                     lifecycle="session_stable",
-                ),
+                )
+            )
+        prompt_composition_layers.extend(
+            [
                 PromptCompositionLayerInput(
                     layer_id="agent_work_role",
                     slot_layer="agent_stable",
@@ -1282,7 +1327,13 @@ class RuntimeCompiler:
                     message_kinds=("task_prompt_contract",),
                     lifecycle="task_stable",
                 ),
-            ),
+            ]
+        )
+        prompt_composition_manifest = _attach_prompt_composition_manifest(
+            prompt_manifest,
+            invocation_kind="task_execution",
+            packet_id=packet_id,
+            layers=tuple(prompt_composition_layers),
             segment_plan=segment_plan.to_dict(),
             dynamic_projection_refs=task_dynamic_refs,
             volatile_state_refs=task_volatile_refs,
@@ -1908,6 +1959,13 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
+        "action_selection_rules": [
+            "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
+            "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+            "如果运行边界允许 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
+            "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
+            "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
+        ],
         "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run 时它会作为本轮对用户的开局回复，task/tool 反馈中它会作为用户看到的公开进展。必须与本轮 action_type 和实际 tool_call/回复/提问/阻塞完全一致。不得预测工具结果，不得把尚未完成的工具动作说成已经完成，不得写与实际 action_type 不一致的计划；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "可选；thinking|waiting_for_tool|tool_returned|responding|blocked",
@@ -2078,10 +2136,27 @@ def _single_agent_turn_output_contract(
         forbidden.append("task_run_request")
     if "active_work_control" not in allowed_actions:
         forbidden.append("active_work_control")
+    action_selection_rules = [
+        "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
+        "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+    ]
+    if "request_task_run" in allowed_actions:
+        action_selection_rules.extend(
+            [
+                "任务承接条件成立时必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
+                "任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed 时，必须选择 ask_user 补齐关键缺口。",
+                "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
+            ]
+        )
+    else:
+        action_selection_rules.append(
+            "如果任务承接条件成立但本轮不允许 request_task_run，必须选择 ask_user 说明缺口或 block 说明运行边界，不能假装已经进入持续任务。"
+        )
     return {
         "format": "json_action" if json_action_required else "assistant_message_or_native_or_json_action",
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
+        "action_selection_rules": action_selection_rules,
         "action_protocol": {
             "single_control_action_per_turn": True,
             "json_action": {
@@ -3165,6 +3240,81 @@ def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocat
     return _string_tuple(profile_payload.get("prompt_pack_refs"))
 
 
+def _runtime_prompt_policy(
+    *,
+    profile_payload: dict[str, Any],
+    assembly_payload: dict[str, Any],
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_profile = dict(contract.get("runtime_profile") or {})
+    runtime_policy = dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {})
+    candidates = (
+        profile_payload.get("prompt_policy"),
+        dict(assembly_payload.get("runtime_contract") or {}).get("prompt_policy"),
+        dict(assembly_payload.get("runtime_contract") or {}).get("runtime_prompt_policy"),
+        assembly_payload.get("prompt_policy"),
+        runtime_profile.get("prompt_policy"),
+        runtime_policy.get("prompt_policy"),
+        contract.get("prompt_policy"),
+    )
+    result: dict[str, Any] = {}
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            result.update(candidate)
+    return result
+
+
+def _prompt_policy_visible(policy: dict[str, Any], key: str, *, default: bool) -> bool:
+    if key not in dict(policy or {}):
+        return default
+    value = dict(policy or {}).get(key)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "default", "inherit"}:
+        return default
+    if normalized in {"hidden", "hide", "off", "false", "0", "none", "disabled", "omit", "omitted"}:
+        return False
+    if normalized in {"visible", "show", "on", "true", "1", "full", "enabled"}:
+        return True
+    return default
+
+
+def _empty_prompt_assembly(invocation_kind: str, assembly_id: str) -> PromptAssemblyResult:
+    return PromptAssemblyResult(
+        assembly_id=assembly_id,
+        invocation_kind=invocation_kind,
+        sections=(),
+    )
+
+
+def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(prompt_mount_plan.to_dict() if hasattr(prompt_mount_plan, "to_dict") else dict(prompt_mount_plan or {}))
+    if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True):
+        return payload
+    hidden_refs = list(payload.get("environment_prompt_refs") or [])
+    hidden_base_refs = list(payload.get("base_prompt_refs") or [])
+    hidden_overlay_refs = list(payload.get("overlay_prompt_refs") or [])
+    hidden_lifecycle_refs = list(payload.get("lifecycle_prompt_refs") or [])
+    payload["environment_prompt_refs"] = []
+    payload["base_prompt_refs"] = []
+    payload["overlay_prompt_refs"] = []
+    payload["lifecycle_prompt_refs"] = []
+    diagnostics = dict(payload.get("diagnostics") or {})
+    diagnostics.update(
+        {
+            "environment_prompt_visibility": "hidden",
+            "hidden_environment_prompt_refs": hidden_refs,
+            "hidden_base_prompt_refs": hidden_base_refs,
+            "hidden_overlay_prompt_refs": hidden_overlay_refs,
+            "hidden_lifecycle_prompt_refs": hidden_lifecycle_refs,
+            "authority": "runtime.prompt_policy",
+        }
+    )
+    payload["diagnostics"] = diagnostics
+    return payload
+
+
 def _agent_prompt_refs_for_invocation(assembly_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
     by_invocation = dict(assembly_payload.get("agent_prompt_refs_by_invocation") or {})
     refs = _string_tuple(by_invocation.get(invocation_kind))
@@ -3380,7 +3530,9 @@ def _agent_visible_runtime_projection(
     operation_authorization: dict[str, Any],
     available_tools: tuple[dict[str, Any], ...],
     permission_mode: str = "default",
+    prompt_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
     planning = dict(profile_payload.get("planning_policy") or {})
     planning_protocol = _planning_protocol_payload(
@@ -3418,7 +3570,7 @@ def _agent_visible_runtime_projection(
         )
     )
     task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
-    return {
+    payload = {
         "authority": "harness.runtime.agent_visible_runtime_projection",
         "invocation_kind": str(invocation_kind or ""),
         "allowed_action_types": list(allowed_action_types),
@@ -3454,13 +3606,15 @@ def _agent_visible_runtime_projection(
             "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
             "permission_mode": str(permission_mode or "default"),
         },
-        "environment_boundary": {
+    }
+    if _prompt_policy_visible(prompt_policy_payload, "runtime_environment_boundary_visibility", default=True):
+        payload["environment_boundary"] = {
             "task_environment_id": str(environment_payload.get("environment_id") or ""),
             "artifact_root": str(artifact_scope.artifact_root or storage.get("artifact_root") or ""),
             "environment_storage_root": str(storage.get("environment_storage_root") or ""),
             "boundary_authority": str(environment_boundary.get("authority") or ""),
-        },
-    }
+        }
+    return payload
 
 
 def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
@@ -3513,9 +3667,22 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 如果当前执行状态里有 active_contract_revisions，你必须裁决它们是否改变目标、验收标准、范围或约束；"
             "把裁决写入 diagnostics.contract_revision_decisions。未裁决前不能宣布完成。"
         )
+    if projection.get("invocation_kind") == "single_agent_turn":
+        lines.append(
+            "- 选择 action_type 前，先判断用户当前要求是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令/浏览器验证或跨步骤状态记录。"
+            "这一步只用于选择动作，不要输出隐藏推理。"
+        )
+        lines.append(
+            "- 如果用户明确要求开始、启动、开启、继续推进、执行、落地、实现、修复、构建、生成、写入、验证一个任务，"
+            "或者要求你把目标做到完成并给出可验收结果，这就是任务承接请求，不是普通聊天。"
+        )
     if bool(task_lifecycle.get("request_task_run_allowed") is True):
         lines.append(
-            "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求进入持续处理流程。"
+            "- 当上述任务承接条件成立时，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。"
+            "如果任务目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。"
+        )
+        lines.append(
+            "- 只有在用户只是询问概念、要求解释、要求状态说明，或明确要求一次性的读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。"
         )
     elif "request_task_run" in allowed_actions:
         lines.append("- 本轮不允许开启持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明阻塞边界。")

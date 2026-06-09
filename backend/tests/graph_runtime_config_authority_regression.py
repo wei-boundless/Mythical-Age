@@ -13,6 +13,7 @@ from harness.graph.loop import assert_graph_config_compatible_with_state
 from harness.graph.model_overrides import sanitize_runtime_overrides
 from harness.graph.models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
 from harness.graph.runner import GraphRunRunner
+from task_system.compiler.graph_harness_config_publisher import _node_config
 
 
 def _config(*, config_id: str, model: str = "deepseek-v4-flash", extra_node: bool = False) -> GraphHarnessConfig:
@@ -106,6 +107,31 @@ def test_runtime_settings_reject_authorization_expansion() -> None:
 
     with pytest.raises(ValueError, match="cannot enable subagents"):
         sanitize_runtime_overrides({"subagent_policy": {"enabled": True, "allowed_subagent_ids": ["agent:any"]}})
+
+
+def test_node_runtime_prompt_policy_survives_graph_publish_projection() -> None:
+    node = {
+        "node_id": "chapter_draft",
+        "node_type": "agent",
+        "task_id": "task.test.chapter_draft",
+        "runtime_policy": {
+            "prompt_policy": {
+                "environment_prompt_visibility": "hidden",
+                "project_instruction_visibility": "hidden",
+                "personality_prompt_visibility": "hidden",
+            }
+        },
+        "metadata": {"managed_by": "test"},
+    }
+
+    published = _node_config(node, graph_id="graph.test")
+
+    runtime_policy = published["metadata"]["runtime_profile"]["runtime_policy"]
+    assert runtime_policy["prompt_policy"] == {
+        "environment_prompt_visibility": "hidden",
+        "project_instruction_visibility": "hidden",
+        "personality_prompt_visibility": "hidden",
+    }
 
 
 def test_runner_rejects_legacy_active_work_order_without_structure_hash() -> None:

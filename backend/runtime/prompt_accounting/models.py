@@ -86,6 +86,7 @@ class ModelTokenUsageRecord:
     cached_tokens: int = 0
     cache_creation_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_miss_tokens: int = 0
     total_tokens: int = 0
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -111,6 +112,7 @@ class ModelTokenUsageRecord:
             cached_tokens=_int(payload.get("cached_tokens")),
             cache_creation_tokens=_int(payload.get("cache_creation_tokens")),
             cache_read_tokens=_int(payload.get("cache_read_tokens")),
+            cache_miss_tokens=_int(payload.get("cache_miss_tokens")),
             total_tokens=_int(payload.get("total_tokens")),
             created_at=float(payload.get("created_at") or 0.0),
             diagnostics=dict(payload.get("diagnostics") or {}),

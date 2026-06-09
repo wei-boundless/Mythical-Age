@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
+import inspect
 import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 from artifact_system.artifact_authority import (
@@ -50,6 +52,7 @@ from .action_permit import action_permit_from_admission
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
 from .model_action_runtime import (
     call_model_invoker,
+    call_model_streamer,
     compact_text,
     model_action_timeout_seconds,
     normalize_model_selection_for_invocation,
@@ -2490,25 +2493,30 @@ async def _invoke_task_model_action(
     from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 
     invoker = getattr(model_runtime, "invoke_messages", None)
-    if not callable(invoker):
+    stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
+    streamer = getattr(model_runtime, "astream_messages", None)
+    stream_enabled = bool(stream_policy.get("enabled") is True)
+    if not callable(invoker) and not (stream_enabled and callable(streamer)):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
     timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection=model_selection)
+    accounting_context = {
+        "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
+        "session_id": session_id,
+        "task_run_id": task_run_id,
+        "turn_id": task_run_id,
+        "packet_ref": str(packet.packet_id or ""),
+        "invocation_index": invocation_index,
+        "source": "harness.loop.task_executor.model_action",
+        "segment_plan": dict(getattr(packet, "segment_plan", {}) or {}),
+        "prompt_manifest": dict(dict(getattr(packet, "diagnostics", {}) or {}).get("prompt_manifest") or {}),
+    }
     response = await asyncio.wait_for(
-        call_model_invoker(
-            invoker,
-            list(packet.model_messages),
+        _invoke_task_model_action_response(
+            invoker=invoker,
+            streamer=streamer,
+            messages=list(packet.model_messages),
             model_selection=model_selection,
-            accounting_context={
-                "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
-                "session_id": session_id,
-                "task_run_id": task_run_id,
-                "turn_id": task_run_id,
-                "packet_ref": str(packet.packet_id or ""),
-                "invocation_index": invocation_index,
-                "source": "harness.loop.task_executor.model_action",
-                "segment_plan": dict(getattr(packet, "segment_plan", {}) or {}),
-                "prompt_manifest": dict(dict(getattr(packet, "diagnostics", {}) or {}).get("prompt_manifest") or {}),
-            },
+            accounting_context=accounting_context,
         ),
         timeout=timeout_seconds,
     )
@@ -2552,6 +2560,88 @@ async def _invoke_task_model_action(
             "model_response_protocol": protocol_result.to_dict(),
         }
     return action_request, protocol
+
+
+async def _invoke_task_model_action_response(
+    *,
+    invoker: Any,
+    streamer: Any,
+    messages: list[Any],
+    model_selection: dict[str, Any],
+    accounting_context: dict[str, Any],
+) -> Any:
+    stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
+    stream_enabled = bool(stream_policy.get("enabled") is True)
+    if stream_enabled and callable(streamer):
+        try:
+            return await _collect_task_model_stream_response(
+                streamer,
+                messages,
+                model_selection=model_selection,
+                accounting_context=accounting_context,
+            )
+        except Exception:
+            if not callable(invoker) or not _task_stream_non_stream_fallback_enabled(stream_policy):
+                raise
+    if not callable(invoker):
+        raise RuntimeError("model_runtime.invoke_messages is unavailable")
+    return await call_model_invoker(
+        invoker,
+        messages,
+        model_selection=model_selection,
+        accounting_context=accounting_context,
+    )
+
+
+async def _collect_task_model_stream_response(
+    streamer: Any,
+    messages: list[Any],
+    *,
+    model_selection: dict[str, Any],
+    accounting_context: dict[str, Any],
+) -> Any:
+    stream = call_model_streamer(
+        streamer,
+        messages,
+        model_selection=model_selection,
+        accounting_context=accounting_context,
+    )
+    if inspect.isawaitable(stream):
+        stream = await stream
+    aggregated_response: Any = None
+    raw_content = ""
+    async for chunk in stream:
+        aggregated_response = _merge_task_model_stream_chunk(aggregated_response, chunk)
+        raw_content += _task_model_stream_chunk_text(chunk)
+    return aggregated_response if aggregated_response is not None else raw_content
+
+
+def _merge_task_model_stream_chunk(current: Any, chunk: Any) -> Any:
+    if current is None:
+        return chunk
+    try:
+        return current + chunk
+    except Exception:
+        current_text = _task_model_stream_chunk_text(current)
+        chunk_text = _task_model_stream_chunk_text(chunk)
+        return SimpleNamespace(content=current_text + chunk_text)
+
+
+def _task_model_stream_chunk_text(chunk: Any) -> str:
+    from runtime.model_gateway.model_runtime import stringify_content
+
+    return stringify_content(getattr(chunk, "content", chunk))
+
+
+def _task_stream_non_stream_fallback_enabled(stream_policy: dict[str, Any]) -> bool:
+    for key in (
+        "fallback_to_non_stream_on_error",
+        "fallback_to_non_stream",
+        "recover_with_non_stream",
+    ):
+        if key in stream_policy:
+            return bool(stream_policy.get(key) is not False)
+    return True
 
 
 async def _await_task_model_action_with_status(
@@ -2819,7 +2909,9 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     selection = diagnostics.get("model_selection")
     if isinstance(selection, dict) and selection:
-        return dict(selection)
+        return normalize_model_selection_for_invocation(
+            _model_selection_with_runtime_requirement(dict(selection), diagnostics=diagnostics)
+        )
     runtime_contract = dict(diagnostics.get("runtime_contract") or {})
     runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
     requirement = dict(runtime_profile.get("model_requirement") or {})
@@ -2840,7 +2932,10 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         "temperature": profile_payload.get("temperature"),
         "thinking_mode": str(requirement.get("thinking_mode") or profile_payload.get("thinking_mode") or "").strip(),
         "reasoning_effort": str(requirement.get("reasoning_effort") or profile_payload.get("reasoning_effort") or "").strip(),
-        "stream_policy": dict(profile_payload.get("stream_policy") or {}),
+        "stream_policy": _stream_policy_for_task_model_requirement(
+            profile_payload.get("stream_policy"),
+            requirement=requirement,
+        ),
         "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
         "diagnostics": {
             "authority": "harness.loop.task_executor.model_selection",
@@ -2852,6 +2947,54 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         },
     }
     return normalize_model_selection_for_invocation(resolved)
+
+
+def _model_selection_with_runtime_requirement(
+    model_selection: dict[str, Any],
+    *,
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_contract = dict(diagnostics.get("runtime_contract") or {})
+    runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
+    requirement = dict(runtime_profile.get("model_requirement") or {})
+    if not requirement:
+        return dict(model_selection or {})
+    selection = dict(model_selection or {})
+    stream_policy = _stream_policy_for_task_model_requirement(
+        selection.get("stream_policy"),
+        requirement=requirement,
+    )
+    if stream_policy:
+        selection["stream_policy"] = stream_policy
+    return selection
+
+
+def _stream_policy_for_task_model_requirement(
+    base_policy: Any,
+    *,
+    requirement: dict[str, Any],
+) -> dict[str, Any]:
+    policy = dict(base_policy or {})
+    requirement_policy = dict(dict(requirement or {}).get("stream_policy") or {})
+    if requirement_policy:
+        policy = {**policy, **requirement_policy}
+    if _truthy_config_bool(dict(requirement or {}).get("streaming_required")):
+        policy = {
+            **policy,
+            "enabled": True,
+            "mode": str(policy.get("mode") or "model_text_stream"),
+            "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+            "source": str(policy.get("source") or "node.contract_bindings.runtime.model_requirement.streaming_required"),
+        }
+    return policy
+
+
+def _truthy_config_bool(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "required"}
+    return False
 
 
 def _origin_kind(task_run: Any) -> str:
@@ -6845,4 +6988,3 @@ def _not_found(task_run_id: str) -> dict[str, Any]:
 
 def _conflict(task_run_id: str, error: str) -> dict[str, Any]:
     return {"ok": False, "task_run_id": task_run_id, "error": error}
-

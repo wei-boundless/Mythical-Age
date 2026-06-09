@@ -1300,6 +1300,30 @@ def test_model_runtime_rejects_deepseek_max_when_thinking_disabled() -> None:
     assert "thinking_mode=enabled" in exc_info.value.detail
 
 
+def test_model_runtime_error_detail_includes_exception_chain() -> None:
+    runtime = _runtime(retries=0)
+
+    try:
+        try:
+            raise OSError("peer reset")
+        except OSError as inner:
+            raise RuntimeError("Connection error") from inner
+    except RuntimeError as exc:
+        mapped = runtime._map_error(
+            exc,
+            ModelSpec(
+                provider="deepseek",
+                model="deepseek-v4-flash",
+                api_key="deepseek-key",
+                base_url="https://api.deepseek.com/v1",
+            ),
+        )
+
+    assert mapped.code == "provider_unavailable"
+    assert "RuntimeError: Connection error" in mapped.detail
+    assert "OSError: peer reset" in mapped.detail
+
+
 def test_model_runtime_per_call_override_bypasses_fallback_candidates() -> None:
     runtime = _runtime(
         fallback_provider="bailian",

@@ -28,9 +28,23 @@ def extract_provider_usage(
         "input_token_count",
     )
     deepseek_cache_hit_tokens = _first_int(usage, "prompt_cache_hit_tokens")
-    deepseek_cache_miss_tokens = _first_int(usage, "prompt_cache_miss_tokens")
-    if prompt_tokens <= 0 and (deepseek_cache_hit_tokens > 0 or deepseek_cache_miss_tokens > 0):
-        prompt_tokens = deepseek_cache_hit_tokens + deepseek_cache_miss_tokens
+    provider_cache_miss_tokens = _first_int(
+        usage,
+        "prompt_cache_miss_tokens",
+        "cache_miss_input_tokens",
+        "cache_miss_tokens",
+    )
+    provider_hit_miss_available = any(
+        key in usage
+        for key in (
+            "prompt_cache_hit_tokens",
+            "prompt_cache_miss_tokens",
+            "cache_miss_input_tokens",
+            "cache_miss_tokens",
+        )
+    )
+    if prompt_tokens <= 0 and (deepseek_cache_hit_tokens > 0 or provider_cache_miss_tokens > 0):
+        prompt_tokens = deepseek_cache_hit_tokens + provider_cache_miss_tokens
     completion_tokens = _first_int(
         usage,
         "completion_tokens",
@@ -88,9 +102,20 @@ def extract_provider_usage(
         cached_tokens=cached_tokens,
         cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
+        cache_miss_tokens=provider_cache_miss_tokens,
         total_tokens=total_tokens,
         created_at=timestamp,
-        diagnostics={"raw_usage_keys": sorted(str(key) for key in usage.keys())},
+        diagnostics={
+            "raw_usage_keys": sorted(str(key) for key in usage.keys()),
+            "provider_cache_hit_tokens": cached_tokens,
+            "provider_cache_miss_tokens": provider_cache_miss_tokens,
+            "provider_cache_hit_rate": round(cached_tokens / (cached_tokens + provider_cache_miss_tokens), 4)
+            if (cached_tokens + provider_cache_miss_tokens) > 0
+            else 0.0,
+            "provider_cache_hit_rate_source": "provider_hit_miss_tokens"
+            if provider_hit_miss_available
+            else "",
+        },
     )
 
 

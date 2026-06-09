@@ -168,6 +168,11 @@ class ModelProfileResolver:
         if not api_key and provider != "ollama":
             warnings.append("credential_ref_unresolved")
 
+        stream_policy = _stream_policy_for_requirement(
+            agent_policy=agent_model_profile.stream_policy,
+            requirement_streaming_required=requirement.streaming_required,
+        )
+
         diagnostics = {
             "agent_id": getattr(agent_runtime_profile, "agent_id", "") if agent_runtime_profile is not None else "",
             "agent_profile_id": getattr(agent_runtime_profile, "agent_profile_id", "") if agent_runtime_profile is not None else "",
@@ -189,7 +194,7 @@ class ModelProfileResolver:
             temperature=temperature,
             thinking_mode=thinking_mode or "disabled",
             reasoning_effort=reasoning_effort or "auto",
-            stream_policy=dict(agent_model_profile.stream_policy or {}),
+            stream_policy=stream_policy,
             source_chain=tuple(dict.fromkeys(source_chain)),
             diagnostics=diagnostics,
         )
@@ -297,6 +302,23 @@ def _first_env_for_provider(provider: str) -> str | None:
         if value and value.strip():
             return value.strip()
     return None
+
+
+def _stream_policy_for_requirement(
+    *,
+    agent_policy: dict[str, Any] | None,
+    requirement_streaming_required: bool | None,
+) -> dict[str, Any]:
+    policy = dict(agent_policy or {})
+    if requirement_streaming_required is True:
+        policy = {
+            **policy,
+            "enabled": True,
+            "mode": str(policy.get("mode") or "model_text_stream"),
+            "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+            "source": str(policy.get("source") or "node.contract_bindings.runtime.model_requirement.streaming_required"),
+        }
+    return policy
 
 
 def _provider_env_names(provider: str) -> tuple[str, ...]:

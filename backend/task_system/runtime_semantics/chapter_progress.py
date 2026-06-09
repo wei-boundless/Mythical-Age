@@ -39,7 +39,10 @@ def normalize_chapter_progress_receipt(
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_missing")
     if committed != list(range(min(committed), max(committed) + 1)):
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_not_contiguous")
-    if not set(committed).issubset(expected_set):
+    if max(committed) > expected[-1]:
+        raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_outside_expected")
+    committed = [index for index in committed if index in expected_set]
+    if not committed:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_outside_expected")
     if committed[0] != expected[0]:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_prefix_required")

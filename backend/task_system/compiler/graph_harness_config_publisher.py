@@ -985,7 +985,8 @@ def _published_environment_payload(
 
 def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     raw_metadata = dict(node.get("metadata") or {})
-    metadata = _published_node_metadata(raw_metadata)
+    metadata = _published_node_metadata(node=node, metadata=raw_metadata)
+    runtime_policy = _published_node_runtime_policy(node=node, metadata=metadata)
     contract_bindings = dict(node.get("contract_bindings") or raw_metadata.get("contract_bindings") or {})
     prompt_contract = dict(raw_metadata.get("prompt_contract") or {})
     node_id = str(node.get("node_id") or "").strip()
@@ -1028,6 +1029,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         },
         "artifacts": dict(node.get("artifact_policy") or {}),
         "stream": dict(node.get("stream_policy") or {}),
+        "runtime_policy": runtime_policy,
         "progress_receipt_policy": dict(node.get("progress_receipt_policy") or raw_metadata.get("progress_receipt_policy") or {}),
         "gates": {
             "review_gate_policy": dict(node.get("review_gate_policy") or {}),
@@ -1042,8 +1044,34 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     }
 
 
-def _published_node_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    return dict(metadata or {})
+def _published_node_metadata(*, node: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    node_runtime_policy = _published_node_runtime_policy(node=node, metadata=metadata)
+    if not node_runtime_policy:
+        return payload
+    runtime_profile = dict(payload.get("runtime_profile") or payload.get("runtime") or {})
+    runtime_profile["runtime_policy"] = node_runtime_policy
+    payload["runtime_profile"] = runtime_profile
+    return payload
+
+
+def _published_node_runtime_policy(*, node: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
+    return _merge_runtime_policy_dicts(
+        dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {}),
+        dict(node.get("runtime_policy") or node.get("execution_policy") or {}),
+    )
+
+
+def _merge_runtime_policy_dicts(*values: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for value in values:
+        for key, item in dict(value or {}).items():
+            if isinstance(result.get(key), dict) and isinstance(item, dict):
+                result[key] = _merge_runtime_policy_dicts(dict(result[key]), item)
+            else:
+                result[key] = item
+    return result
 
 
 def _node_loop_contract(node: dict[str, Any], *, metadata: dict[str, Any]) -> dict[str, Any]:

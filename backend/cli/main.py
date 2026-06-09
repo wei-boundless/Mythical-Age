@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import shlex
 import sys
 import time
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     task_run_parser = subparsers.add_parser("task-run", help="Execute or inspect TaskRuns")
     task_run_subparsers = task_run_parser.add_subparsers(dest="task_run_command", required=True)
+    start_parser = task_run_subparsers.add_parser("start", help="Start a new TaskRun from an explicit contract file")
+    start_parser.add_argument("--contract-file", required=True, help="JSON file containing a runtime_contract or task_contract")
+    start_parser.add_argument("--session", default="")
+    start_parser.add_argument("--message", default="")
+    start_parser.add_argument("--task-environment-id", default="")
+    start_parser.add_argument("--no-watch", action="store_true", help="Only start the TaskRun and print its id")
     execute_parser = task_run_subparsers.add_parser("execute", help="Execute a waiting single-agent TaskRun")
     execute_parser.add_argument("task_run_id")
     execute_parser.add_argument("--max-steps", type=int, default=12)
@@ -119,7 +126,7 @@ def run_command(
         if args.command == "monitor":
             return _run_monitor(args, client=client, store=store, stdout=stdout)
         if args.command == "task-run":
-            return _run_task_run_command(args, client=client, stdout=stdout)
+            return _run_task_run_command(args, client=client, store=store, stdout=stdout, stderr=stderr)
         if args.command == "config":
             _print_json({"api_base": client.api_base, "selected_session_id": store.load().selected_session_id}, stdout)
             return 0
@@ -335,8 +342,12 @@ def _run_task_run_command(
     args: argparse.Namespace,
     *,
     client: AgentCliClient,
+    store: CliStateStore,
     stdout: TextIO,
+    stderr: TextIO,
 ) -> int:
+    if args.task_run_command == "start":
+        return _run_task_run_start(args, client=client, store=store, stdout=stdout, stderr=stderr)
     if args.task_run_command == "execute":
         result = client.execute_task_run(
             args.task_run_id,
@@ -380,6 +391,40 @@ def _run_task_run_command(
         )
         return 0
     return 2
+
+
+def _run_task_run_start(
+    args: argparse.Namespace,
+    *,
+    client: AgentCliClient,
+    store: CliStateStore,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    session_id = _resolve_session_id(str(getattr(args, "session", "") or ""), store)
+    contract_payload = _load_json_object_file(str(getattr(args, "contract_file", "") or ""))
+    runtime_contract = _runtime_contract_for_task_run_start(
+        contract_payload,
+        task_environment_id=str(getattr(args, "task_environment_id", "") or ""),
+    )
+    message = str(getattr(args, "message", "") or "").strip() or _task_run_start_message(runtime_contract)
+    extra_payload: dict[str, Any] = {"runtime_contract": runtime_contract}
+    environment_id = str(getattr(args, "task_environment_id", "") or "").strip()
+    if environment_id:
+        extra_payload["environment_binding"] = {"task_environment_id": environment_id}
+    task_run_id = ""
+    terminal = ""
+    for event in client.stream_chat(session_id=session_id, message=message, extra_payload=extra_payload):
+        task_run_id = _task_run_id_from_stream_event(event) or task_run_id
+        terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=bool(args.verbose)) or terminal
+    if terminal == "error":
+        raise AgentCliClientError("Backend returned an error event.")
+    if not task_run_id:
+        raise AgentCliClientError("Backend stream completed without task_run_id.")
+    print(f"task_run_id {task_run_id}", file=stdout)
+    if bool(getattr(args, "no_watch", False)):
+        return 0
+    return _watch_task_run(task_run_id, client=client, stdout=stdout)
 
 
 def _watch_task_run(task_run_id: str, *, client: AgentCliClient, stdout: TextIO) -> int:
@@ -507,6 +552,86 @@ def _runtime_extra_payload(*, task_environment_id: str = "") -> dict[str, Any]:
     if environment_id:
         payload["environment_binding"] = {"task_environment_id": environment_id}
     return payload
+
+
+def _load_json_object_file(path: str) -> dict[str, Any]:
+    normalized = str(path or "").strip()
+    if not normalized:
+        raise AgentCliClientError("--contract-file is required.")
+    try:
+        payload = json.loads(Path(normalized).expanduser().read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise AgentCliClientError(f"Failed to read contract file: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise AgentCliClientError(f"Contract file is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise AgentCliClientError("Contract file must contain a JSON object.")
+    return dict(payload)
+
+
+def _runtime_contract_for_task_run_start(payload: dict[str, Any], *, task_environment_id: str = "") -> dict[str, Any]:
+    source = dict(payload or {})
+    if any(key in source for key in ("task_contract", "task_contract_seed", "engagement_contract")):
+        runtime_contract = dict(source)
+    else:
+        runtime_contract = {"task_contract": source}
+    runtime_contract["system_issued_contract"] = True
+    environment_id = str(task_environment_id or runtime_contract.get("task_environment_id") or "").strip()
+    if environment_id:
+        runtime_contract["task_environment_id"] = environment_id
+    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+        value = runtime_contract.get(key)
+        if not isinstance(value, dict):
+            continue
+        contract = dict(value)
+        contract["system_issued"] = True
+        if environment_id and not str(contract.get("task_environment_id") or "").strip():
+            contract["task_environment_id"] = environment_id
+        runtime_contract[key] = contract
+    return runtime_contract
+
+
+def _task_run_start_message(runtime_contract: dict[str, Any]) -> str:
+    contract = _first_contract_payload(runtime_contract)
+    goal = str(
+        contract.get("user_visible_goal")
+        or contract.get("task_run_goal")
+        or contract.get("objective")
+        or contract.get("title")
+        or ""
+    ).strip()
+    return f"启动任务：{goal}" if goal else "启动显式任务合同。"
+
+
+def _first_contract_payload(runtime_contract: dict[str, Any]) -> dict[str, Any]:
+    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+        value = runtime_contract.get(key)
+        if isinstance(value, dict) and value:
+            return dict(value)
+    return {}
+
+
+def _task_run_id_from_stream_event(event: ServerSentEvent) -> str:
+    data = dict(getattr(event, "data", {}) or {})
+    for candidate in (
+        data.get("runtime_task_run_id"),
+        data.get("task_run_id"),
+        dict(data.get("task_run") or {}).get("task_run_id"),
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    runtime_event = dict(data.get("event") or {})
+    runtime_payload = dict(runtime_event.get("payload") or {})
+    for candidate in (
+        runtime_payload.get("runtime_task_run_id"),
+        runtime_payload.get("task_run_id"),
+        dict(runtime_payload.get("task_run") or {}).get("task_run_id"),
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _is_tty(stream: TextIO) -> bool:

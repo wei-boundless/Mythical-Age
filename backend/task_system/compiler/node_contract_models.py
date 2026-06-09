@@ -44,6 +44,12 @@ def build_node_contract(
     prompt_contract = dict(node.get("prompt") or {})
     metadata = dict(node.get("metadata") or {})
     runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
+    node_runtime_policy = dict(node.get("runtime_policy") or node.get("execution_policy") or {})
+    if node_runtime_policy:
+        runtime_profile["runtime_policy"] = _merge_runtime_policy_dicts(
+            dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {}),
+            node_runtime_policy,
+        )
     environment_lock = _environment_lock(
         node=node,
         graph_environment=graph_environment,
@@ -198,3 +204,14 @@ def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
         for key, value in payload.items()
         if value not in ("", None, [], {}, ())
     }
+
+
+def _merge_runtime_policy_dicts(*values: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for value in values:
+        for key, item in dict(value or {}).items():
+            if isinstance(result.get(key), dict) and isinstance(item, dict):
+                result[key] = _merge_runtime_policy_dicts(dict(result[key]), item)
+            else:
+                result[key] = item
+    return result

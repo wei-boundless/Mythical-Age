@@ -203,6 +203,9 @@ def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes()
     assert deepseek_usage.prompt_tokens == 37352
     assert deepseek_usage.cached_tokens == 4352
     assert deepseek_usage.cache_read_tokens == 4352
+    assert deepseek_usage.cache_miss_tokens == 33000
+    assert deepseek_usage.diagnostics["provider_cache_hit_rate"] == 0.1165
+    assert deepseek_usage.diagnostics["provider_cache_hit_rate_source"] == "provider_hit_miss_tokens"
     assert deepseek_usage.completion_tokens == 4
     assert deepseek_usage.total_tokens == 37356
 
@@ -649,7 +652,13 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert "当前 runtime 是 standard 模式" not in model_input
     assert "当前 runtime 是 role 模式" not in model_input
     assert "本次运行边界" in model_input
-    assert "可以请求进入持续处理流程" in model_input
+    assert "先判断用户当前要求是否需要多阶段完成" in model_input
+    assert "当上述任务承接条件成立时，必须选择 request_task_run" in model_input
+    assert "如果任务目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user" in model_input
+    assert any(
+        "任务承接条件成立" in str(item)
+        for item in stable_payload["output_contract"]["action_selection_rules"]
+    )
     assert "每次输出 JSON 时必须填写 public_action_state" not in model_input
     assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in model_input
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
@@ -708,7 +717,7 @@ def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> N
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 role 模式" not in model_input
-    assert "可以请求进入持续处理流程" not in model_input
+    assert "当上述任务承接条件成立时，必须选择 request_task_run" not in model_input
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
     assert projection["permission_boundary"]["permission_scope"] == "conversation_readonly"
 

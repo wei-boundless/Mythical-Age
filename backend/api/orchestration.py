@@ -139,7 +139,6 @@ async def start_task_graph_harness_run(
                 "session_scope": resolved_scope.to_dict(),
                 "session_scope_key": resolved_scope.key,
                 "workspace_view": resolved_scope.workspace_view,
-                "task_environment_id": resolved_scope.task_environment_id,
                 "project_id": resolved_scope.project_id,
                 "runtime_scope": resolved_scope.to_dict(),
             },
@@ -152,7 +151,7 @@ async def start_task_graph_harness_run(
             graph_id=graph_config.graph_id,
             graph_harness_config_id=graph_config.config_id,
             session_scope=resolved_scope.to_dict(),
-            task_environment_id=resolved_scope.task_environment_id,
+            task_environment_id="",
             project_id=resolved_scope.project_id,
         )
     except (SessionTaskBindingConflict, SessionTaskBindingMissing) as exc:
@@ -585,7 +584,7 @@ def _validated_graph_request_scope(
                     "task_environment_id": resolved.task_environment_id,
                 },
             )
-    return resolved
+    return _graph_instance_scope(resolved)
 
 
 def _assert_graph_run_scope(
@@ -596,7 +595,7 @@ def _assert_graph_run_scope(
     session_scope: dict[str, Any] | None,
     graph_config: Any | None = None,
 ) -> SessionScope:
-    expected = normalize_session_scope(session_scope) if session_scope is not None else None
+    expected = _graph_instance_scope(normalize_session_scope(session_scope)) if session_scope is not None else None
     graph_run_payload = runtime.harness_runtime.graph_harness.get_graph_run(graph_run_id)
     if not graph_run_payload:
         raise HTTPException(status_code=404, detail="GraphRun not found")
@@ -688,9 +687,18 @@ def _graph_start_initial_inputs(initial_inputs: dict[str, Any] | None, scope: Se
     }
     payload["runtime_scope"] = runtime_scope
     payload["workspace_view"] = scope.workspace_view
-    payload["task_environment_id"] = scope.task_environment_id
     payload["project_id"] = scope.project_id
     return payload
+
+
+def _graph_instance_scope(scope: SessionScope) -> SessionScope:
+    return normalize_session_scope(
+        {
+            "workspace_view": scope.workspace_view,
+            "task_environment_id": "",
+            "project_id": scope.project_id,
+        }
+    )
 
 
 def _require_launch_session(*, runtime: Any, session_id: str) -> SessionScope:

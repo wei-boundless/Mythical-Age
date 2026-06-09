@@ -393,6 +393,7 @@ def summarize_usage_records(
         "cached_tokens": 0,
         "cache_creation_tokens": 0,
         "cache_read_tokens": 0,
+        "cache_miss_tokens": 0,
         "cache_savings_tokens": 0,
         "provider_usage_record_count": 0,
         "local_prediction_record_count": 0,
@@ -412,6 +413,7 @@ def summarize_usage_records(
             totals["cached_tokens"] += int(record.cached_tokens or 0)
             totals["cache_creation_tokens"] += int(record.cache_creation_tokens or 0)
             totals["cache_read_tokens"] += int(record.cache_read_tokens or 0)
+            totals["cache_miss_tokens"] += int(record.cache_miss_tokens or 0)
         elif record.source == "local_prediction":
             totals["local_prediction_record_count"] += 1
             totals["predicted_total_tokens"] += int(record.total_tokens or 0)

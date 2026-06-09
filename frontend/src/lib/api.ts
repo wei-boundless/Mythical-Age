@@ -5369,6 +5369,7 @@ export type ChatRunCreatePayload = {
   session_id: string;
   session_scope?: Partial<SessionScope>;
   environment_binding?: Record<string, unknown>;
+  runtime_contract?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
   permission_mode?: string;

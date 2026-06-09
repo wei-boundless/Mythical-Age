@@ -18,6 +18,7 @@ class RuntimeDeltaProjector:
         profile = dict(assembly.get("profile") or {})
         environment = dict(assembly.get("task_environment") or {})
         agent_visible_runtime_projection = dict(dict(projection_policy or {}).get("agent_visible_runtime_projection") or {})
+        prompt_policy = dict(dict(projection_policy or {}).get("prompt_policy") or {})
         operation_authorization = _operation_authorization_model_visible(
             dict(assembly.get("operation_authorization") or dict(projection_policy or {}).get("operation_authorization") or {}),
             profile_payload=profile,
@@ -25,6 +26,7 @@ class RuntimeDeltaProjector:
         runtime_context = _runtime_context_projection(
             assembly,
             agent_visible_runtime_projection=agent_visible_runtime_projection,
+            prompt_policy=prompt_policy,
         )
         envelope_projection = _runtime_envelope_projection(envelope)
         baseline_refs = drop_empty(
@@ -40,7 +42,11 @@ class RuntimeDeltaProjector:
                     }
                 ),
                 "agent_profile_ref": str(assembly.get("agent_profile_ref") or envelope_projection.get("agent_profile_ref") or ""),
-                "task_environment_ref": str(environment.get("environment_id") or envelope_projection.get("task_environment_ref") or ""),
+                **(
+                    {"task_environment_ref": str(environment.get("environment_id") or envelope_projection.get("task_environment_ref") or "")}
+                    if _prompt_policy_visible(prompt_policy, "runtime_environment_boundary_visibility", default=True)
+                    else {}
+                ),
             }
         )
         dynamic_delta = drop_empty(
@@ -57,12 +63,14 @@ def _runtime_context_projection(
     assembly_payload: dict[str, Any],
     *,
     agent_visible_runtime_projection: dict[str, Any] | None = None,
+    prompt_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     projection = dict(agent_visible_runtime_projection or {})
     if str(projection.get("invocation_kind") or "") == "task_execution":
         return _task_execution_runtime_context_projection(
             assembly_payload,
             agent_visible_runtime_projection=projection,
+            prompt_policy=dict(prompt_policy or {}),
         )
     profile = dict(assembly_payload.get("profile") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
@@ -99,13 +107,19 @@ def _task_execution_runtime_context_projection(
     assembly_payload: dict[str, Any],
     *,
     agent_visible_runtime_projection: dict[str, Any],
+    prompt_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     environment = dict(assembly_payload.get("task_environment") or {})
     tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
     permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
+    show_environment = _prompt_policy_visible(
+        dict(prompt_policy or {}),
+        "runtime_environment_boundary_visibility",
+        default=True,
+    )
     return drop_empty(
         {
-            "task_environment_id": str(environment.get("environment_id") or ""),
+            **({"task_environment_id": str(environment.get("environment_id") or "")} if show_environment else {}),
             "permission_scope": str(permission_boundary.get("permission_scope") or ""),
             "tool_boundary": drop_empty(
                 {
@@ -117,6 +131,22 @@ def _task_execution_runtime_context_projection(
             "authority": "harness.runtime.task_execution_context.model_visible",
         }
     )
+
+
+def _prompt_policy_visible(policy: dict[str, Any], key: str, *, default: bool) -> bool:
+    if key not in dict(policy or {}):
+        return default
+    value = dict(policy or {}).get(key)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "default", "inherit"}:
+        return default
+    if normalized in {"hidden", "hide", "off", "false", "0", "none", "disabled", "omit", "omitted"}:
+        return False
+    if normalized in {"visible", "show", "on", "true", "1", "full", "enabled"}:
+        return True
+    return default
 
 
 def _prompt_refs_by_invocation(value: Any) -> dict[str, tuple[str, ...]]:
