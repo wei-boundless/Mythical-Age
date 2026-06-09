@@ -8,7 +8,7 @@ from project_layout import ProjectLayout
 from prompt_ref_migrations import migrate_prompt_pack_payload, migrate_prompt_resource_payload
 
 from .agent_prompts import list_builtin_agent_prompt_resources
-from .general_lifecycle_prompts import list_builtin_general_lifecycle_prompt_resources
+from .environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
 from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_resource_from_dict
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .personality_prompts import list_builtin_personality_prompt_resources
@@ -86,7 +86,7 @@ class PromptLibraryRegistry:
                 *list_builtin_agent_prompt_resources(),
                 *list_builtin_personality_prompt_resources(),
                 *list_builtin_worker_prompt_resources(),
-                *list_builtin_general_lifecycle_prompt_resources(),
+                *list_builtin_environment_lifecycle_prompt_resources(),
                 *list_builtin_environment_prompt_resources(),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )

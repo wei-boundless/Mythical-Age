@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prompt_library import GENERAL_LIFECYCLE_PROMPT_IDS
+from prompt_library import ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS
 
 
 GENERAL_ENVIRONMENT_ID = "env.general.workspace"
 ENVIRONMENT_SWITCH_REQUEST_ACTION = "environment_switch_request"
 
-_LIFECYCLE_REFS = set(GENERAL_LIFECYCLE_PROMPT_IDS)
+_LIFECYCLE_REFS = set(ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS)
 _SUBAGENT_TOOL_NAMES = {
     "spawn_subagent",
     "send_subagent_message",
@@ -77,7 +77,9 @@ def build_base_prompt_mount_plan(
     base_environment_id = selected_environment_id
     prompt_policy_payload = dict(prompt_policy or {})
     boundary = dict(selected_payload.get("environment_boundary") or {})
-    lifecycle_defaults = _prompt_ref_map(prompt_policy_payload.get("lifecycle_prompt_defaults"))
+    lifecycle_defaults = _prompt_ref_map(boundary.get("lifecycle_prompt_defaults")) or _prompt_ref_map(
+        prompt_policy_payload.get("lifecycle_prompt_defaults")
+    )
     lifecycle_overrides = _prompt_ref_map(boundary.get("lifecycle_prompt_overrides"))
     tool_guidance_defaults = _prompt_ref_map(prompt_policy_payload.get("tool_guidance_prompt_defaults"))
     tool_guidance_overrides = _prompt_ref_map(boundary.get("tool_guidance_prompt_overrides"))

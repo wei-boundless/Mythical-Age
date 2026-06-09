@@ -8,7 +8,8 @@ from prompt_library import (
     DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
     EVIDENCE_DISTILLER_PROMPT,
     FOUNDATION_PROMPT_REFS,
-    GENERAL_LIFECYCLE_PROMPT_IDS,
+    ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS,
+    ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT,
     HISTORY_SUMMARY_RECOVERY_PROMPT,
     MCP_SERVER_INSTRUCTIONS_PROMPT,
     PromptAssemblyRequest,
@@ -160,23 +161,35 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id["environment.general.workspace.orientation"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation"].allowed_environment_refs == ()
-    for prompt_id in GENERAL_LIFECYCLE_PROMPT_IDS:
-        resource = resource_by_id[prompt_id]
-        assert resource.category == "environment"
-        assert resource.owner_layer == "environment"
-        assert resource.resource_type == "environment_prompt"
-        assert resource.subtype.startswith("lifecycle_")
-        assert resource.allowed_invocation_kinds == ("environment",)
-        assert resource.allowed_environment_refs == ("env.general.workspace",)
-        assert resource.cache_scope == "static_environment"
-        assert resource.version == "2026-06-08"
-        assert not resource.prompt_id.endswith(".v1")
+    for environment_id, prompt_ids in ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT.items():
+        for prompt_id in prompt_ids:
+            resource = resource_by_id[prompt_id]
+            assert resource.category == "environment"
+            assert resource.owner_layer == "environment"
+            assert resource.resource_type == "environment_prompt"
+            assert resource.subtype.startswith("lifecycle_")
+            assert resource.allowed_invocation_kinds == ("environment",)
+            assert resource.allowed_environment_refs == (environment_id,)
+            assert resource.cache_scope == "static_environment"
+            assert resource.version == "2026-06-10"
+            assert not resource.prompt_id.endswith(".v1")
+    assert set(ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS) == {
+        prompt_id
+        for prompt_ids in ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT.values()
+        for prompt_id in prompt_ids
+    }
     active_work_prompt = resource_by_id["environment.general.lifecycle.active_work_control"]
     assert "confidence" not in active_work_prompt.content.lower()
-    assert "active_work_control action" in active_work_prompt.content
-    assert "payload 使用 action 字段" in active_work_prompt.content
-    assert "不要把系统动作格式、权限边界或校验失败转成" in active_work_prompt.content
+    assert "active_work_control 表达继续、暂停、停止" in active_work_prompt.content
+    assert "系统负责执行控制动作" in active_work_prompt.content
+    assert "environment.coding.lifecycle" not in active_work_prompt.content
     assert resource_by_id["environment.general.lifecycle.memory_read_context"].resource_type == "environment_prompt"
+    assert resource_by_id["environment.coding.lifecycle.memory_read_context"].allowed_environment_refs == (
+        "env.coding.vibe_workspace",
+    )
+    assert resource_by_id["environment.office.lifecycle.memory_read_context"].allowed_environment_refs == (
+        "env.office.file_search",
+    )
     assert resource_by_id["environment.general.lifecycle.memory_write_handoff"].resource_type == "environment_prompt"
     assert resource_by_id["environment.general.lifecycle.verification_gate"].resource_type == "environment_prompt"
     assert not [item for item in resources if "metadata.work_role_prompt" in item.source_ref]

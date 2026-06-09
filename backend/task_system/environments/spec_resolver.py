@@ -96,6 +96,10 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
         "environment_specific_prompt_refs": [
             item.prompt_id for item in spec.environment_prompts if str(item.prompt_id or "").strip()
         ],
+        "lifecycle_prompt_defaults": _prompt_override_map(
+            spec.lifecycle_policy.get("lifecycle_prompt_defaults")
+            or spec.metadata.get("lifecycle_prompt_defaults")
+        ),
         "lifecycle_prompt_overrides": _prompt_override_map(
             spec.lifecycle_policy.get("lifecycle_prompt_overrides")
             or spec.lifecycle_policy.get("prompt_overrides")
@@ -185,5 +189,4 @@ def _first_string(value: object) -> str:
             if text:
                 return text
     return ""
-
 

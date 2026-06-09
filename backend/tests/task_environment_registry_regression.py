@@ -22,7 +22,12 @@ from capability_system.tools.authorization import build_tool_authorization_index
 from capability_system.tools.native_tool_catalog import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime, build_runtime_tool_plan
 from harness.runtime.tool_scheduling import environment_allowed_operations
-from prompt_library import DEFAULT_PERSONALITY_PROMPT_REF, GENERAL_LIFECYCLE_PROMPT_IDS, PromptLibraryRegistry, PromptResource
+from prompt_library import (
+    DEFAULT_PERSONALITY_PROMPT_REF,
+    ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT,
+    PromptLibraryRegistry,
+    PromptResource,
+)
 from task_system.tasks.definitions import default_task_definitions
 
 
@@ -864,16 +869,22 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         "environment.general.workspace.orientation",
         "environment.rule.general_workspace",
     ]
+    general_lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.general.workspace"]
     expected_lifecycle_refs = [
-        "environment.general.lifecycle.context_intake",
-        "environment.general.lifecycle.request_judgment",
-        "environment.general.lifecycle.environment_capability_alignment",
-        "environment.general.lifecycle.plan_gate",
-        "environment.general.lifecycle.action_selection",
-        "environment.general.lifecycle.task_run_handoff",
-        "environment.general.lifecycle.tool_dispatch",
-        "environment.general.lifecycle.subagent_delegation",
-        "environment.general.lifecycle.finalization",
+        ref
+        for ref in general_lifecycle_defaults
+        if ref.rsplit(".", 1)[-1]
+        in {
+            "context_intake",
+            "request_judgment",
+            "environment_capability_alignment",
+            "plan_gate",
+            "action_selection",
+            "task_run_handoff",
+            "tool_dispatch",
+            "subagent_delegation",
+            "finalization",
+        }
     ]
 
     assembly = assemble_runtime(
@@ -901,7 +912,7 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     lifecycle_message = next(
         str(message.get("content") or "")
         for message in packet.model_messages
-        if "通用请求判断生命周期" in str(message.get("content") or "")
+        if "General 请求判断生命周期" in str(message.get("content") or "")
     )
 
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
@@ -936,26 +947,90 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
-    assert set(expected_lifecycle_refs).issubset(set(GENERAL_LIFECYCLE_PROMPT_IDS))
+    assert set(expected_lifecycle_refs).issubset(set(general_lifecycle_defaults))
     assert "当前人格" in model_input
     assert "Mythical Age（洪荒智能）" in model_input
     assert "不改变系统规则" in model_input
     assert "你负责把用户最新一句话放回当前会话语境中理解" in model_input
     assert "你负责本轮会话的行动裁决。你会同时看到身份风格" in model_input
-    assert "通用请求判断生命周期" in model_input
-    assert "用户刚发来最新请求" in model_input
-    assert "在采取有副作用或高影响行动前" in model_input
-    assert "当用户目标需要持续执行时" in model_input
-    assert "当你准备请求工具时" in model_input
-    assert "子 agent 是 fresh specialist" in model_input
-    assert "准备回复用户前" in model_input
-    assert "如果系统交给你 active_work_context" not in model_input
-    assert "当系统返回工具观察" not in model_input
-    assert "当系统提供记忆、恢复摘要或历史检索结果" not in model_input
-    assert "当一次收口或维护阶段产生可保留信息" not in model_input
+    assert "General 请求判断生命周期" in model_input
+    assert "先判断用户是在要直接回答、解释、资料整理" in model_input
+    assert "跨多个系统、影响文件或外部服务" in model_input
+    assert "当用户目标需要多步执行、真实产物" in model_input
+    assert "工具调用必须服务于当前目标的下一步" in model_input
+    assert "不能把用户意图理解、最终裁决" in model_input
+    assert "最终回复只描述对用户有用的结果" in model_input
+    assert "Coding 请求判断生命周期" not in model_input
+    assert "Office 请求判断生命周期" not in model_input
+    assert "当用户明确指向当前工作时，使用 active_work_control" not in model_input
+    assert "成功、失败、拒绝、超时、内容省略" not in model_input
+    assert "记忆和历史检索结果是背景线索" not in model_input
+    assert "只有稳定、有复用价值、经过用户确认" not in model_input
     assert "你是当前会话主 agent 的请求判断层" not in lifecycle_message
     assert "你是工具观察恢复层" not in lifecycle_message
     assert "confidence" not in lifecycle_message.lower()
+
+
+def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    cases = {
+        "env.coding.vibe_workspace": {
+            "prefix": "environment.coding.lifecycle.",
+            "included": "Coding 动作选择生命周期",
+            "excluded": ("Office 动作选择生命周期", "General 动作选择生命周期"),
+        },
+        "env.office.file_search": {
+            "prefix": "environment.office.lifecycle.",
+            "included": "Office 动作选择生命周期",
+            "excluded": ("Coding 动作选择生命周期", "General 动作选择生命周期"),
+        },
+        "env.general.workspace": {
+            "prefix": "environment.general.lifecycle.",
+            "included": "General 动作选择生命周期",
+            "excluded": ("Coding 动作选择生命周期", "Office 动作选择生命周期"),
+        },
+    }
+
+    for environment_id, expectation in cases.items():
+        assembly = assemble_runtime(
+            backend_dir=BACKEND_DIR,
+            session_id=f"session-{environment_id}",
+            turn_id=f"turn-{environment_id}",
+            agent_invocation_id=f"agent-{environment_id}",
+            runtime_contract={"task_environment_id": environment_id},
+            model_selection={},
+            agent_runtime_profile=profile,
+            tool_instances=build_tool_instances(BACKEND_DIR),
+            definitions_by_name=index.definitions_by_name,
+        )
+        packet = RuntimeCompiler().compile_task_execution_packet(
+            session_id=f"session-{environment_id}",
+            task_run={
+                "task_run_id": f"taskrun:{environment_id}",
+                "session_id": f"session-{environment_id}",
+                "task_id": f"task:{environment_id}",
+                "agent_profile_id": "main_interactive_agent",
+            },
+            contract={"user_visible_goal": "验证环境生命周期提示词", "completion_criteria": ["提示词按环境隔离"]},
+            observations=[],
+            execution_state={},
+            agent_profile_ref="main_interactive_agent",
+            available_tools=assembly.available_tools,
+            runtime_assembly=assembly,
+            invocation_index=1,
+        ).packet
+        manifest = packet.diagnostics["prompt_manifest"]
+        lifecycle_refs = list(manifest["prompt_mount_plan"]["lifecycle_prompt_refs"])
+        model_input = _model_input_text(packet)
+
+        assert lifecycle_refs
+        assert all(ref.startswith(str(expectation["prefix"])) for ref in lifecycle_refs)
+        assert set(lifecycle_refs).issubset(set(ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT[environment_id]))
+        assert str(expectation["included"]) in model_input
+        for excluded in tuple(expectation["excluded"]):
+            assert excluded not in model_input
 
 
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:

@@ -16,6 +16,35 @@ from .models import (
 )
 
 
+_LIFECYCLE_PROMPT_SLOTS = (
+    "context_intake",
+    "request_judgment",
+    "work_relation",
+    "environment_capability_alignment",
+    "plan_gate",
+    "action_selection",
+    "active_work_control",
+    "task_run_handoff",
+    "user_steer_contract_revision",
+    "tool_dispatch",
+    "tool_observation_recovery",
+    "subagent_delegation",
+    "subagent_result_integration",
+    "verification_gate",
+    "memory_read_context",
+    "memory_write_handoff",
+    "compaction_handoff",
+    "finalization",
+)
+
+
+def _lifecycle_prompt_defaults(environment_prompt_prefix: str) -> dict[str, str]:
+    return {
+        slot: f"environment.{environment_prompt_prefix}.lifecycle.{slot}"
+        for slot in _LIFECYCLE_PROMPT_SLOTS
+    }
+
+
 def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
     return (
         TaskEnvironmentGroup(
@@ -192,6 +221,7 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
         lifecycle_policy={
             "coding_task_environment": True,
             "graph_entry_policy": "fixed_entry_not_scheduled_by_environment",
+            "lifecycle_prompt_defaults": _lifecycle_prompt_defaults("coding"),
         },
         metadata={
             "dedicated_task_environment": "coding",
@@ -277,6 +307,10 @@ def office_file_search_environment() -> TaskEnvironmentDefinition:
             artifact_root="conversation_artifacts",
             publish_policy="task_evidence_required",
         ),
+        lifecycle_policy={
+            "office_task_environment": True,
+            "lifecycle_prompt_defaults": _lifecycle_prompt_defaults("office"),
+        },
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
@@ -337,5 +371,9 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
             network_execution_policy="task_decided",
             side_effect_policy="permission_context",
         ),
+        lifecycle_policy={
+            "general_task_environment": True,
+            "lifecycle_prompt_defaults": _lifecycle_prompt_defaults("general"),
+        },
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)

@@ -1873,7 +1873,7 @@ class RuntimeCompiler:
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.lifecycle_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref="",
+            task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
         )
         return environment_prompt_assembly, lifecycle_prompt_assembly
 

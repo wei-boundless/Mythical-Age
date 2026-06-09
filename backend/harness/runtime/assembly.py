@@ -25,27 +25,6 @@ _SUBAGENT_TOOL_NAMES = {
     "close_subagent",
 }
 
-_DEFAULT_LIFECYCLE_PROMPT_DEFAULTS: dict[str, str] = {
-    "context_intake": "environment.general.lifecycle.context_intake",
-    "request_judgment": "environment.general.lifecycle.request_judgment",
-    "work_relation": "environment.general.lifecycle.work_relation",
-    "environment_capability_alignment": "environment.general.lifecycle.environment_capability_alignment",
-    "plan_gate": "environment.general.lifecycle.plan_gate",
-    "action_selection": "environment.general.lifecycle.action_selection",
-    "active_work_control": "environment.general.lifecycle.active_work_control",
-    "task_run_handoff": "environment.general.lifecycle.task_run_handoff",
-    "user_steer_contract_revision": "environment.general.lifecycle.user_steer_contract_revision",
-    "tool_dispatch": "environment.general.lifecycle.tool_dispatch",
-    "tool_observation_recovery": "environment.general.lifecycle.tool_observation_recovery",
-    "subagent_delegation": "environment.general.lifecycle.subagent_delegation",
-    "subagent_result_integration": "environment.general.lifecycle.subagent_result_integration",
-    "verification_gate": "environment.general.lifecycle.verification_gate",
-    "memory_read_context": "environment.general.lifecycle.memory_read_context",
-    "memory_write_handoff": "environment.general.lifecycle.memory_write_handoff",
-    "compaction_handoff": "environment.general.lifecycle.compaction_handoff",
-    "finalization": "environment.general.lifecycle.finalization",
-}
-
 _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
     "tool.guidance.read_file": "tool.guidance.read_file",
     "tool.guidance.read_persisted_tool_result": "tool.guidance.read_persisted_tool_result",
@@ -91,7 +70,6 @@ _BASE_RUNTIME_POLICY: dict[str, Any] = {
 _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY: dict[str, Any] = {
     "prompt_policy": {
         "template_id": "prompt_template.general.agent_runtime",
-        "lifecycle_prompt_defaults": _DEFAULT_LIFECYCLE_PROMPT_DEFAULTS,
         "tool_guidance_prompt_defaults": _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS,
     },
     "prompt_pack_refs_by_invocation": {
