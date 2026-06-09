@@ -12,6 +12,8 @@ type ApplyProjectionOptions = {
   assistantId?: string;
 };
 
+const VALID_PROJECTION_SLOTS = new Set(["body", "timeline", "tool", "status", "task", "control"]);
+
 export function publicProjectionEnvelopeFromRecord(value: unknown): PublicProjectionEnvelope | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -60,8 +62,9 @@ function applySessionActivity(state: StoreState, envelope: PublicProjectionEnvel
   if (envelope.terminal?.visible === false) {
     return state;
   }
-  const statusItem = latestItemForSlot(envelope.items, "status")
-    ?? (envelope.surface === "status_bar" ? latestUsefulItem(envelope.items) : null);
+  const items = projectionItems(envelope);
+  const statusItem = latestItemForSlot(items, "status")
+    ?? (envelope.surface === "status_bar" ? latestUsefulItem(items) : null);
   const projected = sessionActivityTextFromEnvelope(envelope, statusItem);
   const title = projected.title;
   if (!title) {
@@ -93,10 +96,10 @@ function sessionActivityTextFromEnvelope(
   const title = text(statusItem?.title ?? statusItem?.text);
   const detail = text(statusItem?.detail ?? statusItem?.public_summary ?? statusItem?.text);
   if (level === "running") {
-    return title || envelope.items?.length ? { title: "正在思考", detail: "" } : { title: "", detail: "" };
+    return title ? { title, detail: detail && detail !== title ? detail : "" } : { title: "", detail: "" };
   }
   if (level === "success") {
-    return { title: "", detail: "" };
+    return title ? { title, detail: detail && detail !== title ? detail : "" } : { title: "", detail: "" };
   }
   return {
     title,
@@ -114,7 +117,7 @@ function patchProjectionMessage(
     return state;
   }
   const bodyText = envelope.source_authority === "model" && envelope.surface === "assistant_body"
-    ? bodyFromItems(envelope.items)
+    ? bodyFromItems(projectionItems(envelope))
     : "";
   const timelineItems = timelineItemsFromEnvelope(envelope);
   const taskAttachment = runtimeAttachmentFromEnvelope(envelope);
@@ -231,14 +234,14 @@ function timelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicCh
   if (envelope.terminal?.visible === false) {
     return [];
   }
-  return (envelope.items ?? [])
+  return projectionItems(envelope)
     .filter((item) => !isBodyItem(envelope, item))
     .map((item) => ({ ...item, kind: text(item.kind) || "status_update" }));
 }
 
 function bodyFromItems(items: PublicProjectionItem[] | undefined) {
   for (const item of items ?? []) {
-    if (text(item.slot) === "body" || text(item.surface) === "body") {
+    if (text(item.slot) === "body") {
       const body = text(item.text ?? item.detail ?? item.public_summary);
       if (body) return body;
     }
@@ -249,7 +252,8 @@ function bodyFromItems(items: PublicProjectionItem[] | undefined) {
 function isBodyItem(envelope: PublicProjectionEnvelope, item: PublicProjectionItem) {
   return envelope.source_authority === "model"
     && envelope.surface === "assistant_body"
-    && (text(item.slot) === "body" || text(item.surface) === "body");
+    && text(item.slot) === "body"
+    && text(item.source_authority) === "model";
 }
 
 function latestItemForSlot(items: PublicProjectionItem[] | undefined, slot: string) {
@@ -267,8 +271,20 @@ function stageStatusFromEnvelope(envelope: PublicProjectionEnvelope) {
   if (envelope.surface === "assistant_body") {
     return envelope.terminal?.event === "done" ? "完成" : "";
   }
-  const item = latestUsefulItem(envelope.items);
+  const item = latestUsefulItem(projectionItems(envelope));
   return text(item?.title ?? item?.text);
+}
+
+function projectionItems(envelope: PublicProjectionEnvelope): PublicProjectionItem[] {
+  return (envelope.items ?? []).filter(isValidProjectionItem);
+}
+
+function isValidProjectionItem(item: PublicProjectionItem | undefined): item is PublicProjectionItem {
+  if (!item) return false;
+  const slot = text(item.slot);
+  return VALID_PROJECTION_SLOTS.has(slot)
+    && Boolean(text(item.surface))
+    && Boolean(text(item.source_authority));
 }
 
 function activityLevel(value: unknown): SessionActivityState["level"] {

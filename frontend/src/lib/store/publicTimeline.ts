@@ -8,15 +8,6 @@ type MergeOptions = {
   limit?: number;
 };
 
-const BODY_TIMELINE_KINDS = new Set([
-  "assistant_text",
-  "opening_judgment",
-  "task_plan",
-  "tool_result_feedback",
-  "stage_summary",
-  "observation_report",
-  "final_summary",
-]);
 const TOOL_LIMIT_BLOCKED_PUBLIC_TEXT = "本轮连续工具调用已达到运行上限，且没有生成可直接展示的结论。当前处理已停止。你可以让我继续下一轮，或补充要优先核查的位置。";
 const PUBLIC_TIMELINE_TEXT_FIELDS = [
   "title",
@@ -91,6 +82,10 @@ export function publicTimelineItemText(item: PublicChatTimelineItem | undefined)
 
 export function isPublicTimelineControlItem(item: PublicChatTimelineItem | null | undefined) {
   if (!item) return false;
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  if (slot === "control") {
+    return true;
+  }
   const kind = cleanPublicTimelineText(item.kind);
   const phase = cleanPublicTimelineText(item.phase).toLowerCase();
   if (kind === "status_update" && CONTROL_TIMELINE_PHASES.has(phase)) {
@@ -386,9 +381,7 @@ function trimPublicTimelineItems(items: PublicChatTimelineItem[], limit: number 
 
 export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | undefined) {
   if (!item) return false;
-  const surface = cleanPublicTimelineText(item.surface);
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot);
   const authority = cleanPublicTimelineText(item.source_authority);
-  if (surface === "body") return !["runtime", "tool", "system"].includes(authority);
-  if (surface === "tool_window" || surface === "status") return false;
-  return BODY_TIMELINE_KINDS.has(cleanPublicTimelineText(item.kind));
+  return slot === "body" && authority === "model";
 }

@@ -17,7 +17,7 @@ import type { AssistantTextStreamState, Message, RuntimeProgressEntry, StoreStat
 import {
   makeId
 } from "./utils";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent, sanitizePublicTimelineItems } from "./publicTimeline";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent } from "./publicTimeline";
 
 export type StreamSession = {
   assistantId: string;
@@ -78,6 +78,9 @@ function stoppedPublicTimelineItem(): PublicChatTimelineItem {
   return {
     item_id: "stream:stopped",
     kind: "status_update",
+    slot: "status",
+    surface: "status_bar",
+    source_authority: "system",
     title: "已停止本轮生成",
     detail: "你已停止本轮生成，当前运行不会继续推进。",
     text: "你已停止本轮生成，当前运行不会继续推进。",
@@ -221,6 +224,14 @@ function isTaskRunHandoffEvent(data: Record<string, unknown>) {
     || channel === "task_control";
 }
 
+function isTransportStreamEvent(event: string) {
+  return event === "stream_reconnecting"
+    || event === "stream_reconnected"
+    || event === "stream_reconnect_failed"
+    || event === "error"
+    || event === "stopped";
+}
+
 function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message> {
   return {
     answerChannel: stringValue(data.answer_channel) || undefined,
@@ -238,50 +249,6 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
 function shouldKeepStreamAssistantText(event: string, data: Record<string, unknown>) {
   const metadata = answerMetadataFromEvent(data);
   return shouldDisplayAssistantContent(metadata);
-}
-
-function assistantDoneContentFromEvent(data: Record<string, unknown>) {
-  if (isTaskRunHandoffEvent(data)) {
-    return "";
-  }
-  const metadata = answerMetadataFromEvent(data);
-  if (!shouldDisplayAssistantContent(metadata) || stringValue(data.answer_channel) === "runtime_control") {
-    return "";
-  }
-  const content = stringValue(data.content);
-  if (content && !isMachineReference(content) && !isRawToolOutputText(content)) {
-    return content;
-  }
-  const completionState = stringValue(data.completion_state);
-  if (completionState === "task_steer_accepted") {
-    return stringValue(data.summary ?? data.message) || "已加入当前任务队列。";
-  }
-  const candidates = [
-    data.final_answer,
-    data.answer,
-    data.summary,
-    data.receipt_summary,
-    data.message,
-  ];
-  for (const candidate of candidates) {
-    const text = stringValue(candidate);
-    if (text && !isMachineReference(text) && !isRawToolOutputText(text) && !isRoutineDoneContent(text)) {
-      return text;
-    }
-  }
-  return "";
-}
-
-function isRoutineDoneContent(value: string) {
-  const text = value.trim().toLowerCase();
-  return [
-    "done",
-    "completed",
-    "success",
-    "回答已生成并写回会话",
-    "会话输出完成",
-    "工具调用已完成，正在根据结果继续。",
-  ].includes(text);
 }
 
 function mergeAssistantTextDeltaEvent(
@@ -1322,11 +1289,10 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const publicProjectionEnvelope = publicProjectionEnvelopeFromRecord(data.public_projection_envelope);
-  const visibility = publicProjectionEnvelope ? {} : projectRuntimeStreamEvent(event, data);
+  const allowRawVisibility = isTransportStreamEvent(event);
+  const visibility = !publicProjectionEnvelope && allowRawVisibility ? projectRuntimeStreamEvent(event, data) : {};
   const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
-  const publicTimelineDelta = !publicProjectionEnvelope && Array.isArray(data.public_timeline_delta)
-    ? sanitizePublicTimelineItems(data.public_timeline_delta as PublicChatTimelineItem[])
-    : undefined;
+  const publicTimelineDelta = undefined as PublicChatTimelineItem[] | undefined;
   const taskProjectionDelta = publicProjectionEnvelope ? null : taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
@@ -1376,10 +1342,10 @@ export function reduceStreamEvent(
   const stateWithStage = patchAssistantStage(
     stateWithPublicProjection,
     session.assistantId,
-    visibility.stageStatus || (publicProjectionEnvelope ? "" : stageStatusForEvent(event, data))
+    allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
   );
-  const stateWithLegacyActivity = publicProjectionEnvelope ? stateWithStage : patchSessionActivity(stateWithStage, event, data);
-  const stateWithVisibilityActivity = applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility);
+  const stateWithLegacyActivity = allowRawVisibility ? patchSessionActivity(stateWithStage, event, data) : stateWithStage;
+  const stateWithVisibilityActivity = allowRawVisibility ? applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility) : stateWithLegacyActivity;
   const stateWithOrchestration = appendAssistantProgress(
     stateWithVisibilityActivity,
     session.assistantId,
@@ -1462,76 +1428,28 @@ export function reduceStreamEvent(
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
-    const doneContent = assistantDoneContentFromEvent(data);
-    const assistantTextStream = stateWithTimelineDraft.assistantTextStreamsByMessageId[session.assistantId];
-    const allowDoneContentFallback = !assistantTextStream;
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) =>
-        message.content.trim()
-          ? {
-              ...message,
-              ...answerMetadata,
-              runtimePublicTimelineDraft: mergePublicTimelineItems(
-                message.runtimePublicTimelineDraft,
-                publicTimelineDelta,
-                { terminalState: terminalTimelineState },
-              ),
-              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
-              image: (data.image as Message["image"]) ?? message.image ?? null
-            }
-          : allowDoneContentFallback && doneContent ? {
-              ...message,
-              ...answerMetadata,
-              content: doneContent,
-              runtimePublicTimelineDraft: mergePublicTimelineItems(
-                message.runtimePublicTimelineDraft,
-                publicTimelineDelta,
-                { terminalState: terminalTimelineState },
-              ),
-              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
-              image: (data.image as Message["image"]) ?? message.image ?? null
-            }
-          : {
-              ...message,
-              ...answerMetadata,
-              runtimePublicTimelineDraft: mergePublicTimelineItems(
-                message.runtimePublicTimelineDraft,
-                publicTimelineDelta,
-                { terminalState: terminalTimelineState },
-              ),
-              stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
-              image: (data.image as Message["image"]) ?? message.image ?? null
-            }
+        ({
+          ...message,
+          ...answerMetadata,
+          runtimePublicTimelineDraft: mergePublicTimelineItems(
+            message.runtimePublicTimelineDraft,
+            publicTimelineDelta,
+            { terminalState: terminalTimelineState },
+          ),
+          stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
+          image: (data.image as Message["image"]) ?? message.image ?? null
+        })
       ),
       session
     };
   }
 
   if (event === "answer_candidate" || event === "assistant_text") {
-    if (publicProjectionEnvelope) {
-      return {
-        state: stateWithTimelineDraft,
-        session,
-      };
-    }
-    if (!stateWithTimelineDraft.chatStreamDisplayEnabled) {
-      return {
-        state: stateWithTimelineDraft,
-        session,
-      };
-    }
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
-        if (message.content.trim()) {
-          return message;
-        }
-        if (!shouldKeepStreamAssistantText(event, data)) {
-          return message;
-        }
-        const candidate = String(data.content ?? "").trim();
-        return candidate ? { ...message, content: candidate } : message;
-      }),
-      session
+      state: stateWithTimelineDraft,
+      session,
     };
   }
 

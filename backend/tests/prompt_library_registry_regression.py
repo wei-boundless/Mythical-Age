@@ -139,12 +139,27 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         assert "工具列表" not in resource.content
     assert "当前日期" not in resource.content
 
+    rag_finalizer = resource_by_id["utility.finalizer.rag_answer"].content
+    assert "不要输出内部协议、工具名、字段名、JSON、canonical、evidence 等词" not in rag_finalizer
+    assert "用自然语言说明来源边界和不确定性" in rag_finalizer
+    mcp_usage_prompt = resource_by_id["mcp.prompt.capability_usage"].content
+    assert "不要把内部路由当作用户可见结论" in mcp_usage_prompt
+
     assert resource_by_id["runtime.single_agent_turn"].category == "runtime"
     assert resource_by_id["runtime.task_execution"].category == "runtime"
     assert resource_by_id["runtime.rule.system_call_protocol"].category == "runtime"
     assert resource_by_id["runtime.rule.turn_decision_alignment"].category == "runtime"
     assert resource_by_id["runtime.rule.tool_use"].category == "runtime"
     assert resource_by_id["runtime.rule.subagent_invocation_protocol"].category == "runtime"
+    system_call_protocol = resource_by_id["runtime.rule.system_call_protocol"].content
+    assert "tool_calls 数组" in system_call_protocol
+    assert "schema 没有的字段" not in resource_by_id["runtime.single_agent_turn"].content
+    assert "tool_calls 数组" not in resource_by_id["runtime.task_execution"].content
+    assert "payload 必须使用 action 字段" not in resource_by_id["runtime.observation_followup"].content
+    assert (
+        "如果本轮要求 JSON action，只输出一个合法 JSON 对象"
+        not in resource_by_id["runtime.rule.output_boundary"].content
+    )
     assert resource_by_id["runtime.rule.file_management.generic"].resource_type == "environment.file_management_rule"
     assert resource_by_id["coding.rule.large_scope_exploration"].resource_type == "environment.coding_rule"
     assert resource_by_id["coding.rule.large_scope_exploration"].cache_scope == "static_environment"

@@ -75,11 +75,9 @@ def build_base_prompt_mount_plan(
     selected_payload = dict(selected_environment or {})
     selected_environment_id = _environment_id(selected_payload) or GENERAL_ENVIRONMENT_ID
     base_environment_id = selected_environment_id
-    prompt_policy_payload = dict(prompt_policy or {})
     boundary = dict(selected_payload.get("environment_boundary") or {})
-    lifecycle_defaults = _prompt_ref_map(boundary.get("lifecycle_prompt_defaults")) or _prompt_ref_map(
-        prompt_policy_payload.get("lifecycle_prompt_defaults")
-    )
+    prompt_policy_payload = dict(prompt_policy or {})
+    lifecycle_defaults = _prompt_ref_map(boundary.get("lifecycle_prompt_defaults"))
     lifecycle_overrides = _prompt_ref_map(boundary.get("lifecycle_prompt_overrides"))
     tool_guidance_defaults = _prompt_ref_map(prompt_policy_payload.get("tool_guidance_prompt_defaults"))
     tool_guidance_overrides = _prompt_ref_map(boundary.get("tool_guidance_prompt_overrides"))

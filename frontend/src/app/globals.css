@@ -22158,6 +22158,33 @@ body {
   white-space: nowrap;
 }
 
+.graph-foreground-reader-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-foreground-reader-nav button {
+  min-height: 30px;
+  border: 1px solid rgba(14, 116, 144, 0.24);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #155e75;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  white-space: nowrap;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.graph-foreground-reader-nav button:hover {
+  border-color: rgba(14, 116, 144, 0.42);
+  background: #ecfeff;
+}
+
 .graph-foreground-reader-head small {
   min-width: 0;
   overflow: hidden;
@@ -22657,7 +22684,16 @@ body {
 
   .graph-foreground-reader-head {
     align-items: flex-start;
+    flex-direction: column;
     min-height: 58px;
+  }
+
+  .graph-foreground-reader-nav {
+    width: 100%;
+  }
+
+  .graph-foreground-reader-nav button {
+    flex: 1;
   }
 
   .graph-foreground-reader-head strong {

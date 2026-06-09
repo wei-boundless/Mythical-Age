@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Eye,
   FileText,
@@ -416,6 +418,18 @@ function decisionLabel(control: HumanEdgeControlView | null, decision: HumanEdge
   return "我来替写并继续";
 }
 
+function writingDecisionLabel(decision: HumanEdgeDecisionKind) {
+  if (decision === "pass") return "通过本章";
+  if (decision === "revise") return "退稿给写手";
+  return "采用我的改写稿";
+}
+
+function writingDrawerTitle(decision: HumanEdgeDecisionKind) {
+  if (decision === "pass") return "通过本章";
+  if (decision === "revise") return "退稿意见";
+  return "采用改写稿";
+}
+
 function controlTitle(control: HumanEdgeControlView) {
   return `${control.source_node_id || "上游"} -> ${control.target_node_id || "下游"}`;
 }
@@ -457,7 +471,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [instanceFilter, setInstanceFilter] = useState<InstanceFilter>("all");
   const [fileEditorMode, setFileEditorMode] = useState<FileEditorMode>("edit");
   const [assetTab, setAssetTab] = useState<AssetTab>("library");
-  const [consoleScreen, setConsoleScreen] = useState<ConsoleScreen>("monitor");
+  const [consoleScreen, setConsoleScreen] = useState<ConsoleScreen>("sessions");
   const [selectedHumanControlId, setSelectedHumanControlId] = useState("");
   const [decisionDrawerOpen, setDecisionDrawerOpen] = useState(false);
   const [decisionKind, setDecisionKind] = useState<HumanEdgeDecisionKind>("pass");
@@ -531,6 +545,14 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const selectedFileName = selectedFilePath
     ? selectedFilePath.split(/[\\/]/).filter(Boolean).at(-1) || selectedFilePath
     : "";
+  const selectedChapterIndex = useMemo(
+    () => visibleChapterFiles.findIndex((file) => file.path === selectedFilePath),
+    [selectedFilePath, visibleChapterFiles],
+  );
+  const previousChapterFile = selectedChapterIndex > 0 ? visibleChapterFiles[selectedChapterIndex - 1] : null;
+  const nextChapterFile = selectedChapterIndex >= 0 && selectedChapterIndex < visibleChapterFiles.length - 1
+    ? visibleChapterFiles[selectedChapterIndex + 1]
+    : null;
   const selectedNodeArtifacts = useMemo(
     () => selectedNode ? artifacts.filter((artifact) => artifactNodeId(artifact) === selectedNode.nodeId).slice(0, 8) : [],
     [artifacts, selectedNode],
@@ -640,7 +662,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     setFileContent("");
     setSelectedNodeId("");
     setAssetTab("library");
-    setConsoleScreen("monitor");
+    setConsoleScreen("sessions");
     void loadInstances(selectedGraphId);
   }, [loadInstances, selectedGraphId]);
 
@@ -702,7 +724,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       ]));
       setSelectedInstanceId(payload.instance.graph_task_instance_id);
       setAssetTab("library");
-      setConsoleScreen("monitor");
+      setConsoleScreen("sessions");
       setNewInstanceTitle("");
       setNewInstanceDescription("");
       setNotice("项目实例已创建。");
@@ -744,6 +766,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         instance.graph_task_instance_id === payload.instance.graph_task_instance_id ? payload.instance : instance
       ))));
       setSelectedInstanceId(payload.instance.graph_task_instance_id);
+      setConsoleScreen("sessions");
       setNotice("运行已提交后台。");
       await refreshInstance(payload.instance.graph_task_instance_id);
     } catch (caught) {
@@ -870,7 +893,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         await loadProjectFileTree(selectedInstance.graph_task_instance_id);
       }
       await refreshInstance(selectedInstance.graph_task_instance_id);
-      setNotice(`${decisionLabel(selectedHumanControl, decisionKind)}已应用。`);
+      setNotice(`${writingDecisionLabel(decisionKind)}已应用。`);
       setDecisionDrawerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "人工传播决策提交失败");
@@ -897,9 +920,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     <section className={classNames("graph-foreground-shell", hasSelectedInstance ? "graph-foreground-shell--console" : "graph-foreground-shell--manager")} aria-label="图任务前台">
       <header className="graph-foreground-topbar">
         <div>
-          <span>{hasSelectedInstance ? "Project Console" : "Graph Task Projects"}</span>
-          <strong>{hasSelectedInstance ? selectedInstance?.title : "图任务项目管理"}</strong>
-          <small>{selectedGraph?.title || selectedGraph?.graph_id || "选择图任务定义"} · {instances.length} 个项目实例</small>
+          <span>{hasSelectedInstance ? "Writing Desk" : "Writing Graph Projects"}</span>
+          <strong>{hasSelectedInstance ? selectedInstance?.title : "写作项目台"}</strong>
+          <small>{selectedGraph?.title || selectedGraph?.graph_id || "选择写作图任务"} · {instances.length} 个项目实例</small>
         </div>
         <div className="graph-foreground-topbar__actions">
           {hasSelectedInstance ? (
@@ -1019,7 +1042,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 const tone = statusTone(instance.status);
                 return (
                   <article className={classNames("graph-foreground-project-row", `graph-foreground-project-row--${tone}`)} key={instance.graph_task_instance_id}>
-                    <button className="graph-foreground-project-row__title" onClick={() => { setConsoleScreen("monitor"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
+                    <button className="graph-foreground-project-row__title" onClick={() => { setConsoleScreen("sessions"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
                       <strong>{instance.title || instance.graph_task_instance_id}</strong>
                       <small>{instance.graph_task_instance_id}</small>
                     </button>
@@ -1030,9 +1053,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                         <PlayCircle size={13} />
                         <span>{statusTone(instance.status) === "active" ? "继续" : "启动"}</span>
                       </button>
-                      <button onClick={() => { setConsoleScreen("monitor"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
+                      <button onClick={() => { setConsoleScreen("sessions"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
                         <MessageSquare size={13} />
-                        <span>进入</span>
+                        <span>章节台</span>
                       </button>
                     </div>
                   </article>
@@ -1042,7 +1065,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 <div className="graph-foreground-compact-empty">
                   <FileText size={20} />
                   <strong>这个图还没有项目实例</strong>
-                  <span>在右侧创建项目后进入运行控制台。</span>
+                  <span>在右侧创建项目后进入章节生产台。</span>
                 </div>
               ) : null}
               {instances.length && !filteredInstances.length ? <div className="graph-foreground-compact-empty">没有匹配的项目实例。</div> : null}
@@ -1077,7 +1100,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
               </label>
               <button disabled={!selectedGraph || action === "create-instance"} onClick={() => void createInstance()} type="button">
                 <Plus size={14} />
-                <span>{action === "create-instance" ? "创建中" : "创建并进入项目"}</span>
+                <span>{action === "create-instance" ? "创建中" : "创建并进入章节台"}</span>
               </button>
             </section>
           </aside>
@@ -1092,13 +1115,13 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             </div>
             <div className="graph-foreground-console-actions">
               <div className="graph-foreground-console-switch" role="tablist" aria-label="项目控制台屏幕">
-                <button aria-selected={consoleScreen === "monitor"} className={consoleScreen === "monitor" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("monitor")} type="button">
-                  <GitBranch size={13} />
-                  图监控
-                </button>
                 <button aria-selected={consoleScreen === "sessions"} className={consoleScreen === "sessions" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("sessions")} type="button">
                   <MessageSquare size={13} />
-                  会话章节
+                  章节台
+                </button>
+                <button aria-selected={consoleScreen === "monitor"} className={consoleScreen === "monitor" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("monitor")} type="button">
+                  <GitBranch size={13} />
+                  图调试
                 </button>
               </div>
               <em className={`graph-foreground-status graph-foreground-status--${statusTone(selectedInstance.status)}`}>
@@ -1348,13 +1371,13 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
           <section className="graph-foreground-assets graph-foreground-assets--session" aria-label="项目资产区">
             <header>
               <div>
-                <span>项目资产</span>
-                <strong>{assetTab === "library" ? "正式库" : "运行产物"}</strong>
+                <span>写作台</span>
+                <strong>{assetTab === "library" ? "正文阅读" : "运行产物"}</strong>
               </div>
               <div className="graph-foreground-asset-tabs" role="tablist" aria-label="项目资产页签">
                 <button aria-selected={assetTab === "library"} className={assetTab === "library" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("library")} type="button">
                   <FolderTree size={13} />
-                  正式库
+                  正文
                 </button>
                 <button aria-selected={assetTab === "artifacts"} className={assetTab === "artifacts" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("artifacts")} type="button">
                   <FileText size={13} />
@@ -1371,7 +1394,16 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                       <strong>{selectedFileName || "选择章节开始阅读"}</strong>
                       <small>{selectedFilePath || "从左侧章节列表打开项目文件"}</small>
                     </div>
-                    <FileText size={15} />
+                    <div className="graph-foreground-reader-nav" aria-label="章节切换">
+                      <button disabled={!previousChapterFile} onClick={() => previousChapterFile && void loadFile(previousChapterFile.path)} type="button">
+                        <ChevronLeft size={14} />
+                        <span>上一章</span>
+                      </button>
+                      <button disabled={!nextChapterFile} onClick={() => nextChapterFile && void loadFile(nextChapterFile.path)} type="button">
+                        <span>下一章</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="graph-foreground-file-head">
                     <label>
@@ -1391,7 +1423,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   </div>
                   <div className="graph-foreground-chapter-actions" aria-label="章节传播动作">
                     <div>
-                      <span>人工传播</span>
+                      <span>章节审核</span>
                       <strong>{selectedHumanControl ? controlTitle(selectedHumanControl) : "当前无可处理边"}</strong>
                     </div>
                     <div>
@@ -1400,7 +1432,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                         return (
                           <button disabled={!enabled || action === "human-edge-decision"} key={kind} onClick={() => openHumanDecision(selectedHumanControl, kind)} type="button">
                             {kind === "replace" ? <PencilLine size={13} /> : kind === "revise" ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
-                            <span>{decisionLabel(selectedHumanControl, kind)}</span>
+                            <span>{writingDecisionLabel(kind)}</span>
                           </button>
                         );
                       })}
@@ -1430,7 +1462,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 </div>
                 <div className="graph-foreground-library__writer">
                   <label>
-                    <span>写入正式库</span>
+                    <span>写入正文库</span>
                     <input onChange={(event) => setNewFilePath(event.target.value)} placeholder="input/brief.md" value={newFilePath} />
                   </label>
                   <div className="graph-foreground-template-grid">
@@ -1444,7 +1476,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   <textarea onChange={(event) => setNewFileContent(event.target.value)} placeholder="输入要写入项目正式库的内容" value={newFileContent} />
                   <button disabled={!newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
                     <FileText size={14} />
-                    <span>{action === "write-file" ? "写入中" : "写入项目库"}</span>
+                    <span>{action === "write-file" ? "写入中" : "写入正文库"}</span>
                   </button>
                 </div>
               </div>
@@ -1527,7 +1559,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
               <section className="graph-foreground-panel graph-foreground-session-card">
                 <header>
                   <div>
-                    <span>人工决策</span>
+                    <span>审核记录</span>
                     <strong>{decisionHistory.length} 条记录</strong>
                   </div>
                   <GitBranch size={15} />
@@ -1539,7 +1571,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                       <span>{stringValue(item.status, "submitted")} · {timestampLabel(item.updated_at ?? item.created_at)}</span>
                     </article>
                   ))}
-                  {!decisionHistory.length ? <div className="boundary-empty">人工传播决策会记录在这里。</div> : null}
+                  {!decisionHistory.length ? <div className="boundary-empty">章节审核记录会显示在这里。</div> : null}
                 </div>
               </section>
             </aside>
@@ -1548,12 +1580,12 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         </div>
       )}
       {decisionDrawerOpen && selectedHumanControl ? (
-        <div className="graph-foreground-decision-drawer" role="dialog" aria-modal="true" aria-label="人工传播决策">
+        <div className="graph-foreground-decision-drawer" role="dialog" aria-modal="true" aria-label="章节审核决策">
           <div className="graph-foreground-decision-drawer__panel">
             <header>
               <div>
-                <span>人工传播决策</span>
-                <strong>{controlTitle(selectedHumanControl)}</strong>
+                <span>章节审核</span>
+                <strong>{writingDrawerTitle(decisionKind)}</strong>
               </div>
               <button onClick={() => setDecisionDrawerOpen(false)} type="button">关闭</button>
             </header>
@@ -1567,13 +1599,13 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   type="button"
                 >
                   {kind === "replace" ? <PencilLine size={14} /> : kind === "revise" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-                  <span>{decisionLabel(selectedHumanControl, kind)}</span>
+                  <span>{writingDecisionLabel(kind)}</span>
                 </button>
               ))}
             </div>
             <label>
-              <span>{decisionKind === "revise" ? "回传意见" : "传播说明"}</span>
-              <textarea onChange={(event) => setDecisionInstruction(event.target.value)} placeholder={decisionKind === "revise" ? "说明退稿原因和修改方向" : "可选，写给下游节点的补充说明"} value={decisionInstruction} />
+              <span>{decisionKind === "revise" ? "退稿意见" : "审核说明"}</span>
+              <textarea onChange={(event) => setDecisionInstruction(event.target.value)} placeholder={decisionKind === "revise" ? "写清楚退稿原因和修改方向" : "可选，写给下一环节的补充说明"} value={decisionInstruction} />
             </label>
             {decisionKind === "replace" ? (
               <div className="graph-foreground-decision-replace">
@@ -1582,7 +1614,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   <input onChange={(event) => setDecisionReplacePath(event.target.value)} value={decisionReplacePath} />
                 </label>
                 <label>
-                  <span>替写内容</span>
+                  <span>改写正文</span>
                   <textarea onChange={(event) => setDecisionReplaceContent(event.target.value)} value={decisionReplaceContent} />
                 </label>
               </div>
@@ -1591,7 +1623,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
               <button onClick={() => setDecisionDrawerOpen(false)} type="button">取消</button>
               <button disabled={action === "human-edge-decision"} onClick={() => void submitHumanDecision()} type="button">
                 <GitBranch size={14} />
-                <span>{action === "human-edge-decision" ? "应用中" : "应用到图任务"}</span>
+                <span>{action === "human-edge-decision" ? "应用中" : "确认审核动作"}</span>
               </button>
             </footer>
           </div>

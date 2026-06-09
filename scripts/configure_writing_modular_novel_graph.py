@@ -637,18 +637,10 @@ def _volume_loop_contract(title_template: str) -> dict[str, Any]:
     return _node_loop("loop.volume", title_template=title_template)
 
 
-GRAPH_NODE_RESPONSE_BOUNDARY_PROMPT = """
-系统会根据任务图边、记忆协议和产物合同，把已授权的上游内容放入你的上下文，并在你完成后负责产物物化、归档和记忆提交。
-你不直接读取文件，不直接写入文件，不直接调用记忆库工具，也不因为看不到文件工具而阻塞；如果上下文中已经有授权文本、摘要或 artifact_payloads，就必须基于这些内容完成当前节点职责。
-你的输出应是可被系统物化和提交的完整节点结果；需要写入产物或记忆时，把应提交的正文、引用、裁决依据和边界说明写入 final_answer，而不是要求获得 file_read、file_write 或 memory 工具。
-如果审核裁决为返修或拒绝，你只能输出清晰的返修/拒绝原因和返修目标，不得把未通过内容提交为基准事实。
-"""
-
-
 def _role_prompt(*sections: str) -> str:
     return "\n\n".join(
         section.strip()
-        for section in (*sections, GRAPH_NODE_RESPONSE_BOUNDARY_PROMPT)
+        for section in sections
         if str(section or "").strip()
     )
 

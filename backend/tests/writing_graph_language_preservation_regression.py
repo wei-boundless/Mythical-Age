@@ -201,7 +201,8 @@ def test_writing_modular_node_prompts_are_migrated_to_standard_graph_prompt_cont
     assert "你是一名中文商业网文项目启动整理员" in source_prompt["role_prompt"]
     assert project_brief["prompt"]["role_prompt"] == source_prompt["role_prompt"]
     assert project_brief["prompt"]["authority"] == "task_system.writing_graph.node_prompt_contract"
-    assert "系统会根据任务图边、记忆协议和产物合同" in project_brief["prompt"]["role_prompt"]
+    assert "系统会根据任务图边、记忆协议和产物合同" not in project_brief["prompt"]["role_prompt"]
+    assert "artifact_payloads" not in project_brief["prompt"]["role_prompt"]
 
 
 def test_writing_chapter_standard_view_preserves_old_loop_and_edge_topology(tmp_path: Path) -> None:

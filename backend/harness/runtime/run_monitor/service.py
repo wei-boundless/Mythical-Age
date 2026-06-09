@@ -181,7 +181,12 @@ class RuntimeMonitorService:
 
         now = time.time()
         items = [
-            self.projector.project_task_run(item, now=now, include_runtime_details=False)
+            self.projector.project_task_run(
+                item,
+                now=now,
+                include_runtime_details=False,
+                include_graph_runtime=False,
+            )
             for item in task_runs
         ]
         active = next(

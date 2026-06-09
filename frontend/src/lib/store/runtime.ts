@@ -79,7 +79,8 @@ function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor |
   return {
     item_id: `stream-restore:${streamRunId}`,
     kind: "status_update",
-    surface: "status",
+    slot: "status",
+    surface: "status_bar",
     source_authority: "system",
     title: "同步运行进度",
     detail: recoveredChatRunActivityDetail(cursor),
@@ -4294,6 +4295,9 @@ export class WorkspaceRuntime {
     return {
       item_id: `live:${taskRunId}:monitor-status`,
       kind: "status_update",
+      slot: "status",
+      surface: "status_bar",
+      source_authority: "runtime",
       phase: staleState ? "stale" : "waiting",
       title,
       detail,

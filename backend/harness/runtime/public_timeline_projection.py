@@ -110,6 +110,9 @@ def public_work_action_item(
         {
             "item_id": item_id or stable_id("work-action", ",".join(trace_refs or []), kind, subject),
             "kind": "work_action",
+            "slot": "tool",
+            "surface": "tool_window",
+            "source_authority": "tool",
             "action_kind": kind,
             "phase": phase,
             "title": public_action_title(action_kind=kind, phase=phase),
@@ -145,6 +148,9 @@ def public_observation_report_item(
         {
             "item_id": item_id or stable_id("observation", ",".join(trace_refs or []), title, visible_detail),
             "kind": "observation_report",
+            "slot": "body",
+            "surface": "assistant_body",
+            "source_authority": "model",
             "title": title,
             "detail": visible_detail,
             "implication": public_text(implication, limit=180),

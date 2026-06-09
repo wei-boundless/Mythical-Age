@@ -396,18 +396,16 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
 
 function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] | "" {
   if (isPublicTimelineBodyItem(item)) return "body";
-  const kind = kindOf(item);
-  const surface = cleanPublicTimelineText(item.surface);
-  if (kind === "blocked") return "stopped";
-  if (surface === "tool_window" || ["work_action", "tool_activity"].includes(kind)) return "tool";
-  if (surface === "status" || ["artifact", "status_update", "verification"].includes(kind)) return "status";
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  if (slot === "tool") return "tool";
+  if (slot === "status" || slot === "timeline" || slot === "task") return "status";
+  if (slot === "control") return "";
   return "";
 }
 
 function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem) {
-  const kind = kindOf(item);
-  const surface = cleanPublicTimelineText(item.surface);
-  if (surface !== "tool_window" && !["work_action", "tool_activity"].includes(kind)) {
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  if (slot !== "tool") {
     return false;
   }
   const state = cleanPublicTimelineText(item.state).toLowerCase();
@@ -511,10 +509,11 @@ function isStalePublicTimelineItemForProjectionTone(
 function isActivePublicTimelineItem(item: PublicChatTimelineItem) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
   const phase = cleanPublicTimelineText(item.phase).toLowerCase();
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
   if (item.stream_state === "streaming") return true;
   if (["running", "working", "partial"].includes(state)) return true;
   if (["running", "working", "partial", "streaming"].includes(phase)) return true;
-  if (!state && (["work_action", "tool_activity", "status_update"].includes(kindOf(item)) || cleanPublicTimelineText(item.surface) === "tool_window")) {
+  if (!state && ["tool", "status", "timeline"].includes(slot)) {
     return true;
   }
   return false;

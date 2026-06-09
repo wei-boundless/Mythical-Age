@@ -252,6 +252,9 @@ def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> lis
             {
                 "item_id": f"opening:{entry.get('id') or entry.get('eventType') or len(items)}",
                 "kind": "opening_judgment",
+                "slot": "body",
+                "surface": "assistant_body",
+                "source_authority": "model",
                 "title": "开局判断",
                 "text": text,
                 "state": "error" if str(entry.get("level") or "") == "error" else "done" if str(entry.get("level") or "") == "success" else "running",

@@ -3,8 +3,7 @@ from __future__ import annotations
 from hashlib import sha1
 from typing import Any
 
-from harness.runtime.public_timeline_stream import project_public_timeline_delta
-from harness.runtime.public_projection_envelope import build_public_projection_envelope
+from harness.runtime.public_projection_projector import project_public_projection_event
 from harness.runtime.public_timeline_projection import public_text
 from harness.runtime.session_task_projection import build_single_agent_task_projection_for_event
 
@@ -50,10 +49,11 @@ def project_runtime_monitor_event_public_delta(
     ) if include_task_projection and runtime_host is not None else {}
     if not _text(anchor.get("anchor_turn_id")):
         if task_projection:
-            envelope = build_public_projection_envelope(
+            projection = project_public_projection_event(
                 public_event_type,
-                {**_public_event_data(public_event_type=public_event_type, event=event, monitor=monitor), "public_anchor": anchor},
+                _public_event_data(public_event_type=public_event_type, event=event, monitor=monitor),
                 sequence=int(event.get("offset") or 0),
+                public_anchor=anchor,
                 task_projection=task_projection,
             )
             return {
@@ -62,7 +62,7 @@ def project_runtime_monitor_event_public_delta(
                 "task_projection": task_projection,
                 "task_projection_delta": task_projection,
                 "public_anchor": anchor,
-                "public_projection_envelope": envelope,
+                "public_projection_envelope": projection["public_projection_envelope"],
                 "debug_trace_ref": debug_trace_ref,
             }
         return {
@@ -73,14 +73,15 @@ def project_runtime_monitor_event_public_delta(
         }
 
     data = _public_event_data(public_event_type=public_event_type, event=event, monitor=monitor)
-    delta = project_public_timeline_delta(public_event_type, data)
-    envelope = build_public_projection_envelope(
+    projection = project_public_projection_event(
         public_event_type,
-        {**data, "public_anchor": anchor},
+        data,
         sequence=int(event.get("offset") or 0),
-        public_timeline_delta=delta,
+        public_anchor=anchor,
         task_projection=task_projection,
     )
+    delta = list(projection.get("public_timeline_delta") or [])
+    envelope = projection["public_projection_envelope"]
     if not delta:
         if task_projection:
             return {
@@ -376,7 +377,8 @@ def _final_answer_timeline_item(
     return {
         "item_id": f"final:{_stable_digest(run_id + '|' + text)}",
         "kind": "final_summary",
-        "surface": "body",
+        "slot": "body",
+        "surface": "assistant_body",
         "source_authority": "model",
         "text": text,
         "state": "done",
@@ -414,14 +416,9 @@ def _settle_completed_model_body_items(items: list[dict[str, Any]], *, status: s
 
 
 def _is_model_body_item(item: dict[str, Any]) -> bool:
-    surface = _text(item.get("surface"))
+    slot = _text(item.get("slot"))
     authority = _text(item.get("source_authority"))
-    kind = _text(item.get("kind"))
-    if surface == "body":
-        return authority not in {"runtime", "tool", "system"}
-    if surface in {"tool_window", "status"}:
-        return False
-    return kind in {"assistant_text", "opening_judgment", "task_plan", "tool_result_feedback", "stage_summary", "observation_report", "final_summary"}
+    return slot == "body" and authority == "model"
 
 
 def _same_public_text(left: str, right: str) -> bool:

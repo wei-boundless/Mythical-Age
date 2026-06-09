@@ -12,8 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
-from harness.runtime.public_timeline_stream import project_public_timeline_delta
-from harness.runtime.public_projection_envelope import build_public_projection_envelope
+from harness.runtime.public_projection_projector import attach_public_projection_event
 from harness.runtime.session_task_projection import build_single_agent_task_projection
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.shared.runtime_run_registry import RuntimeRun
@@ -393,10 +392,17 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     terminal_event = ""
     current = _safe_mark_run_running(registry, run)
     try:
+        start_data = {"status": "running"}
+        _attach_public_projection_envelope(
+            "chat_run_started",
+            start_data,
+            session_id=request.session_id,
+            sequence=0,
+        )
         start_event = replay.append_public_event(
             current,
             public_event_type="chat_run_started",
-            data={"status": "running"},
+            data=start_data,
         )
         current = _safe_mark_run_event(registry, current, latest_event_offset=start_event.offset, status="running")
         async for event in runtime.harness_runtime.astream(request):
@@ -465,10 +471,14 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         logged = replay.append_public_event(
             current,
             public_event_type="error",
-            data={
-                "error": str(exc) or "Chat stream failed.",
-                "code": "stream_exception",
-            },
+            data=_public_error_data_with_projection(
+                {
+                    "error": str(exc) or "Chat stream failed.",
+                    "code": "stream_exception",
+                },
+                session_id=request.session_id,
+                sequence=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+            ),
         )
         current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event="error")
         host.close_chat_turn_run_for_stream_failure_best_effort(
@@ -482,10 +492,14 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         logged = replay.append_public_event(
             current,
             public_event_type="error",
-            data={
-                "error": "Chat stream ended without a terminal event.",
-                "code": "missing_terminal_event",
-            },
+            data=_public_error_data_with_projection(
+                {
+                    "error": "Chat stream ended without a terminal event.",
+                    "code": "missing_terminal_event",
+                },
+                session_id=request.session_id,
+                sequence=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+            ),
         )
         current = _safe_mark_run_event(current=current, registry=registry, latest_event_offset=logged.offset, status="failed", terminal_event="error")
         host.close_chat_turn_run_for_stream_failure_best_effort(
@@ -493,6 +507,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="missing_terminal_event",
             reason="Chat stream ended without a terminal event.",
         )
+
+
+def _public_error_data_with_projection(data: dict[str, Any], *, session_id: str, sequence: int) -> dict[str, Any]:
+    payload = dict(data or {})
+    _attach_public_projection_envelope("error", payload, session_id=session_id, sequence=sequence)
+    return payload
 
 
 def _safe_mark_run_running(registry: Any, run: RuntimeRun) -> RuntimeRun:
@@ -661,9 +681,6 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
             "runtime_branch": _public_runtime_branch(branch),
             "allowed_action_types": list(data.get("allowed_action_types") or []),
         }
-    public_timeline_delta = project_public_timeline_delta(normalized, data)
-    if public_timeline_delta:
-        data["public_timeline_delta"] = public_timeline_delta
     return normalized, data
 
 
@@ -709,12 +726,11 @@ def _attach_public_projection_envelope(
     session_id: str,
     sequence: int = 0,
 ) -> None:
-    data["public_projection_envelope"] = build_public_projection_envelope(
+    attach_public_projection_event(
         public_event_type,
         data,
         session_id=session_id,
         sequence=sequence,
-        public_timeline_delta=list(data.get("public_timeline_delta") or []),
         task_projection=dict(data.get("task_projection_delta") or data.get("task_projection") or {}),
     )
 

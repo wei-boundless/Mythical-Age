@@ -5,6 +5,7 @@ from harness.runtime.public_projection_envelope import (
     PUBLIC_PROJECTION_ENVELOPE_AUTHORITY,
     build_public_projection_envelope,
 )
+from harness.runtime.public_projection_projector import project_public_projection_event
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
 from harness.runtime.runtime_monitor_public_projection import project_runtime_monitor_event_public_delta
 
@@ -64,7 +65,8 @@ def test_model_body_envelope_keeps_body_items_in_body_slot() -> None:
             {
                 "item_id": "body:1",
                 "kind": "assistant_text",
-                "surface": "body",
+                "slot": "body",
+                "surface": "assistant_body",
                 "source_authority": "model",
                 "text": "I will inspect the current chain first.",
                 "state": "running",
@@ -78,13 +80,96 @@ def test_model_body_envelope_keeps_body_items_in_body_slot() -> None:
         {
             "item_id": "body:1",
             "kind": "assistant_text",
-            "surface": "body",
+            "slot": "body",
+            "surface": "assistant_body",
             "source_authority": "model",
             "text": "I will inspect the current chain first.",
             "state": "running",
-            "slot": "body",
         }
     ]
+
+
+def test_projection_builder_drops_items_without_explicit_slot() -> None:
+    envelope = build_public_projection_envelope(
+        "assistant_text",
+        {"answer_channel": "conversation"},
+        session_id="session-envelope",
+        sequence=2,
+        public_timeline_delta=[
+            {
+                "item_id": "legacy-body",
+                "kind": "final_summary",
+                "surface": "assistant_body",
+                "source_authority": "model",
+                "text": "This old item has no slot.",
+                "state": "done",
+            }
+        ],
+    )
+
+    assert envelope.get("items", []) == []
+
+
+def test_projector_does_not_project_done_content_as_body() -> None:
+    projected = project_public_projection_event(
+        "done",
+        {
+            "content": "This must not become message body.",
+            "summary": "Done summary also stays a status item.",
+            "answer_channel": "conversation",
+        },
+        session_id="session-envelope",
+        sequence=9,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope["terminal"] == {"event": "done", "visible": True}
+    assert envelope["surface"] == "assistant_body"
+    assert all(item.get("slot") != "body" for item in envelope.get("items", []))
+    assert all(item.get("slot") != "body" for item in projected.get("public_timeline_delta", []))
+
+
+def test_typed_assistant_stream_events_do_not_duplicate_body_items() -> None:
+    for event_type in ("assistant_text_delta", "assistant_text_final", "assistant_stream_repair"):
+        projected = project_public_projection_event(
+            event_type,
+            {
+                "content": "typed stream text",
+                "answer_channel": "conversation",
+                "answer_source": "model",
+            },
+            session_id="session-envelope",
+            sequence=4,
+        )
+
+        envelope = projected["public_projection_envelope"]
+        assert envelope["source_authority"] == "model"
+        assert envelope["surface"] == "assistant_body"
+        assert envelope.get("items", []) == []
+        assert "public_timeline_delta" not in projected
+
+
+def test_public_anchor_is_honored_by_projection_envelope() -> None:
+    projected = project_public_projection_event(
+        "runtime_status",
+        {
+            "title": "等待继续",
+            "detail": "任务已进入等待队列。",
+            "state": "waiting",
+        },
+        public_anchor={
+            "anchor_turn_id": "turn:session-envelope:42",
+            "task_run_id": "taskrun:turn:session-envelope:42:abc",
+            "turn_run_id": "turnrun:turn:session-envelope:42",
+            "run_id": "taskrun:turn:session-envelope:42:abc",
+        },
+        sequence=12,
+    )
+
+    anchor = projected["public_projection_envelope"]["anchor"]
+    assert anchor["turn_id"] == "turn:session-envelope:42"
+    assert anchor["task_run_id"] == "taskrun:turn:session-envelope:42:abc"
+    assert anchor["turn_run_id"] == "turnrun:turn:session-envelope:42"
 
 
 def test_runtime_monitor_public_delta_carries_projection_envelope() -> None:

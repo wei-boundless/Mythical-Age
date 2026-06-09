@@ -6,7 +6,6 @@ import { Gauge } from "lucide-react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
-import { hasDisplayablePublicTimelineBody } from "@/components/chat/agentRunProjection";
 import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPanel";
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
@@ -240,7 +239,7 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   if (publicTimeline.some(isAskUserQuestionItem)) {
     return true;
   }
-  if (!latestAssistant.content.trim() && publicTimeline.some(isMessageLevelAssistantFeedback)) {
+  if (hasTaskProjection) {
     return true;
   }
   return false;
@@ -254,10 +253,6 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
     seen.set(base, count + 1);
     return count ? `${base}:duplicate-${count}` : base;
   });
-}
-
-function isMessageLevelAssistantFeedback(item: PublicChatTimelineItem) {
-  return hasDisplayablePublicTimelineBody([item]);
 }
 
 function isAskUserQuestionItem(item: PublicChatTimelineItem) {

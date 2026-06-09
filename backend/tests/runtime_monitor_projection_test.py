@@ -112,6 +112,21 @@ class RunRegistryStub:
         return None
 
 
+class GraphHarnessStub:
+    def __init__(self):
+        self.monitor_calls = []
+
+    def get_graph_run_monitor(self, graph_run_id, **kwargs):
+        self.monitor_calls.append((graph_run_id, dict(kwargs)))
+        return {
+            "graph_loop_state": {
+                "status": "running",
+                "node_states": {"draft": {"status": "running"}},
+            },
+            "active_node_work_orders": [{"node_id": "draft"}],
+        }
+
+
 def task_run(**patch):
     data = {
         "task_run_id": "taskrun:turn:session-a:1:abc",
@@ -188,6 +203,41 @@ def test_session_task_summary_uses_top_level_session_task_not_child_runs():
     assert summary["task_run_id"] == "taskrun:turn:session-dev:1:root"
     assert summary["title"] == "开发计算器"
     assert summary["task_run_count"] == 1
+
+
+def test_session_task_summary_does_not_fetch_graph_runtime_detail():
+    graph_run = task_run(
+        task_run_id="taskrun:graph-root",
+        session_id="session-graph",
+        task_id="task.graph.root",
+        status="running",
+        diagnostics={
+            "graph_id": "graph:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:existing",
+            "title": "长篇小说图任务",
+        },
+    )
+    graph_harness = GraphHarnessStub()
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([graph_run]),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+    )
+    service = RuntimeMonitorService(
+        runtime_host=runtime_host,
+        graph_harness=graph_harness,
+        freshness_seconds=300.0,
+    )
+
+    summary = service.get_session_task_summary("session-graph")
+
+    assert summary["available"] is True
+    assert summary["kind"] == "task_graph"
+    assert summary["task_run_id"] == "taskrun:graph-root"
+    assert summary["graph_run_id"] == "grun:main"
+    assert summary["title"] == "长篇小说图任务"
+    assert graph_harness.monitor_calls == []
 
 
 def test_session_live_monitor_exposes_active_turn_snapshot():

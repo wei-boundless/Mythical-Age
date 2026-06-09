@@ -64,10 +64,21 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("hides the footer activity when assistant prose already owns the live feedback", () => {
+  it("keeps the footer activity when only projected body timeline exists", () => {
     expect(shouldSuppressSessionActivityBar([
-      message({ runtimePublicTimelineDraft: [{ kind: "assistant_text", text: "我正在接回刚才的运行。", state: "running" }] }),
-    ], true)).toBe(true);
+      message({
+        runtimePublicTimelineDraft: [
+          {
+            kind: "assistant_text",
+            slot: "body",
+            surface: "assistant_body",
+            source_authority: "model",
+            text: "我正在接回刚才的运行。",
+            state: "running",
+          },
+        ],
+      }),
+    ], true)).toBe(false);
   });
 
   it("keeps footer activity when runtime control has no assistant prose", () => {
@@ -86,6 +97,9 @@ describe("ChatPanel", () => {
           {
             item_id: "live:task:monitor-status",
             kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "runtime",
             title: "等待继续",
             detail: "当前任务已停在等待队列，继续后会接上现有进度。",
             state: "waiting",
@@ -103,7 +117,9 @@ describe("ChatPanel", () => {
           {
             item_id: "control:ask-user",
             kind: "status_update",
-            surface: "status",
+            slot: "control",
+            surface: "control",
+            source_authority: "system",
             phase: "waiting_user",
             title: "等待补充信息",
             detail: "请补充要优先审查的范围。",
@@ -114,7 +130,7 @@ describe("ChatPanel", () => {
     ], false)).toBe(true);
   });
 
-  it("does not treat task runtime draft status as chat-body feedback when a task projection exists", () => {
+  it("suppresses footer status when a task projection owns the message-level activity", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
         runtimeAttachments: [
@@ -141,12 +157,15 @@ describe("ChatPanel", () => {
           {
             item_id: "stage:thinking",
             kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
             title: "正在思考",
             state: "running",
           },
         ],
       }),
-    ], true)).toBe(false);
+    ], true)).toBe(true);
   });
 
   it("still suppresses footer status for ask-user control when a task projection exists", () => {
@@ -176,6 +195,9 @@ describe("ChatPanel", () => {
           {
             item_id: "control:ask-user",
             kind: "status_update",
+            slot: "control",
+            surface: "control",
+            source_authority: "system",
             phase: "waiting_user",
             title: "等待补充信息",
             detail: "请补充要优先审查的范围。",

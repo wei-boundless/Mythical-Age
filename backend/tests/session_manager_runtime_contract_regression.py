@@ -57,6 +57,43 @@ def test_session_manager_reports_corrupt_payload_and_keeps_list_available(tmp_pa
     assert "Skipping unreadable session payload" in caplog.text
 
 
+def test_session_manager_list_sessions_reuses_unchanged_summary_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session = manager.create_session(title="Cached summary")
+    session_id = session["id"]
+    manager.append_messages(session_id, [{"role": "user", "content": "hello"}])
+    original_reader = manager._read_payload_from_path
+    read_paths: list[str] = []
+
+    def tracked_reader(path: Path, *, session_id: str) -> dict[str, object]:
+        read_paths.append(path.name)
+        return original_reader(path, session_id=session_id)
+
+    monkeypatch.setattr(manager, "_read_payload_from_path", tracked_reader)
+
+    first = manager.list_sessions()
+    first[0]["scope"]["workspace_view"] = "mutated-by-caller"
+    assert read_paths == [f"{session_id}.json"]
+    assert first[0]["message_count"] == 1
+
+    read_paths.clear()
+    second = manager.list_sessions()
+    assert read_paths == []
+    assert second[0]["scope"]["workspace_view"] == "chat"
+    assert second[0]["message_count"] == 1
+
+    manager.append_messages(session_id, [{"role": "assistant", "content": "hi"}])
+    read_paths.clear()
+    updated = manager.list_sessions()
+    assert read_paths == [f"{session_id}.json"]
+    assert updated[0]["message_count"] == 2
+
+
 def test_session_manager_atomic_write_preserves_existing_payload_on_replace_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -379,7 +416,6 @@ def test_session_manager_public_history_filters_structured_tool_protocol_message
     truncated = manager.truncate_messages_from(session_id, 1)
 
     assert truncated["messages"] == [{"role": "user", "content": "修复 bug", "turn_id": "turn:1"}]
-
 
 
 

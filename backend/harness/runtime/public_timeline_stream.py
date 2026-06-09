@@ -135,14 +135,30 @@ def _task_run_lifecycle_item(data: dict[str, Any]) -> dict[str, Any]:
 def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     answer_channel = str(data.get("answer_channel") or "").strip().lower()
     answer_source = str(data.get("answer_source") or "").strip()
-    if answer_channel == "active_work_control":
+    text = _visible_agent_feedback(data.get("content") or data.get("text") or data.get("answer"))
+    if answer_channel == "ask_user":
+        return _status_item(
+            item_id=_stable_id(event_type, str(data.get("event_id") or data.get("debug_trace_ref") or ""), text),
+            title="等待补充信息",
+            detail=text,
+            state="waiting",
+            phase="waiting_user",
+            slot="control",
+            surface="control",
+        )
+    if answer_channel == "blocked":
+        return _blocked_item(
+            item_id=_stable_id(event_type, str(data.get("event_id") or data.get("debug_trace_ref") or ""), text),
+            text=text or "当前请求无法继续处理。",
+            state="error",
+        )
+    if answer_channel in _CONTROL_ASSISTANT_CHANNELS:
         return {}
     if event_type == "answer_candidate" or not _is_public_assistant_text(
         answer_channel=answer_channel,
         answer_source=answer_source,
     ):
         return {}
-    text = _visible_agent_feedback(data.get("content") or data.get("text") or data.get("answer"))
     if not text:
         return {}
     task_run_id = str(data.get("runtime_task_run_id") or data.get("task_run_id") or "").strip()
@@ -153,7 +169,8 @@ def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any
         {
             "item_id": _stable_id(event_type, trace_ref or task_run_id, text),
             "kind": kind,
-            "surface": "body",
+            "slot": "body",
+            "surface": "assistant_body",
             "source_authority": "model",
             "title": title,
             "text": text,
@@ -164,8 +181,6 @@ def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any
 
 
 def _is_public_assistant_text(*, answer_channel: str, answer_source: str) -> bool:
-    if answer_channel in _CONTROL_ASSISTANT_CHANNELS:
-        return True
     if answer_channel in _STAGE_FEEDBACK_ASSISTANT_CHANNELS:
         return True
     return answer_source in _STAGE_FEEDBACK_ASSISTANT_SOURCES
@@ -354,6 +369,9 @@ def _runtime_step_summary_items(data: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "item_id": trace_ref,
                 "kind": "status_update",
+                "slot": "status",
+                "surface": "status_bar",
+                "source_authority": "system",
                 "title": prose,
                 "text": prose,
                 "state": state,
@@ -395,6 +413,9 @@ def _agent_feedback_item_from_model_action(
             {
                 "item_id": item_id,
                 "kind": "observation_report",
+                "slot": "body",
+                "surface": "assistant_body",
+                "source_authority": "model",
                 "title": "处理反馈",
                 "detail": text,
                 "implication": next_step if next_step and next_step != text else "",
@@ -406,6 +427,9 @@ def _agent_feedback_item_from_model_action(
         {
             "item_id": item_id,
             "kind": "opening_judgment",
+            "slot": "body",
+            "surface": "assistant_body",
+            "source_authority": "model",
             "title": "开局判断",
             "text": text,
             "state": state,
@@ -443,7 +467,6 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
     terminal_reason = str(data.get("terminal_reason") or "").strip()
     answer_channel = str(data.get("answer_channel") or "").strip()
     summary = _visible_text(data.get("receipt_summary") or data.get("summary") or data.get("message"))
-    content = _visible_text(data.get("content"))
     if terminal_reason == "task_executor_scheduled" or answer_channel == "task_control":
         return {}
     if str(data.get("completion_state") or "").strip() == "task_steer_accepted":
@@ -453,31 +476,31 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
             detail=summary,
             state="running",
         )
-    final_text = summary or content
-    if final_text and final_text != content or (final_text and not summary):
-        return _compact(
-            {
-                "item_id": _stable_id("final", task_run_id, final_text),
-                "kind": "final_summary",
-                "surface": "body",
-                "source_authority": "model",
-                "text": final_text,
-                "state": "done",
-            }
-        )
     return _status_item(
         item_id=_stable_id("done", task_run_id, terminal_reason),
-        title="处理已完成",
+        title=summary or "处理已完成",
         state="done",
         phase="done",
     )
 
 
-def _status_item(*, item_id: str, title: str, detail: str = "", state: str, phase: str = "") -> dict[str, Any]:
+def _status_item(
+    *,
+    item_id: str,
+    title: str,
+    detail: str = "",
+    state: str,
+    phase: str = "",
+    slot: str = "status",
+    surface: str = "status_bar",
+) -> dict[str, Any]:
     return _compact(
         {
             "item_id": item_id,
             "kind": "status_update",
+            "slot": slot,
+            "surface": surface,
+            "source_authority": "system",
             "title": title,
             "detail": detail,
             "state": state,
@@ -493,6 +516,9 @@ def _blocked_item(*, item_id: str, text: str, state: str) -> dict[str, Any]:
         {
             "item_id": item_id,
             "kind": "blocked",
+            "slot": "status",
+            "surface": "status_bar",
+            "source_authority": "system",
             "text": text,
             "state": state,
         }

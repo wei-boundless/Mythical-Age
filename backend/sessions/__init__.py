@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -56,6 +57,8 @@ class SessionManager:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self._locks_guard = threading.Lock()
         self._session_locks: dict[str, threading.RLock] = {}
+        self._summary_cache_guard = threading.Lock()
+        self._summary_cache: dict[str, tuple[int, int, dict[str, Any]]] = {}
 
     def list_sessions(
         self,
@@ -65,8 +68,8 @@ class SessionManager:
         project_id: str | None = None,
     ) -> list[dict[str, Any]]:
         sessions = [
-            self._summary_from_payload(item)
-            for item in self._load_all()
+            item
+            for item in self._list_session_summaries()
             if _scope_matches(
                 item,
                 workspace_view=workspace_view,
@@ -132,6 +135,7 @@ class SessionManager:
                     path.unlink()
             except OSError as exc:
                 raise SessionStorageError(f"failed to delete session payload: {session_id}") from exc
+            self._invalidate_summary_cache(session_id)
             return True
 
     def load_session(self, session_id: str) -> list[dict[str, Any]]:
@@ -501,6 +505,35 @@ class SessionManager:
                 rows.append(payload)
         return rows
 
+    def _list_session_summaries(self) -> list[dict[str, Any]]:
+        return [self._summary_from_path(path) for path in self.sessions_dir.glob("*.json")]
+
+    def _summary_from_path(self, path: Path) -> dict[str, Any]:
+        session_id = path.stem
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            logger.warning("Skipping unreadable session payload %s: %s", path, exc)
+            return self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
+        cached = self._cached_summary(path.name, mtime_ns=stat.st_mtime_ns, size=stat.st_size)
+        if cached is not None:
+            return cached
+        try:
+            payload = self._read_payload_from_path(path, session_id=session_id)
+            summary = self._summary_from_payload(payload)
+        except SessionStorageError as exc:
+            logger.warning("Skipping unreadable session payload %s: %s", path, exc)
+            summary = self._summary_from_payload(_unreadable_session_payload(path, error=str(exc)))
+        try:
+            latest_stat = path.stat()
+            mtime_ns = latest_stat.st_mtime_ns
+            size = latest_stat.st_size
+        except OSError:
+            mtime_ns = stat.st_mtime_ns
+            size = stat.st_size
+        self._store_cached_summary(path.name, mtime_ns=mtime_ns, size=size, summary=summary)
+        return _clone_summary(summary)
+
     def _summary_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         messages = _public_messages(list(payload.get("messages") or []))
         summary = {
@@ -559,6 +592,7 @@ class SessionManager:
                 handle.flush()
                 os.fsync(handle.fileno())
             _replace_file_atomically(tmp_path, path)
+            self._invalidate_summary_cache(session_id)
         except OSError as exc:
             if tmp_path is not None:
                 try:
@@ -586,6 +620,29 @@ class SessionManager:
         with lock:
             yield
 
+    def _cached_summary(self, cache_key: str, *, mtime_ns: int, size: int) -> dict[str, Any] | None:
+        with self._summary_cache_guard:
+            cached = self._summary_cache.get(cache_key)
+            if cached is None:
+                return None
+            cached_mtime_ns, cached_size, summary = cached
+            if cached_mtime_ns != int(mtime_ns) or cached_size != int(size):
+                self._summary_cache.pop(cache_key, None)
+                return None
+            return _clone_summary(summary)
+
+    def _store_cached_summary(self, cache_key: str, *, mtime_ns: int, size: int, summary: dict[str, Any]) -> None:
+        with self._summary_cache_guard:
+            self._summary_cache[cache_key] = (int(mtime_ns), int(size), _clone_summary(summary))
+
+    def _invalidate_summary_cache(self, session_id: str) -> None:
+        try:
+            cache_key = f"{_safe_session_id(session_id)}.json"
+        except InvalidSessionId:
+            return
+        with self._summary_cache_guard:
+            self._summary_cache.pop(cache_key, None)
+
 
 def _replace_file_atomically(source: Path, target: Path) -> None:
     retry_delays = (0.01, 0.025, 0.05, 0.1)
@@ -597,6 +654,10 @@ def _replace_file_atomically(source: Path, target: Path) -> None:
             if attempt >= len(retry_delays):
                 raise
             time.sleep(retry_delays[attempt])
+
+
+def _clone_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return copy.deepcopy(dict(summary or {}))
 
 
 def _unreadable_session_payload(path: Path, *, error: str) -> dict[str, Any]:

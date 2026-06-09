@@ -302,11 +302,9 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
 
 function taskProjectionCompanionTimelineItems(items: PublicChatTimelineItem[] | undefined) {
   return (items ?? []).filter((item) => {
-    if (isPublicTimelineControlItem(item) || isPublicTimelineBodyItem(item)) {
-      return true;
-    }
-    const kind = String(item.kind ?? "").trim();
-    return ["work_action", "tool_activity", "artifact"].includes(kind);
+    const slot = String((item as { slot?: unknown }).slot ?? "").trim();
+    return ["body", "control", "timeline", "tool"].includes(slot)
+      && (isPublicTimelineControlItem(item) || isPublicTimelineBodyItem(item) || slot !== "body");
   });
 }
 

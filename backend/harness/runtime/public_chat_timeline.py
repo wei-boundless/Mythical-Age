@@ -128,6 +128,9 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
             item = {
                 "item_id": _progress_entry_item_id(entry),
                 "kind": "opening_judgment",
+                "slot": "body",
+                "surface": "assistant_body",
+                "source_authority": "model",
                 "title": "开局判断",
                 "text": body,
                 "state": state,
@@ -145,6 +148,9 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
             item = {
                 "item_id": _progress_entry_item_id(entry),
                 "kind": "blocked",
+                "slot": "status",
+                "surface": "status_bar",
+                "source_authority": "system",
                 "text": body,
                 "state": "error",
                 "trace_refs": refs,
@@ -153,6 +159,9 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
             item = {
                 "item_id": _progress_entry_item_id(entry),
                 "kind": "status_update",
+                "slot": "status",
+                "surface": "status_bar",
+                "source_authority": "system",
                 "title": _visible_text(entry.get("title"), limit=80) or body,
                 "detail": body if body != _visible_text(entry.get("title"), limit=80) else "",
                 "state": state,
@@ -174,6 +183,9 @@ def public_todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:
         {
             "item_id": _stable_id("todo-plan", refs, _text(todo_plan.get("plan_id")), str(items)),
             "kind": "todo_plan",
+            "slot": "timeline",
+            "surface": "timeline",
+            "source_authority": "runtime",
             "title": "处理清单",
             "detail": f"{completed}/{len(items)} 已完成",
             "state": "done" if todo_plan.get("completion_ready") else "running",
@@ -230,6 +242,9 @@ def _item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
             {
                 "item_id": unit_id,
                 "kind": "blocked",
+                "slot": "status",
+                "surface": "status_bar",
+                "source_authority": "system",
                 "text": detail or title,
                 "state": "error",
                 "trace_refs": refs,
@@ -239,6 +254,9 @@ def _item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         {
             "item_id": unit_id,
             "kind": _public_item_kind(unit),
+            "slot": "status",
+            "surface": "status_bar",
+            "source_authority": "system",
             "title": title or detail,
             "detail": detail if title and detail != title else "",
             "state": state,
@@ -272,6 +290,9 @@ def _item_from_artifact(artifact: Any) -> dict[str, Any]:
         {
             "item_id": _stable_id("artifact", [], title, path),
             "kind": "artifact",
+            "slot": "timeline",
+            "surface": "timeline",
+            "source_authority": "runtime",
             "title": title or "产物已生成",
             "path": path,
             "href": _visible_text(data.get("href") or data.get("url"), limit=220),
@@ -291,6 +312,9 @@ def _agent_feedback_item_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         {
             "item_id": _stable_id("agent-feedback", refs, text, _text(unit.get("unit_id"))),
             "kind": "opening_judgment",
+            "slot": "body",
+            "surface": "assistant_body",
+            "source_authority": "model",
             "title": "开局判断",
             "text": text,
             "state": _public_state(unit.get("state")),
@@ -319,6 +343,9 @@ def _blocked_item(
         {
             "item_id": _stable_id("blocked", [], text, terminal_reason),
             "kind": "blocked",
+            "slot": "status",
+            "surface": "status_bar",
+            "source_authority": "system",
             "text": text,
             "state": "error",
         }
@@ -342,6 +369,9 @@ def _final_summary_item(
         {
             "item_id": _stable_id("final", [], text, ""),
             "kind": "final_summary",
+            "slot": "body",
+            "surface": "assistant_body",
+            "source_authority": "model",
             "text": text,
             "state": "done",
         }

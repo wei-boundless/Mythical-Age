@@ -233,7 +233,8 @@ export type PublicTodoItem = {
 export type PublicChatTimelineItem = {
   item_id?: string;
   kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "work_action" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
-  surface?: "body" | "tool_window" | "status" | string;
+  slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
+  surface?: "assistant_body" | "body" | "tool_window" | "status_bar" | "status" | "timeline" | "control" | string;
   source_authority?: "model" | "runtime" | "tool" | "system" | string;
   action_kind?: "inspect" | "read" | "search" | "edit" | "write" | "run" | "verify" | "memory" | "prepare" | "artifact" | "browse" | "image" | "work" | string;
   phase?: "running" | "done" | "adjusting" | string;
@@ -271,9 +272,7 @@ export type PublicChatTimelineItem = {
   completion_ready?: boolean;
 };
 
-export type PublicProjectionItem = PublicChatTimelineItem & {
-  slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
-};
+export type PublicProjectionItem = PublicChatTimelineItem;
 
 export type PublicProjectionEnvelope = {
   authority: "harness.public_projection.v1" | string;

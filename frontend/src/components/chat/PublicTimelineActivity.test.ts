@@ -269,7 +269,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:stale",
             kind: "work_action",
+            slot: "tool",
             surface: "tool_window",
+            source_authority: "tool",
             title: "旧的工具窗口仍在运行",
             detail: "这是一条已经过期的 running timeline。",
             state: "running",
@@ -277,7 +279,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:stale-waiting",
             kind: "status_update",
-            surface: "status",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
             title: "旧等待状态",
             detail: "这是一条已经过期的 waiting timeline。",
             state: "waiting",
@@ -285,7 +289,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:stale-progress",
             kind: "opening_judgment",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             text: "旧的正文进度还在运行。",
             state: "running",
@@ -293,7 +298,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:final",
             kind: "final_summary",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             text: "已保留的完成正文。",
             state: "done",
@@ -352,7 +358,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:paused-stale",
             kind: "tool_activity",
+            slot: "tool",
             surface: "tool_window",
+            source_authority: "tool",
             title: "旧工具还在跑",
             detail: "旧 timeline 不应该覆盖暂停态。",
             state: "running",
@@ -360,7 +368,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:paused-waiting-stale",
             kind: "status_update",
-            surface: "status",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
             title: "旧等待状态",
             detail: "旧 waiting timeline 不应该覆盖暂停态。",
             state: "waiting",
@@ -384,7 +394,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:read-context",
             kind: "work_action",
+            slot: "tool",
             surface: "tool_window",
+            source_authority: "tool",
             public_summary: "正在读取上下文 frontend/src/lib/store/runtime.ts",
             state: "running",
             tool_window: {
@@ -415,6 +427,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:inspect-root",
             kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
             action_kind: "inspect",
             title: "已确认目标",
             subject_label: ".",
@@ -426,6 +441,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:search-ts",
             kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
             action_kind: "search",
             title: "已搜索引用",
             subject_label: "**/*.{ts,tsx}",
@@ -437,6 +455,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:write-report",
             kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
             action_kind: "edit",
             title: "已更新文件",
             subject_label: "docs/report.md",
@@ -462,7 +483,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:start",
             kind: "opening_judgment",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             text: "我先确认当前文件状态。",
             state: "running",
@@ -470,7 +492,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "tool:read",
             kind: "work_action",
+            slot: "tool",
             surface: "tool_window",
+            source_authority: "tool",
             title: "正在读取 ChatMessage.tsx",
             detail: "读取聊天消息组件。",
             state: "done",
@@ -478,7 +502,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:after",
             kind: "observation_report",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             detail: "已确认投影入口。",
             state: "done",
@@ -498,7 +523,9 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "status:waiting-user",
             kind: "status_update",
-            surface: "status",
+            slot: "control",
+            surface: "control",
+            source_authority: "system",
             phase: "waiting_user",
             title: "等待补充信息",
             detail: "审查项目没问题。不过在开始之前，我需要确认一下你的期望： 1. **审查范围**——你希望我全面审查整个项目，还是聚焦某个具体方面？ 2. **审查深度**——是要做快速健康评估，还是深入到具体模块逐文件审查？",
@@ -518,7 +545,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:final",
             kind: "final_summary",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             text: "第一段说明。\n\n第二段说明。\n\n- 第三段要点",
             state: "done",
@@ -552,7 +580,8 @@ describe("PublicTimelineActivity", () => {
           {
             item_id: "body:dense",
             kind: "final_summary",
-            surface: "body",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             text: denseText,
             state: "done",

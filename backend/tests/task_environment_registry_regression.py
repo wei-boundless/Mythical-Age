@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import sys
 from pathlib import Path
@@ -1031,6 +1032,73 @@ def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
         assert str(expectation["included"]) in model_input
         for excluded in tuple(expectation["excluded"]):
             assert excluded not in model_input
+
+
+def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    polluted_profile = replace(
+        profile,
+        metadata={
+            **dict(profile.metadata),
+            "runtime_policy": {
+                "prompt_policy": {
+                    "lifecycle_prompt_defaults": {
+                        "context_intake": "environment.general.lifecycle.context_intake",
+                        "action_selection": "environment.general.lifecycle.action_selection",
+                        "finalization": "environment.general.lifecycle.finalization",
+                    }
+                }
+            },
+        },
+    )
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-lifecycle-boundary-authority",
+        turn_id="turn-lifecycle-boundary-authority",
+        agent_invocation_id="agent-lifecycle-boundary-authority",
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
+        model_selection={},
+        agent_runtime_profile=polluted_profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+
+    assert (
+        assembly.profile.prompt_policy["lifecycle_prompt_defaults"]["action_selection"]
+        == "environment.general.lifecycle.action_selection"
+    )
+    mount_defaults = assembly.prompt_mount_plan["lifecycle_prompt_defaults"]
+    assert mount_defaults["action_selection"] == "environment.coding.lifecycle.action_selection"
+    assert set(mount_defaults.values()) == set(
+        ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.coding.vibe_workspace"]
+    )
+
+    fallback_payload = assembly.to_dict()
+    fallback_payload["prompt_mount_plan"] = {}
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-lifecycle-boundary-authority",
+        task_run={
+            "task_run_id": "taskrun:lifecycle-boundary-authority",
+            "session_id": "session-lifecycle-boundary-authority",
+            "task_id": "task:lifecycle-boundary-authority",
+            "agent_profile_id": "main_interactive_agent",
+        },
+        contract={"user_visible_goal": "验证生命周期提示词权威", "completion_criteria": ["按环境边界装配"]},
+        observations=[],
+        execution_state={},
+        agent_profile_ref="main_interactive_agent",
+        available_tools=assembly.available_tools,
+        runtime_assembly=fallback_payload,
+        invocation_index=1,
+    ).packet
+
+    lifecycle_refs = packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
+    assert lifecycle_refs
+    assert all(ref.startswith("environment.coding.lifecycle.") for ref in lifecycle_refs)
+    assert "environment.general.lifecycle.action_selection" not in lifecycle_refs
 
 
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
