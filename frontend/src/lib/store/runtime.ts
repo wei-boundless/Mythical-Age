@@ -61,6 +61,7 @@ type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrat
 type RuntimeMonitorEvent = NonNullable<RunMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
+const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
@@ -100,16 +101,22 @@ function sessionTaskEnvironmentId(session: SessionSummary) {
   ).trim();
 }
 
+function isVisibleMainChatSession(session: SessionSummary) {
+  const workspaceView = String(session.scope?.workspace_view || "").trim();
+  if (workspaceView === "project" || workspaceView === "task_environment" || workspaceView === GRAPH_TASK_WORKSPACE_VIEW) {
+    return false;
+  }
+  if (String(session.task_binding?.kind || "").trim() === "task_graph") {
+    return false;
+  }
+  if (String(session.task_binding?.graph_run_id || "").trim() || String(session.task_binding?.graph_harness_config_id || "").trim()) {
+    return false;
+  }
+  return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));
+}
+
 function visibleMainChatSessions(sessions: SessionSummary[]) {
-  return sessions.filter((session) => {
-    if (String(session.scope?.workspace_view || "").trim() === "task_environment") {
-      return false;
-    }
-    if (String(session.task_binding?.kind || "").trim() === "task_graph") {
-      return false;
-    }
-    return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));
-  });
+  return sessions.filter(isVisibleMainChatSession);
 }
 
 function sessionProjectRoot(session: SessionSummary | null | undefined) {
@@ -148,6 +155,9 @@ function mergeProjectWorkspaces(existing: ProjectWorkspaceSummary[], incoming: P
 }
 
 function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): SessionPoolKey {
+  if (scope?.workspace_view === GRAPH_TASK_WORKSPACE_VIEW) {
+    return `graph_task:${String(scope.project_id || "").trim()}` as SessionPoolKey;
+  }
   if (scope?.workspace_view === "task_environment") {
     return `task_environment:${String(scope.task_environment_id || "").trim()}:${String(scope.project_id || "").trim()}` as SessionPoolKey;
   }
@@ -527,19 +537,22 @@ export class WorkspaceRuntime {
     try {
       await this.refreshTaskEnvironmentCatalog();
       let restoredCurrentSession = false;
+      let preferLatestVisibleSession = false;
       const rememberedSessionRef = readRememberedSessionRef();
       if (rememberedSessionRef?.sessionId) {
         const restored = await this.restoreRememberedSessionOnStartup(rememberedSessionRef);
         restoredCurrentSession = restored === "restored";
+        preferLatestVisibleSession = restored === "non_main";
       } else {
         const persistedSessionRef = await this.readPersistedCurrentSessionRef();
         if (persistedSessionRef?.sessionId) {
           const restored = await this.restoreRememberedSessionOnStartup(persistedSessionRef);
           restoredCurrentSession = restored === "restored";
+          preferLatestVisibleSession = restored === "non_main";
         }
       }
       if (!restoredCurrentSession) {
-        await this.initializeFromSessionList();
+        await this.initializeFromSessionList(undefined, { preferLatestVisibleSession });
       }
     } catch (error) {
       this.store.setState((prev) => ({
@@ -628,6 +641,13 @@ export class WorkspaceRuntime {
       return "failed";
     }
 
+    const restoredPoolKey = normalized.poolKey ?? sessionPoolKeyForScope(summary.scope);
+    if (restoredPoolKey === MAIN_CHAT_POOL_KEY && !isVisibleMainChatSession(summary)) {
+      clearRememberedSessionRef(normalized.sessionId);
+      this.clearPersistedCurrentSessionRef(normalized.sessionId);
+      return "non_main";
+    }
+
     const restoredScope = summary.scope ?? normalized.scope;
     const restoredRef: SessionRef = {
       sessionId: summary.id,
@@ -670,7 +690,40 @@ export class WorkspaceRuntime {
       ...prev,
       workspaceInitializing: false,
     }));
+    this.refreshRestoredSessionIndexesInBackground(summary);
     return "restored";
+  }
+
+  private refreshRestoredSessionIndexesInBackground(restoredSession: SessionSummary) {
+    void this.refreshRestoredSessionIndexes(restoredSession).catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
+  }
+
+  private async refreshRestoredSessionIndexes(restoredSession: SessionSummary) {
+    const [projectPayload, allSessions] = await Promise.all([
+      listProjectWorkspaces(),
+      listSessions(),
+    ]);
+    const visibleRestored = isVisibleMainChatSession(restoredSession) ? [restoredSession] : [];
+    const sessions = mergeSessionSummaries(visibleMainChatSessions(allSessions), visibleRestored);
+    const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
+    this.sessionListFailureNotifiedAt = 0;
+    this.store.setState((prev) => {
+      const activeProjectRoot = prev.activeProjectRoot;
+      const nextState = {
+        ...prev,
+        sessions,
+        projectWorkspaces: projects,
+      };
+      return {
+        ...nextState,
+        projectSessions: activeProjectRoot
+          ? sessions.filter((session) => sessionBelongsToProject(session, activeProjectRoot))
+          : prev.projectSessions,
+        permissionMode: this.permissionModeForSession(prev.currentSessionId, nextState, prev.permissionMode),
+      };
+    });
   }
 
   private async resolveProjectWorkspaceForSession(session: SessionSummary) {
@@ -694,7 +747,10 @@ export class WorkspaceRuntime {
     };
   }
 
-  private async initializeFromSessionList(projectPayloadOverride?: Awaited<ReturnType<typeof listProjectWorkspaces>>) {
+  private async initializeFromSessionList(
+    projectPayloadOverride?: Awaited<ReturnType<typeof listProjectWorkspaces>>,
+    options: { preferLatestVisibleSession?: boolean } = {},
+  ) {
     const [projectPayload, allSessions] = await Promise.all([
       projectPayloadOverride ? Promise.resolve(projectPayloadOverride) : listProjectWorkspaces(),
       listSessions(),
@@ -703,9 +759,15 @@ export class WorkspaceRuntime {
     const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
     const currentSessionId = this.store.getState().currentSessionId;
     const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : null;
-    const currentProjectRoot = sessionProjectRoot(currentSession);
-    const activeProject = currentProjectRoot
-      ? projects.find((project) => sessionBelongsToProject(currentSession!, project.workspace_root))
+    const fallbackSession = currentSession
+      ? null
+      : options.preferLatestVisibleSession
+        ? sessions[0] ?? null
+        : unboundMainChatSessions(sessions)[0] ?? null;
+    const targetSession = currentSession ?? fallbackSession;
+    const targetProjectRoot = sessionProjectRoot(targetSession);
+    const activeProject = targetProjectRoot
+      ? projects.find((project) => sessionBelongsToProject(targetSession!, project.workspace_root))
       : null;
     this.store.setState((prev) => ({
       ...prev,
@@ -716,9 +778,9 @@ export class WorkspaceRuntime {
     }));
 
     if (activeProject) {
-      await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: currentSessionId || undefined });
-    } else if (!currentSessionId) {
-      const nextSession = unboundMainChatSessions(sessions)[0] ?? null;
+      await this.selectProjectWorkspace(activeProject.key, { preferredSessionId: targetSession?.id || undefined, fallbackSession: targetSession || undefined });
+    } else if (!currentSession) {
+      const nextSession = fallbackSession;
       if (!nextSession) {
         this.clearActiveSession();
       } else {
@@ -735,16 +797,16 @@ export class WorkspaceRuntime {
           }
         }
       }
-    } else if (currentSessionId) {
-      const restoredFromStreamCache = this.applySelectedSessionShell(currentSessionId, {
-        scope: currentSession?.scope,
+    } else if (currentSession) {
+      const restoredFromStreamCache = this.applySelectedSessionShell(currentSession.id, {
+        scope: currentSession.scope,
         poolKey: MAIN_CHAT_POOL_KEY,
       });
       if (!restoredFromStreamCache) {
-        const reattached = await this.reattachChatRunForSession(currentSessionId);
+        const reattached = await this.reattachChatRunForSession(currentSession.id);
         if (!reattached) {
-          void this.refreshSessionDetails(currentSessionId).catch(() => undefined);
-          void this.hydrateLatestOrchestrationSnapshot(currentSessionId).catch(() => undefined);
+          void this.refreshSessionDetails(currentSession.id).catch(() => undefined);
+          void this.hydrateLatestOrchestrationSnapshot(currentSession.id).catch(() => undefined);
         }
       }
     }
@@ -3757,14 +3819,14 @@ export class WorkspaceRuntime {
   }
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at"> = {}) {
-    this.syncWorkspaceViewUrl("task-system");
+    this.syncWorkspaceViewUrl("creative");
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: "task-system",
+      activeWorkspaceView: "creative",
       taskGraphWorkspaceTarget: {
         layer: "task-graph",
         mode: target.mode ?? "editor",
-        task_environment_id: String(target.task_environment_id ?? "").trim() || undefined,
+        task_environment_id: "",
         graph_id: String(target.graph_id ?? "").trim() || undefined,
         task_run_id: String(target.task_run_id ?? "").trim() || undefined,
         task_instance_id: String(target.task_instance_id ?? "").trim() || undefined,
@@ -3975,11 +4037,8 @@ export class WorkspaceRuntime {
       max_dispatches: 1,
       max_dispatch_requests: Number(payload?.max_requests ?? 1),
     });
-    const sessionId = this.store.getState().currentSessionId;
-    if (sessionId) {
-      await this.hydrateLatestOrchestrationSnapshot(sessionId);
-      await this.refreshRunMonitor();
-    }
+    await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
+    await this.refreshRunMonitor();
   }
 
   private async hydrateLatestOrchestrationSnapshot(sessionId: string): Promise<boolean> {

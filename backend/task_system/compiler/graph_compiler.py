@@ -142,25 +142,13 @@ def _graph_binding_contract(
         or ""
     ).strip()
     binding_mode = str(configured.get("binding_mode") or configured.get("mode") or "project_scoped").strip() or "project_scoped"
-    workspace_view = str(
-        configured.get("workspace_view")
-        or ("project" if binding_mode == "project_scoped" or project_id else "task_environment")
-    )
     return _drop_empty(
         {
             "contract_id": f"graph-binding:{graph_id}",
             "binding_mode": binding_mode,
             "project_id": project_id,
-            "workspace_view": workspace_view,
+            "workspace_view": "graph_task",
             "conversation_binding": "not_authoritative",
-            "task_environment_id": str(
-                configured.get("task_environment_id")
-                or runtime_policy.get("task_environment_id")
-                or context_policy.get("task_environment_id")
-                or environment.get("task_environment_id")
-                or environment.get("environment_id")
-                or ""
-            ).strip(),
             "node_session_default": "per_node_run_session",
             "authority": "task_system.graph_binding_contract",
         }

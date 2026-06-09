@@ -26,7 +26,6 @@ const api = vi.hoisted(() => ({
   getPermissionMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
-  runGraphRunUntilIdle: vi.fn(),
   submitGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
   setSessionPermissionMode: vi.fn(),
@@ -59,7 +58,6 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: api.deleteSession,
-  runGraphRunUntilIdle: api.runGraphRunUntilIdle,
   submitGraphRunUntilIdle: api.submitGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
@@ -469,8 +467,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.clearChatStreamCursor.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
-    api.runGraphRunUntilIdle.mockReset();
-    api.runGraphRunUntilIdle.mockResolvedValue({ ok: true });
     api.submitGraphRunUntilIdle.mockReset();
     api.submitGraphRunUntilIdle.mockResolvedValue({ accepted: true, background_started: true });
     api.stopOrchestrationHarnessTaskRun.mockReset();
@@ -752,8 +748,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       applyRunMonitorSnapshot: (monitor: ReturnType<typeof monitorForTest>) => void;
     };
     const graphSessionScope = {
-      workspace_view: "task_environment",
-      task_environment_id: "env.general.workspace",
+      workspace_view: "graph_task",
+      task_environment_id: "",
       project_id: "project",
     };
 
@@ -777,7 +773,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openRunMonitorSignal("taskrun:master");
 
-    expect(store.getState().activeWorkspaceView).toBe("task-system");
+    expect(store.getState().activeWorkspaceView).toBe("creative");
+    expect(store.getState().currentSessionId).toBeNull();
     expect(store.getState().runMonitorSelectedTaskRunId).toBe("taskrun:master");
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(store.getState().conversationActiveEnvironment).toBeNull();
@@ -1379,7 +1376,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
   });
 
-  it("opens graph tasks inside the task system graph workspace", () => {
+  it("opens graph tasks inside the graph task workspace", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "code-environment",
@@ -1388,7 +1385,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.openTaskGraphWorkspace({ graph_id: "graph.dev.review" });
 
-    expect(store.getState().activeWorkspaceView).toBe("task-system");
+    expect(store.getState().activeWorkspaceView).toBe("creative");
     expect(store.getState().taskGraphWorkspaceTarget).toMatchObject({
       layer: "task-graph",
       mode: "editor",
@@ -1422,7 +1419,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(6000);
 
-    expect(api.getGraphRunMonitor).toHaveBeenCalledWith("grun:old-master", "ghcfg:old-missing", 80, { workspace_view: "task_environment" });
+    expect(api.getGraphRunMonitor).toHaveBeenCalledWith("grun:old-master", "ghcfg:old-missing", 80, {
+      workspace_view: "graph_task",
+      task_environment_id: "",
+      project_id: "",
+    });
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:old-master");
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
@@ -1526,7 +1527,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       max_dispatches: 1,
       max_dispatch_requests: 1,
     });
-    expect(api.runGraphRunUntilIdle).not.toHaveBeenCalled();
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
@@ -3881,7 +3881,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("restores the last active session without scanning session or project indexes", async () => {
+  it("restores the last active session and backfills session and project indexes", async () => {
     vi.useRealTimers();
     vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
       key === "agentWorkbench.lastActiveSessionRef"
@@ -3901,6 +3901,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       runtime_attachments: [],
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
     });
+    api.listSessions.mockResolvedValue([{
+      id: "session:current",
+      title: "Current",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 1,
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
+    }]);
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [],
+      summary: { project_count: 0 },
+    });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
@@ -3909,10 +3922,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(api.getSessionSummary).toHaveBeenCalledWith("session:current", undefined);
     expect(api.getWorkbenchCurrentSession).not.toHaveBeenCalled();
-    expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.listProjectWorkspaces).not.toHaveBeenCalled();
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
     expect(store.getState().workspaceInitializing).toBe(false);
     expect(store.getState().currentSessionId).toBe("session:current");
+    expect(store.getState().sessions.map((session) => session.id)).toContain("session:current");
     expect(store.getState().permissionMode).toBe("plan");
     expect(store.getState().messages).toMatchObject([
       { role: "assistant", content: "当前会话内容" },
@@ -3947,16 +3961,25 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       updated_at: 2,
       message_count: 0,
     });
+    api.listSessions.mockResolvedValue([{
+      id: "session:persisted",
+      title: "Persisted",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 0,
+    }]);
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
+    await flushPromises();
 
     expect(api.getWorkbenchCurrentSession).toHaveBeenCalledTimes(1);
     expect(api.getSessionSummary).toHaveBeenCalledWith("session:persisted", undefined);
-    expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.listProjectWorkspaces).not.toHaveBeenCalled();
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
     expect(store.getState().currentSessionId).toBe("session:persisted");
+    expect(store.getState().sessions.map((session) => session.id)).toContain("session:persisted");
   });
 
   it("restores a backend-persisted project-bound current session into its project workspace", async () => {
@@ -4024,6 +4047,98 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().activeProjectRoot).toBe("D:/repo");
     expect(store.getState().currentSessionId).toBe("session:bound-current");
     expect(store.getState().projectSessions.map((session) => session.id)).toContain("session:bound-current");
+  });
+
+  it("ignores a backend-persisted graph node current session and restores the latest visible project chat", async () => {
+    vi.useRealTimers();
+    const graphNodeSession = {
+      id: "gsess:graph-node",
+      title: "Graph node",
+      created_at: 1,
+      updated_at: 5,
+      message_count: 1,
+      scope: {
+        workspace_view: "project",
+        project_id: "project.creation.writing.honghuang",
+      },
+    };
+    const boundSession = {
+      id: "session:bound-latest",
+      title: "Bound Latest",
+      created_at: 1,
+      updated_at: 4,
+      message_count: 12,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: {
+          workspace_root: "D:/repo",
+          source: "project_workspace",
+          bound_at: 1,
+          last_seen_at: 4,
+          immutable: true,
+          authority: "sessions.project_binding",
+        },
+      },
+    };
+    const unboundSession = {
+      id: "session:unbound",
+      title: "Unbound",
+      created_at: 1,
+      updated_at: 3,
+      message_count: 1,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+      },
+    };
+    api.getWorkbenchCurrentSession.mockResolvedValue({
+      authority: "workbench.current_session_ref",
+      current_session: {
+        authority: "workbench.current_session_ref",
+        session_id: "gsess:graph-node",
+        scope: {
+          workspace_view: "project",
+          project_id: "project.creation.writing.honghuang",
+        },
+        pool_key: "main-chat",
+        updated_at: 5,
+      },
+    });
+    api.getSessionSummary.mockResolvedValue(graphNodeSession);
+    api.listSessions.mockResolvedValue([graphNodeSession, boundSession, unboundSession]);
+    api.listProjectWorkspaces.mockResolvedValue({
+      authority: "project_workspaces.list",
+      projects: [{
+        key: "workspace:repo",
+        workspace_root: "D:/repo",
+        name: "repo",
+        source: "session.project_binding",
+        created_at: 1,
+        last_seen_at: 4,
+        session_count: 1,
+        latest_session_at: 4,
+        available: true,
+        authority: "project_workspaces.workspace",
+      }],
+      summary: { project_count: 1 },
+    });
+    api.listProjectWorkspaceSessions.mockResolvedValue({
+      authority: "project_workspaces.sessions",
+      project_key: "workspace:repo",
+      sessions: [boundSession],
+    });
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await flushPromises();
+
+    expect(api.clearWorkbenchCurrentSession).toHaveBeenCalledWith("gsess:graph-node");
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(api.listProjectWorkspaceSessions).toHaveBeenCalledWith("workspace:repo");
+    expect(store.getState().activeProjectKey).toBe("workspace:repo");
+    expect(store.getState().activeProjectRoot).toBe("D:/repo");
+    expect(store.getState().currentSessionId).toBe("session:bound-latest");
+    expect(store.getState().projectSessions.map((session) => session.id)).toEqual(["session:bound-latest"]);
   });
 
   it("falls back to the session index when the remembered session is gone", async () => {

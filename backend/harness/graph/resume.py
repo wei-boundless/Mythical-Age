@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from .loop import assert_graph_config_compatible_with_state
-from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder, NodeResultEnvelope
+from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,43 +116,6 @@ class GraphResumeService:
                 events=tuple([*recovered, *reset.events]),
             )
         if state.status == "blocked" and dispatch_ready:
-            synthetic_progress = _synthetic_progress_receipt_router_node_ids(graph_config=graph_config, state=state)
-            if synthetic_progress:
-                replay = self._graph_loop.requeue_blocked_nodes_and_checkpoint(
-                    state=state,
-                    node_ids=synthetic_progress,
-                )
-                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
-                    graph_config=graph_config,
-                    graph_run_id=graph_run_id,
-                    max_requests=max_requests,
-                )
-                accepted_events: list[dict[str, Any]] = []
-                next_state = dispatch.loop_state
-                next_checkpoint = dict(dispatch.checkpoint)
-                next_work_orders: tuple[GraphNodeWorkOrder, ...] = dispatch.node_work_orders
-                for work_order in dispatch.node_work_orders:
-                    if work_order.node_id not in set(synthetic_progress):
-                        continue
-                    advance = self._graph_loop.accept_node_result(
-                        graph_config=graph_config,
-                        graph_run_id=graph_run_id,
-                        result=_synthetic_progress_receipt_result(state=next_state, work_order=work_order),
-                    )
-                    accepted_events.extend(dict(item) for item in advance.events)
-                    next_state = advance.loop_state
-                    next_checkpoint = dict(advance.checkpoint)
-                    next_work_orders = advance.node_work_orders
-                return GraphResumeResult(
-                    graph_run_id=graph_run_id,
-                    resumed=True,
-                    reason="synthetic_progress_receipt_router_recovered",
-                    loop_state=next_state,
-                    checkpoint=next_checkpoint,
-                    active_work_orders=_active_work_orders_from_state(next_state),
-                    node_work_orders=next_work_orders,
-                    events=tuple([*replay.events, *dispatch.events, *accepted_events]),
-                )
             revision = self._graph_loop.requeue_ready_revision_targets_and_checkpoint(
                 graph_config=graph_config,
                 state=state,
@@ -391,80 +354,10 @@ def _blocked_node_is_recoverable(node_state: dict[str, Any], *, state: GraphLoop
         "waiting_executor",
         "task_run_executor_already_running",
         "task_executor_interrupted_by_runtime_restart",
+        "model_action_protocol_repair_required",
     }:
         return True
     return False
-
-
-def _synthetic_progress_receipt_router_node_ids(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> tuple[str, ...]:
-    targets: list[str] = []
-    node_by_id = {str(node.get("node_id") or ""): dict(node) for node in graph_config.nodes}
-    for node_id in tuple(state.blocked_node_ids or ()):
-        node_state = dict(dict(state.node_states or {}).get(node_id) or {})
-        if str(node_state.get("status") or "") != "blocked":
-            continue
-        node = node_by_id.get(node_id) or {}
-        metadata = dict(node.get("metadata") or {})
-        if not dict(node.get("progress_receipt_policy") or metadata.get("progress_receipt_policy") or {}):
-            continue
-        result = dict(dict(state.result_index or {}).get(node_id) or {})
-        error = dict(result.get("error") or {})
-        recoverable = dict(error.get("recoverable_error") or {})
-        if str(error.get("reason") or "") != "model_action_protocol_repair_required":
-            continue
-        if str(recoverable.get("error_code") or "") != "model_action_invalid":
-            continue
-        targets.append(node_id)
-    return tuple(dict.fromkeys(targets))
-
-
-def _synthetic_progress_receipt_result(*, state: GraphLoopState, work_order: GraphNodeWorkOrder) -> NodeResultEnvelope:
-    inputs = dict(state.initial_inputs or {})
-    chapter = _int_value(inputs.get("chapter_index"), 1)
-    batch_start = _int_value(inputs.get("batch_start_index"), chapter)
-    batch_end = _int_value(inputs.get("batch_end_index"), chapter)
-    if batch_end < batch_start:
-        batch_end = batch_start
-    expected = list(range(batch_start, batch_end + 1))
-    committed = [item for item in expected if item <= chapter]
-    missing = [item for item in expected if item > chapter]
-    receipt = {
-        "authority": "harness.writing.chapter_progress_receipt",
-        "volume_index": _int_value(inputs.get("volume_index"), 1),
-        "batch_start_index": batch_start,
-        "batch_end_index": batch_end,
-        "expected_chapter_indexes": expected,
-        "committed_chapter_indexes": committed,
-        "missing_chapter_indexes": missing,
-        "next_chapter_index": chapter + 1,
-        "batch_complete": not missing,
-        "volume_complete": False,
-        "commit_allowed": True,
-    }
-    return NodeResultEnvelope(
-        result_id=f"nresult:synthetic_progress:{state.event_cursor + 1}:{work_order.node_id}",
-        graph_run_id=state.graph_run_id,
-        task_run_id=state.task_run_id,
-        node_id=work_order.node_id,
-        work_order_id=work_order.work_order_id,
-        executor_type=work_order.executor_type,
-        status="completed",
-        outputs={"chapter_progress_receipt": receipt, "synthetic_progress_receipt": True},
-        progress_receipts=(receipt,),
-        handoff_summary=f"确定性章节进度回执：第{chapter:03d}章已通过，推进到第{chapter + 1:03d}章。",
-        diagnostics={
-            "authority": "harness.graph_resume.synthetic_progress_receipt",
-            "reason": "blocked_router_model_action_protocol_repair_required",
-        },
-        created_at=time.time(),
-    )
-
-
-def _int_value(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _recoverable_failed_node_ids(state: GraphLoopState, *, services: Any | None) -> tuple[str, ...]:

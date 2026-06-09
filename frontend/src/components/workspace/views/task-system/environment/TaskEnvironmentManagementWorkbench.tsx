@@ -384,7 +384,7 @@ export function TaskEnvironmentManagementWorkbench({
             onClick={() => onBindEnvironment(selectedEnvironmentId, selectedEnvironmentLabel)}
             variant={boundToSelected ? "primary" : "ghost"}
           >
-            <Link2 size={15} />{graphOnlyEnvironment ? "仅图任务会话" : boundToSelected ? "已绑定主会话" : "绑定主会话"}
+            <Link2 size={15} />{boundToSelected ? "已绑定主会话" : "绑定主会话"}
           </TaskSystemToolbarButton>
           {chatTaskEnvironmentBinding ? (
             <TaskSystemToolbarButton onClick={onClearEnvironmentBinding}><Unlink2 size={15} />解除绑定</TaskSystemToolbarButton>
@@ -417,7 +417,6 @@ export function TaskEnvironmentManagementWorkbench({
       {activePage === "graphs" ? (
         <EnvironmentGraphInventoryPage
           onSelectGraph={onSelectGraph}
-          selectedEnvironmentId={selectedEnvironmentId}
           selectedGraphId={selectedGraphId}
           taskSystemOverview={taskSystemOverview}
         />

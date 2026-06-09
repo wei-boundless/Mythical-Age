@@ -460,6 +460,35 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
+  it("renders ask-user questions as assistant prose without the waiting status title", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:ask-user",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "control:ask-user",
+            kind: "status_update",
+            surface: "status",
+            phase: "waiting_user",
+            title: "等待补充信息",
+            detail: "审查项目没问题。不过在开始之前，我需要确认一下你的期望： 1. **审查范围**——你希望我全面审查整个项目，还是聚焦某个具体方面？ 2. **审查深度**——是要做快速健康评估，还是深入到具体模块逐文件审查？",
+            state: "waiting",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("审查项目没问题。不过在开始之前");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("<strong>审查范围</strong>");
+    expect(html).not.toContain("等待补充信息");
+    expect(html).not.toContain("public-run-activity");
+  });
+
   it("keeps completed process feedback in activity when no final answer exists", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

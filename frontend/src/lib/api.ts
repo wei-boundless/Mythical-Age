@@ -2868,6 +2868,8 @@ export type TaskGraphRunStartResult = {
   graph_id: string;
   graph_run_id: string;
   graph_harness_config_id: string;
+  launch_session_id: string;
+  graph_session_id: string;
   task_run_id: string;
   task_run: Record<string, unknown>;
   graph_run: Record<string, unknown>;
@@ -2876,6 +2878,7 @@ export type TaskGraphRunStartResult = {
   graph_harness_config: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
   runner_result: GraphRunUntilIdleResult | null;
+  background_submission: GraphRunBackgroundSubmitResult | null;
   trace: HarnessTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
 };
@@ -2901,6 +2904,112 @@ export type GraphRunMonitorView = {
   };
 };
 
+export type GraphTaskInstanceSummary = {
+  authority?: string;
+  graph_task_instance_id: string;
+  graph_id: string;
+  title: string;
+  description?: string;
+  status: string;
+  root_session_id?: string;
+  active_graph_run_id?: string;
+  graph_run_ids?: string[];
+  file_space_id?: string;
+  artifact_index_id?: string;
+  created_at?: number;
+  updated_at?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type GraphTaskDefinitionSummary = {
+  graph_id: string;
+  title: string;
+  domain_id?: string;
+  graph_kind?: string;
+  publish_state?: string;
+  enabled?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceDetail = {
+  authority: string;
+  instance: GraphTaskInstanceSummary;
+  repositories?: Record<string, unknown>;
+  artifacts?: GraphTaskInstanceArtifacts;
+};
+
+export type GraphTaskDefinitionList = {
+  authority: string;
+  graph_tasks: GraphTaskDefinitionSummary[];
+  summary?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceList = {
+  authority: string;
+  graph_id: string;
+  instances: GraphTaskInstanceSummary[];
+  summary?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceCreateResult = {
+  authority: string;
+  instance: GraphTaskInstanceSummary;
+  root_session?: SessionSummary | Record<string, unknown>;
+  file_space?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceMonitor = {
+  authority: string;
+  instance: GraphTaskInstanceSummary;
+  graph_monitor: GraphRunMonitorView | null;
+  node_sessions: SessionSummary[];
+  artifacts: GraphTaskInstanceArtifacts;
+  summary: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceArtifacts = {
+  authority?: string;
+  graph_task_instance_id?: string;
+  artifacts: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceFileTree = {
+  authority: string;
+  graph_task_instance_id: string;
+  repository_id: string;
+  path: string;
+  total_entries: number;
+  truncated: boolean;
+  tree: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceFileReadResult = {
+  authority: string;
+  graph_task_instance_id: string;
+  repository_id: string;
+  path: string;
+  content: string;
+  size?: number;
+  updated_at?: number;
+};
+
+export type GraphTaskInstanceFileWriteResult = {
+  authority: string;
+  graph_task_instance_id: string;
+  repository_id: string;
+  path: string;
+  written?: boolean;
+  size?: number;
+  updated_at?: number;
+};
+
+export type GraphTaskInstanceRunStartResult = {
+  authority: string;
+  instance: GraphTaskInstanceSummary;
+  start: TaskGraphRunStartResult;
+};
+
 export type GraphRunDispatchReadyResult = {
   authority: string;
   graph_run_id: string;
@@ -2909,34 +3018,6 @@ export type GraphRunDispatchReadyResult = {
   checkpoint: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
   work_order_count: number;
-  events: Array<Record<string, unknown>>;
-};
-
-export type GraphNodeResultAcceptResult = {
-  authority: string;
-  graph_run_id: string;
-  graph_harness_config_id: string;
-  accepted_result: Record<string, unknown> | null;
-  graph_result: Record<string, unknown> | null;
-  graph_loop_state: Record<string, unknown>;
-  checkpoint: Record<string, unknown>;
-  node_work_orders: Array<Record<string, unknown>>;
-  events: Array<Record<string, unknown>>;
-};
-
-export type GraphWorkOrderExecuteResult = {
-  authority: string;
-  graph_run_id: string;
-  graph_harness_config_id: string;
-  work_order: Record<string, unknown>;
-  node_result: Record<string, unknown>;
-  node_executor_task_run: Record<string, unknown> | null;
-  executor_result: Record<string, unknown>;
-  accepted_result: Record<string, unknown> | null;
-  graph_result: Record<string, unknown> | null;
-  graph_loop_state: Record<string, unknown>;
-  checkpoint: Record<string, unknown>;
-  node_work_orders: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
 };
 
@@ -2963,7 +3044,12 @@ export type GraphRunBackgroundSubmitResult = {
   graph_run_id: string;
   graph_harness_config_id: string;
   background_task_name: string;
+  background_task_names?: string[];
+  scheduled_work_order_count?: number;
+  already_running_work_order_count?: number;
+  active_work_order_count?: number;
   monitor_url: string;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -4629,7 +4715,10 @@ export async function startTaskGraphHarnessRun(
     include_trace?: boolean;
     dispatch_ready?: boolean;
     run_mode?: "dispatch_only" | "auto_run" | string;
+    wait_for_completion?: boolean;
     runner_budget?: Record<string, unknown>;
+    runtime_overrides?: Record<string, unknown>;
+    runtime_settings_patch?: Record<string, unknown>;
   }
 ) {
   return request<TaskGraphRunStartResult>(
@@ -4688,6 +4777,120 @@ export async function getGraphRunMonitor(
   );
 }
 
+export async function listGraphTasks() {
+  return request<GraphTaskDefinitionList>("/orchestration/graph-tasks");
+}
+
+export async function listGraphTaskInstances(graphId: string) {
+  return request<GraphTaskInstanceList>(
+    `/orchestration/graph-tasks/${encodeURIComponent(graphId)}/instances`
+  );
+}
+
+export async function createGraphTaskInstance(
+  graphId: string,
+  payload: {
+    title: string;
+    description?: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  return request<GraphTaskInstanceCreateResult>(
+    `/orchestration/graph-tasks/${encodeURIComponent(graphId)}/instances`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getGraphTaskInstance(instanceId: string) {
+  return request<GraphTaskInstanceDetail>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}`
+  );
+}
+
+export async function startGraphTaskInstanceRun(
+  instanceId: string,
+  payload: {
+    initial_inputs?: Record<string, unknown>;
+    dispatch_ready?: boolean;
+    run_mode?: "dispatch_only" | "auto_run" | string;
+    wait_for_completion?: boolean;
+    runner_budget?: Record<string, unknown>;
+    runtime_overrides?: Record<string, unknown>;
+    runtime_settings_patch?: Record<string, unknown>;
+  } = {}
+) {
+  return request<GraphTaskInstanceRunStartResult>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/runs`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getGraphTaskInstanceMonitor(instanceId: string, eventLimit = 80) {
+  const params = new URLSearchParams();
+  params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
+  return request<GraphTaskInstanceMonitor>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/monitor?${params.toString()}`
+  );
+}
+
+export async function listGraphTaskInstanceNodeSessions(instanceId: string) {
+  return request<{
+    authority: string;
+    graph_task_instance_id: string;
+    sessions: SessionSummary[];
+    summary?: Record<string, unknown>;
+  }>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/node-sessions`
+  );
+}
+
+export async function getGraphTaskInstanceFileTree(
+  instanceId: string,
+  options: {
+    path?: string;
+    maxDepth?: number;
+    maxEntries?: number;
+  } = {}
+) {
+  const params = new URLSearchParams();
+  if (options.path) params.set("path", options.path);
+  if (options.maxDepth !== undefined) params.set("max_depth", String(options.maxDepth));
+  if (options.maxEntries !== undefined) params.set("max_entries", String(options.maxEntries));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<GraphTaskInstanceFileTree>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files/tree${suffix}`
+  );
+}
+
+export async function readGraphTaskInstanceFile(instanceId: string, path: string) {
+  const params = new URLSearchParams({ path });
+  return request<GraphTaskInstanceFileReadResult>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files?${params.toString()}`
+  );
+}
+
+export async function writeGraphTaskInstanceFile(instanceId: string, path: string, content: string) {
+  return request<GraphTaskInstanceFileWriteResult>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/files`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ path, content }),
+    }
+  );
+}
+
+export async function listGraphTaskInstanceArtifacts(instanceId: string) {
+  return request<GraphTaskInstanceArtifacts>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/artifacts`
+  );
+}
+
 export async function dispatchGraphRunReadyNodes(
   graphRunId: string,
   payload: {
@@ -4698,42 +4901,6 @@ export async function dispatchGraphRunReadyNodes(
 ) {
   return request<GraphRunDispatchReadyResult>(
     `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/dispatch-ready`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function acceptGraphNodeResult(
-  graphRunId: string,
-  payload: {
-    graph_harness_config_id: string;
-    session_scope?: Partial<SessionScope>;
-    result: Record<string, unknown>;
-  }
-) {
-  return request<GraphNodeResultAcceptResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/node-results`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function executeGraphWorkOrder(
-  graphRunId: string,
-  payload: {
-    graph_harness_config_id: string;
-    session_scope?: Partial<SessionScope>;
-    work_order: Record<string, unknown>;
-    max_steps?: number;
-    accept_result?: boolean;
-  }
-) {
-  return request<GraphWorkOrderExecuteResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/work-orders/execute`,
     {
       method: "POST",
       body: JSON.stringify(payload),

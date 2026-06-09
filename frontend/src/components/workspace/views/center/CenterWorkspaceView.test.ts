@@ -5,13 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 const setActiveTaskEnvironment = vi.fn();
+const setWorkspaceView = vi.fn();
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   ChatPanel: () => React.createElement("section", { "aria-label": "mock chat panel" }, "chat panel"),
-}));
-
-vi.mock("@/components/workspace/views/task-system/TaskGraphRunControlPanel", () => ({
-  TaskGraphRunControlPanel: () => React.createElement("section", { "aria-label": "mock graph monitor" }, "graph monitor"),
 }));
 
 vi.mock("@/lib/store", () => ({
@@ -24,10 +21,10 @@ vi.mock("@/lib/store", () => ({
     },
     currentSessionId: "session-test",
     inspectorDirty: false,
-    openTaskGraphWorkspace: vi.fn(),
     sessionEditorContexts: {},
     setActiveTaskEnvironment,
     setSessionEditorPageState: vi.fn(),
+    setWorkspaceView,
     taskEnvironmentCatalog: {
       environments: [
         {

@@ -640,7 +640,7 @@ def test_runtime_monitor_clear_action_hides_signal_without_deleting_record(tmp_p
     assert result["monitor"]["management"]["lanes"]["recent"] == []
 
 
-def test_runtime_monitor_action_rejects_stale_source_revision(tmp_path):
+def test_runtime_monitor_action_uses_current_signal_authority_with_stale_source_revision(tmp_path):
     completed = task_run(
         task_run_id="taskrun:completed",
         status="completed",
@@ -670,11 +670,9 @@ def test_runtime_monitor_action_rejects_stale_source_revision(tmp_path):
         )
     )
 
-    assert result["accepted"] is False
-    assert result["disabled_reason"] == "runtime_monitor_revision_stale"
-    assert result["effects"]["error"] == "runtime_monitor_revision_stale"
-    assert result["effects"]["current_revision"]
-    assert result["monitor"]["management"]["lanes"]["hidden"] == []
+    assert result["accepted"] is True
+    assert result["effects"]["hidden"]["signal_id"] == "taskrun:completed"
+    assert result["monitor"]["management"]["lanes"]["hidden"][0]["signal_id"] == "taskrun:completed"
     assert runtime_host.state_index.get_task_run("taskrun:completed") is completed
 
 
@@ -804,7 +802,15 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
 
     monkeypatch.setattr("harness.loop.task_executor.stop_task_run", fake_stop_task_run)
 
-    result = asyncio.run(action_service.execute({"action": "close_runtime", "signal_id": "taskrun:stale-close"}))
+    result = asyncio.run(
+        action_service.execute(
+            {
+                "action": "close_runtime",
+                "signal_id": "taskrun:stale-close",
+                "source_revision": "rtmon:1:stale",
+            }
+        )
+    )
 
     assert result["accepted"] is True
     assert result["effects"]["stop"]["accepted"] is True

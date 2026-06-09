@@ -102,7 +102,7 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
     for entry in entries:
         kind = _text(entry.get("kind"))
         level = _text(entry.get("level"))
-        state = "error" if level == "error" else "done" if level == "success" else "running"
+        state = "error" if level == "error" else "done" if level == "success" else "waiting" if level == "waiting" else "running"
         refs = [_text(entry.get("id"))] if _text(entry.get("id")) else []
 
         if kind == "tool":

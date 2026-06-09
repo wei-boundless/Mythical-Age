@@ -34,12 +34,12 @@ export function startContextHeartbeat(context: vscode.ExtensionContext, output: 
     if (disposed) {
       return;
     }
-    const snapshot = collectEditorContext();
-    const sessionId = await resolveSessionId(context, snapshot, { createIfMissing: false });
-    if (!sessionId) {
-      return;
-    }
     try {
+      const snapshot = collectEditorContext();
+      const sessionId = await resolveSessionId(context, snapshot, { createIfMissing: false });
+      if (!sessionId) {
+        return;
+      }
       await postEditorContext(sessionId, snapshot);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);

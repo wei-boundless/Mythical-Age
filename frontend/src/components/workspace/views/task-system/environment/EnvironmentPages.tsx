@@ -362,16 +362,13 @@ export function EnvironmentTaskInventoryPage({
 export function EnvironmentGraphInventoryPage({
   onSelectGraph,
   selectedGraphId,
-  selectedEnvironmentId,
   taskSystemOverview,
 }: {
   onSelectGraph: (graphId: string) => void;
   selectedGraphId: string;
-  selectedEnvironmentId: string;
   taskSystemOverview: TaskSystemOverview | null;
 }) {
-  const rows = (taskSystemOverview?.environment_graph_inventory?.items ?? [])
-    .filter((item) => String(item.environment_id || "") === selectedEnvironmentId);
+  const rows = taskSystemOverview?.environment_graph_inventory?.items ?? [];
   const activeGraphId = rows.some((row) => String(row.graph_id ?? "") === selectedGraphId)
     ? selectedGraphId
     : String(rows[0]?.graph_id ?? "");
@@ -383,10 +380,10 @@ export function EnvironmentGraphInventoryPage({
   }, [activeGraphId, onSelectGraph, selectedGraphId]);
 
   return (
-    <section className="task-environment-graph-workbench" aria-label="环境任务图编辑台">
+    <section className="task-environment-graph-workbench" aria-label="图任务工作区">
       <aside className="task-environment-graph-workbench__inventory">
         <header className="task-system-inspector-head">
-          <div><span>环境任务图</span><strong>环境任务图</strong><small>{rows.length} 张图</small></div>
+          <div><span>图任务</span><strong>图任务工作区</strong><small>{rows.length} 张图</small></div>
         </header>
         <div className="task-system-catalog-table task-system-catalog-table--full">
           <header className="task-system-table-head task-system-table-head--graphs">
@@ -419,7 +416,7 @@ export function EnvironmentGraphInventoryPage({
                 </button>
               );
             })}
-            {!rows.length ? <div className="boundary-empty">当前环境没有绑定任务图。</div> : null}
+            {!rows.length ? <div className="boundary-empty">当前项目还没有任务图。</div> : null}
           </div>
         </div>
       </aside>
@@ -427,17 +424,15 @@ export function EnvironmentGraphInventoryPage({
         <TaskGraphRunControlPanel
           className="task-environment-graph-workbench__monitor"
           graphId={activeGraphId}
-          taskEnvironmentId={selectedEnvironmentId}
           title="当前图运行监控"
         />
         {activeGraphId ? (
           <GraphTaskWorkspace
             requestedGraphId={activeGraphId}
             onSelectedGraphChange={onSelectGraph}
-            taskEnvironmentId={selectedEnvironmentId}
           />
         ) : (
-          <div className="boundary-empty">选择一个环境任务图后编辑拓扑、节点和发布设置。</div>
+          <div className="boundary-empty">选择一个任务图后编辑拓扑、节点和发布设置。</div>
         )}
       </div>
     </section>

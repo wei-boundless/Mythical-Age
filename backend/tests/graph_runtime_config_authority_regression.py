@@ -136,7 +136,7 @@ def test_node_runtime_prompt_policy_survives_graph_publish_projection() -> None:
     assert published["runtime_policy"] == runtime_policy
 
 
-def test_project_scoped_graph_binding_defaults_to_project_workspace_without_environment() -> None:
+def test_project_scoped_graph_binding_defaults_to_graph_task_workspace_without_environment() -> None:
     unit = build_graph_compilation_unit(
         graph_id="graph.test.project_scoped",
         graph_title="Project Scoped",
@@ -153,7 +153,7 @@ def test_project_scoped_graph_binding_defaults_to_project_workspace_without_envi
     )
 
     assert unit.graph_binding_contract["binding_mode"] == "project_scoped"
-    assert unit.graph_binding_contract["workspace_view"] == "project"
+    assert unit.graph_binding_contract["workspace_view"] == "graph_task"
     assert "task_environment_id" not in unit.graph_binding_contract
 
 

@@ -96,6 +96,24 @@ describe("ChatPanel", () => {
     ], false)).toBe(false);
   });
 
+  it("suppresses footer status when ask-user question is shown as assistant content", () => {
+    expect(shouldSuppressSessionActivityBar([
+      message({
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "control:ask-user",
+            kind: "status_update",
+            surface: "status",
+            phase: "waiting_user",
+            title: "等待补充信息",
+            detail: "请补充要优先审查的范围。",
+            state: "waiting",
+          },
+        ],
+      }),
+    ], false)).toBe(true);
+  });
+
   it("shows context pressure ratio even when pressure is normal", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {

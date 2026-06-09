@@ -70,3 +70,14 @@ async def vscode_connection_status(session_id: str) -> dict[str, Any]:
         ).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/vscode/sessions/{session_id}/commands/next")
+async def next_vscode_command(session_id: str) -> dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "status": "empty",
+        "command": "",
+        "commands": [],
+        "authority": "api.vscode.legacy_command_poll",
+    }

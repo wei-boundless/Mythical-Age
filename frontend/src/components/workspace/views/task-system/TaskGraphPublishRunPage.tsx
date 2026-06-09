@@ -1,17 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, GitBranch, MessageSquareShare, PauseCircle, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
 
 import {
   compileTaskSystemTaskGraphContract,
+  getSessionHistory,
   getOrchestrationHarnessTrace,
   getPublishedTaskGraphHarnessConfig,
-  resolveTaskEnvironmentSession,
   startTaskGraphHarnessRun,
   submitGraphRunUntilIdle,
   taskGraphRunsFromTrace,
   type HarnessTaskRunTrace,
+  type SessionHistory,
+  type SessionScope,
   type TaskGraphContractPreview,
   type TaskGraphStandardView,
 } from "@/lib/api";
@@ -30,6 +32,9 @@ import {
   buildTaskGraphSchedulerSummary,
   schedulerStateFromTrace,
 } from "./taskGraphRuntimeView";
+
+const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
+const GRAPH_SESSION_ACTIVE_STATUSES = new Set(["running", "active", "waiting", "queued", "dispatching", "in_progress"]);
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
@@ -68,6 +73,20 @@ function textValue(value: unknown, fallback = "") {
   return next || fallback;
 }
 
+function scopeKey(scope?: Partial<SessionScope>) {
+  return [
+    String(scope?.workspace_view || "").trim(),
+    String(scope?.task_environment_id || "").trim(),
+    String(scope?.project_id || "").trim(),
+  ].join("|");
+}
+
+function compactMessageText(value: string, limit = 280) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}...`;
+}
+
 function nestedText(record: Record<string, unknown>, path: string[]) {
   let cursor: unknown = record;
   for (const key of path) {
@@ -100,22 +119,6 @@ function graphConfigRequiresProject(graphConfig: { environment?: Record<string, 
   if (projectPolicy && !["none", "disabled", "conversation_only"].includes(projectPolicy)) return true;
   return Array.isArray(fileManagement.required_repository_kinds) && fileManagement.required_repository_kinds.length > 0
     || Array.isArray(storageSpace.required_repository_kinds) && storageSpace.required_repository_kinds.length > 0;
-}
-
-function sessionTaskGraphBinding(session: unknown) {
-  const binding = recordValue(recordValue(session).task_binding);
-  const graphRunId = textValue(binding.graph_run_id);
-  const graphHarnessConfigId = textValue(binding.graph_harness_config_id);
-  if (!graphRunId || !graphHarnessConfigId) return null;
-  return {
-    graph_run_id: graphRunId,
-    graph_harness_config_id: graphHarnessConfigId,
-    task_run_id: textValue(binding.task_run_id),
-    graph_id: textValue(binding.graph_id),
-    session_scope: recordValue(binding.session_scope),
-    task_environment_id: textValue(binding.task_environment_id),
-    project_id: textValue(binding.project_id),
-  };
 }
 
 export function TaskGraphPublishRunPage({
@@ -164,6 +167,7 @@ export function TaskGraphPublishRunPage({
   const {
     bindTaskGraphMonitorRun,
     continueBoundTaskGraphRun,
+    currentSessionId,
     evaluateBoundTaskGraphMonitor,
     pauseBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
@@ -190,6 +194,9 @@ export function TaskGraphPublishRunPage({
   const [graphRunId, setGraphRunId] = useState("");
   const [graphHarnessConfigId, setGraphHarnessConfigId] = useState("");
   const [resumeLoading, setResumeLoading] = useState(false);
+  const [graphSessionHistory, setGraphSessionHistory] = useState<SessionHistory | null>(null);
+  const [graphSessionLoading, setGraphSessionLoading] = useState(false);
+  const [graphSessionError, setGraphSessionError] = useState("");
   const published = isTaskGraphPublishedState(publishState);
   const graphContract = sharedGraphContract ?? localGraphContract;
   const graphContractError = sharedGraphContractError ?? localGraphContractError;
@@ -201,6 +208,34 @@ export function TaskGraphPublishRunPage({
   const batchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(batchLifecycleFromTrace(runTrace));
   const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.graph_loop_state?.batch_lifecycle);
   const loopPlan = buildTaskGraphLoopPlanStandardModel(standardView ?? null);
+  const graphSessionId = textValue(taskGraphMonitorBinding?.session_id || runSessionId);
+  const graphSessionScope: Partial<SessionScope> | undefined = graphSessionId
+    ? {
+        workspace_view: GRAPH_TASK_WORKSPACE_VIEW,
+        task_environment_id: "",
+        project_id: textValue(taskGraphMonitorBinding?.session_scope?.project_id || taskGraphMonitorBinding?.project_id),
+      }
+    : undefined;
+  const graphSessionScopeKey = graphSessionId ? scopeKey(graphSessionScope) : "";
+  const graphSessionMessages = (graphSessionHistory?.messages ?? []).slice(-8);
+  const graphMonitorRecord = recordValue(taskGraphBoundRunMonitor);
+  const graphRunActivity = textValue(
+    graphMonitorRecord.activity_state
+    || graphMonitorRecord.status
+    || loopSummary.status
+    || latestRunStatus,
+  ).toLowerCase();
+  const graphSessionAutoRefresh = Boolean(
+    graphSessionId
+    && (
+      graphMonitorRecord.is_running === true
+      || taskGraphMonitorLoading
+      || taskGraphAutoAdvancePending
+      || resumeLoading
+      || runStartLoading
+      || GRAPH_SESSION_ACTIVE_STATUSES.has(graphRunActivity)
+    ),
+  );
   const stopLoading = taskGraphMonitorActionLoading;
   const pauseLoading = taskGraphMonitorActionLoading;
   const preflightReport = buildTaskGraphPreflightReport({
@@ -221,6 +256,70 @@ export function TaskGraphPublishRunPage({
     }, new Map<string, TaskGraphPreflightIssue[]>()),
   );
   const hasControlTarget = Boolean(taskGraphMonitorBinding || graphRunId || taskGraphRuns.length);
+
+  async function loadGraphSessionHistory() {
+    if (!graphSessionId) {
+      setGraphSessionHistory(null);
+      setGraphSessionError("");
+      return;
+    }
+    setGraphSessionLoading(true);
+    setGraphSessionError("");
+    try {
+      setGraphSessionHistory(await getSessionHistory(graphSessionId, graphSessionScope));
+    } catch (error) {
+      setGraphSessionError(error instanceof Error ? error.message : "图任务会话读取失败");
+    } finally {
+      setGraphSessionLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!graphSessionId) {
+      setGraphSessionHistory(null);
+      setGraphSessionError("");
+      return;
+    }
+    setGraphSessionLoading(true);
+    setGraphSessionError("");
+    void getSessionHistory(graphSessionId, graphSessionScope)
+      .then((history) => {
+        if (!cancelled) setGraphSessionHistory(history);
+      })
+      .catch((error) => {
+        if (!cancelled) setGraphSessionError(error instanceof Error ? error.message : "图任务会话读取失败");
+      })
+      .finally(() => {
+        if (!cancelled) setGraphSessionLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphSessionId, graphSessionScopeKey]);
+
+  useEffect(() => {
+    if (!graphSessionId || !graphSessionAutoRefresh) return undefined;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void getSessionHistory(graphSessionId, graphSessionScope)
+        .then((history) => {
+          if (!cancelled) {
+            setGraphSessionHistory(history);
+            setGraphSessionError("");
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) setGraphSessionError(error instanceof Error ? error.message : "图任务会话读取失败");
+        });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphSessionId, graphSessionScopeKey, graphSessionAutoRefresh]);
   function bindCurrentRunForControl() {
     const latestGraphRun = taskGraphRuns[0] ?? {};
     const targetTaskRunId = textValue(taskGraphMonitorBinding?.task_run_id || taskRunId);
@@ -235,12 +334,9 @@ export function TaskGraphPublishRunPage({
       workspace_view: textValue(
         taskGraphMonitorBinding?.session_scope?.workspace_view
         || latestGraphRun.workspace_view
-        || "task_environment",
+        || GRAPH_TASK_WORKSPACE_VIEW,
       ),
-      task_environment_id: textValue(
-        taskGraphMonitorBinding?.session_scope?.task_environment_id
-        || latestGraphRun.task_environment_id,
-      ),
+      task_environment_id: "",
       project_id: textValue(
         taskGraphMonitorBinding?.session_scope?.project_id
         || latestGraphRun.project_id,
@@ -346,11 +442,7 @@ export function TaskGraphPublishRunPage({
     setRunControlNotice("正在读取已发布图配置。");
     try {
       const graphConfig = await getPublishedTaskGraphHarnessConfig(graphId);
-      setRunControlNotice("正在解析当前项目作用域会话。");
-      const taskEnvironmentId = textValue(graphConfig.task_environment_id);
-      if (!taskEnvironmentId) {
-        throw new Error("已发布图配置缺少 task_environment_id，无法确定任务环境会话。");
-      }
+      setRunControlNotice("正在解析图任务项目作用域。");
       const projectId = textValue(
         taskGraphMonitorBinding?.session_scope?.project_id
         || taskGraphMonitorBinding?.project_id
@@ -361,59 +453,18 @@ export function TaskGraphPublishRunPage({
       if (graphConfigRequiresProject(graphConfig) && !projectId) {
         throw new Error("当前图配置要求项目作用域，但前端没有解析到 project_id。");
       }
+      const launchSessionId = textValue(currentSessionId);
+      if (!launchSessionId) {
+        throw new Error("启动图任务需要一个当前会话作为发起来源，但图任务实例会由后端单独创建。");
+      }
       const sessionScope = {
-        workspace_view: "task_environment",
-        task_environment_id: taskEnvironmentId,
+        workspace_view: GRAPH_TASK_WORKSPACE_VIEW,
+        task_environment_id: "",
         project_id: projectId,
       };
-      const resolved = await resolveTaskEnvironmentSession(taskEnvironmentId, {
-        workspace_view: "task_environment",
-        project_id: projectId,
-        intent: "continue_conversation",
-        preferred_session_id: textValue(taskGraphMonitorBinding?.session_id || runSessionId),
-        graph_run_id: textValue(taskGraphMonitorBinding?.graph_run_id),
-        title: `${graphId} 运行会话`,
-        create_if_missing: true,
-      });
-      const sessionId = String(resolved.session?.id || "").trim();
-      if (!sessionId) {
-        throw new Error("图运行需要先创建真实任务环境会话。");
-      }
-      const existingTaskBinding = sessionTaskGraphBinding(resolved.session);
-      if (existingTaskBinding) {
-        setRunControlNotice("已找到当前项目的已有图运行，正在绑定监控。");
-        if (existingTaskBinding.graph_id && existingTaskBinding.graph_id !== graphId) {
-          throw new Error(`当前作用域会话已绑定其他任务图：${existingTaskBinding.graph_id}`);
-        }
-        setRunSessionId(sessionId);
-        setTaskRunId(existingTaskBinding.task_run_id);
-        setGraphRunId(existingTaskBinding.graph_run_id);
-        setGraphHarnessConfigId(existingTaskBinding.graph_harness_config_id);
-        bindTaskGraphMonitorRun({
-          task_run_id: existingTaskBinding.task_run_id || undefined,
-          graph_run_id: existingTaskBinding.graph_run_id,
-          graph_harness_config_id: existingTaskBinding.graph_harness_config_id,
-          graph_id: graphId,
-          session_id: sessionId,
-          project_id: projectId || undefined,
-          session_scope: {
-            ...recordValue(existingTaskBinding.session_scope),
-            ...sessionScope,
-          },
-          title: graphId,
-        });
-        if (existingTaskBinding.task_run_id) {
-          const trace = await getOrchestrationHarnessTrace(existingTaskBinding.task_run_id, { includePayloads: false, includeModelMessages: false, eventLimit: 160 });
-          setRunTrace(trace);
-        }
-        await evaluateBoundTaskGraphMonitor();
-        setRunControlNotice("已绑定当前图运行，可以暂停、续跑或停止。");
-        onRunBound?.();
-        return;
-      }
       setRunControlNotice("正在创建新的图运行并派发起点。");
       const result = await startTaskGraphHarnessRun(graphId, {
-        session_id: sessionId,
+        session_id: launchSessionId,
         session_scope: sessionScope,
         initial_inputs: {
           runtime_scope: sessionScope,
@@ -422,6 +473,10 @@ export function TaskGraphPublishRunPage({
         dispatch_ready: true,
         run_mode: "dispatch_only",
       });
+      const sessionId = textValue(result.graph_session_id || result.graph_run?.session_id);
+      if (!sessionId) {
+        throw new Error("后端没有返回图任务实例会话。");
+      }
       setRunSessionId(sessionId);
       setTaskRunId(result.task_run_id);
       setGraphRunId(result.graph_run_id);
@@ -433,6 +488,7 @@ export function TaskGraphPublishRunPage({
         graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
         session_id: sessionId,
+        project_id: projectId || undefined,
         session_scope: sessionScope,
         title: graphId,
       });
@@ -487,8 +543,8 @@ export function TaskGraphPublishRunPage({
     const targetGraphRunId = String(graphRunId || latestGraphRun.graph_run_id || "").trim();
     const targetConfigId = String(graphHarnessConfigId || latestGraphRun.config_id || latestGraphRun.graph_harness_config_id || "").trim();
     const targetSessionScope = {
-      workspace_view: String(latestGraphRun.workspace_view || "task_environment"),
-      task_environment_id: String(latestGraphRun.task_environment_id || ""),
+      workspace_view: String(latestGraphRun.workspace_view || GRAPH_TASK_WORKSPACE_VIEW),
+      task_environment_id: "",
       project_id: String(latestGraphRun.project_id || ""),
     };
     if (!targetGraphRunId || !targetConfigId) {
@@ -533,6 +589,35 @@ export function TaskGraphPublishRunPage({
         </article>
       </section>
 
+      <article className="boundary-card">
+        <header>
+          <strong>图任务会话</strong>
+          <button disabled={!graphSessionId || graphSessionLoading} onClick={() => void loadGraphSessionHistory()} type="button">
+            <RefreshCw size={14} />{graphSessionLoading ? "刷新中" : "刷新"}
+          </button>
+        </header>
+        <div className="task-graph-runtime-summary">
+          <span>Session <strong>{graphSessionId || "尚未创建"}</strong></span>
+          <span>Scope <strong>{graphSessionScopeKey || "graph_task"}</strong></span>
+        </div>
+        {graphSessionError ? <p className="boundary-notice boundary-notice--error">{graphSessionError}</p> : null}
+        {graphSessionMessages.length ? (
+          <div className="task-graph-session-transcript" aria-label="图任务会话消息">
+            {graphSessionMessages.map((message, index) => {
+              const messageId = String(message.message_id || message.id || `${message.role}-${index}`);
+              return (
+                <div className="task-graph-session-transcript__item" key={messageId}>
+                  <span>{message.role === "assistant" ? "Agent" : "User"}</span>
+                  <p>{compactMessageText(message.content)}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p>{graphSessionId ? "当前图任务会话还没有可展示的消息，节点运行进展可在监控区查看。" : "启动新的图运行后显示 graph session 的最近消息。"}</p>
+        )}
+      </article>
+
       <section className="task-graph-form-grid">
         <article className="boundary-card">
           <header><strong>发布动作</strong></header>
@@ -551,7 +636,7 @@ export function TaskGraphPublishRunPage({
               onClick={() => void startRun()}
               variant="primary"
             >
-              <PlayCircle size={15} />{runStartLoading ? "正在启动" : "启动/绑定运行"}
+              <PlayCircle size={15} />{runStartLoading ? "正在启动" : "启动图运行"}
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!hasControlTarget || pauseLoading} onClick={() => void pauseLatestRun()}>
               <PauseCircle size={15} />{pauseLoading ? "暂停中" : "暂停"}
@@ -587,8 +672,8 @@ export function TaskGraphPublishRunPage({
             <p><span>标准视图</span><strong>{standardViewStale ? "已过期" : standardView ? "当前" : "未载入"}</strong></p>
           </div>
           <div className="task-graph-note">
-            <strong>{standardViewStale ? "请先保存并刷新标准视图" : published ? (publishState === "run_bound" ? "当前图已绑定运行" : "可启动或绑定真实运行") : "发布后才能启动运行"}</strong>
-            <span>启动会优先绑定当前项目作用域中的已有图任务；没有绑定时才创建新的 TaskRun、TaskGraphRun、checkpoint 和 trace。</span>
+            <strong>{standardViewStale ? "请先保存并刷新标准视图" : published ? (publishState === "run_bound" ? "当前图已绑定运行" : "可启动真实运行") : "发布后才能启动运行"}</strong>
+            <span>启动会创建新的 TaskRun、TaskGraphRun、checkpoint、trace 和独立 graph_task 会话；已有运行可以通过 TaskRun ID 绑定监控。</span>
           </div>
         </article>
       </section>
@@ -673,7 +758,7 @@ export function TaskGraphPublishRunPage({
             <RefreshCw size={15} />读取 Trace
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!graphId || !published || !preflightReport.valid || runStartLoading} onClick={() => void startRun()}>
-            <PlayCircle size={15} />{runStartLoading ? "正在启动" : "启动/绑定运行"}
+            <PlayCircle size={15} />{runStartLoading ? "正在启动" : "启动图运行"}
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!runTrace || resumeLoading} onClick={() => void resumeLatestTaskGraphRun()}>
             <PlayCircle size={15} />{resumeLoading ? "续跑中" : "续跑最近运行"}

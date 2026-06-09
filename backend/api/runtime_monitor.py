@@ -48,14 +48,18 @@ def _action_service() -> RuntimeMonitorActionService:
     )
 
 
+async def _collect_global_runtime_monitor(service: Any, *, limit: int) -> dict[str, Any]:
+    return await asyncio.to_thread(service.collect_global_runtime_monitor, limit=limit)
+
+
 @router.get("/orchestration/runtime-monitor")
 async def list_runtime_monitor(limit: int = 30) -> dict[str, Any]:
-    return _service().collect_global_runtime_monitor(limit=limit)
+    return await _collect_global_runtime_monitor(_service(), limit=limit)
 
 
 @router.get("/orchestration/runtime-monitor/management")
 async def get_runtime_monitor_management(limit: int = 80) -> dict[str, Any]:
-    monitor = _service().collect_global_runtime_monitor(limit=limit)
+    monitor = await _collect_global_runtime_monitor(_service(), limit=limit)
     return {
         "authority": "runtime_monitor.management_api",
         "monitor": monitor,
@@ -87,7 +91,7 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
             yield _sse(
                 "runtime_monitor_snapshot",
                 {
-                    "monitor": service.collect_global_runtime_monitor(limit=requested_limit),
+                    "monitor": await _collect_global_runtime_monitor(service, limit=requested_limit),
                     "source": "initial",
                 },
             )
@@ -103,7 +107,7 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
                         },
                     )
                     continue
-                monitor = service.collect_global_runtime_monitor(limit=requested_limit)
+                monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
                 raw_event = runtime_event.to_dict()
                 public_projection = project_runtime_monitor_event_public_delta(
                     raw_event,

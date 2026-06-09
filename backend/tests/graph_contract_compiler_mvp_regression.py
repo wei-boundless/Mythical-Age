@@ -438,7 +438,7 @@ def test_graph_runtime_scope_uses_project_binding_from_published_contract() -> N
     )
 
     assert scope["project_id"] == "project.alpha"
-    assert scope["workspace_view"] == "project"
+    assert scope["workspace_view"] == "graph_task"
     assert "task_environment_id" not in scope
     assert scope["graph_binding_mode"] == "project_scoped"
 

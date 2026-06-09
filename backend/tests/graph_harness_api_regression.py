@@ -23,7 +23,7 @@ from task_system.repositories import GraphHarnessConfigRepository
 
 
 GRAPH_TEST_SCOPE = {
-    "workspace_view": "task_environment",
+    "workspace_view": "graph_task",
     "task_environment_id": "",
     "project_id": "",
 }
@@ -329,14 +329,15 @@ def test_task_graph_start_api_uses_launch_session_project_scope_without_conversa
 
     assert payload["launch_session_id"] == launch_session["id"]
     assert payload["graph_session_id"] != launch_session["id"]
-    assert payload["graph_run"]["workspace_view"] == "project"
+    assert payload["graph_run"]["workspace_view"] == "graph_task"
     assert payload["graph_run"]["task_environment_id"] == ""
     assert payload["graph_run"]["project_id"] == "project.development.codebase.langchain_agent"
+    assert payload["task_run"]["diagnostics"]["runtime_scope"]["workspace_view"] == "graph_task"
     assert payload["task_run"]["diagnostics"]["runtime_scope"]["project_id"] == "project.development.codebase.langchain_agent"
     assert "task_environment_id" not in payload["task_run"]["diagnostics"]["runtime_scope"]
     assert runtime.session_manager.get_task_binding(str(launch_session["id"])) == {}
     graph_session = runtime.session_manager.get_history(payload["graph_session_id"])
-    assert graph_session["scope"] == {**request_scope, "task_environment_id": ""}
+    assert graph_session["scope"] == {"workspace_view": "graph_task", "task_environment_id": "", "project_id": request_scope["project_id"]}
     assert runtime.session_manager.get_task_binding(payload["graph_session_id"])["graph_run_id"] == payload["graph_run_id"]
 
 
@@ -409,15 +410,15 @@ def test_project_scoped_run_uses_request_instance_scope_for_monitor(tmp_path: Pa
     finally:
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
-    assert payload["graph_run"]["workspace_view"] == "project"
+    assert payload["graph_run"]["workspace_view"] == "graph_task"
     assert payload["graph_run"]["task_environment_id"] == ""
     assert payload["graph_run"]["project_id"] == request_scope["project_id"]
-    assert payload["task_run"]["diagnostics"]["runtime_scope"]["workspace_view"] == "project"
+    assert payload["task_run"]["diagnostics"]["runtime_scope"]["workspace_view"] == "graph_task"
     assert "task_environment_id" not in payload["task_run"]["diagnostics"]["runtime_scope"]
-    assert payload["graph_run"]["session_scope_key"] == "project||project.development.codebase.langchain_agent"
+    assert payload["graph_run"]["session_scope_key"] == "graph_task||project.development.codebase.langchain_agent"
     graph_session = runtime.session_manager.get_history(payload["graph_session_id"])
-    assert graph_session["scope"] == {**request_scope, "task_environment_id": ""}
-    assert monitor["graph_run"]["workspace_view"] == "project"
+    assert graph_session["scope"] == {"workspace_view": "graph_task", "task_environment_id": "", "project_id": request_scope["project_id"]}
+    assert monitor["graph_run"]["workspace_view"] == "graph_task"
     assert monitor["graph_run"]["task_environment_id"] == ""
     assert monitor["graph_run"]["project_id"] == request_scope["project_id"]
     assert monitor["active_node_work_order_count"] == 1
@@ -908,7 +909,13 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
         payload = asyncio.run(
             orchestration_api.start_task_graph_harness_run(
                 graph.graph_id,
-                _graph_start_request(runtime, dispatch_ready=True, run_mode="auto_run", runner_budget={"max_node_executions": 2, "max_node_steps": 1}),
+                _graph_start_request(
+                    runtime,
+                    dispatch_ready=True,
+                    run_mode="auto_run",
+                    wait_for_completion=True,
+                    runner_budget={"max_node_executions": 2, "max_node_steps": 1},
+                ),
             )
         )
     finally:
@@ -923,6 +930,60 @@ def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
     assert payload["node_work_orders"] == []
     assert payload["graph_harness_config"]["authority"] == "harness.graph_harness_config.summary"
     assert "nodes" not in payload["graph_harness_config"]
+
+
+def test_task_graph_start_auto_run_defaults_to_background_submit(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
+    spawned: list[str] = []
+    original_spawn = runtime.harness_runtime.single_agent_runtime_host.spawn_background_task
+
+    def capture_spawn(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return SimpleNamespace(done=lambda: False)
+
+    runtime.harness_runtime.single_agent_runtime_host.spawn_background_task = capture_spawn
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                _graph_start_request(
+                    runtime,
+                    dispatch_ready=True,
+                    run_mode="auto_run",
+                    runner_budget={"max_node_executions": 2, "max_node_steps": 1},
+                ),
+            )
+        )
+    finally:
+        runtime.harness_runtime.single_agent_runtime_host.spawn_background_task = original_spawn
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    background_submission = dict(payload["background_submission"] or {})
+    assert payload["runner_result"] is None
+    assert background_submission["authority"] == "harness.api.graph_run_until_idle_background"
+    assert background_submission["accepted"] is True
+    assert background_submission["background_started"] is True
+    assert background_submission["scheduled_work_order_count"] == 1
+    assert spawned == [f"graph-work-order:{payload['graph_run_id']}:{payload['node_work_orders'][0]['work_order_id']}"]
+    assert runtime.model_runtime.calls == []
 
 
 def test_task_graph_start_auto_run_passes_runtime_model_overrides(tmp_path: Path) -> None:
@@ -953,6 +1014,7 @@ def test_task_graph_start_auto_run_passes_runtime_model_overrides(tmp_path: Path
                     runtime,
                     dispatch_ready=True,
                     run_mode="auto_run",
+                    wait_for_completion=True,
                     runner_budget={"max_node_executions": 1, "max_node_steps": 1},
                     runtime_overrides={
                         "model_overrides": {
@@ -1006,6 +1068,7 @@ def test_task_graph_start_auto_run_persists_runtime_settings_patch(tmp_path: Pat
                     runtime,
                     dispatch_ready=True,
                     run_mode="auto_run",
+                    wait_for_completion=True,
                     runner_budget={"max_node_executions": 1, "max_node_steps": 1},
                     runtime_settings_patch={
                         "model_overrides": {

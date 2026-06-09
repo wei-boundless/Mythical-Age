@@ -266,7 +266,7 @@ export type ChatTaskEnvironmentBinding = {
   bound_at: number;
 };
 
-export type SessionPoolKey = "main-chat" | `task_environment:${string}:${string}`;
+export type SessionPoolKey = "main-chat" | `task_environment:${string}:${string}` | `graph_task:${string}`;
 
 export type SessionRef = {
   sessionId: string;

@@ -31,6 +31,8 @@ class VSCodeConnectionStatus:
     connected: bool
     stale: bool
     last_seen_at: float = 0.0
+    age_seconds: float = 0.0
+    stale_after_seconds: float = 0.0
     workspace_root: str = ""
     project_key: str = ""
     active_file: dict[str, Any] = field(default_factory=dict)
@@ -46,6 +48,8 @@ class VSCodeConnectionStatus:
             "connected": self.connected,
             "stale": self.stale,
             "last_seen_at": self.last_seen_at,
+            "age_seconds": self.age_seconds,
+            "stale_after_seconds": self.stale_after_seconds,
             "workspace_root": self.workspace_root,
             "project_key": self.project_key,
             "active_file": dict(self.active_file),

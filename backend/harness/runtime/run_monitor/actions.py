@@ -25,24 +25,13 @@ class RuntimeMonitorActionService:
         monitor = self.monitor_service.collect_global_runtime_monitor(limit=80)
         signal = _find_signal(monitor, payload)
         revision_check = _source_revision_check(payload=payload, monitor=monitor)
-        if not revision_check.get("fresh"):
-            return {
-                "authority": self.authority,
-                "mode": "preflight",
-                "accepted": False,
-                "action": action,
-                "target": _target(payload=payload, signal=signal),
-                "effects": {
-                    "error": "runtime_monitor_revision_stale",
-                    **revision_check,
-                },
-                "disabled_reason": "runtime_monitor_revision_stale",
-                "receipt": _receipt(action=action, accepted=False, mode="preflight", reason="runtime_monitor_revision_stale"),
-                "monitor": monitor,
-                "updated_at": time.time(),
-            }
         check = self._action_check(action=action, payload=payload, signal=signal)
         effects = self._preview_effects(action=action, payload=payload, signal=signal)
+        if not revision_check.get("fresh"):
+            effects = {
+                **effects,
+                "source_revision_check": revision_check,
+            }
         return {
             "authority": self.authority,
             "mode": "preflight",

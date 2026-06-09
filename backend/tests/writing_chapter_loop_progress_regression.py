@@ -430,6 +430,262 @@ def test_chapter_unit_receipt_route_advances_only_from_router_receipt(tmp_path: 
     assert [item["action"] for item in advance.loop_state.loop_state["route_history"]] == ["continue", "exit"]
 
 
+def test_self_sourced_chapter_unit_router_executes_without_agent_model(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = GraphHarnessConfig(
+        config_id="ghcfg:test.deterministic.chapter_unit_router",
+        graph_id="graph.test.deterministic.chapter_unit_router",
+        graph_title="Deterministic Chapter Unit Router",
+        publish_version="test",
+        content_hash="",
+        control={
+            "start_node_ids": ["chapter_draft"],
+            "terminal_node_ids": ["chapter_batch_assemble"],
+            "max_active_nodes": 1,
+        },
+        loop_frames=(
+            {
+                "frame_id": "loop.chapter_unit",
+                "scope_id": "loop.chapter_unit",
+                "entry_node_id": "chapter_draft",
+                "router_node_id": "chapter_unit_router",
+                "continue_node_id": "chapter_draft",
+                "exit_node_id": "chapter_batch_assemble",
+                "scope_node_ids": ["chapter_draft", "chapter_unit_router"],
+                "cursor_key": "chapter_index",
+                "start_key": "batch_start_index",
+                "end_key": "batch_end_index",
+                "step": 1,
+                "reset_scope_on_continue": True,
+                "preserve_iteration_results": True,
+                "initial_inputs": {"volume_index": 1, "chapter_index": 1, "batch_start_index": 1, "batch_end_index": 2},
+            },
+        ),
+        nodes=(
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.draft",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "loop": {"scope_id": "loop.chapter_unit"},
+            },
+            {
+                "node_id": "chapter_unit_router",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.unit_router",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "metadata": {"progress_receipt_policy": {"progress_receipt_key": "chapter_progress_receipt"}},
+                "loop": {
+                    "scope_id": "loop.chapter_unit",
+                    "route_policy": {
+                        "mode": "progress_receipt",
+                        "scope_id": "loop.chapter_unit",
+                        "continue_node_id": "chapter_draft",
+                        "exit_node_id": "chapter_batch_assemble",
+                        "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["chapter_unit_router"],
+                        "receipt_complete_key": "batch_complete",
+                        "receipt_to_input_mappings": [
+                            {"source_key": "next_chapter_index", "target_key": "chapter_index", "apply_on": ["continue"]},
+                            {"source_key": "batch_start_index", "target_key": "batch_start_index"},
+                            {"source_key": "batch_end_index", "target_key": "batch_end_index"},
+                        ],
+                        "current_key": "chapter_index",
+                        "target_key": "batch_end_index",
+                    },
+                },
+            },
+            {
+                "node_id": "chapter_batch_assemble",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.assemble",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.draft.router",
+                "source_node_id": "chapter_draft",
+                "target_node_id": "chapter_unit_router",
+                "edge_type": "structured_handoff",
+                "semantic_role": "control",
+                "scheduler_role": "dependency",
+            },
+            {
+                "edge_id": "edge.router.assemble",
+                "source_node_id": "chapter_unit_router",
+                "target_node_id": "chapter_batch_assemble",
+                "edge_type": "structured_handoff",
+                "semantic_role": "control",
+                "scheduler_role": "dependency",
+            },
+        ),
+    )
+    graph_harness = runtime.harness_runtime.graph_harness
+    loop = graph_harness.graph_loop
+    missing_artifact_start = graph_harness.start_run(
+        session_id="session-missing-artifact",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+    missing_draft_order = missing_artifact_start.node_work_orders[0]
+    missing_advance = _accept(loop, graph_config, missing_artifact_start.loop_state, missing_draft_order, {"draft": "第1章正文"})
+    missing_execution = asyncio.run(
+        graph_harness.execute_work_order(
+            graph_config=graph_config,
+            work_order=missing_advance.node_work_orders[0],
+            accept_result=False,
+        )
+    )
+
+    assert missing_execution["node_result"]["status"] == "failed"
+    assert missing_execution["node_result"]["error"]["reason"] == "deterministic_progress_receipt_invalid"
+    assert (
+        missing_execution["node_result"]["error"]["recoverable_error"]["error_code"]
+        == "chapter_progress_receipt_upstream_artifact_missing"
+    )
+
+    started = graph_harness.start_run(
+        session_id="session-with-artifact",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+    draft_order = started.node_work_orders[0]
+    advance = _accept(
+        loop,
+        graph_config,
+        started.loop_state,
+        draft_order,
+        {"draft": "第1章正文"},
+        artifact_refs=("artifact://chapter_001/draft.md",),
+    )
+    router_order = advance.node_work_orders[0]
+
+    execution = asyncio.run(
+        graph_harness.execute_work_order(
+            graph_config=graph_config,
+            work_order=router_order,
+            accept_result=True,
+        )
+    )
+    state = loop.get_state(started.graph_run.graph_run_id)
+
+    assert execution["executor_result"]["ok"] is True
+    assert execution["node_result"]["status"] == "completed"
+    assert execution["node_executor_task_run"]["task_run_id"].startswith("system:")
+    assert execution["node_result"]["progress_receipts"][0]["next_chapter_index"] == 2
+    assert state is not None
+    assert state.initial_inputs["chapter_index"] == 2
+    assert execution["node_work_orders"][0]["node_id"] == "chapter_draft"
+
+
+def test_resume_requeues_progress_router_without_synthetic_receipt(tmp_path: Path) -> None:
+    runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
+    graph_config = GraphHarnessConfig(
+        config_id="ghcfg:test.resume.progress_router.no_synthetic",
+        graph_id="graph.test.resume.progress_router.no_synthetic",
+        graph_title="Resume Progress Router Without Synthetic Receipt",
+        publish_version="test",
+        content_hash="",
+        control={"start_node_ids": ["chapter_unit_router"], "max_active_nodes": 1},
+        loop_frames=(
+            {
+                "frame_id": "loop.chapter_unit",
+                "scope_id": "loop.chapter_unit",
+                "entry_node_id": "chapter_unit_router",
+                "router_node_id": "chapter_unit_router",
+                "continue_node_id": "chapter_unit_router",
+                "exit_node_id": "chapter_done",
+                "scope_node_ids": ["chapter_unit_router"],
+                "cursor_key": "chapter_index",
+                "start_key": "batch_start_index",
+                "end_key": "batch_end_index",
+                "initial_inputs": {"volume_index": 1, "chapter_index": 1, "batch_start_index": 1, "batch_end_index": 1},
+            },
+        ),
+        nodes=(
+            {
+                "node_id": "chapter_unit_router",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.unit_router",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+                "metadata": {"progress_receipt_policy": {"progress_receipt_key": "chapter_progress_receipt"}},
+                "loop": {
+                    "scope_id": "loop.chapter_unit",
+                    "route_policy": {
+                        "mode": "progress_receipt",
+                        "scope_id": "loop.chapter_unit",
+                        "continue_node_id": "chapter_unit_router",
+                        "exit_node_id": "chapter_done",
+                        "progress_receipt_key": "chapter_progress_receipt",
+                        "receipt_source_node_ids": ["chapter_unit_router"],
+                        "receipt_complete_key": "batch_complete",
+                    },
+                },
+            },
+            {
+                "node_id": "chapter_done",
+                "node_type": "agent",
+                "task_ref": "task.test.chapter.done",
+                "agent_id": "agent:0",
+                "executor": {"executor_type": "agent"},
+            },
+        ),
+        edges=(),
+    )
+    graph_harness = runtime.harness_runtime.graph_harness
+    started = graph_harness.start_run(
+        session_id="session-resume-router",
+        task_id="task.test",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+    router_order = started.node_work_orders[0]
+    blocked = graph_harness.accept_node_result(
+        graph_config=graph_config,
+        graph_run_id=started.graph_run.graph_run_id,
+        result={
+            "result_id": "nresult:chapter_unit_router:blocked",
+            "graph_run_id": started.graph_run.graph_run_id,
+            "task_run_id": started.task_run.task_run_id,
+            "node_id": "chapter_unit_router",
+            "work_order_id": router_order.work_order_id,
+            "status": "blocked",
+            "error": {
+                "reason": "model_action_protocol_repair_required",
+                "recoverable_error": {
+                    "error_code": "model_action_invalid",
+                    "retryable": True,
+                    "recovery_action": "requeue_graph_node",
+                },
+            },
+        },
+    )
+
+    assert blocked.loop_state.status == "blocked"
+    resumed = graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=started.graph_run.graph_run_id,
+    )
+
+    assert resumed.reason == "blocked_nodes_requeued"
+    assert resumed.node_work_orders
+    assert resumed.node_work_orders[0].node_id == "chapter_unit_router"
+    assert resumed.loop_state is not None
+    assert resumed.loop_state.node_states["chapter_unit_router"]["status"] == "running"
+    assert not dict(resumed.loop_state.result_index.get("chapter_unit_router") or {}).get("progress_receipts")
+    assert all("synthetic_progress_receipt" not in str(event.get("event_type") or event.get("payload") or "") for event in resumed.events)
+
+
 def test_progress_receipt_route_uses_explicit_source_over_router_output(tmp_path: Path) -> None:
     runtime = _runtime_with_graph_harness(base_dir=tmp_path / "backend", runtime_root=tmp_path / "runtime_state")
     graph_config = _chapter_loop_config()
@@ -1196,7 +1452,7 @@ def test_quality_repair_route_requires_explicit_repair_semantics(tmp_path: Path)
     assert draft_result.error["reason"] == "quality_gate_failed"
 
 
-def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict):
+def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict, artifact_refs: tuple[str, ...] = ()):
     return loop.accept_node_result(
         graph_config=graph_config,
         graph_run_id=state.graph_run_id,
@@ -1207,6 +1463,7 @@ def _accept(loop: GraphLoop, graph_config, state, order, outputs: dict):
             "node_id": order.node_id,
             "work_order_id": order.work_order_id,
             "outputs": outputs,
+            "artifact_refs": list(artifact_refs),
         },
     )
 

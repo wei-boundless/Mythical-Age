@@ -74,15 +74,8 @@ def build_graph_harness_config_from_graph(
     graph_metadata = dict(getattr(graph, "metadata", {}) or {})
     graph_runtime_policy = dict(getattr(graph, "runtime_policy", {}) or {})
     graph_context_policy = dict(getattr(graph, "context_policy", {}) or {})
-    task_environment_id = _graph_task_environment_id(
-        graph_runtime_policy=graph_runtime_policy,
-        graph_context_policy=graph_context_policy,
-    )
-    environment = _published_environment_payload(
-        task_environment_id=task_environment_id,
-        base_dir=base_dir,
-        graph_lookup=graph_lookup,
-    )
+    task_environment_id = ""
+    environment: dict[str, Any] = {}
     split_plans = _list_dicts(graph_metadata.get("split_plans") or graph_runtime_policy.get("split_plans"))
     manifest = dict(contract_manifest or _contract_manifest_from_projection(graph=graph, projection=projection))
     nodes = [dict(item) for item in projection["nodes"]]

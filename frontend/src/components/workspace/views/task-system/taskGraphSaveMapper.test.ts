@@ -128,6 +128,49 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.enabled).toBe(true);
   });
 
+  it("strips graph-level task environment fields from saved graph payloads", () => {
+    const draft = {
+      ...emptyTaskGraphDraftV2(),
+      graph_id: "graph.test.environment-strip",
+      title: "Environment strip graph",
+      runtime_policy: {
+        task_environment_id: "env.stale",
+        environment_id: "env.stale",
+        coordinator_agent_id: "agent:coordinator",
+        participant_agent_ids: [],
+        agent_group_id: "",
+        coordination_mode: "review_merge",
+      },
+      context_policy: {
+        task_environment_id: "env.stale",
+        environment_id: "env.stale",
+        shared_context_policy: "explicit_refs_only",
+        memory_sharing_policy: "isolated_by_default",
+      },
+      metadata: {
+        task_environment_id: "env.stale",
+        environment_id: "env.stale",
+      },
+    };
+
+    const payload = buildTaskGraphUpsertPayload({
+      taskGraphDraft: draft,
+      domain_id: "domain.story",
+      task_id: "",
+      publish_state: "draft",
+    });
+
+    expect(payload.runtime_policy?.task_environment_id).toBeUndefined();
+    expect(payload.runtime_policy?.environment_id).toBeUndefined();
+    expect(payload.context_policy?.task_environment_id).toBeUndefined();
+    expect(payload.context_policy?.environment_id).toBeUndefined();
+    expect(payload.metadata?.task_environment_id).toBeUndefined();
+    expect(payload.metadata?.environment_id).toBeUndefined();
+    expect((payload.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.runtime?.runtime_policy).not.toMatchObject({
+      task_environment_id: "env.stale",
+    });
+  });
+
   it("projects canonical contract_bindings into the backend DTO fields", () => {
     const draft = {
       ...emptyTaskGraphDraftV2(),

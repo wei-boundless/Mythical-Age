@@ -384,7 +384,7 @@ def _graph_runtime_scope(
     )
     if project_id:
         scope["project_id"] = project_id
-        scope["workspace_view"] = "project"
+        scope["workspace_view"] = "graph_task"
         scope["graph_binding_mode"] = str(binding_contract.get("binding_mode") or "project_scoped")
         scope.setdefault("scope_source", "harness.graph_runtime.explicit_project_scope")
     elif scope_id:
@@ -392,6 +392,7 @@ def _graph_runtime_scope(
         scope.setdefault("scope_source", "harness.graph_runtime.explicit_scope")
     else:
         scope["scope_source"] = "harness.graph_runtime.unscoped_graph_run"
+    scope["artifact_root"] = _graph_task_artifact_root(graph_run_id=graph_run_id, graph_task_instance_id=scope.get("graph_task_instance_id") or project_id)
     graph_task_memory_namespace = _graph_task_memory_namespace(
         graph_config=graph_config,
         graph_run_id=graph_run_id,
@@ -401,6 +402,13 @@ def _graph_runtime_scope(
     scope["memory_namespace_id"] = graph_task_memory_namespace["namespace_id"]
     scope["authority"] = "harness.graph_runtime.runtime_scope"
     return scope
+
+
+def _graph_task_artifact_root(*, graph_run_id: str, graph_task_instance_id: str = "") -> str:
+    instance_id = str(graph_task_instance_id or "").strip()
+    if instance_id:
+        return f"storage/graph_task_instances/{safe_id(instance_id)}/runs/{safe_id(graph_run_id)}/artifacts"
+    return f"output/graph_runs/{safe_id(graph_run_id)}/artifacts"
 
 
 def _strip_graph_environment_scope(payload: dict[str, Any]) -> dict[str, Any]:
@@ -473,7 +481,7 @@ def _format_namespace_template(template: str, *, graph_run_id: str, task_run_id:
 
 def _public_scope_fields(runtime_scope: dict[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
-    for key in ("project_id", "scope_id"):
+    for key in ("project_id", "scope_id", "graph_task_instance_id"):
         value = str(dict(runtime_scope or {}).get(key) or "").strip()
         if value:
             result[key] = value

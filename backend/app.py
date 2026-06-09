@@ -9,6 +9,7 @@ from api.config_api import router as config_router
 from api.files import router as files_router
 from api.file_changes import router as file_changes_router
 from api.health_system import router as health_system_router
+from api.graph_task_instances import router as graph_task_instances_router
 from api.image_assets import router as image_assets_router
 from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
@@ -60,6 +61,7 @@ app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
 app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestration-harness"])
+app.include_router(graph_task_instances_router, prefix="/api", tags=["graph-task-instances"])
 app.include_router(project_workspaces_router, prefix="/api", tags=["project-workspaces"])
 app.include_router(runtime_monitor_router, prefix="/api", tags=["runtime-monitor"])
 app.include_router(runtime_trace_router, prefix="/api", tags=["runtime-trace"])

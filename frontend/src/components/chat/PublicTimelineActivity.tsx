@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import { isPublicTimelineBodyItem, looksLikeRawToolOutput, publicTimelineBodyText } from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, PublicTodoItem, SingleAgentTaskProjection, SingleAgentTaskProjectionActivity } from "@/lib/api";
-import { cleanPublicTimelineText, normalizePublicTimelineItems } from "@/lib/store/publicTimeline";
+import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/store/publicTimeline";
 
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
@@ -65,7 +65,7 @@ export function PublicTimelineActivity({ items, taskProjections }: PublicTimelin
           ? <BodyLine key={entry.id || entry.text} text={entry.text} />
         : entry.kind === "tool"
           ? <ToolWindow entry={entry} key={entry.id || entry.text} />
-        : <ActivityLine kind={entry.kind} key={entry.id || entry.text} text={entry.text} />
+        : <ActivityLine detail={entry.detail} kind={entry.kind} key={entry.id || entry.text} text={entry.text} />
       ))}
     </div>
   );
@@ -82,7 +82,7 @@ function publicTimelineActivityView(
   items: PublicChatTimelineItem[] | null | undefined,
   taskProjections?: SingleAgentTaskProjection[] | null,
 ): PublicTimelineActivityView | null {
-  const normalizedItems = normalizePublicTimelineItems(items ?? []);
+  const normalizedItems = normalizePublicTimelineItems(items ?? []).filter((item) => !isPublicTimelineControlItem(item));
   const projectionEntries = taskProjectionActivityEntries(taskProjections ?? []);
   const entries = [...projectionEntries, ...activityEntries(normalizedItems)];
   if (!entries.length) {
@@ -149,6 +149,9 @@ function taskProjectionCurrentAction(projection: SingleAgentTaskProjection): Act
   return {
     id: `${cleanPublicTimelineText(projection.projection_id || projection.task_run_id)}:current-action`,
     kind: ["failed", "error", "blocked"].includes(state) ? "stopped" : "status",
+    detail: cleanPublicTimelineText(action.detail) && cleanPublicTimelineText(action.detail) !== title
+      ? shortText(action.detail, 360)
+      : "",
     text: shortText(title, 220),
   };
 }
@@ -163,6 +166,9 @@ function taskProjectionActivityEntry(activity: SingleAgentTaskProjectionActivity
   return {
     id: cleanPublicTimelineText(activity.activity_id) || `${projectionId}:activity:${kind}:${text}`,
     kind: kind === "final" ? "body" : ["failed", "error", "blocked"].includes(state) || kind === "error" ? "stopped" : "status",
+    detail: cleanPublicTimelineText(activity.detail) && cleanPublicTimelineText(activity.detail) !== text
+      ? shortText(activity.detail, 360)
+      : "",
     text: shortText(text, 220),
   };
 }
@@ -205,7 +211,7 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
     if (!text) {
       continue;
     }
-    const detail = kind === "tool" ? toolDetailText(item, text) : "";
+    const detail = kind === "tool" ? toolDetailText(item, text) : statusDetailText(item, text);
     entries.push({
       collapsed: kind === "tool" ? shouldCollapseToolWindow(item, index, latestBodyIndex) : undefined,
       detail,
@@ -333,6 +339,17 @@ function toolDetailText(item: PublicChatTimelineItem, summary: string) {
   return "";
 }
 
+function statusDetailText(item: PublicChatTimelineItem, summary: string) {
+  const candidates = [item.detail, item.observation, item.public_summary, item.text];
+  for (const candidate of candidates) {
+    const text = cleanPublicTimelineText(candidate);
+    if (text && text !== summary && !looksLikeRawToolOutput(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
 function toolWindowProjection(item: PublicChatTimelineItem, fallbackDetail: string): ToolWindowProjection | undefined {
   const raw = item.tool_window;
   const rawSections = Array.isArray(raw?.sections) ? raw.sections : [];
@@ -368,17 +385,34 @@ function shortText(value: unknown, limit: number) {
 }
 
 function ActivityLine({
+  detail,
   kind,
   text,
 }: {
+  detail?: string;
   kind: "status" | "stopped";
   text: string;
 }) {
+  const detailMarkdown = detail ? activityDetailMarkdown(detail) : "";
   return (
     <div className={`public-run-activity__line public-run-activity__line--${kind}`}>
       <p>{text}</p>
+      {detailMarkdown ? (
+        <div className="public-run-activity__line-detail markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {detailMarkdown}
+          </ReactMarkdown>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function activityDetailMarkdown(value: string) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const withListBreaks = text.replace(/\s+(?=\d{1,2}\.\s+\S)/g, "\n");
+  return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
 }
 
 function BodyLine({ text }: { text: string }) {

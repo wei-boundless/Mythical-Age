@@ -2026,12 +2026,6 @@ class HarnessRuntimeFacade:
         except Exception:
             pass
         runtime_scope = _graph_node_runtime_scope(work_order)
-        task_environment_id = str(
-            dict(getattr(work_order, "input_package", {}) or {}).get("task_environment_id")
-            or dict(runtime_scope or {}).get("task_environment_id")
-            or getattr(graph_config, "task_environment_id", "")
-            or ""
-        )
         project_id = str(
             dict(runtime_scope or {}).get("project_id")
             or dict(graph_run or {}).get("project_id")
@@ -2044,8 +2038,8 @@ class HarnessRuntimeFacade:
             session_id=session_id,
             title=f"Graph node {getattr(work_order, 'node_id', '')}",
             scope={
-                "workspace_view": "project" if project_id else "task_environment",
-                "task_environment_id": task_environment_id,
+                "workspace_view": "graph_task",
+                "task_environment_id": "",
                 "project_id": project_id,
             },
         )

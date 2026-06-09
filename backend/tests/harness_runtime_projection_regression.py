@@ -189,6 +189,101 @@ def test_public_stream_projection_emits_agent_feedback_before_tool_action() -> N
     assert items[1]["action_kind"] == "search"
     assert items[1]["public_summary"] == "正在搜索引用 requestAnimationFrame"
 
+def test_public_stream_projection_projects_ask_user_as_status_not_body() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:ask-user-admission",
+                "payload": {
+                    "model_action_request": {
+                        "action_type": "ask_user",
+                        "public_progress_note": "需要用户补充信息后才能继续。",
+                        "user_question": "请补充要优先审查的范围。",
+                    },
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    items = data["public_timeline_delta"]
+    assert len(items) == 1
+    assert items[0]["kind"] == "status_update"
+    assert items[0]["title"] == "等待补充信息"
+    assert items[0]["detail"] == "请补充要优先审查的范围。"
+    assert items[0].get("surface") != "body"
+    assert not any(item["kind"] == "opening_judgment" for item in items)
+
+def test_public_timeline_rebuild_keeps_ask_user_control_out_of_body_items() -> None:
+    from harness.runtime.runtime_monitor_public_projection import project_public_timeline_from_events
+
+    action = {
+        "request_id": "act:ask-user",
+        "action_type": "ask_user",
+        "public_progress_note": "需要用户补充信息后才能继续。",
+        "user_question": "请补充要优先审查的范围。",
+    }
+    items = project_public_timeline_from_events(
+        [
+            {
+                "event_id": "rtevt:ask-user-request",
+                "event_type": "model_action_request_received",
+                "run_id": "turnrun:turn:session:ask:1",
+                "payload": {"model_action_request": action},
+            },
+            {
+                "event_id": "rtevt:ask-user-admission",
+                "event_type": "model_action_admission_checked",
+                "run_id": "turnrun:turn:session:ask:1",
+                "payload": {"model_action_request": action},
+            },
+            {
+                "event_id": "rtevt:ask-user-terminal",
+                "event_type": "agent_turn_terminal",
+                "run_id": "turnrun:turn:session:ask:1",
+                "payload": {
+                    "status": "completed",
+                    "terminal_reason": "ask_user",
+                    "content": "ask_user",
+                },
+            },
+        ],
+        run_id="turnrun:turn:session:ask:1",
+        turn_run_id="turnrun:turn:session:ask:1",
+        status="completed",
+        final_answer="ask_user",
+        assistant_text="ask_user",
+    )
+
+    assert len(items) == 1
+    assert items[0]["kind"] == "status_update"
+    assert items[0]["title"] == "等待补充信息"
+    assert items[0]["detail"] == "请补充要优先审查的范围。"
+    assert items[0]["state"] == "waiting"
+    assert items[0]["phase"] == "waiting_user"
+
+def test_session_timeline_does_not_rebuild_ask_user_progress_as_body_item() -> None:
+    from harness.runtime.session_timeline import _public_timeline_from_progress_entries
+
+    items = _public_timeline_from_progress_entries([
+        {
+            "id": "rtevt:ask-user-admission",
+            "eventType": "model_action_admission_checked",
+            "title": "等待补充信息",
+            "body": "请补充要优先审查的范围。",
+            "kind": "stage",
+            "level": "waiting",
+            "statusText": "waiting_user",
+            "publicNote": "需要用户补充信息后才能继续。",
+            "evidenceType": "model_action",
+        }
+    ])
+
+    assert items == []
+
 def test_public_stream_projection_simplifies_image_generation_tool() -> None:
     projected = _project_public_stream_event(
         "model_action_admission",

@@ -23,13 +23,18 @@ export function VSCodeStatusPanel({ sessionId, projectBinding }: VSCodeStatusPan
   const reusedProjectConnection = Boolean(status?.reused_project_connection);
   const stateClass = connected ? "connected" : stale ? "stale" : "disconnected";
   const stateLabel = connected ? (reusedProjectConnection ? "项目已连接" : "已连接") : stale ? "过期" : "未连接";
+  const ageLabel = status?.age_seconds ? formatAge(status.age_seconds) : "";
+  const needsReconnect = stale || !connected;
   const title = [
     `VS Code ${stateLabel}`,
     boundRoot ? `项目：${boundRoot}` : "当前会话未绑定项目",
     reusedProjectConnection ? "当前会话复用同项目 VS Code 连接" : "",
+    ageLabel ? `上次同步：${ageLabel}前` : "",
     activeFile ? `当前文件：${activeFile}` : "",
     error ? `错误：${error}` : "",
   ].filter(Boolean).join("\n");
+  const openLabel = stale ? "重新连接 VS Code" : connected ? "打开 VS Code" : "连接 VS Code";
+  const actionLabel = opening ? "连接中" : stale ? "重连" : connected ? "" : "连接";
 
   return (
     <div className={`vscode-status vscode-status--${stateClass}`} title={title}>
@@ -49,13 +54,15 @@ export function VSCodeStatusPanel({ sessionId, projectBinding }: VSCodeStatusPan
         <span className="vscode-status__file">未绑定项目</span>
       )}
       <button
-        aria-label="打开当前会话绑定项目的 VS Code 窗口"
+        aria-label={boundRoot ? openLabel : "当前会话未绑定项目"}
+        className={needsReconnect ? "vscode-status__open vscode-status__open--attention" : "vscode-status__open"}
         disabled={!boundRoot || opening}
         onClick={() => void open()}
-        title={boundRoot ? "打开 VS Code" : "先绑定项目"}
+        title={boundRoot ? openLabel : "先绑定项目"}
         type="button"
       >
         <Monitor size={13} />
+        {actionLabel ? <span>{actionLabel}</span> : null}
       </button>
       <button
         aria-label="刷新 VS Code 连接状态"
@@ -78,4 +85,14 @@ function fileName(value: string) {
 function folderName(value: string) {
   const normalized = value.replace(/\\/g, "/");
   return normalized.split("/").filter(Boolean).pop() || value;
+}
+
+function formatAge(seconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  if (safeSeconds < 60) return `${safeSeconds} 秒`;
+  const minutes = Math.floor(safeSeconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时`;
+  return `${Math.floor(hours / 24)} 天`;
 }

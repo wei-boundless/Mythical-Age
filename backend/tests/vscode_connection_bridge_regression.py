@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from api.chat import _effective_editor_context
+from api import vscode as vscode_api
 from integrations.vscode_connection import VSCodeConnectionStore, get_vscode_connection_store
 from integrations.vscode_connection.models import VSCodeConnectionConflict
 from sessions import SessionManager
@@ -47,7 +49,18 @@ def test_vscode_context_store_auto_binds_single_workspace_root(tmp_path: Path) -
     assert manager.get_project_binding(session["id"])["workspace_root"] == str(project.resolve())
     assert snapshot.workspace_root == str(project.resolve())
     assert store.latest_editor_context(session["id"])["active_file"]["content_preview"]["source"] == "dirty_buffer"
-    assert store.status(session["id"]).to_dict()["status"] == "connected"
+    status = store.status(session["id"]).to_dict()
+    assert status["status"] == "connected"
+    assert status["age_seconds"] >= 0
+    assert status["stale_after_seconds"] == 60.0
+
+
+def test_vscode_legacy_command_poll_returns_empty_command() -> None:
+    result = asyncio.run(vscode_api.next_vscode_command("session-old-extension"))
+
+    assert result["session_id"] == "session-old-extension"
+    assert result["status"] == "empty"
+    assert result["commands"] == []
 
 
 def test_vscode_context_store_rejects_multiple_initial_roots(tmp_path: Path) -> None:

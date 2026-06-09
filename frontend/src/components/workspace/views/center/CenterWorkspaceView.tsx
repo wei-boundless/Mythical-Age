@@ -5,10 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
-import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 import { useAppStore } from "@/lib/store";
 
-type CenterWorkspaceLayer = "chat" | "task-graph" | "file";
+type CenterWorkspaceLayer = "chat" | "file";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 
 function compactFileName(path: string) {
@@ -144,17 +143,13 @@ export function CenterWorkspaceView({
     clearCenterWorkspaceTarget,
     currentSessionId,
     inspectorDirty,
-    openTaskGraphWorkspace,
     sessionEditorContexts,
     setSessionEditorPageState,
-    taskGraphMonitorBinding,
+    setWorkspaceView,
   } = useAppStore();
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
   const [activeFilePath, setActiveFilePath] = useState("");
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
-  const graphTaskEnvironmentId = taskEnvironmentId.trim() || GENERAL_TASK_ENVIRONMENT_ID;
-  const monitoredGraphId = String(taskGraphMonitorBinding?.graph_id || "").trim();
-  const monitoredEnvironmentId = String(taskGraphMonitorBinding?.session_scope?.task_environment_id || graphTaskEnvironmentId).trim();
   const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
 
   const canSwitchActiveFile = useCallback((nextPath: string) => {
@@ -232,8 +227,8 @@ export function CenterWorkspaceView({
             <span>会话层</span>
           </button>
           <button
-            className={layer === "task-graph" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
-            onClick={() => setLayer("task-graph")}
+            className="chat-page-tabs__item"
+            onClick={() => setWorkspaceView("creative")}
             type="button"
           >
             <Workflow size={14} />
@@ -280,29 +275,6 @@ export function CenterWorkspaceView({
       {layer === "chat" ? (
         <div className="center-workspace__chat">
           <ChatPanel />
-        </div>
-      ) : layer === "task-graph" ? (
-        <div className="center-workspace__graph-layer">
-          <section className="center-workspace__graph-monitor" aria-label="图任务监控层">
-            <header>
-              <Workflow size={18} />
-              <div>
-                <span>图任务层</span>
-                <strong>运行监控</strong>
-              </div>
-            </header>
-            <TaskGraphRunControlPanel
-              graphId={monitoredGraphId}
-              taskEnvironmentId={monitoredEnvironmentId}
-              title="当前图运行监控"
-            />
-            <div className="center-workspace__graph-monitor-actions">
-              <button onClick={() => openTaskGraphWorkspace({ graph_id: monitoredGraphId || undefined, task_environment_id: monitoredEnvironmentId, mode: "editor" })} type="button">
-                <Workflow size={14} />
-                <span>进入任务系统编辑</span>
-              </button>
-            </div>
-          </section>
         </div>
       ) : (
         <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />

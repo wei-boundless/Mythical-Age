@@ -254,6 +254,37 @@ describe("runtimeVisibilityProjection", () => {
     });
   });
 
+  it("projects ask-user model actions as waiting-for-user feedback", () => {
+    const projection = projectRuntimeStreamEvent("model_action_admission", {
+      event: {
+        event_id: "rtevt:ask-user",
+        run_id: "turnrun:turn:session-a:8",
+        event_type: "model_action_admission_checked",
+        created_at: 22,
+        payload: {
+          model_action_request: {
+            action_type: "ask_user",
+            public_progress_note: "需要用户补充信息后才能继续。",
+            user_question: "请补充要优先审查的范围。",
+          },
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "等待补充信息",
+      activityTitle: "等待补充信息",
+      activityDetail: "请补充要优先审查的范围。",
+      level: "waiting",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      body: "请补充要优先审查的范围。",
+      publicNote: "需要用户补充信息后才能继续。",
+      kind: "stage",
+      statusText: "待补充",
+    });
+  });
+
   it("projects direct public tool observation events from single-agent turns", () => {
     const projection = projectRuntimeStreamEvent("tool_observation", {
       tool_observation: {

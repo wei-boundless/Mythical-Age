@@ -66,12 +66,12 @@ function startContextHeartbeat(context, output) {
         if (disposed) {
             return;
         }
-        const snapshot = (0, editorContext_1.collectEditorContext)();
-        const sessionId = await (0, sessionBinding_1.resolveSessionId)(context, snapshot, { createIfMissing: false });
-        if (!sessionId) {
-            return;
-        }
         try {
+            const snapshot = (0, editorContext_1.collectEditorContext)();
+            const sessionId = await (0, sessionBinding_1.resolveSessionId)(context, snapshot, { createIfMissing: false });
+            if (!sessionId) {
+                return;
+            }
             await (0, apiClient_1.postEditorContext)(sessionId, snapshot);
         }
         catch (error) {

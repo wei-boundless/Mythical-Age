@@ -11,7 +11,7 @@ import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPane
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { Message, TokenStats } from "@/lib/store/types";
 
@@ -225,6 +225,9 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   if (latestAssistant.content.trim()) {
     return true;
   }
+  if (publicTimeline.some(isAskUserQuestionItem)) {
+    return true;
+  }
   if (!latestAssistant.content.trim() && publicTimeline.some(isMessageLevelAssistantFeedback)) {
     return true;
   }
@@ -246,6 +249,10 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
 
 function isMessageLevelAssistantFeedback(item: PublicChatTimelineItem) {
   return hasDisplayablePublicTimelineBody([item]);
+}
+
+function isAskUserQuestionItem(item: PublicChatTimelineItem) {
+  return isPublicTimelineControlItem(item) && Boolean(String(item.detail || item.text || "").trim());
 }
 
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {

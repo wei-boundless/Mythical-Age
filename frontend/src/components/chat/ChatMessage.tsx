@@ -14,7 +14,7 @@ import {
 } from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -101,9 +101,10 @@ export function ChatMessage({
     )
     : basePublicTimelineItems;
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
+  const askUserQuestionContent = !isUser ? askUserQuestionFromPublicTimelineItems(publicTimelineItems) : "";
   const messageDisplayContent = isUser
     ? baseDisplayContent
-    : contentProjectedIntoTimeline ? "" : baseDisplayContent;
+    : contentProjectedIntoTimeline ? "" : baseDisplayContent || askUserQuestionContent;
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -298,6 +299,28 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   return attachments.flatMap((attachment) =>
     attachment.task_projection ? [attachment.task_projection] : [],
   );
+}
+
+function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (!isPublicTimelineControlItem(item)) {
+      continue;
+    }
+    const title = normalizedAssistantComparisonText(item.title);
+    const question = String(item.detail || item.text || "").trim();
+    if (question && normalizedAssistantComparisonText(question) !== title) {
+      return normalizeAskUserQuestionMarkdown(question);
+    }
+  }
+  return "";
+}
+
+function normalizeAskUserQuestionMarkdown(value: string) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const withListBreaks = text.replace(/\s+(?=\d{1,2}\.\s+\S)/g, "\n");
+  return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
 }
 
 function assistantFinalSummaryTimelineItem(content: string): PublicChatTimelineItem {

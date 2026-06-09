@@ -87,23 +87,35 @@ describe("RunTaskLane", () => {
     expect(html.indexOf("停滞任务")).toBeLessThan(html.indexOf("真实运行"));
   });
 
-  it("opens action menus upward for the bottom monitor rows", () => {
+  it("renders monitor actions inline inside each task row", () => {
     const html = renderLane([
       signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
-      signal({ signal_id: "taskrun:2", title: "任务二", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
-      signal({ signal_id: "taskrun:3", title: "任务三", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+      signal({ signal_id: "taskrun:2", title: "任务二", actions: [{ action: "close_runtime", enabled: true, label: "关闭运行" }] }),
     ]);
 
-    expect(html).toContain("run-monitor-action-menu--down");
-    expect(html.match(/run-monitor-action-menu--up/g)?.length).toBe(2);
+    expect(html).toContain("run-monitor-task__actions");
+    expect(html).toContain("停止");
+    expect(html).toContain("关闭运行");
+    expect(html).not.toContain("run-monitor-action-menu");
   });
 
-  it("keeps a single monitor action menu opening downward", () => {
+  it("keeps continuation and navigation actions out of the task lane action group", () => {
     const html = renderLane([
-      signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+      signal({
+        signal_id: "taskrun:1",
+        title: "任务一",
+        actions: [
+          { action: "open", enabled: true, label: "打开" },
+          { action: "inspect", enabled: true, label: "检查" },
+          { action: "resume_task", enabled: true, label: "继续" },
+          { action: "delete_record", enabled: true, label: "删除记录" },
+        ],
+      }),
     ]);
 
-    expect(html).toContain("run-monitor-action-menu--down");
-    expect(html).not.toContain("run-monitor-action-menu--up");
+    expect(html).toContain("删除记录");
+    expect(html).not.toContain(">打开</button>");
+    expect(html).not.toContain(">检查</button>");
+    expect(html).not.toContain(">继续</button>");
   });
 });

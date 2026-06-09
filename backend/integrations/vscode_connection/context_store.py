@@ -165,6 +165,7 @@ class VSCodeConnectionStore:
                 status="disconnected",
                 connected=False,
                 stale=True,
+                stale_after_seconds=stale_after_seconds,
                 workspace_root=project_root,
                 project_key=project_workspace_key(project_root) if project_root else "",
             )
@@ -179,6 +180,8 @@ class VSCodeConnectionStore:
             connected=True,
             stale=stale,
             last_seen_at=snapshot.received_at,
+            age_seconds=max(0.0, age),
+            stale_after_seconds=stale_after_seconds,
             workspace_root=workspace_root,
             project_key=project_workspace_key(workspace_root) if workspace_root else "",
             active_file=active_file,
@@ -198,6 +201,7 @@ class VSCodeConnectionStore:
                 status="disconnected",
                 connected=False,
                 stale=True,
+                stale_after_seconds=stale_after_seconds,
                 workspace_root=project_root,
                 project_key=project_key,
             )
@@ -210,6 +214,8 @@ class VSCodeConnectionStore:
             connected=True,
             stale=stale,
             last_seen_at=snapshot.received_at,
+            age_seconds=max(0.0, age),
+            stale_after_seconds=stale_after_seconds,
             workspace_root=project_root,
             project_key=project_key,
             active_file=active_file,

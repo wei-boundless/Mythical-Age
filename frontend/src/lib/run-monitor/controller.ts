@@ -27,6 +27,8 @@ import {
 import type { RuntimeMonitorActionPayload, RuntimeMonitorActionResult } from "@/lib/api";
 import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
 
+const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
+
 type RunMonitorHost = {
   hasActiveChatStream: () => boolean;
   patchRuntimeAttachmentFromRuntimeEvent: (prev: StoreState, event: NonNullable<RunMonitorEventPayload["runtime_event"]>) => StoreState;
@@ -474,15 +476,15 @@ export class RunMonitorController {
       const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || "").trim();
       const graphId = String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim();
       const projectId = String(navigation.project_id || "").trim();
-      if (sessionId) {
-        this.host.applySelectedSessionShell(sessionId, { workspace_view: workspaceView || "task_environment", task_environment_id: taskEnvironmentId });
-        void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
-        void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
-      }
-      this.host.syncWorkspaceViewUrl("task-system");
+      const graphSessionScope = {
+        workspace_view: GRAPH_TASK_WORKSPACE_VIEW,
+        task_environment_id: "",
+        project_id: projectId,
+      };
+      this.host.syncWorkspaceViewUrl("creative");
       this.store.setState((prev) => ({
         ...prev,
-        activeWorkspaceView: "task-system",
+        activeWorkspaceView: "creative",
         taskGraphMonitorBinding: normalizeTaskGraphBinding({
           task_run_id: signal.task_run_id,
           graph_run_id: graphRunId,
@@ -491,16 +493,11 @@ export class RunMonitorController {
           session_id: sessionId,
           project_id: projectId,
           title: signal.title,
-          session_scope: {
-            workspace_view: workspaceView || "task_environment",
-            task_environment_id: taskEnvironmentId,
-            project_id: projectId,
-          },
+          session_scope: graphSessionScope,
         }) ?? prev.taskGraphMonitorBinding,
         taskGraphWorkspaceTarget: {
           layer: "task-graph",
           mode: "monitor",
-          task_environment_id: taskEnvironmentId || undefined,
           graph_id: graphId || undefined,
           task_run_id: signal.task_run_id || undefined,
           task_instance_id: signal.signal_id,
@@ -532,7 +529,14 @@ export class RunMonitorController {
     const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || signal.detail_ref?.graph_harness_config_id || "").trim();
     try {
       if (signal.work_kind === "graph_task" && graphRunId && graphHarnessConfigId) {
-        const graphMonitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, { workspace_view: "task_environment" });
+        const navigation = signal.navigation_target && typeof signal.navigation_target === "object" && !Array.isArray(signal.navigation_target)
+          ? signal.navigation_target as Record<string, unknown>
+          : {};
+        const graphMonitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, {
+          workspace_view: GRAPH_TASK_WORKSPACE_VIEW,
+          task_environment_id: "",
+          project_id: String(navigation.project_id || "").trim(),
+        });
         if (this.store.getState().runMonitorRevision !== expectedRevision) return;
         this.store.setState((prev) => ({
           ...prev,

@@ -178,9 +178,8 @@ export function TaskSystemView() {
   );
   const kindTemplates = consolePayload?.environment_kind_management?.kind_templates ?? [];
   const selectedEnvironmentGraphRows = useMemo(
-    () => (consolePayload?.environment_graph_inventory?.items ?? [])
-      .filter((item) => String(item.environment_id || "") === selectedEnvironmentId),
-    [consolePayload, selectedEnvironmentId],
+    () => consolePayload?.environment_graph_inventory?.items ?? [],
+    [consolePayload],
   );
 
   useEffect(() => {
@@ -426,7 +425,7 @@ export function TaskSystemView() {
       value: "environments",
       label: "环境管理",
       meta: selectedEnvironmentItem ? taskEnvironmentDisplayTitle(selectedEnvironmentItem) : `${environmentItems.length} 个环境`,
-      detail: "环境类型、资源装载、环境说明、环境内任务和环境任务图",
+      detail: "环境类型、资源装载、环境说明、环境内任务和图任务工作区",
     },
     {
       value: "contracts",
@@ -452,7 +451,7 @@ export function TaskSystemView() {
     { value: "loadout", label: "资源装载", meta: selectedEnvironmentItem ? taskEnvironmentLoadSummary(selectedEnvironmentItem) : "未保存", detail: "资料、记忆、检索和产物空间" },
     { value: "prompts", label: "环境说明", meta: `${selectedEnvironmentItem?.environment_prompts?.length ?? (environmentDraft.prompt_content.trim() ? 1 : 0)} 条`, detail: "Agent 进入环境后可读取的说明" },
     { value: "tasks", label: "环境内任务", meta: `${consolePayload?.environment_task_inventory?.summary?.task_inventory_count ?? 0} 项任务`, detail: "任务归属和默认执行链路" },
-    { value: "graphs", label: "环境任务图", meta: `${consolePayload?.environment_graph_inventory?.summary?.graph_inventory_count ?? 0} 张图`, detail: "任务图归属、发布态和健康摘要" },
+    { value: "graphs", label: "图任务工作区", meta: `${consolePayload?.environment_graph_inventory?.summary?.graph_inventory_count ?? 0} 张图`, detail: "项目任务图、发布态和运行监控" },
   ];
   const contractPages: Array<LayerNavItem<ContractSubpage>> = [
     { value: "catalog", label: "契约目录", meta: `${contractSpecs.length} 个契约`, detail: "筛选、搜索和定位契约" },

@@ -10,10 +10,18 @@ from harness.runtime.session_task_projection import build_single_agent_task_proj
 
 PUBLIC_PROJECTION_AUTHORITY = "runtime_monitor.public_event_projection.v1"
 INTERNAL_TURN_TERMINAL_REASONS = {
+    "active_work_control",
+    "ask_user",
     "assistant_message",
+    "block",
     "stream_cancelled",
     "turn_stream_closed",
     "harness.entrypoint_error",
+}
+_INTERNAL_FINAL_TEXT = {
+    "active_work_control",
+    "ask_user",
+    "block",
 }
 
 
@@ -266,6 +274,12 @@ def _public_timeline_item_key(item: dict[str, Any]) -> str:
     body_key = _public_timeline_body_key(item)
     if body_key:
         return body_key
+    if _text(item.get("kind")) == "status_update":
+        phase = _text(item.get("phase"))
+        title = _text(item.get("title"))
+        detail = _text(item.get("detail") or item.get("text"))
+        if phase in {"waiting_user", "active_work_control"} and (title or detail):
+            return f"status:{phase}:{_stable_digest(title + '|' + detail)}"
     item_id = _text(item.get("item_id"))
     if item_id:
         return item_id
@@ -337,6 +351,8 @@ def _final_answer_timeline_item(
     if _text(status).lower() not in {"completed", "success", "succeeded", "done"}:
         return {}
     text = public_text(final_answer, limit=420)
+    if text.lower() in _INTERNAL_FINAL_TEXT:
+        return {}
     if not text or _same_public_text(text, assistant_text):
         return {}
     return {

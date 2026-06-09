@@ -4,6 +4,8 @@ export type VSCodeConnectionStatus = {
   connected: boolean;
   stale: boolean;
   last_seen_at: number;
+  age_seconds?: number;
+  stale_after_seconds?: number;
   workspace_root: string;
   project_key?: string;
   active_file?: {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { GraphTaskInstanceWorkbench } from "@/components/workspace/views/task-graph-workbench/GraphTaskInstanceWorkbench";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
 import {
   asRecord,
@@ -63,6 +64,8 @@ type DomainRecord = {
   tasks: SpecificTaskRecord[];
   entry_policy: TaskSystemOverview["task_management"]["entry_policies"][number] | null;
 };
+
+type GraphTaskWorkspaceMode = "instances" | "editor";
 
 function dictOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -135,6 +138,13 @@ function normalizeTaskEnvironmentId(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
   return raw.startsWith("env.") ? raw : "";
+}
+
+function withoutGraphEnvironmentFields(payload: Record<string, unknown>) {
+  const next = { ...payload };
+  delete next.task_environment_id;
+  delete next.environment_id;
+  return next;
 }
 
 function taskEnvironmentId(task: SpecificTaskRecord) {
@@ -253,10 +263,12 @@ function deriveTaskGraphSpec(
 }
 
 export function GraphTaskWorkspace({
+  initialMode = "instances",
   requestedGraphId = "",
   onSelectedGraphChange,
   taskEnvironmentId: taskEnvironmentScopeId = "",
 }: {
+  initialMode?: GraphTaskWorkspaceMode;
   requestedGraphId?: string;
   onSelectedGraphChange?: (graphId: string) => void;
   taskEnvironmentId?: string;
@@ -267,6 +279,7 @@ export function GraphTaskWorkspace({
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [workspaceMode, setWorkspaceMode] = useState<GraphTaskWorkspaceMode>(initialMode);
   const [editorEnvironmentId, setEditorEnvironmentId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
@@ -286,6 +299,10 @@ export function GraphTaskWorkspace({
     requestedGraphIdRef.current = requestedGraphId.trim();
   }, [requestedGraphId]);
 
+  useEffect(() => {
+    setWorkspaceMode(initialMode);
+  }, [initialMode]);
+
   const loadOrchestrationAgentCatalog = useCallback(async () => {
     if (orchestrationAgentCatalogLoadRef.current) {
       return orchestrationAgentCatalogLoadRef.current;
@@ -304,10 +321,8 @@ export function GraphTaskWorkspace({
   }, []);
 
   const scopedTaskGraphs = useCallback((graphs: TaskGraphRecord[]) => {
-    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
-    if (!scopedEnvironmentId) return graphs;
-    return graphs.filter((graph) => taskGraphEnvironmentId(graph) === scopedEnvironmentId);
-  }, [taskEnvironmentScopeId]);
+    return graphs;
+  }, []);
 
   const applyOverview = useCallback((overview: TaskSystemOverview) => {
     setConsolePayload(overview);
@@ -321,16 +336,14 @@ export function GraphTaskWorkspace({
       ?? domains.find((domain) => domain.tasks.length > 0)
       ?? domains[0]
       ?? null;
-    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
-    const recommendedEnvironmentId = scopedEnvironmentId || (recommendedGraph ? taskGraphEnvironmentId(recommendedGraph) : "");
     setEditorDomainId((current) => recommendedDomain?.domain_id || current || "");
-    setEditorEnvironmentId((current) => recommendedEnvironmentId || current || overview.task_environment_management?.records?.[0]?.environment_id || "");
+    setEditorEnvironmentId((current) => current || overview.task_environment_management?.records?.[0]?.environment_id || "");
     setEditorTaskGraphId((current) => {
       if (requestedGraph) return requestedGraph.graph_id;
       if (current && selectableGraphs.some((graph) => graph.graph_id === current)) return current;
       return recommendedTaskGraphId(selectableGraphs);
     });
-  }, [scopedTaskGraphs, taskEnvironmentScopeId]);
+  }, [scopedTaskGraphs]);
 
   const load = useCallback(async () => {
     if (loadInFlightRef.current) {
@@ -411,17 +424,13 @@ export function GraphTaskWorkspace({
   );
   const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
   const editorTaskGraphs = useMemo(
-    () => activeEditorEnvironmentId
-      ? sortTaskGraphsForWorkbench(availableTaskGraphs.filter((item) => taskGraphEnvironmentId(item) === activeEditorEnvironmentId))
-      : availableTaskGraphs,
-    [activeEditorEnvironmentId, availableTaskGraphs],
+    () => availableTaskGraphs,
+    [availableTaskGraphs],
   );
   const editorGraphSelectOptions = useMemo(() => {
     const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: `${task.title} · ${task.graph_id}` }));
     const draftGraphId = String(taskGraphDraftV2.graph_id || "").trim();
-    const draftInEditorEnvironment = draftGraphId
-      && taskGraphEnvironmentId(taskGraphDraftV2) === activeEditorEnvironmentId;
-    if (draftInEditorEnvironment && !options.some((option) => option.value === draftGraphId)) {
+    if (draftGraphId && !options.some((option) => option.value === draftGraphId)) {
       return [
         {
           value: draftGraphId,
@@ -431,7 +440,7 @@ export function GraphTaskWorkspace({
       ];
     }
     return options;
-  }, [activeEditorEnvironmentId, editorTaskGraphs, taskGraphDraftV2]);
+  }, [editorTaskGraphs, taskGraphDraftV2]);
   const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId)
     ?? editorTaskGraphs[0]
     ?? null;
@@ -830,14 +839,8 @@ export function GraphTaskWorkspace({
 
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) {
     const draftDomainId = editorDomain?.domain_id || taskGraphDraftV2.domain_id || "";
-    const draftEnvironmentId = taskGraphEnvironmentId(taskGraphDraftV2)
-      || activeEditorEnvironmentId;
     if (!draftDomainId) {
       setError("请先选择任务域，再保存任务图。");
-      return;
-    }
-    if (!draftEnvironmentId) {
-      setError("请先选择任务环境，再保存任务图。");
       return;
     }
     setSaving("task-graph");
@@ -864,23 +867,13 @@ export function GraphTaskWorkspace({
         edges: graphEdges,
         publish_state: publishCommit.editor_publish_state,
         metadata: {
-          ...asRecord(taskGraphDraftV2.metadata),
+          ...withoutGraphEnvironmentFields(asRecord(taskGraphDraftV2.metadata)),
           ...publishCommit.metadata_patch,
           domain_id: draftDomainId,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
           task_id: undefined,
         },
-        runtime_policy: {
-          ...taskGraphDraftV2.runtime_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
-        context_policy: {
-          ...taskGraphDraftV2.context_policy,
-          task_environment_id: draftEnvironmentId,
-          environment_id: draftEnvironmentId,
-        },
+        runtime_policy: withoutGraphEnvironmentFields(taskGraphDraftV2.runtime_policy) as TaskGraphDraftV2["runtime_policy"],
+        context_policy: withoutGraphEnvironmentFields(taskGraphDraftV2.context_policy) as TaskGraphDraftV2["context_policy"],
       };
       const taskGraphPayload = buildTaskGraphUpsertPayload({
         taskGraphDraft: effectiveTaskGraphDraftV2,
@@ -979,38 +972,6 @@ export function GraphTaskWorkspace({
       },
     }));
   };
-  useEffect(() => {
-    if (!activeEditorEnvironmentId) return;
-    setTaskGraphDraftV2((current) => {
-      const metadata = asRecord(current.metadata);
-      if (
-        metadata.task_environment_id === activeEditorEnvironmentId
-        && metadata.environment_id === activeEditorEnvironmentId
-        && current.runtime_policy.task_environment_id === activeEditorEnvironmentId
-        && current.context_policy.task_environment_id === activeEditorEnvironmentId
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        context_policy: {
-          ...current.context_policy,
-          task_environment_id: activeEditorEnvironmentId,
-          environment_id: activeEditorEnvironmentId,
-        },
-        runtime_policy: {
-          ...current.runtime_policy,
-          task_environment_id: activeEditorEnvironmentId,
-          environment_id: activeEditorEnvironmentId,
-        },
-        metadata: {
-          ...metadata,
-          task_environment_id: activeEditorEnvironmentId,
-          environment_id: activeEditorEnvironmentId,
-        },
-      };
-    });
-  }, [activeEditorEnvironmentId]);
   const updateTaskGraphRuntimePolicy = (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => {
     setTaskGraphDraftV2((current) => ({
       ...current,
@@ -1085,69 +1046,98 @@ export function GraphTaskWorkspace({
 
   if (loading && !consolePayload) {
     return (
-      <section className="task-graph-editor-page task-graph-editor-page--embedded" aria-label="主会话图任务编辑台">
+      <section className="task-graph-editor-page task-graph-editor-page--embedded" aria-label="图任务工作区">
         <div className="boundary-empty boundary-empty--large">正在加载图任务配置。</div>
       </section>
     );
   }
 
   return (
-    <section className="task-graph-editor-page task-graph-editor-page--embedded" aria-label="主会话图任务编辑台">
+    <section className="task-graph-editor-page task-graph-editor-page--embedded graph-task-workspace-shell" aria-label="图任务工作区">
+      <nav className="graph-task-workspace-mode-switch" aria-label="图任务工作区层级">
+        <button
+          aria-current={workspaceMode === "instances" ? "page" : undefined}
+          className={workspaceMode === "instances" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
+          onClick={() => setWorkspaceMode("instances")}
+          type="button"
+        >
+          <strong>实例项目</strong>
+          <span>运行、监控、节点会话、文件产物</span>
+        </button>
+        <button
+          aria-current={workspaceMode === "editor" ? "page" : undefined}
+          className={workspaceMode === "editor" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
+          onClick={() => setWorkspaceMode("editor")}
+          type="button"
+        >
+          <strong>图定义编辑</strong>
+          <span>拓扑、节点、边契约、发布校验</span>
+        </button>
+      </nav>
       {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
       {notice ? <div className="boundary-notice">{notice}</div> : null}
-      <TaskGraphWorkbench
-        addTaskGraphNode={addTaskGraphNode}
-        addTaskGraphRoleNode={addTaskGraphRoleNode}
-        addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
-        addTaskGraphTaskNode={addTaskGraphTaskNode}
-        a2aCatalog={a2aCatalog}
-        agentGroupOptions={editorAgentGroupOptions}
-        boundTaskGraphTaskIds={boundTaskGraphTaskIds}
-        contractSpecs={editorContractSpecs}
-        taskGraphs={editorTaskGraphs}
-        domainTaskOptions={editorDomainTaskOptions}
-        editorIssueCount={editorIssueCount}
-        editorValid={editorValid}
-        activeGraphEdges={activeGraphEdges}
-        activeGraphNodes={activeGraphNodes}
-        handleTopologyNodeClick={handleTopologyNodeClick}
-        linkingFromNodeId={linkingFromNodeId}
-        taskGraphEditorSelection={taskGraphEditorSelection}
-        setTaskGraphEditorSelection={setTaskGraphEditorSelection}
-        removeTaskGraphEdge={removeTaskGraphEdge}
-        removeTaskGraphNode={removeTaskGraphNode}
-        reverseTaskGraphEdge={reverseTaskGraphEdge}
-        saveTaskGraphStack={saveTaskGraphStack}
-        saving={saving}
-        selectedTaskGraph={editorSelectedTaskGraph}
-        selectedTaskGraphId={editorTaskGraphId}
-        selectedDomain={editorDomain}
-        selectedDomainTasks={editorEnvironmentTasks}
-        selectedGraphEdge={selectedGraphEdge}
-        selectedGraphEdgeId={selectedGraphEdgeId}
-        selectedGraphNode={selectedGraphNode}
-        selectedGraphNodeId={selectedGraphNodeId}
-        setLinkingFromNodeId={setLinkingFromNodeId}
-        setSelectedTaskGraphId={setGraphWorkbenchSelectedGraphId}
-        setSelectedGraphEdgeId={setSelectedGraphEdgeId}
-        setSelectedGraphNodeId={setSelectedGraphNodeId}
-        taskGraphDirty={topologyDirty}
-        taskGraphDraftV2={taskGraphDraftV2}
-        workspaceSlot={editorWorkspaceSlot}
-        taskGraphStandardView={taskGraphStandardView}
-        taskGraphStandardViewStale={taskGraphStandardViewStale}
-        taskGraphStandardViewError={taskGraphStandardViewError}
-        taskGraphStandardViewLoading={taskGraphStandardViewLoading}
-        refreshTaskGraphStandardView={refreshTaskGraphStandardView}
-        updateTaskGraphDraft={updateTaskGraphDraft}
-        updateTaskGraphEdge={updateTaskGraphEdge}
-        updateTaskGraphMetadata={updateTaskGraphMetadata}
-        updateTaskGraphNode={updateTaskGraphNode}
-        updateTaskGraphPublishState={updateTaskGraphPublishState}
-        updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
-        orchestrationAgentCatalog={orchestrationAgentCatalog}
-        semanticRelationPresets={semanticRelationPresets}
-      />
+      {workspaceMode === "instances" ? (
+        <GraphTaskInstanceWorkbench
+          graphTasks={editorTaskGraphs}
+          onOpenEditor={() => setWorkspaceMode("editor")}
+          onSelectedGraphChange={setGraphWorkbenchSelectedGraphId}
+          selectedGraphId={activeTaskGraphId}
+        />
+      ) : (
+        <TaskGraphWorkbench
+          addTaskGraphNode={addTaskGraphNode}
+          addTaskGraphRoleNode={addTaskGraphRoleNode}
+          addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
+          addTaskGraphTaskNode={addTaskGraphTaskNode}
+          a2aCatalog={a2aCatalog}
+          agentGroupOptions={editorAgentGroupOptions}
+          boundTaskGraphTaskIds={boundTaskGraphTaskIds}
+          contractSpecs={editorContractSpecs}
+          taskGraphs={editorTaskGraphs}
+          domainTaskOptions={editorDomainTaskOptions}
+          editorIssueCount={editorIssueCount}
+          editorValid={editorValid}
+          activeGraphEdges={activeGraphEdges}
+          activeGraphNodes={activeGraphNodes}
+          handleTopologyNodeClick={handleTopologyNodeClick}
+          linkingFromNodeId={linkingFromNodeId}
+          taskGraphEditorSelection={taskGraphEditorSelection}
+          setTaskGraphEditorSelection={setTaskGraphEditorSelection}
+          removeTaskGraphEdge={removeTaskGraphEdge}
+          removeTaskGraphNode={removeTaskGraphNode}
+          reverseTaskGraphEdge={reverseTaskGraphEdge}
+          saveTaskGraphStack={saveTaskGraphStack}
+          saving={saving}
+          selectedTaskGraph={editorSelectedTaskGraph}
+          selectedTaskGraphId={editorTaskGraphId}
+          selectedDomain={editorDomain}
+          selectedDomainTasks={editorEnvironmentTasks}
+          selectedGraphEdge={selectedGraphEdge}
+          selectedGraphEdgeId={selectedGraphEdgeId}
+          selectedGraphNode={selectedGraphNode}
+          selectedGraphNodeId={selectedGraphNodeId}
+          setLinkingFromNodeId={setLinkingFromNodeId}
+          setSelectedTaskGraphId={setGraphWorkbenchSelectedGraphId}
+          setSelectedGraphEdgeId={setSelectedGraphEdgeId}
+          setSelectedGraphNodeId={setSelectedGraphNodeId}
+          taskGraphDirty={topologyDirty}
+          taskGraphDraftV2={taskGraphDraftV2}
+          workspaceSlot={editorWorkspaceSlot}
+          taskGraphStandardView={taskGraphStandardView}
+          taskGraphStandardViewStale={taskGraphStandardViewStale}
+          taskGraphStandardViewError={taskGraphStandardViewError}
+          taskGraphStandardViewLoading={taskGraphStandardViewLoading}
+          refreshTaskGraphStandardView={refreshTaskGraphStandardView}
+          updateTaskGraphDraft={updateTaskGraphDraft}
+          updateTaskGraphEdge={updateTaskGraphEdge}
+          updateTaskGraphMetadata={updateTaskGraphMetadata}
+          updateTaskGraphNode={updateTaskGraphNode}
+          updateTaskGraphPublishState={updateTaskGraphPublishState}
+          updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
+          orchestrationAgentCatalog={orchestrationAgentCatalog}
+          semanticRelationPresets={semanticRelationPresets}
+        />
+      )}
     </section>
   );
 }

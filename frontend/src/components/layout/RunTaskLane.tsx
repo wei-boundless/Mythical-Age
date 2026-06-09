@@ -4,7 +4,6 @@ import { Activity, AlertTriangle, CheckCircle2, Clock3, TimerReset, Workflow } f
 import React from "react";
 
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
-import { RunMonitorActionMenu } from "@/components/layout/RunMonitorActionMenu";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 
 type RunTaskLaneProps = {
@@ -14,6 +13,12 @@ type RunTaskLaneProps = {
   onAction: (payload: RuntimeMonitorActionPayload) => void;
   onOpen: (signalId: string) => void;
 };
+
+type RunTaskLaneAction = NonNullable<RunMonitorSignal["actions"]>[number];
+
+const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
+const DANGER_ACTIONS = new Set(["delete_record"]);
+const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
 function signalIcon(signal: RunMonitorSignal) {
   const activityState = signalText(signal.activity_state);
@@ -73,6 +78,10 @@ function signalOpenId(signal: RunMonitorSignal) {
   return signal.signal_id || signal.task_instance_id || signal.task_run_id || signal.graph_run_id || "";
 }
 
+function visibleTaskLaneActions(signal: RunMonitorSignal): RunTaskLaneAction[] {
+  return (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action));
+}
+
 export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen }: RunTaskLaneProps) {
   const ordered = [...signals].sort((left, right) => signalSortRank(left) - signalSortRank(right));
   const visible = ordered.slice(0, 8);
@@ -84,28 +93,31 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
         {hidden ? <em>另有 {hidden} 条</em> : null}
       </header>
       <div className="run-monitor-tasks">
-        {visible.length ? visible.map((signal, index) => (
-          <div
-            className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}`}
-            key={signalOpenId(signal)}
-          >
-            <span className="run-monitor-task__icon">{signalIcon(signal)}</span>
-            <button className="run-monitor-task__body" disabled={!signalOpenId(signal)} onClick={() => onOpen(signalOpenId(signal))} type="button">
-              <strong>{signal.title}</strong>
-              <small>{signal.line}</small>
-            </button>
-            <span className="run-monitor-task__meta">
-              <strong>{signalStateLabel(signal)}</strong>
-              <small>{signal.detail}</small>
-            </span>
-            <RunMonitorActionMenu
-              loadingAction={actionLoading}
-              onAction={onAction}
-              placement={visible.length >= 3 && index >= visible.length - 2 ? "up" : "down"}
-              signal={signal}
-            />
-          </div>
-        )) : (
+        {visible.length ? visible.map((signal) => {
+          const actions = visibleTaskLaneActions(signal);
+          return (
+            <div
+              className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}${actions.length ? " run-monitor-task--has-actions" : ""}`}
+              key={signalOpenId(signal)}
+            >
+              <span className="run-monitor-task__icon">{signalIcon(signal)}</span>
+              <button className="run-monitor-task__body" disabled={!signalOpenId(signal)} onClick={() => onOpen(signalOpenId(signal))} type="button">
+                <strong>{signal.title}</strong>
+                <small>{signal.line}</small>
+              </button>
+              <span className="run-monitor-task__meta">
+                <strong>{signalStateLabel(signal)}</strong>
+                <small>{signal.detail}</small>
+              </span>
+              <RunTaskLaneActions
+                actions={actions}
+                loadingAction={actionLoading}
+                onAction={onAction}
+                signal={signal}
+              />
+            </div>
+          );
+        }) : (
           <div className="run-monitor-empty">
             <Clock3 size={17} />
             <strong>{loading ? "同步中" : "暂无任务"}</strong>
@@ -115,4 +127,52 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
       </div>
     </section>
   );
+}
+
+function RunTaskLaneActions({
+  actions,
+  loadingAction,
+  onAction,
+  signal,
+}: {
+  actions: RunTaskLaneAction[];
+  loadingAction: string;
+  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  signal: RunMonitorSignal;
+}) {
+  if (!actions.length) return null;
+  const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
+  return (
+    <div className="run-monitor-task__actions" aria-label="运行操作">
+      {actions.map((action) => (
+        <button
+          className={runTaskLaneActionClassName(action.action)}
+          disabled={Boolean(loadingAction)}
+          key={action.action}
+          onClick={(event) => {
+            event.stopPropagation();
+            onAction({
+              action: action.action,
+              signal_id: signalId,
+              task_run_id: signal.task_run_id,
+              graph_run_id: signal.graph_run_id || signal.graph_ref?.graph_run_id || "",
+            });
+          }}
+          type="button"
+        >
+          {loadingAction === action.action ? "处理中" : action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function runTaskLaneActionClassName(action: string) {
+  if (DANGER_ACTIONS.has(action)) {
+    return "run-monitor-task__action run-monitor-task__action--danger";
+  }
+  if (WARNING_ACTIONS.has(action)) {
+    return "run-monitor-task__action run-monitor-task__action--warning";
+  }
+  return "run-monitor-task__action";
 }

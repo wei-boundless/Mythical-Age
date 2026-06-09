@@ -2,7 +2,6 @@
 
 import { RefreshCw } from "lucide-react";
 
-import { RunMonitorActionMenu } from "@/components/layout/RunMonitorActionMenu";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
 import { selectRunMonitorProjectLane, selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
@@ -10,6 +9,10 @@ import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { useAppStore } from "@/lib/store";
 
 export type RunManagementSubpage = "queue" | "projects" | "records" | "cleanup";
+
+const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
+const DANGER_ACTIONS = new Set(["delete_record"]);
+const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
 export function RunManagementWorkbench({ activePage }: { activePage: RunManagementSubpage }) {
   const confirm = useConfirmDialog();
@@ -159,8 +162,46 @@ function RunManagementRows({
             <strong>{stateLabel(signal)}</strong>
             <span>{signal.detail}</span>
           </div>
-          <RunMonitorActionMenu loadingAction={actionLoading} onAction={onAction} signal={signal} />
+          <RunManagementActions loadingAction={actionLoading} onAction={onAction} signal={signal} />
         </div>
+      ))}
+    </div>
+  );
+}
+
+function RunManagementActions({
+  loadingAction,
+  onAction,
+  signal,
+}: {
+  loadingAction: string;
+  onAction: (payload: RuntimeMonitorActionPayload) => void;
+  signal: RunMonitorSignal;
+}) {
+  const actions = (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action));
+  if (!actions.length) {
+    return <div className="run-management-row__actions" aria-label="无可用操作" />;
+  }
+  const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
+  return (
+    <div className="run-management-row__actions" aria-label="运行操作">
+      {actions.map((action) => (
+        <button
+          className={actionButtonClassName(action.action)}
+          disabled={Boolean(loadingAction) && loadingAction !== action.action}
+          key={action.action}
+          onClick={() => {
+            onAction({
+              action: action.action,
+              signal_id: signalId,
+              task_run_id: signal.task_run_id,
+              graph_run_id: signal.graph_run_id || signal.graph_ref?.graph_run_id || "",
+            });
+          }}
+          type="button"
+        >
+          {loadingAction === action.action ? "处理中" : action.label}
+        </button>
       ))}
     </div>
   );
@@ -189,4 +230,14 @@ function stateLabel(signal: RunMonitorSignal) {
   if (signal.state === "failed") return "失败";
   if (signal.state === "completed") return "完成";
   return "已同步";
+}
+
+function actionButtonClassName(action: string) {
+  if (DANGER_ACTIONS.has(action)) {
+    return "run-management-row__action run-management-row__action--danger";
+  }
+  if (WARNING_ACTIONS.has(action)) {
+    return "run-management-row__action run-management-row__action--warning";
+  }
+  return "run-management-row__action";
 }

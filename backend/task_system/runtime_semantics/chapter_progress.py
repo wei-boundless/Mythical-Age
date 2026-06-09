@@ -93,6 +93,42 @@ def normalize_chapter_progress_receipt(
     return normalized
 
 
+def build_chapter_progress_receipt(
+    *,
+    initial_inputs: dict[str, Any] | None = None,
+    committed_words: int = 0,
+    volume_complete: bool = False,
+) -> dict[str, Any]:
+    inputs = dict(initial_inputs or {})
+    chapter = _int_value(inputs.get("chapter_index"), 1)
+    batch_start = _int_value(inputs.get("batch_start_index"), chapter)
+    batch_end = _int_value(inputs.get("batch_end_index"), batch_start)
+    if batch_end < batch_start:
+        raise ChapterProgressReceiptError("chapter_progress_receipt_batch_range_invalid")
+    if chapter < batch_start or chapter > batch_end:
+        raise ChapterProgressReceiptError("chapter_progress_receipt_current_chapter_outside_batch")
+
+    expected = list(range(batch_start, batch_end + 1))
+    committed = [index for index in expected if index <= chapter]
+    missing = [index for index in expected if index > chapter]
+    receipt = {
+        "authority": AUTHORITY,
+        "volume_index": _int_value(inputs.get("volume_index"), 1),
+        "batch_start_index": batch_start,
+        "batch_end_index": batch_end,
+        "expected_chapter_indexes": expected,
+        "committed_chapter_indexes": committed,
+        "missing_chapter_indexes": missing,
+        "unexpected_chapter_indexes": [],
+        "committed_words": max(0, int(committed_words or 0)),
+        "next_chapter_index": chapter + 1,
+        "batch_complete": not missing,
+        "volume_complete": bool(volume_complete),
+        "commit_allowed": True,
+    }
+    return normalize_chapter_progress_receipt(receipt, initial_inputs=inputs)
+
+
 def _authoritative_volume_index(*, receipt: dict[str, Any], inputs: dict[str, Any]) -> int:
     if "volume_index" in inputs and inputs.get("volume_index") not in (None, ""):
         return _int_value(inputs.get("volume_index"), 1)

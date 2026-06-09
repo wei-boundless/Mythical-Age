@@ -201,7 +201,10 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
 def _is_internal_turn_terminal_reason(reason: str) -> bool:
     normalized = str(reason or "").strip().lower()
     return normalized in {
+        "active_work_control",
+        "ask_user",
         "assistant_message",
+        "block",
         "stream_cancelled",
         "turn_stream_closed",
         "harness.entrypoint_error",
@@ -233,10 +236,11 @@ def _public_timeline_item_is_error(item: dict[str, Any]) -> bool:
 
 
 def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    items = list(build_public_chat_timeline_from_progress_entries(entries))
+    visible_entries = [entry for entry in entries if not _is_control_model_action_progress_entry(entry)]
+    items = list(build_public_chat_timeline_from_progress_entries(visible_entries))
     if any(str(item.get("kind") or "") == "opening_judgment" for item in items):
         return items
-    for entry in entries:
+    for entry in visible_entries:
         if str(entry.get("kind") or "") != "model":
             continue
         text = public_runtime_progress_summary(entry.get("body") or entry.get("publicNote") or entry.get("agentBrief") or "").strip()
@@ -254,6 +258,19 @@ def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> lis
             *items,
         ]
     return items
+
+
+def _is_control_model_action_progress_entry(entry: dict[str, Any]) -> bool:
+    if str(entry.get("evidenceType") or "") != "model_action":
+        return False
+    status = str(entry.get("statusText") or entry.get("status") or "").strip().lower()
+    title = str(entry.get("title") or "").strip()
+    body = public_runtime_progress_summary(entry.get("body") or entry.get("publicNote") or "").strip()
+    return (
+        status in {"waiting_user", "blocked", "active_work_control"}
+        or title in {"等待补充信息", "处理遇到阻塞", "已收到补充要求"}
+        or body in {"需要用户补充信息后才能继续。", "当前请求无法继续执行。"}
+    )
 
 
 def _public_timeline_key(item: dict[str, Any]) -> str:
@@ -681,6 +698,41 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
     action_request = dict(payload.get("model_action_request") or {})
     action_type = str(action_request.get("action_type") or "").strip()
     public_note = public_runtime_progress_summary(action_request.get("public_progress_note") or "").strip()
+    if action_type == "ask_user":
+        question = public_runtime_progress_summary(action_request.get("user_question") or public_note or "需要补充信息后继续。").strip()
+        return _entry(
+            event,
+            title="等待补充信息",
+            body=question,
+            kind="stage",
+            level="waiting",
+            status="waiting_user",
+            public_note=public_note,
+            evidence_type="model_action",
+        )
+    if action_type == "block":
+        reason = public_runtime_progress_summary(action_request.get("blocking_reason") or public_note or "当前请求无法继续处理。").strip()
+        return _entry(
+            event,
+            title="处理遇到阻塞",
+            body=reason,
+            kind="terminal",
+            level="error",
+            status="blocked",
+            public_note=public_note,
+            evidence_type="model_action",
+        )
+    if action_type == "active_work_control":
+        return _entry(
+            event,
+            title="已收到补充要求",
+            body=public_note or "已收到补充要求。",
+            kind="stage",
+            level="success",
+            status="completed",
+            public_note=public_note,
+            evidence_type="model_action",
+        )
     if action_type != "tool_call":
         body = public_note or "正在判断下一步动作。"
         return _entry(

@@ -193,12 +193,6 @@ def _graph_harness_from_runtime_host(runtime_host: Any) -> GraphHarness:
 
 def _engagement_graph_scope(*, graph_config: Any, contract: EngagementContract) -> dict[str, str]:
     binding = _graph_binding_contract(graph_config)
-    task_environment_id = str(
-        binding.get("task_environment_id")
-        or getattr(graph_config, "task_environment_id", "")
-        or contract.task_environment_id
-        or ""
-    ).strip()
     startup_parameters = dict(contract.startup_parameters or {})
     project_id = str(
         binding.get("project_id")
@@ -206,10 +200,9 @@ def _engagement_graph_scope(*, graph_config: Any, contract: EngagementContract) 
         or startup_parameters.get("workspace_project_id")
         or ""
     ).strip()
-    workspace_view = str(binding.get("workspace_view") or ("project" if project_id else "task_environment")).strip()
     return {
-        "workspace_view": workspace_view or ("project" if project_id else "task_environment"),
-        "task_environment_id": task_environment_id,
+        "workspace_view": "graph_task",
+        "task_environment_id": "",
         "project_id": project_id,
         "scope_source": "task_system.engagement.graph_binding_contract",
     }

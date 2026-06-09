@@ -107,6 +107,26 @@ describe("PublicTimelineActivity", () => {
     expect(html.indexOf("正在读取 ChatMessage.tsx")).toBeLessThan(html.indexOf("已确认投影入口。"));
   });
 
+  it("does not render ask-user control status as public activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "status:waiting-user",
+            kind: "status_update",
+            surface: "status",
+            phase: "waiting_user",
+            title: "等待补充信息",
+            detail: "审查项目没问题。不过在开始之前，我需要确认一下你的期望： 1. **审查范围**——你希望我全面审查整个项目，还是聚焦某个具体方面？ 2. **审查深度**——是要做快速健康评估，还是深入到具体模块逐文件审查？",
+            state: "waiting",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toBe("");
+  });
+
   it("preserves markdown paragraphs for model body timeline text", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

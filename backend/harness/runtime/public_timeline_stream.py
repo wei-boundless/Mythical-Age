@@ -173,6 +173,13 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = _record(event.get("payload"))
     request = _record(payload.get("model_action_request"))
     action_type = str(request.get("action_type") or "").strip().lower()
+    control_item = _control_action_item_from_model_action(
+        item_id=_stable_id("control-action", str(event.get("event_id") or ""), action_type),
+        request=request,
+        state="waiting" if action_type == "ask_user" else "error" if action_type == "block" else "running",
+    )
+    if control_item:
+        return [control_item]
     items: list[dict[str, Any]] = []
     feedback = _agent_feedback_item_from_model_action(
         item_id=_stable_id("agent-feedback", str(event.get("event_id") or ""), str(request.get("public_progress_note") or "")),
@@ -198,6 +205,41 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     if action:
         items.append(action)
     return items
+
+
+def _control_action_item_from_model_action(
+    *,
+    item_id: str,
+    request: dict[str, Any],
+    state: str,
+) -> dict[str, Any]:
+    action_type = str(request.get("action_type") or "").strip().lower()
+    if action_type == "ask_user":
+        question = _visible_agent_feedback(request.get("user_question")) or _visible_agent_feedback(request.get("public_progress_note"))
+        return _status_item(
+            item_id=item_id,
+            title="等待补充信息",
+            detail=question,
+            state=state,
+            phase="waiting_user",
+        )
+    if action_type == "block":
+        reason = _visible_agent_feedback(request.get("blocking_reason")) or _visible_agent_feedback(request.get("public_progress_note"))
+        return _blocked_item(
+            item_id=item_id,
+            text=reason or "当前请求无法继续处理。",
+            state=state,
+        )
+    if action_type == "active_work_control":
+        note = _visible_agent_feedback(request.get("public_progress_note")) or _visible_agent_feedback(_record(request.get("public_action_state")).get("current_judgment"))
+        return _status_item(
+            item_id=item_id,
+            title="已收到补充要求",
+            detail=note,
+            state=state,
+            phase="active_work_control",
+        )
+    return {}
 
 
 def _turn_tool_observation_item(data: dict[str, Any]) -> dict[str, Any]:

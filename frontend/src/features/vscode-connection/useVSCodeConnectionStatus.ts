@@ -6,6 +6,8 @@ import { getVSCodeConnectionStatus, openSessionProjectInVSCode } from "./api";
 import type { OpenSessionProjectInVSCodeResponse, VSCodeConnectionStatus } from "./types";
 
 const POLL_INTERVAL_MS = 5000;
+const RECONNECT_POLL_INTERVAL_MS = 1500;
+const RECONNECT_TIMEOUT_MS = 22000;
 
 export function useVSCodeConnectionStatus(sessionId: string | null | undefined) {
   const [status, setStatus] = useState<VSCodeConnectionStatus | null>(null);
@@ -40,10 +42,11 @@ export function useVSCodeConnectionStatus(sessionId: string | null | undefined) 
     setOpening(true);
     try {
       const result = await openSessionProjectInVSCode(targetSessionId);
+      if (result.connection_status) {
+        setStatus(result.connection_status);
+      }
       setError("");
-      window.setTimeout(() => {
-        void refresh();
-      }, 900);
+      await waitForFreshStatus(targetSessionId, setStatus);
       return result;
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -51,7 +54,7 @@ export function useVSCodeConnectionStatus(sessionId: string | null | undefined) 
     } finally {
       setOpening(false);
     }
-  }, [refresh, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => {
     void refresh();
@@ -79,4 +82,28 @@ function errorMessage(value: unknown) {
     return value.message;
   }
   return String(value || "VS Code connection request failed");
+}
+
+async function waitForFreshStatus(
+  sessionId: string,
+  setStatus: (status: VSCodeConnectionStatus) => void,
+): Promise<VSCodeConnectionStatus | null> {
+  const deadline = Date.now() + RECONNECT_TIMEOUT_MS;
+  let latest: VSCodeConnectionStatus | null = null;
+  while (Date.now() < deadline) {
+    await delay(RECONNECT_POLL_INTERVAL_MS);
+    const next = await getVSCodeConnectionStatus(sessionId);
+    latest = next;
+    setStatus(next);
+    if (next.connected && !next.stale) {
+      return next;
+    }
+  }
+  return latest;
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }

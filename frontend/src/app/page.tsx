@@ -18,7 +18,7 @@ const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").
 const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
-const CreativeEnvironmentView = lazy(() => import("@/components/workspace/views/CreativeEnvironmentView").then((module) => ({ default: module.CreativeEnvironmentView })));
+const GraphTaskSystemView = lazy(() => import("@/components/workspace/views/GraphTaskSystemView").then((module) => ({ default: module.GraphTaskSystemView })));
 
 function LazyView({ children }: { children: ReactNode }) {
   return (
@@ -47,7 +47,7 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
   { view: "chat", label: "工作台", icon: MessageSquare },
   { view: "creative", label: "图任务", icon: Workflow },
   { view: "memory", label: "记忆", icon: Database },
-  { view: "task-system", label: "任务", icon: Workflow },
+  { view: "task-system", label: "任务环境", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
   { view: "health-system", label: "健康", icon: HeartPulse },
@@ -182,14 +182,7 @@ function Workspace() {
     />
   );
 
-  const shouldShowTaskGraphRunInteractionDock =
-    activeWorkspaceView === "chat"
-    || activeWorkspaceView === "creative"
-    || activeWorkspaceView === "orchestration"
-    || activeWorkspaceView === "task-system"
-    || activeWorkspaceView === "health-system"
-    || activeWorkspaceView === "code-environment"
-    || activeWorkspaceView === "capability-system";
+  const shouldShowTaskGraphRunInteractionDock = activeWorkspaceView === "task-system" || activeWorkspaceView === "creative";
 
   let content: ReactNode;
 
@@ -201,13 +194,13 @@ function Workspace() {
     );
   } else if (activeWorkspaceView === "creative") {
     content = (
-      <SystemPageShell label="图任务区" view="creative">
-        <LazyView><CreativeEnvironmentView /></LazyView>
+      <SystemPageShell label="图任务" view="creative">
+        <LazyView><GraphTaskSystemView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "task-system") {
     content = (
-      <SystemPageShell label="任务系统" view="task-system">
+      <SystemPageShell label="任务环境" view="task-system">
         <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );

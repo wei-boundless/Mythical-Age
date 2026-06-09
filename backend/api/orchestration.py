@@ -11,6 +11,7 @@ from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
 from harness.graph.models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
 from sessions import InvalidSessionId, SessionTaskBindingConflict, SessionTaskBindingMissing, validate_session_id
 from task_system import TaskFlowRegistry
+from task_system.graph_instances import GraphTaskInstanceRepository
 from task_system.repositories.project_instance_repository import ProjectInstanceRepository
 from task_system.session_scope import (
     SessionScope,
@@ -23,6 +24,9 @@ from task_system.session_scope import (
 router = APIRouter()
 
 
+GRAPH_TASK_WORKSPACE_VIEW = "graph_task"
+
+
 class TaskGraphRunStartRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=180)
     task_id: str = Field(default="", max_length=180)
@@ -32,6 +36,7 @@ class TaskGraphRunStartRequest(BaseModel):
     include_graph_harness_config: bool = False
     dispatch_ready: bool = True
     run_mode: str = Field(default="dispatch_only", max_length=32)
+    wait_for_completion: bool = False
     runner_budget: dict[str, Any] = Field(default_factory=dict)
     runtime_overrides: dict[str, Any] = Field(default_factory=dict)
     runtime_settings_patch: dict[str, Any] = Field(default_factory=dict)
@@ -128,6 +133,7 @@ async def start_task_graph_harness_run(
     )
     start = None
     try:
+        graph_task_instance_id = _graph_task_instance_id_from_inputs(payload.initial_inputs, resolved_scope)
         start = graph_harness.start_run(
             session_id=graph_session_id,
             task_id=payload.task_id.strip(),
@@ -141,6 +147,7 @@ async def start_task_graph_harness_run(
                 "session_scope_key": resolved_scope.key,
                 "workspace_view": resolved_scope.workspace_view,
                 "project_id": resolved_scope.project_id,
+                "graph_task_instance_id": graph_task_instance_id,
                 "runtime_scope": resolved_scope.to_dict(),
             },
             dispatch_ready=False,
@@ -194,15 +201,25 @@ async def start_task_graph_harness_run(
         response_checkpoint = dict(patched.get("checkpoint") or response_checkpoint)
         events.extend(dict(item) for item in list(patched.get("events") or []) if isinstance(item, dict))
     runner_result = None
+    background_submission = None
     if run_mode == "auto_run":
         try:
-            runner_result = await graph_harness.run_until_idle(
-                graph_config=graph_config,
-                graph_run_id=start.graph_run.graph_run_id,
-                runtime_overrides=dict(payload.runtime_overrides or {}),
-                runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
-                **_runner_budget_kwargs(payload.runner_budget),
-            )
+            if payload.wait_for_completion:
+                runner_result = await graph_harness.run_until_idle(
+                    graph_config=graph_config,
+                    graph_run_id=start.graph_run.graph_run_id,
+                    runtime_overrides=dict(payload.runtime_overrides or {}),
+                    runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
+                    **_runner_budget_kwargs(payload.runner_budget),
+                )
+            else:
+                background_submission = graph_harness.submit_run_until_idle(
+                    graph_config=graph_config,
+                    graph_run_id=start.graph_run.graph_run_id,
+                    runtime_overrides=dict(payload.runtime_overrides or {}),
+                    runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
+                    **_background_runner_budget_kwargs(payload.runner_budget),
+                )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     response_task_run = start.task_run.to_dict()
@@ -216,6 +233,13 @@ async def start_task_graph_harness_run(
         latest_graph_run = graph_harness.get_graph_run(start.graph_run.graph_run_id)
         if latest_graph_run:
             response_graph_run = latest_graph_run.to_dict() if hasattr(latest_graph_run, "to_dict") else dict(latest_graph_run)
+        monitor = graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
+        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+    elif background_submission is not None:
+        latest_state = graph_harness.graph_loop.get_state(start.graph_run.graph_run_id)
+        if latest_state is not None:
+            response_loop_state = latest_state.to_dict() if hasattr(latest_state, "to_dict") else dict(latest_state)
+        response_checkpoint = graph_harness.get_latest_checkpoint(start.graph_run.graph_run_id)
         monitor = graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
         node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     trace = graph_harness.get_trace(start.task_run.task_run_id) if payload.include_trace else None
@@ -234,6 +258,7 @@ async def start_task_graph_harness_run(
         "graph_harness_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_harness_config),
         "node_work_orders": node_work_orders,
         "runner_result": runner_result.to_dict() if runner_result is not None else None,
+        "background_submission": background_submission.to_dict() if background_submission is not None else None,
         "trace": trace,
         "events": events,
     }
@@ -586,41 +611,25 @@ def _validated_graph_request_scope(
 ) -> SessionScope:
     launch_scope = _require_launch_session(runtime=runtime, session_id=session_id)
     requested = normalize_session_scope(session_scope) if session_scope is not None else launch_scope
-    if requested is not None and requested.workspace_view not in {"project", "task_environment"}:
-        raise HTTPException(status_code=400, detail="graph task runs must use project or task_environment scope")
+    if requested is not None and requested.workspace_view not in {"project", "task_environment", GRAPH_TASK_WORKSPACE_VIEW}:
+        raise HTTPException(status_code=400, detail="graph task runs must use graph_task, project, or task_environment scope")
     project_id = requested.project_id
-    task_environment_id = requested.task_environment_id
-    workspace_view = requested.workspace_view
+    workspace_view = GRAPH_TASK_WORKSPACE_VIEW
     if project_id:
-        workspace_view = "project"
-    elif workspace_view == "project":
-        workspace_view = "task_environment"
+        workspace_view = GRAPH_TASK_WORKSPACE_VIEW
+    elif requested.workspace_view in {"project", GRAPH_TASK_WORKSPACE_VIEW}:
+        workspace_view = GRAPH_TASK_WORKSPACE_VIEW
     resolved = normalize_session_scope(
         {
-            "workspace_view": workspace_view or "task_environment",
-            "task_environment_id": task_environment_id,
+            "workspace_view": workspace_view,
+            "task_environment_id": "",
             "project_id": project_id,
         }
     )
     if _graph_config_requires_project(graph_config) and not resolved.project_id:
         raise HTTPException(status_code=400, detail="project_id is required for graph runs with project-scoped resources")
     if resolved.project_id:
-        try:
-            project = ProjectInstanceRepository(runtime.base_dir).require(resolved.project_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        if not resolved.task_environment_id:
-            resolved = normalize_session_scope({**resolved.to_dict(), "task_environment_id": project.environment_id})
-        if project.environment_id != resolved.task_environment_id:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "Project does not belong to task environment",
-                    "project_id": resolved.project_id,
-                    "project_environment_id": project.environment_id,
-                    "task_environment_id": resolved.task_environment_id,
-                },
-            )
+        _require_graph_scope_project_or_instance(runtime=runtime, project_id=resolved.project_id)
     return _graph_instance_scope(resolved)
 
 
@@ -652,7 +661,7 @@ def _assert_graph_run_scope(
             raise HTTPException(status_code=409, detail="GraphRun structure_hash does not match GraphHarnessConfig")
     actual_scope = normalize_session_scope(
         {
-            "workspace_view": graph_run.get("workspace_view") or dict(graph_run.get("diagnostics") or {}).get("workspace_view") or "task_environment",
+            "workspace_view": graph_run.get("workspace_view") or dict(graph_run.get("diagnostics") or {}).get("workspace_view") or GRAPH_TASK_WORKSPACE_VIEW,
             "task_environment_id": graph_run.get("task_environment_id") or dict(graph_run.get("diagnostics") or {}).get("task_environment_id") or "",
             "project_id": graph_run.get("project_id") or dict(graph_run.get("diagnostics") or {}).get("project_id") or "",
         }
@@ -728,14 +737,40 @@ def _graph_start_initial_inputs(initial_inputs: dict[str, Any] | None, scope: Se
     return payload
 
 
+def _graph_task_instance_id_from_inputs(initial_inputs: dict[str, Any] | None, scope: SessionScope) -> str:
+    payload = dict(initial_inputs or {})
+    runtime_scope = dict(payload.get("runtime_scope") or {})
+    return str(
+        payload.get("graph_task_instance_id")
+        or runtime_scope.get("graph_task_instance_id")
+        or (scope.project_id if scope.workspace_view == GRAPH_TASK_WORKSPACE_VIEW else "")
+        or ""
+    ).strip()
+
+
 def _graph_instance_scope(scope: SessionScope) -> SessionScope:
     return normalize_session_scope(
         {
-            "workspace_view": scope.workspace_view,
+            "workspace_view": GRAPH_TASK_WORKSPACE_VIEW,
             "task_environment_id": "",
             "project_id": scope.project_id,
         }
     )
+
+
+def _require_graph_scope_project_or_instance(*, runtime: Any, project_id: str) -> None:
+    target = str(project_id or "").strip()
+    if not target:
+        return
+    try:
+        GraphTaskInstanceRepository(runtime.base_dir).require(target)
+        return
+    except KeyError:
+        pass
+    try:
+        ProjectInstanceRepository(runtime.base_dir).require(target)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"project or graph task instance not found: {target}") from exc
 
 
 def _require_launch_session(*, runtime: Any, session_id: str) -> SessionScope:
@@ -818,6 +853,15 @@ def _runner_budget_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         "max_dispatches": _int_budget(budget.get("max_dispatches"), 64, minimum=0, maximum=512),
         "max_runtime_seconds": _float_budget(budget.get("max_runtime_seconds"), 0.0, minimum=0.0, maximum=3600.0),
         "max_dispatch_requests": _optional_int_budget(budget.get("max_dispatch_requests"), minimum=1, maximum=32),
+    }
+
+
+def _background_runner_budget_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
+    budget = _runner_budget_kwargs(payload)
+    return {
+        "max_node_executions": budget["max_node_executions"],
+        "max_node_steps": budget["max_node_steps"],
+        "max_dispatch_requests": budget["max_dispatch_requests"],
     }
 
 

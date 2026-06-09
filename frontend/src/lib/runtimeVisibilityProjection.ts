@@ -517,15 +517,52 @@ function turnModelActionAdmissionProjection(eventType: string, data: Record<stri
   const actionRequest = record(payload.model_action_request);
   const actionType = text(actionRequest.action_type);
   if (actionType !== "tool_call") {
-    const note = publicRuntimeText(actionRequest.public_progress_note) || "正在判断下一步动作。";
+    const note = publicRuntimeText(actionRequest.public_progress_note);
+    if (actionType === "ask_user") {
+      const question = publicRuntimeText(actionRequest.user_question) || note || "需要补充信息后继续。";
+      return {
+        stageStatus: "等待补充信息",
+        activityTitle: "等待补充信息",
+        activityDetail: question,
+        level: "waiting",
+        progressEntry: entry(eventType, "等待补充信息", {
+          body: question,
+          publicNote: note,
+          kind: "stage",
+          statusText: "待补充",
+          runId: meta.runId,
+          eventId: meta.eventId,
+          createdAt: meta.createdAt,
+        }),
+      };
+    }
+    if (actionType === "block") {
+      const reason = publicRuntimeText(actionRequest.blocking_reason) || note || "当前请求无法继续处理。";
+      return {
+        stageStatus: "处理遇到阻塞",
+        activityTitle: "处理遇到阻塞",
+        activityDetail: reason,
+        level: "error",
+        progressEntry: entry(eventType, "处理遇到阻塞", {
+          body: reason,
+          publicNote: note,
+          kind: "terminal",
+          statusText: "受阻",
+          runId: meta.runId,
+          eventId: meta.eventId,
+          createdAt: meta.createdAt,
+        }),
+      };
+    }
+    const displayNote = note || "正在判断下一步动作。";
     return {
-      stageStatus: note,
+      stageStatus: displayNote,
       activityTitle: "正在思考",
-      activityDetail: note,
+      activityDetail: displayNote,
       level: "running",
       progressEntry: entry(eventType, "正在思考", {
-        body: note,
-        publicNote: note,
+        body: displayNote,
+        publicNote: note || displayNote,
         kind: "model",
         statusText: "思考中",
         runId: meta.runId,
