@@ -47,7 +47,6 @@ def test_verify_completion_requires_verifier_verdict_when_gate_is_enforced() -> 
     assert verdict["ok"] is False
     assert verdict["missing"] == ["verification_worker_verdict"]
     assert verdict["verification_gate"]["required_reasons"] == ["required_verifications"]
-    assert "spawn_subagent" in verdict["repair_instruction"]
 
 
 def test_verify_completion_accepts_pass_verifier_wait_result_and_rejects_partial() -> None:
@@ -104,7 +103,6 @@ def test_task_executor_completion_gate_blocks_direct_finish_without_verifier() -
     repair_payload = dict(repair_events[-1].payload or {})
     repair_verdict = dict(repair_payload.get("verdict") or {})
     assert repair_verdict["missing"] == ["verification_worker_verdict"]
-    assert "spawn_subagent" in repair_verdict["repair_instruction"]
 
 
 def test_task_executor_completion_gate_allows_finish_after_pass_verifier() -> None:

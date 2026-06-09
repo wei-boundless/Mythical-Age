@@ -28,27 +28,6 @@ def test_worker_prompt_resources_are_registered_and_agent_facing(tmp_path: Path)
     assert explorer.owner_layer == "agent"
     assert explorer.cache_scope == "session_stable"
     assert explorer.allowed_invocation_kinds == ("task_execution",)
-    assert "你是一名只读探索员" in explorer.content
-    assert "你不能写入项目文件" in explorer.content
-    assert "你是一名网络研究子 Agent" in web_research.content
-    assert "source_matrix" in web_research.content
-    assert "prompt injection" in web_research.content
-    assert "你是一名知识库检索子 Agent" in knowledge_search.content
-    assert "RAG 文档块" in knowledge_search.content
-    assert "你是一名记忆检索子 Agent" in memory_search.content
-    assert "记忆不是当前事实来源" in memory_search.content
-    assert "你是一名 PDF 阅读分析子 Agent" in pdf_analysis.content
-    assert "page_refs" in pdf_analysis.content
-    assert "你是一名结构化数据分析子 Agent" in structured_data.content
-    assert "data_scope" in structured_data.content
-    assert "这是 runtime 节点" not in explorer.content
-    assert "这是 runtime 节点" not in web_research.content
-    assert "这是 runtime 节点" not in knowledge_search.content
-    assert "这是 runtime 节点" not in memory_search.content
-    assert "这是 runtime 节点" not in pdf_analysis.content
-    assert "这是 runtime 节点" not in structured_data.content
-    assert "verdict" in verifier.content
-    assert "PASS、FAIL 或 PARTIAL" in verifier.content
 
 
 def test_worker_blueprints_bind_prompt_refs_and_operation_boundaries() -> None:

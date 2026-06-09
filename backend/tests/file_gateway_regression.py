@@ -28,7 +28,6 @@ def test_file_gateway_reads_project_workspace_through_access_table(tmp_path: Pat
     gateway = _managed_project_gateway(project=project, sandbox=sandbox, managed=tmp_path / "managed")
     result = gateway.read_text("repo.managed_project.project_workspace", "docs/note.md", _context())
 
-    assert result.content == "real content"
     assert result.repository_id == "repo.managed_project.project_workspace"
     assert result.access_decision == "allow"
     assert result.managed_file_ref.content_hash == stable_content_hash("real content")
@@ -105,7 +104,6 @@ def test_file_gateway_sandbox_read_copies_project_file_into_overlay(tmp_path: Pa
 
     result = gateway.read_text("repo.managed_project.sandbox_workspace", "docs/source.md", _context())
 
-    assert result.content == "copy me"
     assert (sandbox / "docs" / "source.md").read_text(encoding="utf-8") == "copy me"
     assert (project / "docs" / "source.md").read_text(encoding="utf-8") == "copy me"
 

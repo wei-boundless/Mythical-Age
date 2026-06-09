@@ -24,6 +24,7 @@ DYNAMIC_SEGMENT_KINDS = {
 RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "action_schema_static": "runtime_action_schema",
     "artifact_scope_stable": "runtime_artifact_scope",
+    "environment_stable": "runtime_environment_boundary",
     "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",
     "task_prompt_contract": "runtime_contract",
@@ -126,6 +127,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated action schema and should become a registered capability slot"
     if status == "runtime_artifact_scope":
         return "segment is compiler-generated artifact scope and should become a registered task-boundary slot"
+    if status == "runtime_environment_boundary":
+        return "segment is compiler-generated environment boundary and should become a registered environment slot"
     if status == "runtime_contract":
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
     if status == "runtime_protocol":

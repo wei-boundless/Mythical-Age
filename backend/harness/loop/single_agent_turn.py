@@ -1976,7 +1976,12 @@ def _single_agent_action_request_from_response(
         allow_native_tool_calls=True,
     )
     native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
-    json_payload = dict(protocol.json_payload or {})
+    json_payload = _normalize_single_agent_json_payload(
+        dict(protocol.json_payload or {}),
+        request_id=request_id,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+    )
     json_action_like = _is_model_action_json_payload(json_payload)
     if protocol.protocol_errors:
         return SingleAgentActionParse(
@@ -2151,6 +2156,74 @@ def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
     if "action_type" in payload:
         return True
     return authority.startswith("harness.loop.") and "action" in payload
+
+
+def _normalize_single_agent_json_payload(
+    payload: dict[str, Any],
+    *,
+    request_id: str,
+    turn_id: str,
+    packet_ref: str,
+) -> dict[str, Any]:
+    raw = dict(payload or {})
+    if not _is_bare_active_work_control_payload(raw):
+        return raw
+    control = {
+        "action": active_work_action_from_payload(raw),
+        "response": str(raw.get("response") or "").strip(),
+        "appended_instruction": str(raw.get("appended_instruction") or "").strip(),
+        "continuation_strategy": str(raw.get("continuation_strategy") or "").strip(),
+        "turn_response_policy": str(raw.get("turn_response_policy") or "").strip(),
+        "user_turn_kind": str(raw.get("user_turn_kind") or "").strip(),
+        "answer_obligation": str(raw.get("answer_obligation") or "").strip(),
+        "relation_to_current_work": str(raw.get("relation_to_current_work") or raw.get("relation") or "").strip(),
+        "evidence": str(raw.get("evidence") or "").strip(),
+        "turn_id": turn_id,
+        "packet_ref": packet_ref,
+    }
+    return {
+        "authority": "harness.loop.model_action_request",
+        "request_id": f"model-action:{turn_id}:single-agent-active-work-control-json",
+        "turn_id": turn_id,
+        "action_type": "active_work_control",
+        "public_progress_note": "",
+        "active_work_control": control,
+        "diagnostics": {
+            "origin_kind": "single_agent_turn_json_active_work_control_payload",
+            "origin_authority": "harness.loop.single_agent_turn",
+            "packet_ref": packet_ref,
+            "model_response_request_id": request_id,
+        },
+    }
+
+
+def _is_bare_active_work_control_payload(payload: dict[str, Any]) -> bool:
+    raw = dict(payload or {})
+    if not raw or raw.get("action_type") or raw.get("authority") == "harness.loop.model_action_request":
+        return False
+    action = active_work_action_from_payload(raw)
+    if action not in {
+        "continue_active_work",
+        "pause_active_work",
+        "stop_active_work",
+        "append_instruction_to_active_work",
+        "answer_about_active_work",
+        "answer_then_continue_active_work",
+    }:
+        return False
+    return any(
+        key in raw
+        for key in (
+            "relation_to_current_work",
+            "relation",
+            "response",
+            "appended_instruction",
+            "continuation_strategy",
+            "turn_response_policy",
+            "user_turn_kind",
+            "answer_obligation",
+        )
+    )
 
 
 def _action_requests_from_native_tool_calls(

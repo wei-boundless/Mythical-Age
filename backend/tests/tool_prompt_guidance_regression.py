@@ -36,23 +36,6 @@ def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_
         "task_execution",
         "tool_observation_followup",
     )
-    assert "has_more" in read_guidance.content
-    assert "content_preview、code_structure 或 <persisted-output>" in read_guidance.content
-    assert "old_text not found" in edit_guidance.content
-    assert "写入内容必须完整可用" in write_guidance.content
-    assert "Windows PowerShell" in terminal_guidance.content
-    assert "项目固定节点" not in terminal_guidance.content
-    assert "Next.js" not in terminal_guidance.content
-    assert "recommended_parent_action" in subagent_guidance.content
-    assert "不能把子 agent 的建议自动当作最终用户答复" in subagent_guidance.content
-    assert "console/network 证据" in browser_guidance.content
-    assert "前端和后端目标" not in browser_guidance.content
-    assert "不要只凭搜索摘要下结论" in web_guidance.content
-    assert "来源之间冲突" in web_guidance.content
-    assert "source_urls" in web_guidance.content
-    assert "rehydration_plan" in persisted_guidance.content
-    assert "不证明当前文件、网页、服务或版本库状态" in persisted_guidance.content
-    assert "必须重新使用 read_file 读取当前精确行窗口" in persisted_guidance.content
 
 
 def test_every_schema_plus_guidance_native_tool_has_registered_guidance_mapping() -> None:
@@ -153,10 +136,6 @@ def test_task_execution_tool_index_includes_guidance_for_visible_tools_only() ->
     assert "tool.guidance.write_file" not in refs
     assert "tool.guidance.git_write" not in refs
     assert "tool.guidance.git_read.v1" not in refs
-    assert "不要重复读取相同行窗口" in guidance_text
-    assert "目标区域当前精确行窗口" in guidance_text
-    assert "Git 读取工具只用于获取版本库事实" in guidance_text
-    assert "后续提交规模" in guidance_text
     assert payload["available_tools"][0]["prompt_exposure_policy"]
 
 

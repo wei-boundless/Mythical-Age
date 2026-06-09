@@ -1,4 +1,5 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
+import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
 import { isPublicTimelineBodyItem as isStorePublicTimelineBodyItem } from "@/lib/store/publicTimeline";
 
 export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | null | undefined) {
@@ -48,6 +49,7 @@ export function looksLikeRawToolOutput(value: unknown) {
     || looksLikeRawFileListing(text)
     || looksLikeCopiedOutput(text)
     || looksLikeJsonDiagnostics(text)
+    || isInternalActiveWorkControlText(text)
     || isInternalProtocolRawOutputText(text);
 }
 

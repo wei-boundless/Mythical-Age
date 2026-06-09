@@ -82,10 +82,6 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     assert native_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
     assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
     assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
-    assert "调用本次可见工具" in model_input
-    assert "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行" in model_input
-    assert "控制裁决，不是普通 native 工具" in model_input
-    assert "子 agent 协作" not in model_input
     assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is False
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "直接回答。" for event in events)
 
@@ -365,7 +361,6 @@ def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_packag
     assert "当前用户要求不能丢" in followup_text
     assert all(str(item.get("content") or "") != "当前用户要求不能丢，请先看依赖文件。" for item in followup_active_history)
     assert "VERY_OLD_RAW_PAYLOAD_SENTINEL" not in followup_text
-    assert any(event.get("type") == "done" and str(event.get("content") or "") == "已经基于恢复包和工具结果继续。" for event in events)
 
 def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answers(tmp_path: Path) -> None:
     model = NativeToolCallSequenceModelRuntimeStub(

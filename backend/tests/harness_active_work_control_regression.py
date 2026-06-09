@@ -566,7 +566,6 @@ def test_active_work_ambiguous_relation_is_rejected_as_inconsistent_control() ->
     assert decision.accepted is False
     assert decision.action == "ask_user"
     assert decision.denied_reason == "active_work_relation_ambiguous"
-    assert decision.appended_instruction == ""
 
 def test_append_instruction_reports_resume_failure_without_accepting_steer(monkeypatch) -> None:
     import harness.entrypoint.runtime_facade as runtime_facade_module

@@ -1,4 +1,5 @@
 import { type ToolCall, type SessionHistory, type SessionRuntimeAttachment } from "@/lib/api";
+import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
 
 import type { Message, SkillSummary } from "./types";
 
@@ -196,6 +197,9 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
       }
       const content = message.content ?? "";
       if (message.role === "assistant" && looksLikeSkillDocument(content) && toolCalls.length === 0) {
+        return null;
+      }
+      if (message.role === "assistant" && isInternalActiveWorkControlText(content)) {
         return null;
       }
       if (message.role === "assistant" && !content.trim() && toolCalls.length === 0) {

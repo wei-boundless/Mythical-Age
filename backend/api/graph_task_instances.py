@@ -62,6 +62,24 @@ class HumanEdgeDecisionSubmitRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WritingChapterActionRequest(BaseModel):
+    chapter_id: str = Field(default="", max_length=240)
+    action: str = Field(..., min_length=1, max_length=80)
+    instruction: str = Field(default="", max_length=20000)
+    content: str = ""
+    target_path: str = Field(default="", max_length=1000)
+    control_id: str = Field(default="", max_length=400)
+    apply_now: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+WRITING_CHAPTER_ACTION_DECISIONS = {
+    "approve": "pass",
+    "request_revision": "revise",
+    "replace_with_user_text": "replace",
+}
+
+
 @router.get("/orchestration/graph-tasks")
 async def list_graph_tasks() -> dict[str, Any]:
     runtime = require_runtime()
@@ -247,22 +265,56 @@ async def get_writing_graph_instance_desk(
     runtime = require_runtime()
     instance = _require_instance(runtime, instance_id)
     event_limit_value = _query_int(event_limit, default=80)
-    monitor_payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit_value)
-    file_service = GraphTaskInstanceFileService(runtime.base_dir)
-    file_tree = file_service.tree(instance.graph_task_instance_id, max_depth=8, max_entries=2000)
-    desk = WritingGraphDeskProjectionService(runtime.base_dir).build(
-        instance=instance,
-        file_tree=file_tree,
-        artifacts=monitor_payload["artifacts"],
-        node_sessions=monitor_payload["node_sessions"],
-        human_controls=monitor_payload["human_controls"],
-        graph_monitor=monitor_payload["graph_monitor"],
-    )
+    desk = _writing_desk_payload(runtime, instance, event_limit=event_limit_value)
     projection_authority = str(desk.get("authority") or "")
     return {
         **desk,
         "authority": "api.graph_task_instances.writing_desk",
         "projection_authority": projection_authority,
+    }
+
+
+@router.post("/orchestration/writing-graph-instances/{instance_id}/chapter-actions")
+async def submit_writing_graph_chapter_action(
+    instance_id: str,
+    payload: WritingChapterActionRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    action = str(payload.action or "").strip()
+    if action not in WRITING_CHAPTER_ACTION_DECISIONS:
+        raise HTTPException(status_code=400, detail=f"Writing chapter action is not supported: {action}")
+    instance = _require_instance(runtime, instance_id)
+    try:
+        desk = _writing_desk_payload(runtime, instance, event_limit=80)
+        chapter_action, control = _resolve_writing_chapter_action(desk, payload)
+        decision_payload = _writing_chapter_action_decision_payload(
+            desk=desk,
+            chapter_action=chapter_action,
+            control=control,
+            payload=payload,
+        )
+        result = HumanEdgeDecisionService(runtime.base_dir).submit(
+            runtime=runtime,
+            instance_id=instance.graph_task_instance_id,
+            payload=decision_payload,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "authority": "api.graph_task_instances.writing_chapter_action",
+        "graph_task_instance_id": instance.graph_task_instance_id,
+        "chapter_action": chapter_action,
+        "control": control,
+        "decision_result": result,
+        "summary": {
+            "action": str(chapter_action.get("action") or ""),
+            "decision": str(decision_payload.get("decision") or ""),
+            "edge_id": str(decision_payload.get("edge_id") or ""),
+            "applied": dict(result.get("decision") or {}).get("status") == "applied",
+            "authority": "api.graph_task_instances.writing_chapter_action_summary",
+        },
     }
 
 
@@ -418,6 +470,133 @@ def _instance_monitor_payload(runtime: Any, instance: Any, *, event_limit: int =
         "artifacts": artifacts,
         "human_controls": human_controls,
     }
+
+
+def _writing_desk_payload(runtime: Any, instance: Any, *, event_limit: int = 80) -> dict[str, Any]:
+    monitor_payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit)
+    file_service = GraphTaskInstanceFileService(runtime.base_dir)
+    file_tree = file_service.tree(instance.graph_task_instance_id, max_depth=8, max_entries=2000)
+    return WritingGraphDeskProjectionService(runtime.base_dir).build(
+        instance=instance,
+        file_tree=file_tree,
+        artifacts=monitor_payload["artifacts"],
+        node_sessions=monitor_payload["node_sessions"],
+        human_controls=monitor_payload["human_controls"],
+        graph_monitor=monitor_payload["graph_monitor"],
+    )
+
+
+def _resolve_writing_chapter_action(
+    desk: dict[str, Any],
+    payload: WritingChapterActionRequest,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    action = str(payload.action or "").strip()
+    decision = WRITING_CHAPTER_ACTION_DECISIONS[action]
+    requested_control_id = str(payload.control_id or "").strip()
+    requested_chapter_id = str(payload.chapter_id or "").strip()
+    current_chapter_id = str(dict(desk.get("current_chapter") or {}).get("chapter_id") or "").strip()
+    if requested_chapter_id and current_chapter_id and requested_chapter_id != current_chapter_id:
+        raise ValueError(
+            f"Writing chapter action targets chapter {requested_chapter_id}, current chapter is {current_chapter_id}"
+        )
+
+    actions = [
+        dict(item)
+        for item in list(desk.get("chapter_actions") or [])
+        if isinstance(item, dict)
+    ]
+    matches = [
+        item
+        for item in actions
+        if str(item.get("action") or "").strip() == action
+        and str(item.get("decision") or "").strip() == decision
+        and bool(item.get("enabled", True))
+    ]
+    if requested_control_id:
+        matches = [item for item in matches if str(item.get("control_id") or "").strip() == requested_control_id]
+    if not matches:
+        suffix = f" for control {requested_control_id}" if requested_control_id else ""
+        raise ValueError(f"Writing chapter action is not available: {action}{suffix}")
+
+    chapter_action = matches[0]
+    control_id = str(chapter_action.get("control_id") or "").strip()
+    controls = _writing_human_controls(desk)
+    control = next((item for item in controls if str(item.get("control_id") or "").strip() == control_id), None)
+    if control is None:
+        raise ValueError(f"Writing chapter action control is no longer available: {control_id}")
+    allowed_decisions = {str(item).strip() for item in list(control.get("allowed_decisions") or []) if str(item).strip()}
+    if decision not in allowed_decisions:
+        raise ValueError(f"Writing chapter action decision is not allowed by control {control_id}: {decision}")
+    return chapter_action, control
+
+
+def _writing_chapter_action_decision_payload(
+    *,
+    desk: dict[str, Any],
+    chapter_action: dict[str, Any],
+    control: dict[str, Any],
+    payload: WritingChapterActionRequest,
+) -> dict[str, Any]:
+    decision = WRITING_CHAPTER_ACTION_DECISIONS[str(chapter_action.get("action") or "").strip()]
+    target_path = _writing_action_target_path(desk, payload)
+    content_submission = None
+    artifact_refs = [dict(item) for item in list(control.get("artifact_refs") or []) if isinstance(item, dict)]
+    if decision == "replace":
+        content = str(payload.content or "")
+        if not target_path:
+            raise ValueError("Writing chapter replace action requires target_path or current reader path")
+        if not content.strip():
+            raise ValueError("Writing chapter replace action requires content")
+        content_submission = {
+            "path": target_path,
+            "content": content,
+            "content_kind": "chapter" if _looks_like_chapter_path(target_path) else "document",
+            "commit_policy": "project_file",
+        }
+    return {
+        "graph_run_id": str(control.get("graph_run_id") or ""),
+        "edge_id": str(control.get("edge_id") or ""),
+        "decision": decision,
+        "instruction": str(payload.instruction or "").strip(),
+        "artifact_refs": artifact_refs,
+        "content_submission": content_submission,
+        "apply_now": bool(payload.apply_now),
+        "metadata": {
+            **dict(payload.metadata or {}),
+            "submitted_from": "writing_chapter_action_api",
+            "writing_action": str(chapter_action.get("action") or ""),
+            "chapter_id": str(payload.chapter_id or dict(desk.get("current_chapter") or {}).get("chapter_id") or ""),
+            "control_id": str(chapter_action.get("control_id") or ""),
+        },
+    }
+
+
+def _writing_human_controls(desk: dict[str, Any]) -> list[dict[str, Any]]:
+    human_controls = dict(desk.get("human_controls") or {})
+    controls: list[dict[str, Any]] = []
+    for bucket in ("pending", "available"):
+        controls.extend(
+            dict(item)
+            for item in list(human_controls.get(bucket) or [])
+            if isinstance(item, dict)
+        )
+    return controls
+
+
+def _writing_action_target_path(desk: dict[str, Any], payload: WritingChapterActionRequest) -> str:
+    requested = str(payload.target_path or "").replace("\\", "/").strip().strip("/")
+    if requested:
+        return requested
+    reader_path = str(dict(desk.get("reader") or {}).get("path") or "").replace("\\", "/").strip().strip("/")
+    if reader_path:
+        return reader_path
+    return str(dict(desk.get("current_chapter") or {}).get("path") or "").replace("\\", "/").strip().strip("/")
+
+
+def _looks_like_chapter_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").strip().strip("/")
+    name = normalized.rsplit("/", 1)[-1]
+    return normalized.lower().startswith("chapters/") or name.lower().startswith("chapter")
 
 
 def _status_from_start(start: dict[str, Any]) -> str:

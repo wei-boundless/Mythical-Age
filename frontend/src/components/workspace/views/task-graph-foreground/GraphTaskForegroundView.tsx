@@ -26,6 +26,7 @@ import {
   readGraphTaskInstanceFile,
   startGraphTaskInstanceRun,
   submitGraphTaskInstanceHumanEdgeDecision,
+  submitWritingGraphChapterAction,
   writeGraphTaskInstanceFile,
   type GraphTaskDefinitionSummary,
   type HumanEdgeControlView,
@@ -472,6 +473,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [consoleScreen, setConsoleScreen] = useState<ConsoleScreen>("sessions");
   const [readerFocusMode, setReaderFocusMode] = useState(false);
   const [selectedHumanControlId, setSelectedHumanControlId] = useState("");
+  const [selectedChapterAction, setSelectedChapterAction] = useState<WritingChapterAction | null>(null);
   const [decisionDrawerOpen, setDecisionDrawerOpen] = useState(false);
   const [decisionKind, setDecisionKind] = useState<HumanEdgeDecisionKind>("pass");
   const [decisionInstruction, setDecisionInstruction] = useState("");
@@ -899,10 +901,15 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }
 
-  function openHumanDecision(control: HumanEdgeControlView | null, kind?: HumanEdgeDecisionKind) {
+  function openHumanDecision(
+    control: HumanEdgeControlView | null,
+    kind?: HumanEdgeDecisionKind,
+    sourceChapterAction: WritingChapterAction | null = null,
+  ) {
     if (!control) return;
     const nextKind = kind ?? control.default_decision ?? control.allowed_decisions[0] ?? "pass";
     setSelectedHumanControlId(control.control_id);
+    setSelectedChapterAction(sourceChapterAction);
     setDecisionKind(nextKind);
     setDecisionInstruction("");
     setDecisionReplacePath(selectedFilePath || "chapters/chapter-001.md");
@@ -912,7 +919,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
 
   function openChapterAction(chapterAction: WritingChapterAction) {
     const control = humanControls.find((item) => item.control_id === chapterAction.control_id) ?? selectedHumanControl;
-    openHumanDecision(control, chapterAction.decision);
+    openHumanDecision(control, chapterAction.decision, chapterAction);
   }
 
   async function submitHumanDecision() {
@@ -940,16 +947,34 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     setError("");
     setNotice("");
     try {
-      await submitGraphTaskInstanceHumanEdgeDecision(selectedInstance.graph_task_instance_id, {
-        graph_run_id: selectedHumanControl.graph_run_id,
-        edge_id: selectedHumanControl.edge_id,
-        decision: decisionKind,
-        instruction: decisionInstruction.trim(),
-        artifact_refs: artifactRefs,
-        content_submission: contentSubmission,
-        apply_now: true,
-        metadata: { submitted_from: "graph_task_foreground" },
-      });
+      const writingAction = selectedChapterAction
+        ? selectedChapterAction.decision === decisionKind
+          ? selectedChapterAction
+          : chapterActions.find((item) => item.control_id === selectedHumanControl.control_id && item.decision === decisionKind) ?? null
+        : null;
+      if (writingAction) {
+        await submitWritingGraphChapterAction(selectedInstance.graph_task_instance_id, {
+          action: writingAction.action,
+          chapter_id: stringValue(writingDesk?.current_chapter?.chapter_id),
+          control_id: selectedHumanControl.control_id,
+          instruction: decisionInstruction.trim(),
+          content: decisionKind === "replace" ? decisionReplaceContent : "",
+          target_path: decisionKind === "replace" ? String(contentSubmission?.path || "") : "",
+          apply_now: true,
+          metadata: { submitted_from: "writing_chapter_desk" },
+        });
+      } else {
+        await submitGraphTaskInstanceHumanEdgeDecision(selectedInstance.graph_task_instance_id, {
+          graph_run_id: selectedHumanControl.graph_run_id,
+          edge_id: selectedHumanControl.edge_id,
+          decision: decisionKind,
+          instruction: decisionInstruction.trim(),
+          artifact_refs: artifactRefs,
+          content_submission: contentSubmission,
+          apply_now: true,
+          metadata: { submitted_from: "graph_task_foreground" },
+        });
+      }
       if (decisionKind === "replace" && contentSubmission?.path) {
         setSelectedFilePath(String(contentSubmission.path));
         setFileContent(decisionReplaceContent);
@@ -958,6 +983,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       await refreshInstance(selectedInstance.graph_task_instance_id);
       await loadWritingDesk(selectedInstance.graph_task_instance_id);
       setNotice(`${writingDecisionLabel(decisionKind)}已应用。`);
+      setSelectedChapterAction(null);
       setDecisionDrawerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "人工传播决策提交失败");

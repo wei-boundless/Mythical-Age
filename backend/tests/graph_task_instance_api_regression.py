@@ -43,7 +43,23 @@ def _graph(graph_id: str = "graph.test.instance_project") -> TaskGraphDefinition
     )
 
 
-def _handoff_graph(graph_id: str = "graph.test.instance_human_edge") -> TaskGraphDefinition:
+def _handoff_graph(
+    graph_id: str = "graph.test.instance_human_edge",
+    *,
+    draft_post_node_gate: bool = False,
+) -> TaskGraphDefinition:
+    draft_metadata = {
+        "prompt_contract": {
+            "role_prompt": "你是一名章节写手。",
+            "task_instruction": "请根据项目输入完成当前章节正文。",
+        }
+    }
+    if draft_post_node_gate:
+        draft_metadata["post_node_gate_policy"] = {
+            "mode": "wait_human_after_node",
+            "review_result_policy": "wait_always",
+            "allowed_human_actions": ["approve_continue", "request_revision"],
+        }
     return TaskGraphDefinition(
         graph_id=graph_id,
         title="Instance Human Edge Graph",
@@ -59,12 +75,7 @@ def _handoff_graph(graph_id: str = "graph.test.instance_human_edge") -> TaskGrap
                 title="写手",
                 task_id="task.test.instance.draft",
                 agent_id="agent:writer",
-                metadata={
-                    "prompt_contract": {
-                        "role_prompt": "你是一名章节写手。",
-                        "task_instruction": "请根据项目输入完成当前章节正文。",
-                    }
-                },
+                metadata=draft_metadata,
             ),
             TaskGraphNodeDefinition(
                 node_id="review",
@@ -291,11 +302,10 @@ def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_pat
 
     actions = desk["chapter_actions"]
     assert [(item["action"], item["decision"], item["label"]) for item in actions] == [
-        ("approve", "pass", "通过本章"),
         ("replace_with_user_text", "replace", "采用我的改写稿"),
     ]
     assert {item["edge_id"] for item in actions} == {"edge.draft.review"}
-    assert desk["summary"]["action_count"] == 2
+    assert desk["summary"]["action_count"] == 1
 
 
 def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edge(tmp_path: Path) -> None:
@@ -324,7 +334,7 @@ def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edg
         monitor_before = asyncio.run(instance_api.get_graph_task_instance_monitor(instance.graph_task_instance_id, event_limit=40))
         controls = monitor_before["human_controls"]["available"]
         assert [item["edge_id"] for item in controls] == ["edge.draft.review"]
-        assert controls[0]["allowed_decisions"] == ["pass", "replace"]
+        assert controls[0]["allowed_decisions"] == ["replace"]
 
         decision_result = asyncio.run(
             instance_api.submit_graph_task_instance_human_edge_decision(
@@ -362,3 +372,128 @@ def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edg
     assert state["node_states"]["draft"]["status"] == "completed"
     assert state["node_states"]["draft"]["human_edge_decision"]["decision"] == "replace"
     assert state["edge_states"]["edge.draft.review"]["status"] == "ready"
+
+
+def test_writing_chapter_action_approve_normalizes_to_human_edge_decision(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _handoff_graph("graph.test.writing_chapter_action_approve", draft_post_node_gate=True)
+    _upsert_graph(registry, graph)
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作通过项目")
+
+    original_instance_runtime = instance_api.require_runtime
+    original_orchestration_runtime = orchestration_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        start_result = asyncio.run(
+            instance_api.start_graph_task_instance_run(
+                instance.graph_task_instance_id,
+                instance_api.GraphTaskInstanceRunStartRequest(
+                    run_mode="dispatch_only",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        first_order = dict(start_result["start"]["node_work_orders"][0])
+        runtime.harness_runtime.graph_harness.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=str(start_result["start"]["graph_run_id"]),
+            result={
+                "result_id": "nresult:writing-action-approve:draft",
+                "graph_run_id": str(start_result["start"]["graph_run_id"]),
+                "task_run_id": str(start_result["start"]["task_run_id"]),
+                "node_id": "draft",
+                "work_order_id": str(first_order["work_order_id"]),
+                "outputs": {"chapter": "第一章正文"},
+            },
+        )
+        desk = asyncio.run(instance_api.get_writing_graph_instance_desk(instance.graph_task_instance_id, event_limit=40))
+        approve_action = next(item for item in desk["chapter_actions"] if item["action"] == "approve")
+
+        result = asyncio.run(
+            instance_api.submit_writing_graph_chapter_action(
+                instance.graph_task_instance_id,
+                instance_api.WritingChapterActionRequest(
+                    action="approve",
+                    control_id=approve_action["control_id"],
+                    instruction="本章通过，进入审核。",
+                ),
+            )
+        )
+    finally:
+        instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
+        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+
+    assert result["authority"] == "api.graph_task_instances.writing_chapter_action"
+    assert result["chapter_action"]["action"] == "approve"
+    assert result["summary"]["decision"] == "pass"
+    decision_result = result["decision_result"]
+    assert decision_result["decision"]["decision"] == "pass"
+    assert decision_result["decision"]["status"] == "applied"
+    assert decision_result["decision"]["metadata"]["submitted_from"] == "writing_chapter_action_api"
+    assert decision_result["apply_result"]["node_work_orders"][0]["node_id"] == "review"
+    state = decision_result["apply_result"]["graph_loop_state"]
+    assert state["node_states"]["draft"]["human_edge_decision"]["decision"] == "pass"
+    assert state["edge_states"]["edge.draft.review"]["status"] == "ready"
+
+
+def test_writing_chapter_action_replace_writes_project_file_and_advances_edge(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _handoff_graph("graph.test.writing_chapter_action_replace")
+    _upsert_graph(registry, graph)
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="写作替写项目")
+
+    original_instance_runtime = instance_api.require_runtime
+    original_orchestration_runtime = orchestration_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        asyncio.run(
+            instance_api.start_graph_task_instance_run(
+                instance.graph_task_instance_id,
+                instance_api.GraphTaskInstanceRunStartRequest(
+                    run_mode="dispatch_only",
+                    dispatch_ready=False,
+                ),
+            )
+        )
+        desk = asyncio.run(instance_api.get_writing_graph_instance_desk(instance.graph_task_instance_id, event_limit=40))
+        replace_action = next(item for item in desk["chapter_actions"] if item["action"] == "replace_with_user_text")
+
+        result = asyncio.run(
+            instance_api.submit_writing_graph_chapter_action(
+                instance.graph_task_instance_id,
+                instance_api.WritingChapterActionRequest(
+                    action="replace_with_user_text",
+                    control_id=replace_action["control_id"],
+                    instruction="采用用户改写稿进入审核。",
+                    target_path="chapters/chapter-001.md",
+                    content="用户改写后的第一章正文",
+                ),
+            )
+        )
+    finally:
+        instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
+        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+
+    decision_result = result["decision_result"]
+    assert result["summary"]["decision"] == "replace"
+    assert decision_result["decision"]["decision"] == "replace"
+    assert decision_result["decision"]["status"] == "applied"
+    assert decision_result["decision"]["content_submission"]["path"] == "chapters/chapter-001.md"
+    assert "content" not in decision_result["decision"]["content_submission"]
+    assert decision_result["apply_result"]["accepted_result"]["executor_type"] == "human"
+    assert decision_result["apply_result"]["accepted_result"]["node_id"] == "draft"
+    assert decision_result["apply_result"]["node_work_orders"][0]["node_id"] == "review"
+
+    file_payload = GraphTaskInstanceFileService(backend_dir).read_file(
+        instance.graph_task_instance_id,
+        "chapters/chapter-001.md",
+    )
+    assert file_payload["content"] == "用户改写后的第一章正文"

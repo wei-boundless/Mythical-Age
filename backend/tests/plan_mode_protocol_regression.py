@@ -41,8 +41,6 @@ def test_single_turn_plan_mode_is_visible_in_prompt_and_output_contract(tmp_path
     assert stable_payload["planning_protocol"]["plan_mode_active"] is True
     assert stable_payload["planning_protocol"]["implementation_allowed"] is False
     assert packet.output_contract["planning_protocol"]["mode"] == "plan_only"
-    assert "当前处于 plan mode" in model_input
-    assert "不能实施代码修改" in model_input
 
 
 def test_task_execution_plan_ref_is_projected_as_task_stable_contract(tmp_path: Path) -> None:

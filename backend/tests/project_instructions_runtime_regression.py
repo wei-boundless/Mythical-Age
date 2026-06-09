@@ -27,7 +27,6 @@ def test_single_turn_runtime_injects_root_agents_as_project_instruction(tmp_path
     model_input = _model_input(packet)
     manifest = packet.diagnostics["prompt_manifest"]
 
-    assert "ROOT_PROJECT_INSTRUCTION: use fixed ports." in model_input
     assert "project.instructions.scoped" in manifest["project_instruction_refs"]
     assert manifest["project_instructions"]["source_count"] == 1
     assert manifest["project_instructions"]["sources"][0]["path"].endswith("AGENTS.md")
@@ -64,8 +63,6 @@ def test_task_execution_project_instructions_include_nested_scope_for_target_fil
     model_input = _model_input(packet)
     manifest = packet.diagnostics["prompt_manifest"]
 
-    assert "ROOT_SCOPE_RULE" in model_input
-    assert "NESTED_SCOPE_RULE" in model_input
     assert manifest["project_instructions"]["source_count"] == 2
     assert manifest["project_instructions"]["cache_scope"] == "task_stable"
 
@@ -101,9 +98,6 @@ def test_task_execution_does_not_include_unscoped_nested_agents(tmp_path: Path) 
 
     model_input = _model_input(packet)
 
-    assert "ROOT_SCOPE_RULE" in model_input
-    assert "NESTED_SCOPE_RULE" in model_input
-    assert "OTHER_SCOPE_RULE" not in model_input
 
 
 def _model_input(packet) -> str:

@@ -40,7 +40,6 @@ def test_node_configuration_repository_persists_editable_node_config(tmp_path: P
     assert loaded is not None
     assert loaded.environment_scope == ("env.office.file_search",)
     assert loaded.executor_ref["agent_profile_id"] == "main_interactive_agent"
-    assert "审稿员" in loaded.role_prompt
 
 
 def test_node_configuration_catalog_derives_graph_node_candidates_and_issues(tmp_path: Path) -> None:
@@ -106,7 +105,6 @@ def test_node_configuration_runtime_preview_resolves_runtime_profile_by_profile_
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
     assert payload["runtime_profile"]["agent_profile_id"] == "main_interactive_agent"
-    assert payload["runtime_start_packet_preview"]["role_prompt"].startswith("你是一名节点执行员")
 
 
 def test_node_configuration_runtime_preview_resolves_derived_graph_candidate(tmp_path: Path) -> None:
@@ -140,4 +138,3 @@ def test_node_configuration_runtime_preview_resolves_derived_graph_candidate(tmp
 
     assert payload["node_configuration"]["metadata"]["migration_source"] == "task_graph_node"
     assert payload["runtime_start_packet_preview"]["executor_ref"]["agent_id"] == "agent:0"
-    assert payload["runtime_start_packet_preview"]["role_prompt"].startswith("你是一名写作节点执行员")

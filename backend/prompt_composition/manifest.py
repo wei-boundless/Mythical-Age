@@ -220,6 +220,7 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
         "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
+        "runtime_environment_boundary_count": status_counts.get("runtime_environment_boundary", 0),
         "runtime_contract_count": status_counts.get("runtime_contract", 0),
         "runtime_protocol_count": status_counts.get("runtime_protocol", 0),
         "semantic_compaction_boundary_count": status_counts.get("semantic_compaction_boundary", 0),

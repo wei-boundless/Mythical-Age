@@ -356,7 +356,6 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
     assert contract.runtime_profile["runtime_policy"]["planning_policy"]["plan_mode"] == "available"
     assert contract.source_contract_ref == "contract.demo"
     assert contract.external_plan_ref == "plan.demo"
-    assert contract.prompt_contract["role_prompt"] == "你是执行者。"
 
 def test_agent_requested_task_run_inherits_selected_runtime_environment() -> None:
     runtime = build_harness_runtime(

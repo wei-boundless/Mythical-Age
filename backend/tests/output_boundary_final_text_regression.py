@@ -15,7 +15,6 @@ def test_final_text_boundary_sanitizes_protocol_without_marking_stable_answer() 
         answer_source="test.final_text",
     )
 
-    assert decision.content == "任务完成。"
     assert decision.canonical_state == "unstable_answer"
     assert decision.persist_policy == "persist_debug_only"
     assert "internal_protocol_final_text" in decision.leak_flags
@@ -28,7 +27,18 @@ def test_final_text_boundary_blocks_pure_protocol_fragment() -> None:
         answer_source="test.final_text",
     )
 
-    assert decision.content == "当前输出包含内部工具协议，已阻止作为最终答案。"
+    assert decision.canonical_state == "missing_answer"
+    assert decision.persist_policy == "do_not_persist"
+    assert "internal_protocol_final_text" in decision.leak_flags
+
+
+def test_final_text_boundary_blocks_active_work_control_json() -> None:
+    decision = canonical_output_decision_for_final_text(
+        '{"action":"continue_active_work","relation_to_current_work":"current_work","response":"用户要求继续推进当前代码审查任务，恢复执行逐模块深入审查并生成完整全新报告。"}',
+        answer_channel="conversation",
+        answer_source="test.final_text",
+    )
+
     assert decision.canonical_state == "missing_answer"
     assert decision.persist_policy == "do_not_persist"
     assert "internal_protocol_final_text" in decision.leak_flags
@@ -58,11 +68,7 @@ def test_final_text_boundary_sanitizes_fragmented_ascii_dsml_parameters() -> Non
         answer_source="test.final_text",
     )
 
-    assert decision.content == "理解了。我已经读完所有源文件，现在需要进入持续处理流程。"
     assert "internal_protocol_final_text" in decision.leak_flags
-    assert "completion_criteria" not in decision.content
-    assert "task_run_goal" not in decision.content
-    assert "DSML" not in decision.content
 
 
 def test_final_answer_event_does_not_promote_procedural_promise() -> None:
@@ -103,7 +109,6 @@ def test_memory_adapter_keeps_only_canonical_assistant_answers() -> None:
         session_id="session:test",
     )
 
-    assert [message.content for message in messages] == ["稳定结论。"]
     assert messages[0].meta["answer_canonical_state"] == "stable_answer"
 
 

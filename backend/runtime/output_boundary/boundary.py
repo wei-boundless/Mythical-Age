@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import json
 import re
 
 from runtime.output_boundary.classifier import build_output_decision, classify_output_candidate
@@ -42,6 +43,39 @@ INTERNAL_PROTOCOL_MARKERS = (
     "此工具调用为系统自动补全示例",
     "\\end{invoke",
     "_CANONICAL_RESULT::",
+)
+
+_ACTIVE_WORK_CONTROL_ACTIONS = {
+    "continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "append_instruction_to_active_work",
+    "answer_about_active_work",
+    "answer_then_continue_active_work",
+}
+_ACTIVE_WORK_CONTROL_KEYS = {
+    "action",
+    "intent",
+    "resolved_action",
+    "active_work_control",
+    "relation_to_current_work",
+    "relation",
+    "response",
+    "appended_instruction",
+    "continuation_strategy",
+    "turn_response_policy",
+    "user_turn_kind",
+    "answer_obligation",
+}
+_ACTIVE_WORK_CONTROL_ACTION_RE = re.compile(
+    r'"(?:action|intent|resolved_action)"\s*:\s*"(?:'
+    + "|".join(re.escape(action) for action in sorted(_ACTIVE_WORK_CONTROL_ACTIONS))
+    + r')"',
+    re.IGNORECASE,
+)
+_ACTIVE_WORK_CONTROL_KEY_RE = re.compile(
+    r'"(?:active_work_control|relation_to_current_work|continuation_strategy|turn_response_policy|answer_obligation|appended_instruction|user_turn_kind)"\s*:',
+    re.IGNORECASE,
 )
 
 _DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
@@ -124,6 +158,7 @@ def contains_internal_protocol(text: str) -> bool:
     lowered = normalized.lower()
     return (
         any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
+        or _looks_like_active_work_control_protocol(normalized)
         or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
         or bool(_SEARCH_PROTOCOL_BLOCK_RE.search(normalized))
         or bool(_TOOL_ARG_JSON_OBJECT_RE.search(normalized))
@@ -132,6 +167,48 @@ def contains_internal_protocol(text: str) -> bool:
         or bool(_PROTO_ARG_LINE_RE.search(normalized))
         or bool(_INVOKE_TAIL_RE.search(normalized))
     )
+
+
+def _looks_like_active_work_control_protocol(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if "active_work_control" not in lowered and not any(action in lowered for action in _ACTIVE_WORK_CONTROL_ACTIONS):
+        return False
+    parsed = _parse_json_like(normalized)
+    if _payload_contains_active_work_control(parsed):
+        return True
+    return bool(_ACTIVE_WORK_CONTROL_ACTION_RE.search(normalized) and _ACTIVE_WORK_CONTROL_KEY_RE.search(normalized))
+
+
+def _parse_json_like(text: str) -> object | None:
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        candidate = _FENCE_LINE_RE.sub("", candidate.replace("\r\n", "\n")).strip()
+    if not ((candidate.startswith("{") and candidate.endswith("}")) or (candidate.startswith("[") and candidate.endswith("]"))):
+        return None
+    try:
+        return json.loads(candidate)
+    except Exception:
+        return None
+
+
+def _payload_contains_active_work_control(value: object | None) -> bool:
+    if isinstance(value, list):
+        return any(_payload_contains_active_work_control(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    payload = {str(key): item for key, item in value.items()}
+    action_type = str(payload.get("action_type") or "").strip().lower()
+    if action_type == "active_work_control":
+        return True
+    if _payload_contains_active_work_control(payload.get("active_work_control")):
+        return True
+    action = str(payload.get("resolved_action") or payload.get("action") or payload.get("intent") or "").strip().lower()
+    if action not in _ACTIVE_WORK_CONTROL_ACTIONS:
+        return False
+    return any(key in payload for key in _ACTIVE_WORK_CONTROL_KEYS)
 
 
 def contains_inline_pseudo_tool_call(text: str) -> bool:

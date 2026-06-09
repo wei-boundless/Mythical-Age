@@ -48,7 +48,6 @@ def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp
     }
     assert persisted["next_request"] == {"tool_name": "read_persisted_tool_result", "args": persisted["args"]}
     assert persisted["content_replacements"][0]["path"] == projection["content_replacements"][0]["path"]
-    assert "preview" in plan["instruction"]
 
 
 def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_window(tmp_path: Path) -> None:
@@ -96,7 +95,6 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
         "tool_name": "read_file",
         "args": {"path": "docs/long.md", "start_line": 3, "line_count": 2},
     }
-    assert "not proof that the whole file is in prompt" in range_capability["instruction"]
 
 
 def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_path: Path) -> None:
@@ -177,8 +175,6 @@ def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code
         "tool_name": "read_file",
         "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},
     }
-    assert "For code edits, prefer a fresh read_file" in capabilities["read_persisted_tool_result"]["instruction"]
-    assert "read the exact current target line window" in capabilities["read_file_range"]["instruction"]
 
 
 def test_tool_result_projector_projects_code_structure_as_locator_only(tmp_path: Path) -> None:

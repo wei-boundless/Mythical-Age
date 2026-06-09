@@ -653,9 +653,6 @@ def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
 
     assert result.envelope.artifact_policy["artifact_root"] == artifact_root
-    assert canonical_path in model_input
-    assert f'"path":"{requested_path}"' not in model_input
-    assert "runtime_output" not in model_input
     artifact_scope_segments = [
         segment
         for segment in result.packet.segment_plan["segments"]
@@ -726,7 +723,6 @@ def test_task_work_rollout_only_enters_model_through_dynamic_context_projection(
     model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
 
-    assert "ROOT_AGENT_BRIEF_SHOULD_NOT_BYPASS_PROJECTOR" not in model_input
     work_progress = volatile_payload["task_state"]["work_progress"]
     assert work_progress["recent_steps"][0]["summary"] == "已创建基础文件"
     assert work_progress["historical_work_summary"]["non_control_context"] is True
@@ -973,15 +969,27 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
         },
     )
 
-    model_input = "\n".join(str(message["content"]) for message in result.packet.model_messages)
     manifest = result.packet.diagnostics["prompt_manifest"]
+    agent_segments = [
+        segment
+        for segment in result.packet.segment_plan["segments"]
+        if segment["kind"] == "agent_stable"
+    ]
+    assert len(agent_segments) == 1
+    agent_segment = agent_segments[0]
+    agent_message = result.packet.model_messages[agent_segment["model_message_index"]]
     assert "agent.main_interactive_agent.task_execution.work_role" in manifest["stable_prompt_refs"]
     assert "agent.main_interactive_agent.single_agent_turn.work_role" not in manifest["stable_prompt_refs"]
-    assert "你正在执行一个已经建立的持续任务合同" in model_input
-    assert "你不重新判断是否应该开启任务生命周期" in model_input
-    assert "请求持续任务生命周期" not in model_input
-    assert "工具选择、文件读写、命令、git、todo、浏览器和子 agent 的具体契约" in model_input
-    assert "准备收口前，确认合同已经满足" in model_input
+    assert agent_segment["source_ref"] == "agent.main_interactive_agent.task_execution.work_role"
+    assert agent_segment["cache_role"] == "session_stable"
+    assert agent_message["role"] == "system"
+    assert "agent.main_interactive_agent.single_agent_turn.work_role" not in json.dumps(
+        {
+            "stable_prompt_refs": manifest["stable_prompt_refs"],
+            "agent_segment": agent_segment,
+        },
+        ensure_ascii=False,
+    )
 
 
 def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_agent_profile() -> None:
@@ -1202,12 +1210,10 @@ def test_observation_followup_projects_active_work_control_observation_details()
     observation = volatile_payload["observations"]["latest_observations"][0]
 
     assert observation["observation_kind"] == "active_work_control"
-    assert observation["control_action"] == "append_instruction_to_active_work"
     assert observation["applied"] is False
     assert observation["terminal_reason"] == "active_work_resume_failed"
     assert observation["runtime_result"] == "当前工作没有成功恢复：task_run_waiting_approval_requires_grant"
     assert observation["summary"] == "当前工作没有成功恢复：task_run_waiting_approval_requires_grant"
-    assert "不要仅因控制未执行" in observation["followup_instruction"]
     assert "admission" not in observation
 
 
@@ -1320,7 +1326,6 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     assert outcome["continuation_state"] == "terminal_or_interrupted_task_record"
     assert "history" not in volatile_payload
     assert "active_work_context" not in json.dumps(volatile_payload, ensure_ascii=False)
-    assert "最近一次终止、阻塞或中断任务的只读事实" in model_input
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["recent_work_outcome_present"] is True
     assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")

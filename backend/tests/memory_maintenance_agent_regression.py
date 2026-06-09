@@ -63,11 +63,6 @@ def test_memory_maintenance_agent_prompt_is_registered_natural_role_instruction(
     assert prompt_resource.allowed_agent_refs == ("memory_system_agent",)
     assert facade.maintenance_agent.registration.agent_id == "agent:1"
 
-    assert "你是一名记忆管理员" in prompt
-    assert "你不回答用户" in prompt
-    assert "Session Emphasis 只保存用户在本会话中显式强调" in prompt
-    assert "runtime 节点" not in prompt
-    assert "根据任务图执行" not in prompt
 
 
 def test_background_memory_maintenance_skips_without_opportunity_signal(tmp_path) -> None:

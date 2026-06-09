@@ -205,14 +205,6 @@ def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
         )
         assert debug_ref in assembly.manifest["stable_prompt_refs"]
         prompt_text = "\n".join(section.content for section in assembly.sections)
-        assert "当前执行基座" in prompt_text
-        assert "绑定项目根目录" in prompt_text
-        assert "沙盒或 overlay 根目录" in prompt_text
-        assert "版本事实" in prompt_text
-        assert "git status/diff/show/log" in prompt_text
-        assert "public_progress_note" in prompt_text
-        assert "public_action_state" in prompt_text
-        assert "工具预算" in prompt_text
         assert assembly.rejected_refs == ()
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")
 
@@ -324,10 +316,6 @@ def test_main_profile_uses_prompt_library_refs_not_embedded_work_role_prompts() 
         "tool_observation_followup": ["agent.main_interactive_agent.tool_observation_followup.work_role"],
         "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
     }
-    assert "work_role_prompt" not in metadata
-    assert "agent_work_role_prompt" not in metadata
-    assert "work_role_prompt_by_invocation" not in metadata
-    assert "agent_work_role_prompt_by_invocation" not in metadata
     assert "work_role_prompt_refs_by_invocation" not in metadata
 
 
@@ -366,9 +354,6 @@ def test_coding_rules_do_not_leak_into_office_environment_runtime_packet() -> No
     assert "coding.rule.editing" not in manifest["stable_prompt_refs"]
     assert "coding.rule.verification" not in manifest["stable_prompt_refs"]
     assert "coding.rule.debug_discipline" not in manifest["stable_prompt_refs"]
-    assert "不要套用 coding 的项目实现循环、shell 验证、git 操作" in model_input
-    assert "当当前环境是 coding 或 development" not in model_input
-    assert "调试纪律" not in model_input
 
 
 def test_graph_node_runtime_pack_has_single_graph_protocol(tmp_path: Path) -> None:

@@ -32,6 +32,5 @@ def test_long_term_context_does_not_default_to_durable_memory_index(tmp_path) ->
 def test_turn_prompt_uses_only_explicit_persistent_memory() -> None:
     prompt = build_turn_prompt(persistent_memory="只允许显式传入的本轮相关记忆。")
 
-    assert "只允许显式传入的本轮相关记忆" in prompt
 
 

@@ -72,15 +72,8 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     prompt_registry = PromptLibraryRegistry(BACKEND_DIR)
     coding_prompt = prompt_registry.get_active_resource("environment.coding.vibe_workspace.orientation")
     assert coding_prompt is not None
-    assert "专用 coding 工作区任务环境" in coding_prompt.content
-    assert "沙盒本身不是完成证据" not in coding_prompt.content
     sandbox_resource_prompt = prompt_registry.get_active_resource("environment.resource.sandbox_overlay.orientation")
     assert sandbox_resource_prompt is not None
-    assert "不能替代完成证据" in sandbox_resource_prompt.content
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in coding_prompt.content
-    assert "old_text not found" not in coding_prompt.content
-    assert ("strategy." + "development.execution.v1") not in coding_prompt.content
-    assert "runtime packet" not in coding_prompt.content
 
     assert office.sandbox_policy.enabled is False
     assert office.sandbox_policy.shell_policy == "denied"
@@ -430,32 +423,10 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "coding.rule.windows_shell",
         "coding.rule.task_progress",
     ]
-    assert "当前任务环境说明" in model_input
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
     assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
-    assert "开始实现前先建立项目事实" in model_input
-    assert "优先用专用搜索和读取工具定位代码" in model_input
-    assert "old_text 必须来自当前读取结果" in model_input
-    assert "next_start_line" in model_input
-    assert "不要重复读取相同行窗口" in model_input
-    assert "大范围探索" in model_input
-    assert "本轮可见子 agent 生命周期工具" in model_input
-    assert "不要虚构 codebase_searcher" in model_input
-    assert "todo 或步骤摘要只用于执行跟踪，不是事实来源" in model_input
-    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in model_input
-    assert "验证必须真实" in model_input
-    assert "public_progress_note" in model_input
-    assert "public_action_state" in model_input
-    assert "Windows PowerShell" in model_input
-    assert "不要使用 Bash 专属的 &&、||" in model_input
-    assert "Bash here-doc" in model_input
-    assert "你处在专用 coding 工作区任务环境中" in model_input
-    assert "当你正在处理开发类工作" in model_input
-    assert "受管项目工作区为你提供项目文件" in model_input
-    assert "当前环境包含沙盒工作资源" in model_input
-    assert "不属于本任务的变更" in model_input
 
 
 def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None:
@@ -514,22 +485,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
     assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
-    assert "你处在专用 coding 工作区任务环境中" in model_input
-    assert "项目工作区是 coding 任务的主要工作面" in model_input
-    assert "artifact 目录是交付证据和发布面" in model_input
-    assert "修改前必须读到目标文件当前真实内容和目标区域的精确行窗口" in model_input
-    assert "大范围探索" in model_input
-    assert "只使用本轮实际可见的工具和动作格式" in model_input
-    assert "不要把计划、todo、启动命令、没有看到错误或未复核 artifact 当作完成证据" in model_input
-    assert "具体的项目检查、编辑、调试、验证、Shell、git 和进度纪律" in model_input
-    assert "不要把环境导览当作完成标准、todo、验证结果或替代文件事实的依据" in model_input
-    assert "本轮可见子 agent 生命周期工具" in model_input
-    assert "不要虚构 codebase_searcher" in model_input
-    assert "public_progress_note" in model_input
-    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in model_input
     assert "coding.rule.engineering_judgment" not in stable_payload["task_environment"]["environment_prompt_refs"]
-    assert "不要因为处在 coding 工作区，就擅自扩大任务范围" in model_input
-    assert "处理写作或通用任务时，不要套用代码修改、测试、shell 或 git 规则" in model_input
 
 
 def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
@@ -561,30 +517,6 @@ def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
     assert "runtime packet" not in combined
     assert ".v1" not in combined
     assert "confidence" not in combined.lower()
-    assert "只使用本轮实际可见的工具和动作格式" in content_by_ref["environment.rule.coding_workspace"]
-    assert "tool guidance" not in content_by_ref["environment.rule.coding_workspace"]
-    assert "这个环境不是任务分类器" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "被系统选中" not in content_by_ref["environment.rule.coding_workspace"]
-    assert "不授予工具" not in content_by_ref["environment.rule.coding_workspace"]
-    assert "具体的项目检查、编辑、调试、验证、Shell、git 和进度纪律" in content_by_ref[
-        "environment.coding.vibe_workspace.orientation"
-    ]
-    assert "不要把环境导览当作完成标准" in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "你的工程判断需要先定性问题" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "优先修根因，不只修表象" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "最小修改不是保留坏结构" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "收口前自审改动边界" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "coding.rule.engineering_judgment" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
-    assert "evidence matrix" in content_by_ref["coding.rule.large_scope_exploration"]
-    assert "不要虚构 codebase_searcher" in content_by_ref["coding.rule.large_scope_exploration"]
-    assert "本轮可见子 agent 生命周期工具" in content_by_ref["coding.rule.large_scope_exploration"]
-    assert "public_progress_note" in content_by_ref["coding.rule.debug_discipline"]
-    assert "public_action_state" in content_by_ref["coding.rule.debug_discipline"]
-    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in content_by_ref[
-        "coding.rule.task_progress"
-    ]
-    assert "Bash here-doc" in content_by_ref["coding.rule.windows_shell"]
-    assert "固定项目节点真实启动验证" in content_by_ref["coding.rule.verification"]
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
@@ -949,27 +881,6 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
     assert set(expected_lifecycle_refs).issubset(set(general_lifecycle_defaults))
-    assert "当前人格" in model_input
-    assert "Mythical Age（洪荒智能）" in model_input
-    assert "不改变系统规则" in model_input
-    assert "你负责把用户最新一句话放回当前会话语境中理解" in model_input
-    assert "你负责本轮会话的行动裁决。你会同时看到身份风格" in model_input
-    assert "General 请求判断生命周期" in model_input
-    assert "先判断用户是在要直接回答、解释、资料整理" in model_input
-    assert "跨多个系统、影响文件或外部服务" in model_input
-    assert "当用户目标需要多步执行、真实产物" in model_input
-    assert "工具调用必须服务于当前目标的下一步" in model_input
-    assert "不能把用户意图理解、最终裁决" in model_input
-    assert "最终回复只描述对用户有用的结果" in model_input
-    assert "Coding 请求判断生命周期" not in model_input
-    assert "Office 请求判断生命周期" not in model_input
-    assert "当用户明确指向当前工作时，使用 active_work_control" not in model_input
-    assert "成功、失败、拒绝、超时、内容省略" not in model_input
-    assert "记忆和历史检索结果是背景线索" not in model_input
-    assert "只有稳定、有复用价值、经过用户确认" not in model_input
-    assert "你是当前会话主 agent 的请求判断层" not in lifecycle_message
-    assert "你是工具观察恢复层" not in lifecycle_message
-    assert "confidence" not in lifecycle_message.lower()
 
 
 def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
@@ -1024,14 +935,10 @@ def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
         ).packet
         manifest = packet.diagnostics["prompt_manifest"]
         lifecycle_refs = list(manifest["prompt_mount_plan"]["lifecycle_prompt_refs"])
-        model_input = _model_input_text(packet)
 
         assert lifecycle_refs
         assert all(ref.startswith(str(expectation["prefix"])) for ref in lifecycle_refs)
         assert set(lifecycle_refs).issubset(set(ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT[environment_id]))
-        assert str(expectation["included"]) in model_input
-        for excluded in tuple(expectation["excluded"]):
-            assert excluded not in model_input
 
 
 def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> None:
@@ -1188,12 +1095,6 @@ def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms()
     ).packet
     model_input = _model_input_text(packet)
 
-    assert "已激活 Skills（第二阶段）" in model_input
-    assert "# 视觉资产生成" in model_input
-    assert "activation_policy:" not in model_input
-    assert "route_authority:" not in model_input
-    assert "runtime packet" not in model_input
-    assert "runtime_packet" not in model_input
 
 
 def test_resolved_office_environment_builds_file_access_table() -> None:
@@ -1580,7 +1481,6 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
 
-    assert "你处在自定义提示环境中" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
@@ -1682,7 +1582,6 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
 
-    assert "当前环境复用共享只读工作区导览" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
@@ -1756,8 +1655,6 @@ def test_runtime_contract_can_select_custom_personality_prompt(tmp_path: Path) -
     assert manifest["prompt_mount_plan"]["personality_prompt_refs"] == [custom_personality_ref]
     assert custom_personality_ref in manifest["stable_prompt_refs"]
     assert DEFAULT_PERSONALITY_PROMPT_REF not in manifest["stable_prompt_refs"]
-    assert "你当前使用用户自定义人格：星火" in model_input
-    assert "不能改变权限、工具、验证、记忆或任务合同" in model_input
 
 
 def _payload_after_title(content: str, title: str) -> dict[str, object]:

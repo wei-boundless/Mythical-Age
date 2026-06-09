@@ -3072,6 +3072,17 @@ export type WritingGraphInstanceDesk = {
   summary?: Record<string, unknown>;
 };
 
+export type WritingChapterActionRequest = {
+  chapter_id?: string;
+  action: WritingChapterAction["action"];
+  instruction?: string;
+  content?: string;
+  target_path?: string;
+  control_id?: string;
+  apply_now?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
 export type HumanEdgeControlView = {
   authority?: string;
   control_id: string;
@@ -3117,6 +3128,15 @@ export type HumanEdgeDecisionSubmitResult = {
   decision: Record<string, unknown>;
   apply_result?: Record<string, unknown> | null;
   idempotent?: boolean;
+};
+
+export type WritingChapterActionSubmitResult = {
+  authority: string;
+  graph_task_instance_id: string;
+  chapter_action: WritingChapterAction;
+  control?: HumanEdgeControlView | Record<string, unknown>;
+  decision_result: HumanEdgeDecisionSubmitResult;
+  summary?: Record<string, unknown>;
 };
 
 export type GraphTaskInstanceArtifacts = {
@@ -4996,6 +5016,19 @@ export async function getWritingGraphInstanceDesk(instanceId: string, eventLimit
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
   return request<WritingGraphInstanceDesk>(
     `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/desk?${params.toString()}`
+  );
+}
+
+export async function submitWritingGraphChapterAction(
+  instanceId: string,
+  payload: WritingChapterActionRequest
+) {
+  return request<WritingChapterActionSubmitResult>(
+    `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/chapter-actions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
   );
 }
 

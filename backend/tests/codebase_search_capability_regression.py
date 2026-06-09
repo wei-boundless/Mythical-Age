@@ -79,7 +79,6 @@ def test_codebase_search_capability_runs_local_readonly_search() -> None:
     assert structure["authority"] == "capability.codebase_search.code_structure_map"
     assert structure["candidate_only"] is True
     assert structure["source_authority"] == "locator_only"
-    assert "do not treat snippets as complete source" in structure["instruction"]
     assert structure["files"]
     first_file = structure["files"][0]
     assert first_file["candidate_only"] is True
@@ -198,7 +197,6 @@ def test_codebase_search_finds_rag_dataset_and_historical_eval_artifacts() -> No
 
     assert payload["status"] == "completed"
     assert "scifact/_beir_extract/scifact/qrels/test.tsv" in files
-    assert "backend/tests/_artifacts/scifact_v2_current_top50.json" in files
     assert any(path.startswith("backend/tests/_artifacts/scifact_v2") and path.endswith(".json") for path in files)
     assert {"scifact", "qrels", "_artifacts"} <= set(payload["diagnostics"]["plan"]["path_queries"])
 

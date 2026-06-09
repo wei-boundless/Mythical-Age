@@ -288,8 +288,8 @@ def _control_for_edge(
     policy = _human_control_policy(graph_config=graph_config, edge=edge)
     if not policy or policy.get("enabled") is False:
         return None
-    allowed = [str(item) for item in list(policy.get("allowed_decisions") or []) if str(item)]
-    if not allowed:
+    configured_decisions = [str(item) for item in list(policy.get("allowed_decisions") or []) if str(item)]
+    if not configured_decisions:
         return None
     source = str(edge.get("source_node_id") or "")
     target = str(edge.get("target_node_id") or "")
@@ -302,11 +302,18 @@ def _control_for_edge(
         or dict(source_state.get("human_gate") or {}).get("source_result_ref")
         or ""
     )
-    if "replace" not in allowed and not source_result_ref:
-        return None
-    if source_status not in {"completed", "waiting_human_gate"} and "replace" not in allowed:
-        return None
     if target_status == "running":
+        return None
+    source_can_forward = bool(source_result_ref) and source_status in {"completed", "waiting_human_gate"}
+    allowed = []
+    for decision in configured_decisions:
+        if decision == "replace":
+            if source_status != "running":
+                allowed.append(decision)
+            continue
+        if source_can_forward:
+            allowed.append(decision)
+    if not allowed:
         return None
     labels = dict(policy.get("decision_labels") or {})
     return {
