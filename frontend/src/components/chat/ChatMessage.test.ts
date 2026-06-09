@@ -995,4 +995,24 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
+  it("hides stored internal model action protocol content", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content: '{"authority":"harness.loop.model_action_request","action_type":"active_work_control","active_work_control":{"action":"continue_active_work"}}',
+        id: "message:raw-model-action",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).not.toContain("harness.loop.model_action_request");
+    expect(html).not.toContain("active_work_control");
+    expect(html).not.toContain("continue_active_work");
+    expect(html).not.toContain("复制回复");
+  });
+
 });

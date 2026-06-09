@@ -66,6 +66,25 @@ export function hideInternalActiveWorkControlText(value: unknown) {
   return isInternalActiveWorkControlText(value) ? "" : String(value ?? "").trim();
 }
 
+export function isInternalControlProtocolText(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return false;
+  }
+  if (isInternalActiveWorkControlText(text)) {
+    return true;
+  }
+  const parsed = parseJsonLike(text);
+  if (containsInternalControlProtocolObject(parsed)) {
+    return true;
+  }
+  const normalized = text.toLowerCase();
+  return /"authority"\s*:\s*"harness\.loop\.model_action_request"/i.test(normalized)
+    || /"model_action_request"\s*:/i.test(normalized)
+    || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"/i.test(normalized)
+    || /\bmodel_action_(?:request|admission)\b/i.test(normalized);
+}
+
 function parseJsonLike(value: string): unknown {
   let text = value.trim();
   if (text.startsWith("```")) {
@@ -101,4 +120,26 @@ function containsInternalActiveWorkControlObject(value: unknown): boolean {
     return false;
   }
   return Object.keys(record).some((key) => INTERNAL_ACTIVE_WORK_CONTROL_KEYS.has(key));
+}
+
+function containsInternalControlProtocolObject(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => containsInternalControlProtocolObject(item));
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const authority = String(record.authority ?? "").trim();
+  if (authority === "harness.loop.model_action_request") {
+    return true;
+  }
+  if (record.model_action_request || record.model_action_admission || record.admission) {
+    return true;
+  }
+  const actionType = String(record.action_type ?? "").trim();
+  if (/^(respond|ask_user|tool_call|request_task_run|active_work_control|block)$/.test(actionType)) {
+    return true;
+  }
+  return containsInternalActiveWorkControlObject(record);
 }

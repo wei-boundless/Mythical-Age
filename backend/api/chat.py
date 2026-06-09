@@ -13,8 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.public_projection_projector import attach_public_projection_event
+from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.session_task_projection import build_single_agent_task_projection
 from integrations.vscode_connection import get_vscode_connection_store
+from runtime.output_boundary import (
+    contains_inline_pseudo_tool_call,
+    contains_internal_protocol,
+    sanitize_visible_assistant_content,
+)
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
@@ -81,9 +87,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "presentation_source",
         "event",
     },
-    "model_action_request": {"event"},
-    "model_action_admission": {"event"},
-    "model_action_admission_checked": {"event"},
     "bounded_observation": {"event"},
     "registered_engagement": {"event"},
     "task_run_lifecycle_started": {"event"},
@@ -659,9 +662,14 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
     normalized = str(event_type or "message").strip() or "message"
     if normalized in INTERNAL_STREAM_EVENTS:
         return None
+    if normalized in {"model_action_request", "model_action_admission_checked"}:
+        return None
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return None
     raw_data = {key: value for key, value in dict(event).items() if key != "type"}
+    if normalized == "model_action_admission":
+        data = _public_model_action_admission_data(raw_data)
+        return (normalized, data) if data else None
     allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get(normalized)
     if allowed is None:
         data = {
@@ -682,6 +690,117 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
             "allowed_action_types": list(data.get("allowed_action_types") or []),
         }
     return normalized, data
+
+
+def _public_model_action_admission_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload"))
+    request = _record(payload.get("model_action_request"))
+    if not request:
+        return {}
+    public_action = _public_action_summary_from_request(request)
+    if not public_action:
+        return {}
+    data: dict[str, Any] = {
+        "public_action": public_action,
+        "state": _public_action_state_from_admission(payload, public_action=public_action),
+    }
+    event_id = str(raw_event.get("event_id") or "").strip()
+    if event_id:
+        data["runtime_event_id"] = event_id
+    return _redact_public_stream_data(data)
+
+
+def _public_action_summary_from_request(request: dict[str, Any]) -> dict[str, Any]:
+    action_type = str(request.get("action_type") or "").strip().lower()
+    kind = {
+        "tool_call": "tool",
+        "request_task_run": "task",
+        "respond": "reply",
+        "ask_user": "question",
+        "block": "blocked",
+        "active_work_control": "control",
+    }.get(action_type)
+    if not kind:
+        return {}
+    public_action: dict[str, Any] = {"kind": kind}
+    progress_note = _safe_public_action_text(request.get("public_progress_note"))
+    if progress_note:
+        public_action["progress_note"] = progress_note
+    action_state = _safe_public_action_state(_record(request.get("public_action_state")))
+    if action_state:
+        public_action["action_state"] = action_state
+    if action_type == "tool_call":
+        tool = _safe_public_tool_summary(_record(request.get("tool_call")))
+        if tool:
+            public_action["tool"] = tool
+    if action_type == "ask_user":
+        question = _safe_public_action_text(request.get("user_question"))
+        if question:
+            public_action["question"] = question
+    if action_type == "block":
+        reason = _safe_public_action_text(request.get("blocking_reason"))
+        if reason:
+            public_action["reason"] = reason
+    return public_action
+
+
+def _safe_public_action_state(action_state: dict[str, Any]) -> dict[str, str]:
+    safe: dict[str, str] = {}
+    for key in ("current_judgment", "next_action", "completion_status"):
+        text = _safe_public_action_text(action_state.get(key))
+        if text:
+            safe[key] = text
+    return safe
+
+
+def _safe_public_tool_summary(tool_call: dict[str, Any]) -> dict[str, str]:
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    if not tool_name:
+        return {}
+    result = {"tool_name": tool_name}
+    args = _record(tool_call.get("args") or tool_call.get("tool_args"))
+    target = _safe_public_tool_target(args)
+    if target:
+        result["target"] = target
+    return result
+
+
+def _safe_public_tool_target(args: dict[str, Any]) -> str:
+    for key in ("path", "file", "file_path", "target", "url", "query"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return sanitize_visible_assistant_content(value)[:180]
+    return ""
+
+
+def _record(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _safe_public_action_text(value: Any) -> str:
+    text = sanitize_visible_assistant_content(str(value or "")).strip()
+    if not text:
+        return ""
+    text = public_runtime_progress_summary(text).strip()
+    if not text:
+        return ""
+    if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
+        return ""
+    return text[:360]
+
+
+def _public_action_state_from_admission(payload: dict[str, Any], *, public_action: dict[str, Any]) -> str:
+    admission = _record(payload.get("admission") or payload.get("admission_decision"))
+    decision = str(admission.get("decision") or "").strip().lower()
+    if decision in {"deny", "invalid", "needs_contract"}:
+        return "blocked"
+    kind = str(public_action.get("kind") or "").strip().lower()
+    if kind == "question":
+        return "waiting"
+    if kind == "blocked":
+        return "blocked"
+    return "running"
 
 
 def _is_turn_trace_only_harness_start(event: dict[str, Any]) -> bool:

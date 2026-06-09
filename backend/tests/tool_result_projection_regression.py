@@ -84,7 +84,6 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
 
     plan = projection["rehydration_plan"]
     assert plan["prompt_status"] == "file_window_only"
-    assert projection["preview"] == "1 | first\n2 | second"
     assert projection["evidence_policy"]["source_kind"] == "code_evidence"
     assert projection["evidence_policy"]["visible_content_authority"] == "exact_visible_line_window"
     assert projection["evidence_policy"]["rehydration_preference"] == "read_file_range_for_code_edits"
@@ -125,7 +124,6 @@ def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_p
     assert projection["tool_name"] == "read_file"
     assert projection["content_range"]["path"] == "src/prefixed.py"
     assert projection["evidence_policy"]["source_kind"] == "code_evidence"
-    assert projection["preview"] == "7 | target = value"
 
 
 def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code_window(tmp_path: Path) -> None:

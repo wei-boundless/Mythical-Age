@@ -12,6 +12,7 @@ import {
   looksLikeRawToolOutput,
   publicTimelineBodyText,
 } from "@/components/chat/agentRunProjection";
+import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
@@ -413,6 +414,9 @@ function assistantDisplayContent(
 ) {
   const normalized = String(content || "").trim();
   if (!shouldDisplayAssistantContent(metadata)) {
+    return "";
+  }
+  if (isInternalControlProtocolText(normalized)) {
     return "";
   }
   if (looksLikeRawToolOutput(normalized)) {

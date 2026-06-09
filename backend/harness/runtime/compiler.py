@@ -1419,7 +1419,7 @@ class RuntimeCompiler:
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "block"),
             profile_payload=profile_payload,
             environment_payload=environment_payload,
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
@@ -1459,7 +1459,7 @@ class RuntimeCompiler:
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="tool_observation_followup",
-            allowed_actions=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            allowed_actions=("respond", "ask_user", "tool_call", "request_task_run", "block"),
             observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
             visible_tools=tool_payloads,
             session_context=dict(session_context or {}),
@@ -1748,7 +1748,7 @@ class RuntimeCompiler:
             tool_catalog_manifest=tool_catalog_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
-            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "block"),
             observation_refs=dynamic_context.observation_refs,
             artifact_refs=dynamic_context.artifact_refs,
             context_refs=dynamic_context.context_refs,
@@ -1963,7 +1963,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
         "authority": "harness.loop.model_action_request",
-        "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
+        "action_type": "respond|ask_user|tool_call|request_task_run|block",
         "action_selection_rules": [
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
             "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
@@ -2028,10 +2028,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "required_verifications": []
         },
         "permission_request": {},
-        "engagement_request": {
-            "plan_id": "",
-            "startup_parameters": {}
-        },
         "diagnostics": {},
     }
 
@@ -3762,8 +3758,6 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
     elif "request_task_run" in allowed_actions:
         lines.append("- 本轮不允许开启持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
-    if "request_registered_engagement" in allowed_actions:
-        lines.append("- 如果系统已注册的承接计划能精确覆盖当前目标，可以请求该计划；不要用它替代普通回答或临时任务判断。")
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")

@@ -146,4 +146,36 @@ describe("assistant typed stream replay", () => {
     expect(assistant?.content).toBe("完整答案");
     expect(stream?.repairState).toBe("applied");
   });
+
+  it("drops internal control protocol text from delta, repair, and final frames", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+    const rawAction = '{"authority":"harness.loop.model_action_request","action_type":"active_work_control","active_work_control":{"action":"continue_active_work"}}';
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: rawAction,
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: rawAction.length,
+      accumulated_sha256: "sha256:raw-delta",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_stream_repair", {
+      repair_sequence: 2,
+      applies_after_sequence: 1,
+      replacement_content: rawAction,
+      replacement_content_sha256: "sha256:raw-repair",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 3,
+      content: rawAction,
+      content_sha256: "sha256:raw-final",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("");
+    expect(stream).toBeUndefined();
+  });
 });

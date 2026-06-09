@@ -502,6 +502,29 @@ def test_single_agent_parser_normalizes_bare_active_work_control_payload() -> No
     assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_json_active_work_control_payload"
 
 
+def test_single_agent_parser_normalizes_minimal_bare_active_work_control_payload() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(content='{"action":"continue_active_work"}'),
+        request_id="model-response:test:minimal-active-work-json",
+        turn_id="turn:test:minimal-active-work-json",
+        packet_ref="packet:test:minimal-active-work-json",
+        iteration=1,
+        allowed_action_types=("respond", "active_work_control"),
+        phase="final",
+        require_json_action=False,
+    )
+
+    assert parsed.error is None
+    assert parsed.action_request is not None
+    assert parsed.action_request.action_type == "active_work_control"
+    assert parsed.action_request.active_work_control["action"] == "continue_active_work"
+    assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_json_active_work_control_payload"
+
+
 def test_single_agent_parser_rejects_bare_active_work_control_when_not_allowed() -> None:
     from types import SimpleNamespace
 
@@ -524,6 +547,26 @@ def test_single_agent_parser_rejects_bare_active_work_control_when_not_allowed()
     assert parsed.error is not None
     assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
     assert "action_type_not_allowed_for_context:active_work_control" in parsed.error["reason"]
+
+
+def test_model_action_request_rejects_removed_registered_engagement_action() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:removed-engagement",
+            "turn_id": "turn:test:removed-engagement",
+            "action_type": "request_registered_engagement",
+            "engagement_request": {"plan_id": "plan:test"},
+        },
+        turn_id="turn:test:removed-engagement",
+        allowed_action_types=("respond", "request_task_run", "block"),
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "action_type_unsupported:request_registered_engagement" in diagnostics["validation_errors"]
 
 
 def test_task_execution_action_request_rejects_non_empty_cross_context_fields() -> None:

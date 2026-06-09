@@ -142,27 +142,6 @@ def admit_model_action(
             system_reason="task_contract_seed_missing",
             contract_errors=("task_contract_seed_missing",),
         )
-    if action_request.action_type == "request_registered_engagement":
-        task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
-        if task_lifecycle_policy.get("request_task_run") is False:
-            return AdmissionDecision(
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="deny",
-                user_visible_reason="当前运行模式不允许发起已注册任务承接计划。",
-                system_reason="registered_engagement_disabled_by_runtime_profile",
-                contract_errors=("registered_engagement_disabled_by_runtime_profile",),
-            )
-        engagement_request = dict(getattr(action_request, "engagement_request", {}) or {})
-        if not str(engagement_request.get("plan_id") or "").strip():
-            return AdmissionDecision(
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="needs_contract",
-                user_visible_reason="需要明确要接入的处理计划，当前不能替你猜测。",
-                system_reason="engagement_plan_id_missing",
-                contract_errors=("engagement_plan_id_missing",),
-            )
     if action_request.action_type == "active_work_control":
         task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
         if task_lifecycle_policy.get("active_work_control") is False:

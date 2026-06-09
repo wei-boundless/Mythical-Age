@@ -191,6 +191,19 @@ def test_writing_modular_node_prompts_are_migrated_to_standard_graph_prompt_cont
     project_brief = next(item for item in view["nodes"] if item["node_id"] == "project_brief")
 
 
+def test_writing_world_prompts_lock_user_hard_settings(tmp_path: Path) -> None:
+    module, _registry = _seed_writing_modular_graphs(tmp_path)
+    world_design_payload = module._node_payload(next(node for node in module.DESIGN_NODES if node.node_id == "world_design"))
+    world_review_payload = module._node_payload(next(node for node in module.DESIGN_NODES if node.node_id == "world_review"))
+    world_design_prompt = str(world_design_payload["metadata"]["prompt_contract"]["role_prompt"])
+    world_review_prompt = str(world_review_payload["metadata"]["prompt_contract"]["role_prompt"])
+
+    assert "硬设定锁定清单" in world_design_prompt
+    assert "不得把清单中的核心结构替换为另一套类型模板" in world_design_prompt
+    assert "返修时你必须逐条回应审核报告" in world_design_prompt
+    assert "项目启动包当成硬设定契约" in world_review_prompt
+    assert "属于硬设定冲突，不是有效创新" in world_review_prompt
+
 
 def test_writing_chapter_standard_view_preserves_old_loop_and_edge_topology(tmp_path: Path) -> None:
     module, registry = _seed_writing_modular_graphs(tmp_path)

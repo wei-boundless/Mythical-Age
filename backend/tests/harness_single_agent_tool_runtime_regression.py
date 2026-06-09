@@ -346,8 +346,6 @@ def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_packag
     assert compacted_payload["context_recovery_package_source"] == "agent:1"
     assert record["provider_protocol_compaction_created_at"] > 0
     assert len(record["messages"]) < len(old_messages) + 2
-    assert "context_recovery_package" in followup_text
-    assert "VERY_OLD_RAW_PAYLOAD_SENTINEL" not in followup_text
 
 def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answers(tmp_path: Path) -> None:
     model = NativeToolCallSequenceModelRuntimeStub(

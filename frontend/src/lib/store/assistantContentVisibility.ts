@@ -40,7 +40,13 @@ export function shouldDisplayAssistantContent(
 }
 
 export function shouldDisplayAssistantStreamContent(metadata: AssistantContentMetadata) {
-  return shouldDisplayAssistantContent(metadata, { defaultVisible: false });
+  if (isNonPublicAssistantContent(metadata)) {
+    return false;
+  }
+  if (isCanonicalAssistantContent(metadata) || isImageAssistantContent(metadata)) {
+    return true;
+  }
+  return true;
 }
 
 export function isCanonicalAssistantContent(metadata: AssistantContentMetadata) {

@@ -152,6 +152,7 @@ def assistant_final_stream_events(
     message_ref: str = "",
     turn_run_id: str = "",
     task_run_id: str = "",
+    extra: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     text = str(content or "")
     resolved_stream_ref = str(stream_ref or getattr(normalizer, "stream_ref", "") or "")
@@ -199,6 +200,7 @@ def assistant_final_stream_events(
             answer_canonical_state=answer_canonical_state,
             answer_persist_policy=answer_persist_policy,
             terminal_reason=terminal_reason,
+            extra=extra,
         )
     )
     return events

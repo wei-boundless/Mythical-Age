@@ -204,6 +204,16 @@ def _is_model_body_projection_item(item: dict[str, Any]) -> bool:
 
 
 def _model_action_type(data: dict[str, Any]) -> str:
+    public_kind = _text(_record(data.get("public_action")).get("kind")).lower()
+    if public_kind:
+        return {
+            "tool": "tool_call",
+            "task": "request_task_run",
+            "reply": "respond",
+            "question": "ask_user",
+            "blocked": "block",
+            "control": "active_work_control",
+        }.get(public_kind, "")
     event = _record(data.get("event"))
     payload = _record(event.get("payload"))
     request = _record(payload.get("model_action_request")) or _record(data.get("model_action_request"))

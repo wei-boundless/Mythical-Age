@@ -419,33 +419,6 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
 
 
-def test_task_prompt_contract_requires_explicit_prompt_contract() -> None:
-    result = RuntimeCompiler().compile_task_execution_packet(
-        session_id="session:explicit-prompt-contract",
-        task_run={"task_run_id": "taskrun:explicit-prompt-contract", "title": "普通标题"},
-        contract={
-            "contract_id": "contract:explicit-prompt-contract",
-            "task_run_goal": "普通合同目标只属于结构化合同。",
-            "completion_criteria": ["普通验收只属于结构化合同"],
-            "prompt_contract": {
-                "role_prompt": "你是一名运行时提示审查员。",
-                "task_instruction": "只审查 prompt contract 显式给出的职责。",
-                "definition_of_done": ["输出审查结论"],
-            },
-        },
-        observations=[],
-        runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
-            "task_environment": {"environment_id": "env.general.workspace"},
-        },
-    )
-
-    model_input = _model_input_text(result.packet)
-    requirement_content = next(str(message.get("content") or "") for message in result.packet.model_messages if "当前任务执行要求" in str(message.get("content") or ""))
-    task_contract_content = _message_content_with_title(result.packet, "Task execution task contract")
-
-
-
 def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     base_kwargs = {
         "session_id": "session:append-only",
@@ -677,23 +650,6 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["planning"]["todo_required_when_task_run"] is True
 
 
-def test_runtime_prompt_teaches_rehydration_before_exact_claims() -> None:
-    result = RuntimeCompiler().compile_single_agent_turn_packet(
-        session_id="session:rehydration-prompt",
-        turn_id="turn:rehydration-prompt",
-        agent_invocation_id="aginvoke:rehydration-prompt",
-        user_message="继续。",
-        history=[],
-        runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
-            "task_environment": {"environment_id": "env.general.workspace"},
-        },
-    )
-
-    model_input = _model_input_text(result.packet)
-
-
-
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:conversation-projection",
@@ -743,27 +699,6 @@ def test_task_execution_public_action_state_authority_lives_in_action_schema() -
 
     assert "public_action_state" in action_schema_payload["schema"]
     assert "public_progress_note" in action_schema_payload["schema"]
-
-
-def test_task_execution_prompt_directs_long_artifacts_into_tool_actions() -> None:
-    result = RuntimeCompiler().compile_task_execution_packet(
-        session_id="session:task-long-output",
-        task_run={"task_run_id": "taskrun:task-long-output", "diagnostics": {"executor_status": "running"}},
-        contract={
-            "task_run_goal": "创建一个较长的单文件 HTML 产物",
-            "completion_criteria": ["必须真实写入文件"],
-            "required_artifacts": [{"path": "artifacts/game/index.html", "kind": "html_document"}],
-        },
-        observations=[],
-        runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
-            "task_environment": {"environment_id": "env.general.workspace"},
-            "operation_authorization": {"allowed_operations": ["op.model_response", "op.write_file", "op.shell"]},
-        },
-    )
-
-    model_input = _model_input_text(result.packet)
-
 
 
 def test_prompt_cache_baseline_tracks_memory_tier_and_reset_generation(tmp_path) -> None:

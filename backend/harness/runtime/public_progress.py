@@ -9,7 +9,6 @@ _ACTION_SUMMARIES = {
     "ask_user": "正在整理需要确认的信息。",
     "tool_call": "正在执行下一步，拿到结果后继续判断。",
     "request_task_run": "",
-    "request_registered_engagement": "正在启动处理流程。",
     "block": "当前步骤遇到边界，正在收口说明。",
 }
 

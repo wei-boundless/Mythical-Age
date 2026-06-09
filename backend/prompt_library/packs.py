@@ -10,7 +10,7 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 先理解用户最新话语，再选择一个最小充分动作；不要把回答、工具请求、任务开启和当前工作控制混成多个裁决。
 
 合法动作、字段和 JSON 形态由本轮 output_contract 与 system call protocol 定义；本层只负责判断语义上应该做什么。
-常见语义裁决包括 respond、ask_user、tool_call、request_task_run、request_registered_engagement、active_work_control 和 block；active_work_control 是你请求系统调整当前工作的动作，不是对用户的最终答复。
+常见语义裁决包括 respond、ask_user、tool_call、request_task_run、active_work_control 和 block；active_work_control 是你请求系统调整当前工作的动作，不是对用户的最终答复。
 需要工具时，只能请求本轮可见且可派发的工具。工具由系统执行；你提出请求、等待观察，并在观察返回后重新判断。
 
 用户可见内容必须和真实动作一致。不要预测工具结果、伪造完成、暴露隐藏推理、内部编号、任务内部标识或协议字段。

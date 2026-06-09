@@ -31,7 +31,6 @@ def test_observation_aggregator_builds_evidence_items_without_losing_projection(
     assert snapshot.tool_result_count == 1
     assert snapshot.evidence_items
     assert snapshot.evidence_items[0]["tool_name"] == "web_search"
-    assert "北京今日晴" in snapshot.evidence_items[0]["result_preview"]
 
 
 

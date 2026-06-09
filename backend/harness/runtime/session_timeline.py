@@ -1097,7 +1097,7 @@ def _validated_public_next_action(*, next_action: str, action_type: str, tool_na
         return candidate if _contains_public_fragment(candidate, ("回复", "回答", "整理", "总结", "收口", "说明", "respond")) else ""
     if normalized_action == "ask_user":
         return candidate if _contains_public_fragment(candidate, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask")) else ""
-    if normalized_action in {"request_task_run", "request_registered_engagement"}:
+    if normalized_action == "request_task_run":
         return candidate if _contains_public_fragment(candidate, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程")) else ""
     if normalized_action == "block":
         return candidate if _contains_public_fragment(candidate, ("阻塞", "受阻", "说明", "无法", "等待", "确认")) else ""

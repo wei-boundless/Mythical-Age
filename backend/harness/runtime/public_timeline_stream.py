@@ -202,6 +202,9 @@ def _is_public_assistant_text(*, answer_channel: str, answer_source: str) -> boo
 
 
 def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    public_action = _record(data.get("public_action"))
+    if public_action:
+        return _public_action_admission_items(data, public_action=public_action)
     event = _record(data.get("event"))
     payload = _record(event.get("payload"))
     request = _record(payload.get("model_action_request"))
@@ -247,6 +250,75 @@ def _model_action_admission_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
+def _public_action_admission_items(data: dict[str, Any], *, public_action: dict[str, Any]) -> list[dict[str, Any]]:
+    kind = str(public_action.get("kind") or "").strip().lower()
+    state = str(data.get("state") or "running").strip().lower() or "running"
+    event_id = str(data.get("runtime_event_id") or "").strip()
+    action_state = _record(public_action.get("action_state"))
+    request = {
+        "public_progress_note": public_action.get("progress_note") or public_action.get("question") or public_action.get("reason") or "",
+        "public_action_state": action_state,
+    }
+    if kind == "question":
+        return [
+            _status_item(
+                item_id=_stable_id("public-action-question", event_id, str(public_action.get("question") or "")),
+                title="等待补充信息",
+                detail=_visible_agent_feedback(public_action.get("question"))
+                or _visible_agent_feedback(public_action.get("progress_note")),
+                state="waiting",
+                phase="waiting_user",
+            )
+        ]
+    if kind == "blocked":
+        return [
+            _blocked_item(
+                item_id=_stable_id("public-action-blocked", event_id, str(public_action.get("reason") or "")),
+                text=_visible_agent_feedback(public_action.get("reason"))
+                or _visible_agent_feedback(public_action.get("progress_note"))
+                or "当前请求无法继续处理。",
+                state="error" if state == "blocked" else state,
+            )
+        ]
+    if kind == "control":
+        return [
+            _status_item(
+                item_id=_stable_id("public-action-control", event_id, str(public_action.get("progress_note") or "")),
+                title="当前工作控制",
+                detail=_visible_agent_feedback(public_action.get("progress_note"))
+                or _visible_agent_feedback(action_state.get("current_judgment"))
+                or "当前工作状态已更新。",
+                state=state,
+                phase="work_control",
+            )
+        ]
+    items: list[dict[str, Any]] = []
+    feedback = _agent_feedback_item_from_model_action(
+        item_id=_stable_id("public-action-feedback", event_id, str(public_action.get("progress_note") or "")),
+        request=request,
+        state=state,
+        trace_ref=event_id,
+    )
+    if feedback:
+        items.append(feedback)
+    if kind != "tool":
+        return items
+    tool = _record(public_action.get("tool"))
+    tool_name = str(tool.get("tool_name") or "").strip()
+    target = str(tool.get("target") or "").strip()
+    trace_ref = event_id or _stable_id("public-tool-admission", tool_name, target)
+    action = public_work_action_item(
+        item_id=_work_action_id(data=data, event={"event_id": event_id}, tool_name=tool_name, target=target, fallback=trace_ref),
+        tool_name=tool_name,
+        raw_target=target,
+        state=state,
+        trace_refs=[trace_ref] if trace_ref else [],
+    )
+    if action:
+        items.append(action)
+    return items
+
+
 def _control_action_item_from_model_action(
     *,
     item_id: str,
@@ -278,7 +350,7 @@ def _control_action_item_from_model_action(
             title=title,
             detail=note or fallback,
             state=state,
-            phase="active_work_control",
+            phase="work_control",
         )
     return {}
 

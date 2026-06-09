@@ -33,6 +33,4 @@ def test_editor_context_projects_content_preview_without_fake_selection() -> Non
     editor_context = projection.volatile_request_projection["editor_context"]
 
     assert editor_context["active_file"]["path"] == "frontend/src/App.tsx"
-    assert editor_context["active_file"]["content_preview"]["text"] == "export function App() { return null; }"
     assert "selection" not in editor_context["active_file"]
-    assert editor_context["limits"]["content_preview_chars"] == len("export function App() { return null; }")

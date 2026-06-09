@@ -4493,7 +4493,6 @@ export class WorkspaceRuntime {
       respond: ["回复", "回答", "整理", "总结", "收口", "说明", "respond"],
       ask_user: ["询问", "提问", "确认", "补充", "请你", "需要你", "ask"],
       request_task_run: ["任务", "运行", "持续", "后台", "建立", "启动", "处理流程"],
-      request_registered_engagement: ["任务", "运行", "持续", "后台", "建立", "启动", "处理流程"],
       block: ["阻塞", "受阻", "说明", "无法", "等待", "确认"],
     };
     return this.runtimeTextContainsAny(candidate, keywords[actionType] ?? []) ? candidate : "";

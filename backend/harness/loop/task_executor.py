@@ -6832,7 +6832,7 @@ def _action_state_next_action_matches(action_request: AnyModelActionRequest, nex
         return _contains_public_fragment(next_action, ("回复", "回答", "整理", "总结", "收口", "说明", "respond"))
     if action_type == "ask_user":
         return _contains_public_fragment(next_action, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask"))
-    if action_type in {"request_task_run", "request_registered_engagement"}:
+    if action_type == "request_task_run":
         return _contains_public_fragment(next_action, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程"))
     if action_type == "block":
         return _contains_public_fragment(next_action, ("阻塞", "受阻", "说明", "无法", "等待", "确认"))

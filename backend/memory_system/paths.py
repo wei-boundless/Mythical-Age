@@ -19,7 +19,8 @@ def safe_session_dir(session_root: str | Path, session_id: Any) -> Path:
 
 def safe_runtime_session_key(session_id: Any) -> str:
     value = normalize_session_id(session_id)
+    if value in {".", ".."} or "/" in value or "\\" in value:
+        raise ValueError("Invalid session_id")
     safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
     return safe.strip("._")[:180] or "default"
-
 

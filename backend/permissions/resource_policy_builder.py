@@ -221,6 +221,14 @@ def _decide_operation(
             risk_tags=descriptor.risk_tags,
             diagnostics={"approval_policy": approval_policy},
         )
+    if _operation_needs_default_approval(descriptor) and _approval_channel(context) == "deny":
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="deny",
+            reason="approval unavailable in headless context",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={"headless_mode": context.headless_mode},
+        )
     return ResourceDecision(
         operation_id=descriptor.operation_id,
         decision="allow",
@@ -240,6 +248,14 @@ def _approval_policy_requires_human_gate(approval_policy: str) -> bool:
 
 def _approval_policy_denies_destructive(approval_policy: str) -> bool:
     return str(approval_policy or "").strip().lower() in DENY_DESTRUCTIVE_APPROVAL_POLICIES
+
+
+def _operation_needs_default_approval(descriptor: OperationDescriptor) -> bool:
+    return bool(
+        descriptor.requires_approval_by_default
+        or descriptor.destructive
+        or (set(descriptor.risk_tags) & DANGEROUS_AUTO_RISK_TAGS)
+    )
 
 
 def _approval_channel(context: RuntimeApprovalContext) -> str:

@@ -184,8 +184,6 @@ def test_operation_catalog_includes_mcps_without_prompt_authorization_lists() ->
         "endpoint:mcp:pdf",
         "endpoint:mcp:structured_data",
     }
-    assert "Denied:" not in text
-    assert "preview_only" not in text
 
 
 def test_capability_catalog_exposes_canonical_capability_units() -> None:

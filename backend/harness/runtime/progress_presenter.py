@@ -263,7 +263,7 @@ def _validated_agent_next_action(*, action: dict[str, Any], value: Any) -> str:
         return candidate if _contains_any(candidate, ("回复", "回答", "整理", "总结", "收口", "说明", "respond")) else ""
     if action_type == "ask_user":
         return candidate if _contains_any(candidate, ("询问", "提问", "确认", "补充", "请你", "需要你", "ask")) else ""
-    if action_type in {"request_task_run", "request_registered_engagement"}:
+    if action_type == "request_task_run":
         return candidate if _contains_any(candidate, ("任务", "运行", "持续", "后台", "建立", "启动", "处理流程")) else ""
     if action_type == "block":
         return candidate if _contains_any(candidate, ("阻塞", "受阻", "说明", "无法", "等待", "确认")) else ""

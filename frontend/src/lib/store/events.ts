@@ -9,8 +9,9 @@ import {
   type SessionRuntimeAttachment,
   type SingleAgentTaskProjection,
 } from "@/lib/api";
+import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
-import { shouldDisplayAssistantContent } from "./assistantContentVisibility";
+import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
 
 import type { AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
@@ -248,7 +249,21 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
 
 function shouldKeepStreamAssistantText(event: string, data: Record<string, unknown>) {
   const metadata = answerMetadataFromEvent(data);
-  return shouldDisplayAssistantContent(metadata);
+  const content = assistantStreamContentForEvent(event, data);
+  if (content && isInternalControlProtocolText(content)) {
+    return false;
+  }
+  return shouldDisplayAssistantStreamContent(metadata);
+}
+
+function assistantStreamContentForEvent(event: string, data: Record<string, unknown>) {
+  if (event === "assistant_stream_repair") {
+    return stringValue(data.replacement_content);
+  }
+  if (event === "assistant_text_delta" || event === "assistant_text_final") {
+    return stringValue(data.content);
+  }
+  return "";
 }
 
 function mergeAssistantTextDeltaEvent(

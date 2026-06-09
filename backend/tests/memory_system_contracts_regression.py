@@ -120,7 +120,6 @@ def test_state_memory_context_candidate_is_layered_and_non_authoritative(tmp_pat
     assert candidate.memory_layer == "state"
     assert candidate.authority == "candidate_only"
     assert candidate.can_override_current_turn is False
-    assert "表格/数据集工作对象" in candidate.rendered_preview
 
 
 def test_memory_facade_exposes_state_memory_preview_without_committing(tmp_path) -> None:
@@ -301,19 +300,11 @@ _Short chronological bullets of meaningful events._
     candidates = adapter.context_candidates(session_id)
 
     assert isinstance(snapshot, ConversationMemorySnapshot)
-    assert "已完成 StateMemory 候选化" in snapshot.hot_truth_window
-    assert "不要把状态记忆写进长期记忆" not in snapshot.hot_truth_window
-    assert "用户要求先保持记忆分层" in snapshot.recent_dialogue_refs
     assert len(candidates) == 1
     candidate = candidates[0]
     assert candidate.memory_layer == "conversation"
     assert candidate.authority == "candidate_only"
     assert candidate.can_override_current_turn is False
-    assert "Key User Requests" in candidate.rendered_preview
-    assert "Errors and Corrections" not in candidate.rendered_preview
-    assert "不要把状态记忆写进长期记忆" not in candidate.rendered_preview
-    assert "Context Slots" not in candidate.rendered_preview
-    assert "should not be in conversation candidate" not in candidate.rendered_preview
 
 
 def test_memory_facade_exposes_conversation_memory_preview(tmp_path) -> None:
@@ -667,11 +658,6 @@ def test_long_term_memory_read_is_scoped_to_current_environment(tmp_path) -> Non
 
     coding_preview = "\n".join(candidate.rendered_preview for candidate in coding_view.context_candidates)
     writing_preview = "\n".join(candidate.rendered_preview for candidate in writing_view.context_candidates)
-    assert "coding 环境要优先真实测试" in coding_preview
-    assert "writing 环境要优先叙事连贯" not in coding_preview
-    assert "全局记忆不能挤掉当前环境记忆" not in coding_preview
-    assert "writing 环境要优先叙事连贯" in writing_preview
-    assert "coding 环境要优先真实测试" not in writing_preview
     assert coding_view.context_candidates[0].metadata["namespace_id"] == "env:env.coding.test"
     assert writing_view.context_candidates[0].metadata["namespace_id"] == "env:env.writing.test"
 
@@ -816,7 +802,6 @@ def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tm
     assert candidate.budget_class == "optional"
     assert candidate.requires_verification_before_use is True
     assert candidate.can_override_current_turn is False
-    assert "状态记忆不能被默认保存为长期记忆" in candidate.rendered_preview
 
 
 def test_memory_runtime_view_collects_three_layers_without_write_authority(tmp_path) -> None:

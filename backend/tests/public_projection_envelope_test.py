@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from api.chat import _attach_public_projection_envelope
+from api.chat import _attach_public_projection_envelope, _project_public_stream_event
 from harness.runtime.public_projection_envelope import (
     PUBLIC_PROJECTION_ENVELOPE_AUTHORITY,
     build_public_projection_envelope,
@@ -297,3 +297,75 @@ def test_tool_admission_can_carry_model_opening_judgment_and_tool_window() -> No
     assert envelope["surface"] == "assistant_body"
     assert any(item.get("slot") == "body" and "确认 docs 目录" in item.get("text", "") for item in envelope["items"])
     assert any(item.get("slot") == "tool" and item.get("surface") == "tool_window" for item in envelope["items"])
+
+
+def test_chat_public_projection_sanitizes_model_action_admission_event() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:api-tool-opening",
+                "payload": {
+                    "model_action_request": {
+                        "authority": "harness.loop.model_action_request",
+                        "request_id": "act:api-tool-opening",
+                        "action_type": "tool_call",
+                        "public_action_state": {
+                            "current_judgment": "我会先确认 docs 目录是否存在。",
+                        },
+                        "tool_call": {
+                            "name": "path_exists",
+                            "args": {"path": "docs"},
+                        },
+                    },
+                    "admission": {"decision": "allow"},
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    public_event_type, data = projected
+    assert public_event_type == "model_action_admission"
+    assert "event" not in data
+    assert "model_action_request" not in str(data)
+    assert "harness.loop.model_action_request" not in str(data)
+    assert data["public_action"]["kind"] == "tool"
+    assert data["public_action"]["action_state"]["current_judgment"] == "我会先确认 docs 目录是否存在。"
+
+    _attach_public_projection_envelope(public_event_type, data, session_id="session-envelope", sequence=14)
+    envelope = data["public_projection_envelope"]
+    assert any(item.get("slot") == "body" and "确认 docs 目录" in item.get("text", "") for item in envelope["items"])
+    assert any(item.get("slot") == "tool" and item.get("surface") == "tool_window" for item in envelope["items"])
+
+
+def test_chat_public_projection_drops_raw_model_action_request_events() -> None:
+    assert _project_public_stream_event(
+        "model_action_request",
+        {
+            "type": "model_action_request",
+            "event": {
+                "payload": {
+                    "model_action_request": {
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "active_work_control",
+                    }
+                }
+            },
+        },
+    ) is None
+    assert _project_public_stream_event(
+        "model_action_admission_checked",
+        {
+            "type": "model_action_admission_checked",
+            "event": {
+                "payload": {
+                    "model_action_request": {
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "active_work_control",
+                    }
+                }
+            },
+        },
+    ) is None

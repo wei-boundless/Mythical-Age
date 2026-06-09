@@ -246,16 +246,32 @@ async def run_single_agent_turn(
             final_extra: dict[str, Any] | None = None,
             has_tool_receipt: bool = False,
             terminal_payload: dict[str, Any] | None = None,
+            commit_decision: CanonicalFinalTextDecision | None = None,
         ) -> AsyncIterator[dict[str, Any]]:
             nonlocal terminal_recorded, assistant_stream_normalizer
-            for frame_event in assistant_final_stream_events(
-                assistant_stream_normalizer,
-                content=content,
+            decision = commit_decision or canonical_output_decision_for_final_text(
+                content,
                 answer_channel=answer_channel,
                 answer_source=answer_source,
+                execution_posture="single_agent_turn",
+                has_tool_receipt=has_tool_receipt,
                 terminal_reason=terminal_reason,
-                answer_canonical_state="stable_answer" if terminal_status == "completed" else terminal_status,
-                answer_persist_policy="persist_canonical",
+            )
+            for frame_event in assistant_final_stream_events(
+                assistant_stream_normalizer,
+                content=decision.content,
+                answer_channel=decision.answer_channel,
+                answer_source=decision.answer_source,
+                terminal_reason=terminal_reason,
+                answer_canonical_state=decision.canonical_state,
+                answer_persist_policy=decision.persist_policy,
+                extra={
+                    "answer_finalization_policy": decision.finalization_policy,
+                    "answer_fallback_reason": decision.fallback_reason,
+                    "answer_selected_channel": decision.selected_channel,
+                    "answer_selected_source": decision.selected_source,
+                    "answer_leak_flags": list(decision.leak_flags),
+                },
             ):
                 yield frame_event
             if runtime_host is not None and turn_run is not None:
@@ -269,14 +285,12 @@ async def run_single_agent_turn(
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
-            yield final_answer_event(
-                content=content,
-                answer_channel=answer_channel,
-                answer_source=answer_source,
-                has_tool_receipt=has_tool_receipt,
-                terminal_reason=terminal_reason,
-                extra=dict(final_extra or {}),
-            )
+            yield {
+                "type": "done",
+                **decision.to_payload(),
+                "terminal_reason": terminal_reason,
+                **dict(final_extra or {}),
+            }
         response = None
         async for model_event in _invoke_single_turn_model_with_stream_events(
             model_runtime=model_runtime,
@@ -359,7 +373,7 @@ async def run_single_agent_turn(
             ):
                 if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
                     content = _tool_limit_protocol_blocked_text()
-                    await _commit_final_message(
+                    commit_decision = await _commit_final_message(
                         commit_assistant_message,
                         session_id=session_id,
                         turn_id=turn_id,
@@ -375,6 +389,7 @@ async def run_single_agent_turn(
                         terminal_status="blocked",
                         terminal_reason="single_turn_tool_iteration_limit",
                         final_extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": "tool_limit_protocol_blocked"},
+                        commit_decision=commit_decision,
                     ):
                         yield event
                     return
@@ -669,7 +684,7 @@ async def run_single_agent_turn(
                             completion_state = "tool_limit_missing_answer"
                 answer_source = "harness.single_agent_turn.tool_limit_synthesis"
                 protocol_final = _assistant_protocol_message_from_content(content, turn_id=turn_id)
-                await _commit_final_message(
+                commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -688,6 +703,7 @@ async def run_single_agent_turn(
                     terminal_status=terminal_status,
                     terminal_reason="single_turn_tool_iteration_limit",
                     final_extra={"runtime_branch": dict(runtime_branch or {}), "completion_state": completion_state},
+                    commit_decision=commit_decision,
                 ):
                     yield event
                 return
@@ -1215,7 +1231,7 @@ async def run_single_agent_turn(
                         yield {"type": "model_action_admission", "event": event}
             if admission.decision != "allow":
                 content = admission.user_visible_reason or "本轮动作没有通过运行时准入，运行时未执行该动作。"
-                await _commit_final_message(
+                commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -1238,6 +1254,7 @@ async def run_single_agent_turn(
                     terminal_status="blocked",
                     terminal_reason=admission.system_reason or admission.decision,
                     final_extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
+                    commit_decision=commit_decision,
                 ):
                     yield event
                 return
@@ -1245,7 +1262,7 @@ async def run_single_agent_turn(
                 content = action_request.final_answer or stringify_content(getattr(response, "content", response)).strip()
                 if not content:
                     content = "模型选择直接回答，但没有提供可用回答内容。"
-                await _commit_final_message(
+                commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -1268,6 +1285,7 @@ async def run_single_agent_turn(
                     terminal_status="completed",
                     terminal_reason="respond",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    commit_decision=commit_decision,
                 ):
                     yield event
                 return
@@ -1307,7 +1325,7 @@ async def run_single_agent_turn(
                 return
             if action_request.action_type == "block":
                 content = action_request.blocking_reason or "当前请求无法继续处理。"
-                await _commit_final_message(
+                commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -1330,12 +1348,13 @@ async def run_single_agent_turn(
                     terminal_status="blocked",
                     terminal_reason="blocked",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    commit_decision=commit_decision,
                 ):
                     yield event
                 return
             if action_request.action_type == "ask_user":
                 content = action_request.user_question or "我需要你补充一点信息。"
-                await _commit_final_message(
+                commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -1358,6 +1377,7 @@ async def run_single_agent_turn(
                     terminal_status="completed",
                     terminal_reason="ask_user",
                     final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    commit_decision=commit_decision,
                 ):
                     yield event
                 return
@@ -1381,6 +1401,26 @@ async def run_single_agent_turn(
                     yield event
                 terminal_recorded = True
                 return
+            async for event in _emit_single_agent_protocol_error(
+                _single_agent_protocol_error(
+                    code="single_agent_turn_unhandled_model_action",
+                    reason=f"unhandled_model_action:{action_request.action_type}",
+                    diagnostics={
+                        "phase": "final",
+                        "action_type": action_request.action_type,
+                        "action_request": action_request.to_dict(),
+                    },
+                ),
+                commit_assistant_message=commit_assistant_message,
+                runtime_host=runtime_host,
+                turn_run=turn_run,
+                session_id=session_id,
+                turn_id=turn_id,
+                runtime_branch=runtime_branch,
+            ):
+                yield event
+            terminal_recorded = True
+            return
 
         content = stringify_content(getattr(response, "content", response)).strip()
         if not content:
@@ -1431,6 +1471,7 @@ async def run_single_agent_turn(
             terminal_status="completed",
             terminal_reason="assistant_message",
             final_extra={"runtime_branch": dict(runtime_branch or {})},
+            commit_decision=commit_decision,
         ):
             yield event
         return
@@ -2036,7 +2077,7 @@ def _single_agent_action_request_from_response(
             action_request,
             diagnostics={
                 **dict(action_request.diagnostics or {}),
-                "origin_kind": "single_agent_turn_json_action",
+                "origin_kind": str(dict(action_request.diagnostics or {}).get("origin_kind") or "single_agent_turn_json_action"),
                 "origin_authority": "harness.loop.single_agent_turn",
                 "packet_ref": packet_ref,
                 "protocol_ref": protocol.protocol_id,
@@ -2211,19 +2252,7 @@ def _is_bare_active_work_control_payload(payload: dict[str, Any]) -> bool:
         "answer_then_continue_active_work",
     }:
         return False
-    return any(
-        key in raw
-        for key in (
-            "relation_to_current_work",
-            "relation",
-            "response",
-            "appended_instruction",
-            "continuation_strategy",
-            "turn_response_policy",
-            "user_turn_kind",
-            "answer_obligation",
-        )
-    )
+    return True
 
 
 def _action_requests_from_native_tool_calls(
@@ -2306,15 +2335,22 @@ async def _emit_single_agent_protocol_error(
     }
     for frame_event in assistant_final_stream_events(
         None,
-        content=content,
-        answer_channel="blocked",
-        answer_source="harness.single_agent_turn.protocol_error",
+        content=commit_decision.content,
+        answer_channel=commit_decision.answer_channel,
+        answer_source=commit_decision.answer_source,
         terminal_reason=code,
         answer_canonical_state=commit_decision.canonical_state,
         answer_persist_policy=commit_decision.persist_policy,
         stream_ref=f"single_agent_protocol_error:{turn_id}",
         message_ref=assistant_message_ref(turn_id=turn_id, stream_ref=f"single_agent_protocol_error:{turn_id}"),
         turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+        extra={
+            "answer_finalization_policy": commit_decision.finalization_policy,
+            "answer_fallback_reason": commit_decision.fallback_reason,
+            "answer_selected_channel": commit_decision.selected_channel,
+            "answer_selected_source": commit_decision.selected_source,
+            "answer_leak_flags": list(commit_decision.leak_flags),
+        },
     ):
         yield frame_event
     if runtime_host is not None and turn_run is not None:

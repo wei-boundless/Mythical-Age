@@ -1058,45 +1058,6 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     assert operation_summary["omitted_denial_details"] is True
 
 
-def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms() -> None:
-    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
-    definitions = get_tool_definitions()
-    index = build_tool_authorization_index(definitions)
-    assembly = assemble_runtime(
-        backend_dir=BACKEND_DIR,
-        session_id="session-active-skill-clean",
-        turn_id="turn-active-skill-clean",
-        agent_invocation_id="agent-invocation-active-skill-clean",
-        runtime_contract={
-            "task_environment_id": "env.coding.vibe_workspace",
-            "selected_skill_ids": ["skill.visual-asset-generation"],
-        },
-        model_selection={},
-        agent_runtime_profile=profile,
-        tool_instances=build_tool_instances(BACKEND_DIR),
-        definitions_by_name=index.definitions_by_name,
-    )
-
-    packet = RuntimeCompiler().compile_task_execution_packet(
-        session_id="session-active-skill-clean",
-        task_run={
-            "task_run_id": "taskrun:active-skill-clean",
-            "session_id": "session-active-skill-clean",
-            "task_id": "task:active-skill-clean",
-            "agent_profile_id": "main_interactive_agent",
-        },
-        contract={"user_visible_goal": "生成视觉资产", "completion_criteria": ["真实图片路径已记录"]},
-        observations=[],
-        execution_state={},
-        agent_profile_ref="main_interactive_agent",
-        available_tools=assembly.available_tools,
-        runtime_assembly=assembly,
-        invocation_index=1,
-    ).packet
-    model_input = _model_input_text(packet)
-
-
-
 def test_resolved_office_environment_builds_file_access_table() -> None:
     resolved = resolve_task_environment("env.office.file_search")
 

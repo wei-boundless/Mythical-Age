@@ -18,7 +18,7 @@ RUNTIME_SYSTEM_CALL_PROTOCOL_RULE = """
 系统调用只包括当前运行边界列出的 action_type、当前 schema 允许的 JSON action，或本轮模型接口显式开放的 provider-native action；没有列出的动作不存在。
 如果本轮要求 JSON action，只输出一个合法 JSON 对象，authority 必须与本轮 schema 指定值一致，action_type 必须来自 allowed_action_types。
 工具调用字段必须使用本轮 action schema 暴露的形式：schema 提供 tool_calls 时，填写 tool_calls 数组且每项 args 必须是对象；schema 只提供单数 tool_call 时，只填写该单数工具对象且 args 必须是对象。工具只能选择当前 tool index 或可见工具列表中的工具，不能把工具名、路径、命令或参数写在 JSON 外期待系统执行。
-respond、ask_user、block、request_task_run、request_registered_engagement 和 active_work_control 只能在本轮运行边界允许时使用，并且必须填写对应必需字段。
+respond、ask_user、block、request_task_run 和 active_work_control 只能在本轮运行边界允许时使用，并且必须填写对应必需字段。
 系统调用会经过解析、action admission、ActionPermit 和 tool control plane；如果被拒绝，应把拒绝当作事实边界处理，不能换一种等价形式绕过。
 """.strip()
 
