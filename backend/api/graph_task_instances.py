@@ -24,6 +24,8 @@ router = APIRouter()
 class GraphTaskInstanceCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
+    initial_inputs: dict[str, Any] = Field(default_factory=dict)
+    run_config: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -135,12 +137,20 @@ async def create_graph_task_instance(graph_id: str, payload: GraphTaskInstanceCr
         scope=scope,
         session_id=f"gti-root-{_safe_session_fragment(instance_id)}",
     )
+    metadata = _instance_create_metadata(
+        graph_title=graph.title,
+        title=payload.title,
+        description=payload.description,
+        initial_inputs=payload.initial_inputs,
+        run_config=payload.run_config,
+        metadata=payload.metadata,
+    )
     instance = repo.create(
         graph_id=graph_id,
         title=payload.title,
         description=payload.description,
         root_session_id=str(root_session.get("id") or ""),
-        metadata={**dict(payload.metadata or {}), "graph_title": graph.title},
+        metadata=metadata,
         instance_id=instance_id,
     )
     file_space = GraphTaskInstanceFileService(runtime.base_dir).ensure_space(instance.graph_task_instance_id)
@@ -196,6 +206,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
         instance = repo.patch(instance.graph_task_instance_id, {"root_session_id": str(root_session.get("id") or "")})
         launch_session_id = instance.root_session_id
     initial_inputs = {
+        **_instance_config_initial_inputs(instance),
         **dict(payload.initial_inputs or {}),
         "graph_task_instance_id": instance.graph_task_instance_id,
         "runtime_scope": {
@@ -205,6 +216,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
             "scope_source": "api.graph_task_instances.instance_run",
         },
     }
+    _validate_instance_run_inputs(instance, initial_inputs)
     start = await start_task_graph_harness_run(
         instance.graph_id,
         TaskGraphRunStartRequest(
@@ -427,6 +439,93 @@ def _instance_scope(instance_id: str) -> dict[str, str]:
         "task_environment_id": "",
         "project_id": str(instance_id or "").strip(),
     }
+
+
+def _instance_create_metadata(
+    *,
+    graph_title: str,
+    title: str,
+    description: str,
+    initial_inputs: dict[str, Any] | None,
+    run_config: dict[str, Any] | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    payload["graph_title"] = str(graph_title or "").strip()
+    configured_inputs = dict(initial_inputs or {})
+    run_config_payload = dict(run_config or {})
+    run_config_inputs = dict(run_config_payload.get("initial_inputs") or {})
+    if configured_inputs or run_config_payload:
+        run_config_payload["initial_inputs"] = {**run_config_inputs, **configured_inputs}
+        payload["run_config"] = {**dict(payload.get("run_config") or {}), **run_config_payload}
+    writing_project = dict(payload.get("writing_project") or {})
+    if configured_inputs:
+        writing_project = {**writing_project, **_writing_project_fields_from_inputs(configured_inputs)}
+    if str(description or "").strip() and not str(writing_project.get("project_brief") or "").strip():
+        writing_project["project_brief"] = str(description or "").strip()
+    if str(title or "").strip() and not str(writing_project.get("project_title") or "").strip():
+        writing_project["project_title"] = str(title or "").strip()
+    if writing_project:
+        payload["writing_project"] = writing_project
+    return payload
+
+
+def _instance_config_initial_inputs(instance: Any) -> dict[str, Any]:
+    metadata = dict(getattr(instance, "metadata", None) or {})
+    payload: dict[str, Any] = {}
+    run_config = dict(metadata.get("run_config") or {})
+    payload.update(dict(run_config.get("initial_inputs") or {}))
+    payload.update(dict(metadata.get("initial_inputs") or {}))
+    if _is_modular_novel_graph(getattr(instance, "graph_id", "")):
+        writing_project = dict(metadata.get("writing_project") or {})
+        payload.update(_writing_project_fields_from_inputs(writing_project))
+        title = str(getattr(instance, "title", "") or "").strip()
+        description = str(getattr(instance, "description", "") or "").strip()
+        payload.setdefault("project_title", title)
+        payload.setdefault("title", title)
+        if description and not str(payload.get("project_brief") or "").strip():
+            payload["project_brief"] = description
+        if payload:
+            payload.setdefault("source", "graph_task_instance_config")
+    return payload
+
+
+def _writing_project_fields_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "project_brief",
+        "project_title",
+        "title",
+        "reference_works",
+        "hard_constraints",
+        "creative_constraints",
+        "genre",
+        "style",
+        "target_audience",
+    }
+    return {
+        key: value
+        for key, value in dict(inputs or {}).items()
+        if key in allowed and str(value or "").strip()
+    }
+
+
+def _validate_instance_run_inputs(instance: Any, initial_inputs: dict[str, Any]) -> None:
+    if not _is_modular_novel_graph(getattr(instance, "graph_id", "")):
+        return
+    if str(initial_inputs.get("project_brief") or "").strip():
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": "写作图任务实例缺少项目启动包，请先在项目配置中填写 project_brief。",
+            "graph_task_instance_id": getattr(instance, "graph_task_instance_id", ""),
+            "required_input": "project_brief",
+        },
+    )
+
+
+def _is_modular_novel_graph(graph_id: str) -> bool:
+    return str(graph_id or "").strip().startswith("graph.writing.modular_novel.")
 
 
 def _instance_sessions(runtime: Any, instance_id: str, *, root_session_id: str = "") -> list[dict[str, Any]]:

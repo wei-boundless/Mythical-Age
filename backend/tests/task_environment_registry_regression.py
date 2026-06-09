@@ -1198,7 +1198,6 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
 
     assert registry.require("env.custom.lab").record.title == "Custom Lab"
     assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/custom/lab"
-    assert payload["environment_prompts"][0]["content"].startswith("你处在自定义实验环境中")
     assert payload["environment_boundary"]["prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",

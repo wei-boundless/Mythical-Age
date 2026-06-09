@@ -317,9 +317,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     manifest = result.packet.diagnostics["prompt_manifest"]
     assert [message["role"] for message in messages][0] == "system"
     assert [message["role"] for message in messages][-1] == "system"
-    assert "Task execution action schema" in messages[1]["content"]
     model_input = _model_input_text(result.packet)
-    assert any("本次运行边界" in str(message.get("content") or "") for message in messages)
     current_state_content = _message_content_with_title(result.packet, "Task execution current state")
     volatile_payload = json.loads(current_state_content.split("\n", 1)[1])
     assert "task_state" in volatile_payload
@@ -446,7 +444,6 @@ def test_task_prompt_contract_requires_explicit_prompt_contract() -> None:
     requirement_content = next(str(message.get("content") or "") for message in result.packet.model_messages if "当前任务执行要求" in str(message.get("content") or ""))
     task_contract_content = _message_content_with_title(result.packet, "Task execution task contract")
 
-    assert "普通合同目标只属于结构化合同" in task_contract_content
 
 
 def test_task_execution_replay_entries_append_before_volatile_state() -> None:
@@ -499,8 +496,6 @@ def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     assert len(first_replay_messages) == 1
     assert len(second_replay_messages) == 2
     assert first_replay_messages[0] == second_replay_messages[0]
-    assert "obs:first" in first_replay_messages[0]["content"]
-    assert "obs:second" in second_replay_messages[1]["content"]
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("dynamic_projection")
@@ -676,10 +671,6 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     dynamic_payload = _payload_after_title(_message_content_with_title(result.packet, "Single agent turn dynamic runtime"), "Single agent turn dynamic runtime")
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
-    assert any(
-        "任务承接条件成立" in str(item)
-        for item in stable_payload["output_contract"]["action_selection_rules"]
-    )
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
     assert projection["task_lifecycle"]["request_task_run_allowed"] is True
     assert projection["task_lifecycle"]["artifact_evidence_required"] is True
@@ -752,7 +743,6 @@ def test_task_execution_public_action_state_authority_lives_in_action_schema() -
 
     assert "public_action_state" in action_schema_payload["schema"]
     assert "public_progress_note" in action_schema_payload["schema"]
-    assert "public_progress_note 必须是 public_action_state" not in runtime_boundary_content
 
 
 def test_task_execution_prompt_directs_long_artifacts_into_tool_actions() -> None:

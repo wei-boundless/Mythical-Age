@@ -272,6 +272,51 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     assert runtime_scope["artifact_root"].endswith("/artifacts")
 
 
+def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _graph("graph.writing.modular_novel.instance_config")
+    _upsert_graph(registry, graph)
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    project_brief = "题材：东方玄幻。世界核心：群星坠落后，凡人可借星骸修行。主角：边城少年，目标是重建家族。风格：热血升级。"
+
+    original_instance_runtime = instance_api.require_runtime
+    original_orchestration_runtime = orchestration_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        created = asyncio.run(
+            instance_api.create_graph_task_instance(
+                graph.graph_id,
+                instance_api.GraphTaskInstanceCreateRequest(
+                    title="星骸纪元",
+                    description=project_brief,
+                    initial_inputs={"project_brief": project_brief, "project_title": "星骸纪元"},
+                ),
+            )
+        )
+        result = asyncio.run(
+            instance_api.start_graph_task_instance_run(
+                created["instance"]["graph_task_instance_id"],
+                instance_api.GraphTaskInstanceRunStartRequest(
+                    run_mode="dispatch_only",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+    finally:
+        instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
+        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+
+    graph_run_id = result["start"]["graph_run_id"]
+    state = runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id)
+    assert state is not None
+    assert state.initial_inputs["project_brief"] == project_brief
+    assert state.initial_inputs["project_title"] == "星骸纪元"
+    assert state.initial_inputs["graph_task_instance_id"] == created["instance"]["graph_task_instance_id"]
+
+
 def test_writing_graph_instance_desk_maps_human_edges_to_chapter_actions(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     registry = TaskFlowRegistry(backend_dir)

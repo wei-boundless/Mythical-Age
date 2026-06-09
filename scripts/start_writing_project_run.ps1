@@ -8,9 +8,9 @@ param(
     [string]$ProjectId = "project.creation.writing.honghuang",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
-    [int]$TargetGroupCount = 5,
+    [int]$TargetGroupCount = 1,
     [int]$UnitsPerGroup = 100,
-    [int]$TargetMeasureUnits = 1750000,
+    [int]$TargetMeasureUnits = 350000,
     [int]$UnitTargetMeasure = 3500,
     [int]$UnitsPerBatch = 10,
     [string]$ArtifactRoot = ""

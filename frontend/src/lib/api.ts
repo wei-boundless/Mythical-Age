@@ -4964,6 +4964,8 @@ export async function createGraphTaskInstance(
   payload: {
     title: string;
     description?: string;
+    initial_inputs?: Record<string, unknown>;
+    run_config?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
   }
 ) {

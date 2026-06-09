@@ -588,6 +588,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     [writingDesk],
   );
   const humanActionCount = humanControls.length;
+  const selectedGraphRequiresProjectBrief = Boolean(selectedGraph?.graph_id?.startsWith("graph.writing.modular_novel."));
 
   const loadGraphs = useCallback(async () => {
     setLoadingGraphs(true);
@@ -765,14 +766,30 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   async function createInstance() {
     if (!selectedGraph) return;
     const title = newInstanceTitle.trim() || `${selectedGraph.title || selectedGraph.graph_id} 项目 ${instances.length + 1}`;
+    const projectBrief = newInstanceDescription.trim();
+    if (selectedGraphRequiresProjectBrief && !projectBrief) {
+      setError("写作图任务需要先填写项目启动包。");
+      return;
+    }
     setAction("create-instance");
     setError("");
     setNotice("");
     try {
       const payload = await createGraphTaskInstance(selectedGraph.graph_id, {
         title,
-        description: newInstanceDescription.trim(),
-        metadata: { created_from: "graph_task_foreground" },
+        description: projectBrief,
+        initial_inputs: {
+          project_title: title,
+          title,
+          project_brief: projectBrief,
+        },
+        metadata: {
+          created_from: "graph_task_foreground",
+          writing_project: {
+            project_title: title,
+            project_brief: projectBrief,
+          },
+        },
       });
       setInstances((current) => sortInstances([
         payload.instance,
@@ -804,7 +821,6 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         dispatch_ready: true,
         run_mode: "auto_run",
         wait_for_completion: false,
-        initial_inputs: { requested_from: "graph_task_foreground" },
       });
       const start = payload.start;
       const sessionScope = graphTaskScope(payload.instance.graph_task_instance_id);
@@ -1180,15 +1196,15 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 />
               </label>
               <label>
-                <span>说明</span>
+                <span>项目启动包</span>
                 <textarea
                   onChange={(event) => setNewInstanceDescription(event.target.value)}
-                  placeholder="目标、范围、人工约束"
-                  rows={4}
+                  placeholder="题材、世界核心、主角、风格、硬性约束"
+                  rows={7}
                   value={newInstanceDescription}
                 />
               </label>
-              <button disabled={!selectedGraph || action === "create-instance"} onClick={() => void createInstance()} type="button">
+              <button disabled={!selectedGraph || action === "create-instance" || (selectedGraphRequiresProjectBrief && !newInstanceDescription.trim())} onClick={() => void createInstance()} type="button">
                 <Plus size={14} />
                 <span>{action === "create-instance" ? "创建中" : "创建并进入章节台"}</span>
               </button>

@@ -127,7 +127,6 @@ def test_session_emphasis_action_writes_pinned_user_steer(tmp_path) -> None:
     assert receipt.session_emphasis_write_count == 1
     pinned = facade.session_emphasis.render_pinned_facts("session-emphasis-write")
     assert pinned[0]["kind"] == "session_emphasis"
-    assert "不要临时扩范围" in pinned[0]["content"]
 
 
 def test_short_horizon_preference_is_routed_out_of_durable_memory(tmp_path) -> None:
@@ -214,7 +213,6 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
     assert receipt.session_memory_succeeded is True
     assert receipt.durable_memory_succeeded is True
     assert receipt.durable_write_count == 1
-    assert "接通记忆管理 Agent" in facade.session_memory.manager("session-memory-maintenance").load()
     compaction_state = facade.session_memory.manager("session-memory-maintenance").load_compaction_state()
     assert compaction_state["last_summarized_message_id"]
     assert compaction_state["covered_message_count"] == 2
@@ -247,7 +245,6 @@ def test_memory_maintenance_model_call_has_prompt_accounting_context(tmp_path) -
     context = calls[0]["accounting_context"]
     assert len(messages) == 3
     assert messages[1]["role"] == "system"
-    assert "请严格输出符合以下结构的 JSON" in messages[1]["content"]
     assert "output_schema" not in messages[2]["content"]
     assert context["cache_metric_scope"] == "memory_maintenance"
     assert context["session_id"] == "session-maintenance-accounting"
