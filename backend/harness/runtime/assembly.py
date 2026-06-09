@@ -25,7 +25,42 @@ _SUBAGENT_TOOL_NAMES = {
     "close_subagent",
 }
 
-_DEFAULT_RUNTIME_POLICY: dict[str, Any] = {
+_DEFAULT_LIFECYCLE_PROMPT_DEFAULTS: dict[str, str] = {
+    "context_intake": "environment.general.lifecycle.context_intake",
+    "request_judgment": "environment.general.lifecycle.request_judgment",
+    "work_relation": "environment.general.lifecycle.work_relation",
+    "environment_capability_alignment": "environment.general.lifecycle.environment_capability_alignment",
+    "plan_gate": "environment.general.lifecycle.plan_gate",
+    "action_selection": "environment.general.lifecycle.action_selection",
+    "active_work_control": "environment.general.lifecycle.active_work_control",
+    "task_run_handoff": "environment.general.lifecycle.task_run_handoff",
+    "user_steer_contract_revision": "environment.general.lifecycle.user_steer_contract_revision",
+    "tool_dispatch": "environment.general.lifecycle.tool_dispatch",
+    "tool_observation_recovery": "environment.general.lifecycle.tool_observation_recovery",
+    "subagent_delegation": "environment.general.lifecycle.subagent_delegation",
+    "subagent_result_integration": "environment.general.lifecycle.subagent_result_integration",
+    "verification_gate": "environment.general.lifecycle.verification_gate",
+    "memory_read_context": "environment.general.lifecycle.memory_read_context",
+    "memory_write_handoff": "environment.general.lifecycle.memory_write_handoff",
+    "compaction_handoff": "environment.general.lifecycle.compaction_handoff",
+    "finalization": "environment.general.lifecycle.finalization",
+}
+
+_DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
+    "tool.guidance.read_file": "tool.guidance.read_file",
+    "tool.guidance.read_persisted_tool_result": "tool.guidance.read_persisted_tool_result",
+    "tool.guidance.edit_file": "tool.guidance.edit_file",
+    "tool.guidance.write_file": "tool.guidance.write_file",
+    "tool.guidance.terminal_powershell": "tool.guidance.terminal_powershell",
+    "tool.guidance.git_read": "tool.guidance.git_read",
+    "tool.guidance.git_write": "tool.guidance.git_write",
+    "tool.guidance.todo": "tool.guidance.todo",
+    "tool.guidance.subagent": "tool.guidance.subagent",
+    "tool.guidance.browser": "tool.guidance.browser",
+    "tool.guidance.web_fetch": "tool.guidance.web_fetch",
+}
+
+_BASE_RUNTIME_POLICY: dict[str, Any] = {
     "interaction_policy": {
         "style": "general_agent",
         "task_orientation": "agent_decides_next_action",
@@ -50,9 +85,25 @@ _DEFAULT_RUNTIME_POLICY: dict[str, Any] = {
     "step_summary_policy": {"enabled": True, "detail": "stepwise"},
     "approval_policy": {"permission_scope": "agent_profile_ceiling"},
     "artifact_policy": {},
-    "prompt_policy": {},
-    "prompt_pack_refs_by_invocation": {},
     "operation_authorization_projection": {},
+}
+
+_GENERAL_AGENT_PROMPT_TEMPLATE_POLICY: dict[str, Any] = {
+    "prompt_policy": {
+        "template_id": "prompt_template.general.agent_runtime",
+        "lifecycle_prompt_defaults": _DEFAULT_LIFECYCLE_PROMPT_DEFAULTS,
+        "tool_guidance_prompt_defaults": _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS,
+    },
+    "prompt_pack_refs_by_invocation": {
+        "single_agent_turn": ["runtime.pack.single_agent_turn"],
+        "task_execution": ["runtime.pack.task_execution"],
+        "tool_observation_followup": ["runtime.pack.observation_followup"],
+        "semantic_compaction": ["runtime.pack.semantic_compaction"],
+    },
+}
+
+_PROMPT_ORCHESTRATION_TEMPLATE_POLICIES: dict[str, dict[str, Any]] = {
+    "prompt_template.general.agent_runtime": _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY,
 }
 
 
@@ -178,11 +229,6 @@ def assemble_runtime(
         environment_binding=environment_binding,
         runtime_contract=runtime_contract_payload,
     )
-    base_environment, _base_environment_diagnostics = _resolve_runtime_task_environment(
-        backend_dir=backend_dir,
-        environment_binding={"task_environment_id": GENERAL_ENVIRONMENT_ID},
-        runtime_contract={},
-    )
     task_environment = apply_session_scoped_environment_storage(task_environment, session_id=session_id)
     task_environment = _apply_bound_workspace_root(task_environment, bound_workspace_root)
     personality_selection = select_personality_prompt(
@@ -191,9 +237,9 @@ def assemble_runtime(
     )
     prompt_mount_plan = build_base_prompt_mount_plan(
         selected_environment=task_environment,
-        base_environment=base_environment,
         personality_prompt_refs=personality_selection.personality_prompt_refs,
         personality_diagnostics=personality_selection.to_dict(),
+        prompt_policy=profile.prompt_policy,
     )
     task_requested_operations = operation_requests_from_runtime_contract(runtime_contract_payload)
     operation_projection = project_operation_authorization(
@@ -210,8 +256,7 @@ def assemble_runtime(
         tool_instances=list(tool_instances or []),
         definitions_by_name=definitions_by_name,
         allowed_operations=allowed_operations,
-        include_hidden=bool(profile.tool_policy.get("include_hidden_tools") is True)
-        or normalized_permission_mode in {"full_access", "bypass"},
+        include_hidden=False,
     )
     visible_tool_names, visibility_filtered = _filter_tool_names_by_profile(
         profile=profile,
@@ -500,10 +545,87 @@ def _resolved_runtime_policy(
         runtime_contract.get("runtime_policy"),
         runtime_contract.get("execution_policy"),
     )
+    template_policy = _prompt_orchestration_template_policy(
+        agent_runtime_profile=agent_runtime_profile,
+        runtime_contract=runtime_contract,
+        explicit_policy=explicit_policy,
+    )
     return _deep_merge_dicts(
-        _DEFAULT_RUNTIME_POLICY,
+        _BASE_RUNTIME_POLICY,
+        template_policy,
         explicit_policy,
     )
+
+
+def _prompt_orchestration_template_policy(
+    *,
+    agent_runtime_profile: Any | None,
+    runtime_contract: dict[str, Any],
+    explicit_policy: dict[str, Any],
+) -> dict[str, Any]:
+    profile_metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
+    runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
+    runtime_profile_policy = dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {})
+    prompt_policy = dict(explicit_policy.get("prompt_policy") or {})
+    runtime_profile_prompt_policy = dict(runtime_profile.get("prompt_policy") or {})
+    runtime_contract_prompt_policy = dict(runtime_contract.get("prompt_policy") or runtime_contract.get("runtime_prompt_policy") or {})
+    template_id = _first_string(
+        runtime_contract.get("prompt_template_id"),
+        runtime_profile.get("prompt_template_id"),
+        runtime_contract_prompt_policy.get("template_id"),
+        runtime_profile_prompt_policy.get("template_id"),
+        explicit_policy.get("prompt_template_id"),
+        prompt_policy.get("template_id"),
+        profile_metadata.get("prompt_template_id"),
+    )
+    if not template_id:
+        return {}
+    template = _PROMPT_ORCHESTRATION_TEMPLATE_POLICIES.get(template_id)
+    if not template:
+        return {}
+    policy = _deep_merge_dicts(template)
+    resolved_prompt_policy = dict(policy.get("prompt_policy") or {})
+    resolved_prompt_policy.setdefault("template_id", template_id)
+    resolved_prompt_policy.setdefault("template_selection_source", _prompt_template_selection_source(
+        template_id=template_id,
+        runtime_contract=runtime_contract,
+        runtime_profile=runtime_profile,
+        runtime_profile_policy=runtime_profile_policy,
+        runtime_contract_prompt_policy=runtime_contract_prompt_policy,
+        runtime_profile_prompt_policy=runtime_profile_prompt_policy,
+        prompt_policy=prompt_policy,
+        profile_metadata=profile_metadata,
+    ))
+    policy["prompt_policy"] = resolved_prompt_policy
+    return policy
+
+
+def _prompt_template_selection_source(
+    *,
+    template_id: str,
+    runtime_contract: dict[str, Any],
+    runtime_profile: dict[str, Any],
+    runtime_profile_policy: dict[str, Any],
+    runtime_contract_prompt_policy: dict[str, Any],
+    runtime_profile_prompt_policy: dict[str, Any],
+    prompt_policy: dict[str, Any],
+    profile_metadata: dict[str, Any],
+) -> str:
+    if str(runtime_contract.get("prompt_template_id") or "").strip() == template_id:
+        return "runtime_contract.prompt_template_id"
+    if str(runtime_profile.get("prompt_template_id") or "").strip() == template_id:
+        return "runtime_contract.runtime_profile.prompt_template_id"
+    if str(runtime_contract_prompt_policy.get("template_id") or "").strip() == template_id:
+        return "runtime_contract.prompt_policy.template_id"
+    if str(runtime_profile_prompt_policy.get("template_id") or "").strip() == template_id:
+        return "runtime_contract.runtime_profile.prompt_policy.template_id"
+    if str(runtime_profile_policy.get("prompt_template_id") or "").strip() == template_id:
+        return "runtime_policy.prompt_template_id"
+    if str(prompt_policy.get("template_id") or "").strip() == template_id:
+        return "runtime_policy.prompt_policy.template_id"
+    if str(profile_metadata.get("prompt_template_id") or "").strip() == template_id:
+        return "agent_runtime_profile.metadata.prompt_template_id"
+    return "prompt_orchestration_template"
 
 
 def _resolve_runtime_task_environment(

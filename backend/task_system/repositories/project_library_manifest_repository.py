@@ -3,9 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from file_management import default_file_environment_registry
-from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.projects.project_library_manifest import (
-    ProjectLifecycleActionSpec,
     ProjectLibraryManifest,
     ProjectRepositoryBinding,
     project_library_manifest_from_dict,
@@ -59,10 +57,6 @@ class ProjectLibraryManifestRepository:
         project = self.project_repository.require(manifest.project_id)
         if project.environment_id != manifest.environment_id:
             raise ValueError("project library manifest environment does not match project")
-        environment = task_environment_registry_from_backend_dir(self.base_dir).require(manifest.environment_id)
-        allowed_profile_ids = set(environment.spec.file_management.file_profile_refs)
-        if manifest.file_profile_id not in allowed_profile_ids:
-            raise ValueError("project library manifest file_profile_id is not allowed by environment")
         profile = default_file_environment_registry().require_profile(manifest.file_profile_id)
         allowed_repository_ids = {repo.repository_id for repo in profile.repository_specs}
         missing = sorted({item.repository_id for item in manifest.repositories} - allowed_repository_ids)
@@ -110,43 +104,6 @@ class ProjectLibraryManifestRepository:
 
     def _default_manifests(self) -> tuple[ProjectLibraryManifest, ...]:
         return (
-            ProjectLibraryManifest(
-                library_id="library.project.creation.writing.honghuang",
-                project_id="project.creation.writing.honghuang",
-                environment_id="env.creation.writing",
-                file_profile_id="file_profile.writing_manuscript",
-                schema_version="writing_library.v1",
-                template_id="writing.template.long_novel.commercial",
-                repositories=(
-                    ProjectRepositoryBinding("repo.writing.official_work", "official_work", "project://official_work", "canonical", readable=True, writable=False, commit_gate="review_required"),
-                    ProjectRepositoryBinding("repo.writing.draft_workspace", "draft_workspace", "project://drafts", "working", readable=True, writable=True),
-                    ProjectRepositoryBinding("repo.writing.review_workspace", "review_workspace", "project://reviews", "review", readable=True, writable=True),
-                    ProjectRepositoryBinding("repo.writing.artifact_repository", "artifact_repository", "environment://artifacts", "run_output", readable=True, writable=True),
-                    ProjectRepositoryBinding("repo.writing.memory_repository", "project_memory", "project://memory/project", "committed_memory", readable=True, writable=True, commit_gate="review_required"),
-                    ProjectRepositoryBinding("repo.writing.assets", "asset_repository", "project://assets", "asset", readable=True, writable=True),
-                ),
-                lifecycle_actions=(
-                    ProjectLifecycleActionSpec(
-                        action_id="cleanup_legacy_writing_tasks",
-                        title="清理旧节点任务",
-                        operation="delete_task_records_by_selector",
-                        description="清理从旧节点任务模型迁移后残留的任务记录；图定义、运行产物和项目库保留。",
-                        selectors={
-                            "task_environment_id": "env.creation.writing",
-                            "task_id_contains": "writing.modular_novel.node.",
-                            "include_assignments": True,
-                            "include_specific_task_records": True,
-                        },
-                        safeguards={
-                            "preserve_task_graphs": True,
-                            "preserve_artifacts": True,
-                            "preserve_project_instances": True,
-                        },
-                    ),
-                ),
-                indexes={"file_index": "pending", "artifact_index": "pending", "memory_index": "pending"},
-                metadata={"default_manifest": True},
-            ),
             ProjectLibraryManifest(
                 library_id="library.project.development.codebase.langchain_agent",
                 project_id="project.development.codebase.langchain_agent",

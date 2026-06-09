@@ -70,19 +70,14 @@ def project_operation_authorization(
     agent_allowed = _operation_set(agent_allowed_operations)
     agent_blocked = _operation_set(agent_blocked_operations)
     task_requested = _operation_set(task_requested_operations)
-    ceiling = _operation_set(operation_ceiling or ()) if operation_ceiling is not None else set()
     full_access_mode = mode in {"full_access", "bypass"}
-    full_access_candidates = known_operations | agent_allowed | task_requested
-    if operation_ceiling is not None:
-        full_access_candidates = {operation for operation in full_access_candidates if operation in ceiling}
     candidate_operations = sorted(known_operations | agent_allowed | agent_blocked | task_requested)
     decisions: list[OperationAuthorizationDecision] = []
     for operation_id in candidate_operations:
         if not operation_id:
             continue
-        allowed_by_full_access = full_access_mode and operation_id in full_access_candidates
-        allowed_by_agent = operation_id in agent_allowed or allowed_by_full_access
-        blocked_by_agent = operation_id in agent_blocked and not allowed_by_full_access
+        allowed_by_agent = operation_id in agent_allowed
+        blocked_by_agent = operation_id in agent_blocked
         environment_decision = evaluate_environment_operation(
             operation_id,
             environment_payload=environment_payload,
@@ -101,12 +96,11 @@ def project_operation_authorization(
             reason = environment_decision.reason
         else:
             final_decision = "allow"
-            if allowed_by_full_access and operation_id in agent_blocked:
-                reason = "permission_mode_full_access_overrides_profile_block"
-            elif allowed_by_full_access and operation_id not in agent_allowed:
-                reason = "permission_mode_full_access_expanded_capability"
-            else:
-                reason = "permission_mode_full_access" if full_access_mode else (environment_decision.reason if environment_decision.reason else "agent_allowed")
+            reason = (
+                "permission_mode_full_access"
+                if full_access_mode
+                else (environment_decision.reason if environment_decision.reason else "agent_allowed")
+            )
         decisions.append(
             OperationAuthorizationDecision(
                 operation_id=operation_id,

@@ -8,6 +8,7 @@ from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_a
 from runtime.shared.models import TaskRun
 
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
+from .graph.background_supervisor import GraphRunBackgroundSubmission, GraphRunBackgroundSupervisor
 from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
 from .graph.model_overrides import merge_effective_runtime_overrides
 from .graph.resume import GraphResumeResult, GraphResumeService
@@ -51,6 +52,12 @@ class GraphHarness:
         self._runner = GraphRunRunner(
             services=services,
             graph_loop=self._loop,
+            execute_work_order=self.execute_work_order,
+        )
+        self._background_supervisor = GraphRunBackgroundSupervisor(
+            services=services,
+            graph_loop=self._loop,
+            resume=self._resume,
             execute_work_order=self.execute_work_order,
         )
 
@@ -232,6 +239,31 @@ class GraphHarness:
         )
         self._commit_runner_result(graph_run_id=graph_run_id, result=result)
         return result
+
+    def submit_run_until_idle(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        max_node_executions: int = 64,
+        max_node_steps: int = 12,
+        max_dispatch_requests: int | None = None,
+        runtime_overrides: dict[str, Any] | None = None,
+        runtime_settings_patch: dict[str, Any] | None = None,
+    ) -> GraphRunBackgroundSubmission:
+        if runtime_settings_patch:
+            self.apply_runtime_settings_patch(
+                graph_run_id=graph_run_id,
+                runtime_settings_patch=dict(runtime_settings_patch or {}),
+            )
+        return self._background_supervisor.submit_until_idle(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            max_node_executions=max_node_executions,
+            max_node_steps=max_node_steps,
+            max_dispatch_requests=max_dispatch_requests,
+            runtime_overrides=dict(runtime_overrides or {}),
+        )
 
     def _commit_runner_result(self, *, graph_run_id: str, result: GraphRunRunnerResult) -> None:
         graph_run = _graph_run_from_payload(self.get_graph_run(graph_run_id), fallback=None)

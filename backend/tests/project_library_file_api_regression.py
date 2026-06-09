@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from task_system.projects.project_file_service import ProjectFileService
+from tests.support.writing_project_seed import seed_writing_project
 
 
 def test_project_file_service_reads_project_artifact_repository(tmp_path: Path) -> None:
+    seed_writing_project(tmp_path)
     artifact = tmp_path / "storage" / "task_environments" / "creation" / "writing" / "artifacts" / "honghuang-era-restart" / "project_brief.md"
     artifact.parent.mkdir(parents=True)
     artifact.write_text("Honghuang project brief", encoding="utf-8")
@@ -21,6 +23,7 @@ def test_project_file_service_reads_project_artifact_repository(tmp_path: Path) 
 
 
 def test_project_file_service_rejects_traversal_and_project_external_repository(tmp_path: Path) -> None:
+    seed_writing_project(tmp_path)
     service = ProjectFileService(tmp_path)
 
     try:

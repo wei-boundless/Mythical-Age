@@ -201,7 +201,7 @@ def test_send_command_forwards_environment(tmp_path: Path) -> None:
         [
             "send",
             "--task-environment-id",
-            "env.development.sandbox",
+            "env.coding.vibe_workspace",
             "hello",
         ]
     )
@@ -216,7 +216,7 @@ def test_send_command_forwards_environment(tmp_path: Path) -> None:
             "session-cli",
             "hello",
             {
-                "environment_binding": {"task_environment_id": "env.development.sandbox"},
+                "environment_binding": {"task_environment_id": "env.coding.vibe_workspace"},
             },
         )
     ]
@@ -316,7 +316,7 @@ def test_task_run_start_sends_explicit_contract_and_prints_task_id(tmp_path: Pat
             "--contract-file",
             str(contract_path),
             "--task-environment-id",
-            "env.development.sandbox",
+            "env.coding.vibe_workspace",
             "--no-watch",
         ]
     )
@@ -331,10 +331,10 @@ def test_task_run_start_sends_explicit_contract_and_prints_task_id(tmp_path: Pat
     runtime_contract = dict(extra_payload["runtime_contract"])  # type: ignore[index]
     task_contract = dict(runtime_contract["task_contract"])  # type: ignore[index]
     assert runtime_contract["system_issued_contract"] is True
-    assert runtime_contract["task_environment_id"] == "env.development.sandbox"
+    assert runtime_contract["task_environment_id"] == "env.coding.vibe_workspace"
     assert task_contract["system_issued"] is True
-    assert task_contract["task_environment_id"] == "env.development.sandbox"
-    assert dict(extra_payload["environment_binding"])["task_environment_id"] == "env.development.sandbox"  # type: ignore[index]
+    assert task_contract["task_environment_id"] == "env.coding.vibe_workspace"
+    assert dict(extra_payload["environment_binding"])["task_environment_id"] == "env.coding.vibe_workspace"  # type: ignore[index]
     assert "task_run_id taskrun:cli-start" in stdout.getvalue()
 
 

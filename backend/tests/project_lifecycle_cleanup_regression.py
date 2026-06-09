@@ -4,9 +4,11 @@ from pathlib import Path
 
 from task_system.projects.project_lifecycle_service import ProjectLifecycleService
 from task_system.registry.flow_registry import TaskFlowRegistry
+from tests.support.writing_project_seed import seed_writing_project
 
 
 def _seed_tasks(tmp_path: Path) -> None:
+    seed_writing_project(tmp_path)
     registry = TaskFlowRegistry(tmp_path)
     registry.upsert_task_assignment(
         task_id="task.writing.modular_novel.node.world_design",
@@ -14,7 +16,7 @@ def _seed_tasks(tmp_path: Path) -> None:
         task_kind="specific_task",
         flow_id="flow.writing.modular_novel.node.world_design",
         domain_id="writing",
-        task_environment_id="env.creation.writing",
+        task_environment_id="env.office.file_search",
         default_agent_id="agent:0",
     )
     registry.upsert_task_assignment(
@@ -34,7 +36,7 @@ def _seed_tasks(tmp_path: Path) -> None:
         nodes=(),
         edges=(),
         enabled=True,
-        metadata={"task_environment_id": "env.creation.writing"},
+        metadata={"task_environment_id": "env.office.file_search"},
     )
 
 

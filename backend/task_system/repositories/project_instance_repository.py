@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.projects.project_instance import ProjectInstance, project_instance_from_dict
 from task_system.storage import TaskSystemStorage
 
@@ -52,20 +51,15 @@ class ProjectInstanceRepository:
         return project
 
     def validate(self, project: ProjectInstance) -> None:
-        task_environment_registry_from_backend_dir(self.base_dir).require(project.environment_id)
+        if not project.project_id:
+            raise ValueError("project instance requires project_id")
+        if not project.environment_id:
+            raise ValueError("project instance requires environment_id")
+        if not project.library_id:
+            raise ValueError("project instance requires library_id")
 
     def _default_projects(self) -> tuple[ProjectInstance, ...]:
         return (
-            ProjectInstance(
-                project_id="project.creation.writing.honghuang",
-                environment_id="env.creation.writing",
-                title="Honghuang Era",
-                project_kind="long_novel",
-                template_id="writing.template.long_novel.commercial",
-                library_id="library.project.creation.writing.honghuang",
-                schema_version="writing_library.v1",
-                metadata={"default_project": True, "seed": "honghuang-era"},
-            ),
             ProjectInstance(
                 project_id="project.development.codebase.langchain_agent",
                 environment_id="env.coding.vibe_workspace",

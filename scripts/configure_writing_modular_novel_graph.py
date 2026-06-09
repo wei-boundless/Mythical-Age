@@ -1557,7 +1557,6 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
 
     configured = {
         "domain_id": DOMAIN_ID,
-        "environment_id": ENVIRONMENT_ID,
         "protocol_id": PROTOCOL_ID,
         "graph_ids": list(WRITING_GRAPH_IDS),
         "graph_harness_config_id": published_config.config_id,
@@ -2422,15 +2421,13 @@ def _upsert_imported_module_graph(
         working_memory_policy_profile_id="wmprofile.writing.modular_novel",
         working_memory_policy=_working_memory_policy(),
         runtime_policy=_runtime_policy(),
-        context_policy={"task_environment_id": ENVIRONMENT_ID, "environment_id": ENVIRONMENT_ID, "handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
+        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         loop_frames=loop_frames,
         publish_state="published",
         enabled=True,
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "native_modular_task_graph_child",
-            "task_environment_id": ENVIRONMENT_ID,
-            "environment_id": ENVIRONMENT_ID,
             "business_communication_modes": ["structured_handoff", "memory_read", "memory_commit", "revision_request"],
             "phase_definitions": _phase_definitions_for_nodes(nodes),
             "subtask_refs": [_node_task_id(node.node_id) for node in nodes],
@@ -3822,14 +3819,12 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
             "raw_full_text_global_context": "forbidden",
         },
         runtime_policy=_runtime_policy(),
-        context_policy={"task_environment_id": ENVIRONMENT_ID, "environment_id": ENVIRONMENT_ID, "handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
+        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         publish_state="published",
         enabled=True,
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "graph_as_first_class_task_unit",
-            "task_environment_id": ENVIRONMENT_ID,
-            "environment_id": ENVIRONMENT_ID,
             "graph_module_expansion": True,
             "phase_definitions": [
                 {"phase_id": "phase.master.design_init", "title": "设计初始化", "sequence_index": 10},
@@ -3934,8 +3929,6 @@ def _timeline_block(block_id: str, title: str, linked_graph_id: str, phase_id: s
 
 def _runtime_policy() -> dict[str, Any]:
     return {
-        "task_environment_id": ENVIRONMENT_ID,
-        "environment_id": ENVIRONMENT_ID,
         "execution_mode": "coordinator_driven",
         "coordinator_agent_id": "agent:0",
         "agent_group_id": AGENT_GROUP_ID,

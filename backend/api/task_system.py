@@ -550,19 +550,36 @@ def _environment_graph_inventory(task_graphs: list[dict[str, object]]) -> dict[s
     }
 
 
-def _project_instance_management(base_dir) -> dict[str, object]:
+def _visible_task_environment_ids(task_environment_management: dict[str, object]) -> list[str]:
+    environment_ids: list[str] = []
+    records = task_environment_management.get("records")
+    if not isinstance(records, list):
+        return environment_ids
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        environment_id = str(record.get("environment_id") or "").strip()
+        if not environment_id:
+            continue
+        if record.get("enabled") is False:
+            continue
+        if str(record.get("management_scope") or "").strip() == "system_internal":
+            continue
+        environment_ids.append(environment_id)
+    return environment_ids
+
+
+def _project_instance_management(base_dir, *, environment_ids: list[str]) -> dict[str, object]:
     service = ProjectFileService(base_dir)
     projects = []
-    for environment_id in (
-        "env.creation.writing",
-        "env.development.sandbox",
-    ):
+    for environment_id in environment_ids:
         projects.extend(service.list_environment_projects(environment_id))
     by_environment: dict[str, list[dict[str, object]]] = {}
     for project in projects:
         by_environment.setdefault(str(project.get("environment_id") or ""), []).append(project)
     return {
         "authority": "task_system.project_instance_management",
+        "environment_ids": environment_ids,
         "projects": projects,
         "by_environment": by_environment,
         "summary": {"project_count": len(projects)},
@@ -688,7 +705,10 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     environment_kind_management = _environment_kind_management_payload(base_dir)
     environment_task_inventory = _environment_task_inventory(task_assignments)
     environment_graph_inventory = _environment_graph_inventory(full_task_graphs)
-    project_instance_management = _project_instance_management(base_dir)
+    project_instance_management = _project_instance_management(
+        base_dir,
+        environment_ids=_visible_task_environment_ids(task_environment_management),
+    )
     contract_usage_index = _contract_usage_index(
         task_assignments=task_assignments,
         task_flows=task_flows,
@@ -2012,5 +2032,4 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
-
 

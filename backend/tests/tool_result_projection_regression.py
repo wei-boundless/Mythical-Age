@@ -258,7 +258,7 @@ def test_tool_result_projector_hides_runtime_sandbox_physical_artifact_paths(tmp
                 "status": "ok",
                 "artifact_refs": [
                     {
-                        "path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                        "path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html",
                         "absolute_path": str(
                             tmp_path
                             / "storage"
@@ -272,7 +272,7 @@ def test_tool_result_projector_hides_runtime_sandbox_physical_artifact_paths(tmp
                             / "artifacts"
                             / "game.html"
                         ),
-                        "sandbox_path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                        "sandbox_path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html",
                         "kind": "file",
                         "source": "write_file",
                     }
@@ -285,7 +285,7 @@ def test_tool_result_projector_hides_runtime_sandbox_physical_artifact_paths(tmp
 
     artifact_ref = projection["artifact_refs"][0]
     assert artifact_ref == {
-        "path": "storage/task_environments/development/sandbox/artifacts/game.html",
+        "path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html",
         "kind": "file",
         "source": "write_file",
     }

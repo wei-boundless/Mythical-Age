@@ -38,8 +38,9 @@ describe("center workspace helpers", () => {
           publish_state: "published",
           enabled: true,
           metadata: {
-            task_environment_id: "env.creation.writing",
-            environment_id: "env.creation.writing",
+            task_environment_id: "env.general.workspace",
+            environment_id: "env.general.workspace",
+            managed_by: "modular_novel",
           },
         },
       ],

@@ -20,7 +20,7 @@ from task_system.environments import resolve_task_environment
 
 
 def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+    resolved = resolve_task_environment("env.coding.vibe_workspace")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -51,7 +51,7 @@ def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
             context_id="permctx:one",
             task_run_id="taskrun:one",
             agent_run_id="agrun:one",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
             tool_capability_table_id=table.table_id,
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
@@ -64,7 +64,7 @@ def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
 
 
 def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerprint() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+    resolved = resolve_task_environment("env.coding.vibe_workspace")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -95,7 +95,7 @@ def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerpr
             context_id="permctx:two",
             task_run_id="taskrun:two",
             agent_run_id="agrun:two",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
             tool_capability_table_id=table.table_id,
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
@@ -133,7 +133,7 @@ def test_tool_supervisor_stops_before_operation_gate_when_preflight_rejects_tool
             context_id="permctx:preflight",
             task_run_id="taskrun:preflight",
             agent_run_id="agrun:preflight",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
         ),
         operation_gate=gate,
         tool_runtime_executor=_PreflightRejectingExecutor(),
@@ -177,7 +177,7 @@ def test_tool_supervisor_supplies_bound_workspace_root_to_filesystem_validator(t
             context_id="permctx:workspace-path",
             task_run_id="taskrun:workspace-path",
             agent_run_id="agrun:workspace-path",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
         sandbox_policy={"workspace_root": str(workspace)},
@@ -215,7 +215,7 @@ def test_tool_supervisor_rejects_filesystem_path_outside_bound_workspace(tmp_pat
             context_id="permctx:outside-path",
             task_run_id="taskrun:outside-path",
             agent_run_id="agrun:outside-path",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
         sandbox_policy={"workspace_root": str(workspace)},
@@ -249,7 +249,7 @@ def test_tool_supervisor_supplies_normalized_command_to_shell_validator() -> Non
             context_id="permctx:shell-validator",
             task_run_id="taskrun:shell-validator",
             agent_run_id="agrun:shell-validator",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
         safety_validators={"shell_read_only": validate_shell_read_only},
@@ -282,7 +282,7 @@ def test_tool_supervisor_to_dict_serializes_preflight_runtime_observation() -> N
             context_id="permctx:preflight-json",
             task_run_id="taskrun:preflight-json",
             agent_run_id="agrun:preflight-json",
-            environment_id="env.development.sandbox",
+            environment_id="env.coding.vibe_workspace",
         ),
         operation_gate=_NeverCalledOperationGate(),
         tool_runtime_executor=_PreflightRejectingObservationExecutor(),

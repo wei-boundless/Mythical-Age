@@ -64,7 +64,7 @@ def _rule(rule_id: str, artifact_type: str, section_id: str) -> ArtifactProjecti
     return ArtifactProjectionRule(
         rule_id=rule_id,
         artifact_type=artifact_type,
-        environment_id="env.creation.writing",
+        environment_id="",
         project_kind="long_novel",
         target=ArtifactProjectionTarget(
             repository_id="repo.writing.memory_repository",

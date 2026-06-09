@@ -16,10 +16,10 @@ def _environment() -> dict[str, object]:
     return {
         "environment_id": "env.general.workspace",
         "storage_space": {
-            "environment_storage_root": "storage/task_environments/development/sandbox",
-            "runtime_state_root": "storage/task_environments/development/sandbox/runtime_state",
-            "artifact_root": "storage/task_environments/development/sandbox/artifacts",
-            "cache_root": "storage/task_environments/development/sandbox/cache",
+            "environment_storage_root": "storage/task_environments/coding/vibe-workspace",
+            "runtime_state_root": "storage/task_environments/coding/vibe-workspace/runtime_state",
+            "artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts",
+            "cache_root": "storage/task_environments/coding/vibe-workspace/cache",
         },
         "sandbox_policy": {"enabled": True, "write_policy": "sandbox_or_task_granted"},
     }
@@ -60,8 +60,8 @@ def test_artifact_scope_manifest_renders_legacy_model_visible_payload() -> None:
 
     assert manifest.source_ref == "task_execution_artifact_write_scope"
     assert manifest.scope_hash.startswith("sha256:")
-    assert manifest.artifact_root == "storage/task_environments/development/sandbox/artifacts"
-    assert "storage/task_environments/development/sandbox/artifacts/demo/index.html" in manifest.canonical_output_paths
+    assert manifest.artifact_root == "storage/task_environments/coding/vibe-workspace/artifacts"
+    assert "storage/task_environments/coding/vibe-workspace/artifacts/demo/index.html" in manifest.canonical_output_paths
     assert manifest.to_model_visible_payload() == {"artifact_execution_scope": scope.to_model_visible_payload()}
 
 
@@ -90,7 +90,7 @@ def test_task_execution_packet_attaches_artifact_scope_manifest_without_prompt_d
     assert artifact_segment["source_ref"] == packet.artifact_scope_manifest["source_ref"]
     assert prompt_manifest["artifact_scope_manifest"] == packet.artifact_scope_manifest
     assert packet.diagnostics["artifact_scope_manifest"] == packet.artifact_scope_manifest
-    assert "storage/task_environments/development/sandbox/artifacts/demo/index.html" in packet.artifact_scope_manifest["canonical_output_paths"]
+    assert "storage/task_environments/coding/vibe-workspace/artifacts/demo/index.html" in packet.artifact_scope_manifest["canonical_output_paths"]
 
 
 def test_single_agent_turn_does_not_attach_task_artifact_scope_manifest() -> None:

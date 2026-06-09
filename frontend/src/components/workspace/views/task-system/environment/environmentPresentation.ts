@@ -10,29 +10,13 @@ const KNOWN_ENVIRONMENT_COPY: Record<string, { title: string; purpose: string }>
     title: "Vibe 编码工作区",
     purpose: "加载受管项目工作区、沙盒、文件状态、Git 视图和验证产物",
   },
-  "env.creation.writing": {
-    title: "写作环境",
-    purpose: "加载作品资料、草稿、记忆和创作产物空间",
-  },
-  "env.development.readonly": {
-    title: "代码审查环境",
-    purpose: "只读查看项目资料，适合搜索、审查和方案评估",
-  },
-  "env.development.sandbox": {
-    title: "开发沙盒",
-    purpose: "加载项目资料，并把修改和验证限制在受控写入边界",
-  },
-  "env.document.processing": {
-    title: "文档处理环境",
-    purpose: "加载输入文档、抽取工作区和版本化文档产物",
+  "env.office.file_search": {
+    title: "轻量办公文件检索",
+    purpose: "加载文件服务、本地搜索和来源检索能力，不挂载代码执行工具",
   },
   "env.general.workspace": {
     title: "通用工作区",
     purpose: "加载轻量上下文和受控产物空间",
-  },
-  "env.research.web": {
-    title: "网络调研环境",
-    purpose: "加载证据归档、下载缓存和引用快照空间",
   },
 };
 
@@ -66,7 +50,7 @@ export function taskEnvironmentDisplayTitle(item: TaskEnvironmentItem | undefine
   if (!item) return "新任务环境";
   return taskEnvironmentDisplayName(
     item.record.environment_id,
-    KNOWN_ENVIRONMENT_COPY[item.record.environment_id]?.title || item.record.title || "任务环境",
+    item.record.title || KNOWN_ENVIRONMENT_COPY[item.record.environment_id]?.title || "任务环境",
   );
 }
 

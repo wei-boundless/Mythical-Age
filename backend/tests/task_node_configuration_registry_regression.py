@@ -19,7 +19,7 @@ def test_node_configuration_repository_persists_editable_node_config(tmp_path: P
             "title": "Review Writer",
             "description": "Writes review notes from a bounded role prompt.",
             "node_kind": "agent",
-            "environment_scope": ["env.creation.writing"],
+            "environment_scope": ["env.office.file_search"],
             "role_prompt": "你是一名审稿员。你只审查作品结构和商业可读性，不扩写正文。",
             "executor_ref": {
                 "agent_id": "agent:0",
@@ -38,7 +38,7 @@ def test_node_configuration_repository_persists_editable_node_config(tmp_path: P
 
     assert spec.node_config_id == "nodecfg.review.writer"
     assert loaded is not None
-    assert loaded.environment_scope == ("env.creation.writing",)
+    assert loaded.environment_scope == ("env.office.file_search",)
     assert loaded.executor_ref["agent_profile_id"] == "main_interactive_agent"
     assert "审稿员" in loaded.role_prompt
 
@@ -49,7 +49,7 @@ def test_node_configuration_catalog_derives_graph_node_candidates_and_issues(tmp
         task_graphs=[
             {
                 "graph_id": "graph.review",
-                "runtime_policy": {"task_environment_id": "env.creation.writing"},
+                "runtime_policy": {"task_environment_id": "env.office.file_search"},
                 "nodes": [
                     {
                         "node_id": "node.review",
@@ -70,7 +70,7 @@ def test_node_configuration_catalog_derives_graph_node_candidates_and_issues(tmp
 
     spec = next(item for item in catalog["node_configurations"] if item["node_config_id"] == "nodecfg.graph.review.node.review")
 
-    assert spec["environment_scope"] == ["env.creation.writing"]
+    assert spec["environment_scope"] == ["env.office.file_search"]
     assert spec["metadata"]["requires_review"] is True
     assert catalog["usage_index"]["nodecfg.graph.review.node.review"] == [
         {"graph_id": "graph.review", "node_id": "node.review"}

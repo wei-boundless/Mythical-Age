@@ -18,6 +18,8 @@ from permissions.operation_packages import (
 )
 from ..models.model_profile_models import contains_raw_secret, parse_agent_model_profile
 
+DEFAULT_PROMPT_TEMPLATE_ID = "prompt_template.general.agent_runtime"
+
 
 def _storage_root(base_dir: Path) -> Path:
     return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
@@ -66,6 +68,8 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
         extra_allowed_operations=extra_allowed_operations,
         blocked_operations=blocked_operations,
     )
+    metadata = _ensure_prompt_template_metadata(dict(payload.get("metadata") or {}))
+    payload["metadata"] = metadata
     return AgentRuntimeProfile(
         **payload,
         allowed_tool_packages=allowed_tool_packages,
@@ -655,6 +659,14 @@ def _infer_runtime_template_id(agent_id: str, payload: dict[str, Any]) -> str:
     return ""
 
 
+def _ensure_prompt_template_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    next_metadata = migrate_runtime_profile_prompt_metadata(dict(metadata or {}))
+    runtime_template_id = str(next_metadata.get("runtime_template_id") or "").strip()
+    if runtime_template_id and not str(next_metadata.get("prompt_template_id") or "").strip():
+        next_metadata["prompt_template_id"] = DEFAULT_PROMPT_TEMPLATE_ID
+    return next_metadata
+
+
 class AgentRuntimeRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
@@ -735,7 +747,7 @@ class AgentRuntimeRegistry:
         if contains_raw_secret(model_profile):
             raise ValueError("model_profile must use credential_ref instead of raw secrets")
         current = self.get_profile(target)
-        metadata_payload = migrate_runtime_profile_prompt_metadata(dict(metadata or {}))
+        metadata_payload = _ensure_prompt_template_metadata(dict(metadata or {}))
         requested_packages = current.allowed_tool_packages if allowed_tool_packages is None and current else (allowed_tool_packages or ())
         requested_extra_operations = (
             tuple(str(item).strip() for item in allowed_operations if str(item).strip())
@@ -865,6 +877,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     runtime_template_id = _infer_runtime_template_id(next_payload["agent_id"], {**next_payload, "metadata": metadata})
     if runtime_template_id:
         metadata["runtime_template_id"] = runtime_template_id
+    metadata = _ensure_prompt_template_metadata(metadata)
     next_payload["metadata"] = metadata
     next_payload["model_profile"] = parse_agent_model_profile(
         payload.get("model_profile") or metadata.pop("model_profile", {})

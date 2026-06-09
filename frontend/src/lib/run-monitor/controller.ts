@@ -3,7 +3,7 @@ import type { ChatTaskEnvironmentBinding, StoreState, TaskGraphMonitorBinding, W
 import {
   isRequestAbortError,
   resumeOrchestrationHarnessTaskRun,
-  runGraphRunUntilIdle,
+  submitGraphRunUntilIdle,
   type GraphRunMonitorView,
   type RunMonitorEventPayload,
   type SessionScope,
@@ -67,7 +67,6 @@ export class RunMonitorController {
     this.polling = true;
     if (typeof EventSource !== "undefined") {
       this.openStream();
-      void this.refresh({ schedule: false });
       return;
     }
     this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "fallback" }));
@@ -339,9 +338,12 @@ export class RunMonitorController {
       } else if (controlState === "pause_requested" || controlState === "stop_requested") {
         throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
       }
-      await runGraphRunUntilIdle(graphRunId, {
+      await submitGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
         session_scope: binding?.session_scope,
+        max_node_executions: 1,
+        max_loop_iterations: 4,
+        max_dispatches: 1,
         max_dispatch_requests: 1,
       });
       const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, binding?.session_scope);
@@ -467,22 +469,16 @@ export class RunMonitorController {
     const owningTaskEnvironmentView = workspaceView === "task_environment" && taskEnvironmentId
       ? this.host.workspaceViewForTaskEnvironment(taskEnvironmentId)
       : "chat";
-    if (workspaceView === "task_environment" && taskEnvironmentId) {
-      this.host.bindTaskEnvironmentContext(taskEnvironmentId, {
-        environmentLabel,
-        source: "workspace-mode",
-      });
-    }
-    if (sessionId) {
-      this.host.applySelectedSessionShell(sessionId, { workspace_view: workspaceView || "chat", task_environment_id: taskEnvironmentId });
-      void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
-      void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
-    }
     if (signal.work_kind === "graph_task" || navigation.target_kind === "graph_task") {
       const graphRunId = String(signal.graph_ref?.graph_run_id || navigation.graph_run_id || "").trim();
       const graphHarnessConfigId = String(signal.graph_ref?.graph_harness_config_id || "").trim();
       const graphId = String(signal.graph_ref?.graph_id || navigation.graph_id || signal.graph_id || "").trim();
       const projectId = String(navigation.project_id || "").trim();
+      if (sessionId) {
+        this.host.applySelectedSessionShell(sessionId, { workspace_view: workspaceView || "task_environment", task_environment_id: taskEnvironmentId });
+        void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
+        void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
+      }
       this.host.syncWorkspaceViewUrl("task-system");
       this.store.setState((prev) => ({
         ...prev,
@@ -514,6 +510,17 @@ export class RunMonitorController {
         },
       }));
       return;
+    }
+    if (workspaceView === "task_environment" && taskEnvironmentId) {
+      this.host.bindTaskEnvironmentContext(taskEnvironmentId, {
+        environmentLabel,
+        source: "workspace-mode",
+      });
+    }
+    if (sessionId) {
+      this.host.applySelectedSessionShell(sessionId, { workspace_view: workspaceView || "chat", task_environment_id: taskEnvironmentId });
+      void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
+      void this.host.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
     }
     this.host.syncWorkspaceViewUrl(owningTaskEnvironmentView);
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: owningTaskEnvironmentView }));
@@ -605,9 +612,12 @@ export class RunMonitorController {
       taskGraphMonitorError: "",
     }));
     try {
-      await runGraphRunUntilIdle(graphRunId, {
+      await submitGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
         session_scope: state.taskGraphMonitorBinding?.session_scope,
+        max_node_executions: 1,
+        max_loop_iterations: 4,
+        max_dispatches: 1,
         max_dispatch_requests: 1,
       });
       const monitor = await fetchRunMonitorGraphDetail(graphRunId, graphHarnessConfigId, state.taskGraphMonitorBinding?.session_scope);

@@ -89,7 +89,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     settings = app.settings.static
     session = app.session_manager.create_session(
         title=f"Prompt cache live E2E {run_id}",
-        scope={"workspace_view": "task_environment", "task_environment_id": "env.development.sandbox"},
+        scope={"workspace_view": "task_environment", "task_environment_id": "env.coding.vibe_workspace"},
     )
     session_id = str(session["id"])
     model_selection = {
@@ -272,7 +272,7 @@ def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[
     contract = {
         "system_issued": True,
         "contract_id": f"prompt-cache-live-five-floor-dungeon:{scenario}:{run_id}",
-        "task_environment_id": "env.development.sandbox",
+        "task_environment_id": "env.coding.vibe_workspace",
         "title": "复杂版五层地下塔网页肉鸽" if complex_scenario else "五层地下塔网页小游戏",
         "user_visible_goal": (
             "完成一个复杂版可打开的五层地下塔网页肉鸽，并真实验证产物存在。"
@@ -318,7 +318,7 @@ def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[
             "verification_required": True,
         },
         "runtime_profile": {
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "model_requirement": model_selection,
             "control_capabilities": {
                 "may_call_tools": True,
@@ -330,11 +330,11 @@ def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[
     }
     return {
         "system_issued_contract": True,
-        "task_environment_id": "env.development.sandbox",
+        "task_environment_id": "env.coding.vibe_workspace",
         "allowed_operations": allowed_operations,
         "task_contract": contract,
         "runtime_profile": {
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "model_requirement": model_selection,
             "control_capabilities": {
                 "may_call_tools": True,

@@ -13,6 +13,7 @@ from harness.graph.loop import assert_graph_config_compatible_with_state
 from harness.graph.model_overrides import sanitize_runtime_overrides
 from harness.graph.models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
 from harness.graph.runner import GraphRunRunner
+from task_system.compiler.graph_compiler import build_graph_compilation_unit
 from task_system.compiler.graph_harness_config_publisher import _node_config
 
 
@@ -132,6 +133,28 @@ def test_node_runtime_prompt_policy_survives_graph_publish_projection() -> None:
         "project_instruction_visibility": "hidden",
         "personality_prompt_visibility": "hidden",
     }
+    assert published["runtime_policy"] == runtime_policy
+
+
+def test_project_scoped_graph_binding_defaults_to_project_workspace_without_environment() -> None:
+    unit = build_graph_compilation_unit(
+        graph_id="graph.test.project_scoped",
+        graph_title="Project Scoped",
+        nodes=[],
+        edges=[],
+        resource_nodes=[],
+        environment={},
+        permissions={},
+        tools={},
+        control={},
+        protocol_index={},
+        graph_runtime_policy={},
+        graph_context_policy={},
+    )
+
+    assert unit.graph_binding_contract["binding_mode"] == "project_scoped"
+    assert unit.graph_binding_contract["workspace_view"] == "project"
+    assert "task_environment_id" not in unit.graph_binding_contract
 
 
 def test_runner_rejects_legacy_active_work_order_without_structure_hash() -> None:

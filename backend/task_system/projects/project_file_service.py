@@ -9,7 +9,6 @@ from file_management.filesystem_adapter import FsspecLocalFileAdapter
 from file_management.gateway import RepositoryRootResolver
 from file_management.models import ManagedFileRepositorySpec, normalize_logical_path
 from project_layout import ProjectLayout
-from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.projects.project_instance import ProjectInstance
 from task_system.projects.project_library_manifest import ProjectLibraryManifest, ProjectRepositoryBinding
 from task_system.repositories.project_instance_repository import ProjectInstanceRepository
@@ -142,8 +141,7 @@ class ProjectFileService:
             return (self.layout.project_root / "storage" / "task_projects" / project.project_id / fragment).resolve()
         if root_ref.startswith("environment://"):
             fragment = _safe_root_fragment(root_ref.removeprefix("environment://"))
-            environment = task_environment_registry_from_backend_dir(self.base_dir).require(project.environment_id)
-            namespace = str(environment.spec.resource_space.storage_namespace or project.environment_id.replace(".", "/")).strip("/")
+            namespace = _project_environment_storage_namespace(project.environment_id)
             return (self.layout.project_root / "storage" / "task_environments" / namespace / fragment).resolve()
         resolver = RepositoryRootResolver(project_root=self.layout.project_root)
         return resolver.resolve(repository).root
@@ -214,4 +212,15 @@ def _safe_root_fragment(value: str) -> Path:
     path = PurePosixPath(normalized)
     if any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError("project repository root fragment cannot contain traversal segments")
+    return Path(*path.parts)
+
+
+def _project_environment_storage_namespace(environment_id: str) -> Path:
+    normalized = str(environment_id or "").strip()
+    if normalized.startswith("env."):
+        normalized = normalized.removeprefix("env.")
+    normalized = normalized.replace("\\", "/").replace(".", "/").strip("/")
+    path = PurePosixPath(normalized)
+    if not normalized or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("project environment storage namespace is invalid")
     return Path(*path.parts)

@@ -1,10 +1,15 @@
 "use client";
 
 import { Plus, Save, Trash2 } from "lucide-react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { OrchestrationAgentGroup } from "@/lib/api";
+import {
+  OrchestrationBadge as Badge,
+  OrchestrationField as Field,
+  OrchestrationToolbarButton as ToolbarButton,
+} from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
 type AgentGroupDraftLike = OrchestrationAgentGroup & {
   member_agent_ids_text: string;
@@ -38,37 +43,6 @@ function displayId(value: unknown, fallback = "未配置") {
 
 function displayName(agent: Record<string, unknown> | null | undefined) {
   return text(agent?.agent_name || agent?.display_name, displayId(agent?.agent_id, "未命名 Agent"));
-}
-
-function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "ok" | "warn" | "danger" }) {
-  return <span className={`boundary-badge boundary-badge--${tone}`}>{children}</span>;
-}
-
-function ToolbarButton({
-  children,
-  disabled,
-  onClick,
-  variant = "ghost",
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  variant?: "ghost" | "primary" | "danger";
-}) {
-  return (
-    <button className={`boundary-button boundary-button--${variant}`} disabled={disabled} onClick={onClick} type="button">
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
-  return (
-    <label className={wide ? "boundary-field boundary-field--wide" : "boundary-field"}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
 }
 
 export function OrchestrationGroupWorkbench({

@@ -369,16 +369,19 @@ async def orchestration_catalog() -> dict[str, Any]:
 
 
 @router.get("/orchestration/agents")
-async def orchestration_agents() -> dict[str, Any]:
+async def orchestration_agents(include_options: bool = True) -> dict[str, Any]:
     runtime = require_runtime()
     registry = AgentRuntimeRegistry(runtime.base_dir)
     catalog = registry.build_catalog()
     groups = AgentGroupRegistry(runtime.base_dir).list_groups()
-    options_payload = await orchestration_runtime_options()
+    options = _empty_orchestration_runtime_options()
+    if include_options:
+        options_payload = await orchestration_runtime_options()
+        options = dict(options_payload.get("options") or _empty_orchestration_runtime_options())
     return {
         **catalog,
         "agent_groups": [item.to_dict() for item in groups],
-        "options": dict(options_payload.get("options") or _empty_orchestration_runtime_options()),
+        "options": options,
     }
 
 

@@ -13,7 +13,7 @@ from tests.support.app_client import isolated_app_client
 
 WRITING_SCOPE = {
     "workspace_view": "task_environment",
-    "task_environment_id": "env.creation.writing",
+    "task_environment_id": "env.office.file_search",
     "project_id": "project.creation.writing.honghuang",
 }
 
@@ -43,7 +43,7 @@ def test_session_detail_rejects_wrong_task_environment_scope() -> None:
 def test_task_environment_session_resolver_creates_project_scoped_session() -> None:
     with isolated_app_client(app) as client:
         response = client.post(
-            "/api/task-environments/env.creation.writing/sessions/resolve",
+            "/api/task-environments/env.office.file_search/sessions/resolve",
             json={
                 "workspace_view": "task_environment",
                 "project_id": "project.creation.writing.honghuang",

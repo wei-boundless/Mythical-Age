@@ -36,7 +36,7 @@ def test_verify_completion_requires_verifier_verdict_when_gate_is_enforced() -> 
     host = runtime.single_agent_runtime_host
     verdict = _verify_completion(
         runtime_host=host,
-        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"}}},
+        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"}}},
         task_run_id="taskrun:verify-gate:missing",
         contract={"required_verifications": [{"verification_kind": "pytest"}]},
         artifact_refs=[],
@@ -58,7 +58,7 @@ def test_verify_completion_accepts_pass_verifier_wait_result_and_rejects_partial
 
     passed = _verify_completion(
         runtime_host=host,
-        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"}}},
+        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"}}},
         task_run_id="taskrun:verify-gate:pass",
         contract={"required_verifications": [{"verification_kind": "pytest"}]},
         artifact_refs=[],
@@ -67,7 +67,7 @@ def test_verify_completion_accepts_pass_verifier_wait_result_and_rejects_partial
     )
     partial = _verify_completion(
         runtime_host=host,
-        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"}}},
+        runtime_assembly={"task_environment": {"storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"}}},
         task_run_id="taskrun:verify-gate:partial",
         contract={"required_verifications": [{"verification_kind": "pytest"}]},
         artifact_refs=[],

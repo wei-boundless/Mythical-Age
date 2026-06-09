@@ -350,10 +350,11 @@ def refresh_snapshot(base_dir: Path) -> Path:
     skills = scan_skills(base_dir)
     snapshot_path = paths.skills_snapshot_path
     registry_path = paths.skills_registry_path
-    snapshot_path.write_text(build_snapshot(skills), encoding="utf-8")
+    snapshot_path.write_text(build_snapshot(skills), encoding="utf-8", newline="\n")
     registry_path.write_text(
         json.dumps(build_registry(skills), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return snapshot_path
 

@@ -1,6 +1,5 @@
 import type { TaskGraphRecord } from "@/lib/api";
 
-export const WRITING_TASK_ENVIRONMENT_ID = "env.creation.writing";
 export const MODULAR_NOVEL_MASTER_GRAPH_ID = "graph.writing.modular_novel.master";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -87,7 +86,6 @@ export function taskGraphSelectionScore(graph: TaskGraphRecord) {
   let score = 0;
 
   if (graphId === MODULAR_NOVEL_MASTER_GRAPH_ID) score += 10000;
-  if (environmentId === WRITING_TASK_ENVIRONMENT_ID) score += 2200;
   if (graphId.includes(".modular_novel.")) score += 1500;
   if (managedBy.includes("modular_novel")) score += 1200;
   if (hasLinkedGraphModules(graph)) score += 900;

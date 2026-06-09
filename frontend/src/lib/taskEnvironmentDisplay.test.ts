@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import { taskEnvironmentDisplayName } from "./taskEnvironmentDisplay";
 
 describe("taskEnvironmentDisplayName", () => {
-  it("uses Chinese labels for built-in task environments", () => {
-    expect(taskEnvironmentDisplayName("env.coding.vibe_workspace", "Vibe Coding Workspace")).toBe("Vibe 编码工作区");
-    expect(taskEnvironmentDisplayName("env.creation.writing", "Creative Writing")).toBe("创意写作");
-    expect(taskEnvironmentDisplayName("env.development.sandbox", "Development Sandbox")).toBe("开发沙盒");
-    expect(taskEnvironmentDisplayName("env.general.workspace", "General Workspace")).toBe("通用工作区");
+  it("prefers the registry label over built-in fallback labels", () => {
+    expect(taskEnvironmentDisplayName("env.coding.vibe_workspace", "Registry Coding Name")).toBe("Registry Coding Name");
+    expect(taskEnvironmentDisplayName("env.office.file_search", "Registry Office Name")).toBe("Registry Office Name");
+    expect(taskEnvironmentDisplayName("env.general.workspace", "Registry General Name")).toBe("Registry General Name");
+  });
+
+  it("uses Chinese fallback labels for built-in task environments when the registry label is missing", () => {
+    expect(taskEnvironmentDisplayName("env.coding.vibe_workspace")).toBe("Vibe 编码工作区");
+    expect(taskEnvironmentDisplayName("env.office.file_search")).toBe("轻量办公文件检索");
+    expect(taskEnvironmentDisplayName("env.general.workspace")).toBe("通用工作区");
   });
 
   it("keeps custom registry labels when there is no known mapping", () => {

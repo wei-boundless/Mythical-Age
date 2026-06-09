@@ -10,7 +10,7 @@ def test_required_artifact_completion_requires_existing_file() -> None:
     contract = {"required_artifacts": [{"artifact_kind": "html_game", "user_visible_name": "游戏"}]}
     runtime_assembly = {
         "task_environment": {
-            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"},
             "sandbox_policy": {},
         }
     }
@@ -20,10 +20,10 @@ def test_required_artifact_completion_requires_existing_file() -> None:
         runtime_assembly=runtime_assembly,
         task_run_id="taskrun:test:missing",
         contract=contract,
-        artifact_refs=[{"path": "storage/task_environments/development/sandbox/artifacts/game.html"}],
+        artifact_refs=[{"path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html"}],
     )
 
-    real_path = project_root / "storage/task_environments/development/sandbox/artifacts/game.html"
+    real_path = project_root / "storage/task_environments/coding/vibe-workspace/artifacts/game.html"
     real_path.parent.mkdir(parents=True, exist_ok=True)
     real_path.write_text("<!doctype html><title>game</title>", encoding="utf-8")
     present = _verify_completion(
@@ -31,7 +31,7 @@ def test_required_artifact_completion_requires_existing_file() -> None:
         runtime_assembly=runtime_assembly,
         task_run_id="taskrun:test:present",
         contract=contract,
-        artifact_refs=[{"path": "storage/task_environments/development/sandbox/artifacts/game.html"}],
+        artifact_refs=[{"path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html"}],
     )
 
     assert missing["ok"] is False
@@ -47,15 +47,15 @@ def test_sandbox_artifact_is_published_before_completion() -> None:
     task_run_id = "taskrun:test:publish"
     runtime_assembly = {
         "task_environment": {
-            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"},
             "sandbox_policy": {},
         }
     }
     policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
-    sandbox_file = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/artifacts/game.html"
+    sandbox_file = Path(str(policy["sandbox_root"])) / "storage/task_environments/coding/vibe-workspace/artifacts/game.html"
     sandbox_file.parent.mkdir(parents=True, exist_ok=True)
     sandbox_file.write_text("<!doctype html><canvas></canvas>", encoding="utf-8")
-    published_file = project_root / "storage/task_environments/development/sandbox/artifacts/game.html"
+    published_file = project_root / "storage/task_environments/coding/vibe-workspace/artifacts/game.html"
 
     verdict = _verify_completion(
         runtime_host=runtime.single_agent_runtime_host,
@@ -64,9 +64,9 @@ def test_sandbox_artifact_is_published_before_completion() -> None:
         contract={"required_artifacts": [{"artifact_kind": "html_game"}]},
         artifact_refs=[
             {
-                "path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                "path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html",
                 "absolute_path": str(sandbox_file),
-                "sandbox_path": "storage/task_environments/development/sandbox/artifacts/game.html",
+                "sandbox_path": "storage/task_environments/coding/vibe-workspace/artifacts/game.html",
             }
         ],
     )
@@ -74,7 +74,7 @@ def test_sandbox_artifact_is_published_before_completion() -> None:
     assert verdict["ok"] is True
     assert published_file.exists()
     assert published_file.read_text(encoding="utf-8") == "<!doctype html><canvas></canvas>"
-    assert verdict["verified_artifacts"][0]["path"] == "storage/task_environments/development/sandbox/artifacts/game.html"
+    assert verdict["verified_artifacts"][0]["path"] == "storage/task_environments/coding/vibe-workspace/artifacts/game.html"
 
 def test_sandbox_artifact_publish_overwrites_stale_workspace_file() -> None:
     from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
@@ -84,11 +84,11 @@ def test_sandbox_artifact_publish_overwrites_stale_workspace_file() -> None:
     task_run_id = "taskrun:test:publish-overwrite-stale"
     runtime_assembly = {
         "task_environment": {
-            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"},
             "sandbox_policy": {},
         }
     }
-    logical_path = "storage/task_environments/development/sandbox/artifacts/stale-game.html"
+    logical_path = "storage/task_environments/coding/vibe-workspace/artifacts/stale-game.html"
     published_file = project_root / logical_path
     published_file.parent.mkdir(parents=True, exist_ok=True)
     published_file.write_text("<!doctype html><title>stale</title>", encoding="utf-8")
@@ -160,24 +160,24 @@ def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> N
     task_run_id = "taskrun:test:discover-sandbox-artifacts"
     runtime_assembly = {
         "task_environment": {
-            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"},
             "sandbox_policy": {},
         }
     }
     policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
-    sandbox_asset = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/artifacts/assets/player.png"
+    sandbox_asset = Path(str(policy["sandbox_root"])) / "storage/task_environments/coding/vibe-workspace/artifacts/assets/player.png"
     sandbox_asset.parent.mkdir(parents=True, exist_ok=True)
     sandbox_asset.write_bytes(b"\x89PNG\r\n\x1a\nsandbox-player")
     unrelated = sandbox_asset.parent / "scratch.txt"
     unrelated.write_text("scratch", encoding="utf-8")
-    published_asset = project_root / "storage/task_environments/development/sandbox/artifacts/assets/player.png"
-    unrelated_published = project_root / "storage/task_environments/development/sandbox/artifacts/assets/scratch.txt"
+    published_asset = project_root / "storage/task_environments/coding/vibe-workspace/artifacts/assets/player.png"
+    unrelated_published = project_root / "storage/task_environments/coding/vibe-workspace/artifacts/assets/scratch.txt"
 
     verdict = _verify_completion(
         runtime_host=runtime.single_agent_runtime_host,
         runtime_assembly=runtime_assembly,
         task_run_id=task_run_id,
-        contract={"required_artifacts": [{"artifact_kind": "image_file", "path": "storage/task_environments/development/sandbox/artifacts/assets/player.png"}]},
+        contract={"required_artifacts": [{"artifact_kind": "image_file", "path": "storage/task_environments/coding/vibe-workspace/artifacts/assets/player.png"}]},
         artifact_refs=[],
     )
 
@@ -195,12 +195,12 @@ def test_completion_discovery_ignores_free_text_artifact_names() -> None:
     task_run_id = "taskrun:test:discover-structured-only"
     runtime_assembly = {
         "task_environment": {
-            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "storage_space": {"artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts"},
             "sandbox_policy": {},
         }
     }
     policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
-    sandbox_asset = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/artifacts/assets/free-text-player.png"
+    sandbox_asset = Path(str(policy["sandbox_root"])) / "storage/task_environments/coding/vibe-workspace/artifacts/assets/free-text-player.png"
     sandbox_asset.parent.mkdir(parents=True, exist_ok=True)
     sandbox_asset.write_bytes(b"\x89PNG\r\n\x1a\nfree-text-player")
 
@@ -236,23 +236,23 @@ def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None
     runtime_assembly = {
         "task_environment": {
             "storage_space": {
-                "environment_storage_root": "storage/task_environments/development/sandbox",
-                "runtime_state_root": "storage/task_environments/development/sandbox/runtime_state",
-                "artifact_root": "storage/task_environments/development/sandbox/artifacts",
-                "cache_root": "storage/task_environments/development/sandbox/cache",
+                "environment_storage_root": "storage/task_environments/coding/vibe-workspace",
+                "runtime_state_root": "storage/task_environments/coding/vibe-workspace/runtime_state",
+                "artifact_root": "storage/task_environments/coding/vibe-workspace/artifacts",
+                "cache_root": "storage/task_environments/coding/vibe-workspace/cache",
             },
             "sandbox_policy": {},
         }
     }
     policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
 
-    assert "storage/task_environments/development/sandbox/tmp" in policy["write_scopes"]
-    assert "storage/task_environments/development/sandbox/cache" in policy["write_scopes"]
-    assert "storage/task_environments/development/sandbox/runtime_state" in policy["write_scopes"]
-    assert "storage/task_environments/development/sandbox/tmp" not in policy["publish_scopes"]
+    assert "storage/task_environments/coding/vibe-workspace/tmp" in policy["write_scopes"]
+    assert "storage/task_environments/coding/vibe-workspace/cache" in policy["write_scopes"]
+    assert "storage/task_environments/coding/vibe-workspace/runtime_state" in policy["write_scopes"]
+    assert "storage/task_environments/coding/vibe-workspace/tmp" not in policy["publish_scopes"]
     assert "." not in policy["write_scopes"]
 
-    scratch_file = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/tmp/debug-note.html"
+    scratch_file = Path(str(policy["sandbox_root"])) / "storage/task_environments/coding/vibe-workspace/tmp/debug-note.html"
     scratch_file.parent.mkdir(parents=True, exist_ok=True)
     scratch_file.write_text("<!doctype html><title>scratch</title>", encoding="utf-8")
 
@@ -261,7 +261,7 @@ def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None
         runtime_assembly=runtime_assembly,
         task_run_id=task_run_id,
         contract={"required_artifacts": [{"artifact_kind": "html_game", "user_visible_name": "debug-note.html"}]},
-        artifact_refs=[{"path": "storage/task_environments/development/sandbox/tmp/debug-note.html", "absolute_path": str(scratch_file)}],
+        artifact_refs=[{"path": "storage/task_environments/coding/vibe-workspace/tmp/debug-note.html", "absolute_path": str(scratch_file)}],
     )
 
     assert verdict["ok"] is False
@@ -270,7 +270,7 @@ def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None
 def test_task_run_artifact_view_returns_only_existing_files() -> None:
     runtime = build_harness_runtime()
     project_root = Path(runtime.base_dir).resolve().parent
-    existing = project_root / "storage/task_environments/development/sandbox/artifacts/final.html"
+    existing = project_root / "storage/task_environments/coding/vibe-workspace/artifacts/final.html"
     existing.parent.mkdir(parents=True, exist_ok=True)
     existing.write_text("<!doctype html><title>final</title>", encoding="utf-8")
     runtime.single_agent_runtime_host.state_index.upsert_agent_run_result(
@@ -281,15 +281,15 @@ def test_task_run_artifact_view_returns_only_existing_files() -> None:
             agent_id="agent:0",
             status="completed",
             artifact_refs=(
-                "storage/task_environments/development/sandbox/artifacts/final.html",
-                "storage/task_environments/development/sandbox/artifacts/missing.html",
+                "storage/task_environments/coding/vibe-workspace/artifacts/final.html",
+                "storage/task_environments/coding/vibe-workspace/artifacts/missing.html",
             ),
         )
     )
 
     view = runtime.single_agent_runtime_host.get_task_run_artifacts("taskrun:test-artifacts")
 
-    assert view["created_files"] == ["storage/task_environments/development/sandbox/artifacts/final.html"]
+    assert view["created_files"] == ["storage/task_environments/coding/vibe-workspace/artifacts/final.html"]
     assert view["artifact_refs"][0]["exists"] is True
 
 def test_running_task_artifact_view_includes_tool_observation_refs() -> None:

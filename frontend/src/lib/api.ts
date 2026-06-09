@@ -2955,6 +2955,17 @@ export type GraphRunUntilIdleResult = {
   events: Array<Record<string, unknown>>;
 };
 
+export type GraphRunBackgroundSubmitResult = {
+  authority: string;
+  accepted: boolean;
+  background_started: boolean;
+  already_running: boolean;
+  graph_run_id: string;
+  graph_harness_config_id: string;
+  background_task_name: string;
+  monitor_url: string;
+};
+
 export type OrchestrationCatalogSkill = {
   runtime: {
     name: string;
@@ -4385,8 +4396,10 @@ export async function setOrchestrationPlanMode(mode: string) {
   });
 }
 
-export async function getOrchestrationAgents() {
-  return request<OrchestrationAgentRuntimeCatalog>("/orchestration/agents");
+export async function getOrchestrationAgents(options: { includeOptions?: boolean } = {}) {
+  const includeOptions = options.includeOptions ?? true;
+  const suffix = includeOptions ? "" : "?include_options=false";
+  return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agents${suffix}`);
 }
 
 export async function getOrchestrationRuntimeOptions() {
@@ -4634,7 +4647,7 @@ export async function getPublishedTaskGraphHarnessConfig(graphId: string) {
   );
 }
 
-export async function runGraphRunUntilIdle(
+export async function submitGraphRunUntilIdle(
   graphRunId: string,
   payload: {
     graph_harness_config_id: string;
@@ -4647,8 +4660,8 @@ export async function runGraphRunUntilIdle(
     max_dispatch_requests?: number | null;
   }
 ) {
-  return request<GraphRunUntilIdleResult>(
-    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle`,
+  return request<GraphRunBackgroundSubmitResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle/background`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -5638,5 +5651,3 @@ export async function streamChat(
   const run = await createChatRun(payload);
   return consumeChatRunStream(run, payload.session_id, handlers, options);
 }
-
-

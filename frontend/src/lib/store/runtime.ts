@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  runGraphRunUntilIdle,
+  submitGraphRunUntilIdle,
   loadFile,
   loadFileForSession,
   createSession,
@@ -70,8 +70,8 @@ const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
 const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
 const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
 const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
-const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set(["env.creation.writing"]);
-const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]);
+const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set<string>();
+const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID]);
 
 function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor | null): PublicChatTimelineItem {
   return {
@@ -1123,7 +1123,7 @@ export class WorkspaceRuntime {
       const catalog = await getTaskEnvironmentCatalog();
       this.store.setState((prev) => {
         const active = prev.conversationActiveEnvironment
-          ? this.normalizeActiveTaskEnvironment(prev.conversationActiveEnvironment)
+          ? this.normalizeActiveTaskEnvironment(prev.conversationActiveEnvironment, catalog)
           : null;
         return {
           ...prev,
@@ -1978,20 +1978,42 @@ export class WorkspaceRuntime {
       });
   }
 
-  private taskEnvironmentCatalogItem(taskEnvironmentId: string) {
+  private taskEnvironmentCatalogItem(
+    taskEnvironmentId: string,
+    catalog = this.store.getState().taskEnvironmentCatalog,
+  ) {
     const normalized = String(taskEnvironmentId || "").trim();
     if (!normalized) {
       return null;
     }
-    return this.store.getState().taskEnvironmentCatalog?.environments.find((item) => taskEnvironmentIdOf(item) === normalized) ?? null;
+    return catalog?.environments.find((item) => taskEnvironmentIdOf(item) === normalized) ?? null;
   }
 
-  private taskEnvironmentLabel(taskEnvironmentId: string) {
-    return taskEnvironmentLabelOf(this.taskEnvironmentCatalogItem(taskEnvironmentId)) || taskEnvironmentId;
+  private visibleTaskEnvironmentCatalogItem(
+    taskEnvironmentId: string,
+    catalog = this.store.getState().taskEnvironmentCatalog,
+  ) {
+    const item = this.taskEnvironmentCatalogItem(taskEnvironmentId, catalog);
+    return item && isCatalogEnvironmentVisible(item) ? item : null;
+  }
+
+  private taskEnvironmentRegistryLabel(
+    taskEnvironmentId: string,
+    catalog = this.store.getState().taskEnvironmentCatalog,
+  ) {
+    return taskEnvironmentLabelOf(this.taskEnvironmentCatalogItem(taskEnvironmentId, catalog));
+  }
+
+  private taskEnvironmentLabel(
+    taskEnvironmentId: string,
+    catalog = this.store.getState().taskEnvironmentCatalog,
+  ) {
+    return this.taskEnvironmentRegistryLabel(taskEnvironmentId, catalog) || taskEnvironmentId;
   }
 
   private normalizeActiveTaskEnvironment(
     activeEnvironment: Partial<NonNullable<StoreState["conversationActiveEnvironment"]>> | null | undefined,
+    catalog = this.store.getState().taskEnvironmentCatalog,
   ): StoreState["conversationActiveEnvironment"] {
     const taskEnvironmentId = String(
       activeEnvironment?.task_environment_id
@@ -2001,11 +2023,15 @@ export class WorkspaceRuntime {
     if (!taskEnvironmentId) {
       return null;
     }
+    if (catalog?.environments.length && !this.visibleTaskEnvironmentCatalogItem(taskEnvironmentId, catalog)) {
+      return null;
+    }
+    const registryLabel = this.taskEnvironmentRegistryLabel(taskEnvironmentId, catalog);
     return {
       task_environment_id: taskEnvironmentId,
       environment_label: taskEnvironmentDisplayName(
         taskEnvironmentId,
-        String(activeEnvironment?.environment_label || this.taskEnvironmentLabel(taskEnvironmentId)).trim(),
+        String(registryLabel || activeEnvironment?.environment_label || "").trim(),
       ),
       source: String(activeEnvironment?.source || "conversation").trim() || "conversation",
       updated_at: Number(activeEnvironment?.updated_at || Date.now() / 1000),
@@ -2018,7 +2044,7 @@ export class WorkspaceRuntime {
     if (!remembered || GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(remembered)) {
       return "";
     }
-    return this.taskEnvironmentCatalogItem(remembered) ? remembered : "";
+    return this.visibleTaskEnvironmentCatalogItem(remembered) ? remembered : "";
   }
 
   private rememberTaskEnvironment(activeEnvironment: StoreState["conversationActiveEnvironment"]) {
@@ -3608,14 +3634,14 @@ export class WorkspaceRuntime {
       if (rememberedId && this.workspaceViewForTaskEnvironment(rememberedId) === "code-environment") {
         return rememberedId;
       }
-      for (const candidate of [CODING_TASK_ENVIRONMENT_ID, "env.development.sandbox"]) {
+      for (const candidate of [CODING_TASK_ENVIRONMENT_ID]) {
         if (catalog?.environments.some((item) => isCatalogEnvironmentVisible(item) && taskEnvironmentIdOf(item) === candidate)) {
           return candidate;
         }
       }
       const codeCandidate = catalog?.environments.find((item) => {
         const kind = String(item.record?.environment_kind || "").trim();
-        return isCatalogEnvironmentVisible(item) && (kind === "coding" || kind === "development");
+        return isCatalogEnvironmentVisible(item) && kind === "coding";
       });
       return taskEnvironmentIdOf(codeCandidate) || CODING_TASK_ENVIRONMENT_ID;
     }
@@ -3636,7 +3662,7 @@ export class WorkspaceRuntime {
       return "creative";
     }
     const kind = String(this.taskEnvironmentCatalogItem(normalized)?.record?.environment_kind || "").trim();
-    if (CODE_TASK_ENVIRONMENT_IDS.has(normalized) || kind === "coding" || kind === "development") {
+    if (CODE_TASK_ENVIRONMENT_IDS.has(normalized) || kind === "coding") {
       return "code-environment";
     }
     return "chat";
@@ -3645,6 +3671,18 @@ export class WorkspaceRuntime {
   private async setActiveTaskEnvironment(environmentId: string, options: { environmentLabel?: string; source?: string } = {}) {
     const taskEnvironmentId = String(environmentId || "").trim();
     if (!taskEnvironmentId) {
+      return;
+    }
+    const catalog = this.store.getState().taskEnvironmentCatalog;
+    if (catalog?.environments.length && !this.visibleTaskEnvironmentCatalogItem(taskEnvironmentId)) {
+      storageRemove(LAST_ACTIVE_TASK_ENVIRONMENT_KEY);
+      const fallback = this.defaultActiveTaskEnvironment(options.source || "workspace-mode");
+      if (fallback.task_environment_id !== taskEnvironmentId) {
+        await this.setActiveTaskEnvironment(fallback.task_environment_id, {
+          environmentLabel: fallback.environment_label,
+          source: fallback.source,
+        });
+      }
       return;
     }
     const view = this.workspaceViewForTaskEnvironment(taskEnvironmentId);
@@ -3659,7 +3697,7 @@ export class WorkspaceRuntime {
     }
     const activeEnvironment = {
       task_environment_id: taskEnvironmentId,
-      environment_label: String(options.environmentLabel || this.taskEnvironmentLabel(taskEnvironmentId)).trim() || taskEnvironmentId,
+      environment_label: String(this.taskEnvironmentRegistryLabel(taskEnvironmentId) || options.environmentLabel || "").trim() || taskEnvironmentId,
       source: options.source || "conversation",
       updated_at: Date.now() / 1000,
       authority: "frontend.conversation_active_task_environment",
@@ -3929,9 +3967,12 @@ export class WorkspaceRuntime {
     if (!graphHarnessConfigId) {
       throw new Error("新 GraphHarness 派发需要 graph_harness_config_id。");
     }
-    await runGraphRunUntilIdle(runId, {
+    await submitGraphRunUntilIdle(runId, {
       graph_harness_config_id: graphHarnessConfigId,
       session_scope: this.store.getState().taskGraphMonitorBinding?.session_scope,
+      max_node_executions: 1,
+      max_loop_iterations: 4,
+      max_dispatches: 1,
       max_dispatch_requests: Number(payload?.max_requests ?? 1),
     });
     const sessionId = this.store.getState().currentSessionId;
@@ -5054,4 +5095,3 @@ function chatThinkingModeFromProviderConfig(config: { thinking_mode?: string; re
   }
   return "thinking";
 }
-

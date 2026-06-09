@@ -176,6 +176,7 @@ def refresh_tool_registry(base_dir: Path) -> Path:
     registry_path.write_text(
         json.dumps(build_tool_registry(), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return registry_path
 

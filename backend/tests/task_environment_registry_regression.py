@@ -36,14 +36,12 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
 
     assert {
         "environment_group.coding",
-        "environment_group.development",
-        "environment_group.creation",
+        "environment_group.office",
         "environment_group.general",
     } == groups
 
     coding = registry.require("env.coding.vibe_workspace").spec
-    development = registry.require("env.development.sandbox").spec
-    writing = registry.require("env.creation.writing").spec
+    office = registry.require("env.office.file_search").spec
     general = registry.require("env.general.workspace").spec
 
     assert coding.sandbox_policy.enabled is True
@@ -52,16 +50,9 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert coding.file_management.constraints["default_read_repository"] == "repo.managed_project.sandbox_workspace"
     assert coding.observability_policy["file_state_authority"] == "runtime.memory.file_state_authority"
 
-    assert development.sandbox_policy.enabled is True
-    assert development.sandbox_policy.shell_policy == "sandboxed"
-    assert "op.image_generate" in development.sandbox_policy.side_effect_operations
-    assert development.resource_space.storage_namespace == "development/sandbox"
-    assert development.file_management.file_profile_refs == ("file_profile.base_workspace",)
-    assert "AGENTS.md" not in development.memory_space.project_knowledge_refs
-    assert development.environment_prompts
-    assert [item.prompt_id for item in development.environment_prompts] == [
-        "environment.development.sandbox.orientation",
-        "environment.rule.development_sandbox",
+    assert [item.prompt_id for item in coding.environment_prompts] == [
+        "environment.coding.vibe_workspace.orientation",
+        "environment.rule.coding_workspace",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -71,24 +62,32 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
         "coding.rule.windows_shell",
         "coding.rule.task_progress",
     ]
-    assert all(not item.content for item in development.environment_prompts)
+    assert all(not item.content for item in coding.environment_prompts)
     prompt_registry = PromptLibraryRegistry(BACKEND_DIR)
-    development_prompt = prompt_registry.get_active_resource("environment.development.sandbox.orientation")
-    assert development_prompt is not None
-    assert "开发沙盒任务环境" in development_prompt.content
-    assert "沙盒本身不是完成证据" not in development_prompt.content
+    coding_prompt = prompt_registry.get_active_resource("environment.coding.vibe_workspace.orientation")
+    assert coding_prompt is not None
+    assert "专用 coding 工作区任务环境" in coding_prompt.content
+    assert "沙盒本身不是完成证据" not in coding_prompt.content
     sandbox_resource_prompt = prompt_registry.get_active_resource("environment.resource.sandbox_overlay.orientation")
     assert sandbox_resource_prompt is not None
     assert "不能替代完成证据" in sandbox_resource_prompt.content
-    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in development_prompt.content
-    assert "old_text not found" not in development_prompt.content
-    assert ("strategy." + "development.execution.v1") not in development_prompt.content
-    assert "runtime packet" not in development_prompt.content
+    assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" not in coding_prompt.content
+    assert "old_text not found" not in coding_prompt.content
+    assert ("strategy." + "development.execution.v1") not in coding_prompt.content
+    assert "runtime packet" not in coding_prompt.content
 
-    assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
-    assert writing.resource_space.storage_namespace == "creation/writing"
-    assert writing.file_management.constraints["official_work_canonical_write"] == "ask"
-    assert writing.artifact_policy.artifact_root == "repo.writing.artifact_repository"
+    assert office.sandbox_policy.enabled is False
+    assert office.sandbox_policy.shell_policy == "denied"
+    assert office.sandbox_policy.browser_policy == "denied"
+    assert office.sandbox_policy.network_policy == "allowed"
+    assert office.resource_space.storage_namespace == "office/file-search"
+    assert office.file_management.file_profile_refs == ("file_profile.base_workspace",)
+    assert office.file_management.constraints["project_workspace_search"] == "allowed"
+    assert office.artifact_policy.artifact_root == "conversation_artifacts"
+    assert [item.prompt_id for item in office.environment_prompts] == [
+        "environment.office.file_search.orientation",
+        "environment.rule.office_file_search",
+    ]
 
     assert general.sandbox_policy.shell_policy == "task_decided"
     assert general.execution_policy.shell_execution_policy == "task_decided"
@@ -116,6 +115,8 @@ def test_legacy_environment_ids_are_not_accepted() -> None:
         "env.development.readonly",
         "env.research.web",
         "env.document.processing",
+        "env." + "development.sandbox",
+        "env." + "creation.writing",
         "env.system_eval.dual_node",
     ):
         try:
@@ -135,7 +136,7 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
         session_id="session-test",
         turn_id="turn-test",
         agent_invocation_id="agent-invocation-test",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -153,10 +154,10 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
         for item in list(operation_auth.get("decisions") or [])
     }
     assert decisions["op.shell"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "env.development.sandbox"
+    assert decisions["op.shell"]["environment_constraint"] == "env.coding.vibe_workspace"
 
 
-def test_full_access_projects_registered_development_tools_without_profile_restrip() -> None:
+def test_full_access_does_not_expand_or_unhide_model_visible_tools() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -166,7 +167,7 @@ def test_full_access_projects_registered_development_tools_without_profile_restr
         session_id="session-full-access-tools",
         turn_id="turn-full-access-tools",
         agent_invocation_id="agent-invocation-full-access-tools",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -180,13 +181,15 @@ def test_full_access_projects_registered_development_tools_without_profile_restr
         for item in list(dict(assembly.get("operation_authorization") or {}).get("decisions") or [])
     }
 
-    assert {"terminal", "python_repl", "browser_control", "git_push"} <= tool_names
-    assert decisions["op.python_repl"]["final_decision"] == "allow"
-    assert decisions["op.python_repl"]["reason"] == "permission_mode_full_access_overrides_profile_block"
-    assert decisions["op.browser_control"]["final_decision"] == "allow"
-    assert decisions["op.browser_control"]["reason"] == "permission_mode_full_access_expanded_capability"
-    assert decisions["op.git_push"]["final_decision"] == "allow"
-    assert decisions["op.git_push"]["reason"] == "permission_mode_full_access_overrides_profile_block"
+    assert "terminal" in tool_names
+    assert "python_repl" not in tool_names
+    assert "git_push" not in tool_names
+    assert decisions["op.python_repl"]["final_decision"] == "deny"
+    assert decisions["op.python_repl"]["reason"] == "agent_permission_missing"
+    assert decisions["op.browser_control"]["final_decision"] == "deny"
+    assert decisions["op.browser_control"]["reason"] == "agent_permission_missing"
+    assert decisions["op.git_push"]["final_decision"] == "deny"
+    assert decisions["op.git_push"]["reason"] == "agent_permission_missing"
 
 
 def test_coding_environment_operations_are_derived_from_registered_runtime_payload() -> None:
@@ -247,6 +250,7 @@ def test_coding_environment_exposes_core_development_tools_for_authorized_agent(
     }
 
     assert {"read_file", "write_file", "edit_file", "terminal", "python_symbol_search"} <= tool_names
+    assert "python_repl" not in tool_names
     assert decisions["op.read_file"]["final_decision"] == "allow"
     assert decisions["op.write_file"]["final_decision"] == "allow"
     assert decisions["op.edit_file"]["final_decision"] == "allow"
@@ -265,7 +269,7 @@ def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
         session_id="session-tool-schema",
         turn_id="turn-tool-schema",
         agent_invocation_id="agent-invocation-tool-schema",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -329,11 +333,11 @@ def test_runtime_policy_default_environment_does_not_select_task_environment() -
         agent_invocation_id="agent-invocation-policy-env",
         runtime_contract={
             "runtime_policy": {
-                "context_policy": {"default_environment_id": "env.development.sandbox"},
+                "context_policy": {"default_environment_id": "env.coding.vibe_workspace"},
             },
             "runtime_profile": {
                 "runtime_policy": {
-                    "context_policy": {"default_environment_id": "env.creation.writing"},
+                    "context_policy": {"default_environment_id": "env.office.file_search"},
                 },
             },
         },
@@ -357,7 +361,7 @@ def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_prof
         session_id="session-profile-writing",
         turn_id="turn-profile-writing",
         agent_invocation_id="agent-invocation-profile-writing",
-        runtime_contract={"task_environment_id": "env.creation.writing"},
+        runtime_contract={"task_environment_id": "env.office.file_search"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -365,7 +369,7 @@ def test_explicit_task_environment_selection_is_orthogonal_to_agent_runtime_prof
     ).to_dict()
 
     assert dict(assembly.get("profile") or {}).get("profile_ref") == "main_interactive_agent"
-    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.creation.writing"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.office.file_search"
     assert dict(dict(assembly.get("diagnostics") or {}).get("task_environment") or {}).get("source") == "runtime_contract"
 
 
@@ -378,7 +382,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         session_id="session-env-prompt",
         turn_id="turn-env-prompt",
         agent_invocation_id="agent-invocation-env-prompt",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -406,13 +410,11 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
-        "environment.resource.base_workspace.orientation",
+        "environment.resource.managed_project_workspace.orientation",
         "environment.resource.sandbox_overlay.orientation",
-        "environment.development.sandbox.orientation",
-        "environment.rule.development_sandbox",
+        "environment.coding.vibe_workspace.orientation",
+        "environment.rule.coding_workspace",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -425,11 +427,8 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "当前任务环境说明" in model_input
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
-    ]
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
     assert "开始实现前先建立项目事实" in model_input
     assert "优先用专用搜索和读取工具定位代码" in model_input
     assert "old_text 必须来自当前读取结果" in model_input
@@ -440,9 +439,9 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "验证必须真实" in model_input
     assert "Windows PowerShell" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
-    assert "你处在通用开发沙盒任务环境中" in model_input
+    assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "当你正在处理开发类工作" in model_input
-    assert "通用项目工作区资源" in model_input
+    assert "受管项目工作区为你提供项目文件" in model_input
     assert "当前环境包含沙盒工作资源" in model_input
     assert "不属于本任务的变更" in model_input
 
@@ -484,8 +483,6 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     expected_environment_refs = [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
         "environment.resource.managed_project_workspace.orientation",
         "environment.resource.sandbox_overlay.orientation",
@@ -503,11 +500,8 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
 
     assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
-    ]
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["overlay_prompt_refs"] == expected_environment_refs[2:]
+    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
     assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "项目工作区是 coding 任务的主要工作面" in model_input
     assert "artifact 目录是交付证据和发布面" in model_input
@@ -582,21 +576,21 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
         engagement_plans=[
             {
                 "plan_id": "engage.test.writing",
-                "task_environment_id": "env.creation.writing",
+                "task_environment_id": "env.office.file_search",
             }
         ]
     )
     management = catalog.management_payload()
-    development = catalog.runtime_environment_payload("env.development.sandbox")
+    development = catalog.runtime_environment_payload("env.coding.vibe_workspace")
     writing_item = next(
         item
         for item in management["environments"]
-        if item["record"]["environment_id"] == "env.creation.writing"
+        if item["record"]["environment_id"] == "env.office.file_search"
     )
 
     assert management["authority"] == "task_system.task_environment_catalog"
-    assert management["summary"]["environment_count"] == 4
-    assert management["summary"]["builtin_template_count"] == 4
+    assert management["summary"]["environment_count"] == 3
+    assert management["summary"]["builtin_template_count"] == 3
     assert management["summary"]["workspace_environment_count"] == 0
     assert management["summary"]["system_internal_environment_count"] == 0
     assert writing_item["definition_source"] == "builtin_default"
@@ -604,7 +598,7 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     assert "resource_space" in development
     assert "memory_space" in development
     assert "file_access_tables" in development
-    assert development["storage_space"]["task_library_root"] == "storage/task_environments/development/sandbox/task_library"
+    assert development["storage_space"]["task_library_root"] == "storage/task_environments/coding/vibe-workspace/task_library"
     assert writing_item["task_library"]["engagement_plan_ids"] == ["engage.test.writing"]
     assert writing_item["task_library"]["task_ids"] == ["engage.test.writing"]
 
@@ -624,7 +618,7 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
         session_id="session-env-constraint",
         turn_id="turn-env-constraint",
         agent_invocation_id="agent-invocation-env-constraint",
-        runtime_contract={"task_environment_id": "env.creation.writing"},
+        runtime_contract={"task_environment_id": "env.office.file_search"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -645,7 +639,7 @@ def test_creation_environment_filters_development_execution_tools_before_runtime
     assert decisions["op.browser_control"]["reason"] == "environment_filtered"
     assert decisions["op.write_file"]["final_decision"] == "allow"
     assert decisions["op.web_search"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_constraint"] == "env.creation.writing"
+    assert decisions["op.shell"]["environment_constraint"] == "env.office.file_search"
 
 
 def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
@@ -659,7 +653,7 @@ def test_runtime_operation_ceiling_limits_tools_before_prompt_index() -> None:
         turn_id="turn-execution-permit",
         agent_invocation_id="agent-invocation-execution-permit",
         runtime_contract={
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "runtime_profile": {
                 "execution_permit": {
                     "operation_ceiling": ["op.model_response", "op.read_file"],
@@ -696,7 +690,7 @@ def test_full_access_still_respects_explicit_operation_ceiling() -> None:
         turn_id="turn-full-access-ceiling",
         agent_invocation_id="agent-invocation-full-access-ceiling",
         runtime_contract={
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "runtime_profile": {
                 "execution_permit": {
                     "operation_ceiling": ["op.model_response", "op.read_file"],
@@ -734,7 +728,7 @@ def test_allowed_operation_requests_do_not_cut_agent_profile_permissions() -> No
         turn_id="turn-disjoint-operation-scopes",
         agent_invocation_id="agent-invocation-disjoint-operation-scopes",
         runtime_contract={
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "allowed_operations": ["op.read_file"],
             "runtime_profile": {
                 "execution_permit": {
@@ -773,7 +767,7 @@ def test_development_environment_keeps_document_capability_routes() -> None:
         session_id="session-document-tools",
         turn_id="turn-document-tools",
         agent_invocation_id="agent-invocation-document-tools",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -813,7 +807,7 @@ def test_single_agent_turn_packet_keeps_development_environment_authorized_side_
         session_id="session-single-turn-side-effects",
         turn_id="turn-single-turn-side-effects",
         agent_invocation_id="agent-invocation-single-turn-side-effects",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -950,7 +944,7 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
         session_id="session-skill-packet",
         turn_id="turn-skill-packet",
         agent_invocation_id="agent-invocation-skill-packet",
-        runtime_contract={"task_environment_id": "env.development.sandbox"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
         model_selection={},
         agent_runtime_profile=profile,
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -1001,7 +995,7 @@ def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms()
         turn_id="turn-active-skill-clean",
         agent_invocation_id="agent-invocation-active-skill-clean",
         runtime_contract={
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "selected_skill_ids": ["skill.visual-asset-generation"],
         },
         model_selection={},
@@ -1036,16 +1030,15 @@ def test_active_skill_prompt_body_omits_frontmatter_and_internal_runtime_terms()
     assert "runtime_packet" not in model_input
 
 
-def test_resolved_writing_environment_builds_file_access_table() -> None:
-    resolved = resolve_task_environment("env.creation.writing")
+def test_resolved_office_environment_builds_file_access_table() -> None:
+    resolved = resolve_task_environment("env.office.file_search")
 
-    assert resolved.spec.environment_id == "env.creation.writing"
+    assert resolved.spec.environment_id == "env.office.file_search"
     assert len(resolved.file_access_tables) == 1
     table = resolved.file_access_tables[0]
-    assert table.profile_id == "file_profile.writing_manuscript"
-    assert table.is_allowed(repository_id="repo.writing.official_work", action="open") is True
-    assert table.requires_approval(repository_id="repo.writing.official_work", action="write") is True
-    assert table.is_allowed(repository_id="repo.writing.draft_workspace", action="write") is True
+    assert table.profile_id == "file_profile.base_workspace"
+    assert table.is_allowed(repository_id="repo.base.project_workspace", action="read") is True
+    assert table.is_allowed(repository_id="repo.base.project_workspace", action="search") is True
 
 
 def test_resolved_environment_can_apply_agent_file_action_ceiling() -> None:
@@ -1060,8 +1053,7 @@ def test_resolved_environment_can_apply_agent_file_action_ceiling() -> None:
 def test_all_default_task_environments_resolve_file_access_tables() -> None:
     for environment_id in (
         "env.coding.vibe_workspace",
-        "env.creation.writing",
-        "env.development.sandbox",
+        "env.office.file_search",
         "env.general.workspace",
     ):
         resolved = resolve_task_environment(environment_id)
@@ -1424,8 +1416,6 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
 
     assert "你处在自定义提示环境中" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
         "environment.custom.prompted",
@@ -1528,8 +1518,6 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
 
     assert "当前环境复用共享只读工作区导览" in _model_input_text(packet)
     assert stable_payload["task_environment"]["environment_prompt_refs"] == [
-        "environment.general.workspace.orientation",
-        "environment.rule.general_workspace",
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
         "environment.shared.readonly_workspace.orientation",

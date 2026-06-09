@@ -9,6 +9,7 @@ EnvironmentKind = Literal[
     "development",
     "creation",
     "general",
+    "office",
     "custom",
 ]
 

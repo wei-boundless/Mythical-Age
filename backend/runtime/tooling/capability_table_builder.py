@@ -6,6 +6,7 @@ from typing import Any
 from permissions.operations import OperationRegistry, build_default_operation_registry
 from capability_system.tools.native_tool_catalog import ToolDefinition, get_tool_definitions
 from file_management import FileAccessTable
+from harness.runtime.tool_scheduling import environment_allowed_operations
 from task_system.environments import TaskEnvironmentSpec
 from task_system.tasks import SpecificTaskAssemblyPolicy
 
@@ -29,6 +30,7 @@ FILE_OPERATION_ACTIONS = {
     "op.write_file": ("write",),
     "op.edit_file": ("edit",),
 }
+PROMPT_VISIBLE_TOOL_POLICIES = {"schema_only", "schema_plus_guidance"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +91,10 @@ def build_tool_capability_table(
     task_denied = {registry.normalize_id(item) for item in request.task_denied_operations}
     agent_allowed = {registry.normalize_id(item) for item in request.agent_profile_allowed_operations}
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
+    environment_allowed = {
+        registry.normalize_id(item)
+        for item in environment_allowed_operations(request.environment.to_dict())
+    }
 
     dispatch_requested = task_required | task_optional
     audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
@@ -107,6 +113,9 @@ def build_tool_capability_table(
             continue
         if runtime_available and operation_id not in runtime_available:
             filtered.append(_issue(operation_id, tool_name, "runtime operation unavailable", "runtime_availability"))
+            continue
+        if operation_id not in environment_allowed:
+            filtered.append(_issue(operation_id, tool_name, "filtered by task environment", "task_environment"))
             continue
         if tool is None:
             filtered.append(_issue(operation_id, "", "no registered tool for operation", "tool_registry"))
@@ -131,7 +140,7 @@ def build_tool_capability_table(
             ToolCapability(
                 operation_id=operation_id,
                 tool_name=tool.name,
-                visible=tool.prompt_exposure_policy != "hidden" or operation_id in task_required or operation_id in task_optional,
+                visible=str(tool.prompt_exposure_policy or "").strip() in PROMPT_VISIBLE_TOOL_POLICIES,
                 dispatchable=True,
                 requires_approval=bool(file_gate["requires_approval"]),
                 file_repository_grants=tuple(file_gate["repository_grants"]),

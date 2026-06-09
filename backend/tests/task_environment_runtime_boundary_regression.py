@@ -3,16 +3,16 @@ from __future__ import annotations
 from task_system.environments import default_task_environment_registry
 
 
-def test_writing_environment_keeps_shell_browser_denied_after_runtime_maturity_upgrade() -> None:
+def test_office_environment_keeps_shell_browser_denied_after_runtime_maturity_upgrade() -> None:
     registry = default_task_environment_registry()
-    writing = registry.require("env.creation.writing").spec
+    office = registry.require("env.office.file_search").spec
 
-    assert writing.sandbox_policy.shell_policy == "denied"
-    assert writing.sandbox_policy.browser_policy == "denied"
-    assert writing.execution_policy.shell_execution_policy == "denied"
-    assert writing.execution_policy.browser_execution_policy == "denied"
-    assert writing.file_management.file_profile_refs == ("file_profile.writing_manuscript",)
-    assert writing.file_management.canonical_write_policy == "review_receipt_and_commit_gate_required"
+    assert office.sandbox_policy.shell_policy == "denied"
+    assert office.sandbox_policy.browser_policy == "denied"
+    assert office.execution_policy.shell_execution_policy == "denied"
+    assert office.execution_policy.browser_execution_policy == "denied"
+    assert office.file_management.file_profile_refs == ("file_profile.base_workspace",)
+    assert office.file_management.canonical_write_policy == "task_decided"
 
 
 def test_general_workspace_does_not_default_to_coding_permissions() -> None:
@@ -36,16 +36,14 @@ def test_coding_runtime_boundary_is_explicit_environment_policy() -> None:
     assert coding.lifecycle_policy["graph_entry_policy"] == "fixed_entry_not_scheduled_by_environment"
 
 
-def test_debug_discipline_is_only_bound_to_development_class_environments() -> None:
+def test_debug_discipline_is_only_bound_to_coding_environment() -> None:
     registry = default_task_environment_registry()
     debug_ref = "coding.rule.debug_discipline"
 
     coding_refs = {item.prompt_id for item in registry.require("env.coding.vibe_workspace").spec.environment_prompts}
-    development_refs = {item.prompt_id for item in registry.require("env.development.sandbox").spec.environment_prompts}
-    writing_refs = {item.prompt_id for item in registry.require("env.creation.writing").spec.environment_prompts}
+    office_refs = {item.prompt_id for item in registry.require("env.office.file_search").spec.environment_prompts}
     general_refs = {item.prompt_id for item in registry.require("env.general.workspace").spec.environment_prompts}
 
     assert debug_ref in coding_refs
-    assert debug_ref in development_refs
-    assert debug_ref not in writing_refs
+    assert debug_ref not in office_refs
     assert debug_ref not in general_refs

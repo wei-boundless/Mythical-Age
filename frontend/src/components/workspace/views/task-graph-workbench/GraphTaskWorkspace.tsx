@@ -155,16 +155,7 @@ function taskEnvironmentTitle(environmentId: string) {
 function environmentRecordTitle(environmentId: string, overview?: TaskSystemOverview | null) {
   const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
   if (record?.title) return taskEnvironmentDisplayName(environmentId, record.title);
-  const labels: Record<string, string> = {
-    "env.coding.vibe_workspace": "Vibe 编码工作区",
-    "env.creation.writing": "写作环境",
-    "env.development.sandbox": "开发沙盒",
-    "env.development.readonly": "代码审查环境",
-    "env.research.web": "网络调研环境",
-    "env.document.processing": "文档处理环境",
-    "env.general.workspace": "通用工作区",
-  };
-  return taskEnvironmentDisplayName(environmentId, labels[environmentId] ?? "");
+  return taskEnvironmentDisplayName(environmentId);
 }
 
 function taskEnvironmentItem(environmentId: string, overview?: TaskSystemOverview | null) {

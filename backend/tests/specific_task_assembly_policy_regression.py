@@ -17,7 +17,7 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
     record = SpecificTaskRecord(
         task_id="task.frontend.fix",
         task_title="Frontend Fix",
-        metadata={"environment_id": "env.development.sandbox"},
+        metadata={"environment_id": "env.coding.vibe_workspace"},
         output_contract_id="contract.frontend.patch",
         task_policy={
             "tool_capability_requirements": {
@@ -40,7 +40,7 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
 
     policy = resolve_specific_task_assembly_policy(task_record=record, execution_policy=execution_policy)
 
-    assert policy.environment_id == "env.development.sandbox"
+    assert policy.environment_id == "env.coding.vibe_workspace"
     assert policy.output_contract_ref == "contract.frontend.patch"
     assert policy.runtime_shape == "task_graph"
     assert policy.agent_selection.default_agent_id == "agent:codebase_searcher"
@@ -58,19 +58,19 @@ def test_specific_task_assembly_policy_contract_can_choose_environment_but_not_a
         task_id="task.chapter.draft",
         task_title="Chapter Draft",
         domain_id="legacy.writing",
-        metadata={"environment_id": "env.creation.writing", "default_agent_id": "agent:codebase_searcher"},
+        metadata={"environment_id": "env.office.file_search", "default_agent_id": "agent:codebase_searcher"},
     )
 
     policy = resolve_specific_task_assembly_policy(
         task_record=record,
         runtime_contract={
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "tool_requirements": {"required_operations": ["op.read_file", "op.write_file"]},
             "default_agent_id": "agent:0",
         },
     )
 
-    assert policy.environment_id == "env.creation.writing"
+    assert policy.environment_id == "env.office.file_search"
     assert policy.agent_selection.default_agent_id == "agent:codebase_searcher"
     assert policy.tool_capability_requirements.required_operations == ("op.read_file", "op.write_file")
     payload = policy.to_dict()

@@ -9,6 +9,7 @@ import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 type RunMonitorActionMenuProps = {
   signal: RunMonitorSignal;
   loadingAction: string;
+  placement?: "down" | "up";
   onAction: (payload: RuntimeMonitorActionPayload) => void;
 };
 
@@ -16,7 +17,7 @@ const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
 const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
-export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMonitorActionMenuProps) {
+export function RunMonitorActionMenu({ signal, loadingAction, placement = "down", onAction }: RunMonitorActionMenuProps) {
   const [open, setOpen] = useState(false);
   const actions = useMemo(
     () => (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action)),
@@ -26,7 +27,7 @@ export function RunMonitorActionMenu({ signal, loadingAction, onAction }: RunMon
   const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
   return (
     <div
-      className="run-monitor-action-menu"
+      className={`run-monitor-action-menu run-monitor-action-menu--${placement}`}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setOpen(false);

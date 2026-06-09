@@ -1064,7 +1064,7 @@ def test_active_turn_preserves_user_granted_new_turn_capabilities(tmp_path: Path
                 session_id="session-active-preserve",
                 message="这个先放着，检查一下项目文件。",
                 runtime_contract={
-                    "task_environment_id": "env.development.sandbox",
+                    "task_environment_id": "env.coding.vibe_workspace",
                     "control_capabilities": {
                         "may_call_tools": True,
                         "may_request_task_run": True,

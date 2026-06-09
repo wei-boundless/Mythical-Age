@@ -356,11 +356,6 @@ class RuntimeCompiler:
             assembly_payload=assembly_payload,
             control_capabilities=control_capabilities,
         )
-        tool_catalog_manifest = build_tool_catalog_manifest(
-            invocation_kind="single_agent_turn",
-            tool_payloads=single_turn_tools,
-            source_ref="runtime_assembly.available_tools",
-        )
         if single_turn_tools and "tool_call" not in allowed_actions:
             allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
@@ -436,6 +431,12 @@ class RuntimeCompiler:
             visible_tools=single_turn_tools,
             session_context=session_context_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
+        tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
+            invocation_kind="single_agent_turn",
+            tool_payloads=single_turn_tools,
+            source_ref="runtime_assembly.available_tools",
+            prompt_mount_plan=prompt_mount_plan,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="single_agent_turn",
@@ -789,11 +790,6 @@ class RuntimeCompiler:
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "task_run_execution"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "task_run_execution"))
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-        tool_catalog_manifest = build_tool_catalog_manifest(
-            invocation_kind="task_execution",
-            tool_payloads=tool_payloads,
-            source_ref="task_execution.available_tools",
-        )
         graph_slot = _graph_slot_from_contract(contract)
         task_run_context_enabled = _task_run_context_enabled(profile_payload)
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
@@ -881,6 +877,12 @@ class RuntimeCompiler:
             visible_tools=tool_payloads,
             execution_state=dict(execution_state or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
+        tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
+            invocation_kind="task_execution",
+            tool_payloads=tool_payloads,
+            source_ref="task_execution.available_tools",
+            prompt_mount_plan=prompt_mount_plan,
         )
         task_prompt_assembly = self._assemble_prompt_contract(
             task_prompt_contract=task_prompt_contract,
@@ -1413,11 +1415,6 @@ class RuntimeCompiler:
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
         prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-        tool_catalog_manifest = build_tool_catalog_manifest(
-            invocation_kind="tool_observation_followup",
-            tool_payloads=tool_payloads,
-            source_ref="tool_observation_followup.available_tools",
-        )
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="tool_observation_followup",
             allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
@@ -1465,6 +1462,12 @@ class RuntimeCompiler:
             visible_tools=tool_payloads,
             session_context=dict(session_context or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
+        )
+        tool_catalog_manifest = _build_tool_catalog_manifest_for_mount_plan(
+            invocation_kind="tool_observation_followup",
+            tool_payloads=tool_payloads,
+            source_ref="tool_observation_followup.available_tools",
+            prompt_mount_plan=prompt_mount_plan,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="tool_observation_followup",
@@ -1870,7 +1873,7 @@ class RuntimeCompiler:
             invocation_kind="environment",
             prompt_refs=tuple(prompt_mount_plan.lifecycle_prompt_refs or ()),
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=str(prompt_mount_plan.base_environment_id or ""),
+            task_environment_ref="",
         )
         return environment_prompt_assembly, lifecycle_prompt_assembly
 
@@ -3214,6 +3217,16 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
 
 
+def _string_dict(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key).strip(): str(item).strip()
+        for key, item in value.items()
+        if str(key).strip() and str(item).strip()
+    }
+
+
 def _dynamic_context_projection_policy(
     *,
     invocation_kind: str,
@@ -3315,6 +3328,29 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
     return payload
 
 
+def _build_tool_catalog_manifest_for_mount_plan(
+    *,
+    invocation_kind: str,
+    tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    source_ref: str,
+    prompt_mount_plan: Any,
+) -> ToolCatalogManifest:
+    plan = (
+        prompt_mount_plan.to_dict()
+        if hasattr(prompt_mount_plan, "to_dict")
+        else dict(prompt_mount_plan or {})
+        if isinstance(prompt_mount_plan, dict)
+        else {}
+    )
+    return build_tool_catalog_manifest(
+        invocation_kind=invocation_kind,
+        tool_payloads=tool_payloads,
+        source_ref=source_ref,
+        tool_guidance_prompt_defaults=_string_dict(plan.get("tool_guidance_prompt_defaults")),
+        tool_guidance_prompt_overrides=_string_dict(plan.get("tool_guidance_prompt_overrides")),
+    )
+
+
 def _agent_prompt_refs_for_invocation(assembly_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
     by_invocation = dict(assembly_payload.get("agent_prompt_refs_by_invocation") or {})
     refs = _string_tuple(by_invocation.get(invocation_kind))
@@ -3338,35 +3374,33 @@ def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str,
             for item in list(environment_payload.get("environment_prompts") or [])
             if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
         )
-    if not environment_prompt_refs:
-        return {}
     personality_prompt_refs = _string_tuple(assembly_payload.get("personality_prompt_refs"))
     selected_environment_id = str(
         environment_payload.get("environment_id")
         or environment_payload.get("task_environment_id")
         or GENERAL_ENVIRONMENT_ID
     ).strip()
-    if selected_environment_id == GENERAL_ENVIRONMENT_ID:
-        base_prompt_refs = environment_prompt_refs
-        overlay_prompt_refs: tuple[str, ...] = ()
-    else:
-        base_candidates = {
-            "environment.general.workspace.orientation",
-            "environment.rule.general_workspace",
-        }
-        base_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref in base_candidates)
-        overlay_prompt_refs = tuple(ref for ref in environment_prompt_refs if ref not in base_candidates)
+    base_prompt_refs = environment_prompt_refs
+    overlay_prompt_refs: tuple[str, ...] = ()
+    profile_payload = dict(assembly_payload.get("profile") or {})
+    prompt_policy = dict(profile_payload.get("prompt_policy") or assembly_payload.get("prompt_policy") or {})
+    boundary = dict(environment_payload.get("environment_boundary") or {})
     return {
-        "base_environment_id": GENERAL_ENVIRONMENT_ID,
+        "base_environment_id": selected_environment_id or GENERAL_ENVIRONMENT_ID,
         "selected_environment_id": selected_environment_id or GENERAL_ENVIRONMENT_ID,
         "personality_prompt_refs": list(personality_prompt_refs),
         "base_prompt_refs": list(base_prompt_refs),
         "overlay_prompt_refs": list(overlay_prompt_refs),
-        "environment_prompt_refs": _dedupe_strings([*base_prompt_refs, *overlay_prompt_refs]),
+        "environment_prompt_refs": _dedupe_strings([*base_prompt_refs]),
+        "lifecycle_prompt_defaults": dict(prompt_policy.get("lifecycle_prompt_defaults") or {}),
+        "lifecycle_prompt_overrides": dict(boundary.get("lifecycle_prompt_overrides") or {}),
+        "tool_guidance_prompt_defaults": dict(prompt_policy.get("tool_guidance_prompt_defaults") or {}),
+        "tool_guidance_prompt_overrides": dict(boundary.get("tool_guidance_prompt_overrides") or {}),
         "diagnostics": {
             "source": "runtime_assembly_environment_prompt_refs_without_mount_plan",
             "normalized_by": "harness.runtime.compiler",
             "environment_prompt_count": len(environment_prompt_refs),
+            "overlay_mode": "selected_environment_only",
         },
     }
 

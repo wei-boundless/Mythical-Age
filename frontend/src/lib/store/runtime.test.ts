@@ -27,6 +27,7 @@ const api = vi.hoisted(() => ({
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
   runGraphRunUntilIdle: vi.fn(),
+  submitGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
   setSessionPermissionMode: vi.fn(),
   setPermissionMode: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: api.deleteSession,
   runGraphRunUntilIdle: api.runGraphRunUntilIdle,
+  submitGraphRunUntilIdle: api.submitGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getProjectWorkspaceTree: api.getProjectWorkspaceTree,
@@ -351,21 +353,10 @@ const TASK_ENVIRONMENT_CATALOG = {
     },
     {
       record: {
-        environment_id: "env.creation.writing",
-        title: "创意写作",
-        group_id: "environment_group.creation",
-        environment_kind: "creation",
-        enabled: true,
-      },
-      spec: {},
-      management_scope: "builtin_template",
-    },
-    {
-      record: {
-        environment_id: "env.development.sandbox",
-        title: "开发沙盒",
-        group_id: "environment_group.development",
-        environment_kind: "development",
+        environment_id: "env.office.file_search",
+        title: "轻量办公文件检索",
+        group_id: "environment_group.office",
+        environment_kind: "office",
         enabled: true,
       },
       spec: {},
@@ -384,7 +375,7 @@ const TASK_ENVIRONMENT_CATALOG = {
     },
   ],
   records: [],
-  summary: { environment_count: 4 },
+  summary: { environment_count: 3 },
 };
 
 function conversationState(environmentId: string, label = environmentId, source = "conversation", permissionMode = "full_access") {
@@ -480,6 +471,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.runGraphRunUntilIdle.mockReset();
     api.runGraphRunUntilIdle.mockResolvedValue({ ok: true });
+    api.submitGraphRunUntilIdle.mockReset();
+    api.submitGraphRunUntilIdle.mockResolvedValue({ accepted: true, background_started: true });
     api.stopOrchestrationHarnessTaskRun.mockReset();
     api.stopOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
@@ -760,7 +753,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     };
     const graphSessionScope = {
       workspace_view: "task_environment",
-      task_environment_id: "env.creation.writing",
+      task_environment_id: "env.general.workspace",
       project_id: "project",
     };
 
@@ -1501,8 +1494,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         graph_harness_config_id: "ghcfg:graph-master",
         session_scope: {
           workspace_view: "task_environment",
-          task_environment_id: "env.creation.writing",
-          project_id: "project.creation.writing.honghuang",
+          task_environment_id: "env.general.workspace",
+          project_id: "project.general.workspace.demo",
         },
         bound_at: 1,
       },
@@ -1521,15 +1514,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.continueBoundTaskGraphRun();
 
     expect(api.resumeOrchestrationHarnessTaskRun).not.toHaveBeenCalled();
-    expect(api.runGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
+    expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
       graph_harness_config_id: "ghcfg:graph-master",
       session_scope: {
         workspace_view: "task_environment",
-        task_environment_id: "env.creation.writing",
-        project_id: "project.creation.writing.honghuang",
+        task_environment_id: "env.general.workspace",
+        project_id: "project.general.workspace.demo",
       },
+      max_node_executions: 1,
+      max_loop_iterations: 4,
+      max_dispatches: 1,
       max_dispatch_requests: 1,
     });
+    expect(api.runGraphRunUntilIdle).not.toHaveBeenCalled();
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
@@ -1561,13 +1558,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.continueBoundTaskGraphRun();
 
     expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", 12, "");
-    expect(api.runGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
+    expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
       graph_harness_config_id: "ghcfg:graph-master",
       session_scope: undefined,
+      max_node_executions: 1,
+      max_loop_iterations: 4,
+      max_dispatches: 1,
       max_dispatch_requests: 1,
     });
     expect(api.resumeOrchestrationHarnessTaskRun.mock.invocationCallOrder[0]).toBeLessThan(
-      api.runGraphRunUntilIdle.mock.invocationCallOrder[0],
+      api.submitGraphRunUntilIdle.mock.invocationCallOrder[0],
     );
   });
 
@@ -1776,7 +1776,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().runMonitorActionLoading).toBe("");
   });
 
-  it("starts the run monitor with an SSE stream and an initial snapshot refresh", async () => {
+  it("starts the run monitor with an SSE stream and waits for the stream snapshot", async () => {
     const instances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
     class MockEventSource {
       close = vi.fn();
@@ -1796,7 +1796,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(instances).toHaveLength(1);
-    expect(api.getRunMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getRunMonitor).not.toHaveBeenCalled();
     expect(store.getState().runMonitorStreamStatus).toBe("connecting");
   });
 
@@ -3616,15 +3616,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         message_count: 1,
       },
       {
-        id: "session:writing",
-        title: "Writing",
+        id: "session:graph",
+        title: "Graph",
         created_at: 1,
         updated_at: 3,
         message_count: 1,
         scope: {
           workspace_view: "task_environment",
-          task_environment_id: "env.creation.writing",
-          project_id: "project.creation.writing.honghuang",
+          task_environment_id: "env.general.workspace",
+          project_id: "project.general.workspace.demo",
         },
       },
     ]);
@@ -3716,10 +3716,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("clears the selected task-environment session without falling back to main chat when the scoped pool is empty", async () => {
     vi.useRealTimers();
-    const poolKey = "task_environment:env.creation.writing:project:novel" as const;
+    const poolKey = "task_environment:env.general.workspace:project:novel" as const;
     const scope = {
       workspace_view: "task_environment",
-      task_environment_id: "env.creation.writing",
+      task_environment_id: "env.general.workspace",
       project_id: "project:novel",
     };
     api.listSessions.mockImplementation(async (receivedScope) => {
@@ -5182,14 +5182,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
 
-    await runtime.actions.setActiveTaskEnvironment("env.development.sandbox", { source: "task-system" });
+    await runtime.actions.setActiveTaskEnvironment("env.coding.vibe_workspace", { source: "task-system" });
     await runtime.actions.sendMessage("检查当前环境。");
 
     expect(api.setSessionActiveTaskEnvironment).toHaveBeenCalledWith(
       "session:env-bound",
       {
-        task_environment_id: "env.development.sandbox",
-        environment_label: "开发沙盒",
+        task_environment_id: "env.coding.vibe_workspace",
+        environment_label: "Vibe 编码工作区",
         source: "task-system",
       },
       undefined,
@@ -5197,9 +5197,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]).not.toHaveProperty("task_selection");
     expect(api.streamChat.mock.calls[0]?.[0]?.environment_binding).toMatchObject({
-      task_environment_id: "env.development.sandbox",
-      environment_id: "env.development.sandbox",
-      environment_label: "开发沙盒",
+      task_environment_id: "env.coding.vibe_workspace",
+      environment_id: "env.coding.vibe_workspace",
+      environment_label: "Vibe 编码工作区",
       binding_kind: "conversation_active_task_environment",
       binding_source: "task-system",
     });
@@ -5214,18 +5214,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
 
-    await runtime.actions.setActiveTaskEnvironment("env.development.sandbox", { source: "workspace-mode" });
+    await runtime.actions.setActiveTaskEnvironment("env.coding.vibe_workspace", { source: "workspace-mode" });
 
     expect(window.localStorage.setItem).toHaveBeenCalledWith(
       "agentWorkbench.lastActiveTaskEnvironment",
-      "env.development.sandbox",
+      "env.coding.vibe_workspace",
     );
   });
 
   it("restores the last selected task environment instead of defaulting to general", async () => {
     vi.useRealTimers();
     vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
-      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.development.sandbox" : null
+      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.coding.vibe_workspace" : null
     );
     const store = createStore<StoreState>(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -5233,8 +5233,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.refreshTaskEnvironmentCatalog();
 
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
-      task_environment_id: "env.development.sandbox",
-      environment_label: "开发沙盒",
+      task_environment_id: "env.coding.vibe_workspace",
+      environment_label: "Vibe 编码工作区",
       source: "workspace-mode",
     });
   });
@@ -5271,7 +5271,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   it("uses the remembered task environment over an implicit general session default", async () => {
     vi.useRealTimers();
     vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
-      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.development.sandbox" : null
+      key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.coding.vibe_workspace" : null
     );
     api.getSessionTimeline.mockResolvedValue({
       messages: [],
@@ -5295,8 +5295,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.selectSession({ sessionId: "session:general-default", poolKey: "main-chat" });
 
     expect(store.getState().conversationActiveEnvironment).toMatchObject({
-      task_environment_id: "env.development.sandbox",
-      environment_label: "开发沙盒",
+      task_environment_id: "env.coding.vibe_workspace",
+      environment_label: "Vibe 编码工作区",
       source: "workspace-mode",
     });
   });
@@ -5351,10 +5351,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getSessionTimeline).not.toHaveBeenCalled();
   });
 
-  it("does not bind writing environment to the ordinary main chat", () => {
+  it("does not bind removed task environments to the ordinary main chat", async () => {
+    vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "chat",
+      taskEnvironmentCatalog: TASK_ENVIRONMENT_CATALOG,
       conversationActiveEnvironment: {
         task_environment_id: "env.general.workspace",
         environment_label: "通用工作区",
@@ -5365,13 +5367,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store);
 
     runtime.actions.setChatTaskEnvironmentBinding({
-      task_environment_id: "env.creation.writing",
-      environment_label: "写作环境",
+      task_environment_id: "env.removed.legacy",
+      environment_label: "已删除环境",
       source: "task-system",
       bound_at: 2,
     });
+    await flushPromises();
 
-    expect(store.getState().activeWorkspaceView).toBe("creative");
+    expect(store.getState().activeWorkspaceView).toBe("chat");
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(store.getState().conversationActiveEnvironment?.task_environment_id).toBe("env.general.workspace");
   });
@@ -5424,8 +5427,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ...getDefaultState(),
       currentSessionId: "session:env-clear",
       chatTaskEnvironmentBinding: {
-        task_environment_id: "env.development.sandbox",
-        environment_label: "开发沙盒",
+        task_environment_id: "env.coding.vibe_workspace",
+        environment_label: "Vibe 编码工作区",
         source: "task-system",
         bound_at: 123,
       },
@@ -5948,6 +5951,3 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
-
-
-

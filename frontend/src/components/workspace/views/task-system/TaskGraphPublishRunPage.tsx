@@ -8,8 +8,8 @@ import {
   getOrchestrationHarnessTrace,
   getPublishedTaskGraphHarnessConfig,
   resolveTaskEnvironmentSession,
-  runGraphRunUntilIdle,
   startTaskGraphHarnessRun,
+  submitGraphRunUntilIdle,
   taskGraphRunsFromTrace,
   type HarnessTaskRunTrace,
   type TaskGraphContractPreview,
@@ -58,9 +58,6 @@ function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
 function preflightIssueFocusLabel(issue: TaskGraphPreflightIssue) {
   return focusTargetLabel(focusForPreflightIssue(issue));
 }
-
-const WRITING_ENVIRONMENT_ID = "env.creation.writing";
-const DEFAULT_WRITING_PROJECT_ID = "project.creation.writing.honghuang";
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -360,7 +357,6 @@ export function TaskGraphPublishRunPage({
         || metadata?.project_id
         || nestedText(recordValue(metadata), ["runtime_scope", "project_id"])
         || graphConfigProjectId(graphConfig)
-        || (taskEnvironmentId === WRITING_ENVIRONMENT_ID ? DEFAULT_WRITING_PROJECT_ID : ""),
       );
       if (graphConfigRequiresProject(graphConfig) && !projectId) {
         throw new Error("当前图配置要求项目作用域，但前端没有解析到 project_id。");
@@ -467,9 +463,12 @@ export function TaskGraphPublishRunPage({
     setRunTraceError("");
     setRunControlNotice("正在派发当前 GraphRun 的 ready 节点。");
     try {
-      await runGraphRunUntilIdle(targetGraphRunId, {
+      await submitGraphRunUntilIdle(targetGraphRunId, {
         graph_harness_config_id: targetConfigId,
         session_scope: taskGraphMonitorBinding?.session_scope,
+        max_node_executions: 1,
+        max_loop_iterations: 4,
+        max_dispatches: 1,
         max_dispatch_requests: 1,
       });
       await loadRunTrace();

@@ -20,7 +20,7 @@ from runtime.prompt_accounting.token_counter import TokenCounterRegistry
 
 WRITING_MARKERS = (
     "graph.writing.modular_novel",
-    "env.creation.writing",
+    "env.office.file_search",
     "graph_node_context",
     "世界观",
     "章节",
@@ -243,8 +243,8 @@ def _compile_work_order_packet(*, base_dir: Path, path: Path) -> dict[str, Any]:
             "operation_authorization_projection": {"model_visible": "summary_without_denials"},
         },
         "task_environment": {
-            "environment_id": "env.creation.writing",
-            "task_environment_id": "env.creation.writing",
+            "environment_id": "env.office.file_search",
+            "task_environment_id": "env.office.file_search",
         },
         "operation_authorization": {"allowed_operations": [], "denied_operations": []},
     }

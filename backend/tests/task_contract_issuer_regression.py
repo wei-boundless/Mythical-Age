@@ -13,7 +13,7 @@ def test_contract_issuer_builds_runtime_and_loop_request_specs() -> None:
             "task_id": "task.dev.frontend_ui",
             "task_title": "Frontend UI",
             "description": "Update the frontend and verify it.",
-            "environment_id": "env.development.sandbox",
+            "environment_id": "env.coding.vibe_workspace",
         },
         objective="Polish the task editor.",
     )
@@ -21,7 +21,7 @@ def test_contract_issuer_builds_runtime_and_loop_request_specs() -> None:
     assert contract.authority == "task_system.task_contract"
     assert contract.schema_version == "task_contract.v1"
     assert contract.status == "issued"
-    assert contract.environment_id == "env.development.sandbox"
+    assert contract.environment_id == "env.coding.vibe_workspace"
     assert contract.objective == "Polish the task editor."
     assert contract.runtime_assembly_plan["kind"] == "runtime_assembly_request"
     assert contract.runtime_assembly_plan["schema_version"] == "runtime_assembly_plan.request.v1"
@@ -39,7 +39,7 @@ def test_contract_issuer_emits_graph_request_specs_for_graph_task() -> None:
             "task_id": "task.graph.review",
             "task_title": "Graph Review",
             "description": "Review a graph node.",
-            "environment_id": "env.creation.writing",
+            "environment_id": "env.office.file_search",
             "task_policy": {"graph_ref": "graph:writing-review"},
         },
         objective="Review the writing graph.",

@@ -211,19 +211,19 @@ def test_model_visible_artifact_refs_hides_runtime_sandbox_absolute_path(tmp_pat
         [
             {
                 "absolute_path": str(tmp_path / "storage" / "runtime_state" / "sandboxes" / "taskrun" / "artifact.html"),
-                "sandbox_path": "storage/task_environments/development/sandbox/artifacts/artifact.html",
+                "sandbox_path": "storage/task_environments/coding/vibe-workspace/artifacts/artifact.html",
                 "kind": "file",
             },
             {
-                "path": "storage/task_environments/development/sandbox/artifacts/artifact.html",
+                "path": "storage/task_environments/coding/vibe-workspace/artifacts/artifact.html",
                 "absolute_path": str(tmp_path / "storage" / "runtime_state" / "sandboxes" / "taskrun" / "artifact.html"),
-                "sandbox_path": "storage/task_environments/development/sandbox/artifacts/artifact.html",
+                "sandbox_path": "storage/task_environments/coding/vibe-workspace/artifacts/artifact.html",
                 "kind": "file",
             },
         ]
     )
 
-    assert refs == [{"path": "storage/task_environments/development/sandbox/artifacts/artifact.html", "kind": "file"}]
+    assert refs == [{"path": "storage/task_environments/coding/vibe-workspace/artifacts/artifact.html", "kind": "file"}]
 
 
 def test_artifact_ref_value_separates_model_path_from_materialization_ref() -> None:

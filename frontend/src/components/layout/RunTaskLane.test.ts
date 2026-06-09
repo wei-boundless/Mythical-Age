@@ -86,4 +86,24 @@ describe("RunTaskLane", () => {
 
     expect(html.indexOf("停滞任务")).toBeLessThan(html.indexOf("真实运行"));
   });
+
+  it("opens action menus upward for the bottom monitor rows", () => {
+    const html = renderLane([
+      signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+      signal({ signal_id: "taskrun:2", title: "任务二", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+      signal({ signal_id: "taskrun:3", title: "任务三", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+    ]);
+
+    expect(html).toContain("run-monitor-action-menu--down");
+    expect(html.match(/run-monitor-action-menu--up/g)?.length).toBe(2);
+  });
+
+  it("keeps a single monitor action menu opening downward", () => {
+    const html = renderLane([
+      signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
+    ]);
+
+    expect(html).toContain("run-monitor-action-menu--down");
+    expect(html).not.toContain("run-monitor-action-menu--up");
+  });
 });

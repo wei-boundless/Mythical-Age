@@ -7931,6 +7931,196 @@ button:hover {
   font-size: 0.72rem;
 }
 
+.orchestration-tool-package-manager {
+  display: grid;
+  gap: 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--boundary-bg) 72%, transparent);
+  padding: 0.68rem;
+}
+
+.orchestration-tool-package-manager__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.72rem;
+}
+
+.orchestration-tool-package-manager__head > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.orchestration-tool-package-manager__head strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.orchestration-tool-package-manager__head span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.orchestration-tool-package-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.82fr) minmax(320px, 1.18fr);
+  gap: 0.62rem;
+  min-width: 0;
+}
+
+.orchestration-tool-package-list,
+.orchestration-package-operation-list {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.orchestration-tool-package-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.16rem 0.5rem;
+  min-height: 3rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.48rem 0.58rem;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.orchestration-tool-package-row:hover,
+.orchestration-tool-package-row:focus-visible,
+.orchestration-tool-package-row--active {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--color-accent-primary) 48%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
+}
+
+.orchestration-tool-package-row--enabled {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-accent-primary) 74%, transparent);
+}
+
+.orchestration-tool-package-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.orchestration-tool-package-row small {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+}
+
+.orchestration-tool-package-row em {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 900;
+  padding: 0.16rem 0.42rem;
+}
+
+.orchestration-tool-package-row--enabled em {
+  border-color: rgba(103, 220, 154, 0.42);
+  color: #baf7cf;
+}
+
+.orchestration-tool-package-detail {
+  display: grid;
+  align-content: start;
+  gap: 0.58rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 10%, var(--color-border));
+  border-radius: 8px;
+  padding: 0.58rem;
+}
+
+.orchestration-tool-package-detail > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.62rem;
+}
+
+.orchestration-tool-package-detail > header > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.orchestration-tool-package-detail > header strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.orchestration-tool-package-detail > header span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.orchestration-tool-package-detail > header button {
+  flex: 0 0 auto;
+  min-height: 1.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 22%, var(--color-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 0.28rem 0.55rem;
+}
+
+.orchestration-tool-package-detail > header button.is-active {
+  border-color: rgba(255, 140, 125, 0.42);
+  color: #ffd0c8;
+}
+
+.orchestration-package-operation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.05rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 8%, var(--color-border));
+  border-radius: 7px;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  padding: 0.3rem 0.46rem;
+}
+
+.orchestration-package-operation--enabled {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-primary) 7%, transparent);
+  color: var(--color-text-soft);
+}
+
+.orchestration-package-operation input {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.orchestration-package-operation span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .orchestration-permission-matrix {
   display: grid;
   min-width: 0;
@@ -10515,7 +10705,9 @@ button:hover {
 
 .system-page-content .orchestration-permission-summary span,
 .system-page-content .orchestration-permission-matrix,
-.system-page-content .orchestration-permission-raw {
+.system-page-content .orchestration-permission-raw,
+.system-page-content .orchestration-tool-package-manager,
+.system-page-content .orchestration-tool-package-detail {
   border-color: #d8e0eb;
   background: #f8fafc;
 }
@@ -10525,14 +10717,21 @@ button:hover {
 .system-page-content .orchestration-permission-row__status em,
 .system-page-content .orchestration-permission-detail-block p,
 .system-page-content .orchestration-permission-detail-block p b,
-.system-page-content .orchestration-permission-inspector__hero p {
+.system-page-content .orchestration-permission-inspector__hero p,
+.system-page-content .orchestration-tool-package-manager__head span,
+.system-page-content .orchestration-tool-package-row small,
+.system-page-content .orchestration-tool-package-row em,
+.system-page-content .orchestration-tool-package-detail > header span {
   color: #475569;
 }
 
 .system-page-content .orchestration-permission-summary b,
 .system-page-content .orchestration-permission-row strong,
 .system-page-content .orchestration-permission-inspector__hero h4,
-.system-page-content .orchestration-permission-detail-block > strong {
+.system-page-content .orchestration-permission-detail-block > strong,
+.system-page-content .orchestration-tool-package-manager__head strong,
+.system-page-content .orchestration-tool-package-row span,
+.system-page-content .orchestration-tool-package-detail > header strong {
   color: #0f172a;
 }
 
@@ -10633,10 +10832,38 @@ button:hover {
 
 .system-page-content .orchestration-permission-row__actions button,
 .system-page-content .orchestration-permission-inspector__actions button,
-.system-page-content .orchestration-permission-detail-block div > span {
+.system-page-content .orchestration-permission-detail-block div > span,
+.system-page-content .orchestration-tool-package-row,
+.system-page-content .orchestration-package-operation,
+.system-page-content .orchestration-tool-package-detail > header button {
   border-color: #d8e0eb;
   background: #fff;
   color: #334155;
+}
+
+.system-page-content .orchestration-tool-package-row:hover,
+.system-page-content .orchestration-tool-package-row:focus-visible,
+.system-page-content .orchestration-tool-package-row--active,
+.system-page-content .orchestration-package-operation--enabled {
+  border-color: #94b6e8;
+  background: #eef5ff;
+  color: #0f172a;
+}
+
+.system-page-content .orchestration-tool-package-row--enabled {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.system-page-content .orchestration-tool-package-row--enabled em {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.system-page-content .orchestration-tool-package-detail > header button.is-active {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .system-page-content .orchestration-permission-inspector__hero,
@@ -20455,6 +20682,11 @@ body {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+}
+
+.run-monitor-action-menu--up .run-monitor-action-menu__list {
+  top: auto;
+  bottom: 30px;
 }
 
 .run-monitor-action-menu__item {

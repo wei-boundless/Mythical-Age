@@ -96,6 +96,15 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
         "environment_specific_prompt_refs": [
             item.prompt_id for item in spec.environment_prompts if str(item.prompt_id or "").strip()
         ],
+        "lifecycle_prompt_overrides": _prompt_override_map(
+            spec.lifecycle_policy.get("lifecycle_prompt_overrides")
+            or spec.lifecycle_policy.get("prompt_overrides")
+            or spec.metadata.get("lifecycle_prompt_overrides")
+        ),
+        "tool_guidance_prompt_overrides": _prompt_override_map(
+            spec.lifecycle_policy.get("tool_guidance_prompt_overrides")
+            or spec.metadata.get("tool_guidance_prompt_overrides")
+        ),
         "prompt_count": len(prompt_refs),
         "storage_space": storage_space,
         "sandbox_policy": spec.sandbox_policy.to_dict(),
@@ -153,5 +162,28 @@ def _environment_prompts_source(spec: TaskEnvironmentSpec) -> str:
     if has_inline:
         return "task_environment_config"
     return "prompt_library"
+
+
+def _prompt_override_map(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        slot = str(key or "").strip()
+        ref = _first_string(item)
+        if slot and ref:
+            result[slot] = ref
+    return result
+
+
+def _first_string(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            text = str(item or "").strip()
+            if text:
+                return text
+    return ""
 
 

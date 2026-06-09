@@ -84,7 +84,7 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
         {hidden ? <em>另有 {hidden} 条</em> : null}
       </header>
       <div className="run-monitor-tasks">
-        {visible.length ? visible.map((signal) => (
+        {visible.length ? visible.map((signal, index) => (
           <div
             className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}`}
             key={signalOpenId(signal)}
@@ -98,7 +98,12 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
               <strong>{signalStateLabel(signal)}</strong>
               <small>{signal.detail}</small>
             </span>
-            <RunMonitorActionMenu loadingAction={actionLoading} onAction={onAction} signal={signal} />
+            <RunMonitorActionMenu
+              loadingAction={actionLoading}
+              onAction={onAction}
+              placement={visible.length >= 3 && index >= visible.length - 2 ? "up" : "down"}
+              signal={signal}
+            />
           </div>
         )) : (
           <div className="run-monitor-empty">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
+from harness.runtime.assembly import build_runtime_assembly_profile
 
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
     runtime = build_harness_runtime(
@@ -20,7 +21,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                 session_id="session-explicit-contract",
                 message="按合同启动任务。",
                 runtime_contract={
-                    "task_environment_id": "env.development.sandbox",
+                    "task_environment_id": "env.coding.vibe_workspace",
                     "allowed_operations": ["op.model_response", "op.read_file"],
                     "system_issued_contract": True,
                     "task_contract": {
@@ -61,7 +62,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert stored_task is not None
     assert contract["contract_source"] == "explicit_contract"
     assert contract["source_contract_ref"] == "contract:explicit:test"
-    assert contract["task_environment_id"] == "env.development.sandbox"
+    assert contract["task_environment_id"] == "env.coding.vibe_workspace"
     assert contract["runtime_profile"]["execution_permit"]["allowed_operations"] == ["op.model_response", "op.read_file"]
     runtime_contract = dict(dict(getattr(stored_task, "diagnostics", {}) or {}).get("runtime_contract") or {})
     assert runtime_contract["allowed_operations"] == ["op.model_response", "op.read_file"]
@@ -87,7 +88,7 @@ def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
                 session_id="session-plain-contract-selection",
                 message="这个只是普通会话输入，不能直接启动任务。",
                 runtime_contract={
-                    "task_environment_id": "env.development.sandbox",
+                    "task_environment_id": "env.coding.vibe_workspace",
                     "task_contract": {
                         "contract_id": "contract:plain:test",
                         "user_visible_goal": "普通输入里的合同片段。",
@@ -336,7 +337,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
                 "user_visible_goal": "交付可运行示例",
                 "task_run_goal": "创建并验证可运行示例",
                 "completion_criteria": ["示例可以被验证"],
-                "task_environment_id": "env.development.sandbox",
+                "task_environment_id": "env.coding.vibe_workspace",
                 "runtime_profile": {"runtime_policy": {"planning_policy": {"plan_mode": "available"}}},
                 "source_contract_ref": "contract.demo",
                 "external_plan_ref": "plan.demo",
@@ -344,14 +345,14 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
             },
         ),
         packet_ref="rtpacket:contract-fields",
-        task_environment_id="env.creation.writing",
+        task_environment_id="env.office.file_search",
     )
 
     assert contract_errors == []
     assert contract is not None
     assert contract.user_visible_goal == "交付可运行示例"
     assert contract.task_run_goal == "创建并验证可运行示例"
-    assert contract.task_environment_id == "env.creation.writing"
+    assert contract.task_environment_id == "env.office.file_search"
     assert contract.runtime_profile["runtime_policy"]["planning_policy"]["plan_mode"] == "available"
     assert contract.source_contract_ref == "contract.demo"
     assert contract.external_plan_ref == "plan.demo"
@@ -380,7 +381,7 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
             HarnessRuntimeRequest(
                 session_id="session-selected-env-taskrun",
                 message="开发一个可运行页面。",
-                runtime_contract={"task_environment_id": "env.development.sandbox"},
+                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
             )
         ):
             events.append(event)
@@ -399,8 +400,8 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
     contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref) or {})
     runtime_contract = dict(dict(task_run.diagnostics or {}).get("runtime_contract") or {})
 
-    assert contract["task_environment_id"] == "env.development.sandbox"
-    assert runtime_contract["task_environment_id"] == "env.development.sandbox"
+    assert contract["task_environment_id"] == "env.coding.vibe_workspace"
+    assert runtime_contract["task_environment_id"] == "env.coding.vibe_workspace"
 
 def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_answer() -> None:
     runtime = build_harness_runtime(model_runtime=SingleMessageModelRuntimeStub(content="可以直接回答。"))
@@ -610,7 +611,23 @@ def test_default_runtime_policy_exposes_plan_policy() -> None:
 
     assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is True
+    prompt_policy = dict(profile.get("prompt_policy") or {})
+    assert prompt_policy.get("template_id") == "prompt_template.general.agent_runtime"
+    assert prompt_policy.get("template_selection_source") == "agent_runtime_profile.metadata.prompt_template_id"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
+
+def test_prompt_template_is_not_injected_without_explicit_selection() -> None:
+    profile = build_runtime_assembly_profile(agent_runtime_profile=None, runtime_contract={})
+
+    assert profile.prompt_policy == {}
+
+    explicit = build_runtime_assembly_profile(
+        agent_runtime_profile=None,
+        runtime_contract={"prompt_template_id": "prompt_template.general.agent_runtime"},
+    )
+
+    assert explicit.prompt_policy["template_id"] == "prompt_template.general.agent_runtime"
+    assert explicit.prompt_policy["template_selection_source"] == "runtime_contract.prompt_template_id"
 
 def test_runtime_policy_can_override_default_runtime_assembly() -> None:
     runtime = build_harness_runtime()
@@ -622,7 +639,7 @@ def test_runtime_policy_can_override_default_runtime_assembly() -> None:
                 session_id="session-specific-mode-policy",
                 message="按特定任务配置运行。",
                 runtime_contract={
-                    "task_environment_id": "env.creation.writing",
+                    "task_environment_id": "env.office.file_search",
                     "runtime_policy": {
                         "planning_policy": {"plan_mode": "disabled", "specified_plan_allowed": False},
                         "task_lifecycle_policy": {"request_task_run": True, "requires_completion_evidence": True},
@@ -641,7 +658,7 @@ def test_runtime_policy_can_override_default_runtime_assembly() -> None:
     assert profile["profile_ref"] == "main_interactive_agent"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is False
     assert dict(profile.get("self_review_policy") or {}).get("checkpoints") == ["before_final"]
-    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.creation.writing"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.office.file_search"
 
 def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
     runtime = build_harness_runtime()
@@ -652,7 +669,7 @@ def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
             HarnessRuntimeRequest(
                 session_id="session-custom-mode-policy",
                 message="按显式运行策略执行。",
-                runtime_contract={"task_environment_id": "env.development.sandbox"},
+                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
                 runtime_profile={
                     "runtime_policy": {
                         "interaction_policy": {"style": "custom_review"},
@@ -678,7 +695,7 @@ def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
     assert dict(profile.get("interaction_policy") or {}).get("style") == "custom_review"
     assert dict(profile.get("task_lifecycle_policy") or {}).get("request_task_run") is False
     assert dict(profile.get("self_review_policy") or {}).get("before_final") == "strict_review"
-    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.sandbox"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.coding.vibe_workspace"
 
 def test_turn_packet_does_not_expose_legacy_task_goal_type_from_selection() -> None:
     class CaptureModelRuntime:

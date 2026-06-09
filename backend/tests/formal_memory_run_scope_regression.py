@@ -148,7 +148,7 @@ def test_writing_graph_memory_repository_nodes_and_edges_share_graph_task_namesp
             "summary": "project_brief artifact",
             "record_key": "project_brief.artifact",
             "record_kind": "artifact_ref",
-            "artifact_refs": ["storage/task_environments/creation/writing/artifacts/project_brief.md"],
+            "artifact_refs": ["storage/task_environments/office/file-search/artifacts/project_brief.md"],
         },
         task_run_id="taskrun:writing:test",
         node_run_id="taskrun:writing:test:project_brief",

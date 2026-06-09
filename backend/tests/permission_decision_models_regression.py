@@ -35,16 +35,16 @@ def test_permission_context_carries_file_and_tool_authority_refs() -> None:
         context_id="permctx:one",
         task_run_id="taskrun:one",
         agent_run_id="agentrun:one",
-        environment_id="env.creation.writing",
-        tool_capability_table_id="tool-capability:env.creation.writing",
-        file_access_table_ids=("file-access:env.creation.writing:file_profile.writing_manuscript",),
+        environment_id="env.office.file_search",
+        tool_capability_table_id="tool-capability:env.office.file_search",
+        file_access_table_ids=("file-access:env.office.file_search:file_profile.base_workspace",),
         session_approval_refs=("approval:one",),
     )
 
     payload = context.to_dict()
-    assert payload["environment_id"] == "env.creation.writing"
-    assert payload["tool_capability_table_id"] == "tool-capability:env.creation.writing"
-    assert payload["file_access_table_ids"] == ["file-access:env.creation.writing:file_profile.writing_manuscript"]
+    assert payload["environment_id"] == "env.office.file_search"
+    assert payload["tool_capability_table_id"] == "tool-capability:env.office.file_search"
+    assert payload["file_access_table_ids"] == ["file-access:env.office.file_search:file_profile.base_workspace"]
     assert payload["session_approval_refs"] == ["approval:one"]
 
 

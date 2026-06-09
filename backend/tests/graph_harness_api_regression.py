@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -738,6 +739,7 @@ def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
                     session_scope=GRAPH_TEST_SCOPE,
                     max_node_executions=3,
                     max_node_steps=1,
+                    wait_for_completion=True,
                 ),
             )
         )
@@ -748,7 +750,138 @@ def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
     assert runner["status"] == "completed"
     assert runner["executed_work_order_count"] == 2
     assert runner["graph_loop_state"]["completed_node_ids"] == ["first", "second"]
+    assert "edge_states" not in runner["graph_loop_state"]
+    assert "work_order_index" not in runner["graph_loop_state"]
+    assert "result_index" not in runner["graph_loop_state"]
+    assert "result_history" not in runner["graph_loop_state"]
+    assert "initial_inputs" not in runner["graph_loop_state"]
+    diagnostics = dict(runner["graph_loop_state"]["diagnostics"])
+    assert "contract_index" not in diagnostics
+    assert "static_topology_view" not in diagnostics
+    assert "state_machine_spec" not in diagnostics
+    assert "loop_control_spec" not in diagnostics
+    event_text = json.dumps(runner["events"], ensure_ascii=False)
+    assert "handoff_summary" not in event_text
+    assert "payload_summary" not in event_text
+    assert "latest_packet" not in event_text
     assert runner["graph_result"]["status"] == "completed"
+
+
+def test_graph_harness_api_run_until_idle_defaults_to_background_submit(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
+    spawned: list[str] = []
+    original_spawn = runtime.harness_runtime.single_agent_runtime_host.spawn_background_task
+
+    def capture_spawn(coro, *, name: str = ""):
+        spawned.append(name)
+        coro.close()
+        return SimpleNamespace(done=lambda: False)
+
+    runtime.harness_runtime.single_agent_runtime_host.spawn_background_task = capture_spawn
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                _graph_start_request(runtime, dispatch_ready=True),
+            )
+        )
+        response = asyncio.run(
+            orchestration_api.run_graph_run_until_idle(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphRunUntilIdleRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    session_scope=GRAPH_TEST_SCOPE,
+                    max_node_executions=1,
+                    max_node_steps=1,
+                    max_dispatches=1,
+                    max_dispatch_requests=1,
+                ),
+            )
+        )
+    finally:
+        runtime.harness_runtime.single_agent_runtime_host.spawn_background_task = original_spawn
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert response["authority"] == "harness.api.graph_run_until_idle_background"
+    assert response["accepted"] is True
+    assert response["background_started"] is True
+    assert response["already_running"] is False
+    assert spawned == [f"graph-work-order:{started['graph_run_id']}:{started['node_work_orders'][0]['work_order_id']}"]
+    assert runtime.model_runtime.calls == []
+
+
+def test_graph_harness_background_submit_executes_work_order_and_advances_loop(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _harness_runtime_with_graph_executor(base_dir=backend_dir)
+
+    async def run_case() -> tuple[dict, dict]:
+        started = await orchestration_api.start_task_graph_harness_run(
+            graph.graph_id,
+            _graph_start_request(runtime, dispatch_ready=True),
+        )
+        response = await orchestration_api.submit_graph_run_until_idle(
+            str(started["graph_run_id"]),
+            orchestration_api.GraphRunUntilIdleRequest(
+                graph_harness_config_id=graph_config.config_id,
+                session_scope=GRAPH_TEST_SCOPE,
+                max_node_executions=1,
+                max_node_steps=1,
+                max_dispatch_requests=1,
+            ),
+        )
+        tasks = list(runtime.harness_runtime.single_agent_runtime_host._background_tasks)
+        assert tasks
+        await asyncio.gather(*tasks)
+        monitor = runtime.harness_runtime.graph_harness.get_graph_run_monitor(
+            str(started["graph_run_id"]),
+            graph_config=graph_config,
+        )
+        return response, dict(monitor or {})
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        response, monitor = asyncio.run(run_case())
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert response["background_started"] is True
+    assert response["scheduled_work_order_count"] == 1
+    assert runtime.model_runtime.calls
+    assert monitor["graph_loop_state"]["status"] == "completed"
+    assert monitor["active_node_work_order_count"] == 0
+    assert monitor["task_run"]["status"] == "completed"
 
 
 def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
@@ -1064,6 +1197,7 @@ def test_graph_run_until_idle_result_includes_active_work_orders_when_budget_sto
                     session_scope=GRAPH_TEST_SCOPE,
                     max_node_executions=1,
                     max_node_steps=1,
+                    wait_for_completion=True,
                 ),
             )
         )

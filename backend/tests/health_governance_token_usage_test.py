@@ -322,7 +322,7 @@ def test_health_task_list_excludes_historical_unscoped_runs_when_operational_sco
         diagnostics={
             "graph_run_id": "grun:graph-active",
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
         },
     )
@@ -336,7 +336,7 @@ def test_health_task_list_excludes_historical_unscoped_runs_when_operational_sco
         updated_at=now - 150,
         diagnostics={
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
         },
     )

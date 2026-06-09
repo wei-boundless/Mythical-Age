@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, Save, Settings2, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, PackageCheck, Save, Settings2, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -98,21 +98,6 @@ function effectiveAllowedOperations(runtimeDraft: RuntimeDraftLike, toolPackages
     .flatMap((selection) => packageOperations(selection, toolPackages));
   return dedupe(["op.model_response", ...packageOps, ...(runtimeDraft.extra_allowed_operations ?? [])])
     .filter((operation) => !blocked.has(operation));
-}
-
-function toolPackageOptionItems(toolPackages: ToolPackageDefinition[]): OrchestrationOption[] {
-  return toolPackages.map((item) => ({
-    id: item.package_id,
-    value: item.package_id,
-    label: item.title || item.package_id,
-    description: item.description,
-    category: item.category,
-    metadata: {
-      risk_level: item.risk_level,
-      default_enabled: item.default_enabled,
-      operation_count: item.operation_ids.length,
-    },
-  }));
 }
 
 type CapabilityPool = "skill" | "tool" | "mcp";
@@ -622,7 +607,6 @@ export function OrchestrationOperationAuthorizationWorkbench({
 }) {
   const selectedToolPackages = normalizeToolPackageSelections(runtimeDraft.allowed_tool_packages);
   const selectedToolPackageIds = selectedToolPackages.filter((item) => item.enabled).map((item) => item.package_id);
-  const packageOptions = useMemo(() => toolPackageOptionItems(toolPackageOptions), [toolPackageOptions]);
   const extraAllowedOps = dedupe(runtimeDraft.extra_allowed_operations ?? []);
   const allowedOps = effectiveAllowedOperations(runtimeDraft, toolPackageOptions);
   const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
@@ -630,7 +614,12 @@ export function OrchestrationOperationAuthorizationWorkbench({
   const blockedSet = useMemo(() => new Set(blockedOps), [blockedOps]);
   const capabilityRows = useMemo(() => capabilityItems, [capabilityItems]);
   const [selectedCapabilityId, setSelectedCapabilityId] = useState("");
+  const [selectedPackageId, setSelectedPackageId] = useState("");
   const selectedCapability = capabilityRows.find((item) => item.capability_id === selectedCapabilityId) ?? capabilityRows[0] ?? null;
+  const selectedPackage = toolPackageOptions.find((item) => item.package_id === selectedPackageId) ?? toolPackageOptions[0] ?? null;
+  const selectedPackageSelection = selectedPackage
+    ? selectedToolPackages.find((item) => item.package_id === selectedPackage.package_id) ?? null
+    : null;
 
   useEffect(() => {
     if (!capabilityRows.length) {
@@ -639,6 +628,14 @@ export function OrchestrationOperationAuthorizationWorkbench({
     }
     setSelectedCapabilityId((current) => capabilityRows.some((item) => item.capability_id === current) ? current : capabilityRows[0].capability_id);
   }, [capabilityRows]);
+
+  useEffect(() => {
+    if (!toolPackageOptions.length) {
+      setSelectedPackageId("");
+      return;
+    }
+    setSelectedPackageId((current) => toolPackageOptions.some((item) => item.package_id === current) ? current : toolPackageOptions[0].package_id);
+  }, [toolPackageOptions]);
 
   function applyCapability(operationIds: string[], mode: "allow" | "block") {
     const ids = dedupe(operationIds);
@@ -671,6 +668,78 @@ export function OrchestrationOperationAuthorizationWorkbench({
     });
   }
 
+  function patchToolPackageSelection(packageId: string, patch: Partial<ToolPackageSelection>) {
+    const existingById = new Map(selectedToolPackages.map((item) => [item.package_id, item]));
+    const existing = existingById.get(packageId) ?? {
+      package_id: packageId,
+      enabled: true,
+      include_operations: [],
+      exclude_operations: [],
+    };
+    existingById.set(packageId, {
+      ...existing,
+      ...patch,
+      package_id: packageId,
+    });
+    patchRuntimeDraft({
+      allowed_tool_packages: Array.from(existingById.values())
+        .filter((item) => item.enabled !== false)
+        .map((item) => ({
+          package_id: item.package_id,
+          enabled: item.enabled !== false,
+          include_operations: dedupe(item.include_operations ?? []),
+          exclude_operations: dedupe(item.exclude_operations ?? []),
+        })),
+    });
+  }
+
+  function toggleToolPackage(packageId: string) {
+    const selected = selectedToolPackageIds.includes(packageId);
+    if (selected) {
+      patchToolPackageIds(selectedToolPackageIds.filter((item) => item !== packageId));
+      return;
+    }
+    patchToolPackageIds([...selectedToolPackageIds, packageId]);
+    setSelectedPackageId(packageId);
+  }
+
+  function packageOperationEnabled(selection: ToolPackageSelection | null, operationId: string) {
+    if (!selection || selection.enabled === false) return false;
+    const includeOps = dedupe(selection.include_operations ?? []);
+    const excludeOps = new Set(dedupe(selection.exclude_operations ?? []));
+    if (includeOps.length) return includeOps.includes(operationId) && !excludeOps.has(operationId);
+    return !excludeOps.has(operationId);
+  }
+
+  function togglePackageOperation(packageId: string, operationId: string, enabled: boolean) {
+    const definition = toolPackageOptions.find((item) => item.package_id === packageId);
+    const operationIds = definition?.operation_ids ?? [];
+    const selection = selectedToolPackages.find((item) => item.package_id === packageId) ?? {
+      package_id: packageId,
+      enabled: true,
+      include_operations: [],
+      exclude_operations: [],
+    };
+    const includeOps = dedupe(selection.include_operations ?? []);
+    const excludeOps = dedupe(selection.exclude_operations ?? []);
+    if (includeOps.length) {
+      const nextInclude = enabled
+        ? dedupe([...includeOps, operationId])
+        : includeOps.filter((item) => item !== operationId);
+      patchToolPackageSelection(packageId, {
+        include_operations: nextInclude,
+        exclude_operations: nextInclude.length ? excludeOps.filter((item) => item !== operationId) : operationIds,
+      });
+      return;
+    }
+    patchToolPackageSelection(packageId, {
+      include_operations: [],
+      exclude_operations: enabled
+        ? excludeOps.filter((item) => item !== operationId)
+        : dedupe([...excludeOps, operationId]),
+    });
+  }
+
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide orchestration-permission-workbench">
       <div className="boundary-card orchestration-permission-matrix-shell">
@@ -685,6 +754,77 @@ export function OrchestrationOperationAuthorizationWorkbench({
         </div>
         {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</div> : null}
         {!capabilityRows.length ? <div className="boundary-notice"><Info size={16} />能力目录尚未就绪，当前没有可展示的授权能力项。</div> : null}
+        <section className="orchestration-tool-package-manager" aria-label="工具包与包内工具授权">
+          <div className="orchestration-tool-package-manager__head">
+            <div>
+              <strong>工具包</strong>
+              <span>{selectedToolPackageIds.length} / {toolPackageOptions.length} 个包已启用</span>
+            </div>
+            <OrchestrationBadge tone={selectedToolPackageIds.length ? "ok" : "warn"}>{selectedToolPackageIds.length ? "包层授权" : "未选包"}</OrchestrationBadge>
+          </div>
+          <div className="orchestration-tool-package-layout">
+            <div className="orchestration-tool-package-list" aria-label="工具包列表">
+              {toolPackageOptions.map((toolPackage) => {
+                const active = selectedPackage?.package_id === toolPackage.package_id;
+                const enabled = selectedToolPackageIds.includes(toolPackage.package_id);
+                return (
+                  <button
+                    className={[
+                      "orchestration-tool-package-row",
+                      active ? "orchestration-tool-package-row--active" : "",
+                      enabled ? "orchestration-tool-package-row--enabled" : "",
+                    ].filter(Boolean).join(" ")}
+                    key={toolPackage.package_id}
+                    onClick={() => setSelectedPackageId(toolPackage.package_id)}
+                    type="button"
+                  >
+                    <span><PackageCheck size={14} />{toolPackage.title || toolPackage.package_id}</span>
+                    <small>{toolPackage.operation_ids.length} 个工具 · {toolPackage.risk_level || "未分级"}</small>
+                    <em>{enabled ? "已启用" : "未启用"}</em>
+                  </button>
+                );
+              })}
+              {!toolPackageOptions.length ? <div className="boundary-empty">当前没有可选工具包。</div> : null}
+            </div>
+            <div className="orchestration-tool-package-detail">
+              {selectedPackage ? (
+                <>
+                  <header>
+                    <div>
+                      <strong>{selectedPackage.title || selectedPackage.package_id}</strong>
+                      <span>{selectedPackage.description || selectedPackage.package_id}</span>
+                    </div>
+                    <button
+                      className={selectedToolPackageIds.includes(selectedPackage.package_id) ? "is-active" : ""}
+                      onClick={() => toggleToolPackage(selectedPackage.package_id)}
+                      type="button"
+                    >
+                      {selectedToolPackageIds.includes(selectedPackage.package_id) ? "关闭工具包" : "启用工具包"}
+                    </button>
+                  </header>
+                  <div className="orchestration-package-operation-list" aria-label="包内工具列表">
+                    {selectedPackage.operation_ids.map((operationId) => {
+                      const enabled = packageOperationEnabled(selectedPackageSelection, operationId);
+                      const packageEnabled = selectedToolPackageIds.includes(selectedPackage.package_id);
+                      return (
+                        <label className={enabled ? "orchestration-package-operation orchestration-package-operation--enabled" : "orchestration-package-operation"} key={operationId}>
+                          <input
+                            checked={enabled}
+                            disabled={!packageEnabled}
+                            onChange={(event) => togglePackageOperation(selectedPackage.package_id, operationId, event.target.checked)}
+                            type="checkbox"
+                          />
+                          <span>{displayId(operationId)}</span>
+                        </label>
+                      );
+                    })}
+                    {!selectedPackage.operation_ids.length ? <div className="boundary-empty">这个工具包没有声明具体 operation。</div> : null}
+                  </div>
+                </>
+              ) : <div className="boundary-empty">请选择一个工具包查看包内工具。</div>}
+            </div>
+          </div>
+        </section>
         <div className="orchestration-permission-matrix" role="table" aria-label="能力授权矩阵">
           <div className="orchestration-permission-matrix__head" role="row">
             <span role="columnheader">类型</span>
@@ -768,15 +908,6 @@ export function OrchestrationOperationAuthorizationWorkbench({
         </div>
         <details className="orchestration-permission-raw">
           <summary>运行操作明细</summary>
-          <OrchestrationOptionSelection
-            displayId={displayId}
-            fallbackOptions={toolPackageOptions.map((item) => item.package_id)}
-            label="允许工具包"
-            onChange={patchToolPackageIds}
-            options={packageOptions}
-            selectedValues={selectedToolPackageIds}
-            emptyText="未选择工具包；仅额外允许操作会生效"
-          />
           <OrchestrationOptionSelection
             displayId={displayId}
             fallbackOptions={operationOptions}

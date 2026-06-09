@@ -5,9 +5,11 @@ from pathlib import Path
 from artifact_system.artifact_repository_models import ArtifactRecord
 from task_system.repositories.project_library_manifest_repository import ProjectLibraryManifestRepository
 from task_system.writing.artifact_projection_service import ArtifactProjectionService
+from tests.support.writing_project_seed import seed_writing_project
 
 
 def test_writing_artifact_projection_maps_known_artifact_type_to_design_section(tmp_path: Path) -> None:
+    seed_writing_project(tmp_path)
     manifest = ProjectLibraryManifestRepository(tmp_path).require_for_project("project.creation.writing.honghuang")
     artifact = ArtifactRecord(
         artifact_id="artifact.world.1",
@@ -28,6 +30,7 @@ def test_writing_artifact_projection_maps_known_artifact_type_to_design_section(
 
 
 def test_writing_artifact_projection_quarantines_unmapped_artifact_type(tmp_path: Path) -> None:
+    seed_writing_project(tmp_path)
     manifest = ProjectLibraryManifestRepository(tmp_path).require_for_project("project.creation.writing.honghuang")
     artifact = ArtifactRecord(
         artifact_id="artifact.unknown.1",

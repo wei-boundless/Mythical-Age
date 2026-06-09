@@ -203,7 +203,12 @@ def list_builtin_tool_prompt_resources() -> tuple[PromptResource, ...]:
     )
 
 
-def tool_guidance_items_for_visible_tools(tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> tuple[ToolGuidanceItem, ...]:
+def tool_guidance_items_for_visible_tools(
+    tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    guidance_prompt_defaults: dict[str, str] | None = None,
+    guidance_prompt_overrides: dict[str, str] | None = None,
+) -> tuple[ToolGuidanceItem, ...]:
     visible_tool_names: list[str] = []
     for raw_tool in list(tool_payloads or []):
         if not isinstance(raw_tool, dict):
@@ -217,17 +222,35 @@ def tool_guidance_items_for_visible_tools(tool_payloads: tuple[dict[str, Any], .
     if not visible_tool_names:
         return ()
 
+    defaults = _string_dict(guidance_prompt_defaults)
+    overrides = _string_dict(guidance_prompt_overrides)
+    if not defaults and not overrides:
+        return ()
     resource_by_ref = {resource.prompt_id: resource for resource in list_builtin_tool_prompt_resources()}
     items: list[ToolGuidanceItem] = []
     seen_refs: set[str] = set()
-    for prompt_ref in _prompt_refs_for_tool_names(tuple(visible_tool_names)):
+    resolved_refs_by_key = _resolved_guidance_refs_by_key(
+        _prompt_keys_for_tool_names(tuple(visible_tool_names)),
+        defaults=defaults,
+        overrides=overrides,
+    )
+    for prompt_ref in resolved_refs_by_key.values():
         if prompt_ref in seen_refs:
             continue
         seen_refs.add(prompt_ref)
         resource = resource_by_ref.get(prompt_ref)
         if resource is None:
             continue
-        tools_for_ref = tuple(name for name in visible_tool_names if prompt_ref in _TOOL_GUIDANCE_REFS_BY_NAME.get(name, ()))
+        tools_for_ref = tuple(
+            name
+            for name in visible_tool_names
+            if prompt_ref
+            in _resolved_guidance_refs_by_key(
+                _TOOL_GUIDANCE_REFS_BY_NAME.get(name, ()),
+                defaults=defaults,
+                overrides=overrides,
+            ).values()
+        )
         items.append(
             ToolGuidanceItem(
                 prompt_ref=resource.prompt_id,
@@ -239,8 +262,17 @@ def tool_guidance_items_for_visible_tools(tool_payloads: tuple[dict[str, Any], .
     return tuple(items)
 
 
-def tool_guidance_payload_for_visible_tools(tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> dict[str, Any]:
-    items = tool_guidance_items_for_visible_tools(tool_payloads)
+def tool_guidance_payload_for_visible_tools(
+    tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    guidance_prompt_defaults: dict[str, str] | None = None,
+    guidance_prompt_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    items = tool_guidance_items_for_visible_tools(
+        tool_payloads,
+        guidance_prompt_defaults=guidance_prompt_defaults,
+        guidance_prompt_overrides=guidance_prompt_overrides,
+    )
     if not items:
         return {}
     guidance = [item.to_dict() for item in items]
@@ -290,11 +322,38 @@ def _tool_guidance_resource(*, prompt_id: str, title: str, content: str) -> Prom
     )
 
 
-def _prompt_refs_for_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:
+def _prompt_keys_for_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:
     refs: list[str] = []
     for name in tool_names:
         refs.extend(_TOOL_GUIDANCE_REFS_BY_NAME.get(name, ()))
     return tuple(refs)
+
+
+def _resolved_guidance_refs_by_key(
+    guidance_keys: tuple[str, ...],
+    *,
+    defaults: dict[str, str],
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw_key in guidance_keys:
+        key = str(raw_key or "").strip()
+        if not key or key in result:
+            continue
+        prompt_ref = str(overrides.get(key) or defaults.get(key) or "").strip()
+        if prompt_ref:
+            result[key] = prompt_ref
+    return result
+
+
+def _string_dict(value: dict[str, str] | None) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key).strip(): str(item).strip()
+        for key, item in value.items()
+        if str(key).strip() and str(item).strip()
+    }
 
 
 _SUBAGENT_TOOL_REFS = ("tool.guidance.subagent",)

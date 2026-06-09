@@ -19,8 +19,8 @@ def _graph() -> TaskGraphDefinition:
         enabled=True,
         entry_node_id="main",
         output_node_id="main",
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
-        context_policy={"task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
+        context_policy={"task_environment_id": "env.coding.vibe_workspace"},
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="main",
@@ -36,7 +36,7 @@ def _graph() -> TaskGraphDefinition:
                     "artifact": {
                         "artifact_policy": {
                             "required": True,
-                            "artifact_target": "storage/task_environments/development/sandbox/artifacts/index.html",
+                            "artifact_target": "storage/task_environments/coding/vibe-workspace/artifacts/index.html",
                         }
                     },
                     "acceptance": {
@@ -61,7 +61,7 @@ def _plan() -> dict[str, object]:
         "description": "Start a published task graph through engagement.",
         "version": "1.0.0",
         "status": "active",
-        "task_environment_id": "env.development.sandbox",
+        "task_environment_id": "env.coding.vibe_workspace",
         "assignee": {"kind": "agent", "agent_id": "agent:0"},
         "runtime_profile": {"runtime_policy": {}},
         "execution_strategy": {

@@ -202,7 +202,7 @@ def test_task_state_projects_exploration_advisory() -> None:
         },
         runtime_assembly={
             "profile": {"mode": "professional"},
-            "task_environment": {"environment_id": "env.development.sandbox"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
             "operation_authorization": {"allowed_operations": ["op.read_file", "op.search_text"]},
         },
     )
@@ -275,7 +275,7 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         },
         runtime_assembly={
             "profile": {"mode": "professional"},
-            "task_environment": {"environment_id": "env.development.sandbox"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
     )
@@ -621,7 +621,7 @@ def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path)
 
 
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
-    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     requested_path = "artifacts/prompt_cache_live_e2e/run/index.html"
     canonical_path = f"{artifact_root}/prompt_cache_live_e2e/run/index.html"
     result = RuntimeCompiler().compile_task_execution_packet(
@@ -639,7 +639,7 @@ def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {
-                "environment_id": "env.development.sandbox",
+                "environment_id": "env.coding.vibe_workspace",
                 "storage_space": {"artifact_root": artifact_root},
                 "artifact_policy": {"artifact_root": "runtime_output"},
                 "sandbox_policy": {},
@@ -671,7 +671,7 @@ def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
 
 
 def test_artifact_contract_normalization_replaces_path_aliases_with_canonical_path() -> None:
-    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     normalized = canonicalize_task_contract_artifacts(
         {
             "required_artifacts": [
@@ -809,7 +809,7 @@ def test_task_execution_state_deduplicates_observation_failures_and_preserves_re
         },
         runtime_assembly={
             "profile": {"mode": "professional"},
-            "task_environment": {"environment_id": "env.development.sandbox"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
             "operation_authorization": {"allowed_operations": ["op.image_generate"]},
         },
     )
@@ -963,9 +963,9 @@ def test_task_execution_uses_invocation_scoped_agent_prompt_refs() -> None:
                 "single_agent_turn": ["agent.main_interactive_agent.single_agent_turn.work_role"],
                 "task_execution": ["agent.main_interactive_agent.task_execution.work_role"],
             },
-            "environment_prompt_refs": ["environment.development.sandbox.orientation"],
+            "environment_prompt_refs": ["environment.coding.vibe_workspace.orientation"],
             "task_environment": {
-                "environment_id": "env.development.sandbox",
+                "environment_id": "env.coding.vibe_workspace",
                 "title": "Development Sandbox",
                 "description": "Project workspace boundary",
             },
@@ -1002,11 +1002,11 @@ def test_environment_strategy_prompt_ref_is_rejected_after_strategy_moves_to_age
             runtime_assembly={
                 "profile": {"mode": "professional"},
                 "environment_prompt_refs": [
-                    "environment.development.sandbox.orientation",
+                    "environment.coding.vibe_workspace.orientation",
                     obsolete_environment_strategy_ref,
                 ],
                 "task_environment": {
-                    "environment_id": "env.development.sandbox",
+                    "environment_id": "env.coding.vibe_workspace",
                     "title": "Development Sandbox",
                     "description": "Project workspace boundary",
                 },

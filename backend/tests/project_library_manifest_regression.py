@@ -9,22 +9,22 @@ from task_system.repositories.project_library_manifest_repository import Project
 def test_default_project_library_manifest_declares_project_repositories(tmp_path: Path) -> None:
     repository = ProjectLibraryManifestRepository(tmp_path)
 
-    manifest = repository.require_for_project("project.creation.writing.honghuang")
+    manifest = repository.require_for_project("project.development.codebase.langchain_agent")
 
-    assert manifest.library_id == "library.project.creation.writing.honghuang"
-    assert manifest.file_profile_id == "file_profile.writing_manuscript"
-    assert manifest.repository("repo.writing.artifact_repository") is not None
-    assert manifest.repository("repo.writing.artifact_repository").root_ref == "environment://artifacts"  # type: ignore[union-attr]
+    assert manifest.library_id == "library.project.development.codebase.langchain_agent"
+    assert manifest.file_profile_id == "file_profile.managed_project_workspace"
+    assert manifest.repository("repo.managed_project.project_workspace") is not None
+    assert manifest.repository("repo.managed_project.project_workspace").root_ref == "workspace://project"  # type: ignore[union-attr]
 
 
 def test_project_library_manifest_rejects_repository_outside_file_profile(tmp_path: Path) -> None:
     repository = ProjectLibraryManifestRepository(tmp_path)
     manifest = ProjectLibraryManifest(
-        library_id="library.project.creation.writing.honghuang",
-        project_id="project.creation.writing.honghuang",
-        environment_id="env.creation.writing",
-        file_profile_id="file_profile.writing_manuscript",
-        schema_version="writing_library.v1",
+        library_id="library.project.development.codebase.langchain_agent",
+        project_id="project.development.codebase.langchain_agent",
+        environment_id="env.coding.vibe_workspace",
+        file_profile_id="file_profile.managed_project_workspace",
+        schema_version="code_project_library.v1",
         repositories=(
             ProjectRepositoryBinding("repo.writing.draft_workspace", "draft_workspace", "project://drafts"),
             ProjectRepositoryBinding("repo.managed_project.project_workspace", "bad", "workspace://project"),

@@ -205,24 +205,17 @@ ENVIRONMENT_CODING_WORKSPACE_RULE = """
 """.strip()
 
 
-ENVIRONMENT_DEVELOPMENT_SANDBOX_RULE = """
-你处在通用开发沙盒任务环境中。这里支持项目检查、实现实验、命令验证和交付证据，但它不是专用 vibe coding 工作区。
-你会看到通用文件管理提供的路径、权限、读写状态和证据；处理开发类工作时，可以使用 coding 检查、编辑、验证、shell 和 git 安全规则。
-这些开发类工作方式只适用于当前开发环境；处理写作或通用任务时，不要套用代码修改、测试、shell 或 git 规则。
-""".strip()
-
-
-ENVIRONMENT_WRITING_WORKSPACE_RULE = """
-你处在创作写作环境时，需要区分正式作品、草稿、参考材料、作者裁决、设定资料、审查记录和 artifact。
-不要把草稿、建议、旧记忆或自己的推断当成已确认正稿。
-处理创作写作时，不要套用代码测试、shell、git 或代码编辑规则；以文本质量、设定一致性、来源依据和作者裁决为边界。
-""".strip()
-
-
 ENVIRONMENT_GENERAL_WORKSPACE_RULE = """
 你处在通用工作环境时，任务可能是问答、资料整理、分析、文件处理、研究或多步骤执行。
 先确认用户目标、可用上下文、风险和可验证结果，再选择最小充分的路径。
 处理通用任务时，不要自动套用 coding 的实现循环，也不要自动套用 writing 的稿件规则；除非用户目标和可见材料明确需要。
+""".strip()
+
+
+ENVIRONMENT_OFFICE_FILE_SEARCH_RULE = """
+你处在轻量办公文件检索环境时，只围绕文件、资料、搜索、整理和可复核办公产物行动。
+不要套用 coding 的项目实现循环、shell 验证、git 操作、浏览器自动化或图像生成工作方式；这些能力不属于当前环境边界。
+如果用户目标确实需要开发执行、浏览器操作、git、代码运行或视觉资产生成，应说明当前环境能力不匹配，并请求切换到更合适的任务环境。
 """.strip()
 
 
@@ -375,7 +368,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -390,7 +383,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -405,7 +398,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
             requires=("runtime.rule.file_management.generic",),
@@ -421,7 +414,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -436,7 +429,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution", "tool_observation_followup"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -451,7 +444,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
             enforcement_mode="permit_enforced",
@@ -467,7 +460,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -482,7 +475,7 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             resource_type="environment.coding_rule",
             applies_to=("coding_agent", "task_execution"),
             allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.coding.vibe_workspace", "env.development.sandbox"),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
             cache_scope="static_environment",
             cache_tier="static_environment",
         ),
@@ -503,38 +496,6 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             enforcement_mode="compiler_validated",
         ),
         _rule_resource(
-            prompt_id="environment.rule.development_sandbox",
-            title="Development sandbox environment rule",
-            content=ENVIRONMENT_DEVELOPMENT_SANDBOX_RULE,
-            rule_kind="environment.boundary",
-            owner_layer="environment",
-            category="environment",
-            subtype="boundary_rule",
-            resource_type="environment.boundary_rule",
-            applies_to=("env.development.sandbox",),
-            allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.development.sandbox",),
-            cache_scope="static_environment",
-            cache_tier="static_environment",
-            enforcement_mode="compiler_validated",
-        ),
-        _rule_resource(
-            prompt_id="environment.rule.writing_workspace",
-            title="Writing workspace environment rule",
-            content=ENVIRONMENT_WRITING_WORKSPACE_RULE,
-            rule_kind="environment.boundary",
-            owner_layer="environment",
-            category="environment",
-            subtype="boundary_rule",
-            resource_type="environment.boundary_rule",
-            applies_to=("env.creation.writing",),
-            allowed_invocation_kinds=("environment",),
-            allowed_environment_refs=("env.creation.writing",),
-            cache_scope="static_environment",
-            cache_tier="static_environment",
-            enforcement_mode="compiler_validated",
-        ),
-        _rule_resource(
             prompt_id="environment.rule.general_workspace",
             title="General workspace environment rule",
             content=ENVIRONMENT_GENERAL_WORKSPACE_RULE,
@@ -546,6 +507,22 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             applies_to=("env.general.workspace",),
             allowed_invocation_kinds=("environment",),
             allowed_environment_refs=("env.general.workspace",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.office_file_search",
+            title="Office file and search environment rule",
+            content=ENVIRONMENT_OFFICE_FILE_SEARCH_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.office.file_search",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.office.file_search",),
             cache_scope="static_environment",
             cache_tier="static_environment",
             enforcement_mode="compiler_validated",

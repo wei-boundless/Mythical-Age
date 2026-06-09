@@ -195,7 +195,7 @@ def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
     service = PromptAssemblyService(tmp_path)
     debug_ref = "coding.rule.debug_discipline"
 
-    for environment_ref in ("env.coding.vibe_workspace", "env.development.sandbox"):
+    for environment_ref in ("env.coding.vibe_workspace", "env.coding.vibe_workspace"):
         assembly = service.assemble(
             PromptAssemblyRequest(
                 invocation_kind="environment",
@@ -214,7 +214,7 @@ def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
         assert assembly.rejected_refs == ()
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")
 
-    for environment_ref in ("env.creation.writing", "env.general.workspace"):
+    for environment_ref in ("env.office.file_search", "env.general.workspace"):
         assembly = service.assemble(
             PromptAssemblyRequest(
                 invocation_kind="environment",
@@ -329,27 +329,27 @@ def test_main_profile_uses_prompt_library_refs_not_embedded_work_role_prompts() 
     assert "work_role_prompt_refs_by_invocation" not in metadata
 
 
-def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> None:
+def test_coding_rules_do_not_leak_into_office_environment_runtime_packet() -> None:
     packet = RuntimeCompiler().compile_task_execution_packet(
-        session_id="session:writing-rule-isolation",
+        session_id="session:office-rule-isolation",
         task_run={
-            "task_run_id": "taskrun:writing-rule-isolation",
-            "task_id": "task:writing-rule-isolation",
+            "task_run_id": "taskrun:office-rule-isolation",
+            "task_id": "task:office-rule-isolation",
             "agent_profile_id": "main_interactive_agent",
         },
-        contract={"task_run_goal": "审查章节草稿", "completion_criteria": ["给出审查结论"]},
+        contract={"task_run_goal": "整理办公资料", "completion_criteria": ["给出整理结论"]},
         observations=[],
         runtime_assembly={
             "profile": {"profile_ref": "main_interactive_agent"},
             "environment_prompt_refs": [
                 "runtime.rule.file_management.generic",
-                "environment.resource.writing_manuscript.orientation",
-                "environment.creation.writing.orientation",
-                "environment.rule.writing_workspace",
+                "environment.resource.base_workspace.orientation",
+                "environment.office.file_search.orientation",
+                "environment.rule.office_file_search",
             ],
             "task_environment": {
-                "environment_id": "env.creation.writing",
-                "title": "Creative Writing",
+                "environment_id": "env.office.file_search",
+                "title": "Office File Search",
             },
         },
     ).packet
@@ -360,11 +360,11 @@ def test_coding_rules_do_not_leak_into_writing_environment_runtime_packet() -> N
     assert manifest["prompt_rules"]["coverage"]["has_turn_decision_alignment"] is True
     assert "runtime.rule.system_call_protocol" in manifest["stable_prompt_refs"]
     assert "runtime.rule.turn_decision_alignment" in manifest["stable_prompt_refs"]
-    assert "environment.rule.writing_workspace" in manifest["stable_prompt_refs"]
+    assert "environment.rule.office_file_search" in manifest["stable_prompt_refs"]
     assert "coding.rule.editing" not in manifest["stable_prompt_refs"]
     assert "coding.rule.verification" not in manifest["stable_prompt_refs"]
     assert "coding.rule.debug_discipline" not in manifest["stable_prompt_refs"]
-    assert "处理创作写作时，不要套用代码测试、shell、git 或代码编辑规则" in model_input
+    assert "不要套用 coding 的项目实现循环、shell 验证、git 操作" in model_input
     assert "当当前环境是 coding 或 development" not in model_input
     assert "调试纪律" not in model_input
 

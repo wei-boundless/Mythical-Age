@@ -52,7 +52,7 @@ import {
 } from "@/components/workspace/views/center/centerWorkspaceHelpers";
 import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 
-const WRITING_ENVIRONMENT_ID = "env.creation.writing";
+const GRAPH_TASK_ENVIRONMENT_ID = "env.general.workspace";
 
 type SelectedFile = {
   repository_id: string;
@@ -199,13 +199,13 @@ function getRepositoryFiles(trees: Record<string, ProjectFileTreePayload>, repos
 function creativeSessionScope(projectId: string): SessionScope {
   return {
     workspace_view: "task_environment",
-    task_environment_id: WRITING_ENVIRONMENT_ID,
+    task_environment_id: GRAPH_TASK_ENVIRONMENT_ID,
     project_id: projectId,
   };
 }
 
 function creativeSessionPoolKey(projectId: string): SessionPoolKey {
-  return `task_environment:${WRITING_ENVIRONMENT_ID}:${projectId}` as SessionPoolKey;
+  return `task_environment:${GRAPH_TASK_ENVIRONMENT_ID}:${projectId}` as SessionPoolKey;
 }
 
 function graphMatchesFlow(graph: TaskGraphRecord, flow: WritingFlowKind) {
@@ -284,7 +284,7 @@ function CreativeProjectRail({
     <aside className="workbench-resource-panel creative-project-rail" aria-label="写作项目">
       <header className="workbench-panel-head">
         <div>
-          <strong>写作环境</strong>
+          <strong>图任务工作区</strong>
           <span>作品、资料、写作流程</span>
         </div>
         <WorkspaceModeSwitcher />
@@ -444,7 +444,7 @@ function CreativeGraphOperationsPanel({
             disabled={!selectedGraph}
             onClick={() => {
               if (!selectedGraph) return;
-              openTaskGraphWorkspace({ graph_id: selectedGraph.graph_id, task_environment_id: WRITING_ENVIRONMENT_ID, mode: "editor" });
+              openTaskGraphWorkspace({ graph_id: selectedGraph.graph_id, task_environment_id: GRAPH_TASK_ENVIRONMENT_ID, mode: "editor" });
             }}
             type="button"
           >
@@ -458,7 +458,7 @@ function CreativeGraphOperationsPanel({
       <TaskGraphRunControlPanel
         className="creative-work-strip creative-graph-ops__monitor"
         graphId={selectedGraph?.graph_id}
-        taskEnvironmentId={WRITING_ENVIRONMENT_ID}
+        taskEnvironmentId={GRAPH_TASK_ENVIRONMENT_ID}
         title="运行监控"
       />
     </section>
@@ -876,7 +876,7 @@ export function CreativeEnvironmentView() {
     return writingProjects.find((item) => item.project_id === selectedProjectId) ?? writingProjects[0] ?? null;
   }, [selectedProjectId, writingProjects]);
   const taskGraphs = useMemo(
-    () => listCenterWorkspaceTaskGraphs(overview).filter((graph) => centerWorkspaceTaskEnvironmentId(graph) === WRITING_ENVIRONMENT_ID),
+    () => listCenterWorkspaceTaskGraphs(overview).filter((graph) => centerWorkspaceTaskEnvironmentId(graph) === GRAPH_TASK_ENVIRONMENT_ID),
     [overview]
   );
   const scopedCurrentSessionId = scopedSessions.some((session) => session.id === currentSessionId) ? currentSessionId : null;
@@ -886,7 +886,7 @@ export function CreativeEnvironmentView() {
     setError("");
     try {
       const [payload, taskOverview] = await Promise.all([
-        getTaskSystemEnvironmentProjects(WRITING_ENVIRONMENT_ID),
+        getTaskSystemEnvironmentProjects(GRAPH_TASK_ENVIRONMENT_ID),
         getTaskSystemOverview(),
       ]);
       const nextProjects = payload.projects;
@@ -942,7 +942,7 @@ export function CreativeEnvironmentView() {
       return;
     }
     try {
-      const response = await listTaskEnvironmentSessions(WRITING_ENVIRONMENT_ID, creativeSessionScope(projectId));
+      const response = await listTaskEnvironmentSessions(GRAPH_TASK_ENVIRONMENT_ID, creativeSessionScope(projectId));
       setScopedSessions(response.sessions);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法读取项目会话。");
@@ -954,7 +954,7 @@ export function CreativeEnvironmentView() {
     if (!selectedProject) return "";
     setError("");
     try {
-      const response = await resolveTaskEnvironmentSession(WRITING_ENVIRONMENT_ID, {
+      const response = await resolveTaskEnvironmentSession(GRAPH_TASK_ENVIRONMENT_ID, {
         workspace_view: "task_environment",
         project_id: selectedProject.project_id,
         intent: "new_conversation",
@@ -1015,7 +1015,7 @@ export function CreativeEnvironmentView() {
     }
     const graph = taskGraphs.find((item) => item.graph_id === selectedGraphId) ?? chooseFlowGraph(taskGraphs, flow, selectedGraphId);
     if (!graph) {
-      setStartError("当前写作环境没有可用的创作流程。");
+      setStartError("当前图任务工作区没有可用的创作流程。");
       return;
     }
     const message = taskMessage.trim();
@@ -1026,7 +1026,7 @@ export function CreativeEnvironmentView() {
     setStarting(true);
     setStartError("");
     try {
-      const resolved = await resolveTaskEnvironmentSession(WRITING_ENVIRONMENT_ID, {
+      const resolved = await resolveTaskEnvironmentSession(GRAPH_TASK_ENVIRONMENT_ID, {
         workspace_view: "task_environment",
         project_id: selectedProject.project_id,
         intent: "continue_conversation",
@@ -1123,7 +1123,7 @@ export function CreativeEnvironmentView() {
       setError("");
       try {
         const [payload, taskOverview] = await Promise.all([
-          getTaskSystemEnvironmentProjects(WRITING_ENVIRONMENT_ID),
+          getTaskSystemEnvironmentProjects(GRAPH_TASK_ENVIRONMENT_ID),
           getTaskSystemOverview(),
         ]);
         if (cancelled) return;

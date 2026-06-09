@@ -5,7 +5,10 @@ from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
+from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME
 from runtime.model_gateway.model_request import ModelRequestBuilder
+
+_TOOL_GUIDANCE_DEFAULTS = {key: key for refs in _TOOL_GUIDANCE_REFS_BY_NAME.values() for key in refs}
 
 
 def _backend_dir() -> Path:
@@ -65,6 +68,7 @@ def test_tool_catalog_manifest_renders_legacy_model_visible_payload() -> None:
         invocation_kind="task_execution",
         tool_payloads=_tools(),
         source_ref="task_execution.available_tools",
+        tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     )
 
     payload = manifest.to_model_visible_payload(include_catalog_hash=True)
@@ -83,6 +87,34 @@ def test_tool_catalog_manifest_renders_legacy_model_visible_payload() -> None:
     assert manifest.to_model_visible_payload(include_catalog_hash=False).get("tool_catalog_hash") is None
 
 
+def test_tool_catalog_manifest_drops_hidden_and_debug_tools() -> None:
+    manifest = build_tool_catalog_manifest(
+        invocation_kind="task_execution",
+        tool_payloads=[
+            *_tools(),
+            {
+                "tool_name": "python_repl",
+                "operation_id": "op.python_repl",
+                "prompt_exposure_policy": "hidden",
+            },
+            {
+                "tool_name": "debug_probe",
+                "operation_id": "op.debug_probe",
+                "prompt_exposure_policy": "debug_only",
+            },
+        ],
+        source_ref="task_execution.available_tools",
+        tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
+    )
+    payload = manifest.to_model_visible_payload(include_catalog_hash=True)
+    tool_names = {str(item.get("tool_name") or "") for item in payload["available_tools"]}
+
+    assert manifest.raw_tool_count == 3
+    assert manifest.visible_tool_count == 1
+    assert tool_names == {"read_file"}
+    assert payload["tool_guidance_refs"] == ["tool.guidance.read_file"]
+
+
 def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> None:
     tools = _tools()
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_single_agent_turn_packet(
@@ -92,7 +124,10 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
         user_message="Answer briefly.",
         history=[],
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
             "available_tools": tools,
         },
@@ -104,6 +139,7 @@ def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> Non
         invocation_kind="single_agent_turn",
         tool_payloads=tools,
         source_ref="runtime_assembly.available_tools",
+        tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
     tool_index_payload = _message_payload_with_title(packet, "Single agent turn tool index")
     tool_segment = next(
@@ -130,7 +166,10 @@ def test_single_agent_turn_model_request_promotes_matching_tool_schema() -> None
         user_message="Answer briefly.",
         history=[],
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
             "available_tools": _tools(),
         },
@@ -168,7 +207,10 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
         observations=[],
         available_tools=tools,
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     )
@@ -178,6 +220,7 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
         invocation_kind="task_execution",
         tool_payloads=tools,
         source_ref="task_execution.available_tools",
+        tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)
     tool_index_payload = _message_payload_with_title(packet, "Task execution tool index")
     tool_segment = next(
@@ -202,7 +245,10 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
         observations=[{"observation_id": "obs:1", "payload": {"status": "ok"}}],
         available_tools=_tools(),
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     )
@@ -223,7 +269,10 @@ def test_model_request_tool_schema_cache_uses_tool_catalog_manifest_metadata() -
         observations=[],
         available_tools=_tools(),
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     )
@@ -259,7 +308,10 @@ def test_model_request_keeps_tool_schema_uncached_when_manifest_drifts_from_tool
         observations=[],
         available_tools=_tools(),
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.general.workspace"},
         },
     )

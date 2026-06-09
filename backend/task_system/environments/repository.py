@@ -323,8 +323,8 @@ def _environment_id_from_payload(payload: Any) -> str:
 
 def _is_default_group_id(group_id: str) -> bool:
     return str(group_id or "").strip() in {
-        "environment_group.development",
-        "environment_group.creation",
+        "environment_group.coding",
+        "environment_group.office",
         "environment_group.general",
     }
 

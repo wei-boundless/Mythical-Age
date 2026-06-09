@@ -105,7 +105,7 @@ def test_session_manager_binds_one_graph_task_instance_per_session(tmp_path: Pat
         title="Graph session",
         scope={
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "proj:novel",
         },
     )
@@ -119,7 +119,7 @@ def test_session_manager_binds_one_graph_task_instance_per_session(tmp_path: Pat
         graph_harness_config_id="ghcfg:novel",
         session_scope={
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "proj:novel",
         },
     )

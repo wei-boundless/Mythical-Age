@@ -34,8 +34,8 @@ def test_coding_tool_table_intersects_environment_task_agent_and_file_access() -
     assert any(grant.startswith("repo.managed_project.sandbox_workspace:edit") for grant in edit_capability.file_repository_grants)
 
 
-def test_development_tool_table_keeps_base_workspace_read_only() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+def test_office_tool_table_keeps_base_workspace_file_boundary() -> None:
+    resolved = resolve_task_environment("env.office.file_search")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -51,8 +51,8 @@ def test_development_tool_table_keeps_base_workspace_read_only() -> None:
     assert any(issue.operation_id == "op.edit_file" and issue.source == "file_access_table" for issue in table.filtered)
 
 
-def test_writing_tool_table_keeps_agent_allowed_shell_visible_and_gates_official_write() -> None:
-    resolved = resolve_task_environment("env.creation.writing")
+def test_office_tool_table_filters_shell_at_environment_boundary() -> None:
+    resolved = resolve_task_environment("env.office.file_search")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -62,19 +62,17 @@ def test_writing_tool_table_keeps_agent_allowed_shell_visible_and_gates_official
         )
     )
 
-    assert "terminal" in table.visible_tools
-    assert not any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
+    assert "terminal" not in table.visible_tools
+    assert any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
 
     write_capability = table.capability_for_operation("op.write_file")
-    assert write_capability is not None
-    assert "write_file" in table.dispatchable_tools
-    assert write_capability.requires_approval is True
-    assert any(grant.startswith("repo.writing.draft_workspace:write") for grant in write_capability.file_repository_grants)
-    assert any(grant.startswith("repo.writing.official_work:write") for grant in write_capability.file_repository_grants)
+    assert write_capability is None
+    assert "write_file" not in table.dispatchable_tools
+    assert any(issue.operation_id == "op.write_file" and issue.source == "file_access_table" for issue in table.filtered)
 
 
 def test_file_operation_without_file_access_table_is_filtered() -> None:
-    resolved = resolve_task_environment("env.development.sandbox")
+    resolved = resolve_task_environment("env.office.file_search")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,

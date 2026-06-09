@@ -97,7 +97,7 @@ class GraphTaskLifecycleManager:
             "task_run_ids": sorted(task_run_ids),
             "project_id": project_id,
             "memory_namespace_id": memory_namespace_id,
-            "task_environment_id": str(runtime_scope.get("task_environment_id") or diagnostics.get("task_environment_id") or "env.creation.writing"),
+            "task_environment_id": str(runtime_scope.get("task_environment_id") or diagnostics.get("task_environment_id") or "env.office.file_search"),
             "graph_id": str(graph_run.get("graph_id") or diagnostics.get("graph_id") or ""),
             "config_id": str(graph_run.get("config_id") or diagnostics.get("graph_harness_config_id") or ""),
         }

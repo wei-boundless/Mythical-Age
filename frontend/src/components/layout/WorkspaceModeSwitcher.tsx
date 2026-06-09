@@ -6,18 +6,19 @@ import { useAppStore } from "@/lib/store";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { TaskEnvironmentCatalog } from "@/lib/api";
 
-type TaskEnvironmentOption = TaskEnvironmentCatalog["environments"][number];
+type TaskEnvironmentOption = NonNullable<TaskEnvironmentCatalog["environments"][number]>;
 
-function taskEnvironmentTitle(item: TaskEnvironmentOption) {
+function taskEnvironmentTitle(item: TaskEnvironmentOption | null | undefined) {
   const environmentId = taskEnvironmentId(item);
-  return taskEnvironmentDisplayName(environmentId, String(item.record?.title || "").trim());
+  return taskEnvironmentDisplayName(environmentId, String(item?.record?.title || "").trim());
 }
 
-function taskEnvironmentId(item: TaskEnvironmentOption) {
-  return String(item.record?.environment_id || "").trim();
+function taskEnvironmentId(item: TaskEnvironmentOption | null | undefined) {
+  return String(item?.record?.environment_id || "").trim();
 }
 
-function isVisibleTaskEnvironment(item: TaskEnvironmentOption) {
+function isVisibleTaskEnvironment(item: TaskEnvironmentOption | null | undefined): item is TaskEnvironmentOption {
+  if (!item?.record) return false;
   if (item.record?.enabled === false) return false;
   return String(item.management_scope || item.record?.management_scope || "").trim() !== "system_internal";
 }
@@ -41,6 +42,7 @@ export function WorkspaceModeSwitcher({
   const switchableValue = activeEnvironmentId || "env.general.workspace";
   const disabled = taskEnvironmentCatalogLoading || environments.length === 0;
   const hasSwitchableValue = environments.some((item) => taskEnvironmentId(item) === switchableValue);
+  const selectedValue = hasSwitchableValue ? switchableValue : taskEnvironmentId(environments[0]) || switchableValue;
 
   return (
     <label
@@ -50,7 +52,7 @@ export function WorkspaceModeSwitcher({
     >
       <select
         disabled={disabled}
-        value={switchableValue}
+        value={selectedValue}
         onChange={(event) => {
           const value = event.target.value.trim();
           if (value.startsWith("env.")) void setActiveTaskEnvironment(value, { source: "workspace-mode" });
@@ -58,14 +60,6 @@ export function WorkspaceModeSwitcher({
       >
         {!environments.length ? (
           <option value={switchableValue}>{taskEnvironmentCatalogLoading ? "正在读取环境" : "无可用任务环境"}</option>
-        ) : null}
-        {environments.length && !hasSwitchableValue ? (
-          <option value={switchableValue}>
-            {taskEnvironmentDisplayName(
-              switchableValue,
-              conversationActiveEnvironment?.environment_label || switchableValue,
-            )}
-          </option>
         ) : null}
         {environments.map((item) => (
           <option key={taskEnvironmentId(item)} value={taskEnvironmentId(item)}>

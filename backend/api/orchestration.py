@@ -85,6 +85,7 @@ class GraphRunUntilIdleRequest(BaseModel):
     max_dispatches: int = Field(default=64, ge=0, le=512)
     max_runtime_seconds: float = Field(default=0.0, ge=0.0, le=3600.0)
     max_dispatch_requests: int | None = Field(default=None, ge=1, le=32)
+    wait_for_completion: bool = False
 
 
 class GraphRunDeleteRequest(BaseModel):
@@ -492,6 +493,8 @@ async def run_graph_run_until_idle(
     graph_run_id: str,
     payload: GraphRunUntilIdleRequest,
 ) -> dict[str, Any]:
+    if not payload.wait_for_completion:
+        return await submit_graph_run_until_idle(graph_run_id, payload)
     runtime = require_runtime()
     graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
     if graph_config is None:
@@ -521,6 +524,40 @@ async def run_graph_run_until_idle(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return result.to_dict()
+
+
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/run-until-idle/background")
+async def submit_graph_run_until_idle(
+    graph_run_id: str,
+    payload: GraphRunUntilIdleRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_harness_config_id=graph_config.config_id,
+        graph_config=graph_config,
+        session_scope=payload.session_scope,
+    )
+    if runtime.harness_runtime.graph_harness.graph_loop.get_state(graph_run_id) is None:
+        raise HTTPException(status_code=404, detail="GraphLoopState not found")
+
+    try:
+        submission = runtime.harness_runtime.graph_harness.submit_run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            max_node_executions=payload.max_node_executions,
+            max_node_steps=payload.max_node_steps,
+            max_dispatch_requests=payload.max_dispatch_requests,
+            runtime_overrides=dict(payload.runtime_overrides or {}),
+            runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return submission.to_dict()
 
 
 def _validated_session_id(value: str) -> str:

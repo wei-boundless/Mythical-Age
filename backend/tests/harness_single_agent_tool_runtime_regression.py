@@ -438,7 +438,7 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
             HarnessRuntimeRequest(
                 session_id="session-single-turn-write-tool",
                 message="写一个文件。",
-                runtime_contract={"task_environment_id": "env.development.sandbox"},
+                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
             )
         ):
             events.append(event)
@@ -470,7 +470,7 @@ def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_
 
 def test_single_agent_turn_publishes_environment_artifact_write_before_reporting_success(tmp_path: Path) -> None:
     session_id = "session-single-turn-artifact-publish"
-    artifact_path = _session_artifact_path(session_id, "development/sandbox", "single_turn_artifact.html")
+    artifact_path = _session_artifact_path(session_id, "coding/vibe-workspace", "single_turn_artifact.html")
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -508,7 +508,7 @@ def test_single_agent_turn_publishes_environment_artifact_write_before_reporting
             HarnessRuntimeRequest(
                 session_id=session_id,
                 message=message,
-                runtime_contract={"task_environment_id": "env.development.sandbox"},
+                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
             )
         ):
             events.append(event)

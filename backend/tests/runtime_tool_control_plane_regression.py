@@ -174,7 +174,7 @@ def test_runtime_tool_plan_intersects_available_tools_with_operation_authorizati
                 {"name": "write_file", "operation_id": "op.write_file", "read_only": False},
             ],
             task_environment={
-                "environment_id": "env.development.sandbox",
+                "environment_id": "env.coding.vibe_workspace",
                 "execution_policy": {
                     "real_workspace_access": "read_only_or_task_granted",
                     "write_scope_policy": "sandbox_or_file_access_table",
@@ -221,7 +221,7 @@ def test_runtime_tool_plan_records_local_mcp_routes_as_deferred_capabilities() -
         runtime_assembly=_assembly(
             available_tools=[],
             task_environment={
-                "environment_id": "env.development.sandbox",
+                "environment_id": "env.coding.vibe_workspace",
                 "execution_policy": {
                     "real_workspace_access": "none",
                     "write_scope_policy": "document_artifacts_only",
@@ -263,7 +263,7 @@ def test_runtime_tool_plan_does_not_create_local_mcp_route_when_environment_lack
         runtime_assembly=_assembly(
             available_tools=[],
             task_environment={
-                "environment_id": "env.creation.writing",
+                "environment_id": "env.office.file_search",
                 "execution_policy": {
                     "real_workspace_access": "read_only",
                     "write_scope_policy": "artifact_only",
@@ -1233,7 +1233,7 @@ def _permit(
 
 def _sandbox_task_environment(*side_effect_operations: str) -> dict[str, object]:
     return {
-        "environment_id": "env.development.sandbox",
+        "environment_id": "env.coding.vibe_workspace",
         "environment_kind": "development",
         "sandbox_policy": {
             "enabled": True,

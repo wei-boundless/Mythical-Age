@@ -15,6 +15,7 @@ class AgentRuntimeServices:
 
     root_dir: Path
     backend_dir: Path
+    runtime_host: Any | None
     event_log: Any
     prompt_accounting_ledger: Any
     state_index: Any
@@ -61,6 +62,7 @@ class AgentRuntimeServices:
         return cls(
             root_dir=Path(host.root_dir),
             backend_dir=Path(host.backend_dir),
+            runtime_host=host,
             event_log=host.event_log,
             prompt_accounting_ledger=getattr(host, "prompt_accounting_ledger", None),
             state_index=host.state_index,

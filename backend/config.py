@@ -1014,6 +1014,7 @@ class RuntimeConfigManager:
             self._config_path.write_text(
                 json.dumps(merged, ensure_ascii=False, indent=2),
                 encoding="utf-8",
+                newline="\n",
             )
             return merged
 

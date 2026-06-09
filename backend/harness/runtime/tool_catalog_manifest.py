@@ -7,6 +7,8 @@ from typing import Any
 
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 
+_MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
+
 
 @dataclass(frozen=True, slots=True)
 class ToolCatalogManifest:
@@ -48,12 +50,18 @@ def build_tool_catalog_manifest(
     invocation_kind: str,
     tool_payloads: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None,
     source_ref: str = "runtime.available_tools",
+    tool_guidance_prompt_defaults: dict[str, str] | None = None,
+    tool_guidance_prompt_overrides: dict[str, str] | None = None,
 ) -> ToolCatalogManifest:
     raw_tools = tuple(dict(item) for item in list(tool_payloads or []) if isinstance(item, dict))
     model_visible_catalog = tuple(_model_visible_tool_entry(item) for item in raw_tools)
     model_visible_catalog = tuple(item for item in model_visible_catalog if item)
     tool_names = tuple(str(item.get("tool_name") or "") for item in model_visible_catalog)
-    guidance_payload = tool_guidance_payload_for_visible_tools(raw_tools)
+    guidance_payload = tool_guidance_payload_for_visible_tools(
+        model_visible_catalog,
+        guidance_prompt_defaults=tool_guidance_prompt_defaults,
+        guidance_prompt_overrides=tool_guidance_prompt_overrides,
+    )
     exposure_policy_counts: dict[str, int] = {}
     for item in raw_tools:
         policy = str(item.get("prompt_exposure_policy") or "schema_only").strip() or "schema_only"
@@ -96,12 +104,14 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
     name = str(tool.get("tool_name") or tool.get("name") or "").strip()
     if not name:
         return {}
+    prompt_exposure_policy = str(tool.get("prompt_exposure_policy") or "schema_only").strip() or "schema_only"
+    if prompt_exposure_policy not in _MODEL_VISIBLE_PROMPT_POLICIES:
+        return {}
     required_inputs = [str(value) for value in list(tool.get("required_inputs") or []) if str(value)]
     payload: dict[str, Any] = {
         "tool_name": name,
         "operation_id": str(tool.get("operation_id") or ""),
     }
-    prompt_exposure_policy = str(tool.get("prompt_exposure_policy") or "").strip()
     if prompt_exposure_policy:
         payload["prompt_exposure_policy"] = prompt_exposure_policy
     if required_inputs:

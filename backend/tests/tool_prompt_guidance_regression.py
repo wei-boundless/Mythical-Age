@@ -10,6 +10,8 @@ from harness.runtime.compiler import RuntimeCompiler
 from prompt_library import PromptLibraryRegistry, tool_guidance_payload_for_visible_tools
 from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME
 
+_TOOL_GUIDANCE_DEFAULTS = {key: key for refs in _TOOL_GUIDANCE_REFS_BY_NAME.values() for key in refs}
+
 
 def test_tool_guidance_resources_are_registered_as_prompt_library_resources(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
@@ -86,7 +88,8 @@ def test_tool_guidance_payload_only_uses_visible_schema_plus_guidance_tools() ->
             {"tool_name": "write_file", "prompt_exposure_policy": "schema_only"},
             {"tool_name": "python_repl", "prompt_exposure_policy": "hidden"},
             {"tool_name": "fetch_url", "prompt_exposure_policy": "schema_plus_guidance"},
-        ]
+        ],
+        guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     )
 
     refs = payload["tool_guidance_refs"]
@@ -130,7 +133,10 @@ def test_task_execution_tool_index_includes_guidance_for_visible_tools_only() ->
             },
         ],
         runtime_assembly={
-            "profile": {"profile_ref": "main_interactive_agent"},
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+            },
             "task_environment": {"environment_id": "env.test"},
         },
     ).packet

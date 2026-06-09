@@ -25,11 +25,11 @@ def _runtime_host(tmp_path: Path) -> SimpleNamespace:
 
 
 def test_task_executor_uses_storage_artifact_root_for_policy_and_completion(tmp_path: Path) -> None:
-    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     runtime_assembly = {
         "task_environment": {
             "storage_space": {
-                "environment_storage_root": "storage/task_environments/development/sandbox",
+                "environment_storage_root": "storage/task_environments/coding/vibe-workspace",
                 "artifact_root": artifact_root,
             },
             "artifact_policy": {"artifact_root": "runtime_output"},
@@ -61,7 +61,7 @@ def test_task_executor_uses_storage_artifact_root_for_policy_and_completion(tmp_
 
 
 def test_canonical_artifact_contract_does_not_keep_executable_requested_path() -> None:
-    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     normalized = canonicalize_task_contract_artifacts(
         {"required_artifacts": [{"artifact_kind": "html_document", "path": "artifacts/demo/index.html"}]},
         artifact_root=artifact_root,
@@ -77,7 +77,7 @@ def test_canonical_artifact_contract_does_not_keep_executable_requested_path() -
 def test_canonical_artifact_contract_rejects_absolute_drive_paths() -> None:
     normalized = canonicalize_task_contract_artifacts(
         {"required_artifacts": [{"artifact_kind": "html_document", "path": "C:/tmp/escape.html"}]},
-        artifact_root="storage/task_environments/development/sandbox/artifacts",
+        artifact_root="storage/task_environments/coding/vibe-workspace/artifacts",
     )
 
     assert normalized.contract["required_artifacts"] == [{"artifact_kind": "html_document"}]
@@ -86,14 +86,14 @@ def test_canonical_artifact_contract_rejects_absolute_drive_paths() -> None:
 
 
 def test_sandbox_execution_scope_allows_declared_scratch_without_publishing_it() -> None:
-    artifact_root = "storage/task_environments/development/sandbox/artifacts"
+    artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     scope = compile_sandbox_execution_scope(
         environment_payload={
             "storage_space": {
-                "environment_storage_root": "storage/task_environments/development/sandbox",
-                "runtime_state_root": "storage/task_environments/development/sandbox/runtime_state",
+                "environment_storage_root": "storage/task_environments/coding/vibe-workspace",
+                "runtime_state_root": "storage/task_environments/coding/vibe-workspace/runtime_state",
                 "artifact_root": artifact_root,
-                "cache_root": "storage/task_environments/development/sandbox/cache",
+                "cache_root": "storage/task_environments/coding/vibe-workspace/cache",
             },
             "sandbox_policy": {"enabled": True, "write_policy": "sandbox_or_task_granted"},
             "file_management": {"constraints": {"sandbox_workspace_write": "allowed"}},
@@ -175,8 +175,8 @@ def test_safety_gate_allows_any_write_inside_sandbox_root(tmp_path: Path) -> Non
         root_dir=workspace_root,
         safety_envelope={
             "write_mode": "bounded_create",
-            "write_roots": ["storage/task_environments/development/sandbox/artifacts"],
-            "canonical_output_paths": ["storage/task_environments/development/sandbox/artifacts/game.html"],
+            "write_roots": ["storage/task_environments/coding/vibe-workspace/artifacts"],
+            "canonical_output_paths": ["storage/task_environments/coding/vibe-workspace/artifacts/game.html"],
         },
         sandbox_policy={"enabled": True, "sandbox_root": str(sandbox_root)},
     )

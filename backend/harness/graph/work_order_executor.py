@@ -872,6 +872,7 @@ def _contract_artifact_root(
     ).strip()
     environment_root = str(environment_projection.get("environment_artifact_root") or storage_space.get("artifact_root") or work_order.artifact_space_ref or "").strip()
     policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
+    explicit_root = _explicit_artifact_root(work_order)
     root_value = str(
         environment_root
         or policy_root
@@ -879,12 +880,13 @@ def _contract_artifact_root(
         or output_policy.get("default_artifact_root")
         or policy.get("default_artifact_root")
         or policy.get("root")
+        or explicit_root
         or ""
     ).strip()
     root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
     if root is None:
         return None
-    explicit_subdir = _artifact_subdir_from_explicit_root(work_order)
+    explicit_subdir = "" if root_value == explicit_root else _artifact_subdir_from_explicit_root(work_order)
     subdir_template = explicit_subdir or str(
         artifact_materialization.get("subdir_template")
         or artifact_materialization.get("scope_template")
@@ -942,6 +944,7 @@ def _artifact_materialization_root(*, graph_config: GraphHarnessConfig, work_ord
         or _environment_artifact_root(graph_config)
         or _render_artifact_template(policy_root, values)
         or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
+        or _explicit_artifact_root(work_order)
     ).strip()
 
 

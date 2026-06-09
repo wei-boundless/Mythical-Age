@@ -756,7 +756,7 @@ def test_runtime_monitor_management_omits_stale_graph_from_monitor(tmp_path):
             "graph_run_id": "grun:stale-graph",
             "graph_harness_config_id": "ghcfg:stale-graph",
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing",
         },
     )
@@ -1381,11 +1381,11 @@ def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
             "graph_run_id": "grun:old",
             "graph_harness_config_id": "ghcfg:old",
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
             "session_scope": {
                 "workspace_view": "task_environment",
-                "task_environment_id": "env.creation.writing",
+                "task_environment_id": "env.office.file_search",
                 "project_id": "project.creation.writing.honghuang",
             },
         },
@@ -1403,11 +1403,11 @@ def test_global_monitor_keeps_one_current_graph_task_per_project_scope():
             "graph_run_id": "grun:current",
             "graph_harness_config_id": "ghcfg:current",
             "workspace_view": "task_environment",
-            "task_environment_id": "env.creation.writing",
+            "task_environment_id": "env.office.file_search",
             "project_id": "project.creation.writing.honghuang",
             "session_scope": {
                 "workspace_view": "task_environment",
-                "task_environment_id": "env.creation.writing",
+                "task_environment_id": "env.office.file_search",
                 "project_id": "project.creation.writing.honghuang",
             },
         },
@@ -1460,7 +1460,7 @@ def test_monitor_navigation_uses_owning_task_environment_session_scope():
         EventLogStub(),
         session_scope_resolver=lambda session_id: {
             "workspace_view": "task_environment",
-            "task_environment_id": "env.development.sandbox",
+            "task_environment_id": "env.coding.vibe_workspace",
             "project_id": "",
         } if session_id == "session-dev" else None,
     )
@@ -1477,13 +1477,13 @@ def test_monitor_navigation_uses_owning_task_environment_session_scope():
     assert item["title"] == "task.dev.calculator"
     assert item["session_scope"] == {
         "workspace_view": "task_environment",
-        "task_environment_id": "env.development.sandbox",
+        "task_environment_id": "env.coding.vibe_workspace",
         "project_id": "",
     }
     assert item["navigation_target"] == {
         "target_kind": "session",
         "workspace_view": "task_environment",
-        "task_environment_id": "env.development.sandbox",
+        "task_environment_id": "env.coding.vibe_workspace",
         "session_id": "session-dev",
         "task_instance_id": run.task_run_id,
         "task_run_id": run.task_run_id,

@@ -362,7 +362,6 @@ export function TaskEnvironmentManagementWorkbench({
   const boundToSelected = Boolean(selectedEnvironmentId && chatTaskEnvironmentBinding?.task_environment_id === selectedEnvironmentId);
   const selectedScope: EnvironmentScope = taskEnvironmentScope(selectedItem);
   const selectedProtected = Boolean(selectedItem && selectedScope !== "workspace" && draft.environment_id === selectedEnvironmentId);
-  const graphOnlyEnvironment = selectedEnvironmentId === "env.creation.writing";
 
   return (
     <main className="task-management-workbench task-system-management-workbench">
@@ -381,7 +380,7 @@ export function TaskEnvironmentManagementWorkbench({
         <div className="boundary-actions">
           <TaskSystemToolbarButton onClick={onCreate}><Plus size={15} />新环境</TaskSystemToolbarButton>
           <TaskSystemToolbarButton
-            disabled={!selectedEnvironmentId || graphOnlyEnvironment}
+            disabled={!selectedEnvironmentId}
             onClick={() => onBindEnvironment(selectedEnvironmentId, selectedEnvironmentLabel)}
             variant={boundToSelected ? "primary" : "ghost"}
           >

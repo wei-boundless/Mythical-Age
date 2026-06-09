@@ -96,8 +96,8 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "coding.rule.windows_shell.v1",
         "coding.rule.task_progress.v1",
         "environment.rule.coding_workspace.v1",
-        "environment.rule.development_sandbox.v1",
-        "environment.rule.writing_workspace.v1",
+        "environment.rule.coding_workspace.v1",
+        "environment.rule.office_file_search.v1",
         "environment.rule.general_workspace.v1",
         "environment.resource.base_workspace.orientation.v1",
         "environment.resource.managed_project_workspace.orientation.v1",
@@ -105,8 +105,8 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "environment.resource.writing_manuscript.orientation.v1",
         "environment.resource.general_workspace.orientation.v1",
         "environment.coding.vibe_workspace.orientation.v1",
-        "environment.development.sandbox.orientation.v1",
-        "environment.creation.writing.orientation.v1",
+        "environment.coding.vibe_workspace.orientation.v1",
+        "environment.office.file_search.orientation.v1",
         "environment.general.workspace.orientation.v1",
     }
     migrated_legacy_packs = {

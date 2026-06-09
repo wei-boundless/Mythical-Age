@@ -44,7 +44,7 @@ class GraphRunRunnerResult:
             "graph_result": dict(self.graph_result),
             "active_node_work_orders": [dict(item) for item in self.active_node_work_orders],
             "active_node_work_order_count": len(self.active_node_work_orders),
-            "events": [dict(item) for item in self.events],
+            "events": [_event_public_view(dict(item)) for item in self.events],
         }
 
 
@@ -505,7 +505,197 @@ def _task_run_work_order_id(task_run: dict[str, Any]) -> str:
 def _loop_state_public_view(state: GraphLoopState) -> dict[str, Any]:
     payload = state.to_dict()
     return {
-        **payload,
-        "work_order_index": {key: dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
-        "result_index": {key: dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
+        "authority": str(payload.get("authority") or "harness.graph_loop_state"),
+        "state_id": str(payload.get("state_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "structure_hash": str(payload.get("structure_hash") or ""),
+        "structure_version": str(payload.get("structure_version") or ""),
+        "config_snapshot_id": str(payload.get("config_snapshot_id") or ""),
+        "config_snapshot_hash": str(payload.get("config_snapshot_hash") or ""),
+        "status": str(payload.get("status") or ""),
+        "ready_node_ids": list(payload.get("ready_node_ids") or []),
+        "running_node_ids": list(payload.get("running_node_ids") or []),
+        "completed_node_ids": list(payload.get("completed_node_ids") or []),
+        "failed_node_ids": list(payload.get("failed_node_ids") or []),
+        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
+        "active_node_ids": list(payload.get("running_node_ids") or []),
+        "active_work_order_node_ids": list(dict(payload.get("active_work_orders") or {}).keys()),
+        "node_states": {
+            str(node_id): _node_state_public_view(dict(node_state or {}))
+            for node_id, node_state in dict(payload.get("node_states") or {}).items()
+        },
+        "event_cursor": payload.get("event_cursor", -1),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "diagnostics": _loop_diagnostics_public_view(dict(payload.get("diagnostics") or {})),
+    }
+
+
+def _node_state_public_view(node_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_id": str(node_state.get("node_id") or ""),
+        "status": str(node_state.get("status") or ""),
+        "executor_type": str(node_state.get("executor_type") or ""),
+        "created_at": node_state.get("created_at", 0.0),
+        "updated_at": node_state.get("updated_at", 0.0),
+        "work_order_id": str(node_state.get("work_order_id") or ""),
+        "result_ref": str(node_state.get("result_ref") or ""),
+        "blocked_reason": str(node_state.get("blocked_reason") or ""),
+    }
+
+
+def _loop_diagnostics_public_view(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "graph_harness_config_id",
+        "graph_harness_config_hash",
+        "graph_structure_hash",
+        "graph_structure_version",
+        "config_snapshot_id",
+        "config_snapshot_hash",
+        "runtime_scope",
+        "runtime_settings",
+        "runtime_settings_revision",
+        "config_runtime_settings_fingerprint",
+        "source",
+        "scheduler",
+    }
+    return {
+        key: value
+        for key, value in diagnostics.items()
+        if key in allowed_keys
+    }
+
+
+def _event_public_view(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": str(event.get("event_id") or ""),
+        "run_id": str(event.get("run_id") or ""),
+        "event_type": str(event.get("event_type") or ""),
+        "offset": event.get("offset", -1),
+        "created_at": event.get("created_at", 0.0),
+        "payload": _event_payload_public_view(dict(event.get("payload") or {})),
+        "refs": dict(event.get("refs") or {}),
+        "authority": str(event.get("authority") or ""),
+    }
+
+
+def _event_payload_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_scalars = {
+        "authority",
+        "graph_run_id",
+        "graph_harness_config_id",
+        "node_id",
+        "work_order_id",
+        "status",
+        "terminal_reason",
+        "blocked_reason",
+        "budget_exhausted",
+        "executed_work_order_count",
+        "accepted_result_count",
+        "dispatch_count",
+    }
+    public: dict[str, Any] = {
+        key: value
+        for key, value in payload.items()
+        if key in allowed_scalars and (isinstance(value, (str, int, float, bool)) or value is None)
+    }
+    if isinstance(payload.get("budget"), dict):
+        public["budget"] = dict(payload["budget"])
+    if isinstance(payload.get("work_order"), dict):
+        public["work_order"] = _work_order_event_public_view(dict(payload["work_order"]))
+    if isinstance(payload.get("node_work_orders"), list):
+        public["node_work_orders"] = [
+            _work_order_event_public_view(dict(item))
+            for item in payload["node_work_orders"]
+            if isinstance(item, dict)
+        ]
+    if isinstance(payload.get("node_result"), dict):
+        public["node_result"] = _node_result_event_public_view(dict(payload["node_result"]))
+    if isinstance(payload.get("node_executor_task_run"), dict):
+        public["node_executor_task_run"] = _task_run_event_public_view(dict(payload["node_executor_task_run"]))
+    if isinstance(payload.get("graph_loop_state"), dict):
+        public["graph_loop_state"] = _loop_state_payload_event_public_view(dict(payload["graph_loop_state"]))
+    if isinstance(payload.get("graph_result"), dict):
+        public["graph_result"] = _graph_result_event_public_view(dict(payload["graph_result"]))
+    return public
+
+
+def _work_order_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "work_kind": str(payload.get("work_kind") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "agent_id": str(payload.get("agent_id") or ""),
+        "node_session_id": str(payload.get("node_session_id") or ""),
+        "inbound_context_count": payload.get("inbound_context_count", 0),
+    }
+
+
+def _node_result_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "result_id": str(payload.get("result_id") or ""),
+        "result_ref": str(payload.get("result_ref") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "node_executor_task_run_id": str(payload.get("node_executor_task_run_id") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "artifact_ref_count": payload.get("artifact_ref_count", 0),
+        "memory_candidate_count": payload.get("memory_candidate_count", 0),
+        "progress_receipt_count": payload.get("progress_receipt_count", 0),
+        "artifact_materialization_receipt_count": payload.get("artifact_materialization_receipt_count", 0),
+        "memory_commit_receipt_count": payload.get("memory_commit_receipt_count", 0),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _task_run_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_id": str(payload.get("task_id") or ""),
+        "owner_agent_seat_id": str(payload.get("owner_agent_seat_id") or ""),
+        "agent_id": str(payload.get("agent_id") or ""),
+        "agent_profile_id": str(payload.get("agent_profile_id") or ""),
+        "execution_runtime_kind": str(payload.get("execution_runtime_kind") or ""),
+        "status": str(payload.get("status") or ""),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _loop_state_payload_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "state_id": str(payload.get("state_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "ready_node_ids": list(payload.get("ready_node_ids") or []),
+        "running_node_ids": list(payload.get("running_node_ids") or []),
+        "completed_node_ids": list(payload.get("completed_node_ids") or []),
+        "failed_node_ids": list(payload.get("failed_node_ids") or []),
+        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _graph_result_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "result_id": str(payload.get("result_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
     }

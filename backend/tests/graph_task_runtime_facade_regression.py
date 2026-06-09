@@ -1970,7 +1970,7 @@ def test_graph_harness_config_locks_task_environment_and_work_order_refs() -> No
                 "agent_id": "agent:0",
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -1980,13 +1980,13 @@ def test_graph_harness_config_locks_task_environment_and_work_order_refs() -> No
     work_order = start.node_work_orders[0]
     environment = dict(graph_config.environment or {})
 
-    assert graph_config.task_environment_id == "env.development.sandbox"
+    assert graph_config.task_environment_id == "env.coding.vibe_workspace"
     assert environment["locked"] is True
     assert environment["storage_space"]["artifact_root"].endswith("/artifacts")
     assert environment["file_access_tables"]
     assert environment["memory_space"]
     assert environment["artifact_policy"]
-    assert work_order.input_package["task_environment_id"] == "env.development.sandbox"
+    assert work_order.input_package["task_environment_id"] == "env.coding.vibe_workspace"
     assert work_order.file_access_table_refs
     assert work_order.file_view_request["file_access_tables"]
     assert work_order.artifact_space_ref == environment["storage_space"]["artifact_root"]
@@ -2019,7 +2019,7 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2034,10 +2034,10 @@ def test_graph_node_task_run_contract_and_origin_are_explicit() -> None:
     assert diagnostics["origin_kind"] == "graph_node_assigned"
     assert diagnostics["parent_run_ref"] == start.graph_run.graph_run_id
     assert contract["origin"]["origin_kind"] == "graph_node_assigned"
-    assert contract["task_environment_id"] == "env.development.sandbox"
+    assert contract["task_environment_id"] == "env.coding.vibe_workspace"
     assert contract["prompt_contract"]["role_prompt"] == "你是一名图节点执行员。"
     assert contract["runtime_profile"]["runtime_policy"]["source"] == "graph_slot.node_contract"
-    assert runtime_contract["task_environment_id"] == "env.development.sandbox"
+    assert runtime_contract["task_environment_id"] == "env.coding.vibe_workspace"
     assert runtime_contract["task_id"] == "task.test.execute"
     assert runtime_contract["prompt_contract"]["task_instruction"] == "只完成当前节点任务。"
     assert runtime_contract["runtime_profile"]["tool_policy"] == {}
@@ -2064,7 +2064,7 @@ def test_graph_node_task_run_records_runtime_model_override() -> None:
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2116,7 +2116,7 @@ def test_existing_waiting_graph_node_task_run_refreshes_runtime_model_override()
                 "metadata": {"prompt_contract": {"role_prompt": "你是一名执行员。"}},
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2188,7 +2188,7 @@ def test_graph_node_agent_profile_id_does_not_replace_agent_id() -> None:
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2228,7 +2228,7 @@ def test_graph_node_agent_profile_id_drives_task_executor_runtime_assembly() -> 
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2274,7 +2274,7 @@ def test_graph_node_missing_agent_profile_fails_closed() -> None:
                 "metadata": {"agent_profile_id": "missing_graph_node_profile"},
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2303,7 +2303,7 @@ def test_graph_node_task_run_id_uses_full_work_order_hash_to_avoid_safe_id_colli
         nodes=(
             {"node_id": "draft", "node_type": "agent", "title": "执行", "task_id": "task.test.execute", "agent_id": "agent:0"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2339,7 +2339,7 @@ def test_graph_node_task_runs_are_hidden_from_global_monitor_and_recovery() -> N
         nodes=(
             {"node_id": "draft", "node_type": "agent", "title": "执行", "task_id": "task.test.execute", "agent_id": "agent:0"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2388,7 +2388,7 @@ def test_graph_run_runner_executes_linear_graph_to_completion() -> None:
             {"edge_id": "edge.plan.draft", "source_node_id": "plan", "target_node_id": "draft", "edge_type": "handoff"},
             {"edge_id": "edge.draft.publish", "source_node_id": "draft", "target_node_id": "publish", "edge_type": "handoff"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2434,7 +2434,7 @@ def test_graph_run_monitor_exposes_only_active_node_runtime_views_after_runner()
         edges=(
             {"edge_id": "edge.draft.review", "source_node_id": "draft", "target_node_id": "review", "edge_type": "handoff"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2497,7 +2497,7 @@ def test_graph_task_run_monitor_does_not_reenter_graph_runtime_projection() -> N
 
 
 def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -> None:
-    artifact_rel = "storage/task_environments/development/sandbox/artifacts/graph-node-artifact.md"
+    artifact_rel = "storage/task_environments/coding/vibe-workspace/artifacts/graph-node-artifact.md"
     runtime = HarnessRuntimeFacade(
         base_dir=isolated_backend_root("graph-artifact-repository-"),
         settings_service=PrimarySettingsStub(),
@@ -2522,7 +2522,7 @@ def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -
         nodes=(
             {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2585,7 +2585,7 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2612,8 +2612,8 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
         runtime.base_dir.parent
         / "storage"
         / "task_environments"
-        / "development"
-        / "sandbox"
+        / "coding"
+        / "vibe-workspace"
         / "artifacts"
         / "project-artifact-test"
         / "world"
@@ -2629,14 +2629,75 @@ def test_graph_agent_node_materializes_declared_final_content_artifact() -> None
     assert "图节点执行完成" in artifact_path.read_text(encoding="utf-8")
     assert "outputs" not in node_result_summary
     assert node_result["artifact_refs"] == [
-        "storage/task_environments/development/sandbox/artifacts/project-artifact-test/world/world_candidate_round_002.md"
+        "storage/task_environments/coding/vibe-workspace/artifacts/project-artifact-test/world/world_candidate_round_002.md"
     ]
     assert node_result["artifact_materialization_receipts"][0]["authority"] == "artifact_repository.service"
     assert overview["artifact_count"] == 1
     assert (
         overview["artifacts"][0]["path"]
-        == "storage/task_environments/development/sandbox/artifacts/project-artifact-test/world/world_candidate_round_002.md"
+        == "storage/task_environments/coding/vibe-workspace/artifacts/project-artifact-test/world/world_candidate_round_002.md"
     )
+
+
+def test_graph_agent_node_uses_initial_input_artifact_root_without_environment() -> None:
+    runtime = _task_execution_runtime("graph-contract-artifact-project-root-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.contract_artifact_project_root",
+        title="Contract Artifact Project Root",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "task_id": "task.test.draft",
+                "agent_id": "agent:0",
+                "artifact_policy": {
+                    "enabled": True,
+                    "required": True,
+                    "artifacts": [
+                        {
+                            "path": "brief.md",
+                            "required": True,
+                            "content_source": "final_content",
+                            "fallback_to_full_content": True,
+                        }
+                    ],
+                },
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    assert not dict(dict(graph_config.environment).get("storage_space") or {}).get("artifact_root")
+    start = runtime.graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        initial_inputs={"project_id": "project:artifact-test", "artifact_root": "output/project_graph_artifacts"},
+    )
+
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    node_result = _runtime_object_payload(runtime, state["result_index"]["draft"]["result_ref"])
+    artifact_path = runtime.base_dir.parent / "output" / "project_graph_artifacts" / "brief.md"
+
+    assert result.status == "completed"
+    assert artifact_path.exists()
+    assert "图节点执行完成" in artifact_path.read_text(encoding="utf-8")
+    assert node_result["artifact_refs"] == ["output/project_graph_artifacts/brief.md"]
 
 
 def test_graph_agent_retry_materializes_next_dispatch_round_artifact_without_explicit_round_index() -> None:
@@ -2682,7 +2743,7 @@ def test_graph_agent_retry_materializes_next_dispatch_round_artifact_without_exp
             },
         ),
         edges=(),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2718,8 +2779,8 @@ def test_graph_agent_retry_materializes_next_dispatch_round_artifact_without_exp
         runtime.base_dir.parent
         / "storage"
         / "task_environments"
-        / "development"
-        / "sandbox"
+        / "coding"
+        / "vibe-workspace"
         / "artifacts"
         / "project-artifact-test"
         / "world"
@@ -2771,7 +2832,7 @@ def test_graph_agent_node_writes_formal_memory_candidate_and_commit() -> None:
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2858,7 +2919,7 @@ def test_graph_memory_commit_preserves_plural_record_kinds_for_required_reads() 
             },
             {"edge_id": "edge.draft.reader", "source_node_id": "draft", "target_node_id": "reader", "edge_type": "handoff"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2920,7 +2981,7 @@ def test_graph_formal_memory_write_fails_when_repository_not_declared() -> None:
                 },
             },
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
@@ -2960,7 +3021,7 @@ def test_graph_run_runner_reconnects_active_work_orders_from_checkpoint() -> Non
         edges=(
             {"edge_id": "edge.draft.review", "source_node_id": "draft", "target_node_id": "review", "edge_type": "handoff"},
         ),
-        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
         publish_state="published",
         enabled=True,
     )
