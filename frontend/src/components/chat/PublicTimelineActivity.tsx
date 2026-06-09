@@ -69,15 +69,19 @@ function publicTimelineActivityView(
 ): PublicTimelineActivityView | null {
   const normalizedItems = normalizePublicTimelineItems(items ?? []).filter((item) => !isPublicTimelineControlItem(item));
   const projections = taskProjections ?? [];
+  const projectionTone = taskProjectionTone(projections);
+  const timelineItems = projectionTone && projectionTone !== "running"
+    ? normalizedItems.filter((item) => !isStalePublicTimelineItemForProjectionTone(item, projectionTone))
+    : normalizedItems;
   const projectionEntries = taskProjectionActivityEntries(projections);
-  const timelineEntries = activityEntries(normalizedItems);
+  const timelineEntries = activityEntries(timelineItems);
   const entries = [...projectionEntries, ...timelineEntries];
   if (!entries.length) {
     return null;
   }
   return {
     entries,
-    tone: taskProjectionTone(projections) || publicTimelineTone(normalizedItems),
+    tone: projectionTone || publicTimelineTone(timelineItems),
   };
 }
 
@@ -85,12 +89,18 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
   const entries: ActivityEntry[] = [];
   for (const projection of projections) {
     const projectionId = cleanPublicTimelineText(projection.projection_id || projection.task_run_id);
-    const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
-    if (currentAction) {
-      entries.push(currentAction);
+    const projectionTone = taskProjectionStatusTone(projection.status);
+    const lifecycleEntry = taskProjectionLifecycleEntry(projection, projectionId, projectionTone);
+    if (lifecycleEntry) {
+      entries.push(lifecycleEntry);
+    } else {
+      const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
+      if (currentAction) {
+        entries.push(currentAction);
+      }
     }
     for (const activity of projection.activities ?? []) {
-      const entry = taskProjectionActivityEntry(activity, projectionId);
+      const entry = taskProjectionActivityEntry(activity, projectionId, projectionTone);
       if (entry) {
         entries.push(entry);
       }
@@ -115,6 +125,38 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
     }
   }
   return dedupeActivityEntries(entries);
+}
+
+function taskProjectionLifecycleEntry(
+  projection: SingleAgentTaskProjection,
+  projectionId: string,
+  projectionTone: PublicTimelineActivityTone | "",
+): ActivityEntry | null {
+  if (!projectionTone || projectionTone === "running" || projectionTone === "done") {
+    return null;
+  }
+  const status = cleanPublicTimelineText(projection.status).toLowerCase();
+  const current = projection.current_action;
+  const currentRecord = current && typeof current === "object" && !Array.isArray(current)
+    ? current
+    : {};
+  const currentTitle = cleanPublicTimelineText(currentRecord.title ?? currentRecord.phase);
+  const currentDetail = cleanPublicTimelineText(currentRecord.detail);
+  const currentState = cleanPublicTimelineText(currentRecord.state).toLowerCase();
+  const title = currentTitle
+    && !isActiveTaskProjectionActivityState(currentState)
+    && !isGenericStatusActivity(currentTitle, currentDetail)
+    ? currentTitle
+    : taskProjectionLifecycleTitle(status);
+  const detail = currentDetail && currentDetail !== title && !isGenericStatusActivity(currentTitle, currentDetail)
+    ? currentDetail
+    : "";
+  return {
+    detail,
+    id: `${projectionId}:lifecycle:${status || projectionTone}`,
+    kind: projectionTone === "waiting" ? "status" : "stopped",
+    text: title,
+  };
 }
 
 function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection, projectionId: string): ActivityEntry | null {
@@ -144,8 +186,12 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
 function taskProjectionActivityEntry(
   activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
   projectionId: string,
+  projectionTone: PublicTimelineActivityTone | "",
 ): ActivityEntry | null {
   if (!activity || typeof activity !== "object") {
+    return null;
+  }
+  if (isStaleTaskProjectionActivityForProjectionTone(activity, projectionTone)) {
     return null;
   }
   const title = cleanPublicTimelineText(activity.title);
@@ -162,7 +208,7 @@ function taskProjectionActivityEntry(
   const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
   const state = cleanPublicTimelineText(activity.state).toLowerCase();
   const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window" || kind === "observation" || kind === "action"
+  const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window"
     ? "tool"
     : kind === "error" || state === "failed"
       ? "stopped"
@@ -297,7 +343,7 @@ function taskProjectionToolMeta(
 function readableTaskActivityState(state: string) {
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "已完成";
   if (["running", "working", "partial", ""].includes(state)) return "运行中";
-  if (["waiting", "waiting_user", "waiting_approval", "queued"].includes(state)) return "等待中";
+  if (["waiting", "waiting_user", "waiting_approval", "queued", "paused"].includes(state)) return "等待中";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "失败";
   if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "已停止";
   return shortText(state, 48);
@@ -407,12 +453,71 @@ function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActi
 
 function taskProjectionTone(projections: SingleAgentTaskProjection[]): PublicTimelineActivityTone | "" {
   const status = projections.map((projection) => cleanPublicTimelineText(projection.status).toLowerCase()).reverse().find(Boolean) ?? "";
-  if (!status) return "";
-  if (["failed", "error", "blocked", "missing"].includes(status)) return "soft_error";
-  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "queued", "paused"].includes(status)) return "waiting";
-  if (["completed", "complete", "done", "success"].includes(status)) return "done";
-  if (["stopped", "cancelled", "canceled", "aborted"].includes(status)) return "stopped";
+  return taskProjectionStatusTone(status);
+}
+
+function taskProjectionStatusTone(status: unknown): PublicTimelineActivityTone | "" {
+  const normalized = cleanPublicTimelineText(status).toLowerCase();
+  if (!normalized) return "";
+  if (["failed", "error", "blocked", "missing"].includes(normalized)) return "soft_error";
+  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "queued", "paused"].includes(normalized)) return "waiting";
+  if (["completed", "complete", "done", "success"].includes(normalized)) return "done";
+  if (["stopped", "cancelled", "canceled", "aborted"].includes(normalized)) return "stopped";
   return "running";
+}
+
+function taskProjectionLifecycleTitle(status: string) {
+  if (["stopped", "cancelled", "canceled", "aborted"].includes(status)) return "任务已停止";
+  if (status === "paused") return "任务已暂停";
+  if (["waiting_user", "waiting_executor"].includes(status)) return "等待继续";
+  if (status === "waiting_approval") return "等待确认";
+  if (status === "queued") return "等待执行";
+  if (["failed", "error", "blocked", "missing"].includes(status)) return "任务执行失败";
+  return "任务状态已更新";
+}
+
+function isActiveTaskProjectionActivityState(state: string) {
+  return ["", "running", "working", "partial"].includes(state);
+}
+
+function isStaleTaskProjectionActivityForProjectionTone(
+  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
+  projectionTone: PublicTimelineActivityTone | "",
+) {
+  if (!projectionTone || projectionTone === "running") {
+    return false;
+  }
+  if (cleanPublicTimelineText(activity.kind) === "todo") {
+    return false;
+  }
+  const state = cleanPublicTimelineText(activity.state).toLowerCase();
+  return isActiveTaskProjectionActivityState(state) || ["waiting", "queued", "paused"].includes(state);
+}
+
+function isStalePublicTimelineItemForProjectionTone(
+  item: PublicChatTimelineItem,
+  projectionTone: PublicTimelineActivityTone,
+) {
+  const state = cleanPublicTimelineText(item.state).toLowerCase();
+  if (isPublicTimelineBodyItem(item)) {
+    return isActivePublicTimelineItem(item) || ["waiting", "queued", "paused"].includes(state);
+  }
+  if (isActivePublicTimelineItem(item)) {
+    return true;
+  }
+  return ["waiting", "queued", "paused"].includes(state);
+}
+
+function isActivePublicTimelineItem(item: PublicChatTimelineItem) {
+  const state = cleanPublicTimelineText(item.state).toLowerCase();
+  const phase = cleanPublicTimelineText(item.phase).toLowerCase();
+  if (item.stream_state === "streaming") return true;
+  if (["running", "working", "partial"].includes(state)) return true;
+  if (["running", "working", "partial", "streaming"].includes(phase)) return true;
+  if (!state && (["work_action", "tool_activity", "status_update"].includes(kindOf(item)) || cleanPublicTimelineText(item.surface) === "tool_window")) {
+    return true;
+  }
+  return false;
 }
 
 function publicText(item: PublicChatTimelineItem) {

@@ -93,21 +93,17 @@ export function ChatMessage({
       runtimePublicTimelineForMessage,
       terminalState,
     );
-  const hasBasePublicTimelineActivity = publicTimelineHasDisplayableActivity(basePublicTimelineItems, taskProjections);
-  const hasFinalAnswerBoundary = Boolean(answerCanonicalState || answerPersistPolicy || answerChannel);
-  const contentProjectedIntoTimeline = hasFinalAnswerBoundary && !streamingContent && !isUser && Boolean(baseDisplayContent.trim()) && hasBasePublicTimelineActivity;
-  const publicTimelineItems = contentProjectedIntoTimeline
-    ? mergePublicTimelineItems(
-      withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent),
-      [assistantFinalSummaryTimelineItem(baseDisplayContent)],
-      { terminalState },
-    )
+  const publicTimelineItems = !isUser && baseDisplayContent.trim()
+    ? withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent)
     : basePublicTimelineItems;
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
+  const taskProjectionsForActivity = !isUser && baseDisplayContent.trim()
+    ? withoutRedundantTaskProjectionFinalAnswers(taskProjections, baseDisplayContent)
+    : taskProjections;
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjectionsForActivity);
   const askUserQuestionContent = !isUser ? askUserQuestionFromPublicTimelineItems(publicTimelineItems) : "";
   const messageDisplayContent = isUser
     ? baseDisplayContent
-    : contentProjectedIntoTimeline ? "" : baseDisplayContent || askUserQuestionContent;
+    : baseDisplayContent || askUserQuestionContent;
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -181,7 +177,7 @@ export function ChatMessage({
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
       {!isUser && hasPublicTimelineActivity ? (
-        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjections} />
+        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjectionsForActivity} />
       ) : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
@@ -336,20 +332,26 @@ function normalizeAskUserQuestionMarkdown(value: string) {
   return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
 }
 
-function assistantFinalSummaryTimelineItem(content: string): PublicChatTimelineItem {
-  const text = content.trim();
-  return {
-    item_id: `assistant-final:${text.slice(0, 96)}`,
-    kind: "final_summary",
-    surface: "body",
-    source_authority: "model",
-    text,
-    state: "done",
-  };
-}
-
 function withoutRedundantAssistantFinalBody(items: PublicChatTimelineItem[], content: string) {
   return items.filter((item) => !isRedundantAssistantFinalBody(item, content));
+}
+
+function withoutRedundantTaskProjectionFinalAnswers(
+  projections: SingleAgentTaskProjection[],
+  content: string,
+) {
+  let changed = false;
+  const next = projections.map((projection) => {
+    if (!isRedundantAssistantText(projection.final_answer, content)) {
+      return projection;
+    }
+    changed = true;
+    return {
+      ...projection,
+      final_answer: "",
+    };
+  });
+  return changed ? next : projections;
 }
 
 function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: string) {
@@ -360,16 +362,20 @@ function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: st
   if (!isPublicTimelineBodyItem(item)) {
     return false;
   }
-  const itemText = normalizedAssistantComparisonText(publicTimelineBodyText(item));
+  return isRedundantAssistantText(publicTimelineBodyText(item), content);
+}
+
+function isRedundantAssistantText(candidate: unknown, content: string) {
+  const candidateText = normalizedAssistantComparisonText(candidate);
   const contentText = normalizedAssistantComparisonText(content);
-  if (!itemText || !contentText) {
+  if (!candidateText || !contentText) {
     return false;
   }
-  if (itemText === contentText) {
+  if (candidateText === contentText) {
     return true;
   }
-  const shortText = itemText.length <= contentText.length ? itemText : contentText;
-  const longText = itemText.length <= contentText.length ? contentText : itemText;
+  const shortText = candidateText.length <= contentText.length ? candidateText : contentText;
+  const longText = candidateText.length <= contentText.length ? contentText : candidateText;
   if (shortText.length < 80) {
     return false;
   }

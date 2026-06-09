@@ -487,6 +487,57 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("public-run-activity__spinner");
   });
 
+  it("keeps stable assistant prose as body beside task projection activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content: "修好了。",
+        id: "message:stable-with-task-projection",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:projection-final",
+            anchor_turn_id: "turn:projection-final",
+            run_id: "taskrun:projection-final",
+            task_run_id: "taskrun:projection-final",
+            status: "completed",
+            public_timeline: [],
+            task_projection: {
+              projection_id: "projection:taskrun:projection-final",
+              authority: "harness.runtime.single_agent_task_projection.v1",
+              task_run_id: "taskrun:projection-final",
+              status: "completed",
+              final_answer: "修好了。",
+              activities: [
+                {
+                  activity_id: "activity:write-report",
+                  kind: "action",
+                  source_kind: "write_file",
+                  tool_name: "write_file",
+                  tool_target: "docs/report.md",
+                  display_surface: "tool_window",
+                  visibility_level: "primary",
+                  title: "写入报告",
+                  detail: "docs/report.md 已更新。",
+                  state: "completed",
+                },
+              ],
+            },
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html.match(/修好了。/g)?.length ?? 0).toBe(1);
+    expect(html).toContain("复制回复");
+    expect(html).toContain("写入报告");
+    expect(html).toContain("public-run-activity__tool-window");
+  });
+
   it("renders final summary as assistant prose instead of leaving only activity feedback", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

@@ -528,6 +528,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     if (!query) return files;
     return files.filter((file) => `${file.name} ${file.path}`.toLowerCase().includes(query));
   }, [chapterFiles, fileSearch, flatFiles]);
+  const selectedFileName = selectedFilePath
+    ? selectedFilePath.split(/[\\/]/).filter(Boolean).at(-1) || selectedFilePath
+    : "";
   const selectedNodeArtifacts = useMemo(
     () => selectedNode ? artifacts.filter((artifact) => artifactNodeId(artifact) === selectedNode.nodeId).slice(0, 8) : [],
     [artifacts, selectedNode],
@@ -771,6 +774,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       const payload = await readGraphTaskInstanceFile(selectedInstance.graph_task_instance_id, path);
       setSelectedFilePath(payload.path);
       setFileContent(payload.content);
+      setFileEditorMode("preview");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "读取项目文件失败");
     } finally {
@@ -803,6 +807,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       const payload = await writeGraphTaskInstanceFile(selectedInstance.graph_task_instance_id, newFilePath.trim(), newFileContent);
       setSelectedFilePath(payload.path);
       setFileContent(newFileContent);
+      setFileEditorMode("preview");
       setNewFileContent("");
       setNotice(`已写入 ${payload.path}`);
       await refreshInstance(selectedInstance.graph_task_instance_id);
@@ -1141,14 +1146,39 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             <main className="graph-foreground-run-stage" aria-label="运行焦点">
               <section className={classNames(
                 "graph-foreground-next-action",
-                Boolean(counts.failed || counts.blocked) && "graph-foreground-next-action--attention",
+                Boolean(counts.failed || counts.blocked || humanActionCount) && "graph-foreground-next-action--attention",
               )}>
                 <div>
                   <span>下一动作</span>
                   <strong>{nextAction}</strong>
                 </div>
-                {counts.failed || counts.blocked ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                {counts.failed || counts.blocked || humanActionCount ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
               </section>
+
+              {humanControls.length ? (
+                <section className="graph-foreground-human-strip" aria-label="人工传播控制">
+                  <header>
+                    <div>
+                      <span>人工传播</span>
+                      <strong>{humanControls.length} 条可处理边</strong>
+                    </div>
+                    <GitBranch size={15} />
+                  </header>
+                  <div className="graph-foreground-human-strip__list">
+                    {humanControls.slice(0, 4).map((control) => (
+                      <button
+                        className={selectedHumanControl?.control_id === control.control_id ? "graph-foreground-human-control graph-foreground-human-control--active" : "graph-foreground-human-control"}
+                        key={control.control_id}
+                        onClick={() => openHumanDecision(control)}
+                        type="button"
+                      >
+                        <strong>{controlTitle(control)}</strong>
+                        <span>{control.reason || "等待人工选择传播动作"}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
 
               <section className="graph-foreground-run-summary" aria-label="运行摘要">
                 <article>
@@ -1258,6 +1288,30 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   <div className="boundary-empty">选择节点后显示节点输出。</div>
                 )}
               </section>
+              <section className="graph-foreground-panel graph-foreground-human-inspector">
+                <header>
+                  <div>
+                    <span>边传播控制</span>
+                    <strong>{selectedHumanControl ? controlTitle(selectedHumanControl) : "无可处理边"}</strong>
+                  </div>
+                  <GitBranch size={15} />
+                </header>
+                {selectedHumanControl ? (
+                  <>
+                    <p>{selectedHumanControl.reason || "选择人工动作后，系统会按边契约推进图任务。"}</p>
+                    <div className="graph-foreground-human-actions">
+                      {selectedHumanControl.allowed_decisions.map((kind) => (
+                        <button key={kind} onClick={() => openHumanDecision(selectedHumanControl, kind)} type="button">
+                          {kind === "replace" ? <PencilLine size={14} /> : kind === "revise" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                          <span>{decisionLabel(selectedHumanControl, kind)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="boundary-empty">当前没有后端允许的人工传播动作。</div>
+                )}
+              </section>
             </aside>
           </div>
           ) : (
@@ -1311,6 +1365,14 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             {assetTab === "library" ? (
               <div className="graph-foreground-library__body graph-foreground-library__body--session">
                 <div className="graph-foreground-library__editor">
+                  <div className="graph-foreground-reader-head">
+                    <div>
+                      <span>文章阅读</span>
+                      <strong>{selectedFileName || "选择章节开始阅读"}</strong>
+                      <small>{selectedFilePath || "从左侧章节列表打开项目文件"}</small>
+                    </div>
+                    <FileText size={15} />
+                  </div>
                   <div className="graph-foreground-file-head">
                     <label>
                       <span>当前文件</span>
@@ -1323,20 +1385,41 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                       </button>
                       <button aria-pressed={fileEditorMode === "preview"} className={fileEditorMode === "preview" ? "graph-foreground-mode-switch__active" : undefined} onClick={() => setFileEditorMode("preview")} type="button">
                         <Eye size={13} />
-                        预览
+                        阅读
                       </button>
                     </div>
                   </div>
+                  <div className="graph-foreground-chapter-actions" aria-label="章节传播动作">
+                    <div>
+                      <span>人工传播</span>
+                      <strong>{selectedHumanControl ? controlTitle(selectedHumanControl) : "当前无可处理边"}</strong>
+                    </div>
+                    <div>
+                      {(["pass", "revise", "replace"] as HumanEdgeDecisionKind[]).map((kind) => {
+                        const enabled = Boolean(selectedHumanControl?.allowed_decisions.includes(kind));
+                        return (
+                          <button disabled={!enabled || action === "human-edge-decision"} key={kind} onClick={() => openHumanDecision(selectedHumanControl, kind)} type="button">
+                            {kind === "replace" ? <PencilLine size={13} /> : kind === "revise" ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
+                            <span>{decisionLabel(selectedHumanControl, kind)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   {fileEditorMode === "edit" ? (
-                    <textarea onChange={(event) => setFileContent(event.target.value)} placeholder="选择文件后编辑内容" value={fileContent} />
+                    <textarea className="graph-foreground-file-editor-textarea" onChange={(event) => setFileContent(event.target.value)} placeholder="选择文件后编辑内容" value={fileContent} />
                   ) : (
-                    <div className="graph-foreground-file-preview markdown">
+                    <div className="graph-foreground-file-preview graph-foreground-file-preview--reader markdown">
                       {fileContent.trim() ? (
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {fileContent}
                         </ReactMarkdown>
                       ) : (
-                        <p>选择文件后显示预览。</p>
+                        <div className="graph-foreground-reader-empty">
+                          <FileText size={22} />
+                          <strong>选择一章开始阅读</strong>
+                          <span>左侧会列出正式库里的章节或文件。</span>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1441,11 +1524,79 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
                 </div>
               </section>
+              <section className="graph-foreground-panel graph-foreground-session-card">
+                <header>
+                  <div>
+                    <span>人工决策</span>
+                    <strong>{decisionHistory.length} 条记录</strong>
+                  </div>
+                  <GitBranch size={15} />
+                </header>
+                <div className="graph-foreground-human-history">
+                  {decisionHistory.slice(0, 12).map((item) => (
+                    <article key={stringValue(item.decision_id, `${item.edge_id}-${item.created_at}`)}>
+                      <strong>{stringValue(item.decision, "decision")} · {stringValue(item.edge_id, "edge")}</strong>
+                      <span>{stringValue(item.status, "submitted")} · {timestampLabel(item.updated_at ?? item.created_at)}</span>
+                    </article>
+                  ))}
+                  {!decisionHistory.length ? <div className="boundary-empty">人工传播决策会记录在这里。</div> : null}
+                </div>
+              </section>
             </aside>
           </div>
           )}
         </div>
       )}
+      {decisionDrawerOpen && selectedHumanControl ? (
+        <div className="graph-foreground-decision-drawer" role="dialog" aria-modal="true" aria-label="人工传播决策">
+          <div className="graph-foreground-decision-drawer__panel">
+            <header>
+              <div>
+                <span>人工传播决策</span>
+                <strong>{controlTitle(selectedHumanControl)}</strong>
+              </div>
+              <button onClick={() => setDecisionDrawerOpen(false)} type="button">关闭</button>
+            </header>
+            <div className="graph-foreground-decision-kind" role="group" aria-label="决策类型">
+              {selectedHumanControl.allowed_decisions.map((kind) => (
+                <button
+                  aria-pressed={decisionKind === kind}
+                  className={decisionKind === kind ? "graph-foreground-decision-kind__active" : undefined}
+                  key={kind}
+                  onClick={() => setDecisionKind(kind)}
+                  type="button"
+                >
+                  {kind === "replace" ? <PencilLine size={14} /> : kind === "revise" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                  <span>{decisionLabel(selectedHumanControl, kind)}</span>
+                </button>
+              ))}
+            </div>
+            <label>
+              <span>{decisionKind === "revise" ? "回传意见" : "传播说明"}</span>
+              <textarea onChange={(event) => setDecisionInstruction(event.target.value)} placeholder={decisionKind === "revise" ? "说明退稿原因和修改方向" : "可选，写给下游节点的补充说明"} value={decisionInstruction} />
+            </label>
+            {decisionKind === "replace" ? (
+              <div className="graph-foreground-decision-replace">
+                <label>
+                  <span>正式库路径</span>
+                  <input onChange={(event) => setDecisionReplacePath(event.target.value)} value={decisionReplacePath} />
+                </label>
+                <label>
+                  <span>替写内容</span>
+                  <textarea onChange={(event) => setDecisionReplaceContent(event.target.value)} value={decisionReplaceContent} />
+                </label>
+              </div>
+            ) : null}
+            <footer>
+              <button onClick={() => setDecisionDrawerOpen(false)} type="button">取消</button>
+              <button disabled={action === "human-edge-decision"} onClick={() => void submitHumanDecision()} type="button">
+                <GitBranch size={14} />
+                <span>{action === "human-edge-decision" ? "应用中" : "应用到图任务"}</span>
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

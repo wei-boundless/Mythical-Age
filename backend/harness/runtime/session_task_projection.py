@@ -10,6 +10,9 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 
 SINGLE_AGENT_TASK_PROJECTION_AUTHORITY = "harness.runtime.single_agent_task_projection.v1"
 TERMINAL_PROJECTION_STATUSES = {"completed", "failed", "stopped"}
+WAITING_PROJECTION_STATUSES = {"paused", "waiting_user", "waiting_approval", "queued"}
+ACTIVE_ACTIVITY_STATES = {"", "running", "working", "partial"}
+INCOMPLETE_ACTIVITY_STATES = ACTIVE_ACTIVITY_STATES | {"waiting", "queued", "paused"}
 CHAT_ACTIVITY_VISIBILITY_LEVELS = {"primary", "secondary"}
 
 INTERNAL_TOOL_NAMES = {
@@ -88,7 +91,7 @@ def build_single_agent_task_projection(
         monitor=monitor_record,
     )
     activities = _activities(progress_presentation=progress_presentation, todo=todo, status=projection_status, phase=phase)
-    current_action = _current_action(activities=activities, monitor=monitor_record, phase=phase)
+    current_action = _current_action(activities=activities, monitor=monitor_record, phase=phase, status=projection_status)
     resolved_anchor_turn_id = (
         _valid_turn_ref(anchor_turn_id)
         or _valid_turn_ref(monitor_record.get("latest_interaction_turn_id"))
@@ -398,13 +401,13 @@ def _activities(*, progress_presentation: dict[str, Any], todo: dict[str, Any], 
                     "kind": "todo",
                     "title": "处理清单",
                     "detail": _todo_detail(todo),
-                    "state": "completed" if todo.get("completion_ready") else "running",
+                    "state": _todo_activity_state(todo, status),
                     "display_surface": "timeline",
                     "visibility_level": "primary",
                 }
             )
         )
-    return activities[-12:]
+    return _settle_activities_for_projection_status(activities[-12:], status)
 
 
 def _is_chat_display_activity(activity: dict[str, Any]) -> bool:
@@ -509,15 +512,20 @@ def _is_low_signal_activity_detail(*, kind: str, detail: str) -> bool:
     return False
 
 
-def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any], phase: str) -> dict[str, Any]:
+def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any], phase: str, status: str) -> dict[str, Any]:
+    lifecycle_action = _lifecycle_current_action(status=status, monitor=monitor, phase=phase)
+    if lifecycle_action:
+        return lifecycle_action
     for activity in reversed(activities):
         if _text(activity.get("state")) in {"running", "waiting"}:
             if _text(activity.get("display_surface")) == "tool_window" or _text(activity.get("kind")) == "todo":
                 continue
+            title = _text(activity.get("title"))
+            detail = _text(activity.get("detail"))
             return _compact(
                 {
-                    "title": _text(activity.get("title")),
-                    "detail": _text(activity.get("detail")),
+                    "title": title,
+                    "detail": detail if detail and detail != title else "",
                     "state": _text(activity.get("state")),
                     "event_ref": _text(activity.get("event_ref")),
                     "phase": phase,
@@ -531,6 +539,8 @@ def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any]
     if _is_generic_activity_text(title, detail) or _has_generic_tool_failure_text(f"{title}\n{detail}") or _mentions_internal_tool(f"{title}\n{detail}"):
         title = "正在思考" if phase != "completed" else ""
         detail = ""
+    if detail == title:
+        detail = ""
     return _compact(
         {
             "title": title,
@@ -542,6 +552,106 @@ def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any]
             "visibility_level": "internal" if title == "正在思考" else "secondary",
         }
     )
+
+
+def _settle_activities_for_projection_status(activities: list[dict[str, Any]], status: str) -> list[dict[str, Any]]:
+    state = _activity_state_for_projection_status(status)
+    if not state:
+        return activities
+    settled: list[dict[str, Any]] = []
+    for activity in activities:
+        current_state = _text(activity.get("state")).lower()
+        if _text(activity.get("kind")) != "todo" and current_state in INCOMPLETE_ACTIVITY_STATES:
+            continue
+        if current_state in ACTIVE_ACTIVITY_STATES:
+            settled.append(_compact({**activity, "state": state}))
+        else:
+            settled.append(activity)
+    return settled
+
+
+def _todo_activity_state(todo: dict[str, Any], status: str) -> str:
+    status_state = _activity_state_for_projection_status(status)
+    if status_state:
+        return status_state
+    return "completed" if todo.get("completion_ready") else "running"
+
+
+def _activity_state_for_projection_status(status: str) -> str:
+    normalized = _text(status).lower()
+    if normalized == "completed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized == "stopped":
+        return "stopped"
+    if normalized in WAITING_PROJECTION_STATUSES:
+        return "waiting"
+    return ""
+
+
+def _lifecycle_current_action(*, status: str, monitor: dict[str, Any], phase: str) -> dict[str, Any]:
+    state = _activity_state_for_projection_status(status)
+    if not state or status == "completed":
+        return {}
+    latest_step = _record(monitor.get("latest_step"))
+    candidate_title = _text(monitor.get("latest_step_summary") or latest_step.get("summary") or monitor.get("summary"))
+    candidate_detail = _text(latest_step.get("public_progress_note") or latest_step.get("agent_brief_output"))
+    text_blob = f"{candidate_title}\n{candidate_detail}"
+    title = candidate_title
+    if not title or _is_generic_activity_text(title, candidate_detail) or _has_generic_tool_failure_text(text_blob) or _mentions_internal_tool(text_blob):
+        title = _lifecycle_current_action_title(status)
+    detail = _lifecycle_current_action_detail(candidate_detail, title=title)
+    return _compact(
+        {
+            "title": title,
+            "detail": detail,
+            "state": state,
+            "event_ref": _text(_record(monitor.get("latest_event")).get("event_id")),
+            "phase": phase,
+            "display_surface": "timeline",
+            "visibility_level": "secondary",
+        }
+    )
+
+
+def _lifecycle_current_action_detail(detail: str, *, title: str) -> str:
+    text = _text(detail)
+    if not text or text == title:
+        return ""
+    text_blob = f"{title}\n{text}"
+    if _is_generic_activity_text(title, text) or _is_generic_lifecycle_detail(text):
+        return ""
+    if _has_generic_tool_failure_text(text_blob) or _mentions_internal_tool(text_blob):
+        return ""
+    return text
+
+
+def _is_generic_lifecycle_detail(detail: str) -> bool:
+    text = _text(detail)
+    if not text:
+        return True
+    compact = _compact_text(text)
+    generic_titles = {_compact_text(item) for item in GENERIC_ACTIVITY_TITLES}
+    if compact in generic_titles:
+        return True
+    lowered = text.lower()
+    if "工具调用" in lowered and ("执行" in lowered or "个工具调用" in lowered):
+        return True
+    if "tool call" in lowered or "tool_call" in lowered:
+        return True
+    return False
+
+
+def _lifecycle_current_action_title(status: str) -> str:
+    return {
+        "stopped": "任务已停止",
+        "failed": "任务执行失败",
+        "paused": "任务已暂停",
+        "waiting_user": "等待继续",
+        "waiting_approval": "等待确认",
+        "queued": "等待执行",
+    }.get(_text(status).lower(), "任务状态已更新")
 
 
 def _artifact_refs(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> list[dict[str, Any]]:

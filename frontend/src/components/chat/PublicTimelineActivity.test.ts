@@ -181,6 +181,202 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("正在思考");
   });
 
+  it("honors timeline display surface before task activity kind", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:surface",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:surface",
+            status: "running",
+            activities: [
+              {
+                activity_id: "activity:observation",
+                kind: "observation",
+                display_surface: "timeline",
+                visibility_level: "secondary",
+                title: "已确认公开投影入口",
+                detail: "后端已声明这是一条时间线活动。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:action",
+                kind: "action",
+                display_surface: "timeline",
+                visibility_level: "secondary",
+                title: "继续收口渲染逻辑",
+                state: "running",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已确认公开投影入口");
+    expect(html).toContain("继续收口渲染逻辑");
+    expect(html).not.toContain("public-run-activity__tool-window");
+  });
+
+  it("lets stopped task projection dominate stale running projection activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:stopped",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:stopped",
+            status: "stopped",
+            current_action: {
+              title: "正在思考",
+              state: "running",
+            },
+            activities: [
+              {
+                activity_id: "activity:thinking",
+                kind: "status",
+                title: "正在思考",
+                state: "running",
+              },
+              {
+                activity_id: "activity:write-running",
+                kind: "action",
+                source_kind: "write_file",
+                tool_name: "write_file",
+                tool_target: "docs/report.md",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "正在写入报告",
+                detail: "旧的运行中工具窗口。",
+                state: "running",
+              },
+              {
+                activity_id: "activity:write-waiting",
+                kind: "action",
+                source_kind: "write_file",
+                tool_name: "write_file",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "等待中的旧动作",
+                detail: "旧的等待中工具窗口。",
+                state: "waiting",
+              },
+            ],
+          },
+        ],
+        items: [
+          {
+            item_id: "tool:stale",
+            kind: "work_action",
+            surface: "tool_window",
+            title: "旧的工具窗口仍在运行",
+            detail: "这是一条已经过期的 running timeline。",
+            state: "running",
+          },
+          {
+            item_id: "tool:stale-waiting",
+            kind: "status_update",
+            surface: "status",
+            title: "旧等待状态",
+            detail: "这是一条已经过期的 waiting timeline。",
+            state: "waiting",
+          },
+          {
+            item_id: "body:stale-progress",
+            kind: "opening_judgment",
+            surface: "body",
+            source_authority: "model",
+            text: "旧的正文进度还在运行。",
+            state: "running",
+          },
+          {
+            item_id: "body:final",
+            kind: "final_summary",
+            surface: "body",
+            source_authority: "model",
+            text: "已保留的完成正文。",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("任务已停止");
+    expect(html).not.toContain("正在思考");
+    expect(html).not.toContain("正在写入报告");
+    expect(html).not.toContain("等待中的旧动作");
+    expect(html).not.toContain("旧的工具窗口仍在运行");
+    expect(html).not.toContain("旧等待状态");
+    expect(html).not.toContain("旧的正文进度还在运行");
+    expect(html).toContain("已保留的完成正文");
+    expect(html).not.toContain("运行中");
+  });
+
+  it("lets paused task projection suppress stale running activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:paused",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:paused",
+            status: "paused",
+            current_action: {
+              title: "正在处理",
+              state: "running",
+            },
+            activities: [
+              {
+                activity_id: "activity:running",
+                kind: "action",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "仍在执行旧动作",
+                detail: "旧动作不应该在暂停态继续显示。",
+                state: "running",
+              },
+              {
+                activity_id: "activity:waiting",
+                kind: "action",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "等待中的旧动作",
+                detail: "旧等待动作也不应该覆盖暂停态。",
+                state: "waiting",
+              },
+            ],
+          },
+        ],
+        items: [
+          {
+            item_id: "tool:paused-stale",
+            kind: "tool_activity",
+            surface: "tool_window",
+            title: "旧工具还在跑",
+            detail: "旧 timeline 不应该覆盖暂停态。",
+            state: "running",
+          },
+          {
+            item_id: "tool:paused-waiting-stale",
+            kind: "status_update",
+            surface: "status",
+            title: "旧等待状态",
+            detail: "旧 waiting timeline 不应该覆盖暂停态。",
+            state: "waiting",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("任务已暂停");
+    expect(html).not.toContain("仍在执行旧动作");
+    expect(html).not.toContain("等待中的旧动作");
+    expect(html).not.toContain("旧工具还在跑");
+    expect(html).not.toContain("旧等待状态");
+    expect(html).not.toContain("运行中");
+  });
+
   it("renders tool windows from semantic public timeline items", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

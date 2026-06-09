@@ -435,10 +435,16 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     assert "next_start_line" in model_input
     assert "不要重复读取相同行窗口" in model_input
     assert "大范围探索" in model_input
-    assert "todo 不是事实来源" in model_input
+    assert "本轮可见子 agent 生命周期工具" in model_input
+    assert "不要虚构 codebase_searcher" in model_input
+    assert "todo 或步骤摘要只用于执行跟踪，不是事实来源" in model_input
+    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in model_input
     assert "验证必须真实" in model_input
+    assert "public_progress_note" in model_input
+    assert "public_action_state" in model_input
     assert "Windows PowerShell" in model_input
     assert "不要使用 Bash 专属的 &&、||" in model_input
+    assert "Bash here-doc" in model_input
     assert "你处在专用 coding 工作区任务环境中" in model_input
     assert "当你正在处理开发类工作" in model_input
     assert "受管项目工作区为你提供项目文件" in model_input
@@ -509,10 +515,12 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     assert "大范围探索" in model_input
     assert "只使用本轮实际可见的工具和动作格式" in model_input
     assert "不要把计划、todo、启动命令、没有看到错误或未复核 artifact 当作完成证据" in model_input
-    assert "你的工程判断需要先定性问题" in model_input
-    assert "优先修根因，不只修表象" in model_input
-    assert "最小修改不是保留坏结构" in model_input
-    assert "收口前自审改动边界" in model_input
+    assert "具体的项目检查、编辑、调试、验证、Shell、git 和进度纪律" in model_input
+    assert "不要把环境导览当作完成标准、todo、验证结果或替代文件事实的依据" in model_input
+    assert "本轮可见子 agent 生命周期工具" in model_input
+    assert "不要虚构 codebase_searcher" in model_input
+    assert "public_progress_note" in model_input
+    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in model_input
     assert "coding.rule.engineering_judgment" not in stable_payload["task_environment"]["environment_prompt_refs"]
     assert "不要因为处在 coding 工作区，就擅自扩大任务范围" in model_input
     assert "处理写作或通用任务时，不要套用代码修改、测试、shell 或 git 规则" in model_input
@@ -552,9 +560,24 @@ def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
     assert "这个环境不是任务分类器" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
     assert "被系统选中" not in content_by_ref["environment.rule.coding_workspace"]
     assert "不授予工具" not in content_by_ref["environment.rule.coding_workspace"]
-    assert "你的工程判断需要先定性问题" in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "具体的项目检查、编辑、调试、验证、Shell、git 和进度纪律" in content_by_ref[
+        "environment.coding.vibe_workspace.orientation"
+    ]
+    assert "不要把环境导览当作完成标准" in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "你的工程判断需要先定性问题" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "优先修根因，不只修表象" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "最小修改不是保留坏结构" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
+    assert "收口前自审改动边界" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
     assert "coding.rule.engineering_judgment" not in content_by_ref["environment.coding.vibe_workspace.orientation"]
     assert "evidence matrix" in content_by_ref["coding.rule.large_scope_exploration"]
+    assert "不要虚构 codebase_searcher" in content_by_ref["coding.rule.large_scope_exploration"]
+    assert "本轮可见子 agent 生命周期工具" in content_by_ref["coding.rule.large_scope_exploration"]
+    assert "public_progress_note" in content_by_ref["coding.rule.debug_discipline"]
+    assert "public_action_state" in content_by_ref["coding.rule.debug_discipline"]
+    assert "简单问答、一次性只读检查或很小的单步修复不需要复杂 todo" in content_by_ref[
+        "coding.rule.task_progress"
+    ]
+    assert "Bash here-doc" in content_by_ref["coding.rule.windows_shell"]
     assert "固定项目节点真实启动验证" in content_by_ref["coding.rule.verification"]
 
 

@@ -137,13 +137,14 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["status"] == "completed"
     assert attachment["final_answer"] == "Timeline final answer."
     assert attachment["anchor_role"] == "assistant"
-    assert attachment["public_timeline"]
     task_projection = dict(attachment.get("task_projection") or {})
+    assert attachment["public_timeline"] == []
+    assert task_projection
+    assert task_projection["final_answer"] == "Timeline final answer."
     visible_attachment_text = json.dumps(
         {
             "summary": attachment["summary"],
             "latest_step_summary": attachment["latest_step_summary"],
-            "public_timeline": attachment["public_timeline"],
             "task_projection": {
                 "current_action": task_projection.get("current_action"),
                 "todo": task_projection.get("todo"),
@@ -156,7 +157,7 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     _assert_no_visible_runtime_internals(visible_attachment_text)
 
 
-def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_observation() -> None:
+def test_session_runtime_timeline_uses_task_projection_as_task_attachment_display_authority() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:turn:session-observation:1:abc"
@@ -246,19 +247,13 @@ def test_session_runtime_timeline_projects_tool_observation_as_agent_visible_obs
     )
 
     attachment = timeline["runtime_attachments"][0]
-    public_timeline = attachment["public_timeline"]
-    assert any(
-        item.get("kind") == "observation_report"
-        and item.get("detail") == "The image provider timed out but retry is possible."
-        for item in public_timeline
-    )
-    assert any(
-        item.get("kind") == "work_action"
-        and item.get("action_kind") == "image"
-        and item.get("state") == "error"
-        for item in public_timeline
-    )
-    assert not any(item.get("kind") == "blocked" for item in public_timeline)
+    assert attachment["public_timeline"] == []
+    task_projection = dict(attachment.get("task_projection") or {})
+    current_action = dict(task_projection.get("current_action") or {})
+    assert task_projection["status"] == "running"
+    assert current_action["title"] == "Retry image generation with safer parameters."
+    assert "detail" not in current_action
+    assert not any(item.get("kind") == "blocked" for item in task_projection.get("activities", []))
 
 
 def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
@@ -561,4 +556,10 @@ def test_session_runtime_timeline_ignores_legacy_child_event_as_control_anchor()
     attachment = next(item for item in timeline["runtime_attachments"] if item["task_run_id"] == task_run_id)
     assert attachment["run_id"] == task_run_id
     assert attachment["anchor_turn_id"] == "turn:session-child-anchor:8"
-    assert "legacy_task_run_child_created" not in json.dumps(attachment.get("public_timeline", []), ensure_ascii=False)
+    assert "legacy_task_run_child_created" not in json.dumps(
+        {
+            "public_timeline": attachment.get("public_timeline", []),
+            "task_projection": attachment.get("task_projection", {}),
+        },
+        ensure_ascii=False,
+    )

@@ -13,7 +13,7 @@ from sessions import SessionManager
 from task_system import TaskFlowRegistry
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.graph_instances import GraphTaskInstanceFileService, GraphTaskInstanceRepository
-from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _graph(graph_id: str = "graph.test.instance_project") -> TaskGraphDefinition:
@@ -38,6 +38,54 @@ def _graph(graph_id: str = "graph.test.instance_project") -> TaskGraphDefinition
                         "task_instruction": "请完成当前生产节点任务。",
                     }
                 },
+            ),
+        ),
+    )
+
+
+def _handoff_graph(graph_id: str = "graph.test.instance_human_edge") -> TaskGraphDefinition:
+    return TaskGraphDefinition(
+        graph_id=graph_id,
+        title="Instance Human Edge Graph",
+        graph_kind="multi_agent",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="draft",
+        output_node_id="review",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="写手",
+                task_id="task.test.instance.draft",
+                agent_id="agent:writer",
+                metadata={
+                    "prompt_contract": {
+                        "role_prompt": "你是一名章节写手。",
+                        "task_instruction": "请根据项目输入完成当前章节正文。",
+                    }
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                task_id="task.test.instance.review",
+                agent_id="agent:reviewer",
+                metadata={
+                    "prompt_contract": {
+                        "role_prompt": "你是一名章节审核员。",
+                        "task_instruction": "请审核上游章节是否可以进入正式库。",
+                    }
+                },
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="handoff",
             ),
         ),
     )
@@ -174,3 +222,69 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     assert runtime_scope["artifact_root"].startswith("storage/graph_task_instances/")
     assert "/runs/" in runtime_scope["artifact_root"]
     assert runtime_scope["artifact_root"].endswith("/artifacts")
+
+
+def test_graph_task_instance_human_replace_decision_writes_file_and_advances_edge(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    registry = TaskFlowRegistry(backend_dir)
+    graph = _handoff_graph()
+    _upsert_graph(registry, graph)
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir)
+    instance = GraphTaskInstanceRepository(backend_dir).create(graph_id=graph.graph_id, title="人工替写项目")
+
+    original_instance_runtime = instance_api.require_runtime
+    original_orchestration_runtime = orchestration_api.require_runtime
+    instance_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        start_result = asyncio.run(
+            instance_api.start_graph_task_instance_run(
+                instance.graph_task_instance_id,
+                instance_api.GraphTaskInstanceRunStartRequest(
+                    run_mode="dispatch_only",
+                    dispatch_ready=False,
+                ),
+            )
+        )
+        monitor_before = asyncio.run(instance_api.get_graph_task_instance_monitor(instance.graph_task_instance_id, event_limit=40))
+        controls = monitor_before["human_controls"]["available"]
+        assert [item["edge_id"] for item in controls] == ["edge.draft.review"]
+        assert controls[0]["allowed_decisions"] == ["pass", "replace"]
+
+        decision_result = asyncio.run(
+            instance_api.submit_graph_task_instance_human_edge_decision(
+                instance.graph_task_instance_id,
+                instance_api.HumanEdgeDecisionSubmitRequest(
+                    graph_run_id=start_result["start"]["graph_run_id"],
+                    edge_id="edge.draft.review",
+                    decision="replace",
+                    instruction="用户已完成正文，直接进入审核。",
+                    content_submission={
+                        "path": "chapters/chapter-001.md",
+                        "content": "第一章正文",
+                        "content_kind": "chapter",
+                    },
+                ),
+            )
+        )
+    finally:
+        instance_api.require_runtime = original_instance_runtime  # type: ignore[assignment]
+        orchestration_api.require_runtime = original_orchestration_runtime  # type: ignore[assignment]
+
+    assert decision_result["decision"]["status"] == "applied"
+    assert decision_result["decision"]["content_submission"]["path"] == "chapters/chapter-001.md"
+    assert "content" not in decision_result["decision"]["content_submission"]
+    assert decision_result["apply_result"]["accepted_result"]["executor_type"] == "human"
+    assert decision_result["apply_result"]["accepted_result"]["node_id"] == "draft"
+    assert decision_result["apply_result"]["node_work_orders"][0]["node_id"] == "review"
+
+    file_payload = GraphTaskInstanceFileService(backend_dir).read_file(
+        instance.graph_task_instance_id,
+        "chapters/chapter-001.md",
+    )
+    assert file_payload["content"] == "第一章正文"
+    state = decision_result["apply_result"]["graph_loop_state"]
+    assert state["node_states"]["draft"]["status"] == "completed"
+    assert state["node_states"]["draft"]["human_edge_decision"]["decision"] == "replace"
+    assert state["edge_states"]["edge.draft.review"]["status"] == "ready"

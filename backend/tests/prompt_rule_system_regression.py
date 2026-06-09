@@ -210,6 +210,8 @@ def test_debug_discipline_rule_is_environment_scoped(tmp_path: Path) -> None:
         assert "沙盒或 overlay 根目录" in prompt_text
         assert "版本事实" in prompt_text
         assert "git status/diff/show/log" in prompt_text
+        assert "public_progress_note" in prompt_text
+        assert "public_action_state" in prompt_text
         assert "工具预算" in prompt_text
         assert assembly.rejected_refs == ()
         PromptRuleCompiler().compile(assembly.sections, invocation_kind="environment")

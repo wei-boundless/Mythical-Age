@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 from runtime.shared.models import TaskRun
@@ -221,3 +222,143 @@ def test_single_agent_task_projection_grades_tool_activities_before_chat_project
     failed_write = next(activity for activity in projection["activities"] if activity["title"] == "写入失败报告")
     assert failed_write["state"] == "failed"
     assert failed_write["visibility_level"] == "primary"
+
+
+def test_single_agent_task_projection_stopped_state_dominates_stale_running_activity() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run = replace(
+        _single_agent_task_run(
+            status="aborted",
+            diagnostics={
+                "executor_status": "running",
+                "runtime_control": {"state": "stopped"},
+            },
+        ),
+        terminal_reason="user_aborted",
+    )
+
+    projection = build_single_agent_task_projection(
+        host,
+        task_run,
+        events=[],
+        monitor={
+            "latest_step_summary": "任务已按用户要求停止。",
+            "progress_presentation": {
+                "work_units": [
+                    {
+                        "unit_id": "workunit:write-running",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/report.md",
+                        "title": "写入报告",
+                        "state": "running",
+                        "action": "写入 docs/report.md。",
+                    },
+                    {
+                        "unit_id": "workunit:write-waiting",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/waiting.md",
+                        "title": "等待中的旧动作",
+                        "state": "waiting",
+                        "action": "旧等待动作。",
+                    },
+                ],
+            },
+        },
+    )
+
+    assert projection["status"] == "stopped"
+    assert projection["current_action"]["state"] == "stopped"
+    assert projection["current_action"]["title"] == "任务已按用户要求停止。"
+    activities = projection.get("activities", [])
+    assert all(activity["state"] != "running" for activity in activities)
+    titles = [activity["title"] for activity in activities]
+    assert "写入报告" not in titles
+    assert "等待中的旧动作" not in titles
+
+
+def test_single_agent_task_projection_hides_internal_lifecycle_detail() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run = replace(
+        _single_agent_task_run(
+            status="aborted",
+            diagnostics={
+                "executor_status": "running",
+                "runtime_control": {"state": "stopped"},
+            },
+        ),
+        terminal_reason="user_aborted",
+    )
+
+    projection = build_single_agent_task_projection(
+        host,
+        task_run,
+        events=[],
+        monitor={
+            "latest_step_summary": "正在思考",
+            "latest_step": {
+                "agent_brief_output": "执行 2 个工具调用：读取目录 backend/、执行 agent todo。",
+            },
+        },
+    )
+
+    assert projection["status"] == "stopped"
+    assert projection["current_action"]["title"] == "任务已停止"
+    assert "detail" not in projection["current_action"]
+    assert "执行 2 个工具调用" not in str(projection)
+    assert "agent todo" not in str(projection).lower()
+
+
+def test_single_agent_task_projection_paused_state_dominates_stale_running_activity() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run = _single_agent_task_run(
+        status="waiting_executor",
+        diagnostics={
+            "executor_status": "running",
+            "runtime_control": {"state": "paused"},
+        },
+    )
+
+    projection = build_single_agent_task_projection(
+        host,
+        task_run,
+        events=[],
+        monitor={
+            "latest_step_summary": "已暂停。",
+            "progress_presentation": {
+                "work_units": [
+                    {
+                        "unit_id": "workunit:write-paused",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/report.md",
+                        "title": "写入报告",
+                        "state": "running",
+                        "action": "写入 docs/report.md。",
+                    },
+                    {
+                        "unit_id": "workunit:write-paused-waiting",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/waiting.md",
+                        "title": "等待中的旧动作",
+                        "state": "waiting",
+                        "action": "旧等待动作。",
+                    },
+                ],
+            },
+        },
+    )
+
+    assert projection["status"] == "paused"
+    assert projection["current_action"]["state"] == "waiting"
+    assert projection["current_action"]["title"] == "已暂停。"
+    activities = projection.get("activities", [])
+    assert all(activity["state"] != "running" for activity in activities)
+    titles = [activity["title"] for activity in activities]
+    assert "写入报告" not in titles
+    assert "等待中的旧动作" not in titles

@@ -238,6 +238,8 @@ def test_publisher_emits_contract_indexes_and_deployment_package() -> None:
     edge_contract = contracts["edge_contract_index"]["edge.draft.review"]
     assert edge_contract["protocol"]["kind"] == "node_handoff"
     assert edge_contract["packet"]["target_input_slot"] == "review_material"
+    assert edge_contract["human_control"]["enabled"] is True
+    assert edge_contract["human_control"]["allowed_decisions"] == ["pass", "replace"]
     assert edge_contract["security"]["source_environment_id"] == "env.writer"
     assert edge_contract["security"]["target_environment_id"] == "env.review"
 
@@ -277,6 +279,17 @@ def test_compiler_emits_basic_edge_protocol_packet_policies() -> None:
         assert bool(protocol["interaction_pattern"])
         assert recommendation["prototype_id"] == f"edge.{protocol_kind}"
         assert recommendation["interaction_pattern"] == protocol["interaction_pattern"]
+        human_control = dict(contract.get("human_control") or {})
+        if protocol_kind == "node_handoff":
+            assert human_control["enabled"] is True
+            assert human_control["allowed_decisions"] == ["pass", "replace"]
+            assert recommendation["human_control"]["allowed_decisions"] == ["pass", "replace"]
+        elif protocol_kind in {"review_feedback", "conditional_route"}:
+            assert human_control["enabled"] is True
+            assert human_control["allowed_decisions"] == ["revise"]
+            assert recommendation["human_control"]["allowed_decisions"] == ["revise"]
+        else:
+            assert human_control.get("enabled") is False
         assert trace["persist_packet"] is produces_packet
         assert edge_delivers_flow_packet(edges_by_id[edge_id], graph_config=config) is produces_packet
         if produces_packet:

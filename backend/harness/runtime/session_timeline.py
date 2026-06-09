@@ -69,22 +69,6 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
-    public_timeline = project_public_timeline_from_events(
-        events,
-        runtime_host=runtime_host,
-        monitor=monitor,
-        run_id=task_run_id,
-        task_run_id=task_run_id,
-        final_answer=final_answer,
-        status=str(getattr(task_run, "status", "") or ""),
-        assistant_text=assistant_text,
-        limit=max_timeline_items,
-    )
-    public_timeline = _merge_public_timeline(
-        public_timeline,
-        _public_timeline_from_progress_entries(progress_entries),
-        limit=max_timeline_items,
-    )
     task_projection = build_single_agent_task_projection(
         runtime_host,
         task_run,
@@ -93,6 +77,24 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         anchor_turn_id=anchor_turn_id,
         anchor_message_id=anchor_message_id,
     )
+    public_timeline = []
+    if not task_projection:
+        public_timeline = project_public_timeline_from_events(
+            events,
+            runtime_host=runtime_host,
+            monitor=monitor,
+            run_id=task_run_id,
+            task_run_id=task_run_id,
+            final_answer=final_answer,
+            status=str(getattr(task_run, "status", "") or ""),
+            assistant_text=assistant_text,
+            limit=max_timeline_items,
+        )
+        public_timeline = _merge_public_timeline(
+            public_timeline,
+            _public_timeline_from_progress_entries(progress_entries),
+            limit=max_timeline_items,
+        )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
