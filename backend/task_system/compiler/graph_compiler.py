@@ -309,11 +309,18 @@ def _resource_prototype_recommendation(resource_id: str, contract: dict[str, Any
 def _edge_prototype_recommendation(edge_id: str, contract: dict[str, Any]) -> dict[str, Any]:
     protocol = dict(contract.get("protocol") or {})
     protocol_kind = str(protocol.get("kind") or "node_handoff").strip() or "node_handoff"
+    human_control = dict(contract.get("human_control") or {})
     return {
         "edge_id": str(edge_id),
         "prototype_id": f"edge.{protocol_kind}",
         "protocol_kind": protocol_kind,
         "interaction_pattern": str(protocol.get("interaction_pattern") or ""),
+        "human_control": {
+            "enabled": bool(human_control.get("enabled")),
+            "allowed_decisions": list(human_control.get("allowed_decisions") or []),
+            "reason": str(human_control.get("reason") or ""),
+            "authority": "task_system.graph_compiler.edge_human_control_recommendation",
+        } if human_control else {},
         "reason": "边原型由 edge_type、scheduler_role 和显式 edge_protocol_kind 编译得到。",
         "authority": "task_system.graph_compiler.edge_prototype_recommendation",
     }

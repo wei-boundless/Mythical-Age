@@ -1,0 +1,295 @@
+import type {
+  PublicChatTimelineItem,
+  PublicProjectionEnvelope,
+  PublicProjectionItem,
+  SessionRuntimeAttachment,
+} from "@/lib/api";
+import { mergePublicTimelineItems } from "@/lib/store/publicTimeline";
+
+import type { SessionActivityState, StoreState } from "./types";
+
+type ApplyProjectionOptions = {
+  assistantId?: string;
+};
+
+export function publicProjectionEnvelopeFromRecord(value: unknown): PublicProjectionEnvelope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Partial<PublicProjectionEnvelope>;
+  return String(record.authority ?? "").trim() === "harness.public_projection.v1" ? record as PublicProjectionEnvelope : null;
+}
+
+export function applyPublicProjectionEnvelope(
+  state: StoreState,
+  envelope: PublicProjectionEnvelope | null,
+  options: ApplyProjectionOptions = {},
+): StoreState {
+  if (!envelope) {
+    return state;
+  }
+  const withActiveTurn = applyActiveTurnUpdate(state, envelope);
+  const withActivity = applySessionActivity(withActiveTurn, envelope);
+  return patchProjectionMessage(withActivity, envelope, options);
+}
+
+function applyActiveTurnUpdate(state: StoreState, envelope: PublicProjectionEnvelope): StoreState {
+  const update = envelope.active_turn_update;
+  const anchor = envelope.anchor ?? {};
+  const taskRunId = text(update?.task_run_id ?? anchor.task_run_id);
+  const turnId = text(update?.turn_id ?? anchor.turn_id);
+  if (!taskRunId && !turnId) {
+    return state;
+  }
+  if (envelope.terminal?.event === "done" && envelope.terminal.visible !== false && !taskRunId) {
+    return { ...state, activeTurnSnapshot: null };
+  }
+  return {
+    ...state,
+    activeTurnSnapshot: {
+      turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
+      task_run_id: taskRunId || state.activeTurnSnapshot?.task_run_id,
+      state: text(update?.state) || state.activeTurnSnapshot?.state,
+      turn_run_id: text(anchor.turn_run_id) || state.activeTurnSnapshot?.turn_run_id,
+      updated_at: Date.now() / 1000,
+    },
+  };
+}
+
+function applySessionActivity(state: StoreState, envelope: PublicProjectionEnvelope): StoreState {
+  if (envelope.terminal?.visible === false) {
+    return state;
+  }
+  const statusItem = latestItemForSlot(envelope.items, "status")
+    ?? (envelope.surface === "status_bar" ? latestUsefulItem(envelope.items) : null);
+  const projected = sessionActivityTextFromEnvelope(envelope, statusItem);
+  const title = projected.title;
+  if (!title) {
+    return state;
+  }
+  const detail = projected.detail;
+  const level = activityLevel(envelope.lifecycle || statusItem?.state);
+  const activity: SessionActivityState = {
+    level,
+    title,
+    detail: detail && detail !== title ? detail : "",
+    event: "public_projection",
+    receipt: {
+      level,
+      title,
+      body: detail && detail !== title ? detail : undefined,
+      debug: { event: "public_projection" },
+    },
+    updatedAt: Date.now(),
+  };
+  return { ...state, sessionActivity: activity };
+}
+
+function sessionActivityTextFromEnvelope(
+  envelope: PublicProjectionEnvelope,
+  statusItem: PublicProjectionItem | null,
+) {
+  const level = activityLevel(envelope.lifecycle || statusItem?.state);
+  const title = text(statusItem?.title ?? statusItem?.text);
+  const detail = text(statusItem?.detail ?? statusItem?.public_summary ?? statusItem?.text);
+  if (level === "running") {
+    return title || envelope.items?.length ? { title: "正在思考", detail: "" } : { title: "", detail: "" };
+  }
+  if (level === "success") {
+    return { title: "", detail: "" };
+  }
+  return {
+    title,
+    detail: detail && detail !== title ? detail : "",
+  };
+}
+
+function patchProjectionMessage(
+  state: StoreState,
+  envelope: PublicProjectionEnvelope,
+  options: ApplyProjectionOptions,
+): StoreState {
+  const messageIndex = projectionMessageIndex(state, envelope, options.assistantId);
+  if (messageIndex < 0) {
+    return state;
+  }
+  const bodyText = envelope.source_authority === "model" && envelope.surface === "assistant_body"
+    ? bodyFromItems(envelope.items)
+    : "";
+  const timelineItems = timelineItemsFromEnvelope(envelope);
+  const taskAttachment = runtimeAttachmentFromEnvelope(envelope);
+  if (!bodyText && !timelineItems.length && !taskAttachment && envelope.terminal?.visible === false) {
+    return state;
+  }
+  return {
+    ...state,
+    messages: state.messages.map((message, index) => {
+      if (index !== messageIndex || message.role !== "assistant") {
+        return message;
+      }
+      const runtimeAttachments = taskAttachment
+        ? mergeRuntimeAttachment(message.runtimeAttachments, {
+            ...taskAttachment,
+            anchor_message_id: taskAttachment.anchor_message_id || message.id,
+          })
+        : message.runtimeAttachments;
+      return {
+        ...message,
+        content: bodyText && !message.content.trim() ? bodyText : message.content,
+        runtimePublicTimelineDraft: timelineItems.length
+          ? mergePublicTimelineItems(message.runtimePublicTimelineDraft, timelineItems)
+          : message.runtimePublicTimelineDraft,
+        runtimeAttachments,
+        stageStatus: stageStatusFromEnvelope(envelope) || message.stageStatus,
+      };
+    }),
+  };
+}
+
+function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnvelope, assistantId = "") {
+  if (assistantId) {
+    const index = state.messages.findIndex((message) => message.id === assistantId);
+    if (index >= 0) {
+      return index;
+    }
+  }
+  const anchor = envelope.anchor ?? {};
+  const anchorMessageId = text(anchor.message_id);
+  if (anchorMessageId) {
+    const index = state.messages.findIndex((message) => message.id === anchorMessageId);
+    if (index >= 0) return index;
+  }
+  const runId = text(anchor.task_run_id ?? anchor.run_id);
+  if (runId) {
+    const index = state.messages.findIndex((message) =>
+      message.role === "assistant" && (message.runtimeAttachments ?? []).some((attachment) => runtimeAttachmentRunId(attachment) === runId)
+    );
+    if (index >= 0) return index;
+  }
+  const turnId = text(anchor.turn_id);
+  const sourceIndex = sourceIndexFromTurnId(turnId);
+  if (sourceIndex !== null) {
+    const index = state.messages.findIndex((message) => message.role === "assistant" && message.sourceIndex === sourceIndex);
+    if (index >= 0) return index;
+  }
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    if (state.messages[index]?.role === "assistant") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function runtimeAttachmentFromEnvelope(envelope: PublicProjectionEnvelope): SessionRuntimeAttachment | null {
+  const projection = envelope.task_projection;
+  const anchor = envelope.anchor ?? {};
+  const taskRunId = text(projection?.task_run_id ?? anchor.task_run_id);
+  const runId = taskRunId || text(anchor.run_id);
+  if (!runId) {
+    return null;
+  }
+  const timeline = timelineItemsFromEnvelope(envelope);
+  return {
+    attachment_id: `runtime-attachment:${runId}`,
+    run_id: runId,
+    anchor_turn_id: text(projection?.anchor_turn_id ?? projection?.turn_id ?? anchor.turn_id),
+    anchor_message_id: text(projection?.anchor_message_id ?? anchor.message_id) || undefined,
+    anchor_role: text(anchor.anchor_role) || "assistant",
+    turn_run_id: text(anchor.turn_run_id) || undefined,
+    task_run_id: taskRunId || undefined,
+    task_id: text(projection?.task_id) || undefined,
+    status: text(projection?.status ?? envelope.lifecycle),
+    lifecycle: text(envelope.lifecycle),
+    title: "处理进展",
+    public_timeline: projection ? [] : timeline,
+    task_projection: projection,
+    trace_available: true,
+    debug_trace_ref: taskRunId || runId,
+    updated_at: Number(projection?.updated_at ?? envelope.created_at ?? Date.now() / 1000) || Date.now() / 1000,
+  };
+}
+
+function mergeRuntimeAttachment(
+  existing: SessionRuntimeAttachment[] | undefined,
+  attachment: SessionRuntimeAttachment,
+) {
+  const current = [...(existing ?? [])];
+  const runId = runtimeAttachmentRunId(attachment);
+  const index = current.findIndex((item) => runtimeAttachmentRunId(item) === runId);
+  if (index < 0) {
+    return [...current, attachment];
+  }
+  current[index] = {
+    ...current[index],
+    ...attachment,
+    public_timeline: mergePublicTimelineItems(current[index]?.public_timeline, attachment.public_timeline),
+  };
+  return current;
+}
+
+function timelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicChatTimelineItem[] {
+  if (envelope.terminal?.visible === false) {
+    return [];
+  }
+  return (envelope.items ?? [])
+    .filter((item) => !isBodyItem(envelope, item))
+    .map((item) => ({ ...item, kind: text(item.kind) || "status_update" }));
+}
+
+function bodyFromItems(items: PublicProjectionItem[] | undefined) {
+  for (const item of items ?? []) {
+    if (text(item.slot) === "body" || text(item.surface) === "body") {
+      const body = text(item.text ?? item.detail ?? item.public_summary);
+      if (body) return body;
+    }
+  }
+  return "";
+}
+
+function isBodyItem(envelope: PublicProjectionEnvelope, item: PublicProjectionItem) {
+  return envelope.source_authority === "model"
+    && envelope.surface === "assistant_body"
+    && (text(item.slot) === "body" || text(item.surface) === "body");
+}
+
+function latestItemForSlot(items: PublicProjectionItem[] | undefined, slot: string) {
+  return [...(items ?? [])].reverse().find((item) => text(item.slot) === slot) ?? null;
+}
+
+function latestUsefulItem(items: PublicProjectionItem[] | undefined) {
+  return [...(items ?? [])].reverse().find((item) => text(item.title ?? item.text)) ?? null;
+}
+
+function stageStatusFromEnvelope(envelope: PublicProjectionEnvelope) {
+  if (envelope.terminal?.visible === false) {
+    return "";
+  }
+  if (envelope.surface === "assistant_body") {
+    return envelope.terminal?.event === "done" ? "完成" : "";
+  }
+  const item = latestUsefulItem(envelope.items);
+  return text(item?.title ?? item?.text);
+}
+
+function activityLevel(value: unknown): SessionActivityState["level"] {
+  const normalized = text(value).toLowerCase();
+  if (["error", "failed", "blocked"].includes(normalized)) return "error";
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return "stopped";
+  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval"].includes(normalized)) return "waiting";
+  if (["done", "completed", "success"].includes(normalized)) return "success";
+  return "running";
+}
+
+function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined) {
+  return text(attachment?.run_id ?? attachment?.task_run_id);
+}
+
+function sourceIndexFromTurnId(turnId: string) {
+  if (!turnId) return null;
+  const parsed = Number(turnId.split(":").at(-1));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}

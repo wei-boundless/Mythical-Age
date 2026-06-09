@@ -52,6 +52,7 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
+import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
@@ -4646,6 +4647,10 @@ export class WorkspaceRuntime {
   }
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
+    const envelope = publicProjectionEnvelopeFromRecord(runtimeEvent.public_projection_envelope);
+    if (envelope) {
+      return applyPublicProjectionEnvelope(state, envelope);
+    }
     const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
     const taskProjection = this.taskProjectionFromRecord(runtimeEvent);
     const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);

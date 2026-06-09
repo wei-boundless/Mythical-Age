@@ -3448,15 +3448,31 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerCanonicalState).toBe("stable_answer");
   });
 
-  it("uses assistant_text as visible prose before task handoff done", () => {
+  it("does not use task-control assistant_text as visible prose before task handoff done", () => {
     let transition = startStreamingTurn(getDefaultState(), "开始任务");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
-      content: "我先把目标转成可执行任务，然后持续推进实现和验证。",
+      content: "正在建立任务运行。",
       answer_channel: "task_control",
       answer_source: "harness.single_agent_turn.request_task_run",
     });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "正在建立任务运行。",
+      content_utf8_start: 0,
+      answer_channel: "task_control",
+      answer_source: "harness.single_agent_turn.request_task_run",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      content: "正在建立任务运行。",
+      answer_channel: "task_control",
+      answer_source: "harness.single_agent_turn.request_task_run",
+      answer_canonical_state: "progress_only",
+      answer_persist_policy: "persist_debug_only",
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "done 不应覆盖已经显示的 agent 正文。",
+      runtime_task_run_id: "taskrun:turn:session:1:abc",
       answer_channel: "task_control",
       answer_source: "harness.single_agent_turn.request_task_run",
       answer_canonical_state: "progress_only",
@@ -3465,7 +3481,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.role).toBe("assistant");
-    expect(assistant?.content).toBe("我先把目标转成可执行任务，然后持续推进实现和验证。");
+    expect(assistant?.content).toBe("");
     expect(assistant?.answerChannel).toBe("task_control");
     expect(assistant?.answerPersistPolicy).toBe("persist_debug_only");
   });

@@ -119,6 +119,13 @@ def build_edge_contract(
             "failure": {
                 "propagation_policy": str(edge.get("failure_propagation_policy") or "fail_downstream"),
             },
+            "human_control": _human_control_policy(
+                edge=edge,
+                edge_protocol=edge_protocol,
+                protocol_kind=protocol_kind,
+                scheduler_role=scheduler_role,
+                semantic_role=semantic_role,
+            ),
             "trace": {
                 "persist_packet": produces_flow_packet,
                 "receipt_required": True,
@@ -191,6 +198,75 @@ def _packet_visibility(*, edge: dict[str, Any]) -> dict[str, Any]:
         "context_filter_policy": dict(edge.get("context_filter_policy") or {}),
         "artifact_ref_policy": dict(edge.get("artifact_ref_policy") or {}),
     }
+
+
+def _human_control_policy(
+    *,
+    edge: dict[str, Any],
+    edge_protocol: dict[str, Any],
+    protocol_kind: str,
+    scheduler_role: str,
+    semantic_role: str,
+) -> dict[str, Any]:
+    explicit = dict(edge.get("human_control_policy") or {})
+    bindings = dict(edge.get("contract_bindings") or {})
+    explicit = {
+        **explicit,
+        **dict(bindings.get("human_control") or {}),
+        **dict(dict(edge.get("metadata") or {}).get("human_control_policy") or {}),
+        **dict(edge_protocol.get("human_control_policy") or {}),
+    }
+    if explicit.get("enabled") is False:
+        return {"enabled": False, "authority": "task_system.compiled_edge_contract.human_control"}
+    allowed = [str(item) for item in list(explicit.get("allowed_decisions") or []) if str(item)]
+    reason = str(explicit.get("reason") or "")
+    if not allowed:
+        if protocol_kind == "node_handoff":
+            allowed = ["pass", "replace"]
+            reason = "该边是节点交付边，允许人工通过或以项目文件替代上游产物。"
+        elif protocol_kind in {"review_feedback", "conditional_route"} or semantic_role == "revision":
+            allowed = ["revise"]
+            reason = "该边是返修/反馈边，允许人工退稿并回传修改意见。"
+        else:
+            return {"enabled": False, "authority": "task_system.compiled_edge_contract.human_control"}
+    labels = {
+        "pass": "通过并传给下游",
+        "revise": "退稿并回传上游",
+        "replace": "我来替写并继续",
+        **dict(explicit.get("decision_labels") or {}),
+    }
+    policy = {
+        "enabled": True,
+        "allowed_decisions": allowed,
+        "decision_labels": {key: labels[key] for key in allowed if key in labels},
+        "default_decision": str(explicit.get("default_decision") or allowed[0]),
+        "reason": reason or "该边允许人工控制传播。",
+        "pass": {
+            "route": "current_edge",
+            "requires_source_result": True,
+            **dict(explicit.get("pass") or {}),
+        },
+        "revise": {
+            "route": "current_edge",
+            "requires_instruction": True,
+            "result_index_policy": "replace_if_control_source",
+            **dict(explicit.get("revise") or {}),
+        },
+        "replace": {
+            "route": "current_edge",
+            "write_policy": {
+                "repository_id": "instance",
+                "path_template": "working/human-{edge_id}.md",
+                "content_kind": "artifact",
+                **dict(dict(explicit.get("replace") or {}).get("write_policy") or {}),
+            },
+            **{key: value for key, value in dict(explicit.get("replace") or {}).items() if key != "write_policy"},
+        },
+        "scheduler_role": scheduler_role,
+        "semantic_role": semantic_role,
+        "authority": "task_system.compiled_edge_contract.human_control",
+    }
+    return _drop_empty(policy)
 
 
 def _first_text(*values: Any) -> str:

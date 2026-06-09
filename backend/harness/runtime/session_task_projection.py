@@ -10,6 +10,51 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 
 SINGLE_AGENT_TASK_PROJECTION_AUTHORITY = "harness.runtime.single_agent_task_projection.v1"
 TERMINAL_PROJECTION_STATUSES = {"completed", "failed", "stopped"}
+CHAT_ACTIVITY_VISIBILITY_LEVELS = {"primary", "secondary"}
+
+INTERNAL_TOOL_NAMES = {
+    "agent_todo",
+    "list_subagents",
+    "spawn_subagent",
+    "wait_subagent",
+    "send_subagent_message",
+    "close_subagent",
+}
+
+PRIMARY_TOOL_NAMES = {
+    "apply_patch",
+    "edit_file",
+    "generate_image",
+    "image_asset",
+    "image_generate",
+    "powershell",
+    "run_command",
+    "shell",
+    "terminal",
+    "write_file",
+}
+
+GENERIC_ACTIVITY_TITLES = {
+    "开始处理",
+    "建立处理清单",
+    "更新处理清单",
+    "读取文件内容",
+    "检查路径信息",
+    "确认路径状态",
+    "确认artifact路径",
+    "搜索证据",
+    "补齐验收证据",
+    "正在处理",
+    "正在建立任务运行",
+    "正在思考",
+    "正在整理回复",
+}
+
+GENERIC_TOOL_FAILURE_TEXTS = (
+    "工具调用失败，正在根据失败原因调整处理路径。",
+    "工具返回失败：工具调用失败",
+    "正在根据失败原因调整处理路径",
+)
 
 
 def build_single_agent_task_projection(
@@ -344,7 +389,7 @@ def _progress_presentation(*, task_run: Any, events: list[dict[str, Any]], monit
 def _activities(*, progress_presentation: dict[str, Any], todo: dict[str, Any], status: str, phase: str) -> list[dict[str, Any]]:
     work_units = [dict(item) for item in list(progress_presentation.get("work_units") or []) if isinstance(item, dict)]
     activities = [_activity_from_work_unit(item) for item in work_units]
-    activities = [item for item in activities if item and not _is_low_signal_completed_activity(item)]
+    activities = [item for item in activities if item and _is_chat_display_activity(item)]
     if todo and not any(item.get("kind") == "todo" for item in activities):
         activities.append(
             _compact(
@@ -354,33 +399,16 @@ def _activities(*, progress_presentation: dict[str, Any], todo: dict[str, Any], 
                     "title": "处理清单",
                     "detail": _todo_detail(todo),
                     "state": "completed" if todo.get("completion_ready") else "running",
+                    "display_surface": "timeline",
+                    "visibility_level": "primary",
                 }
             )
-        )
-    if not activities and status in {"running", "queued"}:
-        activities.append(
-            {
-                "activity_id": f"status:{phase}",
-                "kind": "status",
-                "title": "正在处理",
-                "detail": "",
-                "state": "running",
-            }
         )
     return activities[-12:]
 
 
-def _is_low_signal_completed_activity(activity: dict[str, Any]) -> bool:
-    if _text(activity.get("state")) != "completed":
-        return False
-    source_kind = _text(activity.get("source_kind"))
-    title = _text(activity.get("title"))
-    detail = _text(activity.get("detail"))
-    if source_kind == "inspect_path":
-        return True
-    if source_kind == "tool_action" and "agent_todo" in f"{title}\n{detail}".lower():
-        return True
-    return False
+def _is_chat_display_activity(activity: dict[str, Any]) -> bool:
+    return _text(activity.get("visibility_level")) in CHAT_ACTIVITY_VISIBILITY_LEVELS and _text(activity.get("display_surface")) != "diagnostics"
 
 
 def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
@@ -389,6 +417,8 @@ def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         return {}
     state = _item_state(_text(unit.get("state")))
     title = _text(unit.get("title") or _kind_title(kind))
+    tool_name = _text(unit.get("tool_name"))
+    tool_target = _text(unit.get("tool_target"))
     detail = public_runtime_progress_summary(
         unit.get("action")
         or unit.get("agent_feedback")
@@ -399,18 +429,76 @@ def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
     )
     if _is_low_signal_activity_detail(kind=kind, detail=detail):
         detail = ""
+    visibility = _activity_visibility(
+        kind=kind,
+        tool_name=tool_name,
+        title=title,
+        detail=detail,
+        state=state,
+    )
     trace_refs = [_text(value) for value in list(unit.get("technical_trace_refs") or []) if _text(value)]
     return _compact(
         {
             "activity_id": _text(unit.get("unit_id")) or (trace_refs[0] if trace_refs else ""),
-            "kind": _projection_activity_kind(kind),
+            "kind": _projection_activity_kind(kind, visibility_level=visibility["level"]),
             "title": title,
             "detail": detail,
             "state": state,
             "event_ref": trace_refs[0] if trace_refs else "",
             "source_kind": kind,
+            "tool_name": tool_name,
+            "tool_target": tool_target,
+            "display_surface": visibility["surface"],
+            "visibility_level": visibility["level"],
         }
     )
+
+
+def _activity_visibility(*, kind: str, tool_name: str, title: str, detail: str, state: str) -> dict[str, str]:
+    normalized_kind = _text(kind)
+    normalized_tool = _text(tool_name).lower()
+    text_blob = f"{title}\n{detail}"
+    if _is_generic_activity_text(title, detail):
+        return {"level": "internal", "surface": "diagnostics"}
+    if normalized_tool in INTERNAL_TOOL_NAMES or _mentions_internal_tool(text_blob):
+        return {"level": "internal", "surface": "diagnostics"}
+    if normalized_kind in {"inspect_path", "search_text", "verification"}:
+        return {"level": "debug", "surface": "diagnostics"}
+    if normalized_kind == "stage":
+        return {"level": "secondary", "surface": "timeline"} if state in {"waiting", "failed", "stopped"} else {"level": "internal", "surface": "diagnostics"}
+    if normalized_kind in {"write_file", "terminal"} or normalized_tool in PRIMARY_TOOL_NAMES:
+        return {"level": "primary", "surface": "tool_window"}
+    if _has_generic_tool_failure_text(text_blob):
+        return {"level": "internal", "surface": "diagnostics"}
+    if normalized_kind == "tool_action":
+        return {"level": "secondary", "surface": "tool_window"}
+    if normalized_kind in {"work_action", "observation_report", "opening_judgment"}:
+        return {"level": "secondary", "surface": "timeline"}
+    if normalized_kind in {"final_summary", "blocked", "terminal"}:
+        return {"level": "primary", "surface": "timeline"}
+    return {"level": "internal", "surface": "diagnostics"}
+
+
+def _is_generic_activity_text(title: str, detail: str) -> bool:
+    normalized_title = _compact_text(title).removesuffix("。").removesuffix(".")
+    normalized_detail = _compact_text(detail).removesuffix("。").removesuffix(".")
+    if normalized_title in {_compact_text(item) for item in GENERIC_ACTIVITY_TITLES}:
+        return not normalized_detail or normalized_detail == normalized_title
+    return False
+
+
+def _has_generic_tool_failure_text(value: str) -> bool:
+    normalized = _compact_text(value)
+    return any(_compact_text(fragment) in normalized for fragment in GENERIC_TOOL_FAILURE_TEXTS)
+
+
+def _mentions_internal_tool(value: str) -> bool:
+    normalized = _text(value).lower().replace("-", "_").replace(" ", "_")
+    return any(tool_name in normalized for tool_name in INTERNAL_TOOL_NAMES)
+
+
+def _compact_text(value: Any) -> str:
+    return "".join(_text(value).split()).lower()
 
 
 def _is_low_signal_activity_detail(*, kind: str, detail: str) -> bool:
@@ -424,6 +512,8 @@ def _is_low_signal_activity_detail(*, kind: str, detail: str) -> bool:
 def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any], phase: str) -> dict[str, Any]:
     for activity in reversed(activities):
         if _text(activity.get("state")) in {"running", "waiting"}:
+            if _text(activity.get("display_surface")) == "tool_window" or _text(activity.get("kind")) == "todo":
+                continue
             return _compact(
                 {
                     "title": _text(activity.get("title")),
@@ -431,16 +521,25 @@ def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any]
                     "state": _text(activity.get("state")),
                     "event_ref": _text(activity.get("event_ref")),
                     "phase": phase,
+                    "display_surface": _text(activity.get("display_surface")),
+                    "visibility_level": _text(activity.get("visibility_level")),
                 }
             )
     latest_step = _record(monitor.get("latest_step"))
+    title = _text(monitor.get("latest_step_summary") or latest_step.get("summary") or monitor.get("summary") or "正在处理")
+    detail = _text(latest_step.get("public_progress_note") or latest_step.get("agent_brief_output"))
+    if _is_generic_activity_text(title, detail) or _has_generic_tool_failure_text(f"{title}\n{detail}") or _mentions_internal_tool(f"{title}\n{detail}"):
+        title = "正在思考" if phase != "completed" else ""
+        detail = ""
     return _compact(
         {
-            "title": _text(monitor.get("latest_step_summary") or latest_step.get("summary") or monitor.get("summary") or "正在处理"),
-            "detail": _text(latest_step.get("public_progress_note") or latest_step.get("agent_brief_output")),
+            "title": title,
+            "detail": detail,
             "state": "completed" if phase == "completed" else "running",
             "event_ref": _text(_record(monitor.get("latest_event")).get("event_id")),
             "phase": phase,
+            "display_surface": "timeline",
+            "visibility_level": "internal" if title == "正在思考" else "secondary",
         }
     )
 
@@ -490,10 +589,12 @@ def _todo_detail(todo: dict[str, Any]) -> str:
     return f"{completed}/{len(items)} 已完成"
 
 
-def _projection_activity_kind(kind: str) -> str:
+def _projection_activity_kind(kind: str, *, visibility_level: str = "") -> str:
     if kind == "todo_plan":
         return "todo"
-    if kind in {"work_action"}:
+    if kind in {"work_action", "write_file", "terminal"}:
+        return "action"
+    if kind == "tool_action" and visibility_level in CHAT_ACTIVITY_VISIBILITY_LEVELS:
         return "action"
     if kind in {"observation_report", "opening_judgment"}:
         return "observation"

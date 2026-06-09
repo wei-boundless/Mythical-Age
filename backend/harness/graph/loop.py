@@ -16,6 +16,7 @@ from task_system.runtime_semantics.review_gate_verdict import (
 
 from .checkpoint_store import checkpoint_store_from_services
 from .context_materializer import GraphContextMaterializer
+from .edge_contracts import edge_contract_or_projection
 from .flow_edges import build_outbound_flow_edges
 from .flow_packet import build_flow_packet, edge_delivers_flow_packet
 from .language import REVISION_EDGE_TYPES
@@ -807,6 +808,193 @@ class GraphLoop:
                     "graph_result": _graph_result_summary(graph_result),
                 },
                 refs={"graph_run_ref": next_state.graph_run_id, "node_ref": node_id},
+            )
+        ]
+        self._update_formal_runs(next_state, graph_result=graph_result)
+        return GraphLoopAdvance(
+            loop_state=next_state,
+            checkpoint=checkpoint,
+            accepted_result=result,
+            graph_result=graph_result,
+            node_work_orders=work_orders,
+            events=tuple(events),
+        )
+
+    def apply_human_edge_decision_and_checkpoint(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        decision: dict[str, Any],
+        max_requests: int | None = None,
+    ) -> GraphLoopAdvance:
+        state = self.get_state(graph_run_id)
+        if state is None:
+            raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
+        payload = dict(decision or {})
+        action = str(payload.get("decision") or "").strip()
+        if action not in {"pass", "revise", "replace"}:
+            raise ValueError(f"unsupported HumanEdgeDecision action: {action}")
+        edge = _edge_by_id(graph_config, str(payload.get("edge_id") or ""))
+        if edge is None:
+            raise ValueError(f"HumanEdgeDecision edge not found: {payload.get('edge_id')}")
+        edge_id = str(edge.get("edge_id") or "")
+        source_node_id = str(edge.get("source_node_id") or "")
+        target_node_id = str(edge.get("target_node_id") or "")
+        if str(payload.get("source_node_id") or source_node_id) != source_node_id:
+            raise ValueError("HumanEdgeDecision source_node_id does not match edge")
+        if str(payload.get("target_node_id") or target_node_id) != target_node_id:
+            raise ValueError("HumanEdgeDecision target_node_id does not match edge")
+        _assert_human_edge_decision_allowed(graph_config=graph_config, edge=edge, action=action)
+        if source_node_id in dict(state.active_work_orders or {}):
+            raise ValueError("HumanEdgeDecision source node is currently running")
+        if target_node_id in dict(state.active_work_orders or {}):
+            raise ValueError("HumanEdgeDecision target node is currently running")
+
+        result_ref = ""
+        result: NodeResultEnvelope | None = None
+        node_states = {key: dict(value) for key, value in state.node_states.items()}
+        edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+        result_index = {key: dict(value) for key, value in state.result_index.items()}
+        result_history = {key: tuple(dict(item) for item in value) for key, value in state.result_history.items()}
+        active_work_orders = dict(state.active_work_orders)
+        now = time.time()
+
+        source_state = dict(node_states.get(source_node_id) or {})
+        if action == "pass":
+            result_ref = _source_result_ref_for_human_decision(source_state)
+            result = load_node_result(self._services, {"result_ref": result_ref}) if result_ref else None
+            if result is None:
+                raise ValueError("HumanEdgeDecision pass requires an existing source result")
+            source_state["status"] = "completed"
+            source_state["updated_at"] = now
+            source_state["human_edge_decision"] = _human_edge_decision_state(payload)
+            source_state.pop("human_gate", None)
+            node_states[source_node_id] = source_state
+            edge_states = _edge_states_after_result_for_edge(
+                graph_config=graph_config,
+                state=state,
+                edge=edge,
+                result=result,
+                result_ref=result_ref,
+                services=self._services,
+            )
+            if edge_id in edge_states:
+                edge_states[edge_id]["human_edge_decision"] = _human_edge_decision_state(payload)
+            next_state = _replace_state(
+                state,
+                node_states=node_states,
+                edge_states=edge_states,
+                active_work_orders=active_work_orders,
+            )
+        else:
+            result = _human_edge_decision_result(
+                graph_config=graph_config,
+                state=state,
+                edge=edge,
+                decision=payload,
+                action=action,
+            )
+            result_ref = store_node_result(self._services, result)
+            result_summary = _node_result_summary(result, result_ref=result_ref)
+            source_state["status"] = "completed"
+            source_state["result_ref"] = result_ref
+            source_state["updated_at"] = now
+            source_state["human_edge_decision"] = _human_edge_decision_state(payload)
+            source_state.pop("human_gate", None)
+            node_states[source_node_id] = source_state
+            result_index[source_node_id] = result_summary
+            result_history = _result_history_with_result(state=state, result=result, result_ref=result_ref)
+            next_state = _replace_state(
+                state,
+                node_states=node_states,
+                result_index=result_index,
+                result_history=result_history,
+                active_work_orders=active_work_orders,
+            )
+            if action == "revise":
+                reset_node_ids = _revision_reset_node_ids(
+                    graph_config=graph_config,
+                    start_node_ids=(target_node_id,),
+                )
+                next_state = _state_after_revision_requeue(
+                    graph_config=graph_config,
+                    state=next_state,
+                    targets=(target_node_id,),
+                    reset_node_ids=reset_node_ids,
+                )
+            edge_states = _edge_states_after_result_for_edge(
+                graph_config=graph_config,
+                state=next_state,
+                edge=edge,
+                result=result,
+                result_ref=result_ref,
+                services=self._services,
+            )
+            if edge_id in edge_states:
+                edge_states[edge_id]["human_edge_decision"] = _human_edge_decision_state(payload)
+            next_state = _replace_state(next_state, edge_states=edge_states)
+
+        status_snapshot = self._state_machine.status_snapshot(
+            graph_config=graph_config,
+            node_states={key: dict(value) for key, value in next_state.node_states.items()},
+            active_work_orders=dict(next_state.active_work_orders),
+            loop_state=next_state.loop_state,
+        )
+        graph_result: GraphResultEnvelope | None = None
+        if status_snapshot.terminal_result_status:
+            graph_result = _graph_result(
+                graph_config=graph_config,
+                state=next_state,
+                status=status_snapshot.terminal_result_status,
+                terminal_reason=status_snapshot.terminal_reason,
+                services=self._services,
+            )
+        next_state = _replace_state(
+            next_state,
+            status=status_snapshot.status,
+            ready_node_ids=tuple([] if graph_result else status_snapshot.ready_node_ids),
+            running_node_ids=status_snapshot.running_node_ids,
+            completed_node_ids=status_snapshot.completed_node_ids,
+            failed_node_ids=status_snapshot.failed_node_ids,
+            blocked_node_ids=status_snapshot.blocked_node_ids,
+            terminal_reason=status_snapshot.terminal_reason,
+        )
+        work_orders = (
+            ()
+            if graph_result is not None or status_snapshot.status in {"blocked", "waiting_human_gate"}
+            else self.dispatch_ready(graph_config=graph_config, state=next_state, max_requests=max_requests)
+        )
+        if work_orders:
+            next_state = _state_with_work_orders(next_state, work_orders, services=self._services)
+        next_state = _advance_event_cursor(next_state)
+        checkpoint = self._write_state(next_state, pending_work_orders=work_orders)
+        packet_ref = str(dict(next_state.edge_states.get(edge_id) or {}).get("latest_packet_ref") or "")
+        events = [
+            self._append_event(
+                next_state.task_run_id,
+                "graph_human_edge_decision_applied",
+                payload={
+                    "graph_run_id": next_state.graph_run_id,
+                    "decision_id": str(payload.get("decision_id") or ""),
+                    "decision": action,
+                    "edge_id": edge_id,
+                    "source_node_id": source_node_id,
+                    "target_node_id": target_node_id,
+                    "packet_ref": packet_ref,
+                    "node_result": _node_result_summary(result, result_ref=result_ref) if result is not None else {},
+                    "graph_loop_state": _loop_state_summary(next_state),
+                    "node_work_orders": [_work_order_summary(item) for item in work_orders],
+                    "graph_result": _graph_result_summary(graph_result),
+                    "authority": "harness.graph.human_edge_decision_apply_event",
+                },
+                refs={
+                    "graph_run_ref": next_state.graph_run_id,
+                    "edge_ref": edge_id,
+                    "node_ref": source_node_id,
+                    "human_edge_decision_ref": str(payload.get("decision_id") or ""),
+                },
             )
         ]
         self._update_formal_runs(next_state, graph_result=graph_result)
@@ -2510,6 +2698,21 @@ def _node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any
     return next((dict(item) for item in graph_config.nodes if str(item.get("node_id") or "") == target), None)
 
 
+def _edge_by_id(graph_config: GraphHarnessConfig, edge_id: str) -> dict[str, Any] | None:
+    target = str(edge_id or "")
+    return next((dict(item) for item in graph_config.edges if str(item.get("edge_id") or "") == target), None)
+
+
+def _assert_human_edge_decision_allowed(*, graph_config: GraphHarnessConfig, edge: dict[str, Any], action: str) -> None:
+    contract = edge_contract_or_projection(graph_config, edge)
+    policy = dict(contract.get("human_control") or {})
+    if not policy or policy.get("enabled") is False:
+        raise ValueError(f"Human edge control is not enabled for edge: {edge.get('edge_id')}")
+    allowed = {str(item) for item in list(policy.get("allowed_decisions") or []) if str(item)}
+    if action not in allowed:
+        raise ValueError(f"HumanEdgeDecision {action} is not allowed for edge: {edge.get('edge_id')}")
+
+
 def _outgoing_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -> tuple[dict[str, Any], ...]:
     source = str(node_id or "")
     return tuple(
@@ -2532,6 +2735,172 @@ def _outgoing_state_edges(graph_config: GraphHarnessConfig, node_id: str) -> tup
         if edge_id in scheduler_edge_ids or edge_id in flow_edge_ids:
             edges.append(payload)
     return tuple(edges)
+
+
+def _edge_states_after_result_for_edge(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    edge: dict[str, Any],
+    result: NodeResultEnvelope,
+    result_ref: str,
+    services: Any | None = None,
+) -> dict[str, dict[str, Any]]:
+    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+    now = time.time()
+    edge_id = str(edge.get("edge_id") or "")
+    if not edge_id:
+        return edge_states
+    edge_state = dict(edge_states.get(edge_id) or {})
+    packet_summary: dict[str, Any] = {}
+    if result.status == "completed" and edge_delivers_flow_packet(edge, graph_config=graph_config):
+        packet = build_flow_packet(
+            graph_config=graph_config,
+            state=state,
+            edge=edge,
+            result=result,
+            result_ref=result_ref,
+            created_at=now,
+        )
+        packet_ref = store_flow_packet(services, packet) if services is not None else ""
+        packet_summary = flow_packet_summary(packet, packet_ref=packet_ref)
+        existing_packets = [
+            dict(item)
+            for item in list(edge_state.get("packet_refs") or [])
+            if isinstance(item, dict) and str(item.get("packet_ref") or "")
+        ]
+        existing_packets.append(packet_summary)
+        edge_state["packet_refs"] = existing_packets
+        edge_state["latest_packet_id"] = packet.packet_id
+        edge_state["latest_packet_ref"] = packet_ref
+        edge_state["latest_packet"] = packet_summary
+    else:
+        edge_state.pop("packet_refs", None)
+        edge_state.pop("latest_packet_id", None)
+        edge_state.pop("latest_packet_ref", None)
+        edge_state.pop("latest_packet", None)
+    edge_state.update(
+        {
+            "edge_id": edge_id,
+            "source_node_id": result.node_id,
+            "target_node_id": str(edge.get("target_node_id") or ""),
+            "status": "ready" if result.status == "completed" else "source_failed",
+            "packet_persisted": bool(packet_summary),
+            "human_edge_decision": _human_edge_decision_state(dict(result.diagnostics.get("human_edge_decision") or {})),
+            "updated_at": now,
+        }
+    )
+    edge_states[edge_id] = edge_state
+    return edge_states
+
+
+def _human_edge_decision_result(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    edge: dict[str, Any],
+    decision: dict[str, Any],
+    action: str,
+) -> NodeResultEnvelope:
+    del graph_config
+    edge_id = str(edge.get("edge_id") or "")
+    source_node_id = str(edge.get("source_node_id") or "")
+    decision_id = str(decision.get("decision_id") or f"human:{edge_id}:{int(time.time() * 1000)}")
+    instruction = str(decision.get("instruction") or "").strip()
+    artifact_refs = tuple(_artifact_ref_values(list(decision.get("artifact_refs") or [])))
+    content_submission = dict(decision.get("content_submission") or {})
+    summary = instruction
+    if action == "replace":
+        path = str(content_submission.get("path") or "").strip()
+        summary = f"用户提交正式产物并替代节点输出。{path}".strip()
+    if not summary:
+        summary = f"人工边传播决策：{action}"
+    decisions = {
+        "human_edge_decision": action,
+        "decision_id": decision_id,
+        "edge_id": edge_id,
+        **({"review_verdict": "revise", "verdict": "revise"} if action == "revise" else {}),
+        "authority": "harness.graph.human_edge_decision.result_decisions",
+    }
+    outputs = {
+        "human_edge_decision": {
+            "decision_id": decision_id,
+            "decision": action,
+            "edge_id": edge_id,
+            "source_node_id": source_node_id,
+            "target_node_id": str(edge.get("target_node_id") or ""),
+            "instruction": instruction,
+            "artifact_refs": [dict(item) for item in list(decision.get("artifact_refs") or []) if isinstance(item, dict)],
+            "content_submission": _content_submission_summary(content_submission),
+            "authority": "harness.graph.human_edge_decision.output",
+        }
+    }
+    if action == "revise":
+        outputs["human_feedback"] = instruction
+    if action == "replace":
+        outputs["human_artifact_submission"] = _content_submission_summary(content_submission)
+    return NodeResultEnvelope(
+        result_id=f"hresult:{safe_id(state.graph_run_id)}:{safe_id(decision_id)}",
+        graph_run_id=state.graph_run_id,
+        task_run_id=state.task_run_id,
+        node_id=source_node_id,
+        work_order_id=f"human-edge-decision:{safe_id(decision_id)}",
+        executor_type="human",
+        status="completed",
+        outputs=outputs,
+        decisions=decisions,
+        artifact_refs=artifact_refs,
+        handoff_summary=summary,
+        diagnostics={
+            "human_edge_decision": dict(decision),
+            "source_authority": "task_system.graph_instance.human_edge_decision",
+            "authority": "harness.graph.human_edge_decision.result_diagnostics",
+        },
+        created_at=time.time(),
+    )
+
+
+def _source_result_ref_for_human_decision(node_state: dict[str, Any]) -> str:
+    return str(
+        node_state.get("result_ref")
+        or dict(node_state.get("human_gate") or {}).get("source_result_ref")
+        or ""
+    ).strip()
+
+
+def _human_edge_decision_state(decision: dict[str, Any]) -> dict[str, Any]:
+    if not decision:
+        return {}
+    return {
+        "decision_id": str(decision.get("decision_id") or ""),
+        "decision": str(decision.get("decision") or ""),
+        "edge_id": str(decision.get("edge_id") or ""),
+        "source_node_id": str(decision.get("source_node_id") or ""),
+        "target_node_id": str(decision.get("target_node_id") or ""),
+        "authority": "harness.graph.human_edge_decision.state_marker",
+    }
+
+
+def _artifact_ref_values(refs: list[Any]) -> list[str]:
+    values: list[str] = []
+    for item in refs:
+        if isinstance(item, dict):
+            value = str(item.get("artifact_ref") or item.get("path") or item.get("ref") or "").strip()
+        else:
+            value = str(item or "").strip()
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
+def _content_submission_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload:
+        return {}
+    return {
+        key: value
+        for key, value in dict(payload).items()
+        if key != "content"
+    }
 
 
 def _edge_states_after_node_result(

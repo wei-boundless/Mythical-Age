@@ -26,7 +26,7 @@ export function ChatPanel() {
     sessionActivity,
     currentSessionId,
     taskGraphLiveMonitor,
-    pauseActiveTaskRun,
+    stopActiveTaskRun,
     conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
@@ -93,15 +93,15 @@ export function ChatPanel() {
     && !terminalControlStates.has(monitorControlState)
     && monitorControlState !== "stop_requested"
   );
-  const canInterruptSingleAgentTask = Boolean(
+  const canStopSingleAgentTask = Boolean(
     canControlSingleAgentTask
     && !currentSessionReceivingStream
     && taskGraphLiveMonitor?.is_interruptible === true
   );
-  const chatPrimaryTaskAction = canInterruptSingleAgentTask
+  const chatPrimaryTaskAction = canStopSingleAgentTask
     ? {
-        kind: "interrupt" as const,
-        onAction: pauseActiveTaskRun,
+        kind: "stop_task" as const,
+        onAction: stopActiveTaskRun,
       }
     : null;
   const lastEditableUserMessageId = useMemo(() => {
@@ -408,4 +408,3 @@ function formatTokenCount(value: unknown) {
 function formatExactTokenCount(value: unknown) {
   return Math.max(0, Math.round(Number(value || 0))).toLocaleString("en-US");
 }
-

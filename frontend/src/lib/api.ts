@@ -271,6 +271,41 @@ export type PublicChatTimelineItem = {
   completion_ready?: boolean;
 };
 
+export type PublicProjectionItem = PublicChatTimelineItem & {
+  slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
+};
+
+export type PublicProjectionEnvelope = {
+  authority: "harness.public_projection.v1" | string;
+  projection_id: string;
+  sequence?: number;
+  created_at?: number;
+  session_id?: string;
+  anchor?: {
+    turn_id?: string;
+    message_id?: string;
+    task_run_id?: string;
+    run_id?: string;
+    turn_run_id?: string;
+    anchor_role?: "assistant" | "status" | "monitor" | string;
+  };
+  lifecycle?: "running" | "waiting" | "done" | "error" | "stopped" | string;
+  source_authority?: "model" | "tool" | "system" | "runtime" | string;
+  surface?: "assistant_body" | "timeline" | "tool_window" | "status_bar" | "task_projection" | "control" | "diagnostics" | string;
+  terminal?: {
+    event?: "done" | "error" | "stopped" | string;
+    visible?: boolean;
+    reason?: string;
+  };
+  items?: PublicProjectionItem[];
+  task_projection?: SingleAgentTaskProjection;
+  active_turn_update?: {
+    turn_id?: string;
+    task_run_id?: string;
+    state?: string;
+  };
+};
+
 export type SingleAgentTaskProjectionTodo = {
   plan_id?: string;
   active_item_id?: string;
@@ -287,6 +322,10 @@ export type SingleAgentTaskProjectionActivity = {
   state?: "running" | "completed" | "failed" | "waiting" | "stopped" | string;
   event_ref?: string;
   source_kind?: string;
+  tool_name?: string;
+  tool_target?: string;
+  display_surface?: "timeline" | "tool_window" | "status" | "diagnostics" | string;
+  visibility_level?: "primary" | "secondary" | "debug" | "internal" | string;
 };
 
 export type SingleAgentTaskProjection = {
@@ -2660,6 +2699,7 @@ export type RunMonitorEventPayload = {
     refs: Record<string, unknown>;
     authority: string;
     public_projection_authority?: string;
+    public_projection_envelope?: PublicProjectionEnvelope;
     public_event_type?: string;
     public_timeline_delta?: PublicChatTimelineItem[];
     public_timeline?: PublicChatTimelineItem[];
@@ -2964,7 +3004,57 @@ export type GraphTaskInstanceMonitor = {
   graph_monitor: GraphRunMonitorView | null;
   node_sessions: SessionSummary[];
   artifacts: GraphTaskInstanceArtifacts;
+  human_controls?: GraphTaskInstanceHumanControls;
   summary: Record<string, unknown>;
+};
+
+export type HumanEdgeDecisionKind = "pass" | "revise" | "replace";
+
+export type HumanEdgeControlView = {
+  authority?: string;
+  control_id: string;
+  graph_run_id: string;
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  source_node_status?: string;
+  target_node_status?: string;
+  source_result_ref?: string;
+  pending_node_id?: string;
+  artifact_refs?: Array<Record<string, unknown>>;
+  allowed_decisions: HumanEdgeDecisionKind[];
+  decision_labels?: Record<string, string>;
+  default_decision?: HumanEdgeDecisionKind;
+  reason?: string;
+  human_control_policy?: Record<string, unknown>;
+};
+
+export type GraphTaskInstanceHumanControls = {
+  authority?: string;
+  pending: HumanEdgeControlView[];
+  available: HumanEdgeControlView[];
+  history: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
+};
+
+export type HumanEdgeDecisionSubmitRequest = {
+  graph_run_id?: string;
+  edge_id: string;
+  decision: HumanEdgeDecisionKind;
+  instruction?: string;
+  artifact_refs?: Array<Record<string, unknown>>;
+  content_submission?: Record<string, unknown> | null;
+  apply_now?: boolean;
+  idempotency_key?: string;
+  operator?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type HumanEdgeDecisionSubmitResult = {
+  authority: string;
+  decision: Record<string, unknown>;
+  apply_result?: Record<string, unknown> | null;
+  idempotent?: boolean;
 };
 
 export type GraphTaskInstanceArtifacts = {
@@ -4888,6 +4978,32 @@ export async function writeGraphTaskInstanceFile(instanceId: string, path: strin
 export async function listGraphTaskInstanceArtifacts(instanceId: string) {
   return request<GraphTaskInstanceArtifacts>(
     `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/artifacts`
+  );
+}
+
+export async function listGraphTaskInstanceHumanEdgeDecisions(instanceId: string, limit = 100) {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.max(1, Math.min(Number(limit || 100), 500))));
+  return request<{
+    authority: string;
+    graph_task_instance_id: string;
+    decisions: Array<Record<string, unknown>>;
+    summary?: Record<string, unknown>;
+  }>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions?${params.toString()}`
+  );
+}
+
+export async function submitGraphTaskInstanceHumanEdgeDecision(
+  instanceId: string,
+  payload: HumanEdgeDecisionSubmitRequest
+) {
+  return request<HumanEdgeDecisionSubmitResult>(
+    `/orchestration/graph-task-instances/${encodeURIComponent(instanceId)}/human-edge-decisions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
   );
 }
 

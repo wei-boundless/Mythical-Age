@@ -84,7 +84,7 @@ export function ChatMessage({
     ? []
     : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
   const runtimePublicTimelineForMessage = taskProjections.length
-    ? controlTimelineItems(runtimePublicTimelineDraft)
+    ? taskProjectionCompanionTimelineItems(runtimePublicTimelineDraft)
     : runtimePublicTimelineDraft;
   const basePublicTimelineItems = isUser
     ? []
@@ -304,8 +304,14 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   );
 }
 
-function controlTimelineItems(items: PublicChatTimelineItem[] | undefined) {
-  return (items ?? []).filter(isPublicTimelineControlItem);
+function taskProjectionCompanionTimelineItems(items: PublicChatTimelineItem[] | undefined) {
+  return (items ?? []).filter((item) => {
+    if (isPublicTimelineControlItem(item) || isPublicTimelineBodyItem(item)) {
+      return true;
+    }
+    const kind = String(item.kind ?? "").trim();
+    return ["work_action", "tool_activity", "artifact"].includes(kind);
+  });
 }
 
 function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {

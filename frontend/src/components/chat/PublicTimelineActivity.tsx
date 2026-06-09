@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { isPublicTimelineBodyItem, looksLikeRawToolOutput, publicTimelineBodyText } from "@/components/chat/agentRunProjection";
-import type { PublicChatTimelineItem, PublicTodoItem, SingleAgentTaskProjection } from "@/lib/api";
+import type { PublicChatTimelineItem, SingleAgentTaskProjection } from "@/lib/api";
 import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/store/publicTimeline";
 
 type PublicTimelineActivityProps = {
@@ -19,27 +19,14 @@ type ActivityEntry = {
   collapsed?: boolean;
   detail?: string;
   id: string;
-  kind: "body" | "status" | "stopped" | "todo" | "tool";
+  kind: "body" | "status" | "stopped" | "tool";
   text: string;
   toolWindow?: ToolWindowProjection;
-  todo?: TodoProjection;
 };
 
 type PublicTimelineActivityView = {
   entries: ActivityEntry[];
   tone: PublicTimelineActivityTone;
-};
-
-type TodoProjection = {
-  activeText: string;
-  detail: string;
-  hidden: number;
-  items: Array<{
-    content: string;
-    id: string;
-    status: string;
-  }>;
-  title: string;
 };
 
 type ToolWindowProjection = {
@@ -59,9 +46,7 @@ export function PublicTimelineActivity({ items, taskProjections }: PublicTimelin
   return (
     <div className={`public-run-activity public-run-activity--${view.tone}`} aria-label="处理进展">
       {view.entries.map((entry) => (
-        entry.kind === "todo"
-          ? entry.todo ? <TodoBlock key={entry.id || entry.text} todo={entry.todo} /> : null
-        : entry.kind === "body"
+        entry.kind === "body"
           ? <BodyLine key={entry.id || entry.text} text={entry.text} />
         : entry.kind === "tool"
           ? <ToolWindow entry={entry} key={entry.id || entry.text} />
@@ -83,14 +68,16 @@ function publicTimelineActivityView(
   taskProjections?: SingleAgentTaskProjection[] | null,
 ): PublicTimelineActivityView | null {
   const normalizedItems = normalizePublicTimelineItems(items ?? []).filter((item) => !isPublicTimelineControlItem(item));
-  const projectionEntries = taskProjectionActivityEntries(taskProjections ?? []);
-  const entries = [...projectionEntries, ...activityEntries(normalizedItems)];
+  const projections = taskProjections ?? [];
+  const projectionEntries = taskProjectionActivityEntries(projections);
+  const timelineEntries = activityEntries(normalizedItems);
+  const entries = [...projectionEntries, ...timelineEntries];
   if (!entries.length) {
     return null;
   }
   return {
     entries,
-    tone: taskProjectionTone(taskProjections ?? []) || publicTimelineTone(normalizedItems),
+    tone: taskProjectionTone(projections) || publicTimelineTone(normalizedItems),
   };
 }
 
@@ -98,14 +85,15 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
   const entries: ActivityEntry[] = [];
   for (const projection of projections) {
     const projectionId = cleanPublicTimelineText(projection.projection_id || projection.task_run_id);
-    const todo = taskProjectionTodo(projection);
-    if (todo) {
-      entries.push({
-        id: `${projectionId}:todo`,
-        kind: "todo",
-        text: todo.activeText || todo.title,
-        todo,
-      });
+    const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
+    if (currentAction) {
+      entries.push(currentAction);
+    }
+    for (const activity of projection.activities ?? []) {
+      const entry = taskProjectionActivityEntry(activity, projectionId);
+      if (entry) {
+        entries.push(entry);
+      }
     }
     const finalAnswer = cleanPublicTimelineText(projection.final_answer);
     if (finalAnswer) {
@@ -115,16 +103,204 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
         text: finalAnswer,
       });
     }
+    for (const artifact of projection.artifact_refs ?? []) {
+      const label = cleanPublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
+      if (!label) continue;
+      entries.push({
+        id: `${projectionId}:artifact:${label}`,
+        kind: "status",
+        text: "产物已更新",
+        detail: label,
+      });
+    }
   }
   return dedupeActivityEntries(entries);
 }
 
-function taskProjectionTodo(projection: SingleAgentTaskProjection): TodoProjection | null {
-  const todo = projection.todo;
-  if (!todo?.items?.length) {
+function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection, projectionId: string): ActivityEntry | null {
+  const current = projection.current_action;
+  if (!current || typeof current !== "object" || Array.isArray(current)) {
     return null;
   }
-  return todoProjectionFromItems(todo.items, cleanPublicTimelineText(todo.active_item_id), Boolean(todo.completion_ready));
+  const title = cleanPublicTimelineText(current.title ?? current.phase ?? "正在处理");
+  const detail = cleanPublicTimelineText(current.detail);
+  if (!title && !detail) {
+    return null;
+  }
+  if (isHiddenByTaskProjectionLevel(current)) {
+    return null;
+  }
+  if (isGenericStatusActivity(title, detail)) {
+    return null;
+  }
+  return {
+    id: `${projectionId}:current:${cleanPublicTimelineText(current.event_ref) || title || detail}`,
+    kind: "status",
+    text: title || "正在处理",
+    detail,
+  };
+}
+
+function taskProjectionActivityEntry(
+  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
+  projectionId: string,
+): ActivityEntry | null {
+  if (!activity || typeof activity !== "object") {
+    return null;
+  }
+  const title = cleanPublicTimelineText(activity.title);
+  const detail = cleanPublicTimelineText(activity.detail);
+  if (!title && !detail) {
+    return null;
+  }
+  if (isHiddenByTaskProjectionLevel(activity)) {
+    return null;
+  }
+  if (isLowSignalTaskProjectionActivity(activity, title, detail)) {
+    return null;
+  }
+  const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
+  const state = cleanPublicTimelineText(activity.state).toLowerCase();
+  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window" || kind === "observation" || kind === "action"
+    ? "tool"
+    : kind === "error" || state === "failed"
+      ? "stopped"
+      : kind === "final"
+        ? "body"
+        : "status";
+  return {
+    collapsed: entryKind === "tool" ? true : undefined,
+    id: `${projectionId}:activity:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || title || detail}`,
+    kind: entryKind,
+    text: title || detail,
+    detail: detail && detail !== title ? detail : "",
+    toolWindow: entryKind === "tool"
+      ? {
+          meta: taskProjectionToolMeta(activity, state),
+          sections: detail && detail !== title ? [{ label: "结果", text: detail }] : [],
+        }
+      : undefined,
+  };
+}
+
+function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
+  const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
+  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  if (["debug", "internal"].includes(level)) {
+    return true;
+  }
+  if (["diagnostics", "debug", "monitor"].includes(displaySurface)) {
+    return true;
+  }
+  return false;
+}
+
+function isLowSignalTaskProjectionActivity(
+  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
+  title: string,
+  detail: string,
+) {
+  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
+  const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
+  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  if (["primary", "secondary"].includes(level) && !["diagnostics", "debug", "monitor"].includes(displaySurface)) {
+    return false;
+  }
+  const textBlob = `${title}\n${detail}`;
+  if (["inspect_path", "search_text", "verification"].includes(sourceKind)) {
+    return true;
+  }
+  if (sourceKind === "tool_action" && mentionsInternalTool(textBlob)) {
+    return true;
+  }
+  if (isGenericTaskProjectionTitle(title, detail) || hasGenericToolFailure(textBlob)) {
+    return true;
+  }
+  if (sourceKind === "stage" && (isGenericStatusActivity(title, detail) || mentionsInternalTool(textBlob) || isGenericToolCallStage(title, detail))) {
+    return true;
+  }
+  return false;
+}
+
+function mentionsInternalTool(value: string) {
+  const normalized = value.toLowerCase().replace(/[-\s]+/g, "_");
+  return [
+    "agent_todo",
+    "list_subagents",
+    "spawn_subagent",
+    "wait_subagent",
+    "send_subagent_message",
+    "close_subagent",
+  ].some((toolName) => normalized.includes(toolName));
+}
+
+function hasGenericToolFailure(value: string) {
+  const normalized = compactActivityText(value);
+  return [
+    "工具调用失败，正在根据失败原因调整处理路径。",
+    "工具返回失败：工具调用失败",
+    "正在根据失败原因调整处理路径",
+  ].some((fragment) => normalized.includes(compactActivityText(fragment)));
+}
+
+function isGenericTaskProjectionTitle(title: string, detail: string) {
+  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
+  const normalizedDetail = compactActivityText(detail).replace(/[。.]$/g, "");
+  const genericTitles = new Set([
+    "开始处理",
+    "建立处理清单",
+    "更新处理清单",
+    "读取文件内容",
+    "检查路径信息",
+    "确认路径状态",
+    "确认artifact路径",
+    "搜索证据",
+    "补齐验收证据",
+    "正在处理",
+    "正在建立任务运行",
+    "正在思考",
+    "正在整理回复",
+  ].map(compactActivityText));
+  return genericTitles.has(normalizedTitle) && (!normalizedDetail || normalizedDetail === normalizedTitle);
+}
+
+function compactActivityText(value: string) {
+  return String(value ?? "").replace(/\s+/g, "").toLowerCase();
+}
+
+function isGenericToolCallStage(title: string, detail: string) {
+  const normalized = `${title}\n${detail}`.toLowerCase();
+  return normalized.includes("工具调用") && (/执行\s*\d+\s*个工具调用/.test(normalized) || normalized.includes("tool call"));
+}
+
+function isGenericStatusActivity(title: string, detail: string) {
+  const normalizedTitle = title.replace(/\s+/g, "");
+  const normalizedDetail = detail.replace(/\s+/g, "");
+  return ["正在思考", "正在处理", "正在建立任务运行"].includes(normalizedTitle.replace(/[。.]$/g, ""))
+    && (!normalizedDetail || normalizedDetail === normalizedTitle);
+}
+
+function taskProjectionToolMeta(
+  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
+  state: string,
+) {
+  const target = shortText(cleanPublicTimelineText(activity.tool_target), 90);
+  const toolName = shortText(cleanPublicTimelineText(activity.tool_name), 48);
+  return [
+    target,
+    target ? "" : toolName,
+    readableTaskActivityState(state),
+  ].filter(Boolean);
+}
+
+function readableTaskActivityState(state: string) {
+  if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "已完成";
+  if (["running", "working", "partial", ""].includes(state)) return "运行中";
+  if (["waiting", "waiting_user", "waiting_approval", "queued"].includes(state)) return "等待中";
+  if (["error", "failed", "blocked", "missing"].includes(state)) return "失败";
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "已停止";
+  return shortText(state, 48);
 }
 
 function dedupeActivityEntries(entries: ActivityEntry[]) {
@@ -146,15 +322,6 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
   const latestBodyIndex = latestModelBodyIndex(items);
   for (const [index, item] of items.entries()) {
     if (kindOf(item) === "todo_plan") {
-      const todo = todoProjectionFromTimelineItem(item);
-      if (todo) {
-        entries.push({
-          id: String(item.item_id ?? "") || `todo:${index}`,
-          kind: "todo",
-          text: todo.activeText || todo.title,
-          todo,
-        });
-      }
       continue;
     }
     if (isLowSignalCompletedToolActivity(item)) {
@@ -230,39 +397,6 @@ function latestModelBodyIndex(items: PublicChatTimelineItem[]) {
   return -1;
 }
 
-function todoProjectionFromTimelineItem(item: PublicChatTimelineItem): TodoProjection | null {
-  const todos = Array.isArray(item.todo_items) ? item.todo_items : [];
-  if (!todos.length) {
-    return null;
-  }
-  return todoProjectionFromItems(todos, String(item.active_item_id ?? ""), Boolean(item.completion_ready));
-}
-
-function todoProjectionFromItems(todos: PublicTodoItem[], activeItemId: string, completionReady: boolean): TodoProjection {
-  const completed = todos.filter((item) => String(item.status ?? "") === "completed").length;
-  const active = todos.find((item) => String(item.todo_id ?? "") === activeItemId)
-    ?? todos.find((item) => String(item.status ?? "") === "in_progress")
-    ?? null;
-  const pending = todos.filter((item) => String(item.status ?? "") === "pending").slice(0, 2);
-  const visibleTodos = [
-    ...(active ? [active] : []),
-    ...pending,
-  ].filter((item, index, list) =>
-    list.findIndex((candidate) => String(candidate.todo_id ?? candidate.content ?? "") === String(item.todo_id ?? item.content ?? "")) === index
-  ).slice(0, 4);
-  return {
-    activeText: active ? `当前：${shortText(active.active_form || active.content, 140)}` : "",
-    detail: `${completed}/${todos.length} 已完成`,
-    hidden: Math.max(0, todos.length - visibleTodos.length),
-    items: visibleTodos.map((item) => ({
-      content: shortText(String(item.status ?? "") === "in_progress" ? item.active_form || item.content : item.content, 120),
-      id: String(item.todo_id ?? item.content ?? ""),
-      status: String(item.status ?? "pending"),
-    })),
-    title: completionReady ? "处理清单已完成" : "处理清单",
-  };
-}
-
 function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActivityTone {
   const state = items.map((item) => String(item.state ?? "").trim().toLowerCase()).reverse().find(Boolean) ?? "";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
@@ -275,7 +409,7 @@ function taskProjectionTone(projections: SingleAgentTaskProjection[]): PublicTim
   const status = projections.map((projection) => cleanPublicTimelineText(projection.status).toLowerCase()).reverse().find(Boolean) ?? "";
   if (!status) return "";
   if (["failed", "error", "blocked", "missing"].includes(status)) return "soft_error";
-  if (["waiting", "waiting_user", "waiting_approval", "queued", "paused"].includes(status)) return "waiting";
+  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "queued", "paused"].includes(status)) return "waiting";
   if (["completed", "complete", "done", "success"].includes(status)) return "done";
   if (["stopped", "cancelled", "canceled", "aborted"].includes(status)) return "stopped";
   return "running";
@@ -441,28 +575,5 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
         </div>
       ) : null}
     </details>
-  );
-}
-
-function TodoBlock({ todo }: { todo: TodoProjection }) {
-  return (
-    <div className="public-run-activity__todo-block">
-      <div className="public-run-activity__todo-head">
-        <p>{todo.title}</p>
-        {todo.activeText ? <small>{todo.activeText}</small> : null}
-        {todo.detail ? <small>{todo.detail}</small> : null}
-      </div>
-      {todo.items.length ? (
-        <span className="public-run-activity__todo-list">
-          {todo.items.map((item) => (
-            <span className={`public-run-activity__todo public-run-activity__todo--${item.status}`} key={item.id || item.content}>
-              <b aria-hidden="true">{item.status === "completed" ? "✓" : item.status === "in_progress" ? "●" : "○"}</b>
-              <span>{item.content}</span>
-            </span>
-          ))}
-          {todo.hidden ? <em>还有 {todo.hidden} 项</em> : null}
-        </span>
-      ) : null}
-    </div>
   );
 }

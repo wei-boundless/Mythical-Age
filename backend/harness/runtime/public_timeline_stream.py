@@ -28,6 +28,7 @@ _SUPPRESSED_TEXT = {
     "completed",
     "running",
     "working",
+    "正在建立任务运行。",
     "回答已生成并写回会话",
     "会话输出完成",
 }

@@ -4,6 +4,7 @@ from hashlib import sha1
 from typing import Any
 
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
+from harness.runtime.public_projection_envelope import build_public_projection_envelope
 from harness.runtime.public_timeline_projection import public_text
 from harness.runtime.session_task_projection import build_single_agent_task_projection_for_event
 
@@ -49,12 +50,19 @@ def project_runtime_monitor_event_public_delta(
     ) if include_task_projection and runtime_host is not None else {}
     if not _text(anchor.get("anchor_turn_id")):
         if task_projection:
+            envelope = build_public_projection_envelope(
+                public_event_type,
+                {**_public_event_data(public_event_type=public_event_type, event=event, monitor=monitor), "public_anchor": anchor},
+                sequence=int(event.get("offset") or 0),
+                task_projection=task_projection,
+            )
             return {
                 "public_projection_authority": PUBLIC_PROJECTION_AUTHORITY,
                 "public_event_type": public_event_type,
                 "task_projection": task_projection,
                 "task_projection_delta": task_projection,
                 "public_anchor": anchor,
+                "public_projection_envelope": envelope,
                 "debug_trace_ref": debug_trace_ref,
             }
         return {
@@ -66,6 +74,13 @@ def project_runtime_monitor_event_public_delta(
 
     data = _public_event_data(public_event_type=public_event_type, event=event, monitor=monitor)
     delta = project_public_timeline_delta(public_event_type, data)
+    envelope = build_public_projection_envelope(
+        public_event_type,
+        {**data, "public_anchor": anchor},
+        sequence=int(event.get("offset") or 0),
+        public_timeline_delta=delta,
+        task_projection=task_projection,
+    )
     if not delta:
         if task_projection:
             return {
@@ -75,6 +90,7 @@ def project_runtime_monitor_event_public_delta(
                 "task_projection_delta": task_projection,
                 "public_anchor": anchor,
                 "public_projection_skip_reason": "empty_public_delta",
+                "public_projection_envelope": envelope,
                 "debug_trace_ref": debug_trace_ref,
             }
         return {
@@ -82,6 +98,7 @@ def project_runtime_monitor_event_public_delta(
             "public_event_type": public_event_type,
             "public_anchor": anchor,
             "public_projection_skip_reason": "empty_public_delta",
+            "public_projection_envelope": envelope,
             "debug_trace_ref": debug_trace_ref,
         }
     return {
@@ -90,6 +107,7 @@ def project_runtime_monitor_event_public_delta(
         "public_timeline_delta": delta,
         **({"task_projection": task_projection, "task_projection_delta": task_projection} if task_projection else {}),
         "public_anchor": anchor,
+        "public_projection_envelope": envelope,
         "debug_trace_ref": debug_trace_ref,
     }
 

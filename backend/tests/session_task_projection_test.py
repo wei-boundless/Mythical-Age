@@ -132,7 +132,7 @@ def test_single_agent_task_projection_prioritizes_recovery_over_stale_executor_s
     assert projection["control"]["can_stop"] is True
 
 
-def test_single_agent_task_projection_hides_completed_low_signal_tool_activities() -> None:
+def test_single_agent_task_projection_grades_tool_activities_before_chat_projection() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run = _single_agent_task_run(status="running")
@@ -146,6 +146,7 @@ def test_single_agent_task_projection_hides_completed_low_signal_tool_activities
                     {
                         "unit_id": "workunit:agent-todo",
                         "kind": "tool_action",
+                        "tool_name": "agent_todo",
                         "title": "执行 agent_todo",
                         "state": "completed",
                         "action": "调用 agent_todo。",
@@ -153,16 +154,44 @@ def test_single_agent_task_projection_hides_completed_low_signal_tool_activities
                     {
                         "unit_id": "workunit:read",
                         "kind": "inspect_path",
+                        "tool_name": "read_file",
                         "title": "读取文件内容",
                         "state": "completed",
                         "action": "读取目标文件。",
                     },
                     {
-                        "unit_id": "workunit:write",
+                        "unit_id": "workunit:search",
+                        "kind": "search_text",
+                        "tool_name": "search_text",
+                        "title": "搜索证据",
+                        "state": "error",
+                        "action": "工具调用失败，正在根据失败原因调整处理路径。",
+                    },
+                    {
+                        "unit_id": "workunit:list-subagents",
                         "kind": "tool_action",
+                        "tool_name": "list_subagents",
+                        "title": "执行 list_subagents",
+                        "state": "completed",
+                        "action": "调用 list_subagents。",
+                    },
+                    {
+                        "unit_id": "workunit:write",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/report.md",
                         "title": "写入报告",
                         "state": "completed",
                         "action": "写入 docs/report.md。",
+                    },
+                    {
+                        "unit_id": "workunit:write-failed",
+                        "kind": "write_file",
+                        "tool_name": "write_file",
+                        "tool_target": "docs/fail.md",
+                        "title": "写入失败报告",
+                        "state": "error",
+                        "action": "工具返回失败：permission denied",
                     },
                     {
                         "unit_id": "workunit:stage",
@@ -177,8 +206,18 @@ def test_single_agent_task_projection_hides_completed_low_signal_tool_activities
     )
 
     titles = [activity["title"] for activity in projection["activities"]]
-    stage = next(activity for activity in projection["activities"] if activity["title"] == "正在思考")
     assert "执行 agent_todo" not in titles
     assert "读取文件内容" not in titles
+    assert "搜索证据" not in titles
+    assert "执行 list_subagents" not in titles
     assert "写入报告" in titles
-    assert stage.get("detail", "") == ""
+    assert "写入失败报告" in titles
+    assert "正在思考" not in titles
+    write_activity = next(activity for activity in projection["activities"] if activity["title"] == "写入报告")
+    assert write_activity["kind"] == "action"
+    assert write_activity["display_surface"] == "tool_window"
+    assert write_activity["visibility_level"] == "primary"
+    assert write_activity["tool_target"] == "docs/report.md"
+    failed_write = next(activity for activity in projection["activities"] if activity["title"] == "写入失败报告")
+    assert failed_write["state"] == "failed"
+    assert failed_write["visibility_level"] == "primary"

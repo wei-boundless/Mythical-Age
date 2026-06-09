@@ -9,6 +9,7 @@ import {
   FileText,
   FolderTree,
   GitBranch,
+  LayoutDashboard,
   MessageSquare,
   PencilLine,
   PlayCircle,
@@ -28,8 +29,11 @@ import {
   listGraphTasks,
   readGraphTaskInstanceFile,
   startGraphTaskInstanceRun,
+  submitGraphTaskInstanceHumanEdgeDecision,
   writeGraphTaskInstanceFile,
   type GraphTaskDefinitionSummary,
+  type HumanEdgeControlView,
+  type HumanEdgeDecisionKind,
   type GraphTaskInstanceFileTree,
   type GraphTaskInstanceMonitor,
   type GraphTaskInstanceSummary,
@@ -51,6 +55,8 @@ type FileTreeNode = {
 
 type FileEditorMode = "edit" | "preview";
 type InstanceFilter = "all" | "active" | "attention" | "idle" | "success";
+type AssetTab = "library" | "artifacts";
+type ConsoleScreen = "monitor" | "sessions";
 
 type NodeRuntimeCard = {
   artifactCount: number;
@@ -203,14 +209,21 @@ function parseTreeNode(value: unknown): FileTreeNode {
   };
 }
 
-function filterFileTree(node: FileTreeNode, query: string): FileTreeNode | null {
-  if (!query) return node;
-  const children = node.children
-    .map((child) => filterFileTree(child, query))
-    .filter((child): child is FileTreeNode => Boolean(child));
-  const haystack = `${node.name} ${node.path}`.toLowerCase();
-  if (haystack.includes(query) || children.length) return { ...node, children };
-  return null;
+function flattenFileTree(node: FileTreeNode): FileTreeNode[] {
+  return [
+    ...(node.kind === "file" ? [node] : []),
+    ...node.children.flatMap(flattenFileTree),
+  ];
+}
+
+function isChapterFile(node: FileTreeNode) {
+  const path = node.path.toLowerCase();
+  return node.kind === "file" && (
+    path.includes("/chapters/")
+    || path.startsWith("chapters/")
+    || /chapter[-_ ]?\d+/.test(path)
+    || /第.+章/.test(node.name)
+  );
 }
 
 function sessionNodeLabel(session: SessionSummary) {
@@ -378,6 +391,35 @@ function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null): NodeRu
   });
 }
 
+function humanControlItems(monitor: GraphTaskInstanceMonitor | null): HumanEdgeControlView[] {
+  const controls = monitor?.human_controls;
+  const pending = Array.isArray(controls?.pending) ? controls.pending : [];
+  const available = Array.isArray(controls?.available) ? controls.available : [];
+  const byId = new Map<string, HumanEdgeControlView>();
+  [...pending, ...available].forEach((control, index) => {
+    const controlId = stringValue(control.control_id, `${control.graph_run_id}:${control.edge_id}:${index}`);
+    byId.set(controlId, { ...control, control_id: controlId });
+  });
+  return Array.from(byId.values());
+}
+
+function humanDecisionHistory(monitor: GraphTaskInstanceMonitor | null): Array<Record<string, unknown>> {
+  const history = monitor?.human_controls?.history;
+  return Array.isArray(history) ? history : [];
+}
+
+function decisionLabel(control: HumanEdgeControlView | null, decision: HumanEdgeDecisionKind) {
+  const label = control?.decision_labels?.[decision];
+  if (label) return label;
+  if (decision === "pass") return "通过并传给下游";
+  if (decision === "revise") return "退稿并回传上游";
+  return "我来替写并继续";
+}
+
+function controlTitle(control: HumanEdgeControlView) {
+  return `${control.source_node_id || "上游"} -> ${control.target_node_id || "下游"}`;
+}
+
 function instanceMatches(instance: GraphTaskInstanceSummary, filter: InstanceFilter, query: string) {
   if (filter !== "all" && statusTone(instance.status) !== filter) return false;
   if (!query) return true;
@@ -388,47 +430,6 @@ function instanceMatches(instance: GraphTaskInstanceSummary, filter: InstanceFil
     instance.graph_id,
     instance.status,
   ].map((value) => String(value ?? "").toLowerCase()).join(" ").includes(query);
-}
-
-function FileTree({
-  node,
-  onSelectFile,
-  selectedPath,
-}: {
-  node: FileTreeNode;
-  onSelectFile: (path: string) => void;
-  selectedPath: string;
-}) {
-  const isFile = node.kind === "file";
-  return (
-    <div className="graph-foreground-file-tree__node">
-      <button
-        aria-current={isFile && node.path === selectedPath ? "true" : undefined}
-        className={classNames(
-          "graph-foreground-file-tree__row",
-          isFile && node.path === selectedPath && "graph-foreground-file-tree__row--active",
-        )}
-        disabled={!isFile}
-        onClick={() => isFile && onSelectFile(node.path)}
-        type="button"
-      >
-        <span>{isFile ? "FILE" : "DIR"}</span>
-        <strong>{node.path ? node.name : "项目文件"}</strong>
-      </button>
-      {node.children.length ? (
-        <div className="graph-foreground-file-tree__children">
-          {node.children.map((child) => (
-            <FileTree
-              key={`${child.kind}:${child.path || child.name}`}
-              node={child}
-              onSelectFile={onSelectFile}
-              selectedPath={selectedPath}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskForegroundViewProps) {
@@ -455,6 +456,14 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [instanceSearch, setInstanceSearch] = useState("");
   const [instanceFilter, setInstanceFilter] = useState<InstanceFilter>("all");
   const [fileEditorMode, setFileEditorMode] = useState<FileEditorMode>("edit");
+  const [assetTab, setAssetTab] = useState<AssetTab>("library");
+  const [consoleScreen, setConsoleScreen] = useState<ConsoleScreen>("monitor");
+  const [selectedHumanControlId, setSelectedHumanControlId] = useState("");
+  const [decisionDrawerOpen, setDecisionDrawerOpen] = useState(false);
+  const [decisionKind, setDecisionKind] = useState<HumanEdgeDecisionKind>("pass");
+  const [decisionInstruction, setDecisionInstruction] = useState("");
+  const [decisionReplacePath, setDecisionReplacePath] = useState("");
+  const [decisionReplaceContent, setDecisionReplaceContent] = useState("");
   const [newInstanceTitle, setNewInstanceTitle] = useState("");
   const [newInstanceDescription, setNewInstanceDescription] = useState("");
   const [loadingGraphs, setLoadingGraphs] = useState(false);
@@ -471,7 +480,6 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const selectedInstance = useMemo(
     () => instances.find((instance) => instance.graph_task_instance_id === selectedInstanceId)
       ?? monitor?.instance
-      ?? instances[0]
       ?? null,
     [instances, monitor, selectedInstanceId],
   );
@@ -512,14 +520,25 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     return artifacts.filter((artifact) => artifactMatches(artifact, query));
   }, [artifactSearch, artifacts]);
   const rootTreeNode = useMemo(() => parseTreeNode(fileTree?.tree), [fileTree]);
-  const filteredTree = useMemo(
-    () => filterFileTree(rootTreeNode, normalizedQuery(fileSearch)),
-    [fileSearch, rootTreeNode],
-  );
+  const flatFiles = useMemo(() => flattenFileTree(rootTreeNode), [rootTreeNode]);
+  const chapterFiles = useMemo(() => flatFiles.filter(isChapterFile), [flatFiles]);
+  const visibleChapterFiles = useMemo(() => {
+    const files = chapterFiles.length ? chapterFiles : flatFiles;
+    const query = normalizedQuery(fileSearch);
+    if (!query) return files;
+    return files.filter((file) => `${file.name} ${file.path}`.toLowerCase().includes(query));
+  }, [chapterFiles, fileSearch, flatFiles]);
   const selectedNodeArtifacts = useMemo(
     () => selectedNode ? artifacts.filter((artifact) => artifactNodeId(artifact) === selectedNode.nodeId).slice(0, 8) : [],
     [artifacts, selectedNode],
   );
+  const humanControls = useMemo(() => humanControlItems(monitor), [monitor]);
+  const selectedHumanControl = useMemo(
+    () => humanControls.find((control) => control.control_id === selectedHumanControlId) ?? humanControls[0] ?? null,
+    [humanControls, selectedHumanControlId],
+  );
+  const decisionHistory = useMemo(() => humanDecisionHistory(monitor), [monitor]);
+  const humanActionCount = humanControls.length;
 
   const loadGraphs = useCallback(async () => {
     setLoadingGraphs(true);
@@ -554,7 +573,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setInstances(sorted);
       setSelectedInstanceId((current) => current && sorted.some((instance) => instance.graph_task_instance_id === current)
         ? current
-        : sorted[0]?.graph_task_instance_id ?? "");
+        : "");
     } catch (caught) {
       setInstances([]);
       setSelectedInstanceId("");
@@ -581,12 +600,22 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
           ? monitorPayload.instance
           : instance
       ))));
-      const treePayload = await getGraphTaskInstanceFileTree(instanceId, { maxDepth: 6, maxEntries: 1000 }).catch(() => null);
-      setFileTree(treePayload);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "项目运行监控加载失败");
     } finally {
       setLoadingMonitor(false);
+    }
+  }, []);
+
+  const loadProjectFileTree = useCallback(async (instanceId: string) => {
+    if (!instanceId) {
+      setFileTree(null);
+      return;
+    }
+    try {
+      setFileTree(await getGraphTaskInstanceFileTree(instanceId, { maxDepth: 6, maxEntries: 1000 }));
+    } catch {
+      setFileTree(null);
     }
   }, []);
 
@@ -607,6 +636,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     setSelectedFilePath("");
     setFileContent("");
     setSelectedNodeId("");
+    setAssetTab("library");
+    setConsoleScreen("monitor");
     void loadInstances(selectedGraphId);
   }, [loadInstances, selectedGraphId]);
 
@@ -621,6 +652,11 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   }, [refreshInstance, selectedInstanceId]);
 
   useEffect(() => {
+    if (!selectedInstanceId || (assetTab !== "library" && consoleScreen !== "sessions")) return;
+    void loadProjectFileTree(selectedInstanceId);
+  }, [assetTab, consoleScreen, loadProjectFileTree, selectedInstanceId]);
+
+  useEffect(() => {
     if (!selectedGraph) return;
     setNewInstanceTitle((current) => current || `${selectedGraph.title || selectedGraph.graph_id} 项目 ${instances.length + 1}`);
   }, [instances.length, selectedGraph]);
@@ -632,6 +668,18 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
     setSelectedNodeId((current) => current && nodeCards.some((node) => node.nodeId === current) ? current : nodeCards[0].nodeId);
   }, [nodeCards]);
+
+  useEffect(() => {
+    if (!humanControls.length) {
+      setSelectedHumanControlId("");
+      return;
+    }
+    setSelectedHumanControlId((current) => (
+      current && humanControls.some((control) => control.control_id === current)
+        ? current
+        : humanControls[0].control_id
+    ));
+  }, [humanControls]);
 
   async function createInstance() {
     if (!selectedGraph) return;
@@ -650,6 +698,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         ...current.filter((instance) => instance.graph_task_instance_id !== payload.instance.graph_task_instance_id),
       ]));
       setSelectedInstanceId(payload.instance.graph_task_instance_id);
+      setAssetTab("library");
+      setConsoleScreen("monitor");
       setNewInstanceTitle("");
       setNewInstanceDescription("");
       setNotice("项目实例已创建。");
@@ -661,13 +711,14 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }
 
-  async function startRun() {
-    if (!selectedInstance) return;
+  async function startRunForInstance(instance: GraphTaskInstanceSummary | null) {
+    if (!instance) return;
     setAction("start-run");
     setError("");
     setNotice("");
     try {
-      const payload = await startGraphTaskInstanceRun(selectedInstance.graph_task_instance_id, {
+      setSelectedInstanceId(instance.graph_task_instance_id);
+      const payload = await startGraphTaskInstanceRun(instance.graph_task_instance_id, {
         dispatch_ready: true,
         run_mode: "auto_run",
         wait_for_completion: false,
@@ -697,6 +748,10 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     } finally {
       setAction("");
     }
+  }
+
+  async function startRun() {
+    await startRunForInstance(selectedInstance);
   }
 
   async function openSession(session: SessionSummary | null) {
@@ -758,23 +813,96 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }
 
+  function openHumanDecision(control: HumanEdgeControlView | null, kind?: HumanEdgeDecisionKind) {
+    if (!control) return;
+    const nextKind = kind ?? control.default_decision ?? control.allowed_decisions[0] ?? "pass";
+    setSelectedHumanControlId(control.control_id);
+    setDecisionKind(nextKind);
+    setDecisionInstruction("");
+    setDecisionReplacePath(selectedFilePath || "chapters/chapter-001.md");
+    setDecisionReplaceContent(fileContent);
+    setDecisionDrawerOpen(true);
+  }
+
+  async function submitHumanDecision() {
+    if (!selectedInstance || !selectedHumanControl) return;
+    if (decisionKind === "revise" && !decisionInstruction.trim()) {
+      setError("退稿需要填写回传意见。");
+      return;
+    }
+    const artifactRefs = selectedFilePath.trim()
+      ? [{ repository_id: "instance", path: selectedFilePath.trim(), ref_kind: "project_file" }]
+      : selectedHumanControl.artifact_refs ?? [];
+    const contentSubmission = decisionKind === "replace"
+      ? {
+          path: decisionReplacePath.trim() || selectedFilePath.trim(),
+          content: decisionReplaceContent,
+          content_kind: isChapterFile({ children: [], kind: "file", name: decisionReplacePath, path: decisionReplacePath }) ? "chapter" : "document",
+          commit_policy: "project_file",
+        }
+      : null;
+    if (decisionKind === "replace" && (!String(contentSubmission?.path || "").trim() || !decisionReplaceContent.trim())) {
+      setError("替写需要填写文件路径和内容。");
+      return;
+    }
+    setAction("human-edge-decision");
+    setError("");
+    setNotice("");
+    try {
+      await submitGraphTaskInstanceHumanEdgeDecision(selectedInstance.graph_task_instance_id, {
+        graph_run_id: selectedHumanControl.graph_run_id,
+        edge_id: selectedHumanControl.edge_id,
+        decision: decisionKind,
+        instruction: decisionInstruction.trim(),
+        artifact_refs: artifactRefs,
+        content_submission: contentSubmission,
+        apply_now: true,
+        metadata: { submitted_from: "graph_task_foreground" },
+      });
+      if (decisionKind === "replace" && contentSubmission?.path) {
+        setSelectedFilePath(String(contentSubmission.path));
+        setFileContent(decisionReplaceContent);
+        await loadProjectFileTree(selectedInstance.graph_task_instance_id);
+      }
+      await refreshInstance(selectedInstance.graph_task_instance_id);
+      setNotice(`${decisionLabel(selectedHumanControl, decisionKind)}已应用。`);
+      setDecisionDrawerOpen(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "人工传播决策提交失败");
+    } finally {
+      setAction("");
+    }
+  }
+
   const nextAction = !selectedInstance
     ? "先选择或创建项目实例。"
+    : humanActionCount
+      ? `有 ${humanActionCount} 个边传播动作可处理。`
     : counts.failed || counts.blocked
       ? "优先处理失败或阻塞节点。"
       : statusTone(selectedInstance.status) === "active"
         ? "运行中，观察节点画布和最新输出。"
         : "项目已就绪，可以启动运行。";
+  const hasSelectedInstance = Boolean(selectedInstance);
+  const activeInstanceCount = instances.filter((instance) => statusTone(instance.status) === "active").length;
+  const attentionInstanceCount = instances.filter((instance) => statusTone(instance.status) === "attention").length;
+  const completedInstanceCount = instances.filter((instance) => statusTone(instance.status) === "success").length;
 
   return (
-    <section className="graph-foreground-shell" aria-label="图任务运行控制台">
+    <section className={classNames("graph-foreground-shell", hasSelectedInstance ? "graph-foreground-shell--console" : "graph-foreground-shell--manager")} aria-label="图任务前台">
       <header className="graph-foreground-topbar">
         <div>
-          <span>Graph Task Console</span>
-          <strong>{selectedGraph?.title || "图任务前台"}</strong>
-          <small>{selectedGraph?.graph_id || "选择图任务定义"} · {selectedGraph?.publish_state || "未加载"}</small>
+          <span>{hasSelectedInstance ? "Project Console" : "Graph Task Projects"}</span>
+          <strong>{hasSelectedInstance ? selectedInstance?.title : "图任务项目管理"}</strong>
+          <small>{selectedGraph?.title || selectedGraph?.graph_id || "选择图任务定义"} · {instances.length} 个项目实例</small>
         </div>
         <div className="graph-foreground-topbar__actions">
+          {hasSelectedInstance ? (
+            <button onClick={() => setSelectedInstanceId("")} type="button">
+              <LayoutDashboard size={14} />
+              <span>项目列表</span>
+            </button>
+          ) : null}
           <button disabled={loadingGraphs} onClick={() => void loadGraphs()} type="button">
             <RefreshCw size={14} />
             <span>{loadingGraphs ? "刷新中" : "刷新图任务"}</span>
@@ -783,444 +911,541 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             <RefreshCw size={14} />
             <span>{loadingInstances ? "加载中" : "刷新项目"}</span>
           </button>
-          <button disabled={!selectedInstance || action === "start-run"} onClick={() => void startRun()} type="button">
-            <PlayCircle size={15} />
-            <span>{action === "start-run" ? "提交中" : "启动运行"}</span>
-          </button>
+          {selectedInstance ? (
+            <button disabled={action === "start-run"} onClick={() => void startRun()} type="button">
+              <PlayCircle size={15} />
+              <span>{action === "start-run" ? "提交中" : "启动运行"}</span>
+            </button>
+          ) : null}
         </div>
       </header>
 
       {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
       {notice ? <div className="boundary-notice">{notice}</div> : null}
 
-      <div className="graph-foreground-layout">
-        <aside className="graph-foreground-rail" aria-label="图任务与项目">
-          <section className="graph-foreground-panel graph-foreground-panel--stack">
-            <header>
-              <div>
-                <span>图任务定义</span>
-                <strong>{graphs.length} 张图</strong>
+      {!selectedInstance ? (
+        <div className="graph-foreground-manager">
+          <aside className="graph-foreground-graph-dock" aria-label="图任务定义">
+            <section className="graph-foreground-panel">
+              <header>
+                <div>
+                  <span>图任务定义</span>
+                  <strong>{graphs.length} 张图</strong>
+                </div>
+                <GitBranch size={15} />
+              </header>
+              <label className="graph-foreground-search">
+                <Search size={14} />
+                <input
+                  onChange={(event) => setGraphSearch(event.target.value)}
+                  placeholder="搜索图任务"
+                  value={graphSearch}
+                />
+              </label>
+              <div className="graph-foreground-list graph-foreground-list--graphs">
+                {filteredGraphs.map((graph) => {
+                  const active = graph.graph_id === selectedGraph?.graph_id;
+                  return (
+                    <button
+                      aria-current={active ? "page" : undefined}
+                      className={classNames("graph-foreground-list-row", active && "graph-foreground-list-row--active")}
+                      key={graph.graph_id}
+                      onClick={() => setSelectedGraphId(graph.graph_id)}
+                      type="button"
+                    >
+                      <strong>{graph.title || graph.graph_id}</strong>
+                      <small>{graph.graph_id}</small>
+                      <span>{graph.graph_kind || "task_graph"} · {graph.publish_state || "draft"}</span>
+                    </button>
+                  );
+                })}
+                {!filteredGraphs.length ? <div className="boundary-empty">没有匹配的图任务定义。</div> : null}
               </div>
-              <GitBranch size={15} />
-            </header>
-            <label className="graph-foreground-search">
-              <Search size={14} />
-              <input
-                onChange={(event) => setGraphSearch(event.target.value)}
-                placeholder="搜索图任务"
-                value={graphSearch}
-              />
-            </label>
-            <div className="graph-foreground-list">
-              {filteredGraphs.map((graph) => {
-                const active = graph.graph_id === selectedGraph?.graph_id;
-                return (
+            </section>
+          </aside>
+
+          <main className="graph-foreground-project-board" aria-label="项目实例管理">
+            <section className="graph-foreground-board-head">
+              <div>
+                <span>当前图任务</span>
+                <strong>{selectedGraph?.title || "选择图任务"}</strong>
+                <small>{selectedGraph?.graph_id || "选择图后加载项目实例"}</small>
+              </div>
+              <div className="graph-foreground-board-metrics">
+                <span><b>{instances.length}</b>项目</span>
+                <span><b>{activeInstanceCount}</b>运行</span>
+                <span className={attentionInstanceCount ? "graph-foreground-board-metrics__attention" : undefined}><b>{attentionInstanceCount}</b>关注</span>
+                <span><b>{completedInstanceCount}</b>完成</span>
+              </div>
+            </section>
+
+            <section className="graph-foreground-project-toolbar" aria-label="项目筛选">
+              <label className="graph-foreground-search">
+                <Search size={14} />
+                <input
+                  onChange={(event) => setInstanceSearch(event.target.value)}
+                  placeholder="搜索项目名称、状态或 id"
+                  value={instanceSearch}
+                />
+              </label>
+              <div className="graph-foreground-segmented" role="group" aria-label="项目状态筛选">
+                {INSTANCE_FILTERS.map((filter) => (
                   <button
-                    aria-current={active ? "page" : undefined}
-                    className={classNames("graph-foreground-list-row", active && "graph-foreground-list-row--active")}
-                    key={graph.graph_id}
-                    onClick={() => setSelectedGraphId(graph.graph_id)}
+                    aria-pressed={instanceFilter === filter.value}
+                    className={instanceFilter === filter.value ? "graph-foreground-segmented__button--active" : undefined}
+                    key={filter.value}
+                    onClick={() => setInstanceFilter(filter.value)}
                     type="button"
                   >
-                    <strong>{graph.title || graph.graph_id}</strong>
-                    <small>{graph.graph_id}</small>
-                    <span>{graph.graph_kind || "task_graph"} · {graph.publish_state || "draft"}</span>
+                    {filter.label}
                   </button>
-                );
-              })}
-              {!filteredGraphs.length ? <div className="boundary-empty">没有匹配的图任务定义。</div> : null}
-            </div>
-          </section>
-
-          <section className="graph-foreground-panel graph-foreground-panel--stack">
-            <header>
-              <div>
-                <span>项目实例</span>
-                <strong>{filteredInstances.length}/{instances.length} 个项目</strong>
+                ))}
               </div>
-              <FileText size={15} />
-            </header>
-            <label className="graph-foreground-search">
-              <Search size={14} />
-              <input
-                onChange={(event) => setInstanceSearch(event.target.value)}
-                placeholder="搜索项目实例"
-                value={instanceSearch}
-              />
-            </label>
-            <div className="graph-foreground-segmented" role="group" aria-label="项目状态筛选">
-              {INSTANCE_FILTERS.map((filter) => (
-                <button
-                  aria-pressed={instanceFilter === filter.value}
-                  className={instanceFilter === filter.value ? "graph-foreground-segmented__button--active" : undefined}
-                  key={filter.value}
-                  onClick={() => setInstanceFilter(filter.value)}
-                  type="button"
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <div className="graph-foreground-list graph-foreground-list--instances">
+            </section>
+
+            <section className="graph-foreground-project-table" aria-label="项目实例列表">
+              <div className="graph-foreground-project-table__head">
+                <span>项目</span>
+                <span>状态</span>
+                <span>最近更新</span>
+                <span>运行</span>
+              </div>
               {filteredInstances.map((instance) => {
-                const active = instance.graph_task_instance_id === selectedInstance?.graph_task_instance_id;
                 const tone = statusTone(instance.status);
                 return (
-                  <button
-                    aria-current={active ? "page" : undefined}
-                    className={classNames(
-                      "graph-foreground-list-row",
-                      `graph-foreground-list-row--tone-${tone}`,
-                      active && "graph-foreground-list-row--active",
-                    )}
-                    key={instance.graph_task_instance_id}
-                    onClick={() => setSelectedInstanceId(instance.graph_task_instance_id)}
-                    type="button"
-                  >
-                    <strong>{instance.title || instance.graph_task_instance_id}</strong>
-                    <small>{instance.graph_task_instance_id}</small>
-                    <span>{statusLabel(instance.status)} · {timestampLabel(instance.updated_at)}</span>
-                  </button>
+                  <article className={classNames("graph-foreground-project-row", `graph-foreground-project-row--${tone}`)} key={instance.graph_task_instance_id}>
+                    <button className="graph-foreground-project-row__title" onClick={() => { setConsoleScreen("monitor"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
+                      <strong>{instance.title || instance.graph_task_instance_id}</strong>
+                      <small>{instance.graph_task_instance_id}</small>
+                    </button>
+                    <span className={`graph-foreground-status graph-foreground-status--${tone}`}>{statusLabel(instance.status)}</span>
+                    <span>{timestampLabel(instance.updated_at)}</span>
+                    <div className="graph-foreground-project-row__actions">
+                      <button disabled={action === "start-run"} onClick={() => void startRunForInstance(instance)} type="button">
+                        <PlayCircle size={13} />
+                        <span>{statusTone(instance.status) === "active" ? "继续" : "启动"}</span>
+                      </button>
+                      <button onClick={() => { setConsoleScreen("monitor"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
+                        <MessageSquare size={13} />
+                        <span>进入</span>
+                      </button>
+                    </div>
+                  </article>
                 );
               })}
-              {!instances.length ? <div className="boundary-empty">这个图还没有项目实例。</div> : null}
-              {instances.length && !filteredInstances.length ? <div className="boundary-empty">没有匹配的项目实例。</div> : null}
-            </div>
-          </section>
-
-          <section className="graph-foreground-panel graph-foreground-panel--create">
-            <header>
-              <div>
-                <span>新项目</span>
-                <strong>创建实例</strong>
-              </div>
-              <Plus size={15} />
-            </header>
-            <label>
-              <span>项目名称</span>
-              <input
-                onChange={(event) => setNewInstanceTitle(event.target.value)}
-                placeholder="例如：长篇写作第 1 轮"
-                value={newInstanceTitle}
-              />
-            </label>
-            <label>
-              <span>说明</span>
-              <textarea
-                onChange={(event) => setNewInstanceDescription(event.target.value)}
-                placeholder="目标、范围、人工约束"
-                rows={3}
-                value={newInstanceDescription}
-              />
-            </label>
-            <button disabled={!selectedGraph || action === "create-instance"} onClick={() => void createInstance()} type="button">
-              <Plus size={14} />
-              <span>{action === "create-instance" ? "创建中" : "创建项目实例"}</span>
-            </button>
-          </section>
-        </aside>
-
-        <div className="graph-foreground-workspace">
-          <div className="graph-foreground-runtime-row">
-        <main className="graph-foreground-main" aria-label="运行焦点画布">
-          <section className="graph-foreground-run-head">
-            <div>
-              <span>当前项目</span>
-              <strong>{selectedInstance?.title || "选择或创建项目实例"}</strong>
-              <small>{selectedInstance?.graph_task_instance_id || "项目实例是图任务的运行容器"}</small>
-            </div>
-            <em className={`graph-foreground-status graph-foreground-status--${statusTone(selectedInstance?.status)}`}>
-              {statusLabel(selectedInstance?.status)}
-            </em>
-          </section>
-
-          <section className={classNames(
-            "graph-foreground-next-action",
-            Boolean(counts.failed || counts.blocked) && "graph-foreground-next-action--attention",
-          )}>
-            <div>
-              <span>下一动作</span>
-              <strong>{nextAction}</strong>
-            </div>
-            <button disabled={!selectedInstance || loadingMonitor} onClick={() => selectedInstance && void refreshInstance(selectedInstance.graph_task_instance_id)} type="button">
-              <RefreshCw size={14} />
-              <span>{loadingMonitor ? "刷新中" : "刷新监控"}</span>
-            </button>
-          </section>
-
-          <section className="graph-foreground-run-summary" aria-label="运行摘要">
-            <article>
-              <span>完成进度</span>
-              <strong>{progressPercent}%</strong>
-              <small>{totalNodeCount ? `${counts.completed}/${totalNodeCount} 节点完成` : "等待运行数据"}</small>
-              <div className="graph-foreground-progress" aria-hidden="true">
-                <i style={{ width: `${progressPercent}%` }} />
-              </div>
-            </article>
-            <article className={counts.failed || counts.blocked ? "graph-foreground-summary-card--attention" : ""}>
-              <span>运行风险</span>
-              <strong>{counts.failed || counts.blocked ? `${counts.failed} 失败 · ${counts.blocked} 阻塞` : "暂无风险"}</strong>
-              <small>{counts.running ? `${counts.running} 个节点运行中` : "没有运行中的节点"}</small>
-            </article>
-            <article>
-              <span>最近产物</span>
-              <strong>{latestArtifact ? stringValue(latestArtifact.name, stringValue(latestArtifact.path, "未命名产物")) : "暂无产物"}</strong>
-              <small>{latestArtifact ? stringValue(latestArtifact.path, "没有文件路径") : "运行后会显示最新文件"}</small>
-            </article>
-            <article>
-              <span>节点会话</span>
-              <strong>{counts.sessions}</strong>
-              <small>{counts.artifacts} 个产物</small>
-            </article>
-          </section>
-
-          <section className="graph-foreground-canvas" aria-label="节点运行焦点画布">
-            <header>
-              <div>
-                <span>运行焦点 · 跟随模式</span>
-                <strong>{nodeCards.length ? `${nodeCards.length} 个节点信号` : "等待节点信号"}</strong>
-              </div>
-              <small>{focusLabel}</small>
-            </header>
-            <div className="graph-foreground-node-grid">
-              {nodeCards.map((node) => {
-                const active = selectedNode?.nodeId === node.nodeId;
-                const tone = statusTone(node.status);
-                return (
-                  <button
-                    aria-current={active ? "true" : undefined}
-                    className={classNames(
-                      "graph-foreground-node-card",
-                      `graph-foreground-node-card--${tone}`,
-                      active && "graph-foreground-node-card--active",
-                    )}
-                    key={node.nodeId}
-                    onClick={() => setSelectedNodeId(node.nodeId)}
-                    type="button"
-                  >
-                    <span>{statusLabel(node.status)}</span>
-                    <strong>{node.title}</strong>
-                    <small>{node.scopeLabel ? `${node.scopeLabel} · ${node.nodeId}` : node.nodeId}</small>
-                    <p>{node.detail}</p>
-                    <footer>
-                      <b>{node.session ? `${node.session.message_count ?? 0} 消息` : "无会话"}</b>
-                      <b>{node.artifactCount} 产物</b>
-                    </footer>
-                  </button>
-                );
-              })}
-              {!nodeCards.length ? (
-                <div className="graph-foreground-canvas-empty">
-                  <Bot size={28} />
-                  <strong>还没有节点运行信号</strong>
-                  <span>启动项目后，这里会显示节点状态、输出摘要和节点会话入口。</span>
+              {!instances.length ? (
+                <div className="graph-foreground-compact-empty">
+                  <FileText size={20} />
+                  <strong>这个图还没有项目实例</strong>
+                  <span>在右侧创建项目后进入运行控制台。</span>
                 </div>
               ) : null}
+              {instances.length && !filteredInstances.length ? <div className="graph-foreground-compact-empty">没有匹配的项目实例。</div> : null}
+            </section>
+          </main>
+
+          <aside className="graph-foreground-create-dock" aria-label="创建项目实例">
+            <section className="graph-foreground-panel graph-foreground-panel--create">
+              <header>
+                <div>
+                  <span>新项目</span>
+                  <strong>创建实例</strong>
+                </div>
+                <Plus size={15} />
+              </header>
+              <label>
+                <span>项目名称</span>
+                <input
+                  onChange={(event) => setNewInstanceTitle(event.target.value)}
+                  placeholder="例如：长篇写作第 1 轮"
+                  value={newInstanceTitle}
+                />
+              </label>
+              <label>
+                <span>说明</span>
+                <textarea
+                  onChange={(event) => setNewInstanceDescription(event.target.value)}
+                  placeholder="目标、范围、人工约束"
+                  rows={4}
+                  value={newInstanceDescription}
+                />
+              </label>
+              <button disabled={!selectedGraph || action === "create-instance"} onClick={() => void createInstance()} type="button">
+                <Plus size={14} />
+                <span>{action === "create-instance" ? "创建中" : "创建并进入项目"}</span>
+              </button>
+            </section>
+          </aside>
+        </div>
+      ) : (
+        <div className="graph-foreground-console">
+          <section className="graph-foreground-console-bar" aria-label="项目运行条">
+            <div>
+              <span>当前项目</span>
+              <strong>{selectedInstance.title || selectedInstance.graph_task_instance_id}</strong>
+              <small>{selectedInstance.graph_task_instance_id}</small>
+            </div>
+            <div className="graph-foreground-console-actions">
+              <div className="graph-foreground-console-switch" role="tablist" aria-label="项目控制台屏幕">
+                <button aria-selected={consoleScreen === "monitor"} className={consoleScreen === "monitor" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("monitor")} type="button">
+                  <GitBranch size={13} />
+                  图监控
+                </button>
+                <button aria-selected={consoleScreen === "sessions"} className={consoleScreen === "sessions" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("sessions")} type="button">
+                  <MessageSquare size={13} />
+                  会话章节
+                </button>
+              </div>
+              <em className={`graph-foreground-status graph-foreground-status--${statusTone(selectedInstance.status)}`}>
+                {statusLabel(selectedInstance.status)}
+              </em>
+              <button disabled={loadingMonitor} onClick={() => void refreshInstance(selectedInstance.graph_task_instance_id)} type="button">
+                <RefreshCw size={14} />
+                <span>{loadingMonitor ? "刷新中" : "刷新监控"}</span>
+              </button>
             </div>
           </section>
-        </main>
 
-        <aside className="graph-foreground-inspector" aria-label="节点对话输出">
-          <section className="graph-foreground-panel graph-foreground-node-output">
-            <header>
-              <div>
-                <span>节点输出</span>
-                <strong>{selectedNode?.title || "选择节点"}</strong>
+          {consoleScreen === "monitor" ? (
+          <div className="graph-foreground-console-grid">
+            <aside className="graph-foreground-node-nav" aria-label="节点导航">
+              <header>
+                <div>
+                  <span>节点</span>
+                  <strong>{nodeCards.length} 个信号</strong>
+                </div>
+                <Bot size={15} />
+              </header>
+              <div className="graph-foreground-node-list">
+                {nodeCards.map((node) => {
+                  const active = selectedNode?.nodeId === node.nodeId;
+                  const tone = statusTone(node.status);
+                  return (
+                    <button
+                      aria-current={active ? "true" : undefined}
+                      className={classNames("graph-foreground-node-list-row", `graph-foreground-node-list-row--${tone}`, active && "graph-foreground-node-list-row--active")}
+                      key={node.nodeId}
+                      onClick={() => setSelectedNodeId(node.nodeId)}
+                      type="button"
+                    >
+                      <span>{statusLabel(node.status)}</span>
+                      <strong>{node.title}</strong>
+                      <small>{node.scopeLabel || node.nodeId}</small>
+                    </button>
+                  );
+                })}
+                {!nodeCards.length ? <div className="boundary-empty">启动项目后出现节点信号。</div> : null}
               </div>
-              <MessageSquare size={15} />
-            </header>
-            {selectedNode ? (
-              <>
-                <div className={`graph-foreground-node-output__status graph-foreground-node-output__status--${statusTone(selectedNode.status)}`}>
-                  <strong>{statusLabel(selectedNode.status)}</strong>
-                  <span>{selectedNode.nodeId} · {timestampLabel(selectedNode.updatedAt)}</span>
+            </aside>
+
+            <main className="graph-foreground-run-stage" aria-label="运行焦点">
+              <section className={classNames(
+                "graph-foreground-next-action",
+                Boolean(counts.failed || counts.blocked) && "graph-foreground-next-action--attention",
+              )}>
+                <div>
+                  <span>下一动作</span>
+                  <strong>{nextAction}</strong>
                 </div>
-                <div className="graph-foreground-node-output__body">
-                  <p>{selectedNode.detail}</p>
-                </div>
-                <button disabled={!selectedNode.session} onClick={() => void openSession(selectedNode.session)} type="button">
-                  <MessageSquare size={14} />
-                  <span>{selectedNode.session ? "打开节点会话" : "暂无节点会话"}</span>
-                </button>
-                <div className="graph-foreground-node-output__artifacts">
-                  <span>节点产物</span>
-                  {selectedNodeArtifacts.map((artifact) => {
-                    const path = stringValue(artifact.path);
+                {counts.failed || counts.blocked ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+              </section>
+
+              <section className="graph-foreground-run-summary" aria-label="运行摘要">
+                <article>
+                  <span>完成</span>
+                  <strong>{progressPercent}%</strong>
+                  <small>{totalNodeCount ? `${counts.completed}/${totalNodeCount} 节点` : "等待运行数据"}</small>
+                  <div className="graph-foreground-progress" aria-hidden="true">
+                    <i style={{ width: `${progressPercent}%` }} />
+                  </div>
+                </article>
+                <article className={counts.failed || counts.blocked ? "graph-foreground-summary-card--attention" : ""}>
+                  <span>风险</span>
+                  <strong>{counts.failed || counts.blocked ? `${counts.failed} 失败 · ${counts.blocked} 阻塞` : "无"}</strong>
+                  <small>{counts.running ? `${counts.running} 运行中` : "没有运行中的节点"}</small>
+                </article>
+                <article>
+                  <span>最近产物</span>
+                  <strong>{latestArtifact ? stringValue(latestArtifact.name, stringValue(latestArtifact.path, "未命名产物")) : "暂无"}</strong>
+                  <small>{latestArtifact ? stringValue(latestArtifact.path, "没有文件路径") : "运行后显示"}</small>
+                </article>
+                <article>
+                  <span>会话</span>
+                  <strong>{counts.sessions}</strong>
+                  <small>{counts.artifacts} 个产物</small>
+                </article>
+              </section>
+
+              <section className="graph-foreground-canvas" aria-label="运行焦点图">
+                <header>
+                  <div>
+                    <span>运行焦点 · 跟随模式</span>
+                    <strong>{nodeCards.length ? `${nodeCards.length} 个节点信号` : "等待节点信号"}</strong>
+                  </div>
+                  <small>{focusLabel}</small>
+                </header>
+                <div className="graph-foreground-node-grid">
+                  {nodeCards.map((node) => {
+                    const active = selectedNode?.nodeId === node.nodeId;
+                    const tone = statusTone(node.status);
                     return (
-                      <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
-                        <FileText size={13} />
-                        <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
+                      <button
+                        aria-current={active ? "true" : undefined}
+                        className={classNames("graph-foreground-node-card", `graph-foreground-node-card--${tone}`, active && "graph-foreground-node-card--active")}
+                        key={node.nodeId}
+                        onClick={() => setSelectedNodeId(node.nodeId)}
+                        type="button"
+                      >
+                        <span>{statusLabel(node.status)}</span>
+                        <strong>{node.title}</strong>
+                        <small>{node.scopeLabel ? `${node.scopeLabel} · ${node.nodeId}` : node.nodeId}</small>
+                        <p>{node.detail}</p>
+                        <footer>
+                          <b>{node.session ? `${node.session.message_count ?? 0} 消息` : "无会话"}</b>
+                          <b>{node.artifactCount} 产物</b>
+                        </footer>
                       </button>
                     );
                   })}
-                  {!selectedNodeArtifacts.length ? <small>这个节点还没有产物。</small> : null}
+                  {!nodeCards.length ? (
+                    <div className="graph-foreground-canvas-empty">
+                      <Bot size={24} />
+                      <strong>还没有节点运行信号</strong>
+                      <span>启动运行后显示活跃节点、输出摘要和节点会话入口。</span>
+                    </div>
+                  ) : null}
                 </div>
-              </>
-            ) : (
-              <div className="boundary-empty">启动运行或选择节点后显示节点输出。</div>
-            )}
-          </section>
-        </aside>
-          </div>
+              </section>
+            </main>
 
-        <section className="graph-foreground-library" aria-label="项目正式库">
-          <section className="graph-foreground-panel graph-foreground-library__files">
-            <header>
-              <div>
-                <span>项目正式库</span>
-                <strong>{fileTree?.total_entries ?? 0} 项文件</strong>
-              </div>
-              <FolderTree size={15} />
-            </header>
-            <div className="graph-foreground-library__body">
-              <div className="graph-foreground-library__browser">
-                <label className="graph-foreground-search">
-                  <Search size={14} />
-                  <input
-                    onChange={(event) => setFileSearch(event.target.value)}
-                    placeholder="搜索项目文件"
-                    value={fileSearch}
-                  />
-                </label>
-                <div className="graph-foreground-file-tree">
-                  {fileTree && filteredTree ? (
-                    <FileTree node={filteredTree} onSelectFile={(path) => void loadFile(path)} selectedPath={selectedFilePath} />
-                  ) : fileTree ? (
-                    <div className="boundary-empty">没有匹配的项目文件。</div>
-                  ) : (
-                    <div className="boundary-empty">选择项目后显示正式库文件。</div>
-                  )}
-                </div>
-              </div>
-              <div className="graph-foreground-library__editor">
-                <div className="graph-foreground-file-head">
-                  <label>
-                    <span>当前文件</span>
-                    <input
-                      onChange={(event) => setSelectedFilePath(event.target.value)}
-                      placeholder="选择或输入文件路径"
-                      value={selectedFilePath}
-                    />
-                  </label>
-                  <div className="graph-foreground-mode-switch" role="group" aria-label="文件显示模式">
-                    <button
-                      aria-pressed={fileEditorMode === "edit"}
-                      className={fileEditorMode === "edit" ? "graph-foreground-mode-switch__active" : undefined}
-                      onClick={() => setFileEditorMode("edit")}
-                      type="button"
-                    >
-                      <PencilLine size={13} />
-                      编辑
-                    </button>
-                    <button
-                      aria-pressed={fileEditorMode === "preview"}
-                      className={fileEditorMode === "preview" ? "graph-foreground-mode-switch__active" : undefined}
-                      onClick={() => setFileEditorMode("preview")}
-                      type="button"
-                    >
-                      <Eye size={13} />
-                      预览
-                    </button>
+            <aside className="graph-foreground-inspector" aria-label="节点对话输出">
+              <section className="graph-foreground-panel graph-foreground-node-output">
+                <header>
+                  <div>
+                    <span>节点输出</span>
+                    <strong>{selectedNode?.title || "选择节点"}</strong>
                   </div>
-                </div>
-                {fileEditorMode === "edit" ? (
-                  <textarea
-                    disabled={!selectedInstance}
-                    onChange={(event) => setFileContent(event.target.value)}
-                    placeholder="选择文件后编辑内容"
-                    value={fileContent}
-                  />
+                  <MessageSquare size={15} />
+                </header>
+                {selectedNode ? (
+                  <>
+                    <div className={`graph-foreground-node-output__status graph-foreground-node-output__status--${statusTone(selectedNode.status)}`}>
+                      <strong>{statusLabel(selectedNode.status)}</strong>
+                      <span>{selectedNode.nodeId} · {timestampLabel(selectedNode.updatedAt)}</span>
+                    </div>
+                    <div className="graph-foreground-node-output__body">
+                      <p>{selectedNode.detail}</p>
+                    </div>
+                    <button disabled={!selectedNode.session} onClick={() => void openSession(selectedNode.session)} type="button">
+                      <MessageSquare size={14} />
+                      <span>{selectedNode.session ? "打开节点会话" : "暂无节点会话"}</span>
+                    </button>
+                    <div className="graph-foreground-node-output__artifacts">
+                      <span>节点产物</span>
+                      {selectedNodeArtifacts.map((artifact) => {
+                        const path = stringValue(artifact.path);
+                        return (
+                          <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
+                            <FileText size={13} />
+                            <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
+                          </button>
+                        );
+                      })}
+                      {!selectedNodeArtifacts.length ? <small>这个节点还没有产物。</small> : null}
+                    </div>
+                  </>
                 ) : (
-                  <div className="graph-foreground-file-preview markdown">
-                    {fileContent.trim() ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {fileContent}
-                      </ReactMarkdown>
-                    ) : (
-                      <p>选择文件后显示预览。</p>
-                    )}
-                  </div>
+                  <div className="boundary-empty">选择节点后显示节点输出。</div>
                 )}
-                <button disabled={!selectedInstance || !selectedFilePath.trim() || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
-                  <Save size={14} />
-                  <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
-                </button>
-              </div>
-              <div className="graph-foreground-library__writer">
-                <label>
-                  <span>写入正式库</span>
-                  <input
-                    onChange={(event) => setNewFilePath(event.target.value)}
-                    placeholder="input/brief.md"
-                    value={newFilePath}
-                  />
-                </label>
-                <div className="graph-foreground-template-grid">
-                  {FILE_PATH_TEMPLATES.map((template) => (
-                    <button
-                      className={newFilePath === template.path ? "graph-foreground-template-grid__active" : undefined}
-                      key={template.path}
-                      onClick={() => setNewFilePath(template.path)}
-                      type="button"
-                    >
-                      <strong>{template.label}</strong>
-                      <small>{template.path}</small>
-                    </button>
-                  ))}
+              </section>
+            </aside>
+          </div>
+          ) : (
+          <div className="graph-foreground-session-screen">
+            <aside className="graph-foreground-chapter-rail" aria-label="章节文件">
+              <header>
+                <div>
+                  <span>章节</span>
+                  <strong>{chapterFiles.length || flatFiles.length} 个文件</strong>
                 </div>
-                <textarea
-                  disabled={!selectedInstance}
-                  onChange={(event) => setNewFileContent(event.target.value)}
-                  placeholder="输入要写入项目正式库的内容"
-                  value={newFileContent}
-                />
-                <button disabled={!selectedInstance || !newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
-                  <FileText size={14} />
-                  <span>{action === "write-file" ? "写入中" : "写入项目库"}</span>
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="graph-foreground-panel graph-foreground-library__artifacts">
-            <header>
-              <div>
-                <span>运行产物</span>
-                <strong>{artifacts.length} 个产物</strong>
-              </div>
-              <FileText size={15} />
-            </header>
-            <label className="graph-foreground-search">
-              <Search size={14} />
-              <input
-                onChange={(event) => setArtifactSearch(event.target.value)}
-                placeholder="搜索产物"
-                value={artifactSearch}
-              />
-            </label>
-            <div className="graph-foreground-artifact-list">
-              {filteredArtifacts.slice(0, 80).map((artifact) => {
-                const path = stringValue(artifact.path);
-                return (
+                <FileText size={15} />
+              </header>
+              <label className="graph-foreground-search">
+                <Search size={14} />
+                <input onChange={(event) => setFileSearch(event.target.value)} placeholder="搜索章节或文件" value={fileSearch} />
+              </label>
+              <div className="graph-foreground-chapter-list">
+                {visibleChapterFiles.slice(0, 120).map((file) => (
                   <button
-                    disabled={!path}
-                    key={stringValue(artifact.artifact_id, path)}
-                    onClick={() => path && void loadFile(path)}
+                    className={selectedFilePath === file.path ? "graph-foreground-chapter-row graph-foreground-chapter-row--active" : "graph-foreground-chapter-row"}
+                    key={file.path}
+                    onClick={() => void loadFile(file.path)}
                     type="button"
                   >
-                    <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
-                    <small>{path || "没有文件路径"}</small>
-                    <span>{numberValue(artifact.size)} bytes · {timestampLabel(artifact.updated_at)}</span>
+                    <strong>{file.name}</strong>
+                    <small>{file.path}</small>
                   </button>
-                );
-              })}
-              {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
-              {artifacts.length && !filteredArtifacts.length ? <div className="boundary-empty">没有匹配的运行产物。</div> : null}
-            </div>
+                ))}
+                {!flatFiles.length ? <div className="boundary-empty">正式库还没有可查看文件。</div> : null}
+                {flatFiles.length && !visibleChapterFiles.length ? <div className="boundary-empty">没有匹配的章节或文件。</div> : null}
+              </div>
+            </aside>
+
+          <section className="graph-foreground-assets graph-foreground-assets--session" aria-label="项目资产区">
+            <header>
+              <div>
+                <span>项目资产</span>
+                <strong>{assetTab === "library" ? "正式库" : "运行产物"}</strong>
+              </div>
+              <div className="graph-foreground-asset-tabs" role="tablist" aria-label="项目资产页签">
+                <button aria-selected={assetTab === "library"} className={assetTab === "library" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("library")} type="button">
+                  <FolderTree size={13} />
+                  正式库
+                </button>
+                <button aria-selected={assetTab === "artifacts"} className={assetTab === "artifacts" ? "graph-foreground-asset-tabs__active" : undefined} onClick={() => setAssetTab("artifacts")} type="button">
+                  <FileText size={13} />
+                  运行产物
+                </button>
+              </div>
+            </header>
+            {assetTab === "library" ? (
+              <div className="graph-foreground-library__body graph-foreground-library__body--session">
+                <div className="graph-foreground-library__editor">
+                  <div className="graph-foreground-file-head">
+                    <label>
+                      <span>当前文件</span>
+                      <input onChange={(event) => setSelectedFilePath(event.target.value)} placeholder="选择或输入文件路径" value={selectedFilePath} />
+                    </label>
+                    <div className="graph-foreground-mode-switch" role="group" aria-label="文件显示模式">
+                      <button aria-pressed={fileEditorMode === "edit"} className={fileEditorMode === "edit" ? "graph-foreground-mode-switch__active" : undefined} onClick={() => setFileEditorMode("edit")} type="button">
+                        <PencilLine size={13} />
+                        编辑
+                      </button>
+                      <button aria-pressed={fileEditorMode === "preview"} className={fileEditorMode === "preview" ? "graph-foreground-mode-switch__active" : undefined} onClick={() => setFileEditorMode("preview")} type="button">
+                        <Eye size={13} />
+                        预览
+                      </button>
+                    </div>
+                  </div>
+                  {fileEditorMode === "edit" ? (
+                    <textarea onChange={(event) => setFileContent(event.target.value)} placeholder="选择文件后编辑内容" value={fileContent} />
+                  ) : (
+                    <div className="graph-foreground-file-preview markdown">
+                      {fileContent.trim() ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {fileContent}
+                        </ReactMarkdown>
+                      ) : (
+                        <p>选择文件后显示预览。</p>
+                      )}
+                    </div>
+                  )}
+                  <button disabled={!selectedFilePath.trim() || action === "save-file"} onClick={() => void saveSelectedFile()} type="button">
+                    <Save size={14} />
+                    <span>{action === "save-file" ? "保存中" : "保存文件"}</span>
+                  </button>
+                </div>
+                <div className="graph-foreground-library__writer">
+                  <label>
+                    <span>写入正式库</span>
+                    <input onChange={(event) => setNewFilePath(event.target.value)} placeholder="input/brief.md" value={newFilePath} />
+                  </label>
+                  <div className="graph-foreground-template-grid">
+                    {FILE_PATH_TEMPLATES.map((template) => (
+                      <button className={newFilePath === template.path ? "graph-foreground-template-grid__active" : undefined} key={template.path} onClick={() => setNewFilePath(template.path)} type="button">
+                        <strong>{template.label}</strong>
+                        <small>{template.path}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <textarea onChange={(event) => setNewFileContent(event.target.value)} placeholder="输入要写入项目正式库的内容" value={newFileContent} />
+                  <button disabled={!newFilePath.trim() || action === "write-file"} onClick={() => void writeNewFile()} type="button">
+                    <FileText size={14} />
+                    <span>{action === "write-file" ? "写入中" : "写入项目库"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="graph-foreground-artifacts-pane">
+                <label className="graph-foreground-search">
+                  <Search size={14} />
+                  <input onChange={(event) => setArtifactSearch(event.target.value)} placeholder="搜索产物" value={artifactSearch} />
+                </label>
+                <div className="graph-foreground-artifact-list">
+                  {filteredArtifacts.slice(0, 80).map((artifact) => {
+                    const path = stringValue(artifact.path);
+                    return (
+                      <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
+                        <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
+                        <small>{path || "没有文件路径"}</small>
+                        <span>{numberValue(artifact.size)} bytes · {timestampLabel(artifact.updated_at)}</span>
+                      </button>
+                    );
+                  })}
+                  {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
+                  {artifacts.length && !filteredArtifacts.length ? <div className="boundary-empty">没有匹配的运行产物。</div> : null}
+                </div>
+              </div>
+            )}
           </section>
-        </section>
+
+            <aside className="graph-foreground-session-side" aria-label="节点会话和产物">
+              <section className="graph-foreground-panel graph-foreground-session-card">
+                <header>
+                  <div>
+                    <span>节点会话</span>
+                    <strong>{selectedNode?.title || "选择节点"}</strong>
+                  </div>
+                  <MessageSquare size={15} />
+                </header>
+                <div className="graph-foreground-node-list">
+                  {nodeCards.map((node) => (
+                    <button
+                      aria-current={selectedNode?.nodeId === node.nodeId ? "true" : undefined}
+                      className={classNames("graph-foreground-node-list-row", selectedNode?.nodeId === node.nodeId && "graph-foreground-node-list-row--active")}
+                      key={node.nodeId}
+                      onClick={() => setSelectedNodeId(node.nodeId)}
+                      type="button"
+                    >
+                      <span>{statusLabel(node.status)}</span>
+                      <strong>{node.title}</strong>
+                      <small>{node.session ? `${node.session.message_count ?? 0} 条消息` : "暂无会话"}</small>
+                    </button>
+                  ))}
+                  {!nodeCards.length ? <div className="boundary-empty">暂无节点会话。</div> : null}
+                </div>
+                <button disabled={!selectedNode?.session} onClick={() => void openSession(selectedNode?.session ?? null)} type="button">
+                  <MessageSquare size={14} />
+                  <span>{selectedNode?.session ? "打开节点会话" : "暂无节点会话"}</span>
+                </button>
+              </section>
+
+              <section className="graph-foreground-panel graph-foreground-session-card">
+                <header>
+                  <div>
+                    <span>运行产物</span>
+                    <strong>{artifacts.length} 个产物</strong>
+                  </div>
+                  <FolderTree size={15} />
+                </header>
+                <div className="graph-foreground-artifact-list graph-foreground-artifact-list--side">
+                  {filteredArtifacts.slice(0, 30).map((artifact) => {
+                    const path = stringValue(artifact.path);
+                    return (
+                      <button disabled={!path} key={stringValue(artifact.artifact_id, path)} onClick={() => path && void loadFile(path)} type="button">
+                        <strong>{stringValue(artifact.name, path || "未命名产物")}</strong>
+                        <small>{path || "没有文件路径"}</small>
+                      </button>
+                    );
+                  })}
+                  {!artifacts.length ? <div className="boundary-empty">运行产物会出现在这里。</div> : null}
+                </div>
+              </section>
+            </aside>
+          </div>
+          )}
         </div>
-      </div>
+      )}
     </section>
   );
 }

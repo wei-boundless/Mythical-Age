@@ -10,7 +10,8 @@ import {
   type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
-import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
+import { shouldDisplayAssistantContent } from "./assistantContentVisibility";
+import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
 
 import type { AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
@@ -107,9 +108,6 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "stream_reconnect_failed") {
     return "需要重新接回会话";
   }
-  if (event === "input_commit_gate") {
-    return "接收请求";
-  }
   if (
     event === "harness_loop_event"
     || event === "runtime_directive"
@@ -117,34 +115,28 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     || event === "runtime_commit_gate"
   ) {
     const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
-    return stageStatusForRuntimeEvent(eventType);
+    return stageStatusForRuntimeEvent(eventType) ? "正在思考" : "";
   }
-  if (event === "context_management") {
-    return "整理上下文";
-  }
-  if (event === "memory_context") {
-    return "读取记忆";
-  }
-  if (event === "prompt_manifest") {
-    return "装配提示词";
-  }
-  if (event === "retrieval" || event.startsWith("worker")) {
-    return "检索证据";
-  }
-  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "answer_candidate" || event === "assistant_text") {
-    return "生成回答";
-  }
-  if (event === "output_boundary") {
-    return "整理输出";
+  if (
+    event === "input_commit_gate"
+    || event === "context_management"
+    || event === "memory_context"
+    || event === "prompt_manifest"
+    || event === "retrieval"
+    || event.startsWith("worker")
+    || event === "token"
+    || event === "content_delta"
+    || event === "assistant_text_delta"
+    || event === "assistant_text_final"
+    || event === "assistant_stream_repair"
+    || event === "answer_candidate"
+    || event === "assistant_text"
+    || event === "output_boundary"
+  ) {
+    return "正在思考";
   }
   if (event === "done") {
-    if (isTaskRunHandoffEvent(data)) {
-      return "";
-    }
-    if (stringValue(data.completion_state) === "partial_timeout") {
-      return "部分完成";
-    }
-    return "完成";
+    return "";
   }
   if (event === "error") {
     return "出错";
@@ -181,10 +173,6 @@ function activityLevelForEvent(event: string, data: Record<string, unknown>) {
 }
 
 function activityDetailForEvent(event: string, data: Record<string, unknown>) {
-  if (event === "retrieval") {
-    const results = Array.isArray(data.results) ? data.results.length : 0;
-    return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
-  }
   if (event === "stream_reconnecting") {
     return "连接短暂中断，已保留当前进度。";
   }
@@ -198,16 +186,7 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return stringValue(data.summary) || "已收到你的补充要求。";
   }
   if (event === "done") {
-    if (isTaskRunHandoffEvent(data)) {
-      return "";
-    }
-    if (stringValue(data.completion_state) === "task_steer_accepted") {
-      return stringValue(data.summary) || "当前任务已继续接收这次输入。";
-    }
-    if (stringValue(data.completion_state) === "partial_timeout") {
-      return "模型已生成部分内容，但结束信号超时。";
-    }
-    return "回答已生成并写回会话";
+    return "";
   }
   if (event === "error") {
     return "详情已写入会话。";
@@ -215,8 +194,7 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   if (event === "stopped") {
     return "已按你的操作停止本轮生成";
   }
-  const summary = eventSummary(event, data);
-  return summary === event ? "" : summary;
+  return "";
 }
 
 function stringValue(value: unknown) {
@@ -259,18 +237,15 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
 
 function shouldKeepStreamAssistantText(event: string, data: Record<string, unknown>) {
   const metadata = answerMetadataFromEvent(data);
-  if (shouldDisplayAssistantStreamContent(metadata)) {
-    return true;
-  }
-  if (event !== "assistant_text") {
-    return false;
-  }
-  return stringValue(metadata.answerChannel) === "task_control"
-    && stringValue(metadata.answerSource) === "harness.single_agent_turn.request_task_run";
+  return shouldDisplayAssistantContent(metadata);
 }
 
 function assistantDoneContentFromEvent(data: Record<string, unknown>) {
-  if (stringValue(data.answer_channel) === "runtime_control") {
+  if (isTaskRunHandoffEvent(data)) {
+    return "";
+  }
+  const metadata = answerMetadataFromEvent(data);
+  if (!shouldDisplayAssistantContent(metadata) || stringValue(data.answer_channel) === "runtime_control") {
     return "";
   }
   const content = stringValue(data.content);
@@ -280,9 +255,6 @@ function assistantDoneContentFromEvent(data: Record<string, unknown>) {
   const completionState = stringValue(data.completion_state);
   if (completionState === "task_steer_accepted") {
     return stringValue(data.summary ?? data.message) || "已加入当前任务队列。";
-  }
-  if (isTaskRunHandoffEvent(data)) {
-    return "";
   }
   const candidates = [
     data.final_answer,
@@ -1349,12 +1321,13 @@ export function reduceStreamEvent(
   event: string,
   data: Record<string, unknown>
 ): StreamTransition {
-  const visibility = projectRuntimeStreamEvent(event, data);
+  const publicProjectionEnvelope = publicProjectionEnvelopeFromRecord(data.public_projection_envelope);
+  const visibility = publicProjectionEnvelope ? {} : projectRuntimeStreamEvent(event, data);
   const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
-  const publicTimelineDelta = Array.isArray(data.public_timeline_delta)
+  const publicTimelineDelta = !publicProjectionEnvelope && Array.isArray(data.public_timeline_delta)
     ? sanitizePublicTimelineItems(data.public_timeline_delta as PublicChatTimelineItem[])
     : undefined;
-  const taskProjectionDelta = taskProjectionFromEventData(data);
+  const taskProjectionDelta = publicProjectionEnvelope ? null : taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -1397,12 +1370,15 @@ export function reduceStreamEvent(
   const stateWithOrchestrationBase = withOrchestration === stateWithActiveTurn.orchestrationSnapshot
     ? stateWithActiveTurn
     : { ...stateWithActiveTurn, orchestrationSnapshot: withOrchestration };
+  const stateWithPublicProjection = publicProjectionEnvelope
+    ? applyPublicProjectionEnvelope(stateWithOrchestrationBase, publicProjectionEnvelope, { assistantId: session.assistantId })
+    : stateWithOrchestrationBase;
   const stateWithStage = patchAssistantStage(
-    stateWithOrchestrationBase,
+    stateWithPublicProjection,
     session.assistantId,
-    visibility.stageStatus || stageStatusForEvent(event, data)
+    visibility.stageStatus || (publicProjectionEnvelope ? "" : stageStatusForEvent(event, data))
   );
-  const stateWithLegacyActivity = patchSessionActivity(stateWithStage, event, data);
+  const stateWithLegacyActivity = publicProjectionEnvelope ? stateWithStage : patchSessionActivity(stateWithStage, event, data);
   const stateWithVisibilityActivity = applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility);
   const stateWithOrchestration = appendAssistantProgress(
     stateWithVisibilityActivity,
@@ -1431,6 +1407,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "assistant_text_delta") {
+    if (!shouldKeepStreamAssistantText(event, data)) {
+      return {
+        state: stateWithTimelineDraft,
+        session
+      };
+    }
     return {
       state: mergeAssistantTextDeltaEvent(stateWithTimelineDraft, session.assistantId, data),
       session
@@ -1438,6 +1420,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "assistant_stream_repair") {
+    if (!shouldKeepStreamAssistantText(event, data)) {
+      return {
+        state: stateWithTimelineDraft,
+        session
+      };
+    }
     return {
       state: mergeAssistantStreamRepairEvent(stateWithTimelineDraft, session.assistantId, data),
       session
@@ -1445,6 +1433,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "assistant_text_final") {
+    if (!shouldKeepStreamAssistantText(event, data)) {
+      return {
+        state: stateWithTimelineDraft,
+        session
+      };
+    }
     return {
       state: mergeAssistantTextFinalEvent(stateWithTimelineDraft, session.assistantId, data),
       session
@@ -1459,6 +1453,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "done") {
+    if (publicProjectionEnvelope?.terminal?.visible === false) {
+      return {
+        state: stateWithTimelineDraft,
+        session,
+      };
+    }
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
@@ -1508,6 +1508,12 @@ export function reduceStreamEvent(
   }
 
   if (event === "answer_candidate" || event === "assistant_text") {
+    if (publicProjectionEnvelope) {
+      return {
+        state: stateWithTimelineDraft,
+        session,
+      };
+    }
     if (!stateWithTimelineDraft.chatStreamDisplayEnabled) {
       return {
         state: stateWithTimelineDraft,

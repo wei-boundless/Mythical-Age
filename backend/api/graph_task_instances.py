@@ -14,6 +14,7 @@ from api.orchestration import (
 from sessions import InvalidSessionId
 from task_system import TaskFlowRegistry
 from task_system.graph_instances import GraphTaskInstanceFileService, GraphTaskInstanceRepository
+from task_system.graph_instances.edge_control_service import HumanEdgeDecisionService
 
 
 router = APIRouter()
@@ -45,6 +46,19 @@ class GraphTaskInstanceRunStartRequest(BaseModel):
 class GraphTaskInstanceFileWriteRequest(BaseModel):
     path: str = Field(..., min_length=1, max_length=1000)
     content: str = ""
+
+
+class HumanEdgeDecisionSubmitRequest(BaseModel):
+    graph_run_id: str = Field(default="", max_length=240)
+    edge_id: str = Field(..., min_length=1, max_length=240)
+    decision: str = Field(..., min_length=1, max_length=32)
+    instruction: str = Field(default="", max_length=20000)
+    artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    content_submission: dict[str, Any] | None = None
+    apply_now: bool = True
+    idempotency_key: str = Field(default="", max_length=400)
+    operator: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("/orchestration/graph-tasks")
@@ -223,12 +237,18 @@ async def get_graph_task_instance_monitor(
         )
     node_sessions = _instance_sessions(runtime, instance.graph_task_instance_id, root_session_id=instance.root_session_id)
     artifacts = GraphTaskInstanceFileService(runtime.base_dir).artifacts(instance.graph_task_instance_id)
+    human_controls = HumanEdgeDecisionService(runtime.base_dir).human_controls(
+        instance_id=instance.graph_task_instance_id,
+        graph_config=graph_config,
+        state=runtime.harness_runtime.graph_harness.graph_loop.get_state(instance.active_graph_run_id) if instance.active_graph_run_id else None,
+    )
     return {
         "authority": "api.graph_task_instances.monitor",
         "instance": instance.to_dict(),
         "graph_monitor": graph_monitor,
         "node_sessions": node_sessions,
         "artifacts": artifacts,
+        "human_controls": human_controls,
         "summary": _instance_monitor_summary(instance.to_dict(), graph_monitor, node_sessions, artifacts),
     }
 
@@ -286,6 +306,36 @@ async def write_graph_task_instance_file(instance_id: str, payload: GraphTaskIns
 async def list_graph_task_instance_artifacts(instance_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return GraphTaskInstanceFileService(runtime.base_dir).artifacts(instance_id)
+
+
+@router.get("/orchestration/graph-task-instances/{instance_id}/human-edge-decisions")
+async def list_graph_task_instance_human_edge_decisions(
+    instance_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HumanEdgeDecisionService(runtime.base_dir).list(instance_id, limit=limit)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/orchestration/graph-task-instances/{instance_id}/human-edge-decisions")
+async def submit_graph_task_instance_human_edge_decision(
+    instance_id: str,
+    payload: HumanEdgeDecisionSubmitRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HumanEdgeDecisionService(runtime.base_dir).submit(
+            runtime=runtime,
+            instance_id=instance_id,
+            payload=payload.model_dump(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _require_instance(runtime: Any, instance_id: str):
@@ -362,4 +412,3 @@ def _instance_monitor_summary(
 def _safe_session_fragment(value: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in str(value or "").strip())
     return safe.strip(".-") or "graph-task-instance"
-

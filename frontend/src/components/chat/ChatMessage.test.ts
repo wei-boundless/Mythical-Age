@@ -316,13 +316,83 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("处理清单");
-    expect(html).toContain("当前：正在审查运行状态");
+    expect(html).not.toContain("处理清单");
+    expect(html).not.toContain("当前：正在审查运行状态");
+    expect(html).not.toContain("输出修复结果");
     expect(html).not.toContain("正在思考");
     expect(html).not.toContain("读取文件内容");
     expect(html).not.toContain("补齐验收证据");
     expect(html).not.toContain("backend/api/chat.py");
     expect(html).toContain("请选择要优先验证的页面。");
+  });
+
+  it("keeps companion timeline visible when task projection entries are all diagnostics", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:task-projection-companion",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:diagnostics-only",
+            anchor_turn_id: "turn:projection",
+            run_id: "taskrun:diagnostics-only",
+            task_run_id: "taskrun:diagnostics-only",
+            status: "running",
+            task_projection: {
+              projection_id: "projection:diagnostics-only",
+              authority: "runtime_projection",
+              task_run_id: "taskrun:diagnostics-only",
+              status: "running",
+              current_action: {
+                title: "正在思考",
+                display_surface: "timeline",
+                visibility_level: "internal",
+                state: "running",
+              },
+              activities: [
+                {
+                  activity_id: "activity:search",
+                  kind: "status",
+                  source_kind: "search_text",
+                  title: "搜索证据",
+                  detail: "工具调用失败，正在根据失败原因调整处理路径。",
+                  display_surface: "diagnostics",
+                  visibility_level: "debug",
+                  state: "failed",
+                },
+              ],
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "body:opening",
+            kind: "opening_judgment",
+            surface: "body",
+            source_authority: "model",
+            text: "我先确认任务投影链路，再继续修复。",
+            state: "running",
+          },
+          {
+            item_id: "tool:write",
+            kind: "tool_activity",
+            surface: "tool_window",
+            title: "写入修复文档",
+            detail: "docs/report.md",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("我先确认任务投影链路");
+    expect(html).toContain("写入修复文档");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("搜索证据");
+    expect(html).not.toContain("工具调用失败");
   });
 
   it("renders an explicit opening judgment even before activity rows exist", () => {

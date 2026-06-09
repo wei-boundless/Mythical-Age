@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PublicTimelineActivity } from "./PublicTimelineActivity";
 
 describe("PublicTimelineActivity", () => {
-  it("renders task projection todo without runtime state activities", () => {
+  it("renders task projection current action and activities without exposing todo", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         taskProjections: [
@@ -34,13 +34,14 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html).toContain("处理清单");
-    expect(html).toContain("当前：正在接入投影附件");
-    expect(html).not.toContain("正在重构投影系统");
-    expect(html).not.toContain("已确认旧反推链路");
+    expect(html).toContain("正在重构投影系统");
+    expect(html).toContain("已确认旧反推链路");
+    expect(html).not.toContain("处理清单");
+    expect(html).not.toContain("当前：正在接入投影附件");
+    expect(html).not.toContain("运行聚焦验证");
   });
 
-  it("does not render task projection runtime activities in the chat body", () => {
+  it("filters low-signal task projection activities while keeping meaningful task activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         taskProjections: [
@@ -73,9 +74,29 @@ describe("PublicTimelineActivity", () => {
                 state: "completed",
               },
               {
-                activity_id: "activity:write-report",
+                activity_id: "activity:search-failed",
+                kind: "status",
+                source_kind: "search_text",
+                title: "搜索证据",
+                detail: "工具调用失败，正在根据失败原因调整处理路径。",
+                state: "failed",
+              },
+              {
+                activity_id: "activity:list-subagents",
                 kind: "status",
                 source_kind: "tool_action",
+                title: "执行 list_subagents",
+                detail: "调用 list_subagents。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:write-report",
+                kind: "action",
+                source_kind: "write_file",
+                tool_name: "write_file",
+                tool_target: "docs/report.md",
+                display_surface: "tool_window",
+                visibility_level: "primary",
                 title: "写入报告",
                 detail: "写入 docs/report.md。",
                 state: "completed",
@@ -94,12 +115,70 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html).toContain("处理清单");
-    expect(html).not.toContain("写入报告");
+    expect(html).toContain("写入报告");
+    expect(html).toContain("写入 docs/report.md");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).not.toContain("open=\"\"");
+    expect(html).not.toContain("处理清单");
+    expect(html).not.toContain("审查显示投影");
     expect(html).not.toContain("正在思考");
     expect(html).not.toContain("执行 agent_todo");
     expect(html).not.toContain("读取文件内容");
+    expect(html).not.toContain("搜索证据");
+    expect(html).not.toContain("执行 list_subagents");
     expect(html).not.toContain("执行 2 个工具调用");
+    expect(html).not.toContain("工具调用失败");
+  });
+
+  it("honors task projection visibility levels from the backend", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:test",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:test",
+            status: "running",
+            current_action: {
+              title: "正在思考",
+              state: "running",
+              display_surface: "timeline",
+              visibility_level: "internal",
+            },
+            activities: [
+              {
+                activity_id: "activity:debug-read",
+                kind: "status",
+                source_kind: "inspect_path",
+                display_surface: "diagnostics",
+                visibility_level: "debug",
+                title: "读取文件内容",
+                detail: "读取 backend/sessions/a.json。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:primary-write",
+                kind: "action",
+                source_kind: "write_file",
+                tool_name: "write_file",
+                tool_target: "docs/report.md",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "写入报告",
+                detail: "写入 docs/report.md。",
+                state: "completed",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("写入报告");
+    expect(html).toContain("docs/report.md");
+    expect(html).not.toContain("读取文件内容");
+    expect(html).not.toContain("backend/sessions");
+    expect(html).not.toContain("正在思考");
   });
 
   it("renders tool windows from semantic public timeline items", () => {

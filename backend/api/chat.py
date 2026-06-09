@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
+from harness.runtime.public_projection_envelope import build_public_projection_envelope
 from harness.runtime.session_task_projection import build_single_agent_task_projection
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.shared.runtime_run_registry import RuntimeRun
@@ -413,6 +414,13 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 _attach_task_projection_to_public_data(runtime, runtime_task_run_id, data)
             if runtime_active_turn_id:
                 data.setdefault("active_turn_id", runtime_active_turn_id)
+            next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
+            _attach_public_projection_envelope(
+                public_event_type,
+                data,
+                session_id=request.session_id,
+                sequence=next_sequence,
+            )
             logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
             terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
             diagnostics = {
@@ -692,6 +700,23 @@ def _attach_task_projection_to_public_data(runtime: Any, task_run_id: str, data:
         data.setdefault("background_task_run_id", normalized_task_run_id)
         data.setdefault("turn_handoff_completed", True)
         data.setdefault("work_status", str(projection.get("status") or "running"))
+
+
+def _attach_public_projection_envelope(
+    public_event_type: str,
+    data: dict[str, Any],
+    *,
+    session_id: str,
+    sequence: int = 0,
+) -> None:
+    data["public_projection_envelope"] = build_public_projection_envelope(
+        public_event_type,
+        data,
+        session_id=session_id,
+        sequence=sequence,
+        public_timeline_delta=list(data.get("public_timeline_delta") or []),
+        task_projection=dict(data.get("task_projection_delta") or data.get("task_projection") or {}),
+    )
 
 
 def _redact_public_stream_data(value: Any) -> Any:

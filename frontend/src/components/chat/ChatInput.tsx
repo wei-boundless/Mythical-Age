@@ -7,7 +7,7 @@ import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
 
 export type ChatPrimaryTaskAction = {
-  kind: "interrupt";
+  kind: "stop_task";
   onAction: () => Promise<void> | void;
 };
 
@@ -82,12 +82,12 @@ export function ChatInput({
       : disabled || submitting;
   const primaryLabel = primaryAction === "stop_stream"
     ? "停止本轮生成"
-    : primaryAction === "interrupt"
-      ? "中断当前任务"
+    : primaryAction === "stop_task"
+      ? "停止当前任务"
       : "发送";
   const primaryButtonClassName = [
     "chat-send-button",
-    primaryAction === "stop_stream" || primaryAction === "interrupt" ? "chat-stop-button chat-send-button--stop" : "",
+    primaryAction === "stop_stream" || primaryAction === "stop_task" ? "chat-stop-button chat-send-button--stop" : "",
   ].filter(Boolean).join(" ");
   const streamToggleTitle = streaming
     ? "本轮运行中，下一轮可切换流式显示"
@@ -137,7 +137,7 @@ export function ChatInput({
       onStop();
       return;
     }
-    if (primaryAction === "interrupt") {
+    if (primaryAction === "stop_task") {
       await runTaskPrimaryAction();
       return;
     }
@@ -231,7 +231,7 @@ export function ChatInput({
             title={primaryLabel}
             type="button"
           >
-            {primaryAction === "stop_stream" || primaryAction === "interrupt" ? (
+            {primaryAction === "stop_stream" || primaryAction === "stop_task" ? (
               <Square size={15} />
             ) : (
               <ArrowUp size={18} />
