@@ -59,7 +59,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "active_task_steer_accepted": {
         "summary",
         "status",
-        "terminal_reason",
     },
     "runtime_status": {
         "title",
@@ -91,7 +90,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "registered_engagement": {"event"},
     "task_run_lifecycle_started": {"event"},
     "task_run_lifecycle_event": {"event"},
-    "agent_turn_terminal": {"event"},
     "retrieval": {"results"},
     "output_boundary": {"boundary", "summary", "artifacts"},
     "answer_candidate": {"content"},
@@ -662,7 +660,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
     normalized = str(event_type or "message").strip() or "message"
     if normalized in INTERNAL_STREAM_EVENTS:
         return None
-    if normalized in {"model_action_request", "model_action_admission_checked"}:
+    if normalized in {"model_action_request", "model_action_admission_checked", "agent_turn_terminal"}:
         return None
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return None
@@ -680,6 +678,8 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> tupl
     else:
         data = {key: raw_data[key] for key in allowed if key in raw_data}
     data = _redact_public_stream_data(data)
+    if "terminal_reason" in data:
+        data["terminal_reason"] = _public_terminal_reason(data.get("terminal_reason"))
     if normalized == "runtime_branch_decided":
         branch = dict(data.get("runtime_branch") or {})
         data["runtime_branch"] = _public_runtime_branch(branch)
@@ -788,6 +788,22 @@ def _safe_public_action_text(value: Any) -> str:
     if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
         return ""
     return text[:360]
+
+
+def _public_terminal_reason(value: Any) -> str:
+    reason = str(value or "").strip()
+    if reason in {
+        "continue_active_work",
+        "pause_active_work",
+        "stop_active_work",
+        "append_instruction_to_active_work",
+        "answer_about_active_work",
+        "answer_then_continue_active_work",
+        "active_work_control",
+        "active_work_control_denied",
+    }:
+        return "work_control"
+    return reason
 
 
 def _public_action_state_from_admission(payload: dict[str, Any], *, public_action: dict[str, Any]) -> str:

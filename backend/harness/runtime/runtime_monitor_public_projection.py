@@ -297,7 +297,7 @@ def _public_timeline_item_key(item: dict[str, Any]) -> str:
         phase = _text(item.get("phase"))
         title = _text(item.get("title"))
         detail = _text(item.get("detail") or item.get("text"))
-        if phase in {"waiting_user", "active_work_control"} and (title or detail):
+        if phase in {"waiting_user", "work_control", "active_work_control"} and (title or detail):
             return f"status:{phase}:{_stable_digest(title + '|' + detail)}"
     item_id = _text(item.get("item_id"))
     if item_id:
@@ -675,7 +675,7 @@ def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:
             "title": payload.get("title") or "当前工作控制",
             "detail": payload.get("detail") or "当前工作控制状态已更新。",
             "state": payload.get("state") or "running",
-            "phase": payload.get("phase") or "active_work_control",
+            "phase": payload.get("phase") or "work_control",
         }
     if event_type in {"task_run_lifecycle_waiting_executor", "task_run_executor_scheduled"}:
         return {

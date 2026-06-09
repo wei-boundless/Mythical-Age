@@ -270,6 +270,8 @@ def test_graph_task_instance_run_owns_graph_scope_without_environment(tmp_path: 
     assert runtime_scope["artifact_root"].startswith("storage/graph_task_instances/")
     assert "/runs/" in runtime_scope["artifact_root"]
     assert runtime_scope["artifact_root"].endswith("/artifacts")
+    instance_file_root = GraphTaskInstanceFileService(backend_dir).root(instance.graph_task_instance_id)
+    assert f"storage/graph_task_instances/{instance_file_root.name}/runs/" in runtime_scope["artifact_root"]
 
 
 def test_writing_graph_instance_run_uses_saved_project_brief_config(tmp_path: Path) -> None:

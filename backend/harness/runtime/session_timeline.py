@@ -272,7 +272,7 @@ def _is_control_model_action_progress_entry(entry: dict[str, Any]) -> bool:
     title = str(entry.get("title") or "").strip()
     body = public_runtime_progress_summary(entry.get("body") or entry.get("publicNote") or "").strip()
     return (
-        status in {"waiting_user", "blocked", "active_work_control"}
+        status in {"waiting_user", "blocked", "work_control", "active_work_control"}
         or title in {"等待补充信息", "处理遇到阻塞", "已收到补充要求"}
         or body in {"需要用户补充信息后才能继续。", "当前请求无法继续执行。"}
     )
@@ -735,7 +735,7 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
             body=public_note or body,
             kind="stage",
             level="success",
-            status="active_work_control",
+            status="work_control",
             public_note=public_note,
             evidence_type="model_action",
         )

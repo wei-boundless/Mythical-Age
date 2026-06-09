@@ -800,6 +800,104 @@ def test_running_active_turn_input_queues_steer_without_model_roundtrip() -> Non
     )
     assert [str(item.get("role") or "") for item in session_messages] == ["user"]
 
+
+def test_running_active_turn_pause_uses_immediate_control_without_queueing_steer() -> None:
+    model = _ActiveWorkDecisionModelRuntime([])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-turn-running-pause",
+        status="running",
+    )
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:pause")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:pause",
+        task_run_id=task_run_id,
+        state="running_task",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="先暂停当前任务。",
+                expected_active_turn_id="turn:active:pause",
+                active_turn_input_policy="steer",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert "single_agent_turn_started" not in [str(event.get("type") or "") for event in events]
+    assert model.active_work_decision_count == 0
+    assert updated_task is not None
+    assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
+    assert dict(dict(updated_task.diagnostics or {}).get("runtime_control") or {}).get("state") == "pause_requested"
+    assert any(event.get("type") == "active_task_steer_accepted" and event.get("terminal_reason") == "pause_active_work" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "runtime_control"
+        and event.get("terminal_reason") == "pause_active_work"
+        for event in events
+    )
+
+
+def test_running_active_turn_stop_uses_immediate_control_without_queueing_steer() -> None:
+    model = _ActiveWorkDecisionModelRuntime([])
+    runtime = build_harness_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-turn-running-stop",
+        status="running",
+    )
+
+    host = runtime.single_agent_runtime_host
+    host.active_turn_registry.start(session_id="session-active-work", turn_id="turn:active:stop")
+    host.active_turn_registry.bind_task_run(
+        session_id="session-active-work",
+        turn_id="turn:active:stop",
+        task_run_id=task_run_id,
+        state="running_task",
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-active-work",
+                message="停止当前任务，不用继续做了。",
+                expected_active_turn_id="turn:active:stop",
+                active_turn_input_policy="steer",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert "single_agent_turn_started" not in [str(event.get("type") or "") for event in events]
+    assert model.active_work_decision_count == 0
+    assert updated_task is not None
+    assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
+    assert updated_task.terminal_reason == "user_aborted"
+    assert host.active_turn_registry.snapshot("session-active-work") is None
+    assert any(event.get("type") == "active_task_steer_accepted" and event.get("terminal_reason") == "stop_active_work" for event in events)
+    assert any(
+        event.get("type") == "done"
+        and event.get("answer_channel") == "runtime_control"
+        and event.get("terminal_reason") == "stop_active_work"
+        for event in events
+    )
+
+
 def test_auto_active_turn_input_uses_model_decision_even_when_task_running() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {

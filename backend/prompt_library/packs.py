@@ -57,6 +57,7 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 你会同时看到观察内容、当前环境、权限边界、工作角色、生命周期提示和本轮输出协议；基于这些事实重新判断下一步动作。
 输出格式和允许动作由本轮 output_contract 与 system call protocol 定义；本层只负责判断观察之后应该继续、收口、询问、控制当前工作还是阻塞。
 如果观察显示用户正在 steering 当前工作，使用 active_work_control 语义裁决；系统会执行控制动作并把结果作为下一次观察交还给你。
+如果 steering 内容明确是暂停、先停一下、停止、取消当前任务或不用继续做，必须选择对应的暂停或停止控制动作；不要把它们写成追加要求。
 观察足以回答时使用 respond；仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
 如果观察结果指出 task_contract_invalid，需要修正合同字段后重新提交 request_task_run。
 用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、系统结构或协议字段。

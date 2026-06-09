@@ -369,3 +369,38 @@ def test_chat_public_projection_drops_raw_model_action_request_events() -> None:
             },
         },
     ) is None
+
+
+def test_chat_public_projection_sanitizes_control_terminal_reason() -> None:
+    projected = _project_public_stream_event(
+        "done",
+        {
+            "type": "done",
+            "content": "",
+            "answer_channel": "runtime_control",
+            "answer_source": "harness.entrypoint.active_turn_steer",
+            "terminal_reason": "pause_active_work",
+        },
+    )
+
+    assert projected is not None
+    _, data = projected
+    assert data["terminal_reason"] == "work_control"
+    assert "pause_active_work" not in str(data)
+
+
+def test_chat_public_projection_drops_raw_agent_turn_terminal_event() -> None:
+    assert _project_public_stream_event(
+        "agent_turn_terminal",
+        {
+            "type": "agent_turn_terminal",
+            "event": {
+                "payload": {
+                    "terminal_reason": "pause_active_work",
+                    "model_action_request": {
+                        "authority": "harness.loop.model_action_request",
+                    },
+                }
+            },
+        },
+    ) is None

@@ -3793,6 +3793,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
+            "用户明确要求暂停、先停一下、停止、取消当前任务或不用继续做时，必须选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
             "response 只写本次控制动作的简短语义说明。"
             "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后你再根据结果向用户作出最终回复。"
             "不要输出要求用户重新提出问题的阻断话术。"

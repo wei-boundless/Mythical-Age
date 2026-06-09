@@ -174,6 +174,6 @@ def _tree_node(path: Path, root: Path, *, depth: int, max_depth: int, max_entrie
 
 
 def _safe_path_component(value: str) -> str:
-    safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in str(value or "").strip())
-    safe = safe.strip("._-")
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "").strip())
+    safe = safe.strip("_-")
     return safe or "graph_task_instance"

@@ -23,7 +23,7 @@ const PUBLIC_TIMELINE_TEXT_FIELDS = [
   "href",
 ] as const;
 const TOOL_WINDOW_TEXT_FIELDS = ["tool_label", "target", "status"] as const;
-const CONTROL_TIMELINE_PHASES = new Set(["waiting_user", "active_work_control"]);
+const CONTROL_TIMELINE_PHASES = new Set(["waiting_user", "work_control"]);
 
 export function sanitizePublicTimelineItems(items: PublicChatTimelineItem[] | null | undefined) {
   if (!Array.isArray(items) || !items.length) {

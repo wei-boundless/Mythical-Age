@@ -808,8 +808,13 @@ class HarnessRuntimeFacade:
                 terminal_reason="expected_active_turn_mismatch",
                 content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
             )
+        steer_action = _active_turn_steer_action_from_user_message(str(getattr(request, "message", "") or ""))
         control_state = str(active_work_context.control_state or "")
-        if control_state in {"paused", "pause_requested", "stopped", "stop_requested"}:
+        if control_state in {"paused", "pause_requested", "stopped", "stop_requested"} and not (
+            steer_action == "continue_active_work"
+            and active_work_context.resumable
+            and control_state in {"paused", "pause_requested"}
+        ):
             return await self._active_turn_steer_blocked_events(
                 request=request,
                 turn_id=turn_id,
@@ -817,7 +822,10 @@ class HarnessRuntimeFacade:
                 terminal_reason=f"active_turn_steer_control_state_{control_state}",
                 content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
             )
-        if not active_work_context.running:
+        if not active_work_context.running and not (
+            steer_action in {"continue_active_work", "stop_active_work"}
+            and (active_work_context.resumable or steer_action == "stop_active_work")
+        ):
             return await self._active_turn_steer_blocked_events(
                 request=request,
                 turn_id=turn_id,
@@ -839,6 +847,14 @@ class HarnessRuntimeFacade:
             )
             return [self._active_turn_steer_branch_event(reason=terminal_reason), *terminal_events]
         branch_event = self._active_turn_steer_branch_event(reason="expected_active_turn_matched")
+        if steer_action in {"pause_active_work", "stop_active_work", "continue_active_work"}:
+            control_events = await self._active_turn_steer_control_events(
+                request=request,
+                turn_id=turn_id,
+                context=active_work_context,
+                action=steer_action,
+            )
+            return [branch_event, *control_events]
         result = append_user_work_instruction(
             self.single_agent_runtime_host,
             active_work_context.task_run_id,
@@ -906,6 +922,82 @@ class HarnessRuntimeFacade:
             completion_state="task_steer_accepted",
         )
         return [branch_event, active_event, *terminal_events]
+
+    async def _active_turn_steer_control_events(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        context: ActiveWorkContext,
+        action: str,
+    ) -> list[dict[str, Any]]:
+        expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        decision = active_work_turn_decision_from_payload(
+            {
+                "authority": "harness.loop.active_work_turn_decision",
+                "action": action,
+                "relation_to_current_work": "current_work",
+                "response": default_reply_for_action(action, context),
+            },
+            user_message=str(getattr(request, "message", "") or ""),
+        )
+        if not decision.accepted:
+            content = active_work_control_denial_observation(decision)
+            return await self._active_turn_steer_terminal_events(
+                request=request,
+                turn_id=turn_id,
+                context=context,
+                content=content,
+                status="blocked",
+                terminal_reason=decision.denied_reason or decision.reason or "active_work_control_denied",
+                completion_state="blocked",
+            )
+        result = await self._apply_active_work_turn_decision(
+            decision=decision,
+            context=context,
+            turn_id=expected_active_turn_id or turn_id,
+            user_message=str(getattr(request, "message", "") or ""),
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+        )
+        payload = dict(result) if isinstance(result, dict) else {}
+        content = str(payload.get("content") if payload else result or "").strip()
+        blocked = str(payload.get("status") or "").strip().lower() == "blocked"
+        active_turn_payload = self._active_turn_payload_for_context(
+            context=self._active_work_context_from_active_turn(context.session_id) or context,
+            turn_id=expected_active_turn_id,
+        )
+        active_event = {
+            "type": "active_task_steer_accepted",
+            "summary": content,
+            "status": "blocked" if blocked else "accepted",
+            "terminal_reason": action,
+            "runtime_task_run_id": context.task_run_id,
+            "active_turn_id": expected_active_turn_id,
+            "active_turn": active_turn_payload,
+            "runtime_branch": {
+                "branch_kind": "active_turn_steer",
+                "invocation_kind": "active_turn_input",
+                "reason": "expected_active_turn_matched",
+                "authority": "harness.entrypoint.active_turn_steer_fast_path",
+            },
+            "active_work": {
+                "action": action,
+                "relation_to_current_work": "current_work",
+                "continuation_strategy": "immediate_control",
+                "turn_response_policy": "answer_then_active_work",
+            },
+            "task_run_id": context.task_run_id,
+        }
+        terminal_events = await self._active_turn_steer_terminal_events(
+            request=request,
+            turn_id=turn_id,
+            context=self._active_work_context_from_active_turn(context.session_id) or context,
+            content=content,
+            status="blocked" if blocked else "completed",
+            terminal_reason=action,
+            completion_state="blocked" if blocked else "task_steer_accepted",
+        )
+        return [active_event, *terminal_events]
 
     async def _active_turn_steer_blocked_events(
         self,
@@ -2880,6 +2972,21 @@ def _public_status_text(value: Any, *, limit: int = 900) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _active_turn_steer_action_from_user_message(message: str) -> str:
+    text = " ".join(str(message or "").strip().lower().split())
+    if not text:
+        return ""
+    negative_pause = any(marker in text for marker in ("不要暂停", "别暂停", "不用暂停", "不要先停", "别先停"))
+    negative_stop = any(marker in text for marker in ("不要停止", "别停止", "不用停止", "不要取消", "别取消", "不用取消", "不要停掉", "别停掉"))
+    if not negative_stop and any(marker in text for marker in ("停止", "终止", "取消当前", "取消任务", "停掉", "别做了", "不用做了", "stop", "cancel", "abort")):
+        return "stop_active_work"
+    if not negative_pause and any(marker in text for marker in ("暂停", "先停", "停一下", "等一下", "缓一缓", "pause")):
+        return "pause_active_work"
+    if len(text) <= 40 and any(marker in text for marker in ("继续", "接着", "恢复", "继续做", "接着做", "continue", "resume")):
+        return "continue_active_work"
+    return ""
 
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
