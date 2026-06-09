@@ -4,11 +4,11 @@ import { RefreshCw } from "lucide-react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { RuntimeMonitorActionPayload } from "@/lib/api";
-import { selectRunMonitorProjectLane, selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
+import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { useAppStore } from "@/lib/store";
 
-export type RunManagementSubpage = "queue" | "projects" | "records" | "cleanup";
+export type RunManagementSubpage = "queue" | "records" | "cleanup";
 
 const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
@@ -30,7 +30,6 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
     ...(lanes?.current ?? []),
     ...(lanes?.attention ?? []),
   ].filter((signal) => signal.work_kind !== "graph_task");
-  const projects = selectRunMonitorProjectLane(runMonitor);
   const recent = lanes?.recent ?? [];
   const hidden = lanes?.hidden ?? [];
   const fallbackTasks = selectRunMonitorTaskLane(runMonitor);
@@ -89,16 +88,6 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
           onAction={(payload) => void handleAction(payload)}
           onOpen={openRunMonitorSignal}
           rows={queueRows}
-        />
-      ) : null}
-
-      {activePage === "projects" ? (
-        <RunManagementRows
-          actionLoading={runMonitorActionLoading}
-          emptyText="当前没有图任务项目运行。"
-          onAction={(payload) => void handleAction(payload)}
-          onOpen={openRunMonitorSignal}
-          rows={projects}
         />
       ) : null}
 
@@ -208,14 +197,12 @@ function RunManagementActions({
 }
 
 function titleForPage(page: RunManagementSubpage) {
-  if (page === "projects") return "图任务项目";
   if (page === "records") return "历史记录";
   if (page === "cleanup") return "清理预览";
   return "工作队列";
 }
 
 function subtitleForPage(page: RunManagementSubpage) {
-  if (page === "projects") return "按总任务查看图运行、节点进展和项目级动作";
   if (page === "records") return "查看最近完成和已清出监控台的运行记录";
   if (page === "cleanup") return "只展示可预览的删除候选，真实删除仍由后端保护";
   return "当前运行、等待、停滞和失败任务";

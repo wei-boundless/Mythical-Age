@@ -12996,19 +12996,19 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .development-git-float {
-  position: absolute;
+  position: fixed;
   right: 0.72rem;
   bottom: 0.72rem;
   z-index: 30;
-  display: grid;
-  align-content: end;
-  align-items: end;
-  justify-items: end;
-  gap: 0.38rem;
+  display: block;
   height: auto;
   max-width: min(340px, calc(100% - 1.44rem));
   min-height: 0;
   pointer-events: none;
+}
+
+.development-git-float--open {
+  z-index: 45;
 }
 
 .development-git-float > * {
@@ -13025,6 +13025,17 @@ html[data-workspace-tone] .agent-workbench {
   max-width: 220px;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.11);
   padding: 0 0.54rem;
+  touch-action: none;
+  user-select: none;
+}
+
+.development-git-trigger:hover {
+  cursor: grab;
+}
+
+.development-git-float--dragging .development-git-trigger,
+.development-git-float--dragging .development-git-trigger:hover {
+  cursor: grabbing;
 }
 
 .development-git-trigger span {
@@ -13053,6 +13064,9 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .development-git-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.38rem);
   display: grid;
   grid-template-rows: auto;
   width: min(304px, calc(100vw - 1.5rem));
@@ -13062,6 +13076,16 @@ html[data-workspace-tone] .agent-workbench {
   border-radius: 18px;
   background: color-mix(in srgb, var(--workbench-surface) 96%, #fff);
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.13);
+}
+
+.development-git-float--align-left .development-git-popover {
+  right: auto;
+  left: 0;
+}
+
+.development-git-float--open-down .development-git-popover {
+  top: calc(100% + 0.38rem);
+  bottom: auto;
 }
 
 .development-git-popover__head {

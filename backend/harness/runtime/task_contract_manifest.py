@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
+from harness.task_contract_normalization import contract_string_list
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +47,7 @@ def build_task_contract_manifest(
     planning_payload = _deepcopy_json_dict(planning_protocol)
     contract_hash = _stable_json_hash(contract_payload)
     planning_hash = _stable_json_hash(planning_payload)
-    completion_criteria = list(contract_payload.get("completion_criteria") or [])
+    completion_criteria = contract_string_list(contract_payload.get("completion_criteria"))
     seed = {
         "invocation_kind": str(invocation_kind or ""),
         "source_ref": str(source_ref or ""),
@@ -312,9 +313,7 @@ def _bounded_dict_list(value: Any, *, limit: int) -> list[dict[str, Any]]:
 
 
 def _string_list(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value.strip()] if value.strip() else []
-    return [str(item).strip() for item in list(value or []) if str(item).strip()]
+    return contract_string_list(value)
 
 
 def _drop_empty_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 "use client";
 
-import { GitBranch, Link2, Plus, Save, Trash2, Unlink2 } from "lucide-react";
+import { Link2, Plus, Save, Trash2, Unlink2 } from "lucide-react";
 
 import {
   TaskSystemToolbarButton,
@@ -15,7 +15,6 @@ import type {
 } from "@/lib/api";
 
 import {
-  EnvironmentGraphInventoryPage,
   EnvironmentLoadoutPage,
   EnvironmentPromptPage,
   EnvironmentTaskInventoryPage,
@@ -29,7 +28,7 @@ import {
   type EnvironmentScope,
 } from "./environmentPresentation";
 
-export type EnvironmentSubpage = "types" | "loadout" | "prompts" | "tasks" | "graphs";
+export type EnvironmentSubpage = "types" | "loadout" | "prompts" | "tasks";
 
 export type EnvironmentDraft = {
   environment_id: string;
@@ -330,10 +329,8 @@ export function TaskEnvironmentManagementWorkbench({
   onSave,
   onSaveKindTemplate,
   onSetDraft,
-  onSelectGraph,
   saving,
   selectedEnvironmentId,
-  selectedGraphId,
   taskSystemOverview,
 }: {
   activePage: EnvironmentSubpage;
@@ -351,10 +348,8 @@ export function TaskEnvironmentManagementWorkbench({
   onSave: () => void;
   onSaveKindTemplate: (template: TaskEnvironmentKindTemplate) => Promise<void>;
   onSetDraft: (draft: EnvironmentDraft) => void;
-  onSelectGraph: (graphId: string) => void;
   saving: string;
   selectedEnvironmentId: string;
-  selectedGraphId: string;
   taskSystemOverview: TaskSystemOverview | null;
 }) {
   const selectedItem = environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId);
@@ -411,13 +406,6 @@ export function TaskEnvironmentManagementWorkbench({
           environmentItems={environmentItems}
           onAssignTaskEnvironment={onAssignTaskEnvironment}
           selectedEnvironmentId={selectedEnvironmentId}
-          taskSystemOverview={taskSystemOverview}
-        />
-      ) : null}
-      {activePage === "graphs" ? (
-        <EnvironmentGraphInventoryPage
-          onSelectGraph={onSelectGraph}
-          selectedGraphId={selectedGraphId}
           taskSystemOverview={taskSystemOverview}
         />
       ) : null}

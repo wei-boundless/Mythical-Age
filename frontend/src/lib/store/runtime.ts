@@ -3819,13 +3819,15 @@ export class WorkspaceRuntime {
   }
 
   private openTaskGraphWorkspace(target: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at"> = {}) {
-    this.syncWorkspaceViewUrl("creative");
+    const mode = target.mode ?? "monitor";
+    const workspaceView: WorkspaceView = mode === "editor" ? "task-system" : "creative";
+    this.syncWorkspaceViewUrl(workspaceView);
     this.store.setState((prev) => ({
       ...prev,
-      activeWorkspaceView: "creative",
+      activeWorkspaceView: workspaceView,
       taskGraphWorkspaceTarget: {
         layer: "task-graph",
-        mode: target.mode ?? "editor",
+        mode,
         task_environment_id: "",
         graph_id: String(target.graph_id ?? "").trim() || undefined,
         task_run_id: String(target.task_run_id ?? "").trim() || undefined,

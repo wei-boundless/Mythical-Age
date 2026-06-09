@@ -1,6 +1,55 @@
 from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
+from harness.loop.model_action_protocol import ModelActionRequest
+from harness.loop.single_agent_turn import _action_request_from_native_tool_calls
+from harness.loop.task_lifecycle import contract_from_action_request
+
+
+def test_native_request_task_run_normalizes_string_completion_criteria_without_character_splitting() -> None:
+    action = _action_request_from_native_tool_calls(
+        [
+            {
+                "id": "call:task",
+                "name": "request_task_run",
+                "args": {
+                    "user_visible_goal": "审查项目。",
+                    "task_run_goal": "逐模块审查项目。",
+                    "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
+                    "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
+                },
+            }
+        ],
+        turn_id="turn:test:native-task",
+        packet_ref="packet:test",
+    )
+
+    assert action is not None
+    seed = action.task_contract_seed
+    assert seed["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
+    assert seed["required_artifacts"] == [{"artifact_kind": "markdown_document", "user_visible_name": "审查报告"}]
+    assert action.completion_contract["completion_criteria"] == seed["completion_criteria"]
+
+
+def test_json_request_task_run_normalizes_numbered_completion_criteria_without_character_splitting() -> None:
+    contract, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:json-task-string-criteria",
+            turn_id="turn:json-task-string-criteria",
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "审查交互投影。",
+                "task_run_goal": "验证 todo 投影和工具活动展示。",
+                "completion_criteria": "1. todo 投影显示有效任务 2. 工具活动不展示低层噪声",
+            },
+        ),
+        packet_ref="rtpacket:json-task-string-criteria",
+    )
+
+    assert errors == []
+    assert contract is not None
+    assert contract.completion_criteria == ("todo 投影显示有效任务", "工具活动不展示低层噪声")
+
 
 def test_single_agent_turn_tool_limit_blocks_protocol_inside_synthesized_respond(tmp_path: Path) -> None:
     class ProtocolRespondLoopModel(NativeToolCallSequenceModelRuntimeStub):

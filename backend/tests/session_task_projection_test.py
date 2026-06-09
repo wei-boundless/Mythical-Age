@@ -130,3 +130,55 @@ def test_single_agent_task_projection_prioritizes_recovery_over_stale_executor_s
     assert projection["control"]["can_pause"] is False
     assert projection["control"]["can_resume"] is True
     assert projection["control"]["can_stop"] is True
+
+
+def test_single_agent_task_projection_hides_completed_low_signal_tool_activities() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run = _single_agent_task_run(status="running")
+    projection = build_single_agent_task_projection(
+        host,
+        task_run,
+        events=[],
+        monitor={
+            "progress_presentation": {
+                "work_units": [
+                    {
+                        "unit_id": "workunit:agent-todo",
+                        "kind": "tool_action",
+                        "title": "执行 agent_todo",
+                        "state": "completed",
+                        "action": "调用 agent_todo。",
+                    },
+                    {
+                        "unit_id": "workunit:read",
+                        "kind": "inspect_path",
+                        "title": "读取文件内容",
+                        "state": "completed",
+                        "action": "读取目标文件。",
+                    },
+                    {
+                        "unit_id": "workunit:write",
+                        "kind": "tool_action",
+                        "title": "写入报告",
+                        "state": "completed",
+                        "action": "写入 docs/report.md。",
+                    },
+                    {
+                        "unit_id": "workunit:stage",
+                        "kind": "stage",
+                        "title": "正在思考",
+                        "state": "running",
+                        "action": "执行 2 个工具调用：读取目录 backend/、执行 agent todo。",
+                    },
+                ],
+            },
+        },
+    )
+
+    titles = [activity["title"] for activity in projection["activities"]]
+    stage = next(activity for activity in projection["activities"] if activity["title"] == "正在思考")
+    assert "执行 agent_todo" not in titles
+    assert "读取文件内容" not in titles
+    assert "写入报告" in titles
+    assert stage.get("detail", "") == ""

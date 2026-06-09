@@ -40,6 +40,68 @@ describe("PublicTimelineActivity", () => {
     expect(html).toContain("已确认旧反推链路");
   });
 
+  it("hides completed low-signal task projection activities", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:test",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:test",
+            status: "running",
+            todo: {
+              active_item_id: "review",
+              items: [
+                { todo_id: "review", content: "审查显示投影", status: "in_progress" },
+              ],
+            },
+            activities: [
+              {
+                activity_id: "activity:todo-tool",
+                kind: "status",
+                source_kind: "tool_action",
+                title: "执行 agent_todo",
+                detail: "调用 agent_todo。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:read-file",
+                kind: "status",
+                source_kind: "inspect_path",
+                title: "读取文件内容",
+                detail: "读取目标文件。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:write-report",
+                kind: "status",
+                source_kind: "tool_action",
+                title: "写入报告",
+                detail: "写入 docs/report.md。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:stage",
+                kind: "status",
+                source_kind: "stage",
+                title: "正在思考",
+                detail: "执行 2 个工具调用：读取目录 backend/、执行 agent todo。",
+                state: "running",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("处理清单");
+    expect(html).toContain("写入报告");
+    expect(html).toContain("正在思考");
+    expect(html).not.toContain("执行 agent_todo");
+    expect(html).not.toContain("读取文件内容");
+    expect(html).not.toContain("执行 2 个工具调用");
+  });
+
   it("renders tool windows from semantic public timeline items", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
@@ -69,6 +131,53 @@ describe("PublicTimelineActivity", () => {
     expect(html).toContain("调用中");
     expect(html).toContain("<dt>调用</dt>");
     expect(html).toContain("行数 80");
+  });
+
+  it("hides completed low-signal inspect and search tool activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "tool:inspect-root",
+            kind: "work_action",
+            action_kind: "inspect",
+            title: "已确认目标",
+            subject_label: ".",
+            public_summary: "已确认目标 .",
+            observation: "No paths matched.",
+            phase: "done",
+            state: "done",
+          },
+          {
+            item_id: "tool:search-ts",
+            kind: "work_action",
+            action_kind: "search",
+            title: "已搜索引用",
+            subject_label: "**/*.{ts,tsx}",
+            public_summary: "已搜索引用 **/*.{ts,tsx}",
+            observation: "No paths matched.",
+            phase: "done",
+            state: "done",
+          },
+          {
+            item_id: "tool:write-report",
+            kind: "work_action",
+            action_kind: "edit",
+            title: "已更新文件",
+            subject_label: "docs/report.md",
+            public_summary: "已更新文件 docs/report.md",
+            observation: "报告已写入。",
+            phase: "done",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("已更新文件 docs/report.md");
+    expect(html).not.toContain("已确认目标 .");
+    expect(html).not.toContain("已搜索引用 **/*.{ts,tsx}");
+    expect(html).not.toContain("No paths matched");
   });
 
   it("keeps model body items in chronological order with tool activity", () => {

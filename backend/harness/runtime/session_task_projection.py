@@ -344,7 +344,7 @@ def _progress_presentation(*, task_run: Any, events: list[dict[str, Any]], monit
 def _activities(*, progress_presentation: dict[str, Any], todo: dict[str, Any], status: str, phase: str) -> list[dict[str, Any]]:
     work_units = [dict(item) for item in list(progress_presentation.get("work_units") or []) if isinstance(item, dict)]
     activities = [_activity_from_work_unit(item) for item in work_units]
-    activities = [item for item in activities if item]
+    activities = [item for item in activities if item and not _is_low_signal_completed_activity(item)]
     if todo and not any(item.get("kind") == "todo" for item in activities):
         activities.append(
             _compact(
@@ -370,6 +370,19 @@ def _activities(*, progress_presentation: dict[str, Any], todo: dict[str, Any], 
     return activities[-12:]
 
 
+def _is_low_signal_completed_activity(activity: dict[str, Any]) -> bool:
+    if _text(activity.get("state")) != "completed":
+        return False
+    source_kind = _text(activity.get("source_kind"))
+    title = _text(activity.get("title"))
+    detail = _text(activity.get("detail"))
+    if source_kind == "inspect_path":
+        return True
+    if source_kind == "tool_action" and "agent_todo" in f"{title}\n{detail}".lower():
+        return True
+    return False
+
+
 def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
     kind = _text(unit.get("kind"))
     if not kind:
@@ -384,6 +397,8 @@ def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         or unit.get("risk")
         or ""
     )
+    if _is_low_signal_activity_detail(kind=kind, detail=detail):
+        detail = ""
     trace_refs = [_text(value) for value in list(unit.get("technical_trace_refs") or []) if _text(value)]
     return _compact(
         {
@@ -396,6 +411,14 @@ def _activity_from_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
             "source_kind": kind,
         }
     )
+
+
+def _is_low_signal_activity_detail(*, kind: str, detail: str) -> bool:
+    normalized_kind = _text(kind)
+    normalized_detail = _text(detail).lower()
+    if normalized_kind == "stage" and ("工具调用" in normalized_detail or "agent todo" in normalized_detail):
+        return True
+    return False
 
 
 def _current_action(*, activities: list[dict[str, Any]], monitor: dict[str, Any], phase: str) -> dict[str, Any]:

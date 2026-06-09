@@ -36,6 +36,7 @@ type GraphTaskInstanceWorkbenchProps = {
   onOpenEditor?: () => void;
   onSelectedGraphChange?: (graphId: string) => void;
   selectedGraphId: string;
+  showEditorAction?: boolean;
 };
 
 type FileTreeNode = {
@@ -199,6 +200,7 @@ export function GraphTaskInstanceWorkbench({
   onOpenEditor,
   onSelectedGraphChange,
   selectedGraphId,
+  showEditorAction = true,
 }: GraphTaskInstanceWorkbenchProps) {
   const {
     bindTaskGraphMonitorRun,
@@ -479,10 +481,12 @@ export function GraphTaskInstanceWorkbench({
             <RefreshCw size={14} />
             <span>刷新监控</span>
           </button>
-          <button onClick={onOpenEditor} type="button">
-            <GitBranch size={14} />
-            <span>编辑图定义</span>
-          </button>
+          {showEditorAction ? (
+            <button onClick={onOpenEditor} type="button">
+              <GitBranch size={14} />
+              <span>编辑图定义</span>
+            </button>
+          ) : null}
         </div>
       </header>
 

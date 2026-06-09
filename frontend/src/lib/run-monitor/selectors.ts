@@ -24,19 +24,6 @@ export function selectRunMonitorTaskLane(monitor: RunMonitorEnvelope | null | un
   return uniqueSignals(merged);
 }
 
-export function selectRunMonitorProjectLane(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
-  if (!monitor) return [];
-  const managementProjects = monitor.management?.lanes?.projects;
-  if (Array.isArray(managementProjects) && managementProjects.length) {
-    return uniqueSignals(managementProjects.filter(shouldShowProjectSignal));
-  }
-  const projects = Array.isArray(monitor.projects) ? monitor.projects : [];
-  if (projects.length) return uniqueSignals(projects.filter(shouldShowProjectSignal));
-  return uniqueSignals((Array.isArray(monitor.signals) ? monitor.signals : []).filter((signal) =>
-    signal.work_kind === "graph_task" && shouldShowProjectSignal(signal)
-  ));
-}
-
 export function visibleRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
   if (!monitor) return [];
   const management = monitor.management?.lanes;

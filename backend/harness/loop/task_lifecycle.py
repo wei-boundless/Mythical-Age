@@ -8,6 +8,8 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 from runtime.shared.models import AgentRun, TaskRun
 from runtime.output_boundary import canonical_output_decision_for_final_text
 
+from harness.task_contract_normalization import contract_string_tuple
+
 from .presentation import error_event, final_answer_event
 from .model_action_protocol import ModelActionRequest
 
@@ -873,8 +875,7 @@ def _first_text(*values: Any) -> str:
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
-    raw = value if isinstance(value, (list, tuple)) else ([value] if value else [])
-    return _dedupe_tuple(tuple(str(item or "").strip() for item in raw if str(item or "").strip()))
+    return contract_string_tuple(value)
 
 
 def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:

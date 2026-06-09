@@ -47,7 +47,7 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
   { view: "chat", label: "工作台", icon: MessageSquare },
   { view: "creative", label: "图任务", icon: Workflow },
   { view: "memory", label: "记忆", icon: Database },
-  { view: "task-system", label: "任务环境", icon: Workflow },
+  { view: "task-system", label: "任务系统", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
   { view: "health-system", label: "健康", icon: HeartPulse },
@@ -200,7 +200,7 @@ function Workspace() {
     );
   } else if (activeWorkspaceView === "task-system") {
     content = (
-      <SystemPageShell label="任务环境" view="task-system">
+      <SystemPageShell label="任务系统" view="task-system">
         <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );

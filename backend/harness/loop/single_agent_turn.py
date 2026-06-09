@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from project_layout import ProjectLayout
+from harness.task_contract_normalization import contract_dict_list, contract_string_list
 from harness.loop.admission import AdmissionDecision, admit_model_action
 from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
@@ -2220,9 +2221,9 @@ def _action_request_from_native_tool_calls(
         contract_seed = {
             "user_visible_goal": str(args.get("user_visible_goal") or "").strip(),
             "task_run_goal": str(args.get("task_run_goal") or "").strip(),
-            "required_artifacts": list(args.get("required_artifacts") or []),
-            "required_verifications": list(args.get("required_verifications") or []),
-            "completion_criteria": list(args.get("completion_criteria") or []),
+            "required_artifacts": contract_dict_list(args.get("required_artifacts")),
+            "required_verifications": contract_dict_list(args.get("required_verifications")),
+            "completion_criteria": contract_string_list(args.get("completion_criteria")),
         }
         active_work_relationship = str(args.get("active_work_relationship") or "").strip()
         if active_work_relationship:

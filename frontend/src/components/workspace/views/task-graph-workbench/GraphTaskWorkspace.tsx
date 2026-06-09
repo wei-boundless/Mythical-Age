@@ -66,6 +66,13 @@ type DomainRecord = {
 };
 
 type GraphTaskWorkspaceMode = "instances" | "editor";
+type GraphTaskWorkspaceSurface = "combined" | "operations" | "configuration";
+
+function workspaceModeForSurface(surface: GraphTaskWorkspaceSurface, initialMode: GraphTaskWorkspaceMode): GraphTaskWorkspaceMode {
+  if (surface === "operations") return "instances";
+  if (surface === "configuration") return "editor";
+  return initialMode;
+}
 
 function dictOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -266,12 +273,12 @@ export function GraphTaskWorkspace({
   initialMode = "instances",
   requestedGraphId = "",
   onSelectedGraphChange,
-  taskEnvironmentId: taskEnvironmentScopeId = "",
+  surface = "combined",
 }: {
   initialMode?: GraphTaskWorkspaceMode;
   requestedGraphId?: string;
   onSelectedGraphChange?: (graphId: string) => void;
-  taskEnvironmentId?: string;
+  surface?: GraphTaskWorkspaceSurface;
 }) {
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -279,7 +286,7 @@ export function GraphTaskWorkspace({
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [workspaceMode, setWorkspaceMode] = useState<GraphTaskWorkspaceMode>(initialMode);
+  const [workspaceMode, setWorkspaceMode] = useState<GraphTaskWorkspaceMode>(() => workspaceModeForSurface(surface, initialMode));
   const [editorEnvironmentId, setEditorEnvironmentId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
@@ -300,8 +307,8 @@ export function GraphTaskWorkspace({
   }, [requestedGraphId]);
 
   useEffect(() => {
-    setWorkspaceMode(initialMode);
-  }, [initialMode]);
+    setWorkspaceMode(workspaceModeForSurface(surface, initialMode));
+  }, [initialMode, surface]);
 
   const loadOrchestrationAgentCatalog = useCallback(async () => {
     if (orchestrationAgentCatalogLoadRef.current) {
@@ -399,8 +406,7 @@ export function GraphTaskWorkspace({
     ?? domains[0]
     ?? null;
   const editorTaskEnvironmentOptions = useMemo(() => {
-    const scopedEnvironmentId = normalizeTaskEnvironmentId(taskEnvironmentScopeId);
-    const environmentIds = scopedEnvironmentId ? [scopedEnvironmentId] : uniqueStrings([
+    const environmentIds = uniqueStrings([
       ...(consolePayload?.task_environment_management?.records ?? []).map((item) => item.environment_id),
       ...tasks.map((task) => taskEnvironmentId(task)),
       ...allTaskGraphs.map((graph) => taskGraphEnvironmentId(graph)),
@@ -414,7 +420,7 @@ export function GraphTaskWorkspace({
         label: `${environmentRecordTitle(environmentId, consolePayload) || environmentId}${taskCount ? ` · ${taskCount} 个任务` : ""}${storage ? ` · ${storage}` : ""}`,
       };
     });
-  }, [allTaskGraphs, consolePayload, taskEnvironmentScopeId, tasks]);
+  }, [allTaskGraphs, consolePayload, tasks]);
   const activeEditorEnvironmentId = editorEnvironmentId
     || editorTaskEnvironmentOptions[0]?.value
     || "";
@@ -1033,8 +1039,8 @@ export function GraphTaskWorkspace({
       <div className="task-graph-editor-chrome__controls">
         <TaskGraphChromeSelect
           disabled={!editorDomain}
-          emptyLabel={!editorDomain ? "先选择任务域" : editorGraphSelectOptions.length ? "选择图草稿" : "当前任务环境暂无图"}
-          label="具体任务"
+          emptyLabel={!editorDomain ? "先选择任务域" : editorGraphSelectOptions.length ? "选择图草稿" : "任务系统暂无图定义"}
+          label="图定义"
           onChange={setGraphWorkbenchSelectedGraphId}
           options={editorGraphSelectOptions}
           placeholder="选择具体任务"
@@ -1054,26 +1060,28 @@ export function GraphTaskWorkspace({
 
   return (
     <section className="task-graph-editor-page task-graph-editor-page--embedded graph-task-workspace-shell" aria-label="图任务工作区">
-      <nav className="graph-task-workspace-mode-switch" aria-label="图任务工作区层级">
-        <button
-          aria-current={workspaceMode === "instances" ? "page" : undefined}
-          className={workspaceMode === "instances" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
-          onClick={() => setWorkspaceMode("instances")}
-          type="button"
-        >
-          <strong>实例项目</strong>
-          <span>运行、监控、节点会话、文件产物</span>
-        </button>
-        <button
-          aria-current={workspaceMode === "editor" ? "page" : undefined}
-          className={workspaceMode === "editor" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
-          onClick={() => setWorkspaceMode("editor")}
-          type="button"
-        >
-          <strong>图定义编辑</strong>
-          <span>拓扑、节点、边契约、发布校验</span>
-        </button>
-      </nav>
+      {surface === "combined" ? (
+        <nav className="graph-task-workspace-mode-switch" aria-label="图任务工作区层级">
+          <button
+            aria-current={workspaceMode === "instances" ? "page" : undefined}
+            className={workspaceMode === "instances" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
+            onClick={() => setWorkspaceMode("instances")}
+            type="button"
+          >
+            <strong>实例项目</strong>
+            <span>运行、监控、节点会话、文件产物</span>
+          </button>
+          <button
+            aria-current={workspaceMode === "editor" ? "page" : undefined}
+            className={workspaceMode === "editor" ? "graph-task-workspace-mode-card graph-task-workspace-mode-card--active" : "graph-task-workspace-mode-card"}
+            onClick={() => setWorkspaceMode("editor")}
+            type="button"
+          >
+            <strong>图定义编辑</strong>
+            <span>拓扑、节点、边契约、发布校验</span>
+          </button>
+        </nav>
+      ) : null}
       {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
       {notice ? <div className="boundary-notice">{notice}</div> : null}
       {workspaceMode === "instances" ? (
@@ -1082,6 +1090,7 @@ export function GraphTaskWorkspace({
           onOpenEditor={() => setWorkspaceMode("editor")}
           onSelectedGraphChange={setGraphWorkbenchSelectedGraphId}
           selectedGraphId={activeTaskGraphId}
+          showEditorAction={surface === "combined"}
         />
       ) : (
         <TaskGraphWorkbench

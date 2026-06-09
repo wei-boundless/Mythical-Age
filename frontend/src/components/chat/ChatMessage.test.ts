@@ -519,7 +519,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
-  it("renders raw file listing output as natural activity instead of assistant prose", () => {
+  it("hides raw file listing output instead of rendering assistant prose or noisy activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -542,8 +542,8 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("public-run-activity");
-    expect(html).toContain("已确认目标");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("已确认目标");
     expect(html).not.toContain("2938 bytes");
     expect(html).not.toContain("assets.ts");
     expect(html).not.toContain("file frontend");

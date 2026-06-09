@@ -1376,7 +1376,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
   });
 
-  it("opens graph tasks inside the graph task workspace", () => {
+  it("opens graph task operations inside the foreground graph task workspace by default", () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       activeWorkspaceView: "code-environment",
@@ -1386,6 +1386,23 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtime.actions.openTaskGraphWorkspace({ graph_id: "graph.dev.review" });
 
     expect(store.getState().activeWorkspaceView).toBe("creative");
+    expect(store.getState().taskGraphWorkspaceTarget).toMatchObject({
+      layer: "task-graph",
+      mode: "monitor",
+      graph_id: "graph.dev.review",
+    });
+  });
+
+  it("opens graph definition editing inside the task system", () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "creative",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.openTaskGraphWorkspace({ graph_id: "graph.dev.review", mode: "editor" });
+
+    expect(store.getState().activeWorkspaceView).toBe("task-system");
     expect(store.getState().taskGraphWorkspaceTarget).toMatchObject({
       layer: "task-graph",
       mode: "editor",

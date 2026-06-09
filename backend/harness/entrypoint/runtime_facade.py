@@ -22,6 +22,7 @@ from runtime.shared.history_assembler import assemble_runtime_history
 from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
+from harness.task_contract_normalization import contract_dict_tuple, contract_string_tuple
 from orchestration import (
     build_base_unit_catalog,
     build_user_message_commit_decision,
@@ -1469,7 +1470,7 @@ class HarnessRuntimeFacade:
                         "content": str(contract.get("user_visible_goal") or contract.get("task_run_goal") or "继续处理当前工作"),
                         "status": "in_progress",
                         "evidence_expectations": [
-                            *[str(item) for item in list(contract.get("completion_criteria") or [])],
+                            *contract_string_tuple(contract.get("completion_criteria")),
                             *[
                                 str(item.get("user_visible_name") or item.get("artifact_kind") or item)
                                 for item in list(contract.get("required_artifacts") or [])
@@ -2651,7 +2652,7 @@ def _explicit_contract_action_request(
                 source.get("user_goal"),
                 request.message,
             ),
-            "completion_criteria": _contract_string_tuple(
+            "completion_criteria": contract_string_tuple(
                 source.get("completion_criteria")
                 or dict(source.get("output_contract") or {}).get("completion_criteria")
                 or dict(source.get("acceptance_policy") or {}).get("completion_criteria")
@@ -2695,19 +2696,19 @@ def _task_run_contract_from_explicit_contract(
         errors.append("task_run_goal_required")
     output_contract = dict(source.get("output_contract") or {})
     acceptance_policy = dict(source.get("acceptance_policy") or {})
-    required_artifacts = _contract_dict_tuple(
+    required_artifacts = contract_dict_tuple(
         source.get("required_artifacts")
         or output_contract.get("required_artifacts")
         or output_contract.get("artifact_requirements")
         or acceptance_policy.get("required_artifacts")
     )
-    required_verifications = _contract_dict_tuple(
+    required_verifications = contract_dict_tuple(
         source.get("required_verifications")
         or output_contract.get("required_verifications")
         or output_contract.get("verification_requirements")
         or acceptance_policy.get("required_verifications")
     )
-    completion_criteria = _contract_string_tuple(
+    completion_criteria = contract_string_tuple(
         source.get("completion_criteria")
         or output_contract.get("completion_criteria")
         or acceptance_policy.get("completion_criteria")
@@ -2922,7 +2923,7 @@ def _explicit_allowed_operations_for_contract(
         operation_requirement.get("required_operations"),
         operation_requirement.get("optional_operations"),
     ):
-        for operation in _contract_string_tuple(value):
+        for operation in contract_string_tuple(value):
             if operation in seen:
                 continue
             seen.add(operation)
@@ -2942,27 +2943,6 @@ def _runtime_profile_with_execution_permit_allowed_operations(
     execution_permit["allowed_operations"] = list(allowed_operations)
     profile["execution_permit"] = execution_permit
     return profile
-
-
-def _contract_string_tuple(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (value.strip(),) if value.strip() else ()
-    if not isinstance(value, (list, tuple, set)):
-        return ()
-    result: list[str] = []
-    for item in value:
-        text = str(item or "").strip()
-        if text:
-            result.append(text)
-    return tuple(result)
-
-
-def _contract_dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
-    if isinstance(value, dict):
-        return (dict(value),) if value else ()
-    if not isinstance(value, (list, tuple)):
-        return ()
-    return tuple(dict(item) for item in value if isinstance(item, dict) and item)
 
 
 def _first_contract_text(*values: Any) -> str:

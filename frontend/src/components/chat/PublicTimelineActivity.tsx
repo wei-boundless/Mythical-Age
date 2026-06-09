@@ -112,6 +112,9 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
       entries.push(currentAction);
     }
     for (const activity of projection.activities ?? []) {
+      if (isLowSignalCompletedProjectionActivity(activity)) {
+        continue;
+      }
       const entry = taskProjectionActivityEntry(activity, projectionId);
       if (entry) {
         entries.push(entry);
@@ -163,14 +166,39 @@ function taskProjectionActivityEntry(activity: SingleAgentTaskProjectionActivity
   }
   const state = cleanPublicTimelineText(activity.state).toLowerCase();
   const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
+  const detail = projectionActivityDetail(activity, text);
   return {
     id: cleanPublicTimelineText(activity.activity_id) || `${projectionId}:activity:${kind}:${text}`,
     kind: kind === "final" ? "body" : ["failed", "error", "blocked"].includes(state) || kind === "error" ? "stopped" : "status",
-    detail: cleanPublicTimelineText(activity.detail) && cleanPublicTimelineText(activity.detail) !== text
-      ? shortText(activity.detail, 360)
-      : "",
+    detail,
     text: shortText(text, 220),
   };
+}
+
+function projectionActivityDetail(activity: SingleAgentTaskProjectionActivity, text: string) {
+  const detail = cleanPublicTimelineText(activity.detail);
+  if (!detail || detail === text) {
+    return "";
+  }
+  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
+  const lowered = detail.toLowerCase();
+  if (sourceKind === "stage" && (lowered.includes("工具调用") || lowered.includes("agent todo"))) {
+    return "";
+  }
+  return shortText(detail, 360);
+}
+
+function isLowSignalCompletedProjectionActivity(activity: SingleAgentTaskProjectionActivity) {
+  const state = cleanPublicTimelineText(activity.state).toLowerCase();
+  if (!["completed", "complete", "done", "ready", "passed", "success"].includes(state)) {
+    return false;
+  }
+  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
+  if (sourceKind === "inspect_path") {
+    return true;
+  }
+  const text = `${cleanPublicTimelineText(activity.title)}\n${cleanPublicTimelineText(activity.detail)}`.toLowerCase();
+  return sourceKind === "tool_action" && text.includes("agent_todo");
 }
 
 function dedupeActivityEntries(entries: ActivityEntry[]) {
@@ -203,6 +231,9 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
       }
       continue;
     }
+    if (isLowSignalCompletedToolActivity(item)) {
+      continue;
+    }
     const kind = activityLineKind(item);
     if (!kind) {
       continue;
@@ -232,6 +263,26 @@ function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] |
   if (surface === "tool_window" || ["work_action", "tool_activity"].includes(kind)) return "tool";
   if (surface === "status" || ["artifact", "status_update", "verification"].includes(kind)) return "status";
   return "";
+}
+
+function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem) {
+  const kind = kindOf(item);
+  const surface = cleanPublicTimelineText(item.surface);
+  if (surface !== "tool_window" && !["work_action", "tool_activity"].includes(kind)) {
+    return false;
+  }
+  const state = cleanPublicTimelineText(item.state).toLowerCase();
+  const phase = cleanPublicTimelineText(item.phase).toLowerCase();
+  const done = phase === "done" || ["completed", "complete", "done", "ready", "passed", "success"].includes(state);
+  const failed = ["error", "failed", "blocked", "missing"].includes(state);
+  if (!done || failed) {
+    return false;
+  }
+  const actionKind = cleanPublicTimelineText(item.action_kind).toLowerCase();
+  const title = cleanPublicTimelineText(item.title);
+  return ["inspect", "search"].includes(actionKind)
+    || title.startsWith("已确认目标")
+    || title.startsWith("已搜索引用");
 }
 
 function shouldCollapseToolWindow(item: PublicChatTimelineItem, index: number, latestBodyIndex: number) {

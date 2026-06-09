@@ -7,8 +7,6 @@ import {
   TaskSystemField,
   TaskSystemToolbarButton,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
-import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
-import { TaskGraphRunControlPanel } from "@/components/workspace/views/task-system/TaskGraphRunControlPanel";
 import { JsonObjectEditor, dictOf, recordFieldText, splitList } from "@/components/workspace/views/task-system/managementPrimitives";
 import type { TaskEnvironmentKindTemplate, TaskSystemOverview } from "@/lib/api";
 
@@ -359,82 +357,3 @@ export function EnvironmentTaskInventoryPage({
   );
 }
 
-export function EnvironmentGraphInventoryPage({
-  onSelectGraph,
-  selectedGraphId,
-  taskSystemOverview,
-}: {
-  onSelectGraph: (graphId: string) => void;
-  selectedGraphId: string;
-  taskSystemOverview: TaskSystemOverview | null;
-}) {
-  const rows = taskSystemOverview?.environment_graph_inventory?.items ?? [];
-  const activeGraphId = rows.some((row) => String(row.graph_id ?? "") === selectedGraphId)
-    ? selectedGraphId
-    : String(rows[0]?.graph_id ?? "");
-
-  useEffect(() => {
-    if (activeGraphId && activeGraphId !== selectedGraphId) {
-      onSelectGraph(activeGraphId);
-    }
-  }, [activeGraphId, onSelectGraph, selectedGraphId]);
-
-  return (
-    <section className="task-environment-graph-workbench" aria-label="图任务工作区">
-      <aside className="task-environment-graph-workbench__inventory">
-        <header className="task-system-inspector-head">
-          <div><span>图任务</span><strong>图任务工作区</strong><small>{rows.length} 张图</small></div>
-        </header>
-        <div className="task-system-catalog-table task-system-catalog-table--full">
-          <header className="task-system-table-head task-system-table-head--graphs">
-            <span>任务图</span>
-            <span>类型</span>
-            <span>入口/出口</span>
-            <span>节点/边</span>
-            <span>操作</span>
-          </header>
-          <div className="task-system-table-body">
-            {rows.map((row) => {
-              const graphId = String(row.graph_id ?? "");
-              const active = graphId === activeGraphId;
-              return (
-                <button
-                  aria-current={active ? "page" : undefined}
-                  className={active ? "task-system-table-row task-system-table-row--graph task-system-table-row--active" : "task-system-table-row task-system-table-row--graph"}
-                  key={graphId}
-                  onClick={() => onSelectGraph(graphId)}
-                  type="button"
-                >
-                  <strong>{String(row.title || row.graph_id)}<small>{graphId}</small></strong>
-                  <span>{String(row.graph_kind || "-")}</span>
-                  <span>{String(row.entry_node_id || "-")} / {String(row.output_node_id || "-")}</span>
-                  <span>{String(row.node_count ?? 0)} / {String(row.edge_count ?? 0)}</span>
-                  <em className="task-system-graph-row__actions">
-                    <span className="task-system-status">{String(row.publish_state || "-")}</span>
-                    <span>{active ? "编辑中" : "编辑"}</span>
-                  </em>
-                </button>
-              );
-            })}
-            {!rows.length ? <div className="boundary-empty">当前项目还没有任务图。</div> : null}
-          </div>
-        </div>
-      </aside>
-      <div className="task-environment-graph-workbench__editor">
-        <TaskGraphRunControlPanel
-          className="task-environment-graph-workbench__monitor"
-          graphId={activeGraphId}
-          title="当前图运行监控"
-        />
-        {activeGraphId ? (
-          <GraphTaskWorkspace
-            requestedGraphId={activeGraphId}
-            onSelectedGraphChange={onSelectGraph}
-          />
-        ) : (
-          <div className="boundary-empty">选择一个任务图后编辑拓扑、节点和发布设置。</div>
-        )}
-      </div>
-    </section>
-  );
-}

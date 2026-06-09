@@ -26,6 +26,7 @@ import {
   type RunManagementSubpage,
 } from "@/components/workspace/views/task-system/runs/RunManagementWorkbench";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
+import { GraphTaskWorkspace } from "@/components/workspace/views/task-graph-workbench/GraphTaskWorkspace";
 import {
   deleteTaskSystemContract,
   deleteTaskSystemEnvironment,
@@ -49,7 +50,7 @@ import {
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
-type TaskSystemDomain = "environments" | "contracts" | "nodes" | "runs";
+type TaskSystemDomain = "graphs" | "environments" | "contracts" | "nodes" | "runs";
 type ContractSubpage = "catalog" | "detail" | "usage";
 type NodeSubpage = "catalog" | "detail" | "capability" | "preview";
 
@@ -177,49 +178,21 @@ export function TaskSystemView() {
     [consolePayload],
   );
   const kindTemplates = consolePayload?.environment_kind_management?.kind_templates ?? [];
-  const selectedEnvironmentGraphRows = useMemo(
-    () => consolePayload?.environment_graph_inventory?.items ?? [],
-    [consolePayload],
-  );
-
   useEffect(() => {
     if (!selectedEnvironmentItem) return;
     setEnvironmentDraft(environmentDraftFromItem(selectedEnvironmentItem));
   }, [selectedEnvironmentItem]);
 
   useEffect(() => {
-    const currentStillVisible = selectedEnvironmentGraphRows
-      .some((item) => String(item.graph_id ?? "") === selectedTaskSystemGraphId);
-    if (!currentStillVisible) {
-      setSelectedTaskSystemGraphId(String(selectedEnvironmentGraphRows[0]?.graph_id ?? ""));
-    }
-  }, [selectedEnvironmentGraphRows, selectedTaskSystemGraphId]);
-
-  useEffect(() => {
     if (!taskSystemActive || !taskGraphWorkspaceTarget) return;
-    setActiveDomain("environments");
-    setEnvironmentSubpage("graphs");
+    setActiveDomain("graphs");
 
     const targetGraphId = String(taskGraphWorkspaceTarget.graph_id || "").trim();
-    const targetEnvironmentId = String(taskGraphWorkspaceTarget.task_environment_id || "").trim();
     if (targetGraphId) {
       setSelectedTaskSystemGraphId(targetGraphId);
     }
-    if (targetEnvironmentId) {
-      setSelectedEnvironmentId(targetEnvironmentId);
-    }
-    if (!consolePayload) return;
-
-    const graphInventoryRow = targetGraphId
-      ? (consolePayload.environment_graph_inventory?.items ?? []).find((item) => String(item.graph_id ?? "") === targetGraphId)
-      : null;
-    const resolvedEnvironmentId = targetEnvironmentId || String(graphInventoryRow?.environment_id || "").trim();
-    if (resolvedEnvironmentId) {
-      setSelectedEnvironmentId(resolvedEnvironmentId);
-      setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(resolvedEnvironmentId, consolePayload)));
-    }
     clearTaskGraphWorkspaceTarget();
-  }, [clearTaskGraphWorkspaceTarget, consolePayload, taskGraphWorkspaceTarget, taskSystemActive]);
+  }, [clearTaskGraphWorkspaceTarget, taskGraphWorkspaceTarget, taskSystemActive]);
 
   function createEnvironmentDraft() {
     const index = environmentItems.length + 1;
@@ -422,10 +395,16 @@ export function TaskSystemView() {
     : environmentDraft.title || selectedEnvironmentId || "未选择任务环境";
   const domainItems: Array<LayerNavItem<TaskSystemDomain>> = [
     {
+      value: "graphs",
+      label: "图定义",
+      meta: `${consolePayload?.task_graph_management?.task_graphs?.length ?? 0} 张图`,
+      detail: "拓扑、节点、边契约、编译报告和发布配置",
+    },
+    {
       value: "environments",
       label: "环境管理",
       meta: selectedEnvironmentItem ? taskEnvironmentDisplayTitle(selectedEnvironmentItem) : `${environmentItems.length} 个环境`,
-      detail: "环境类型、资源装载、环境说明、环境内任务和图任务工作区",
+      detail: "环境类型、资源装载、环境说明和环境内任务",
     },
     {
       value: "contracts",
@@ -443,7 +422,7 @@ export function TaskSystemView() {
       value: "runs",
       label: "运行管理",
       meta: "队列和记录",
-      detail: "工作队列、图任务项目、历史记录和清理预览",
+      detail: "工作队列、历史记录和清理预览",
     },
   ];
   const environmentPages: Array<LayerNavItem<EnvironmentSubpage>> = [
@@ -451,7 +430,6 @@ export function TaskSystemView() {
     { value: "loadout", label: "资源装载", meta: selectedEnvironmentItem ? taskEnvironmentLoadSummary(selectedEnvironmentItem) : "未保存", detail: "资料、记忆、检索和产物空间" },
     { value: "prompts", label: "环境说明", meta: `${selectedEnvironmentItem?.environment_prompts?.length ?? (environmentDraft.prompt_content.trim() ? 1 : 0)} 条`, detail: "Agent 进入环境后可读取的说明" },
     { value: "tasks", label: "环境内任务", meta: `${consolePayload?.environment_task_inventory?.summary?.task_inventory_count ?? 0} 项任务`, detail: "任务归属和默认执行链路" },
-    { value: "graphs", label: "图任务工作区", meta: `${consolePayload?.environment_graph_inventory?.summary?.graph_inventory_count ?? 0} 张图`, detail: "项目任务图、发布态和运行监控" },
   ];
   const contractPages: Array<LayerNavItem<ContractSubpage>> = [
     { value: "catalog", label: "契约目录", meta: `${contractSpecs.length} 个契约`, detail: "筛选、搜索和定位契约" },
@@ -466,7 +444,6 @@ export function TaskSystemView() {
   ];
   const runPages: Array<LayerNavItem<RunManagementSubpage>> = [
     { value: "queue", label: "工作队列", meta: "当前运行", detail: "运行、等待、停滞和失败任务" },
-    { value: "projects", label: "图任务项目", meta: "总任务", detail: "按项目查看 graph run 和节点进度" },
     { value: "records", label: "历史记录", meta: "已完成/已清出", detail: "查看最近完成和隐藏记录" },
     { value: "cleanup", label: "清理预览", meta: "后端保护", detail: "预览可删除记录和保护原因" },
   ];
@@ -483,14 +460,18 @@ export function TaskSystemView() {
     />
   );
 
-  const subpageItems = activeDomain === "environments"
+  const subpageItems = activeDomain === "graphs"
+    ? []
+    : activeDomain === "environments"
     ? environmentPages
     : activeDomain === "contracts"
       ? contractPages
       : activeDomain === "nodes"
         ? nodePages
         : runPages;
-  const activeSubpage = activeDomain === "environments"
+  const activeSubpage = activeDomain === "graphs"
+    ? ""
+    : activeDomain === "environments"
     ? environmentSubpage
     : activeDomain === "contracts"
       ? contractSubpage
@@ -503,7 +484,7 @@ export function TaskSystemView() {
       <section className="task-system-layer-group">
         <header>
           <strong>配置域</strong>
-          <span>任务系统只维护环境、契约和节点配置资产</span>
+          <span>任务系统维护图定义、契约、节点、环境和队列后台资产</span>
         </header>
         <div className="task-system-object-table task-system-object-table--home-switch">
           {domainItems.map((item) => {
@@ -524,6 +505,7 @@ export function TaskSystemView() {
           })}
         </div>
       </section>
+      {subpageItems.length ? (
       <section className="task-system-layer-group">
         <header>
           <strong>当前域页面</strong>
@@ -553,12 +535,15 @@ export function TaskSystemView() {
           })}
         </div>
       </section>
+      ) : null}
     </div>
   );
 
-  const path = activeDomain === "environments"
-    ? `环境管理 / ${environmentPages.find((item) => item.value === environmentSubpage)?.label ?? ""} / ${selectedEnvironmentLabel}`
-    : activeDomain === "contracts"
+  const path = activeDomain === "graphs"
+    ? "图定义 / 拓扑与发布配置"
+    : activeDomain === "environments"
+      ? `环境管理 / ${environmentPages.find((item) => item.value === environmentSubpage)?.label ?? ""} / ${selectedEnvironmentLabel}`
+      : activeDomain === "contracts"
       ? `契约库 / ${contractPages.find((item) => item.value === contractSubpage)?.label ?? ""}`
       : activeDomain === "nodes"
         ? `节点配置 / ${nodePages.find((item) => item.value === nodeSubpage)?.label ?? ""}`
@@ -567,7 +552,7 @@ export function TaskSystemView() {
   return (
     <TaskSystemShell
       activeLayer={activeDomain}
-      contextSlot={contextSlot}
+      contextSlot={activeDomain === "environments" ? contextSlot : undefined}
       error={loading ? "" : error}
       layerSlot={managementLayerSlot}
       navItems={domainItems}
@@ -581,6 +566,15 @@ export function TaskSystemView() {
       title="任务系统"
     >
       <section className={`task-management-stage task-management-stage--${activeDomain}`}>
+        {activeDomain === "graphs" ? (
+          <GraphTaskWorkspace
+            initialMode="editor"
+            onSelectedGraphChange={setSelectedTaskSystemGraphId}
+            requestedGraphId={selectedTaskSystemGraphId}
+            surface="configuration"
+          />
+        ) : null}
+
         {activeDomain === "environments" ? (
           <TaskEnvironmentManagementWorkbench
             activePage={environmentSubpage}
@@ -607,11 +601,9 @@ export function TaskSystemView() {
             onDeleteKindTemplate={removeKindTemplate}
             onSave={() => void saveEnvironmentDraft()}
             onSaveKindTemplate={saveKindTemplate}
-            onSelectGraph={setSelectedTaskSystemGraphId}
             onSetDraft={setEnvironmentDraft}
             saving={saving}
             selectedEnvironmentId={selectedEnvironmentItem?.record.environment_id || ""}
-            selectedGraphId={selectedTaskSystemGraphId}
             taskSystemOverview={consolePayload}
           />
         ) : null}
