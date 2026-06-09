@@ -42,6 +42,7 @@ backend/output/
 backend/runtime_objects/
 backend/runtime_state/
 backend/runtime_views/
+backend/mythical-agent/sessions/
 backend/state_index/
 backend/timeline_ledgers/
 backend/working_memory/
