@@ -201,6 +201,33 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   return "";
 }
 
+function activeTaskSteerTitle(data: Record<string, unknown>) {
+  const summary = stringValue(data.summary ?? data.message ?? data.content);
+  const terminalReason = stringValue(data.terminal_reason);
+  if (terminalReason === "pause_active_work" || textIndicatesPauseActiveWork(summary)) {
+    return "已暂停当前工作";
+  }
+  if (terminalReason === "stop_active_work" || textIndicatesStopActiveWork(summary)) {
+    return "已停止当前工作";
+  }
+  if (terminalReason === "continue_active_work" || terminalReason === "answer_then_continue_active_work" || textIndicatesContinueActiveWork(summary)) {
+    return "继续当前工作";
+  }
+  return "已收到补充要求";
+}
+
+function textIndicatesPauseActiveWork(value: string) {
+  return ["暂停", "先停", "停在这里", "停一下", "暂停一下"].some((marker) => value.includes(marker));
+}
+
+function textIndicatesStopActiveWork(value: string) {
+  return ["停止", "终止", "取消", "不用继续", "别继续"].some((marker) => value.includes(marker));
+}
+
+function textIndicatesContinueActiveWork(value: string) {
+  return ["继续", "接着", "恢复", "接着处理", "继续处理"].some((marker) => value.includes(marker));
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -521,7 +548,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     }
     return {
       level: partialTimeout ? "warning" : "success",
-      title: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      title: taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
       body: taskSteerAccepted
         ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
         : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
@@ -765,7 +792,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     }
     if (stringValue(data.completion_state) === "task_steer_accepted") {
       const summary = stringValue(data.summary ?? data.message);
-      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "已收到补充要求";
+      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : activeTaskSteerTitle(data);
     }
     const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
     return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
@@ -1105,10 +1132,11 @@ function patchAssistantTaskProjectionDraft(
     const next = [...existing];
     const index = next.findIndex((item) => runtimeAttachmentRunId(item) === runId);
     if (index >= 0) {
+      const existingAttachment = next[index];
       next[index] = {
-        ...next[index],
+        ...existingAttachment,
         ...attachment,
-        public_timeline: [],
+        public_timeline: mergePublicTimelineItems(existingAttachment.public_timeline, attachment.public_timeline),
       };
     } else {
       next.push(attachment);
@@ -1452,7 +1480,7 @@ export function reduceStreamEvent(
             publicTimelineDelta,
             { terminalState: terminalTimelineState },
           ),
-          stageStatus: taskSteerAccepted ? "已收到补充要求" : partialTimeout ? "部分完成" : "完成",
+          stageStatus: publicProjectionEnvelope ? message.stageStatus : taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "部分完成" : "完成",
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
@@ -1468,10 +1496,16 @@ export function reduceStreamEvent(
   }
 
   if (event === "active_task_steer_accepted") {
+    if (publicProjectionEnvelope) {
+      return {
+        state: stateWithTimelineDraft,
+        session
+      };
+    }
     return {
       state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
         ...message,
-        stageStatus: "已收到补充要求",
+        stageStatus: activeTaskSteerTitle(data),
       })),
       session
     };

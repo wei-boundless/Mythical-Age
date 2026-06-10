@@ -373,6 +373,7 @@ async def _wait_for_task(
     ledger = host.prompt_accounting_ledger
     deadline = time.monotonic() + timeout_seconds
     stop_requested = False
+    stop_requested_at = 0.0
     samples: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
         task = host.state_index.get_task_run(task_run_id)
@@ -388,6 +389,20 @@ async def _wait_for_task(
         if stop_after_provider_calls and len(usage) >= stop_after_provider_calls and not stop_requested and status not in TERMINAL_STATUSES:
             stop_task_run(host, task_run_id, reason="live_prompt_cache_probe_stop_after_provider_calls", requested_by="system")
             stop_requested = True
+            stop_requested_at = time.monotonic()
+        if stop_requested and len(usage) >= min_provider_calls and time.monotonic() - stop_requested_at >= 5.0:
+            return {
+                "finished": False,
+                "terminal_reached": status in TERMINAL_STATUSES,
+                "timeout": False,
+                "stop_requested": stop_requested,
+                "provider_usage_records": len(usage),
+                "min_provider_calls": min_provider_calls,
+                "provider_usage_sufficient": len(usage) >= min_provider_calls,
+                "status": status,
+                "terminal_reason": str(getattr(task, "terminal_reason", "") or ""),
+                "samples": samples[-20:],
+            }
         if status in TERMINAL_STATUSES:
             return {
                 "finished": status == "completed" and len(usage) >= min_provider_calls,

@@ -109,6 +109,46 @@ describe("public projection reducer contract", () => {
     });
   });
 
+  it("keeps public timeline feedback alongside task projection attachments", () => {
+    let transition = startStreamingTurn(getDefaultState(), "run task");
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:task-feedback",
+        lifecycle: "running",
+        source_authority: "model",
+        surface: "status_bar",
+        anchor: {
+          task_run_id: "taskrun:feedback",
+          turn_id: "turn:session:feedback:1",
+        },
+        task_projection: {
+          authority: "harness.runtime.single_agent_task_projection.v1",
+          projection_id: "projection:taskrun:feedback",
+          task_run_id: "taskrun:feedback",
+          status: "running",
+        },
+        items: [
+          {
+            item_id: "observation:task-feedback",
+            kind: "observation_report",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "model",
+            title: "观察反馈",
+            detail: "已确认上一阶段结果，可以继续推进。",
+            state: "done",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimePublicTimelineDraft?.[0]?.detail).toBe("已确认上一阶段结果，可以继续推进。");
+    expect(assistant?.runtimeAttachments?.[0]?.task_projection?.task_run_id).toBe("taskrun:feedback");
+    expect(assistant?.runtimeAttachments?.[0]?.public_timeline?.[0]?.detail).toBe("已确认上一阶段结果，可以继续推进。");
+  });
+
   it("uses thinking stage status for tool-window projection without creating body text", () => {
     let transition = startStreamingTurn(getDefaultState(), "inspect files");
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
@@ -136,5 +176,72 @@ describe("public projection reducer contract", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
     expect(assistant?.stageStatus).toBe("正在思考");
+  });
+
+  it("does not overwrite active-work pause projection with generic steer text", () => {
+    let transition = startStreamingTurn(getDefaultState(), "pause it");
+    transition = reduceStreamEvent(transition.state, transition.session, "active_task_steer_accepted", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:pause",
+        lifecycle: "running",
+        source_authority: "system",
+        surface: "status_bar",
+        items: [
+          {
+            item_id: "pause:1",
+            kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "已暂停当前工作",
+            detail: "暂停请求已记录。",
+            state: "done",
+            phase: "work_control",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.stageStatus).toBe("已暂停当前工作");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]?.title).toBe("已暂停当前工作");
+  });
+
+  it("preserves done task-steer projection title from the envelope", () => {
+    let transition = startStreamingTurn(getDefaultState(), "pause it");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      completion_state: "task_steer_accepted",
+      summary: "好，我先停在这里。",
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:pause-done",
+        lifecycle: "done",
+        source_authority: "system",
+        surface: "control",
+        items: [
+          {
+            item_id: "pause-done:1",
+            kind: "status_update",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "已暂停当前工作",
+            detail: "好，我先停在这里。",
+            state: "running",
+            phase: "work_control",
+          },
+        ],
+        terminal: {
+          event: "done",
+          visible: true,
+          reason: "work_control",
+        },
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.stageStatus).toBe("已暂停当前工作");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]?.title).toBe("已暂停当前工作");
   });
 });

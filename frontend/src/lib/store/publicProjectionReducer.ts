@@ -204,7 +204,7 @@ function runtimeAttachmentFromEnvelope(envelope: PublicProjectionEnvelope): Sess
     status: text(projection?.status ?? envelope.lifecycle),
     lifecycle: text(envelope.lifecycle),
     title: "处理进展",
-    public_timeline: projection ? [] : timeline,
+    public_timeline: timeline,
     task_projection: projection,
     trace_available: true,
     debug_trace_ref: taskRunId || runId,

@@ -472,7 +472,7 @@ async def run_single_agent_turn(
                             "title": status_title,
                             "detail": status_detail,
                             "state": status_state,
-                            "phase": "active_work_control",
+                            "phase": "work_control",
                         },
                         refs={
                             "turn_ref": turn_id,
@@ -487,7 +487,7 @@ async def run_single_agent_turn(
                     "title": status_title,
                     "detail": status_detail,
                     "state": status_state,
-                    "phase": "active_work_control",
+                    "phase": "work_control",
                     "terminal_reason": active_terminal_reason,
                     "runtime_event_id": str(observed_event.get("event_id") or "") if observed_event else "",
                     "runtime_run_id": str(observed_event.get("run_id") or "") if observed_event else "",

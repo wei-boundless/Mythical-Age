@@ -4556,7 +4556,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
     expect(recoveryFeedbackDuringAttach).toMatchObject({
       kind: "status_update",
-      slot: "status",
+      slot: "timeline",
       surface: "status_bar",
       source_authority: "system",
       title: "同步运行进度",
@@ -4621,7 +4621,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(recoveryFeedbackDuringAttach).toMatchObject({
       kind: "status_update",
-      slot: "status",
+      slot: "timeline",
       surface: "status_bar",
       source_authority: "system",
       title: "同步运行进度",
@@ -4793,7 +4793,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(recoveryFeedbackDuringAttach).toMatchObject({
       kind: "status_update",
-      slot: "status",
+      slot: "timeline",
       surface: "status_bar",
       source_authority: "system",
       title: "同步运行进度",

@@ -531,7 +531,7 @@ def test_active_work_relation_mismatch_blocks_without_control_side_effects() -> 
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert any(
         event.get("type") == "runtime_status"
-        and event.get("phase") == "active_work_control"
+        and event.get("phase") == "work_control"
         and event.get("state") == "warning"
         for event in events
     )
@@ -604,7 +604,7 @@ def test_append_instruction_reports_resume_failure_without_accepting_steer(monke
     assert "task_run_executor_scheduled" not in event_types
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert model.active_work_followup_count == 1
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -651,7 +651,7 @@ def test_append_instruction_to_waiting_approval_reports_queued_without_resume() 
     assert "task_run_executor_scheduled" not in event_types
     assert any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert model.active_work_followup_count == 1
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -706,7 +706,7 @@ def test_active_turn_input_goes_through_model_turn_instead_of_registry_steer() -
     assert model.active_work_followup_count == 1
     assert updated_task is not None
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -842,6 +842,13 @@ def test_running_active_turn_pause_uses_immediate_control_without_queueing_steer
     assert dict(dict(updated_task.diagnostics or {}).get("runtime_control") or {}).get("state") == "pause_requested"
     assert any(event.get("type") == "active_task_steer_accepted" and event.get("terminal_reason") == "pause_active_work" for event in events)
     assert any(
+        event.get("type") == "runtime_status"
+        and event.get("title") == "已暂停当前工作"
+        and event.get("phase") == "work_control"
+        and event.get("state") == "done"
+        for event in events
+    )
+    assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "runtime_control"
         and event.get("terminal_reason") == "pause_active_work"
@@ -890,6 +897,13 @@ def test_running_active_turn_stop_uses_immediate_control_without_queueing_steer(
     assert updated_task.terminal_reason == "user_aborted"
     assert host.active_turn_registry.snapshot("session-active-work") is None
     assert any(event.get("type") == "active_task_steer_accepted" and event.get("terminal_reason") == "stop_active_work" for event in events)
+    assert any(
+        event.get("type") == "runtime_status"
+        and event.get("title") == "已停止当前工作"
+        and event.get("phase") == "work_control"
+        and event.get("state") == "stopped"
+        for event in events
+    )
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "runtime_control"
@@ -956,7 +970,7 @@ def test_auto_active_turn_input_uses_model_decision_even_when_task_running() -> 
     assert int(dict(updated_task.diagnostics or {}).get("pending_user_steer_count") or 0) == 1
     assert any(
         event.get("type") == "runtime_status"
-        and event.get("phase") == "active_work_control"
+        and event.get("phase") == "work_control"
         for event in events
     )
     assert any(
@@ -1135,7 +1149,7 @@ def test_main_agent_active_work_control_resumes_waiting_executor_without_hidden_
     assert active_turn is not None
     assert active_turn.bound_task_run_id == task_run_id
     assert model.active_work_followup_count == 1
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -1183,7 +1197,7 @@ def test_main_agent_active_work_control_accepts_intent_alias_without_blocking() 
         for event in events
     )
     assert model.active_work_followup_count == 1
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -1327,7 +1341,7 @@ def test_active_work_control_allows_missing_expected_active_turn_id_when_bound_t
     assert model.active_work_followup_count == 1
     assert "task_run_resume_requested" in event_types
     assert "task_run_executor_scheduled" in event_types
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"
@@ -1405,7 +1419,7 @@ def test_active_work_control_rejects_stale_expected_active_turn_id() -> None:
 
     assert model.active_work_decision_count == 1
     assert model.active_work_followup_count == 1
-    assert any(event.get("type") == "runtime_status" and event.get("phase") == "active_work_control" for event in events)
+    assert any(event.get("type") == "runtime_status" and event.get("phase") == "work_control" for event in events)
     assert any(
         event.get("type") == "done"
         and event.get("answer_channel") == "conversation"

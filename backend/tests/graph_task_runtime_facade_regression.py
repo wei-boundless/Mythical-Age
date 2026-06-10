@@ -72,6 +72,29 @@ class TaskExecutionModelRuntimeStub:
         )
 
 
+class MemoryCommitFailureModelRuntimeStub:
+    async def invoke_messages(self, messages, **_kwargs):
+        import json
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "request_id": "model-action:memory-commit:failed",
+                    "action_type": "respond",
+                    "final_answer": "## 人设与关系提交回执\n\n**提交状态**：提交失败\n\n设计对齐报告仍有必须修改项，不能提交冻结记忆。",
+                    "public_progress_note": "提交节点发现上游材料仍有阻塞问题，已拒绝提交。",
+                    "public_action_state": {
+                        "current_judgment": "当前材料不能进入冻结记忆。",
+                        "next_action": "要求上游返修后重新提交。",
+                    },
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
 class TimeoutThenTaskExecutionModelRuntimeStub:
     def __init__(self) -> None:
         self.call_count = 0
@@ -135,6 +158,20 @@ def _task_execution_runtime(prefix: str) -> HarnessRuntimeFacade:
         skill_registry=EmptySkillRegistryStub(),
         permission_service=DefaultPermissionStub(),
         model_runtime=TaskExecutionModelRuntimeStub(),
+    )
+
+
+def _task_execution_runtime_with_model(prefix: str, model_runtime) -> HarnessRuntimeFacade:
+    return HarnessRuntimeFacade(
+        base_dir=isolated_backend_root(prefix),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=HarnessRuntimeFacadeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=model_runtime,
     )
 
 
@@ -3006,6 +3043,73 @@ def test_graph_memory_commit_preserves_plural_record_kinds_for_required_reads() 
     assert result.status == "completed"
     assert overview["versions"][0]["record_kind"] == "world_fact"
     assert reader_result["status"] == "completed"
+
+
+def test_graph_memory_commit_declared_failure_blocks_downstream_without_receipt() -> None:
+    runtime = _task_execution_runtime_with_model("graph-formal-memory-declared-failure-", MemoryCommitFailureModelRuntimeStub())
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.formal_memory_declared_failure",
+        title="Formal Memory Declared Failure",
+        graph_kind="multi_agent",
+        entry_node_id="commit",
+        output_node_id="reader",
+        nodes=(
+            {
+                "node_id": "memory.world",
+                "node_type": "memory_repository",
+                "title": "世界观记忆库",
+                "metadata": {
+                    "memory_repository": {
+                        "repository_id": "memory.world",
+                        "collections": [{"collection_id": "world"}],
+                    }
+                },
+            },
+            {"node_id": "commit", "node_type": "memory_commit", "title": "提交", "task_id": "task.test.commit", "agent_id": "agent:0"},
+            {"node_id": "reader", "node_type": "agent", "title": "读取", "task_id": "task.test.reader", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {
+                "edge_id": "edge.commit.memory",
+                "source_node_id": "commit",
+                "target_node_id": "memory.world",
+                "edge_type": "memory_commit",
+                "metadata": {
+                    "repository": "memory.world",
+                    "collection": "world",
+                    "record_key": "world.current",
+                    "record_kind": "world_fact",
+                    "source_output_key": "approved_memory_candidate",
+                    "require_source_output_key": True,
+                },
+            },
+            {"edge_id": "edge.commit.reader", "source_node_id": "commit", "target_node_id": "reader", "edge_type": "handoff"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.coding.vibe_workspace"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=2,
+            max_node_steps=1,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    commit_result_summary = state["result_index"]["commit"]
+    commit_result = _runtime_object_payload(runtime, commit_result_summary["result_ref"])
+
+    assert result.status == "failed"
+    assert "reader" not in state["result_index"]
+    assert commit_result["status"] == "failed"
+    assert commit_result["memory_commit_receipts"] == []
+    assert commit_result["error"]["postprocess_errors"][0]["reason"] == "memory_commit_declared_failed"
 
 
 def test_graph_formal_memory_write_fails_when_repository_not_declared() -> None:

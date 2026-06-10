@@ -15,7 +15,7 @@ import {
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { isPublicTimelineControlItem, isTaskProjectionCompanionTimelineItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -299,9 +299,11 @@ function mergedPublicTimelineItems(
   terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer> = "",
 ) {
   const persisted = attachments.flatMap((attachment) =>
-    attachment.task_projection
-      ? []
-      : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+    Array.isArray(attachment.public_timeline)
+      ? attachment.task_projection
+        ? attachment.public_timeline.filter(isTaskProjectionCompanionTimelineItem)
+        : attachment.public_timeline
+      : [],
   );
   return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
 }
@@ -313,11 +315,7 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
 }
 
 function taskProjectionCompanionTimelineItems(items: PublicChatTimelineItem[] | undefined) {
-  return (items ?? []).filter((item) => {
-    const slot = String((item as { slot?: unknown }).slot ?? "").trim();
-    return ["body", "control", "timeline", "tool"].includes(slot)
-      && (isPublicTimelineControlItem(item) || isPublicTimelineBodyItem(item) || slot !== "body");
-  });
+  return (items ?? []).filter(isTaskProjectionCompanionTimelineItem);
 }
 
 function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {

@@ -113,6 +113,8 @@ class ObservationProjector:
                 "visibility": _visibility(source),
                 "summary": compact_text(summary_source, limit=int(projection_policy.get("observation_summary_chars") or 600)),
                 "error": compact_text(error, limit=500),
+                "event_offset": source.get("event_offset") or observation.get("event_offset"),
+                "created_at": source.get("created_at") or observation.get("created_at"),
                 **_active_work_control_projection(source),
                 "structured_error": structured_error,
                 "tool_result": _compact_tool_result(tool_projection),

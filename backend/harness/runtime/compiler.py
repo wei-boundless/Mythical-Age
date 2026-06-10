@@ -1144,7 +1144,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
-                *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution graph node runtime context",
@@ -1166,13 +1165,19 @@ class RuntimeCompiler:
                     title="Task execution runtime boundary",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
-                    kind="dynamic_projection",
+                    kind="task_runtime_boundary_stable",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_boundary",
+                        "cache_impact": "task_prefix_stable",
+                        "projection_strategy": "agent_visible_runtime_boundary",
+                        "content_source": "runtime.dynamic_context.runtime_delta_projection",
+                    },
                 ),
+                *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution current state",
@@ -2350,11 +2355,11 @@ def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> lis
         entry = _drop_empty_payload(dict(raw_entry or {}))
         if not entry:
             continue
-        entry_ref = str(entry.get("observation_ref") or entry.get("entry_ref") or index)
+        entry_ref = _task_state_replay_entry_ref(entry, fallback_index=index)
         specs.append(
             _runtime_payload_spec(
                 role="system",
-                title=f"Task execution replayed state evidence {index}",
+                title=f"Task execution replayed state evidence {entry_ref}",
                 payload={"task_state_replay_entry": entry},
                 kind="task_state_replay_entry",
                 source_ref=f"task_state_replay:{entry_ref}",
@@ -2373,6 +2378,16 @@ def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> lis
             )
         )
     return specs
+
+
+def _task_state_replay_entry_ref(entry: dict[str, Any], *, fallback_index: int) -> str:
+    explicit_ref = str(entry.get("observation_ref") or entry.get("entry_ref") or "").strip()
+    if explicit_ref:
+        return explicit_ref
+    digest = hashlib.sha256(
+        json.dumps(entry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="ignore")
+    ).hexdigest()[:12]
+    return f"entry:{digest or fallback_index}"
 
 
 def _provider_protocol_message_specs(

@@ -115,11 +115,14 @@ def _items_for_event(event_type: str, data: dict[str, Any]) -> list[dict[str, An
             phase=str(data.get("phase") or ""),
         )]
     if event_type == "active_task_steer_accepted":
+        summary = _visible_text(data.get("summary"))
+        terminal_reason = str(data.get("terminal_reason") or "").strip()
         return [_status_item(
             item_id=_stable_id("steer", str(data.get("runtime_task_run_id") or ""), str(data.get("summary") or "")),
-            title="已收到补充要求",
-            detail=_visible_text(data.get("summary")),
+            title=_active_task_steer_title(summary, terminal_reason=terminal_reason),
+            detail=summary,
             state="running",
+            phase="work_control" if _active_task_steer_is_work_control(summary, terminal_reason=terminal_reason) else "active_turn_steer",
         )]
     if event_type == "done":
         return [_done_item(data)]
@@ -259,6 +262,8 @@ def _public_action_admission_items(data: dict[str, Any], *, public_action: dict[
         "public_progress_note": public_action.get("progress_note") or public_action.get("question") or public_action.get("reason") or "",
         "public_action_state": action_state,
     }
+    if kind == "task":
+        return []
     if kind == "question":
         return [
             _status_item(
@@ -317,6 +322,45 @@ def _public_action_admission_items(data: dict[str, Any], *, public_action: dict[
     if action:
         items.append(action)
     return items
+
+
+def _active_task_steer_title(summary: str, *, terminal_reason: str = "") -> str:
+    reason = str(terminal_reason or "").strip()
+    if reason == "pause_active_work":
+        return "已暂停当前工作"
+    if reason == "stop_active_work":
+        return "已停止当前工作"
+    if reason in {"continue_active_work", "answer_then_continue_active_work"}:
+        return "继续当前工作"
+    if _active_task_steer_text_indicates_pause(summary):
+        return "已暂停当前工作"
+    if _active_task_steer_text_indicates_stop(summary):
+        return "已停止当前工作"
+    if _active_task_steer_text_indicates_continue(summary):
+        return "继续当前工作"
+    return "已收到补充要求"
+
+
+def _active_task_steer_is_work_control(summary: str, *, terminal_reason: str = "") -> bool:
+    reason = str(terminal_reason or "").strip()
+    return (
+        reason in {"pause_active_work", "stop_active_work", "continue_active_work", "answer_then_continue_active_work", "work_control"}
+        or _active_task_steer_text_indicates_pause(summary)
+        or _active_task_steer_text_indicates_stop(summary)
+        or _active_task_steer_text_indicates_continue(summary)
+    )
+
+
+def _active_task_steer_text_indicates_pause(summary: str) -> bool:
+    return any(marker in summary for marker in ("暂停", "先停", "停在这里", "停一下", "暂停一下"))
+
+
+def _active_task_steer_text_indicates_stop(summary: str) -> bool:
+    return any(marker in summary for marker in ("停止", "终止", "取消", "不用继续", "别继续"))
+
+
+def _active_task_steer_text_indicates_continue(summary: str) -> bool:
+    return any(marker in summary for marker in ("继续", "接着", "恢复", "接着处理", "继续处理"))
 
 
 def _control_action_item_from_model_action(
@@ -565,11 +609,13 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
     if terminal_reason == "task_executor_scheduled" or answer_channel == "task_control":
         return {}
     if str(data.get("completion_state") or "").strip() == "task_steer_accepted":
+        title = _active_task_steer_title(summary, terminal_reason=terminal_reason)
         return _status_item(
             item_id=_stable_id("steer-done", task_run_id, summary),
-            title="已收到补充要求",
+            title=title,
             detail=summary,
             state="running",
+            phase="work_control" if _active_task_steer_is_work_control(summary, terminal_reason=terminal_reason) else "active_turn_steer",
         )
     if not summary:
         return {}

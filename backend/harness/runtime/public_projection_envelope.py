@@ -69,7 +69,7 @@ def _source_and_surface(event_type: str, data: dict[str, Any], *, projection: di
         action_type = _model_action_type(data)
         if action_type == "tool_call":
             return "tool", "tool_window"
-        if action_type in {"active_work_control", "ask_user", "block"}:
+        if action_type in {"active_work_control", "ask_user", "block", "request_task_run"}:
             return "system", "control"
         return "model", "assistant_body"
     if event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded", "tool_observation"}:

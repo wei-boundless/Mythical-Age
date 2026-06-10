@@ -172,6 +172,12 @@ class ModelProfileResolver:
             agent_policy=agent_model_profile.stream_policy,
             requirement_streaming_required=requirement.streaming_required,
         )
+        response_format = dict(requirement.response_format or agent_model_profile.response_format or {})
+        structured_output = str(requirement.structured_output or "").strip().lower()
+        if response_format:
+            source_chain.append("model_profile.response_format")
+        if structured_output:
+            source_chain.append("node.contract_bindings.runtime.model_requirement.structured_output")
 
         diagnostics = {
             "agent_id": getattr(agent_runtime_profile, "agent_id", "") if agent_runtime_profile is not None else "",
@@ -195,6 +201,8 @@ class ModelProfileResolver:
             thinking_mode=thinking_mode or "disabled",
             reasoning_effort=reasoning_effort or "auto",
             stream_policy=stream_policy,
+            response_format=response_format,
+            structured_output=structured_output,
             source_chain=tuple(dict.fromkeys(source_chain)),
             diagnostics=diagnostics,
         )

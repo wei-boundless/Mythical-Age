@@ -724,6 +724,8 @@ def _public_action_summary_from_request(request: dict[str, Any]) -> dict[str, An
     if not kind:
         return {}
     public_action: dict[str, Any] = {"kind": kind}
+    if action_type == "request_task_run":
+        return public_action
     progress_note = _safe_public_action_text(request.get("public_progress_note"))
     if progress_note:
         public_action["progress_note"] = progress_note
@@ -801,6 +803,7 @@ def _public_terminal_reason(value: Any) -> str:
         "answer_then_continue_active_work",
         "active_work_control",
         "active_work_control_denied",
+        "active_work_control_action_not_allowed",
     }:
         return "work_control"
     return reason

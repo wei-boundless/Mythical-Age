@@ -11,7 +11,7 @@ import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { isPublicTimelineControlItem, isTaskProjectionCompanionTimelineItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { Message, TokenStats } from "@/lib/store/types";
 
@@ -210,11 +210,15 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!latestAssistant) return false;
   const persisted = (latestAssistant.runtimeAttachments ?? []).flatMap((attachment) =>
-    attachment.task_projection ? [] : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+    Array.isArray(attachment.public_timeline)
+      ? attachment.task_projection
+        ? attachment.public_timeline.filter(isTaskProjectionCompanionTimelineItem)
+        : attachment.public_timeline
+      : [],
   );
   const hasTaskProjection = (latestAssistant.runtimeAttachments ?? []).some((attachment) => Boolean(attachment.task_projection));
   const runtimePublicTimelineDraft = hasTaskProjection
-    ? (latestAssistant.runtimePublicTimelineDraft ?? []).filter(isPublicTimelineControlItem)
+    ? (latestAssistant.runtimePublicTimelineDraft ?? []).filter(isTaskProjectionCompanionTimelineItem)
     : latestAssistant.runtimePublicTimelineDraft;
   const publicTimeline = mergePublicTimelineItems(
     persisted,

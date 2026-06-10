@@ -75,7 +75,10 @@ function publicTimelineActivityView(
     : normalizedItems;
   const projectionEntries = taskProjectionActivityEntries(projections);
   const timelineEntries = activityEntries(timelineItems);
-  const entries = [...projectionEntries, ...timelineEntries];
+  const entries = orderActivityEntries({
+    timelineEntries,
+    projectionEntries,
+  });
   if (!entries.length) {
     return null;
   }
@@ -230,6 +233,18 @@ function taskProjectionActivityEntry(
   };
 }
 
+function orderActivityEntries({
+  timelineEntries,
+  projectionEntries,
+}: {
+  timelineEntries: ActivityEntry[];
+  projectionEntries: ActivityEntry[];
+}) {
+  const projectionFeedback = projectionEntries.filter((entry) => entry.kind !== "tool");
+  const projectionTools = projectionEntries.filter((entry) => entry.kind === "tool");
+  return [...timelineEntries, ...projectionFeedback, ...projectionTools];
+}
+
 function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
   const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
   const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
@@ -250,6 +265,9 @@ function isLowSignalTaskProjectionActivity(
   const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
   const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
   const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  if (isEmptyGenericToolWindowActivity(activity, title, detail)) {
+    return true;
+  }
   if (["primary", "secondary"].includes(level) && !["diagnostics", "debug", "monitor"].includes(displaySurface)) {
     return false;
   }
@@ -267,6 +285,28 @@ function isLowSignalTaskProjectionActivity(
     return true;
   }
   return false;
+}
+
+function isEmptyGenericToolWindowActivity(
+  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
+  title: string,
+  detail: string,
+) {
+  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  if (displaySurface !== "tool_window") {
+    return false;
+  }
+  if (cleanPublicTimelineText(detail) || cleanPublicTimelineText(activity.tool_target)) {
+    return false;
+  }
+  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
+  return [
+    "正在执行操作",
+    "执行动作",
+    "操作已返回",
+    "结果已返回",
+    "步骤未完成",
+  ].map(compactActivityText).includes(normalizedTitle);
 }
 
 function mentionsInternalTool(value: string) {
@@ -332,6 +372,11 @@ function isGenericStatusActivity(title: string, detail: string) {
     "正在处理",
     "正在处理任务",
     "正在建立任务运行",
+    "补齐验收证据",
+    "搜索证据",
+    "读取文件内容",
+    "检查路径信息",
+    "确认路径状态",
   ].includes(normalizedTitle.replace(/[。.]$/g, ""))
     && (!normalizedDetail || normalizedDetail === normalizedTitle);
 }

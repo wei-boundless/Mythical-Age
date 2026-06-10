@@ -297,7 +297,13 @@ class GraphNodeWorkOrderExecutor:
             work_order=work_order,
             final_answer=final_answer,
         )
-        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors]
+        memory_commit_guard_errors = _memory_commit_failure_guard_errors(
+            graph_config=graph_config,
+            work_order=work_order,
+            final_answer=final_answer,
+            memory_commit_receipts=memory_receipts,
+        )
+        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors, *memory_commit_guard_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
         quality_acceptance = _node_quality_acceptance(
             graph_config=graph_config,
@@ -1014,6 +1020,49 @@ def _formal_memory_receipts(
     return [*candidate_pool, *[dict(item.get("candidate_version") or {}) for item in candidate_receipts]], [*candidate_receipts, *receipts], errors
 
 
+def _memory_commit_failure_guard_errors(
+    *,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    final_answer: str,
+    memory_commit_receipts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    node = _graph_node_by_id(graph_config, work_order.node_id)
+    node_type = str(node.get("node_type") or "").strip()
+    write_mode = str(node.get("write_mode") or dict(node.get("metadata") or {}).get("write_mode") or "").strip()
+    if node_type not in {"memory_commit", "memory_finalize"} and not write_mode.endswith("_commit"):
+        return []
+    signal = _memory_commit_failure_signal(final_answer)
+    if not signal:
+        return []
+    committed_receipts = [
+        dict(item)
+        for item in list(memory_commit_receipts or [])
+        if str(dict(item).get("operation") or "") == "memory_commit"
+        and str(dict(item).get("status") or "") == "committed"
+    ]
+    return [
+        {
+            "reason": "memory_commit_declared_failed",
+            "signal": signal,
+            "committed_receipt_count": len(committed_receipts),
+            "authority": "harness.graph.memory_commit_guard",
+        }
+    ]
+
+
+def _memory_commit_failure_signal(final_answer: str) -> str:
+    text = str(final_answer or "").strip()
+    if not text:
+        return ""
+    compact = re.sub(r"[\s*_`#>：:，,。.!！-]+", "", text).lower()
+    if "提交状态提交失败" in compact or "提交失败" in compact:
+        return "declared_submit_failed"
+    if "commitfailed" in compact or "commitrejected" in compact:
+        return "declared_commit_failed"
+    return ""
+
+
 def _created_file(ref: dict[str, Any]) -> str:
     payload = dict(ref or {})
     return str(payload.get("created_file") or payload.get("filename") or payload.get("path") or payload.get("src") or "").replace("\\", "/").strip()
@@ -1399,6 +1448,7 @@ def _normalize_memory_edge(raw_edge: dict[str, Any]) -> dict[str, Any]:
         "candidate_ref_key": str(edge.get("candidate_ref_key") or metadata.get("candidate_ref_key") or "").strip(),
         "verdict_key": str(edge.get("verdict_key") or metadata.get("verdict_key") or "").strip(),
         "required_verdict": str(edge.get("required_verdict") or metadata.get("required_verdict") or "").strip(),
+        "require_source_output_key": bool(edge.get("require_source_output_key") or metadata.get("require_source_output_key")),
         "lifecycle_policy": dict(edge.get("lifecycle_policy") or edge.get("resource_lifecycle_policy") or metadata.get("lifecycle_policy") or metadata.get("resource_lifecycle_policy") or {}),
         "commit_visibility_policy": dict(edge.get("commit_visibility_policy") or metadata.get("commit_visibility_policy") or metadata.get("visibility_policy") or {}),
         "content_requirement": dict(edge.get("content_requirement") or metadata.get("content_requirement") or metadata.get("memory_content_requirement") or {}),

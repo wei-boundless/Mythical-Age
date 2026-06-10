@@ -14,7 +14,6 @@ DYNAMIC_SEGMENT_KINDS = {
     "session_history",
     "single_agent_turn_tool_call",
     "single_agent_turn_tool_observation",
-    "task_state_replay_entry",
     "tool_observations",
     "user_steering_updates",
     "volatile_task_state",
@@ -28,6 +27,8 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",
     "task_prompt_contract": "runtime_contract",
+    "task_runtime_boundary_stable": "runtime_task_boundary",
+    "task_state_replay_entry": "runtime_task_state_replay",
     "task_stable": "runtime_contract",
     "tool_index_stable": "tool_catalog",
     "turn_stable": "runtime_protocol",
@@ -131,6 +132,10 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated environment boundary and should become a registered environment slot"
     if status == "runtime_contract":
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
+    if status == "runtime_task_state_replay":
+        return "segment is compiler-generated append-only task state replay evidence"
+    if status == "runtime_task_boundary":
+        return "segment is compiler-generated task runtime boundary and authorization summary"
     if status == "runtime_protocol":
         return "segment is compiler-generated runtime protocol and should become a registered protocol slot"
     if status == "semantic_compaction_boundary":

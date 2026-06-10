@@ -288,6 +288,10 @@ def _runtime_layer(*, kind: str, source_kind: str) -> str:
         return "artifact_scope_stable"
     if source_kind == "runtime_contract":
         return "task_contract_stable"
+    if source_kind == "runtime_task_boundary":
+        return "task_runtime_boundary_stable"
+    if source_kind == "runtime_task_state_replay":
+        return "task_state_replay_stable"
     if source_kind == "runtime_protocol":
         return "runtime_protocol_stable"
     return "legacy_runtime_stable"
@@ -343,6 +347,14 @@ _LAYER_CACHE_POLICY = {
         "allowed_cache_roles": {"session_stable"},
     },
     "task_contract_stable": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "task_state_replay_stable": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "task_runtime_boundary_stable": {
         "allowed_prefix_tiers": {"task"},
         "allowed_cache_roles": {"session_stable"},
     },

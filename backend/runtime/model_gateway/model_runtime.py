@@ -38,6 +38,7 @@ from runtime.prompt_accounting import (
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 from .model_request import ModelRequestBuilder
+from .providers import ProviderRequestProfile, build_provider_adapter_result
 
 if TYPE_CHECKING:
     from agent_system.a2a.models import AgentDefinition
@@ -156,6 +157,9 @@ class ModelSpec:
     thinking_mode: str | None = None
     reasoning_effort: str | None = None
     stream_policy: dict[str, Any] | None = None
+    response_format: dict[str, Any] | None = None
+    structured_output: str | None = None
+    provider_extensions: dict[str, Any] | None = None
     completion_profile: dict[str, Any] | None = None
     diagnostics: dict[str, Any] | None = None
 
@@ -780,6 +784,8 @@ class ModelRuntime:
         timeout_seconds = self._model_call_timeout_seconds_for_spec(spec)
         max_output_tokens = self._max_output_tokens_for_spec(spec)
         temperature = self._temperature_for_spec(spec)
+        provider_adapter = self._provider_adapter_result_for_spec(spec)
+        effective_base_url = str(provider_adapter.effective_base_url or spec.base_url)
         if spec.provider == "deepseek":
             self._validate_deepseek_mode_for_spec(spec)
             if ChatDeepSeek is None:
@@ -787,21 +793,16 @@ class ModelRuntime:
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
             thinking_enabled = self._thinking_enabled_for_spec(spec)
-            extra_body: dict[str, Any] = {
-                "thinking": {
-                    "type": "enabled" if thinking_enabled else "disabled"
-                }
-            }
             model_kwargs: dict[str, Any] = {
                 "model": spec.model,
                 "api_key": spec.api_key,
-                "base_url": spec.base_url,
-                "api_base": spec.base_url,
+                "base_url": effective_base_url,
+                "api_base": effective_base_url,
                 "timeout": timeout_seconds,
                 "max_retries": 0,
                 "max_tokens": max_output_tokens,
-                "extra_body": extra_body,
             }
+            model_kwargs.update(dict(provider_adapter.model_kwargs or {}))
             if thinking_enabled:
                 reasoning_effort = self._reasoning_effort_for_spec(spec)
                 if reasoning_effort:
@@ -816,12 +817,13 @@ class ModelRuntime:
         model_kwargs: dict[str, Any] = {
             "model": spec.model,
             "api_key": spec.api_key,
-            "base_url": spec.base_url,
+            "base_url": effective_base_url,
             "temperature": temperature,
             "timeout": timeout_seconds,
             "max_retries": 0,
             "max_completion_tokens": max_output_tokens,
         }
+        model_kwargs.update(dict(provider_adapter.model_kwargs or {}))
         reasoning_effort = self._chat_openai_reasoning_effort_for_spec(spec)
         if reasoning_effort:
             model_kwargs["reasoning_effort"] = reasoning_effort
@@ -861,6 +863,7 @@ class ModelRuntime:
                 str(self._temperature_for_spec(spec)),
                 str(self._thinking_mode_for_spec(spec)),
                 str(self._reasoning_effort_for_spec(spec)),
+                self._provider_adapter_result_for_spec(spec).pool_key_hash(),
             ]
         )
 
@@ -949,6 +952,9 @@ class ModelRuntime:
                 thinking_mode=str(override.get("thinking_mode") or "").strip() or None,
                 reasoning_effort=str(override.get("reasoning_effort") or "").strip() or None,
                 stream_policy=dict(override.get("stream_policy") or {}),
+                response_format=dict(override.get("response_format") or {}),
+                structured_output=str(override.get("structured_output") or "").strip() or None,
+                provider_extensions=dict(override.get("provider_extensions") or {}),
                 completion_profile=dict(override.get("completion_profile") or {}),
                 diagnostics=dict(override.get("diagnostics") or {}),
             )
@@ -965,6 +971,9 @@ class ModelRuntime:
             thinking_mode=getattr(override, "thinking_mode", None),
             reasoning_effort=getattr(override, "reasoning_effort", None),
             stream_policy=dict(getattr(override, "stream_policy", {}) or {}),
+            response_format=dict(getattr(override, "response_format", {}) or {}),
+            structured_output=str(getattr(override, "structured_output", "") or "").strip() or None,
+            provider_extensions=dict(getattr(override, "provider_extensions", {}) or {}),
             completion_profile=dict(getattr(override, "completion_profile", {}) or {}),
             diagnostics=dict(getattr(override, "diagnostics", {}) or {}),
         )
@@ -1558,6 +1567,24 @@ class ModelRuntime:
             return None
         return _normalize_chat_openai_reasoning_effort(self._reasoning_effort_for_spec(spec))
 
+    def _provider_adapter_result_for_spec(self, spec: ModelSpec):
+        return build_provider_adapter_result(
+            ProviderRequestProfile(
+                provider=str(spec.provider or ""),
+                model=str(spec.model or ""),
+                base_url=str(spec.base_url or ""),
+                max_output_tokens=self._max_output_tokens_for_spec(spec),
+                temperature=self._temperature_for_spec(spec),
+                thinking_mode=self._thinking_mode_for_spec(spec),
+                reasoning_effort=self._reasoning_effort_for_spec(spec),
+                stream_policy=dict(spec.stream_policy or {}),
+                response_format=dict(spec.response_format or {}),
+                structured_output=str(spec.structured_output or ""),
+                completion_profile=dict(spec.completion_profile or {}),
+                provider_extensions=dict(spec.provider_extensions or {}),
+            )
+        )
+
     def _cache_relevant_params_for_spec(
         self,
         spec: ModelSpec,
@@ -1566,10 +1593,11 @@ class ModelRuntime:
         tool_count: int,
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        adapter_result = self._provider_adapter_result_for_spec(spec)
         return {
             "provider": str(spec.provider or ""),
             "model": str(spec.model or ""),
-            "base_url": _cache_relevant_base_url(spec.base_url),
+            "base_url": _cache_relevant_base_url(adapter_result.effective_base_url or spec.base_url),
             "call_kind": str(call_kind or ""),
             "tool_count": max(0, int(tool_count or 0)),
             "tool_call_options": _cache_relevant_tool_call_options(
@@ -1587,6 +1615,7 @@ class ModelRuntime:
             "reasoning_effort": self._reasoning_effort_for_spec(spec),
             "chat_openai_reasoning_effort": self._chat_openai_reasoning_effort_for_spec(spec) or "",
             "stream_policy": dict(spec.stream_policy or {}),
+            **dict(adapter_result.request_params_for_accounting or {}),
         }
 
     def _record_model_candidate_switch(
@@ -1924,6 +1953,9 @@ def _copy_spec_with_base_url(spec: Any, base_url: str) -> Any:
             "thinking_mode",
             "reasoning_effort",
             "stream_policy",
+            "response_format",
+            "structured_output",
+            "provider_extensions",
             "completion_profile",
             "diagnostics",
         )

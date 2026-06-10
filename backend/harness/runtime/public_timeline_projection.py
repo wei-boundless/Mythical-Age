@@ -118,6 +118,17 @@ def public_work_action_item(
     kind = action_kind or public_action_kind(tool_name, raw_target)
     subject = public_subject_label(tool_name=tool_name, raw_target=raw_target, action_kind=kind)
     phase = "adjusting" if normalized_state == "error" else "done" if normalized_state == "done" else "running"
+    title = public_action_title(action_kind=kind, phase=phase)
+    summary_text = public_action_summary(action_kind=kind, phase=phase, subject_label=subject, fallback=summary)
+    observation_text = public_observation_text(
+        action_kind=kind,
+        phase=phase,
+        subject_label=subject,
+        value=observation or summary,
+    )
+    recovery_text = public_text(recovery_hint, limit=180)
+    if not subject and summary_text == title and not observation_text and not recovery_text:
+        return {}
     return compact(
         {
             "item_id": item_id or stable_id("work-action", ",".join(trace_refs or []), kind, subject),
@@ -127,16 +138,11 @@ def public_work_action_item(
             "source_authority": "tool",
             "action_kind": kind,
             "phase": phase,
-            "title": public_action_title(action_kind=kind, phase=phase),
+            "title": title,
             "subject_label": subject,
-            "public_summary": public_action_summary(action_kind=kind, phase=phase, subject_label=subject, fallback=summary),
-            "observation": public_observation_text(
-                action_kind=kind,
-                phase=phase,
-                subject_label=subject,
-                value=observation or summary,
-            ),
-            "recovery_hint": public_text(recovery_hint, limit=180),
+            "public_summary": summary_text,
+            "observation": observation_text,
+            "recovery_hint": recovery_text,
             "state": normalized_state,
             "stream_state": "streaming" if normalized_state == "running" else "done",
             "trace_refs": trace_refs or [],
@@ -233,14 +239,14 @@ def public_action_title(*, action_kind: str, phase: str) -> str:
         "read": ("正在读取上下文", "已读取上下文", "读取上下文未完成"),
         "search": ("正在搜索引用", "已搜索引用", "搜索未完成"),
         "edit": ("正在更新文件", "已更新文件", "更新未完成"),
-        "run": ("正在执行操作", "操作已返回", "操作未完成"),
+        "run": ("正在运行命令", "命令已返回", "命令未完成"),
         "verify": ("正在运行验证", "验证已返回", "验证未完成"),
         "memory": ("正在检索相关记忆", "记忆检索已返回", "记忆检索未完成"),
         "prepare": ("正在准备输出", "输出准备完成", "输出准备未完成"),
         "image": ("正在生成图像", "图像已生成", "图像生成未完成"),
         "artifact": ("产物就绪", "产物就绪", "产物未完成"),
     }
-    running, done, adjusting = labels.get(action_kind, ("正在执行操作", "结果已返回", "步骤未完成"))
+    running, done, adjusting = labels.get(action_kind, ("正在调用工具", "工具结果已返回", "步骤未完成"))
     if phase == "done":
         return done
     if phase == "adjusting":

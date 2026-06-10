@@ -24,6 +24,7 @@ const PUBLIC_TIMELINE_TEXT_FIELDS = [
 ] as const;
 const TOOL_WINDOW_TEXT_FIELDS = ["tool_label", "target", "status"] as const;
 const CONTROL_TIMELINE_PHASES = new Set(["waiting_user", "work_control"]);
+const TASK_PROJECTION_COMPANION_SLOTS = new Set(["body", "control", "timeline", "tool", "status", "task"]);
 
 export function sanitizePublicTimelineItems(items: PublicChatTimelineItem[] | null | undefined) {
   if (!Array.isArray(items) || !items.length) {
@@ -93,6 +94,18 @@ export function isPublicTimelineControlItem(item: PublicChatTimelineItem | null 
   }
   const title = cleanPublicTimelineText(item.title);
   return kind === "status_update" && title === "等待补充信息";
+}
+
+export function isTaskProjectionCompanionTimelineItem(item: PublicChatTimelineItem | null | undefined) {
+  if (!item) return false;
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  if (!TASK_PROJECTION_COMPANION_SLOTS.has(slot)) {
+    return false;
+  }
+  if (isPublicTimelineControlItem(item) || isPublicTimelineBodyItem(item)) {
+    return true;
+  }
+  return slot !== "body";
 }
 
 export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {

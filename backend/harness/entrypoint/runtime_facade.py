@@ -1061,16 +1061,17 @@ class HarnessRuntimeFacade:
         if context is not None and context.task_run_id:
             extra["runtime_task_run_id"] = context.task_run_id
             extra["task_run_id"] = context.task_run_id
-        status_title = "当前补充未接入" if status == "blocked" else "已收到补充要求"
-        status_detail = str(content or "").strip() or (
-            "当前工作控制未执行。" if status == "blocked" else "补充要求已进入当前工作队列。"
+        status_title, status_detail, status_state, status_phase = _active_turn_steer_status_projection(
+            status=status,
+            terminal_reason=terminal_reason,
+            content=content,
         )
         runtime_status_event = {
             "type": "runtime_status",
             "title": status_title,
             "detail": status_detail,
-            "state": "warning" if status == "blocked" else "running",
-            "phase": "active_turn_steer",
+            "state": status_state,
+            "phase": status_phase,
             "terminal_reason": terminal_reason,
             **extra,
         }
@@ -2987,6 +2988,26 @@ def _active_turn_steer_action_from_user_message(message: str) -> str:
     if len(text) <= 40 and any(marker in text for marker in ("继续", "接着", "恢复", "继续做", "接着做", "continue", "resume")):
         return "continue_active_work"
     return ""
+
+
+def _active_turn_steer_status_projection(
+    *,
+    status: str,
+    terminal_reason: str,
+    content: str,
+) -> tuple[str, str, str, str]:
+    normalized_status = str(status or "").strip().lower()
+    reason = str(terminal_reason or "").strip()
+    detail = str(content or "").strip()
+    if normalized_status == "blocked":
+        return "当前补充未接入", detail or "当前工作控制未执行。", "warning", "active_turn_steer"
+    if reason == "pause_active_work":
+        return "已暂停当前工作", detail or "暂停请求已记录。", "done", "work_control"
+    if reason == "stop_active_work":
+        return "已停止当前工作", detail or "停止请求已记录。", "stopped", "work_control"
+    if reason == "continue_active_work":
+        return "继续当前工作", detail or "当前工作已进入继续处理流程。", "running", "work_control"
+    return "已收到补充要求", detail or "补充要求已进入当前工作队列。", "running", "active_turn_steer"
 
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -5139,6 +5139,8 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
             "summary": summary,
             "content_range": dict(result_metadata.get("content_range") or {}),
             "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
+            "event_offset": record.get("event_offset"),
+            "created_at": record.get("created_at"),
         }
         receipt = {key: value for key, value in receipt.items() if value not in ("", None, [], {})}
         last_action_receipts.append(receipt)

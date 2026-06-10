@@ -125,6 +125,52 @@ def test_shadow_manifest_binds_registered_prompts_and_marks_legacy_runtime_text(
     assert cache_boundary["prefix_tier_sequence"] == ["provider_global", "session"]
 
 
+def test_shadow_manifest_treats_task_state_replay_as_task_stable_runtime_state() -> None:
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:prompt-composition-task-state-replay",
+        invocation_kind="task_execution",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "Task execution replayed state evidence toolobs:1\n{}",
+                "kind": "task_state_replay_entry",
+                "source_ref": "task_state_replay:toolobs:1",
+                "cache_scope": "task",
+                "cache_role": "session_stable",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": "Task execution current state\n{}",
+                "kind": "volatile_task_state",
+                "source_ref": "task_state",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    )
+
+    manifest = build_shadow_prompt_composition_manifest(
+        invocation_kind="task_execution",
+        packet_id="packet:prompt-composition-task-state-replay",
+        layers=(),
+        segment_plan=segment_plan.to_dict(),
+    ).to_dict()
+
+    coverage = dict(manifest["coverage"])
+    statuses = dict(coverage["segment_binding_status_counts"])
+    cache_boundary = dict(manifest["diagnostics"]["cache_boundary"])
+    slots = list(dict(manifest["plan"])["slots"])
+    replay_slot = next(slot for slot in slots if slot["source_ref"] == "task_state_replay:toolobs:1")
+
+    assert statuses["runtime_task_state_replay"] == 1
+    assert replay_slot["layer"] == "task_state_replay_stable"
+    assert replay_slot["prefix_tier"] == "task"
+    assert replay_slot["cache_role"] == "session_stable"
+    assert cache_boundary["status"] == "ok"
+
+
 def test_message_projection_renderer_reconstructs_ordered_messages() -> None:
     messages = [
         {"role": "system", "content": "global runtime"},

@@ -118,25 +118,32 @@ class TaskStateProjector:
 def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     index_by_key: dict[str, int] = {}
+    order_by_key: dict[str, tuple[int, int, str]] = {}
+    fallback_order = 0
     for entry_kind, items in (
         ("tool_result", dict_tuple(task_state.get("latest_tool_results"))),
         ("active_failure", dict_tuple(task_state.get("active_failures"))),
         ("historical_failure", dict_tuple(task_state.get("historical_failures"))),
     ):
         for item in items:
+            fallback_order += 1
             entry = _replay_entry_projection(entry_kind, item)
             if not entry:
                 continue
             key = _replay_entry_key(entry)
+            order = _replay_entry_order(item, fallback_order=fallback_order)
             if key in index_by_key:
                 index = index_by_key[key]
                 merged = _merge_projection(entries[index], entry)
                 merged["entry_kind"] = _merged_entry_kind(entries[index].get("entry_kind"), entry.get("entry_kind"))
                 entries[index] = merged
+                order_by_key[key] = min(order_by_key[key], order)
                 continue
             index_by_key[key] = len(entries)
+            order_by_key[key] = order
             entries.append(entry)
-    return entries[-limit:]
+    ordered = sorted(entries, key=lambda entry: order_by_key.get(_replay_entry_key(entry), (1, 0, _replay_entry_key(entry))))
+    return ordered[-limit:]
 
 
 def _task_state_cursor_projection(
@@ -149,6 +156,11 @@ def _task_state_cursor_projection(
     cursor = dict(task_state or {})
     latest_results = dict_tuple(cursor.get("latest_tool_results"))
     active_failures = dict_tuple(cursor.get("active_failures"))
+    file_state = _cursor_file_state_projection(dict_tuple(cursor.get("file_state")))
+    if file_state:
+        cursor["file_state"] = file_state
+    else:
+        cursor.pop("file_state", None)
     if latest_results:
         cursor["latest_tool_results"] = list(latest_results[-result_limit:])
     else:
@@ -214,6 +226,17 @@ def _replay_entry_key(entry: dict[str, Any]) -> str:
     return _ref_projection_key(entry)
 
 
+def _replay_entry_order(item: dict[str, Any], *, fallback_order: int) -> tuple[int, int, str]:
+    for key in ("event_offset", "observation_event_offset", "action_event_offset", "sequence", "step_index", "invocation_index"):
+        value = _safe_int(item.get(key))
+        if value > 0:
+            return (0, value, str(item.get("observation_ref") or item.get("observation_id") or ""))
+    created_at = _safe_float(item.get("created_at"))
+    if created_at > 0:
+        return (0, int(created_at * 1000), str(item.get("observation_ref") or item.get("observation_id") or ""))
+    return (1, int(fallback_order or 0), str(item.get("observation_ref") or item.get("observation_id") or ""))
+
+
 def _merged_entry_kind(first: Any, second: Any) -> str:
     kinds = [str(item or "") for item in (first, second) if str(item or "")]
     if not kinds:
@@ -269,6 +292,13 @@ def _latest_results(
                     "preview": _code_evidence_preview(item),
                     "tool_guidance": compact_text(item.get("tool_guidance") or "", limit=500),
                     "rehydration_plan": dict(item.get("rehydration_plan") or {}),
+                    "event_offset": item.get("event_offset"),
+                    "observation_event_offset": item.get("observation_event_offset"),
+                    "action_event_offset": item.get("action_event_offset"),
+                    "sequence": item.get("sequence"),
+                    "step_index": item.get("step_index"),
+                    "invocation_index": item.get("invocation_index"),
+                    "created_at": item.get("created_at"),
                 }
             )
         )
@@ -298,6 +328,13 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "preview": _code_evidence_preview(tool_result),
             "tool_guidance": compact_text(item.get("tool_guidance") or tool_result.get("tool_guidance") or "", limit=500),
             "rehydration_plan": dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {}),
+            "event_offset": item.get("event_offset") or tool_result.get("event_offset"),
+            "observation_event_offset": item.get("observation_event_offset") or tool_result.get("observation_event_offset"),
+            "action_event_offset": item.get("action_event_offset") or tool_result.get("action_event_offset"),
+            "sequence": item.get("sequence") or tool_result.get("sequence"),
+            "step_index": item.get("step_index") or tool_result.get("step_index"),
+            "invocation_index": item.get("invocation_index") or tool_result.get("invocation_index"),
+            "created_at": item.get("created_at") or tool_result.get("created_at"),
         }
     )
     if set(projected).issubset({"observation_ref", "replacement_ref"}):
@@ -353,6 +390,13 @@ def _failure_projection(item: dict[str, Any]) -> dict[str, Any]:
             "summary": compact_text(item.get("summary") or error_text or error.get("message") or "", limit=300),
             "error": error,
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
+            "event_offset": item.get("event_offset"),
+            "observation_event_offset": item.get("observation_event_offset"),
+            "action_event_offset": item.get("action_event_offset"),
+            "sequence": item.get("sequence"),
+            "step_index": item.get("step_index"),
+            "invocation_index": item.get("invocation_index"),
+            "created_at": item.get("created_at"),
         }
     )
 
@@ -373,10 +417,33 @@ def _work_progress_projection(work_history_projection: dict[str, Any]) -> dict[s
                         "summary": compact_text(item.get("summary") or "", limit=240),
                     }
                 )
-                for item in dict_tuple(work_history_projection.get("recent_steps"))[-4:]
+                for item in dict_tuple(work_history_projection.get("recent_steps"))[-1:]
             ],
         }
     )
+
+
+def _cursor_file_state_projection(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or _low_value_file_state_cursor_item(item):
+            continue
+        result.append(dict(item))
+    return result[-8:]
+
+
+def _low_value_file_state_cursor_item(item: dict[str, Any]) -> bool:
+    if dict_tuple(item.get("read_ranges")):
+        return False
+    if dict(item.get("coverage") or {}):
+        return False
+    if dict(item.get("next_suggested_read") or {}):
+        return False
+    for key in ("total_lines", "content_sha256", "has_more"):
+        if item.get(key) not in (None, "", [], {}):
+            return False
+    status = str(item.get("status") or "").strip().lower()
+    return status in {"", "missing", "absent", "not_found", "ok"}
 
 
 def _task_run_state_projection(task_run_state: dict[str, Any]) -> dict[str, Any]:
@@ -588,6 +655,20 @@ def _drop_superseded_missing_path_probes(items: list[dict[str, Any]], *, positiv
             continue
         result.append(item)
     return result
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _is_missing_path_probe(item: dict[str, Any]) -> bool:

@@ -161,6 +161,69 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
+  it("keeps stream recovery feedback visible before task projection tools", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:restore-with-task-projection",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:restore",
+            anchor_turn_id: "turn:restore",
+            run_id: "taskrun:restore",
+            task_run_id: "taskrun:restore",
+            status: "running",
+            task_projection: {
+              projection_id: "projection:taskrun:restore",
+              authority: "harness.runtime.single_agent_task_projection.v1",
+              task_run_id: "taskrun:restore",
+              status: "running",
+              activities: [
+                {
+                  activity_id: "activity:empty-tool",
+                  kind: "action",
+                  display_surface: "tool_window",
+                  visibility_level: "primary",
+                  title: "正在执行操作",
+                  state: "running",
+                },
+                {
+                  activity_id: "activity:inspect-backend",
+                  kind: "action",
+                  tool_target: "backend",
+                  display_surface: "tool_window",
+                  visibility_level: "primary",
+                  title: "正在确认目标 backend",
+                  state: "running",
+                },
+              ],
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "stream-restore:strun:restore",
+            kind: "status_update",
+            slot: "timeline",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "同步运行进度",
+            detail: "已拿到上次进度，继续同步后续结果。",
+            state: "running",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("同步运行进度");
+    expect(html).toContain("正在确认目标 backend");
+    expect(html).not.toContain("正在执行操作");
+    expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("正在确认目标 backend"));
+  });
+
   it("keeps non-final streamed prose visible even if the live flag drops", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
@@ -346,6 +409,28 @@ describe("ChatMessage", () => {
             state: "running",
           },
           {
+            item_id: "observation:status",
+            kind: "observation_report",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "model",
+            title: "观察反馈",
+            detail: "已确认任务间观察反馈仍需要显示。",
+            state: "done",
+          },
+          {
+            item_id: "tool:verify",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            action_kind: "run",
+            title: "正在运行验证 前端测试",
+            subject_label: "前端测试",
+            public_summary: "正在运行验证 前端测试",
+            state: "running",
+          },
+          {
             item_id: "ask:user",
             kind: "status_update",
             slot: "control",
@@ -368,6 +453,10 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("读取文件内容");
     expect(html).not.toContain("补齐验收证据");
     expect(html).not.toContain("backend/api/chat.py");
+    expect(html).toContain("观察反馈");
+    expect(html).toContain("已确认任务间观察反馈仍需要显示。");
+    expect(html).toContain("正在运行验证 前端测试");
+    expect(html.indexOf("观察反馈")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
     expect(html).toContain("请选择要优先验证的页面。");
   });
 

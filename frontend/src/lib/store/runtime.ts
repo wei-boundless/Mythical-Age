@@ -53,7 +53,7 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
+import { isTaskProjectionCompanionTimelineItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
@@ -79,7 +79,7 @@ function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor |
   return {
     item_id: `stream-restore:${streamRunId}`,
     kind: "status_update",
-    slot: "status",
+    slot: "timeline",
     surface: "status_bar",
     source_authority: "system",
     title: "同步运行进度",
@@ -4211,7 +4211,11 @@ export class WorkspaceRuntime {
 
   private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
     return (runtimeAttachments ?? []).flatMap((attachment) =>
-      attachment.task_projection ? [] : Array.isArray(attachment.public_timeline) ? attachment.public_timeline : [],
+      Array.isArray(attachment.public_timeline)
+        ? attachment.task_projection
+          ? attachment.public_timeline.filter(isTaskProjectionCompanionTimelineItem)
+          : attachment.public_timeline
+        : [],
     );
   }
 
@@ -4387,11 +4391,9 @@ export class WorkspaceRuntime {
       ...existing,
       ...attachment,
       progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
-      public_timeline: attachment.task_projection
-        ? []
-        : mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
-          limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
-        }),
+      public_timeline: mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
+        limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
+      }),
     };
   }
 
@@ -4714,7 +4716,7 @@ export class WorkspaceRuntime {
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: taskProjection ? [] : publicTimelineItems,
+      public_timeline: publicTimelineItems,
       task_projection: taskProjection ?? undefined,
       trace_available: true,
       debug_trace_ref: String(taskProjection?.debug_trace_ref ?? runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
@@ -4805,7 +4807,7 @@ export class WorkspaceRuntime {
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
       progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: taskProjection ? [] : publicTimelineItems,
+      public_timeline: publicTimelineItems,
       task_projection: taskProjection ?? undefined,
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
       trace_available: true,

@@ -62,6 +62,33 @@ function short(value: unknown, limit = 360) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
+function activeTaskSteerTitle(data: Record<string, unknown>) {
+  const summary = text(data.summary ?? data.message ?? data.content);
+  const terminalReason = text(data.terminal_reason);
+  if (terminalReason === "pause_active_work" || textIndicatesPauseActiveWork(summary)) {
+    return "已暂停当前工作";
+  }
+  if (terminalReason === "stop_active_work" || textIndicatesStopActiveWork(summary)) {
+    return "已停止当前工作";
+  }
+  if (terminalReason === "continue_active_work" || terminalReason === "answer_then_continue_active_work" || textIndicatesContinueActiveWork(summary)) {
+    return "继续当前工作";
+  }
+  return "已收到补充要求";
+}
+
+function textIndicatesPauseActiveWork(value: string) {
+  return ["暂停", "先停", "停在这里", "停一下", "暂停一下"].some((marker) => value.includes(marker));
+}
+
+function textIndicatesStopActiveWork(value: string) {
+  return ["停止", "终止", "取消", "不用继续", "别继续"].some((marker) => value.includes(marker));
+}
+
+function textIndicatesContinueActiveWork(value: string) {
+  return ["继续", "接着", "恢复", "接着处理", "继续处理"].some((marker) => value.includes(marker));
+}
+
 function isInternalRuntimeReference(value: unknown) {
   const normalized = text(value);
   if (!normalized) return false;
@@ -830,12 +857,13 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "active_task_steer_accepted") {
     const summary = publicRuntimeText(data.summary) || "当前任务会在后续步骤中处理这次输入。";
+    const title = activeTaskSteerTitle(data);
     return {
-      stageStatus: "已收到补充要求",
-      activityTitle: "已收到补充要求",
+      stageStatus: title,
+      activityTitle: title,
       activityDetail: summary,
       level: "success",
-      progressEntry: entry("active_task_steer_accepted", "已收到补充要求", {
+      progressEntry: entry("active_task_steer_accepted", title, {
         body: summary,
         publicNote: summary,
         level: "success",
@@ -1079,9 +1107,10 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const completionState = text(data.completion_state);
     if (completionState === "task_steer_accepted") {
       const summary = publicRuntimeText(data.summary ?? data.content) || "当前任务会在后续步骤中处理这次输入。";
+      const title = activeTaskSteerTitle(data);
       return {
-        stageStatus: "已收到补充要求",
-        activityTitle: "已收到补充要求",
+        stageStatus: title,
+        activityTitle: title,
         activityDetail: summary,
         level: "success",
         terminalEvent: "done",

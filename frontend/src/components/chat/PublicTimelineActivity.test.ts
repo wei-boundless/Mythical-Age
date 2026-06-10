@@ -219,6 +219,80 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("public-run-activity__tool-window");
   });
 
+  it("renders recovery and observation feedback before task projection tools", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "stream-restore:strun:test",
+            kind: "status_update",
+            slot: "timeline",
+            surface: "status_bar",
+            source_authority: "system",
+            title: "同步运行进度",
+            detail: "已拿到上次进度，继续同步后续结果。",
+            state: "running",
+          },
+          {
+            item_id: "observation:status",
+            kind: "observation_report",
+            slot: "status",
+            surface: "status_bar",
+            source_authority: "model",
+            title: "任务观察",
+            detail: "上一步观察已返回，继续按证据推进。",
+            state: "done",
+          },
+        ],
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:feedback-order",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:feedback-order",
+            status: "running",
+            activities: [
+              {
+                activity_id: "activity:empty-tool",
+                kind: "action",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "正在执行操作",
+                state: "running",
+              },
+              {
+                activity_id: "activity:observation",
+                kind: "observation",
+                display_surface: "timeline",
+                visibility_level: "secondary",
+                title: "已确认任务投影链路",
+                detail: "观察反馈会先用于说明判断。",
+                state: "completed",
+              },
+              {
+                activity_id: "activity:inspect-backend",
+                kind: "action",
+                tool_target: "backend",
+                display_surface: "tool_window",
+                visibility_level: "primary",
+                title: "正在确认目标 backend",
+                state: "running",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("同步运行进度");
+    expect(html).toContain("任务观察");
+    expect(html).toContain("已确认任务投影链路");
+    expect(html).toContain("正在确认目标 backend");
+    expect(html).not.toContain("正在执行操作");
+    expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("任务观察"));
+    expect(html.indexOf("任务观察")).toBeLessThan(html.indexOf("已确认任务投影链路"));
+    expect(html.indexOf("已确认任务投影链路")).toBeLessThan(html.indexOf("正在确认目标 backend"));
+  });
+
   it("lets stopped task projection dominate stale running projection activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

@@ -54,6 +54,8 @@ class ModelRequirement:
     thinking_mode: str = ""
     reasoning_required: bool | None = None
     streaming_required: bool | None = None
+    response_format: dict[str, Any] = field(default_factory=dict)
+    structured_output: str = ""
     temperature_profile: str = ""
     fallback_allowed: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -79,6 +81,7 @@ class ResolvedModelSpec:
     reasoning_effort: str
     stream_policy: dict[str, Any] = field(default_factory=dict)
     response_format: dict[str, Any] = field(default_factory=dict)
+    structured_output: str = ""
     source_chain: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -98,6 +101,7 @@ class ResolvedModelSpec:
             "reasoning_effort": self.reasoning_effort,
             "stream_policy": dict(self.stream_policy or {}),
             "response_format": dict(self.response_format or {}),
+            "structured_output": self.structured_output,
             "source_chain": list(self.source_chain),
             "diagnostics": dict(self.diagnostics or {}),
         }
@@ -140,6 +144,8 @@ def parse_model_requirement(value: Any) -> ModelRequirement:
         thinking_mode=str(payload.get("thinking_mode") or "").strip().lower(),
         reasoning_required=_optional_bool(payload.get("reasoning_required")),
         streaming_required=_optional_bool(payload.get("streaming_required")),
+        response_format=_dict_or_empty(payload.get("response_format")),
+        structured_output=str(payload.get("structured_output") or "").strip().lower(),
         temperature_profile=str(payload.get("temperature_profile") or "").strip(),
         fallback_allowed=bool(payload.get("fallback_allowed", True)),
         metadata=dict(payload.get("metadata") or {}),

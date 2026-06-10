@@ -90,6 +90,17 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
         return {}, diagnostics
     try:
         parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        repaired = _parse_json_object_prefix_with_ignorable_trailing_text(text)
+        if repaired is None:
+            diagnostics["parse_error"] = exc.__class__.__name__
+            diagnostics["parse_error_message"] = str(exc)
+            diagnostics["starts_with"] = text[:24]
+            diagnostics["ends_with"] = text[-24:] if text else ""
+            return {}, diagnostics
+        parsed, trailing = repaired
+        diagnostics["parsed_with_trailing_repair"] = True
+        diagnostics["ignored_trailing_text"] = trailing
     except Exception as exc:
         diagnostics["parse_error"] = exc.__class__.__name__
         diagnostics["starts_with"] = text[:24]
@@ -101,6 +112,23 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
         return {}, diagnostics
     diagnostics["parsed_type"] = "object"
     return dict(parsed), diagnostics
+
+
+def _parse_json_object_prefix_with_ignorable_trailing_text(text: str) -> tuple[dict[str, Any], str] | None:
+    try:
+        parsed, index = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    trailing = str(text[index:] or "").strip()
+    if not trailing:
+        return parsed, trailing
+    if trailing in {'"', "'", "```"}:
+        return parsed, trailing
+    if trailing.strip("`").strip() in {'"', "'"}:
+        return parsed, trailing
+    return None
 
 
 def response_protocol_diagnostics(response: Any) -> dict[str, Any]:

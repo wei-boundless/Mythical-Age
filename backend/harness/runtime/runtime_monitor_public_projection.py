@@ -11,12 +11,31 @@ from harness.runtime.session_task_projection import build_single_agent_task_proj
 PUBLIC_PROJECTION_AUTHORITY = "runtime_monitor.public_event_projection.v1"
 INTERNAL_TURN_TERMINAL_REASONS = {
     "active_work_control",
+    "continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "append_instruction_to_active_work",
+    "answer_about_active_work",
+    "answer_then_continue_active_work",
+    "active_work_control_denied",
+    "active_work_control_action_not_allowed",
     "ask_user",
     "assistant_message",
     "block",
     "stream_cancelled",
     "turn_stream_closed",
     "harness.entrypoint_error",
+}
+ACTIVE_WORK_CONTROL_TERMINAL_REASONS = {
+    "active_work_control",
+    "continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "append_instruction_to_active_work",
+    "answer_about_active_work",
+    "answer_then_continue_active_work",
+    "active_work_control_denied",
+    "active_work_control_action_not_allowed",
 }
 _INTERNAL_FINAL_TEXT = {
     "active_work_control",
@@ -639,14 +658,15 @@ def _terminal_public_event_type(event: dict[str, Any]) -> str:
 def _terminal_data(event: dict[str, Any], *, public_event_type: str) -> dict[str, Any]:
     payload = _record(event.get("payload"))
     task_run = _record(payload.get("task_run"))
-    terminal_reason = _text(payload.get("terminal_reason") or task_run.get("terminal_reason") or payload.get("status") or task_run.get("status"))
-    summary = (
+    raw_terminal_reason = _text(payload.get("terminal_reason") or task_run.get("terminal_reason") or payload.get("status") or task_run.get("status"))
+    terminal_reason = _public_terminal_reason(raw_terminal_reason)
+    summary_source = (
         payload.get("receipt_summary")
         or payload.get("summary")
         or payload.get("final_answer")
         or _record(task_run.get("diagnostics")).get("final_answer")
-        or terminal_reason
     )
+    summary = summary_source or ("" if terminal_reason == "work_control" else terminal_reason)
     if public_event_type == "error":
         return {
             "error": payload.get("error") or payload.get("message") or summary or "处理失败",
@@ -665,6 +685,13 @@ def _terminal_data(event: dict[str, Any], *, public_event_type: str) -> dict[str
         "summary": summary,
         "content": payload.get("content") or payload.get("final_answer"),
     }
+
+
+def _public_terminal_reason(value: Any) -> str:
+    reason = _text(value)
+    if reason in ACTIVE_WORK_CONTROL_TERMINAL_REASONS:
+        return "work_control"
+    return reason
 
 
 def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:

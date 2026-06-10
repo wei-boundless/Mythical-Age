@@ -30,6 +30,14 @@ def _message_content_with_title(packet, title: str) -> str:
     raise AssertionError(f"message title not found: {title}")
 
 
+def _message_content_for_source(packet, source_ref: str) -> str:
+    for segment in packet.segment_plan["segments"]:
+        if segment["source_ref"] != source_ref:
+            continue
+        return packet.model_messages[segment["model_message_index"]]["content"]
+    raise AssertionError(f"segment source not found: {source_ref}")
+
+
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     messages = [
@@ -380,8 +388,8 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "artifact_scope_stable",
         "tool_index_stable",
         "task_contract_stable",
+        "task_runtime_boundary_stable",
         "task_state_replay_entry",
-        "dynamic_projection",
         "volatile_task_state",
     ]
     assert [segment.cache_role for segment in segment_map.segments] == [
@@ -392,7 +400,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "session_stable",
         "session_stable",
         "session_stable",
-        "volatile",
+        "session_stable",
         "volatile",
     ]
     assert not any(
@@ -411,9 +419,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert model_request.task_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["prefix_key_tier"] == "task"
     assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 7
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 8
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
-    assert cache_record.diagnostics["task_prefix_segment_count"] == 7
+    assert cache_record.diagnostics["task_prefix_segment_count"] == 8
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -471,7 +479,8 @@ def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     assert first_replay_messages[0] == second_replay_messages[0]
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
-    assert second_kinds.index("task_state_replay_entry") < second_kinds.index("dynamic_projection")
+    assert second_kinds.index("task_runtime_boundary_stable") < second_kinds.index("task_state_replay_entry")
+    assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
     assert second_kinds[-1] == "volatile_task_state"
 
     first_request = ModelRequestBuilder().build(
@@ -493,8 +502,75 @@ def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     assert first_request.task_prefix_hash != second_request.task_prefix_hash
     assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
     assert second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"].count("task_state_replay_entry") == 2
+    assert "task_runtime_boundary_stable" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
+
+
+def test_task_execution_replay_entries_keep_source_content_stable_when_new_failure_is_projected_first() -> None:
+    base_kwargs = {
+        "session_id": "session:stable-replay-order",
+        "task_run": {
+            "task_run_id": "taskrun:stable-replay-order",
+            "task_id": "task:stable-replay-order",
+            "task_contract_ref": "contract:stable-replay-order",
+            "diagnostics": {"executor_status": "running"},
+        },
+        "contract": {
+            "contract_id": "contract:stable-replay-order",
+            "task_run_goal": "验证 replay 稳定前缀",
+            "completion_criteria": ["稳定段只追加"],
+        },
+        "runtime_assembly": {
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    }
+    old_result = {
+        "observation_ref": "toolobs:path-exists",
+        "tool_name": "path_exists",
+        "status": "ok",
+        "summary": "false",
+        "event_offset": 20,
+    }
+    new_failure = {
+        "observation_ref": "rtobs:model-action-invalid",
+        "tool_name": "model_action_protocol",
+        "status": "error",
+        "summary": "model action request failed protocol validation",
+        "error": {"code": "model_action_invalid", "message": "invalid action", "retryable": True},
+        "event_offset": 30,
+    }
+    first = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=1,
+        observations=[],
+        execution_state={"system_projection": {"last_action_receipts": [old_result]}},
+    )
+    second = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=2,
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "last_action_receipts": [new_failure, old_result],
+                "active_failures": [new_failure],
+            }
+        },
+    )
+
+    old_source = "task_state_replay:toolobs:path-exists"
+    new_source = "task_state_replay:rtobs:model-action-invalid"
+    first_old_content = _message_content_for_source(first.packet, old_source)
+    second_old_content = _message_content_for_source(second.packet, old_source)
+    assert first_old_content == second_old_content
+
+    second_sources = [
+        segment["source_ref"]
+        for segment in second.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+    assert second_sources.index(old_source) < second_sources.index(new_source)
 
 
 def test_model_request_reports_segment_plan_binding_mismatch() -> None:

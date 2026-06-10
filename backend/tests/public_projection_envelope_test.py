@@ -6,6 +6,7 @@ from harness.runtime.public_projection_envelope import (
     build_public_projection_envelope,
 )
 from harness.runtime.public_projection_projector import project_public_projection_event
+from harness.runtime.public_timeline_projection import public_work_action_item
 from harness.runtime.public_timeline_stream import project_public_timeline_delta
 from harness.runtime.runtime_monitor_public_projection import project_runtime_monitor_event_public_delta
 
@@ -108,6 +109,28 @@ def test_projection_builder_drops_items_without_explicit_slot() -> None:
     )
 
     assert envelope.get("items", []) == []
+
+
+def test_public_work_action_drops_bare_generic_tool_window() -> None:
+    assert public_work_action_item(
+        item_id="tool:bare-run",
+        tool_name="terminal",
+        raw_target="powershell -NoProfile -Command Get-ChildItem",
+        state="running",
+    ) == {}
+
+
+def test_public_work_action_keeps_targeted_tool_window() -> None:
+    item = public_work_action_item(
+        item_id="tool:read-chat",
+        tool_name="read_file",
+        raw_target="frontend/src/components/chat/ChatMessage.tsx",
+        state="running",
+    )
+
+    assert item["title"] == "正在读取上下文"
+    assert item["subject_label"].endswith("ChatMessage.tsx")
+    assert item["public_summary"] != item["title"]
 
 
 def test_projector_does_not_project_done_content_as_body() -> None:
@@ -340,6 +363,46 @@ def test_chat_public_projection_sanitizes_model_action_admission_event() -> None
     assert any(item.get("slot") == "tool" and item.get("surface") == "tool_window" for item in envelope["items"])
 
 
+def test_chat_public_projection_keeps_task_admission_out_of_model_body() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "type": "model_action_admission",
+            "event": {
+                "event_id": "rtevt:api-task-admission",
+                "payload": {
+                    "model_action_request": {
+                        "authority": "harness.loop.model_action_request",
+                        "request_id": "act:api-task",
+                        "action_type": "request_task_run",
+                        "public_progress_note": "正在建立任务运行。",
+                        "public_action_state": {
+                            "next_action": "正在建立任务运行。",
+                        },
+                        "task_contract_seed": {
+                            "user_visible_goal": "修复投影",
+                            "task_run_goal": "修复投影",
+                            "completion_criteria": ["控制命令不泄露"],
+                        },
+                    },
+                    "admission": {"decision": "allow"},
+                },
+            },
+        },
+    )
+
+    assert projected is not None
+    public_event_type, data = projected
+    assert data["public_action"] == {"kind": "task"}
+    assert "正在建立任务运行" not in str(data)
+    _attach_public_projection_envelope(public_event_type, data, session_id="session-envelope", sequence=15)
+    envelope = data["public_projection_envelope"]
+    assert envelope["source_authority"] == "system"
+    assert envelope["surface"] == "control"
+    assert envelope.get("items") in (None, [])
+    assert "正在建立任务运行" not in str(envelope)
+
+
 def test_chat_public_projection_drops_raw_model_action_request_events() -> None:
     assert _project_public_stream_event(
         "model_action_request",
@@ -404,3 +467,65 @@ def test_chat_public_projection_drops_raw_agent_turn_terminal_event() -> None:
             },
         },
     ) is None
+
+
+def test_active_task_steer_projection_uses_work_control_title_for_pause() -> None:
+    projected = project_public_projection_event(
+        "active_task_steer_accepted",
+        {
+            "summary": "已请求暂停当前工作。",
+            "status": "accepted",
+            "runtime_task_run_id": "taskrun:pause-projection",
+        },
+        session_id="session-envelope",
+        sequence=16,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope["source_authority"] == "system"
+    assert envelope["surface"] == "status_bar"
+    assert any(item.get("title") == "已暂停当前工作" and item.get("phase") == "work_control" for item in envelope["items"])
+    assert "pause_active_work" not in str(envelope)
+
+
+def test_done_task_steer_projection_keeps_pause_out_of_generic_steer_title() -> None:
+    projected = project_public_projection_event(
+        "done",
+        {
+            "completion_state": "task_steer_accepted",
+            "summary": "好，我先停在这里。后面你说继续，我会从这里接着做。",
+            "answer_channel": "runtime_control",
+            "terminal_reason": "work_control",
+            "runtime_task_run_id": "taskrun:pause-projection",
+        },
+        session_id="session-envelope",
+        sequence=17,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope["source_authority"] == "system"
+    assert envelope["surface"] == "control"
+    assert any(item.get("title") == "已暂停当前工作" and item.get("phase") == "work_control" for item in envelope["items"])
+    assert "已收到补充要求" not in str(envelope["items"])
+
+
+def test_runtime_monitor_projection_drops_control_agent_turn_terminal_event() -> None:
+    projected = project_runtime_monitor_event_public_delta(
+        {
+            "event_id": "rtevt:control-terminal",
+            "run_id": "turnrun:turn:session-envelope:8",
+            "event_type": "agent_turn_terminal",
+            "offset": 18,
+            "created_at": 1.0,
+            "payload": {
+                "status": "completed",
+                "terminal_reason": "pause_active_work",
+                "completion_state": "task_steer_accepted",
+                "summary": "好，我先停在这里。",
+            },
+            "refs": {"turn_ref": "turn:session-envelope:8"},
+            "authority": "orchestration.runtime_event",
+        }
+    )
+
+    assert projected == {}
