@@ -65,6 +65,7 @@ from .task_run_execution_control import (
     attach_model_task,
     clear_executor_epoch,
     clear_model_task,
+    clear_executor_signal,
     executor_epoch_is_live,
     peek_executor_signal,
     register_executor_epoch,
@@ -1044,6 +1045,25 @@ async def _execute_claimed_task_run(
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"step_start:{step_index}")
         if control_result is not None:
             return control_result
+        control_followup = _record_pending_runtime_control_signal_for_agent(
+            runtime_host,
+            current_task=current_task,
+            signal=None,
+            packet_ref=f"runtime-control-boundary:{current_task.task_run_id}:step:{step_index}",
+            boundary=f"step_start:{step_index}",
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+        )
+        if control_followup is not None:
+            current_task = control_followup["current_task"]
+            raw_observations = list(control_followup["raw_observations"])
+            observations = list(control_followup["observations"])
+            execution_state = dict(control_followup["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         if _task_run_session_deleted(runtime_host, current_task):
             return _conflict(current_task.task_run_id, "session_deleted")
@@ -1148,16 +1168,34 @@ async def _execute_claimed_task_run(
             )
         except TaskRunExecutorInterrupted as exc:
             interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-            if exc.signal.kind == "pause":
-                return _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"model_action_wait:{step_index}")
-            if exc.signal.kind == "stop":
-                return _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"model_action_wait:{step_index}")
-            return _replan_executor_for_user_control(
+            control_followup = _record_pending_runtime_control_signal_for_agent(
+                runtime_host,
+                current_task=interrupted_task,
+                signal=exc.signal,
+                packet_ref=compilation.packet.packet_id,
+                boundary=f"model_action_wait:{step_index}",
+                raw_observations=raw_observations,
+                observations=observations,
+                execution_state=execution_state,
+                artifact_refs=artifact_refs,
+                runtime_fingerprint=runtime_fingerprint,
+                step_index=step_index,
+                event_offset=packet_event.offset,
+            )
+            if control_followup is not None:
+                current_task = control_followup["current_task"]
+                raw_observations = list(control_followup["raw_observations"])
+                observations = list(control_followup["observations"])
+                execution_state = dict(control_followup["execution_state"])
+                artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
+                continue
+            return _pause_executor_for_model_recovery(
                 runtime_host,
                 task_run=interrupted_task,
                 agent_run=agent_run,
-                boundary=f"model_action_wait:{step_index}",
-                signal=exc.signal,
+                packet_ref=compilation.packet.packet_id,
+                step_index=step_index,
+                error=exc,
             )
         except Exception as exc:
             return _pause_executor_for_model_recovery(
@@ -1302,6 +1340,27 @@ async def _execute_claimed_task_run(
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_model_action:{step_index}")
         if control_result is not None:
             return control_result
+        control_followup = _record_pending_runtime_control_signal_for_agent(
+            runtime_host,
+            current_task=current_task,
+            signal=None,
+            packet_ref=compilation.packet.packet_id,
+            boundary=f"after_model_action:{step_index}",
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+            event_offset=action_event.offset,
+        )
+        if control_followup is not None:
+            current_task = control_followup["current_task"]
+            raw_observations = list(control_followup["raw_observations"])
+            observations = list(control_followup["observations"])
+            execution_state = dict(control_followup["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
+            continue
 
         if action_request.action_type == "tool_call":
             batch_result = await _process_task_tool_call_batch(
@@ -1350,6 +1409,27 @@ async def _execute_claimed_task_run(
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_action_admission:{step_index}")
         if control_result is not None:
             return control_result
+        control_followup = _record_pending_runtime_control_signal_for_agent(
+            runtime_host,
+            current_task=current_task,
+            signal=None,
+            packet_ref=compilation.packet.packet_id,
+            boundary=f"after_action_admission:{step_index}",
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+            event_offset=action_event.offset,
+        )
+        if control_followup is not None:
+            current_task = control_followup["current_task"]
+            raw_observations = list(control_followup["raw_observations"])
+            observations = list(control_followup["observations"])
+            execution_state = dict(control_followup["execution_state"])
+            artifact_refs = dedupe_artifact_refs(list(control_followup["artifact_refs"]))
+            continue
         if admission.decision != "allow":
             previous_admission_denials = _matching_model_action_admission_denial_observations(
                 raw_observations,
@@ -1447,6 +1527,18 @@ async def _execute_claimed_task_run(
             continue
 
         if action_request.action_type == "respond":
+            control_closeout_observation = _latest_agent_closeout_runtime_control_observation(raw_observations)
+            if control_closeout_observation is not None:
+                return _finish_executor_agent_controlled_runtime_boundary(
+                    services,
+                    runtime_host,
+                    task_run=current_task,
+                    agent_run=agent_run,
+                    action_request=action_request,
+                    control_observation=control_closeout_observation,
+                    artifact_refs=dedupe_artifact_refs([*artifact_refs, *_artifacts_from_action(action_request)]),
+                    observations=raw_observations,
+                )
             current_pending_steer_ids = [
                 str(item.get("steer_id") or "")
                 for item in list_pending_task_steers(runtime_host, current_task.task_run_id)
@@ -1825,17 +1917,30 @@ async def _process_task_tool_call_batch(
             group_interrupt = group_execution.get("interrupt")
         except TaskRunExecutorInterrupted as exc:
             interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-            if exc.signal.kind == "pause":
-                return {"return_result": _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
-            if exc.signal.kind == "stop":
-                return {"return_result": _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
+            control_followup = _record_pending_runtime_control_signal_for_agent(
+                runtime_host,
+                current_task=interrupted_task,
+                signal=exc.signal,
+                packet_ref=packet_ref,
+                boundary=f"tool_batch_execution:{step_index}",
+                raw_observations=raw_observations,
+                observations=observations,
+                execution_state=execution_state,
+                artifact_refs=artifact_refs,
+                runtime_fingerprint=runtime_fingerprint,
+                step_index=step_index,
+                event_offset=group_event.offset,
+            )
+            if control_followup is not None:
+                return control_followup
             return {
-                "return_result": _replan_executor_for_user_control(
+                "return_result": _pause_executor_for_model_recovery(
                     runtime_host,
                     task_run=interrupted_task,
                     agent_run=agent_run,
-                    boundary=f"tool_batch_execution:{step_index}",
-                    signal=exc.signal,
+                    packet_ref=packet_ref,
+                    step_index=step_index,
+                    error=exc,
                 )
             }
         completed_refs: list[str] = []
@@ -1946,23 +2051,52 @@ async def _process_task_tool_call_batch(
         )
         if isinstance(group_interrupt, TaskRunExecutorInterrupted):
             interrupted_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
-            if group_interrupt.signal.kind == "pause":
-                return {"return_result": _pause_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
-            if group_interrupt.signal.kind == "stop":
-                return {"return_result": _stop_executor_for_user_control(runtime_host, task_run=interrupted_task, agent_run=agent_run, boundary=f"tool_batch_execution:{step_index}")}
+            control_followup = _record_pending_runtime_control_signal_for_agent(
+                runtime_host,
+                current_task=interrupted_task,
+                signal=group_interrupt.signal,
+                packet_ref=packet_ref,
+                boundary=f"tool_batch_execution:{step_index}",
+                raw_observations=raw_observations,
+                observations=observations,
+                execution_state=execution_state,
+                artifact_refs=artifact_refs,
+                runtime_fingerprint=runtime_fingerprint,
+                step_index=step_index,
+                event_offset=group_event.offset,
+            )
+            if control_followup is not None:
+                return control_followup
             return {
-                "return_result": _replan_executor_for_user_control(
+                "return_result": _pause_executor_for_model_recovery(
                     runtime_host,
                     task_run=interrupted_task,
                     agent_run=agent_run,
-                    boundary=f"tool_batch_execution:{step_index}",
-                    signal=group_interrupt.signal,
+                    packet_ref=packet_ref,
+                    step_index=step_index,
+                    error=group_interrupt,
                 )
             }
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_tool_batch_group:{step_index}")
         if control_result is not None:
             return {"return_result": control_result}
+        control_followup = _record_pending_runtime_control_signal_for_agent(
+            runtime_host,
+            current_task=current_task,
+            signal=None,
+            packet_ref=packet_ref,
+            boundary=f"after_tool_batch_group:{step_index}",
+            raw_observations=raw_observations,
+            observations=observations,
+            execution_state=execution_state,
+            artifact_refs=artifact_refs,
+            runtime_fingerprint=runtime_fingerprint,
+            step_index=step_index,
+            event_offset=group_event.offset,
+        )
+        if control_followup is not None:
+            return control_followup
         observation_context = _observations_for_packet(
             runtime_host,
             current_task.task_run_id,
@@ -2239,6 +2373,341 @@ def _record_repeated_tool_failure_if_needed(
             )
         }
     return {}
+
+
+def _record_pending_runtime_control_signal_for_agent(
+    runtime_host: Any,
+    *,
+    current_task: Any,
+    signal: ExecutorControlSignal | None,
+    packet_ref: str,
+    boundary: str,
+    raw_observations: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    execution_state: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    runtime_fingerprint: dict[str, Any],
+    step_index: int,
+    event_offset: int | float = 0,
+) -> dict[str, Any] | None:
+    latest_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
+    diagnostics = dict(getattr(latest_task, "diagnostics", {}) or {})
+    executor_epoch = int(
+        getattr(signal, "executor_epoch", 0)
+        or diagnostics.get("executor_epoch")
+        or 0
+    )
+    if signal is None:
+        signal = peek_executor_signal(
+            runtime_host,
+            task_run_id=latest_task.task_run_id,
+            executor_epoch=executor_epoch,
+        )
+    if signal is None:
+        signal = _executor_control_signal_from_task_run(
+            latest_task,
+            executor_epoch=executor_epoch,
+            default_reason=boundary or "runtime_control_signal",
+        )
+    if signal is None:
+        return None
+    fingerprint = _runtime_control_signal_fingerprint(latest_task, signal=signal)
+    if _runtime_control_signal_already_delivered(latest_task, signal=signal, fingerprint=fingerprint):
+        clear_executor_signal(
+            runtime_host,
+            task_run_id=latest_task.task_run_id,
+            executor_epoch=executor_epoch,
+            signal=signal,
+        )
+        return None
+    existing_observation = _matching_runtime_control_signal_observation(
+        raw_observations,
+        fingerprint=fingerprint,
+    )
+    if existing_observation is not None:
+        updated_task = _mark_runtime_control_signal_delivered(
+            runtime_host,
+            latest_task,
+            signal=signal,
+            observation=existing_observation,
+            fingerprint=fingerprint,
+            boundary=boundary,
+        )
+        clear_executor_signal(
+            runtime_host,
+            task_run_id=latest_task.task_run_id,
+            executor_epoch=executor_epoch,
+            signal=signal,
+        )
+        observation_context = _observations_for_packet(
+            runtime_host,
+            updated_task.task_run_id,
+            current_fingerprint=runtime_fingerprint,
+            pending_observations=raw_observations,
+        )
+        return {
+            "current_task": updated_task,
+            "raw_observations": list(observation_context["raw_observations"]),
+            "observations": list(observation_context["packet_observations"]),
+            "execution_state": dict(observation_context["execution_state"]),
+            "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
+            "recorded": False,
+        }
+    observation = _runtime_control_signal_observation(
+        task_run=latest_task,
+        signal=signal,
+        packet_ref=packet_ref,
+        boundary=boundary,
+        step_index=step_index,
+        fingerprint=fingerprint,
+    )
+    raw_observations.append(observation)
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    event = runtime_host.event_log.append(
+        latest_task.task_run_id,
+        "task_runtime_control_signal_observed",
+        payload={"observation": observation, "control": _runtime_control_payload(latest_task)},
+        refs={
+            "task_run_ref": latest_task.task_run_id,
+            "observation_ref": observation["observation_id"],
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    updated_task = _mark_runtime_control_signal_delivered(
+        runtime_host,
+        latest_task,
+        signal=signal,
+        observation=observation,
+        fingerprint=fingerprint,
+        boundary=boundary,
+        event_offset=event.offset,
+    )
+    clear_executor_signal(
+        runtime_host,
+        task_run_id=latest_task.task_run_id,
+        executor_epoch=executor_epoch,
+        signal=signal,
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=latest_task.task_run_id,
+        step=f"runtime_control_signal_observed:{step_index}",
+        status="running",
+        summary="已收到运行控制信号，并作为观察交给 agent 选择下一步。",
+        refs={"observation_ref": observation["observation_id"]},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=updated_task,
+        item_type="progress",
+        title="控制信号",
+        status="running",
+        summary="已收到运行控制信号，并作为观察交给 agent 选择下一步。",
+        event_offset=event_offset or event.offset,
+        refs={"task_run_ref": latest_task.task_run_id, "observation_ref": observation["observation_id"]},
+        payload={"model_visible": True, "runtime_control_signal": dict(observation.get("payload") or {})},
+    )
+    observation_context = _observations_for_packet(
+        runtime_host,
+        updated_task.task_run_id,
+        current_fingerprint=runtime_fingerprint,
+        pending_observations=raw_observations,
+    )
+    return {
+        "current_task": updated_task,
+        "raw_observations": list(observation_context["raw_observations"]),
+        "observations": list(observation_context["packet_observations"]),
+        "execution_state": dict(observation_context["execution_state"]),
+        "artifact_refs": dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs]),
+        "recorded": True,
+    }
+
+
+def _runtime_control_signal_observation(
+    *,
+    task_run: Any,
+    signal: ExecutorControlSignal,
+    packet_ref: str,
+    boundary: str,
+    step_index: int,
+    fingerprint: str,
+) -> dict[str, Any]:
+    control = _runtime_control_payload(task_run)
+    state = str(control.get("state") or task_run_control_state(task_run) or "").strip()
+    kind = str(signal.kind or "").strip()
+    if kind == "stop":
+        instruction = (
+            "系统收到停止请求。这不是最终回复。你需要停止发起新的工具调用，基于已经观察到的事实选择 respond 或 block 收口；"
+            "respond 时写清已完成事项、未完成事项、验证状态和停止原因。"
+        )
+        closeout_required = True
+    elif kind == "pause":
+        instruction = (
+            "系统收到暂停请求。这不是最终回复。你需要停止发起新的工具调用，基于当前事实选择 respond 或 block 说明暂停断点、"
+            "已完成事项、未完成事项和可恢复条件。"
+        )
+        closeout_required = True
+    elif kind == "replan":
+        instruction = (
+            "系统收到重规划信号。这不是最终回复。你需要先吸收新的用户补充要求，判断是否修订合同、改计划、询问用户、阻塞，"
+            "或在已有事实足够时收口；不要继续执行旧计划里的下一步。"
+        )
+        closeout_required = False
+    else:
+        instruction = (
+            "系统收到运行控制信号。这不是最终回复。你需要先裁决它对当前任务目标、工具使用和收口方式的影响，再选择下一步动作。"
+        )
+        closeout_required = False
+    payload = {
+        "signal_kind": kind,
+        "runtime_control_state": state,
+        "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
+        "requested_at": float(control.get("requested_at") or signal.requested_at or time.time()),
+        "reason": str(control.get("reason") or signal.reason or ""),
+        "steer_ref": str(signal.steer_ref or ""),
+        "boundary": str(boundary or ""),
+        "runtime_control_signal_fingerprint": fingerprint,
+        "agent_closeout_required": bool(closeout_required),
+        "allowed_agent_actions": ["respond", "ask_user", "block", "tool_call"],
+        "tool_calls_allowed_after_signal": bool(kind == "replan"),
+        "repair_instruction": instruction,
+        "structured_signal": {
+            "code": f"runtime_control_{kind or 'signal'}",
+            "message": instruction,
+            "origin": "runtime_control_boundary",
+            "retryable": True,
+        },
+    }
+    ref_raw = json.dumps(
+        {
+            "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
+            "step_index": int(step_index or 0),
+            "fingerprint": fingerprint,
+            "boundary": str(boundary or ""),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    ref_digest = hashlib.sha256(ref_raw.encode("utf-8")).hexdigest()[:12]
+    return {
+        "observation_id": f"rtobs:{task_run.task_run_id}:runtime-control:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run.task_run_id,
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_signal",
+        "request_ref": f"runtime-control-signal:{task_run.task_run_id}:invocation:{step_index}:{ref_digest}",
+        "directive_ref": packet_ref,
+        "content_chars": len(instruction),
+        "summary": instruction,
+        "payload": payload,
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+    }
+
+
+def _runtime_control_signal_fingerprint(task_run: Any, *, signal: ExecutorControlSignal) -> str:
+    control = _runtime_control_payload(task_run)
+    return "sha256:" + _stable_hash(
+        {
+            "task_run_id": str(getattr(task_run, "task_run_id", "") or signal.task_run_id or ""),
+            "executor_epoch": int(signal.executor_epoch or 0),
+            "kind": str(signal.kind or ""),
+            "state": str(control.get("state") or task_run_control_state(task_run) or ""),
+            "requested_by": str(control.get("requested_by") or signal.requested_by or ""),
+            "requested_at": float(control.get("requested_at") or signal.requested_at or 0.0),
+            "reason": str(control.get("reason") or signal.reason or ""),
+            "steer_ref": str(signal.steer_ref or ""),
+        }
+    )
+
+
+def _runtime_control_signal_already_delivered(
+    task_run: Any,
+    *,
+    signal: ExecutorControlSignal,
+    fingerprint: str,
+) -> bool:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get(_TASK_RUN_CONTROL_KEY)
+    if not isinstance(control, dict):
+        return False
+    return (
+        str(control.get("agent_signal_fingerprint") or "") == fingerprint
+        and str(control.get("agent_signal_kind") or "") == str(signal.kind or "")
+        and bool(str(control.get("agent_signal_observation_ref") or "").strip())
+    )
+
+
+def _matching_runtime_control_signal_observation(
+    observations: list[dict[str, Any]],
+    *,
+    fingerprint: str,
+) -> dict[str, Any] | None:
+    for observation in list(observations or []):
+        if str(observation.get("source") or "") != "system:runtime_control_signal":
+            continue
+        payload = dict(observation.get("payload") or {})
+        if str(payload.get("runtime_control_signal_fingerprint") or "") == fingerprint:
+            return dict(observation)
+    return None
+
+
+def _latest_agent_closeout_runtime_control_observation(observations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for observation in reversed(list(observations or [])):
+        if str(observation.get("source") or "") != "system:runtime_control_signal":
+            continue
+        payload = dict(observation.get("payload") or {})
+        if bool(payload.get("agent_closeout_required") is True):
+            return dict(observation)
+    return None
+
+
+def _mark_runtime_control_signal_delivered(
+    runtime_host: Any,
+    task_run: Any,
+    *,
+    signal: ExecutorControlSignal,
+    observation: dict[str, Any],
+    fingerprint: str,
+    boundary: str,
+    event_offset: int | float = 0,
+) -> Any:
+    now = float(observation.get("created_at") or time.time())
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
+    if control or task_run_control_state(task_run):
+        control = {
+            **control,
+            "state": str(control.get("state") or task_run_control_state(task_run) or ""),
+            "requested_by": str(control.get("requested_by") or signal.requested_by or "system"),
+            "requested_at": float(control.get("requested_at") or signal.requested_at or now),
+            "reason": str(control.get("reason") or signal.reason or ""),
+            "authority": "orchestration.task_run_control",
+            "agent_signal_kind": str(signal.kind or ""),
+            "agent_signal_fingerprint": fingerprint,
+            "agent_signal_observation_ref": str(observation.get("observation_id") or ""),
+            "agent_signal_requested_at": float(control.get("requested_at") or signal.requested_at or now),
+            "agent_signal_delivered_at": now,
+            "agent_signal_boundary": str(boundary or ""),
+        }
+        diagnostics[_TASK_RUN_CONTROL_KEY] = control
+    diagnostics.update(
+        {
+            "latest_step": "runtime_control_signal_observed",
+            "latest_step_status": "running",
+            "latest_step_summary": "已收到运行控制信号，并作为观察交给 agent 选择下一步。",
+            "latest_observation_ref": str(observation.get("observation_id") or ""),
+        }
+    )
+    updated = replace(
+        task_run,
+        updated_at=now,
+        latest_event_offset=int(event_offset or getattr(task_run, "latest_event_offset", 0) or 0),
+        diagnostics=diagnostics,
+    )
+    runtime_host.state_index.upsert_task_run(updated)
+    return updated
 
 
 def _tool_failure_fingerprint(observation: dict[str, Any]) -> str:
@@ -3890,11 +4359,194 @@ def _finish_executor_success(
     }
 
 
+def _finish_executor_agent_controlled_runtime_boundary(
+    services: TaskExecutorServices,
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    agent_run: Any,
+    action_request: AnyModelActionRequest,
+    control_observation: dict[str, Any],
+    artifact_refs: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload = dict(control_observation.get("payload") or {})
+    signal_kind = str(payload.get("signal_kind") or "").strip()
+    final_answer = str(getattr(action_request, "final_answer", "") or "").strip()
+    now = time.time()
+    if signal_kind == "stop":
+        lifecycle_status = "aborted"
+        terminal_reason = "user_aborted"
+        agent_status = "killed"
+        result_status = "killed"
+        control_state = _TASK_RUN_STOPPED
+        executor_status = "stopped"
+        recovery_action = ""
+        rollout_title = "已停止"
+        rollout_item_type = "interrupted_boundary"
+        latest_step = "task_run_agent_controlled_stop"
+        latest_summary = "agent 已根据停止信号完成收口。"
+    elif signal_kind == "pause":
+        lifecycle_status = "waiting_executor"
+        terminal_reason = "waiting_executor"
+        agent_status = "failed"
+        result_status = "failed"
+        control_state = _TASK_RUN_PAUSED
+        executor_status = "waiting_executor"
+        recovery_action = "resume_task_run"
+        rollout_title = "已暂停"
+        rollout_item_type = "pause_boundary"
+        latest_step = "task_run_agent_controlled_pause"
+        latest_summary = "agent 已根据暂停信号完成断点收口。"
+    else:
+        lifecycle_status = "waiting_executor"
+        terminal_reason = f"runtime_control_{signal_kind or 'signal'}"
+        agent_status = "failed"
+        result_status = "failed"
+        control_state = str(payload.get("runtime_control_state") or task_run_control_state(task_run) or "")
+        executor_status = "waiting_executor"
+        recovery_action = "rerun_task_executor"
+        rollout_title = "等待调整"
+        rollout_item_type = "interrupted_boundary"
+        latest_step = "task_run_agent_controlled_runtime_boundary"
+        latest_summary = "agent 已根据运行控制信号完成当前边界收口。"
+
+    control = _runtime_control_payload(task_run)
+    diagnostics = _diagnostics_with_runtime_control(
+        _strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+        state=control_state,
+        requested_by=str(control.get("requested_by") or payload.get("requested_by") or "system"),
+        requested_at=float(control.get("requested_at") or payload.get("requested_at") or now),
+        reason=str(control.get("reason") or payload.get("reason") or ""),
+        latest_step=latest_step,
+        latest_step_status=lifecycle_status,
+        latest_step_summary=latest_summary,
+    )
+    diagnostics.update(
+        {
+            "executor_status": executor_status,
+            "artifact_refs": artifact_refs,
+            "final_answer": final_answer,
+            "final_action_diagnostics": dict(getattr(action_request, "diagnostics", {}) or {}),
+            "agent_controlled_runtime_boundary": {
+                "signal_kind": signal_kind,
+                "observation_ref": str(control_observation.get("observation_id") or ""),
+                "terminal_reason": terminal_reason,
+                "authority": "harness.loop.task_executor",
+            },
+        }
+    )
+    if recovery_action:
+        diagnostics["recovery_action"] = recovery_action
+    else:
+        diagnostics.pop("recoverable_error", None)
+        diagnostics.pop("recovery_action", None)
+    result_ref = runtime_host.runtime_objects.put_object(
+        "agent_run_result",
+        f"{agent_run.agent_run_id}:result",
+        {
+            "final_answer": final_answer,
+            "artifact_refs": artifact_refs,
+            "observation_refs": [str(item.get("observation_id") or "") for item in observations if item.get("observation_id")],
+            "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"]),
+        },
+    )
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            status=agent_status,
+            updated_at=now,
+            result_ref=result_ref,
+            diagnostics={
+                **dict(agent_run.diagnostics or {}),
+                "terminal_reason": terminal_reason,
+                "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"]),
+            },
+        )
+    )
+    runtime_host.state_index.upsert_agent_run_result(
+        AgentRunResult(
+            agent_run_result_id=f"agresult:{agent_run.agent_run_id}",
+            agent_run_id=agent_run.agent_run_id,
+            task_run_id=task_run.task_run_id,
+            agent_id=agent_run.agent_id,
+            status=result_status,  # type: ignore[arg-type]
+            output_ref=result_ref,
+            summary=compact_text(final_answer, limit=500),
+            artifact_refs=tuple(str(item.get("path") or item.get("src") or item) for item in artifact_refs),
+            created_at=now,
+            diagnostics={"artifact_refs": artifact_refs, "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"])},
+        )
+    )
+    lifecycle = _load_lifecycle(runtime_host, task_run)
+    finished_task, finished_lifecycle, event = finish_task_lifecycle(
+        runtime_host,
+        task_run=replace(task_run, diagnostics=diagnostics),
+        lifecycle=lifecycle,
+        status=lifecycle_status,  # type: ignore[arg-type]
+        terminal_reason=terminal_reason,
+        observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run.task_run_id,
+        step=latest_step,
+        status=lifecycle_status,
+        summary=latest_summary,
+        agent_brief_output=final_answer,
+        refs={"observation_ref": str(control_observation.get("observation_id") or "")},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=finished_task,
+        item_type=rollout_item_type,
+        title=rollout_title,
+        status=lifecycle_status,
+        summary=latest_summary,
+        agent_brief_output=final_answer,
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": finished_task.task_run_id, "observation_ref": str(control_observation.get("observation_id") or "")},
+        payload={
+            "terminal_reason": terminal_reason,
+            "final_answer": final_answer,
+            "agent_controlled_runtime_boundary": dict(diagnostics["agent_controlled_runtime_boundary"]),
+        },
+    )
+    if str(getattr(finished_task, "execution_runtime_kind", "") or "") != "subagent_task":
+        _commit_task_run_final_message(
+            services,
+            task_run=finished_task,
+            final_answer=final_answer,
+            completion_state=lifecycle_status,
+            terminal_reason=terminal_reason,
+            answer_source="harness.loop.task_executor.agent_controlled_runtime_boundary",
+            execution_posture="task_run_agent_controlled_runtime_boundary",
+        )
+    if lifecycle_status == "waiting_executor":
+        _bind_active_turn_for_task_state(runtime_host, finished_task, state="waiting_executor")
+    else:
+        _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
+    return {
+        "ok": False,
+        "task_run": finished_task.to_dict(),
+        "lifecycle": finished_lifecycle.to_dict(),
+        "event": event,
+        "final_answer": final_answer,
+        "artifact_refs": artifact_refs,
+        "error": terminal_reason,
+        "retryable": lifecycle_status == "waiting_executor",
+    }
+
+
 def _commit_task_run_final_message(
     services: TaskExecutorServices,
     *,
     task_run: Any,
     final_answer: str,
+    completion_state: str = "completed",
+    terminal_reason: str = "completed",
+    answer_source: str = "harness.loop.task_executor.completed",
+    execution_posture: str = "task_run_completed",
 ) -> None:
     committer = getattr(services, "assistant_message_committer", None)
     if not callable(committer):
@@ -3902,10 +4554,11 @@ def _commit_task_run_final_message(
     canonical = canonical_output_decision_for_final_text(
         final_answer,
         answer_channel="final_answer",
-        answer_source="harness.loop.task_executor.completed",
-        execution_posture="task_run_completed",
+        answer_source=answer_source,
+        execution_posture=execution_posture,
         has_tool_receipt=True,
-        terminal_reason="completed",
+        terminal_reason=terminal_reason,
+        completion_state=completion_state,
     )
     decision = build_assistant_session_message_commit_decision(
         session_id=str(getattr(task_run, "session_id", "") or ""),
@@ -3921,8 +4574,8 @@ def _commit_task_run_final_message(
         answer_selected_channel=canonical.selected_channel,
         answer_selected_source=canonical.selected_source,
         answer_leak_flags=canonical.leak_flags,
-        completion_state="completed",
-        terminal_reason="completed",
+        completion_state=completion_state,
+        terminal_reason=terminal_reason,
         source="harness.loop.task_executor",
     )
     runtime_host = services.runtime_host
@@ -4222,14 +4875,9 @@ def _apply_runtime_control_boundary(runtime_host: Any, *, task_run: Any, agent_r
     current = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
     recovery_state = recovery_state_for_task_run(current)
     if recovery_state.stopped:
+        if task_run_control_state(current) == _TASK_RUN_STOP_REQUESTED:
+            return None
         return _stop_executor_for_terminal_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
-    state = task_run_control_state(current)
-    if state == _TASK_RUN_PAUSE_REQUESTED:
-        return _pause_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
-    if state == _TASK_RUN_STOP_REQUESTED:
-        return _stop_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary)
-    if state == _TASK_RUN_REPLAN_REQUESTED:
-        return _replan_executor_for_user_control(runtime_host, task_run=current, agent_run=agent_run, boundary=boundary, signal=None)
     return None
 
 
@@ -4250,7 +4898,7 @@ def _executor_control_signal_from_task_run(
     else:
         return None
     control = _runtime_control_payload(task_run)
-    return ExecutorControlSignal(
+    signal = ExecutorControlSignal(
         kind=kind,  # type: ignore[arg-type]
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
         executor_epoch=int(executor_epoch or 0),
@@ -4258,6 +4906,13 @@ def _executor_control_signal_from_task_run(
         requested_by=str(control.get("requested_by") or "system"),
         requested_at=float(control.get("requested_at") or time.time()),
     )
+    if _runtime_control_signal_already_delivered(
+        task_run,
+        signal=signal,
+        fingerprint=_runtime_control_signal_fingerprint(task_run, signal=signal),
+    ):
+        return None
+    return signal
 
 
 def _executor_control_signal_from_boundary_result(
@@ -4938,6 +5593,13 @@ def _observations_for_packet(
         for observation in deduped
     ]
     projection = _build_execution_state_projection(records)
+    runtime_control_signals = _runtime_control_signal_projection_from_observations(deduped)
+    if runtime_control_signals:
+        projection = {
+            **projection,
+            "runtime_control_signals": runtime_control_signals,
+            "latest_runtime_control_signal": runtime_control_signals[-1],
+        }
     file_state = _file_state_projection_from_store(runtime_host, task_run_id)
     if file_state:
         projection = {
@@ -4981,6 +5643,37 @@ def _observations_for_packet(
             ]
         ),
     }
+
+
+def _runtime_control_signal_projection_from_observations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for observation in list(observations or []):
+        if str(observation.get("source") or "") != "system:runtime_control_signal":
+            continue
+        payload = dict(observation.get("payload") or {})
+        fingerprint = str(payload.get("runtime_control_signal_fingerprint") or observation.get("observation_id") or "")
+        if fingerprint and fingerprint in seen:
+            continue
+        if fingerprint:
+            seen.add(fingerprint)
+        signals.append(
+            {
+                "observation_ref": str(observation.get("observation_id") or ""),
+                "signal_kind": str(payload.get("signal_kind") or ""),
+                "runtime_control_state": str(payload.get("runtime_control_state") or ""),
+                "requested_by": str(payload.get("requested_by") or ""),
+                "requested_at": float(payload.get("requested_at") or 0.0),
+                "reason": str(payload.get("reason") or ""),
+                "steer_ref": str(payload.get("steer_ref") or ""),
+                "boundary": str(payload.get("boundary") or ""),
+                "agent_closeout_required": bool(payload.get("agent_closeout_required") is True),
+                "tool_calls_allowed_after_signal": bool(payload.get("tool_calls_allowed_after_signal") is True),
+                "repair_instruction": compact_text(payload.get("repair_instruction") or observation.get("summary") or "", limit=1200),
+                "authority": "harness.loop.runtime_control_signal_projection",
+            }
+        )
+    return signals
 
 
 def _steer_for_projection(steer: dict[str, Any]) -> dict[str, Any]:

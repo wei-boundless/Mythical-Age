@@ -31,6 +31,75 @@ def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields()
     assert messages[0]["answer_channel"] == "final_answer"
 
 
+def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
+    from harness.loop.task_executor import stop_task_run
+
+    class InterruptibleStopModelRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.seen_messages: list[list[object]] = []
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.calls += 1
+            self.seen_messages.append(list(messages or []))
+            if self.calls == 1:
+                await asyncio.sleep(60)
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="agent-authored stop closeout",
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = InterruptibleStopModelRuntime()
+    runtime = build_harness_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:stop-signal", session_id="session-stop-signal")
+
+    async def _run() -> tuple[dict[str, object], dict[str, object]]:
+        execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
+        for _ in range(100):
+            task = host.state_index.get_task_run(task_run_id)
+            diagnostics = dict(getattr(task, "diagnostics", {}) or {}) if task is not None else {}
+            if diagnostics.get("executor_status") == "running":
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("executor did not enter running state")
+        stop_result = stop_task_run(host, task_run_id, reason="user_stop_test", requested_by="user")
+        result = await asyncio.wait_for(execution, timeout=3)
+        return stop_result, result
+
+    stop_result, result = asyncio.run(_run())
+    task = host.state_index.get_task_run(task_run_id)
+    trace = host.get_trace(task_run_id, include_payloads=True)
+    events = [dict(item) for item in list(dict(trace or {}).get("events") or [])]
+    event_types = [str(event.get("event_type") or "") for event in events]
+    control_observations = [
+        dict(dict(event.get("payload") or {}).get("observation") or {})
+        for event in events
+        if event.get("event_type") == "task_runtime_control_signal_observed"
+    ]
+    second_model_payload = json.dumps(model.seen_messages[1:], ensure_ascii=False, default=str)
+
+    assert stop_result["accepted"] is True
+    assert result["error"] == "user_aborted"
+    assert result["final_answer"] == "agent-authored stop closeout"
+    assert task is not None
+    assert task.status == "aborted"
+    assert task.terminal_reason == "user_aborted"
+    assert event_types.count("task_runtime_control_signal_observed") == 1
+    assert "task_run_stopped" not in event_types
+    assert control_observations
+    assert control_observations[0]["source"] == "system:runtime_control_signal"
+    assert dict(control_observations[0]["payload"])["signal_kind"] == "stop"
+    assert "runtime_control_signal" in second_model_payload
+    assert "signal_kind" in second_model_payload
+
+
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(

@@ -222,10 +222,11 @@
   const BALL_RADIUS = 18;
   let ballX = W / 2;
   let ballY = H - 100;
+  let mouseY = H / 2;
   let ballVX = 0;
   let ballVY = 0;
   let ballFlying = false;
-  const GRAVITY = 0.45;
+  const GRAVITY = 0.35;
 
   // --- Hoop ---
   const HOOP_X = W / 2;
@@ -237,8 +238,8 @@
   let mouseDown = false;
   let chargeStart = 0;
   let chargePower = 0;
-  const MAX_POWER = 16;
-  const CHARGE_SPEED = 28; // units per second
+  const MAX_POWER = 35;
+  const CHARGE_SPEED = 50; // units per second
 
   // --- Particles ---
   let particles = [];

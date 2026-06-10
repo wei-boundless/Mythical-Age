@@ -5072,9 +5072,18 @@ export async function getGraphTaskInstanceMonitor(instanceId: string, eventLimit
   );
 }
 
-export async function getWritingGraphInstanceDesk(instanceId: string, eventLimit = 80) {
+export async function getWritingGraphInstanceDesk(
+  instanceId: string,
+  eventLimit = 80,
+  options: {
+    includeRuntime?: boolean;
+    includeFileTree?: boolean;
+  } = {}
+) {
   const params = new URLSearchParams();
   params.set("event_limit", String(Math.max(1, Math.min(Number(eventLimit || 80), 240))));
+  if (options.includeRuntime !== undefined) params.set("include_runtime", String(options.includeRuntime));
+  if (options.includeFileTree !== undefined) params.set("include_file_tree", String(options.includeFileTree));
   return request<WritingGraphInstanceDesk>(
     `/orchestration/writing-graph-instances/${encodeURIComponent(instanceId)}/desk?${params.toString()}`
   );

@@ -53,15 +53,17 @@ class WritingGraphDeskProjectionService:
         node_sessions: list[dict[str, Any]],
         human_controls: dict[str, Any],
         graph_monitor: dict[str, Any] | None,
+        flat_files: list[dict[str, Any]] | None = None,
+        include_file_tree: bool = True,
     ) -> dict[str, Any]:
-        flat_files = _flatten_file_tree(dict(file_tree.get("tree") or {}))
-        chapter_index = self._chapter_index(instance.graph_task_instance_id, flat_files)
+        projected_files = flat_files if flat_files is not None else _flatten_file_tree(dict(file_tree.get("tree") or {}))
+        chapter_index = self._chapter_index(instance.graph_task_instance_id, projected_files)
         selected_chapter = self._select_current_chapter(
             chapter_index=chapter_index,
             human_controls=human_controls,
         )
         reader = self._reader(instance.graph_task_instance_id, selected_chapter)
-        writing_assets = self._writing_assets(instance.graph_task_instance_id, flat_files)
+        writing_assets = self._writing_assets(instance.graph_task_instance_id, projected_files)
         chapter_actions = _chapter_actions(human_controls)
         summary = _summary(
             chapter_index=chapter_index,
@@ -70,7 +72,7 @@ class WritingGraphDeskProjectionService:
             node_sessions=node_sessions,
             graph_monitor=graph_monitor,
         )
-        return {
+        payload = {
             "authority": self.authority,
             "graph_task_instance_id": instance.graph_task_instance_id,
             "instance": instance.to_dict(),
@@ -82,13 +84,15 @@ class WritingGraphDeskProjectionService:
             "node_sessions": node_sessions,
             "artifacts": artifacts,
             "human_controls": human_controls,
-            "file_tree": file_tree,
             "graph_debug_ref": {
                 "active_graph_run_id": instance.active_graph_run_id,
                 "graph_monitor_available": graph_monitor is not None,
             },
             "summary": summary,
         }
+        if include_file_tree:
+            payload["file_tree"] = file_tree
+        return payload
 
     def _chapter_index(self, instance_id: str, flat_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         chapters = []

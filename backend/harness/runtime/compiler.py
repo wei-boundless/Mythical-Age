@@ -1015,7 +1015,20 @@ class RuntimeCompiler:
         memory_context_payload = _memory_context_model_visible_payload(memory_context)
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
-        volatile_payload = dynamic_context.volatile_state_projection
+        volatile_payload = dict(dynamic_context.volatile_state_projection or {})
+        execution_projection = dict(dict(execution_state or {}).get("system_projection") or {})
+        runtime_control_signals = [
+            dict(item)
+            for item in list(execution_projection.get("runtime_control_signals") or [])
+            if isinstance(item, dict)
+        ]
+        if runtime_control_signals:
+            volatile_payload["runtime_control_signals"] = runtime_control_signals
+            volatile_payload["latest_runtime_control_signal"] = dict(
+                execution_projection.get("latest_runtime_control_signal")
+                if isinstance(execution_projection.get("latest_runtime_control_signal"), dict)
+                else runtime_control_signals[-1]
+            )
         bound_task_context = build_bound_task_context(
             contract=contract,
             planning_protocol=planning_protocol,
@@ -1309,6 +1322,7 @@ class RuntimeCompiler:
             "user_steering_updates",
             "pending_user_steers",
             "active_contract_revisions",
+            "runtime_control_signals",
             "editor_context",
         )
         prompt_manifest = build_runtime_prompt_manifest(

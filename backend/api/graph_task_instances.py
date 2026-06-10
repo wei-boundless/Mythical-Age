@@ -273,11 +273,19 @@ async def get_graph_task_instance_monitor(
 async def get_writing_graph_instance_desk(
     instance_id: str,
     event_limit: int = Query(default=80, ge=1, le=240),
+    include_runtime: bool = Query(default=True),
+    include_file_tree: bool = Query(default=True),
 ) -> dict[str, Any]:
     runtime = require_runtime()
     instance = _require_instance(runtime, instance_id)
     event_limit_value = _query_int(event_limit, default=80)
-    desk = _writing_desk_payload(runtime, instance, event_limit=event_limit_value)
+    desk = _writing_desk_payload(
+        runtime,
+        instance,
+        event_limit=event_limit_value,
+        include_runtime=include_runtime,
+        include_file_tree=include_file_tree,
+    )
     projection_authority = str(desk.get("authority") or "")
     return {
         **desk,
@@ -571,10 +579,38 @@ def _instance_monitor_payload(runtime: Any, instance: Any, *, event_limit: int =
     }
 
 
-def _writing_desk_payload(runtime: Any, instance: Any, *, event_limit: int = 80) -> dict[str, Any]:
-    monitor_payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit)
+def _writing_desk_payload(
+    runtime: Any,
+    instance: Any,
+    *,
+    event_limit: int = 80,
+    include_runtime: bool = True,
+    include_file_tree: bool = True,
+) -> dict[str, Any]:
     file_service = GraphTaskInstanceFileService(runtime.base_dir)
-    file_tree = file_service.tree(instance.graph_task_instance_id, max_depth=8, max_entries=2000)
+    if include_runtime:
+        monitor_payload = _instance_monitor_payload(runtime, instance, event_limit=event_limit)
+    else:
+        monitor_payload = {
+            "graph_monitor": None,
+            "node_sessions": [],
+            "artifacts": file_service.artifacts(instance.graph_task_instance_id),
+            "human_controls": _empty_human_controls(),
+        }
+    flat_files = None
+    if include_file_tree:
+        file_tree = file_service.tree(instance.graph_task_instance_id, max_depth=8, max_entries=2000)
+    else:
+        flat_files = _artifact_flat_files(monitor_payload["artifacts"])
+        file_tree = {
+            "authority": "task_system.graph_task_instance_file_tree",
+            "graph_task_instance_id": instance.graph_task_instance_id,
+            "repository_id": "instance",
+            "path": "",
+            "total_entries": len(flat_files),
+            "truncated": False,
+            "tree": {},
+        }
     return WritingGraphDeskProjectionService(runtime.base_dir).build(
         instance=instance,
         file_tree=file_tree,
@@ -582,7 +618,37 @@ def _writing_desk_payload(runtime: Any, instance: Any, *, event_limit: int = 80)
         node_sessions=monitor_payload["node_sessions"],
         human_controls=monitor_payload["human_controls"],
         graph_monitor=monitor_payload["graph_monitor"],
+        flat_files=flat_files,
+        include_file_tree=include_file_tree,
     )
+
+
+def _artifact_flat_files(artifacts: dict[str, Any]) -> list[dict[str, Any]]:
+    files = []
+    for artifact in list(artifacts.get("artifacts") or []):
+        if not isinstance(artifact, dict):
+            continue
+        path = str(artifact.get("path") or "").replace("\\", "/").strip().strip("/")
+        if not path:
+            continue
+        files.append(
+            {
+                "kind": "file",
+                "path": path,
+                "name": str(artifact.get("name") or path.rsplit("/", 1)[-1]),
+            }
+        )
+    return files
+
+
+def _empty_human_controls() -> dict[str, Any]:
+    return {
+        "authority": "harness.graph.human_controls",
+        "pending": [],
+        "available": [],
+        "history": [],
+        "summary": {"pending_count": 0, "available_count": 0, "decision_count": 0},
+    }
 
 
 def _resolve_writing_chapter_action(

@@ -21,7 +21,6 @@ import {
 import {
   createGraphTaskInstance,
   getGraphTaskInstanceFileTree,
-  getGraphTaskInstanceMonitor,
   getWritingGraphInstanceDesk,
   listGraphTaskInstances,
   listGraphTasks,
@@ -264,30 +263,37 @@ function graphTaskPoolKey(instanceId: string) {
   return `graph_task:${instanceId}` as const;
 }
 
-function monitorCounts(monitor: GraphTaskInstanceMonitor | null) {
+function monitorCounts(monitor: GraphTaskInstanceMonitor | null, writingDesk: WritingGraphInstanceDesk | null) {
   const summary = recordOf(monitor?.summary);
+  const deskSummary = recordOf(writingDesk?.summary);
+  const monitorSessions = monitor?.node_sessions.length ?? 0;
+  const deskSessions = writingDesk?.node_sessions.length ?? 0;
+  const monitorArtifacts = monitor?.artifacts.artifacts.length ?? 0;
+  const deskArtifacts = writingDesk?.artifacts.artifacts.length ?? 0;
   return {
     ready: numberValue(summary.ready_count),
     running: numberValue(summary.running_count),
     completed: numberValue(summary.completed_count),
     failed: numberValue(summary.failed_count),
     blocked: numberValue(summary.blocked_count),
-    sessions: numberValue(summary.node_session_count, monitor?.node_sessions.length ?? 0),
-    artifacts: numberValue(summary.artifact_count, monitor?.artifacts.artifacts.length ?? 0),
+    sessions: numberValue(summary.node_session_count ?? deskSummary.node_session_count, monitorSessions || deskSessions),
+    artifacts: numberValue(summary.artifact_count ?? deskSummary.artifact_count, monitorArtifacts || deskArtifacts),
   };
 }
 
-function parseTreeNode(value: unknown): FileTreeNode {
+function parseTreeNode(value: unknown): FileTreeNode | null {
   const record = recordOf(value);
+  if (!Object.keys(record).length) return null;
   return {
-    children: Array.isArray(record.children) ? record.children.map(parseTreeNode) : [],
+    children: Array.isArray(record.children) ? record.children.map(parseTreeNode).filter((node): node is FileTreeNode => Boolean(node)) : [],
     kind: stringValue(record.kind, "file"),
     name: stringValue(record.name, stringValue(record.path, "root")),
     path: stringValue(record.path),
   };
 }
 
-function flattenFileTree(node: FileTreeNode): FileTreeNode[] {
+function flattenFileTree(node: FileTreeNode | null): FileTreeNode[] {
+  if (!node) return [];
   return [
     ...(node.kind === "file" ? [node] : []),
     ...node.children.flatMap(flattenFileTree),
@@ -406,7 +412,7 @@ function runtimeScopeLabel(view: Record<string, unknown>) {
   );
 }
 
-function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null): NodeRuntimeCard[] {
+function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null, writingDesk: WritingGraphInstanceDesk | null): NodeRuntimeCard[] {
   const graphMonitor = monitor?.graph_monitor;
   const runtimeViews = Array.isArray(graphMonitor?.active_node_runtime_views)
     ? graphMonitor.active_node_runtime_views
@@ -415,8 +421,8 @@ function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null): NodeRu
     ? graphMonitor.active_node_work_orders
     : [];
   const byNode = new Map<string, NodeRuntimeCard>();
-  const sessions = monitor?.node_sessions ?? [];
-  const artifacts = monitor?.artifacts.artifacts ?? [];
+  const sessions = monitor?.node_sessions.length ? monitor.node_sessions : writingDesk?.node_sessions ?? [];
+  const artifacts = monitor?.artifacts.artifacts.length ? monitor.artifacts.artifacts : writingDesk?.artifacts.artifacts ?? [];
 
   runtimeViews.forEach((view, index) => {
     const nodeId = nodeIdFromRuntimeView(view, index);
@@ -467,6 +473,24 @@ function buildNodeRuntimeCards(monitor: GraphTaskInstanceMonitor | null): NodeRu
     if (priority) return priority;
     return timestampValue(right.updatedAt) - timestampValue(left.updatedAt);
   });
+}
+
+function defaultInstanceId(instances: GraphTaskInstanceSummary[], current: string) {
+  if (current && instances.some((instance) => instance.graph_task_instance_id === current)) return current;
+  const active = instances.find((instance) => statusTone(instance.status) === "active");
+  const attention = instances.find((instance) => statusTone(instance.status) === "attention");
+  const paused = instances.find((instance) => statusTone(instance.status) === "paused");
+  return (active ?? attention ?? paused ?? instances[0])?.graph_task_instance_id ?? "";
+}
+
+function defaultGraphId(graphs: GraphTaskDefinitionSummary[], current: string, requested: string) {
+  if (requested && graphs.some((graph) => graph.graph_id === requested)) return requested;
+  if (current && graphs.some((graph) => graph.graph_id === current)) return current;
+  return (
+    graphs.find((graph) => graph.graph_id === "graph.writing.modular_novel.master")
+    ?? graphs.find((graph) => graph.graph_id.includes("writing"))
+    ?? graphs[0]
+  )?.graph_id ?? "";
 }
 
 function humanControlItemsFromControls(controls: GraphTaskInstanceHumanControls | null | undefined): HumanEdgeControlView[] {
@@ -569,7 +593,6 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const [newInstanceDescription, setNewInstanceDescription] = useState("");
   const [loadingGraphs, setLoadingGraphs] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
-  const [loadingMonitor, setLoadingMonitor] = useState(false);
   const [loadingWritingDesk, setLoadingWritingDesk] = useState(false);
   const [action, setAction] = useState("");
   const [error, setError] = useState("");
@@ -585,10 +608,10 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       ?? null,
     [instances, monitor, selectedInstanceId],
   );
-  const counts = monitorCounts(monitor);
+  const counts = monitorCounts(monitor, writingDesk);
   const totalNodeCount = counts.ready + counts.running + counts.completed + counts.failed + counts.blocked;
   const progressPercent = totalNodeCount ? Math.round((counts.completed / totalNodeCount) * 100) : 0;
-  const nodeCards = useMemo(() => buildNodeRuntimeCards(monitor), [monitor]);
+  const nodeCards = useMemo(() => buildNodeRuntimeCards(monitor, writingDesk), [monitor, writingDesk]);
   const selectedNode = useMemo(
     () => nodeCards.find((node) => node.nodeId === selectedNodeId) ?? nodeCards[0] ?? null,
     [nodeCards, selectedNodeId],
@@ -602,7 +625,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     const nodeText = `${focusNodes.length} 个节点信号`;
     return scope ? `自动跟随 ${scope} · ${nodeText}` : `自动跟随活跃节点组 · ${nodeText}`;
   }, [nodeCards, selectedInstance]);
-  const artifacts = monitor?.artifacts.artifacts ?? [];
+  const artifacts = monitor?.artifacts.artifacts.length ? monitor.artifacts.artifacts : writingDesk?.artifacts.artifacts ?? [];
   const latestArtifact = useMemo(
     () => [...artifacts].sort((left, right) => timestampValue(right.updated_at) - timestampValue(left.updated_at))[0] ?? null,
     [artifacts],
@@ -698,6 +721,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       && !activeGraphPausePending
       && !graphRunIsTerminal(activeGraphRuntimeStatus),
   );
+  const deskSummary = recordOf(writingDesk?.summary);
+  const chapterCount = numberValue(deskSummary.chapter_count);
+  const graphMonitorEnabled = Boolean(monitor?.graph_monitor);
 
   const loadGraphs = useCallback(async () => {
     setLoadingGraphs(true);
@@ -707,9 +733,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setGraphs(payload.graph_tasks);
       setSelectedGraphId((current) => {
         const requested = requestedGraphId.trim();
-        if (requested && payload.graph_tasks.some((graph) => graph.graph_id === requested)) return requested;
-        if (current && payload.graph_tasks.some((graph) => graph.graph_id === current)) return current;
-        return payload.graph_tasks[0]?.graph_id ?? "";
+        return defaultGraphId(payload.graph_tasks, current, requested);
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "图任务定义加载失败");
@@ -731,9 +755,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       const payload = await listGraphTaskInstances(graphId);
       const sorted = sortInstances(payload.instances);
       setInstances(sorted);
-      setSelectedInstanceId((current) => current && sorted.some((instance) => instance.graph_task_instance_id === current)
-        ? current
-        : "");
+      setSelectedInstanceId((current) => defaultInstanceId(sorted, current));
     } catch (caught) {
       setInstances([]);
       setSelectedInstanceId("");
@@ -743,50 +765,31 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }, []);
 
-  const refreshInstance = useCallback(async (instanceId: string) => {
-    if (!instanceId) {
-      setMonitor(null);
-      setFileTree(null);
-      setSelectedNodeId("");
-      return;
-    }
-    setLoadingMonitor(true);
-    setError("");
-    try {
-      const monitorPayload = await getGraphTaskInstanceMonitor(instanceId, 100);
-      setMonitor(monitorPayload);
-      setInstances((current) => sortInstances(current.map((instance) => (
-        instance.graph_task_instance_id === monitorPayload.instance.graph_task_instance_id
-          ? monitorPayload.instance
-          : instance
-      ))));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "项目运行监控加载失败");
-    } finally {
-      setLoadingMonitor(false);
-    }
-  }, []);
-
   const loadProjectFileTree = useCallback(async (instanceId: string) => {
     if (!instanceId) {
       setFileTree(null);
       return;
     }
     try {
-      setFileTree(await getGraphTaskInstanceFileTree(instanceId, { maxDepth: 6, maxEntries: 1000 }));
+      setFileTree(await getGraphTaskInstanceFileTree(instanceId, { maxDepth: 4, maxEntries: 500 }));
     } catch {
       setFileTree(null);
     }
   }, []);
 
-  const loadWritingDesk = useCallback(async (instanceId: string, options: { adoptReader?: boolean } = {}) => {
+  const loadWritingDesk = useCallback(async (instanceId: string, options: { adoptReader?: boolean; includeRuntime?: boolean; includeFileTree?: boolean } = {}) => {
     if (!instanceId) {
       setWritingDesk(null);
       return;
     }
     setLoadingWritingDesk(true);
     try {
-      const payload = await getWritingGraphInstanceDesk(instanceId, 100);
+      const includeRuntime = Boolean(options.includeRuntime);
+      const includeFileTree = Boolean(options.includeFileTree);
+      const payload = await getWritingGraphInstanceDesk(instanceId, includeRuntime ? 40 : 10, {
+        includeRuntime,
+        includeFileTree,
+      });
       setWritingDesk(payload);
       if (payload.file_tree) {
         setFileTree(payload.file_tree);
@@ -808,12 +811,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
 
   const refreshProjectRuntime = useCallback(async (instanceId: string, options: { adoptReader?: boolean } = {}) => {
     if (!instanceId) return;
-    await Promise.all([
-      refreshInstance(instanceId),
-      loadWritingDesk(instanceId, options),
-      loadProjectFileTree(instanceId),
-    ]);
-  }, [loadProjectFileTree, loadWritingDesk, refreshInstance]);
+    await loadWritingDesk(instanceId, { ...options, includeRuntime: false, includeFileTree: false });
+  }, [loadWritingDesk]);
 
   useEffect(() => {
     void loadGraphs();
@@ -847,14 +846,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setSelectedNodeId("");
       return;
     }
-    void refreshInstance(selectedInstanceId);
     void loadWritingDesk(selectedInstanceId, { adoptReader: true });
-  }, [loadWritingDesk, refreshInstance, selectedInstanceId]);
-
-  useEffect(() => {
-    if (!selectedInstanceId || writingDesk?.file_tree || (assetTab !== "library" && consoleScreen !== "sessions")) return;
-    void loadProjectFileTree(selectedInstanceId);
-  }, [assetTab, consoleScreen, loadProjectFileTree, selectedInstanceId, writingDesk]);
+  }, [loadWritingDesk, selectedInstanceId]);
 
   useEffect(() => {
     if (!selectedGraph) return;
@@ -1402,7 +1395,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 </button>
                 <button aria-selected={consoleScreen === "monitor"} className={consoleScreen === "monitor" ? "graph-foreground-console-switch__active" : undefined} onClick={() => setConsoleScreen("monitor")} type="button">
                   <GitBranch size={13} />
-                  图调试
+                  运行信号
                 </button>
               </div>
               <em className={`graph-foreground-status graph-foreground-status--${activeGraphRuntimeTone}`}>
@@ -1421,9 +1414,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   <StepForward size={14} />
                   <span>{action === "continue-run" ? "提交中" : activeGraphIsPaused ? "续跑" : "继续"}</span>
                 </button>
-                <button disabled={loadingMonitor || loadingWritingDesk} onClick={() => void refreshProjectRuntime(selectedInstance.graph_task_instance_id)} type="button">
+                <button disabled={loadingWritingDesk} onClick={() => void refreshProjectRuntime(selectedInstance.graph_task_instance_id)} type="button">
                   <RefreshCw size={14} />
-                  <span>{loadingMonitor || loadingWritingDesk ? "刷新中" : "刷新"}</span>
+                  <span>{loadingWritingDesk ? "刷新中" : "刷新"}</span>
                 </button>
               </div>
             </div>
@@ -1500,27 +1493,29 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
 
               <section className="graph-foreground-run-summary" aria-label="运行摘要">
                 <article>
-                  <span>完成</span>
-                  <strong>{progressPercent}%</strong>
-                  <small>{totalNodeCount ? `${counts.completed}/${totalNodeCount} 节点` : "等待运行数据"}</small>
-                  <div className="graph-foreground-progress" aria-hidden="true">
-                    <i style={{ width: `${progressPercent}%` }} />
-                  </div>
+                  <span>{graphMonitorEnabled ? "完成" : "运行信号"}</span>
+                  <strong>{graphMonitorEnabled ? `${progressPercent}%` : graphRuntimeStatusLabel(activeGraphRuntimeStatus)}</strong>
+                  <small>{graphMonitorEnabled && totalNodeCount ? `${counts.completed}/${totalNodeCount} 节点` : activeGraphRunId || "尚未创建运行"}</small>
+                  {graphMonitorEnabled ? (
+                    <div className="graph-foreground-progress" aria-hidden="true">
+                      <i style={{ width: `${progressPercent}%` }} />
+                    </div>
+                  ) : null}
                 </article>
                 <article className={counts.failed || counts.blocked ? "graph-foreground-summary-card--attention" : ""}>
-                  <span>风险</span>
-                  <strong>{counts.failed || counts.blocked ? `${counts.failed} 失败 · ${counts.blocked} 阻塞` : "无"}</strong>
-                  <small>{counts.running ? `${counts.running} 运行中` : "没有运行中的节点"}</small>
+                  <span>{graphMonitorEnabled ? "风险" : "章节"}</span>
+                  <strong>{graphMonitorEnabled ? (counts.failed || counts.blocked ? `${counts.failed} 失败 · ${counts.blocked} 阻塞` : "无") : chapterCount}</strong>
+                  <small>{graphMonitorEnabled ? (counts.running ? `${counts.running} 运行中` : "没有运行中的节点") : "来自写作台轻量索引"}</small>
                 </article>
                 <article>
-                  <span>最近产物</span>
-                  <strong>{latestArtifact ? stringValue(latestArtifact.name, stringValue(latestArtifact.path, "未命名产物")) : "暂无"}</strong>
-                  <small>{latestArtifact ? stringValue(latestArtifact.path, "没有文件路径") : "运行后显示"}</small>
+                  <span>{graphMonitorEnabled ? "最近产物" : "产物"}</span>
+                  <strong>{graphMonitorEnabled ? (latestArtifact ? stringValue(latestArtifact.name, stringValue(latestArtifact.path, "未命名产物")) : "暂无") : counts.artifacts}</strong>
+                  <small>{graphMonitorEnabled ? (latestArtifact ? stringValue(latestArtifact.path, "没有文件路径") : "运行后显示") : "不打开完整文件树"}</small>
                 </article>
                 <article>
-                  <span>会话</span>
-                  <strong>{counts.sessions}</strong>
-                  <small>{counts.artifacts} 个产物</small>
+                  <span>{graphMonitorEnabled ? "会话" : "最近更新"}</span>
+                  <strong>{graphMonitorEnabled ? counts.sessions : timestampLabel(selectedInstance.updated_at)}</strong>
+                  <small>{graphMonitorEnabled ? `${counts.artifacts} 个产物` : selectedInstance.graph_task_instance_id}</small>
                 </article>
               </section>
 
@@ -1528,9 +1523,9 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                 <header>
                   <div>
                     <span>运行焦点 · 跟随模式</span>
-                    <strong>{nodeCards.length ? `${nodeCards.length} 个节点信号` : "等待节点信号"}</strong>
+                      <strong>{graphMonitorEnabled && nodeCards.length ? `${nodeCards.length} 个节点信号` : "图监控未开启"}</strong>
                   </div>
-                  <small>{focusLabel}</small>
+                  <small>{graphMonitorEnabled ? focusLabel : "当前只显示项目运行信号，避免首屏拉取完整图监控。"}</small>
                 </header>
                 <div className="graph-foreground-node-grid">
                   {nodeCards.map((node) => {
@@ -1558,8 +1553,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   {!nodeCards.length ? (
                     <div className="graph-foreground-canvas-empty">
                       <Bot size={24} />
-                      <strong>还没有节点运行信号</strong>
-                      <span>启动运行后显示活跃节点、输出摘要和节点会话入口。</span>
+                      <strong>{graphMonitorEnabled ? "还没有节点运行信号" : "图监控未开启"}</strong>
+                      <span>{graphMonitorEnabled ? "启动运行后显示活跃节点、输出摘要和节点会话入口。" : "需要完整节点画布时再打开图监控链路。"}</span>
                     </div>
                   ) : null}
                 </div>

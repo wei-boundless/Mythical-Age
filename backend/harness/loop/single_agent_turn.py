@@ -2482,34 +2482,24 @@ async def _action_feedback_segment_events(
         return
     emitted_feedback_segments.add(segment_key)
     body_sequence = max(1, int(iteration) * 2 - 1)
-    base_stream_ref = str(getattr(assistant_stream_normalizer, "stream_ref", "") or "").strip()
-    stream_ref = f"assistant-body:{turn_id}:{phase}:{iteration}:stage-feedback"
-    message_ref = str(getattr(assistant_stream_normalizer, "message_ref", "") or "").strip()
+    stream_ref = str(
+        getattr(assistant_stream_normalizer, "stream_ref", "")
+        or f"assistant-body:{turn_id}:{phase}:{iteration}"
+    )
     extra = {
         "body_segment_id": stream_ref,
         "body_sequence": body_sequence,
         "segment_role": "stage_feedback",
-        **({"source_stream_ref": base_stream_ref} if base_stream_ref else {}),
     }
     if assistant_stream_normalizer is not None:
-        for event in assistant_stream_normalizer.flush():
-            yield event
-        streamed_text = public_runtime_progress_summary(
-            getattr(assistant_stream_normalizer, "emitted_content", "")
-            or getattr(assistant_stream_normalizer, "observed_content", "")
-        ).strip()
-        if streamed_text and streamed_text == public_runtime_progress_summary(content).strip():
-            return
         for event in assistant_final_stream_events(
-            None,
+            assistant_stream_normalizer,
             content=content,
             answer_channel="stage_feedback",
             answer_source=f"harness.single_agent_turn.{phase}.feedback",
             terminal_reason="stage_feedback",
             answer_canonical_state="stable_feedback",
             answer_persist_policy="persist_canonical",
-            stream_ref=stream_ref,
-            message_ref=message_ref,
             turn_run_id=turn_run_id,
             extra=extra,
         ):

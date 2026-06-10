@@ -26,6 +26,7 @@ from harness.runtime.tool_scheduling import environment_allowed_operations
 from prompt_library import (
     DEFAULT_PERSONALITY_PROMPT_REF,
     ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT,
+    ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS,
     PromptLibraryRegistry,
     PromptResource,
 )
@@ -524,6 +525,37 @@ def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
     assert "runtime packet" not in combined
     assert ".v1" not in combined
     assert "confidence" not in combined.lower()
+
+
+def test_coding_lifecycle_prompts_own_control_signal_closeout_without_polluting_other_environments() -> None:
+    registry = PromptLibraryRegistry(BACKEND_DIR)
+    coding_refs = ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.coding.vibe_workspace"]
+    office_refs = ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.office.file_search"]
+    general_refs = ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT["env.general.workspace"]
+
+    coding_text = "\n".join(
+        registry.get_active_resource(prompt_ref).content
+        for prompt_ref in coding_refs
+        if registry.get_active_resource(prompt_ref) is not None
+    )
+    office_text = "\n".join(
+        registry.get_active_resource(prompt_ref).content
+        for prompt_ref in office_refs
+        if registry.get_active_resource(prompt_ref) is not None
+    )
+    general_text = "\n".join(
+        registry.get_active_resource(prompt_ref).content
+        for prompt_ref in general_refs
+        if registry.get_active_resource(prompt_ref) is not None
+    )
+
+    assert len(coding_refs) == len(ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS)
+    assert "系统运行控制信号" in coding_text
+    assert "pause/stop/replan" in coding_text
+    assert "系统控制信号" in coding_text
+    assert "runtime_control" in coding_text
+    assert "pause/stop/replan" not in office_text
+    assert "pause/stop/replan" not in general_text
 
 
 def test_resolved_environment_exports_storage_and_file_boundaries() -> None:

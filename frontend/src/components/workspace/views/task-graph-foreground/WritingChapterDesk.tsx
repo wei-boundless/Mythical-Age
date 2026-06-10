@@ -240,8 +240,8 @@ export function WritingChapterDesk({
               <small>{file.path}</small>
             </button>
           ))}
-          {!flatFiles.length ? <div className="boundary-empty">正式库还没有可查看文件。</div> : null}
-          {flatFiles.length && !visibleChapterFiles.length ? <div className="boundary-empty">没有匹配的章节或文件。</div> : null}
+          {!chapterFiles.length && !flatFiles.length ? <div className="boundary-empty">正式库还没有可查看文件。</div> : null}
+          {(chapterFiles.length || flatFiles.length) && !visibleChapterFiles.length ? <div className="boundary-empty">没有匹配的章节或文件。</div> : null}
         </div>
       </aside>
 

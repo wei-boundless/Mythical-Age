@@ -82,6 +82,21 @@ def peek_executor_signal(runtime_host: Any, *, task_run_id: str, executor_epoch:
     return record.signal if record is not None else None
 
 
+def clear_executor_signal(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    executor_epoch: int,
+    signal: ExecutorControlSignal | None = None,
+) -> None:
+    record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
+    if record is None or record.signal is None:
+        return
+    if signal is not None and record.signal != signal:
+        return
+    record.signal = None
+
+
 def clear_model_task(runtime_host: Any, *, task_run_id: str, executor_epoch: int, model_task: asyncio.Task[Any]) -> None:
     record = _current_record(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
     if record is not None and record.model_task is model_task:
