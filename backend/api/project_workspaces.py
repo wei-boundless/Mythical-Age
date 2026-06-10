@@ -172,7 +172,7 @@ async def project_workspace_tree(
     root = Path(str(project.get("workspace_root") or "")).expanduser().resolve()
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="project workspace root not found")
-    return build_workspace_tree(root, max_depth=max_depth, max_entries=max_entries)
+    return await asyncio.to_thread(build_workspace_tree, root, max_depth=max_depth, max_entries=max_entries)
 
 
 @router.post("/project-workspaces/{project_key}/open-vscode")

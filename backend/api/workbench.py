@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -22,12 +23,16 @@ class CurrentSessionRefRequest(BaseModel):
 @router.get("/workbench/current-session")
 async def get_workbench_current_session() -> dict[str, Any]:
     runtime = require_runtime()
-    return WorkbenchStateStore(runtime.base_dir).current_session_payload()
+    return await asyncio.to_thread(WorkbenchStateStore(runtime.base_dir).current_session_payload)
 
 
 @router.put("/workbench/current-session")
 async def set_workbench_current_session(payload: CurrentSessionRefRequest) -> dict[str, Any]:
     runtime = require_runtime()
+    return await asyncio.to_thread(_set_workbench_current_session_payload, runtime, payload)
+
+
+def _set_workbench_current_session_payload(runtime: Any, payload: CurrentSessionRefRequest) -> dict[str, Any]:
     try:
         summary = runtime.session_manager.get_session_summary(payload.session_id)
     except InvalidSessionId:
@@ -59,4 +64,4 @@ async def clear_workbench_current_session(
     session_id: str | None = Query(default=None, max_length=200),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    return WorkbenchStateStore(runtime.base_dir).clear_current_session(session_id=session_id or "")
+    return await asyncio.to_thread(WorkbenchStateStore(runtime.base_dir).clear_current_session, session_id=session_id or "")

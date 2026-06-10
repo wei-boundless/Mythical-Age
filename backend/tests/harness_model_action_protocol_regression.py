@@ -53,7 +53,7 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert contract.completion_criteria == ("todo 投影显示有效任务", "工具活动不展示低层噪声")
 
 
-def test_single_agent_turn_tool_limit_blocks_protocol_inside_synthesized_respond(tmp_path: Path) -> None:
+def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_path: Path) -> None:
     class ProtocolRespondLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
@@ -97,12 +97,40 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_synthesized_respond
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
     assert model.calls == 9
+    assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
     assert done["answer_channel"] == "blocked"
-    assert done["completion_state"] == "tool_limit_protocol_blocked"
-    assert "内部工具协议" in str(done.get("content") or "")
+    assert done["completion_state"] == "tool_limit_closeout_unsafe_content"
+    assert "工具协议" in str(done.get("content") or "")
     assert assistant_messages
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
     assert "search_text" not in str(assistant_messages[-1].get("content") or "")
+
+
+def test_single_agent_parser_rejects_native_tool_call_when_json_action_required() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {"id": "call-read", "name": "read_file", "args": {"path": "README.md"}},
+            ],
+        ),
+        request_id="model-response:test:json-required-native-tool",
+        turn_id="turn:test:json-required-native-tool",
+        packet_ref="packet:test:json-required-native-tool",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block"),
+        phase="tool_limit_closeout",
+        require_json_action=True,
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_model_protocol_error"
+    assert "native_tool_calls_not_allowed" in parsed.error["reason"]
 
 def test_malformed_agent_action_request_fails_closed() -> None:
     runtime = build_harness_runtime(model_runtime=_MalformedModelRuntime())

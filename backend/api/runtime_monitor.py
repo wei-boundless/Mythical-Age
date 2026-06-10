@@ -139,12 +139,12 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
 
 @router.get("/orchestration/runtime-monitor/sessions/{session_id}")
 async def get_runtime_monitor_session(session_id: str, limit: int = 20) -> dict[str, Any]:
-    return _service().get_session_live_monitor(session_id, limit=limit)
+    return await asyncio.to_thread(_service().get_session_live_monitor, session_id, limit=limit)
 
 
 @router.get("/orchestration/runtime-monitor/task-runs/{task_run_id}")
 async def get_runtime_monitor_task_run(task_run_id: str) -> dict[str, Any]:
-    monitor = _service().get_task_run_live_monitor(task_run_id)
+    monitor = await asyncio.to_thread(_service().get_task_run_live_monitor, task_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
     return monitor
@@ -152,4 +152,4 @@ async def get_runtime_monitor_task_run(task_run_id: str) -> dict[str, Any]:
 
 @router.get("/orchestration/runtime-monitor/resources/{resource_ref:path}")
 async def get_runtime_monitor_resource(resource_ref: str) -> dict[str, Any]:
-    return _service().get_resource(resource_ref)
+    return await asyncio.to_thread(_service().get_resource, resource_ref)

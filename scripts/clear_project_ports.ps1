@@ -37,17 +37,30 @@ function Remove-LegacyLogFiles {
 if (-not $ForceAnyOwner) {
     $projectStack = Join-Path $PSScriptRoot "project_stack.ps1"
     if (Test-Path $projectStack) {
-        $child = Start-Process `
-            -FilePath "powershell.exe" `
-            -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $projectStack, "-Action", "stop" `
-            -WorkingDirectory $RepoRoot `
-            -WindowStyle Hidden `
-            -Wait `
-            -PassThru
-        if ($child.ExitCode -ne 0) {
-            exit $child.ExitCode
+        $stackOutput = & $projectStack -Action stop
+        Remove-LegacyLogFiles
+
+        $status = foreach ($port in $Ports) {
+            $remaining = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+            [pscustomobject]@{
+                port = $port
+                cleared = ($remaining.Count -eq 0)
+                remaining_pids = @($remaining | ForEach-Object { [int]$_.OwningProcess } | Sort-Object -Unique)
+            }
         }
+
+        [pscustomobject]@{
+            authority = "scripts.clear_project_ports"
+            delegated_to = "scripts.project_stack"
+            repo_root = $RepoRoot
+            requested_ports = $Ports
+            project_stack = ($stackOutput | ConvertFrom-Json)
+            status = $status
+        } | ConvertTo-Json -Depth 8
+        return
     }
+
+    throw "Project stack script not found: $projectStack"
 }
 
 function Stop-ProcessByPort {
@@ -55,8 +68,7 @@ function Stop-ProcessByPort {
 
     $stopped = @()
     $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-    $established = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue)
-    $connections = @($listeners + $established | Sort-Object OwningProcess -Unique)
+    $connections = @($listeners | Sort-Object OwningProcess -Unique)
 
     foreach ($connection in $connections) {
         $pidValue = if ($null -ne $connection -and $null -ne $connection.OwningProcess) { $connection.OwningProcess } else { 0 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -29,7 +30,8 @@ class VSCodeSessionResolveRequest(BaseModel):
 @router.post("/vscode/sessions/resolve")
 async def resolve_vscode_session(payload: VSCodeSessionResolveRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    return get_vscode_connection_store().resolve_launch_intent(
+    return await asyncio.to_thread(
+        get_vscode_connection_store().resolve_launch_intent,
         workspace_roots=list(payload.workspace_roots or []),
         session_manager=runtime.session_manager,
     )
@@ -39,11 +41,13 @@ async def resolve_vscode_session(payload: VSCodeSessionResolveRequest) -> dict[s
 async def record_vscode_context(session_id: str, payload: VSCodeContextRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return get_vscode_connection_store().record_context(
+        status = await asyncio.to_thread(
+            get_vscode_connection_store().record_context,
             session_manager=runtime.session_manager,
             session_id=session_id,
             editor_context=payload.model_dump(),
-        ).to_dict()
+        )
+        return status.to_dict()
     except VSCodeConnectionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -53,7 +57,8 @@ async def record_vscode_context(session_id: str, payload: VSCodeContextRequest) 
 @router.get("/vscode/sessions/{session_id}/context/latest")
 async def latest_vscode_context(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    context = get_vscode_connection_store().latest_editor_context(
+    context = await asyncio.to_thread(
+        get_vscode_connection_store().latest_editor_context,
         session_id,
         session_manager=runtime.session_manager,
     )
@@ -64,10 +69,12 @@ async def latest_vscode_context(session_id: str) -> dict[str, Any]:
 async def vscode_connection_status(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return get_vscode_connection_store().status(
+        status = await asyncio.to_thread(
+            get_vscode_connection_store().status,
             session_id,
             session_manager=runtime.session_manager,
-        ).to_dict()
+        )
+        return status.to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

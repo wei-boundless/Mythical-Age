@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -28,7 +29,8 @@ async def list_file_changes(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    records = _tracker(runtime).list_records(
+    records = await asyncio.to_thread(
+        _tracker(runtime).list_records,
         session_id=str(session_id or "").strip(),
         task_run_id=str(task_run_id or "").strip(),
         status=str(status or "").strip(),
@@ -45,7 +47,7 @@ async def list_file_changes(
 async def get_file_change(record_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        record = _tracker(runtime).require_record(record_id)
+        record = await asyncio.to_thread(_tracker(runtime).require_record, record_id)
     except FileChangeMissing as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"record": record, "authority": "api.file_changes.detail"}
@@ -55,10 +57,11 @@ async def get_file_change(record_id: str) -> dict[str, Any]:
 async def get_file_change_diff(record_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        record = _tracker(runtime).require_record(record_id)
+        record = await asyncio.to_thread(_tracker(runtime).require_record, record_id)
     except FileChangeMissing as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _snapshot_diff_payload(
+    return await asyncio.to_thread(
+        _snapshot_diff_payload,
         diff_id=record_id,
         logical_path=str(record.get("logical_path") or ""),
         before_path=Path(str(record.get("before_snapshot_path") or "")),
@@ -84,7 +87,8 @@ async def get_write_review_diff(proposal_id: str) -> dict[str, Any]:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=f"write review metadata unreadable: {exc}") from exc
-    return _snapshot_diff_payload(
+    return await asyncio.to_thread(
+        _snapshot_diff_payload,
         diff_id=safe_id,
         logical_path=str(dict(metadata or {}).get("logical_path") or safe_id),
         before_path=root / "before.txt",
@@ -100,7 +104,7 @@ async def get_write_review_diff(proposal_id: str) -> dict[str, Any]:
 async def rollback_file_change(record_id: str, payload: FileChangeRollbackRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        record = _tracker(runtime).rollback(record_id, force=payload.force)
+        record = await asyncio.to_thread(_tracker(runtime).rollback, record_id, force=payload.force)
     except FileChangeMissing as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FileChangeConflict as exc:

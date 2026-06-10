@@ -67,7 +67,7 @@ SINGLE_AGENT_ADMISSION_REPAIR_PROMPT = (
     "你只负责在运行边界已经拒绝上一动作后，重新给出一个合法的最终控制裁决。\n"
     "你不能执行动作，不能忽略 admission，不能假设用户已经授权。\n\n"
     "请只输出一个 JSON action。允许的 action_type 见修复输入。"
-    "当前阶段禁止普通工具调用；如果需要工具才能继续，应改为询问用户、请求持续任务或说明边界。"
+    "当前阶段禁止普通工具调用；如果需要工具才能继续，应在允许动作中选择询问用户、请求持续任务或说明边界。"
     "如果可以直接回答，使用 respond 并给出 final_answer。"
     "禁止输出解释文字，禁止 Markdown。"
 )
@@ -85,7 +85,8 @@ TASK_ACTION_JSON_REPAIR_PROMPT = (
     "系统没有执行上一轮动作。"
     "本轮必须只输出一个合法 JSON 对象，必须填写 action_type、public_action_state 和 public_progress_note。"
     "不要在 JSON 外继续输出正文、代码块或解释。"
-    "如果上一轮是在生成文件、网页、脚本或长内容时失败，改用 action_type=tool_call。"
+    "如果上一轮是在生成文件、网页、脚本或长内容时失败，只有在 allowed_action_types 包含 tool_call 且没有运行控制信号要求收口时，才改用 action_type=tool_call。"
+    "如果运行控制信号要求暂停、停止或收口，必须选择 respond、ask_user 或 block，不得继续请求工具。"
 )
 
 MCP_SERVER_INSTRUCTIONS_PROMPT = (

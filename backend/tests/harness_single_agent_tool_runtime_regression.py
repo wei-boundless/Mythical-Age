@@ -851,7 +851,7 @@ def test_single_agent_turn_converts_unresumable_approval_to_model_visible_denial
         for item in runtime.session_manager.messages
     )
 
-def test_single_agent_turn_tool_loop_synthesizes_answer_without_ninth_tool_call(tmp_path: Path) -> None:
+def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_ninth_tool_call(tmp_path: Path) -> None:
     class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
@@ -864,11 +864,21 @@ def test_single_agent_turn_tool_loop_synthesizes_answer_without_ninth_tool_call(
                     for index in range(1, 10)
                 ]
             )
-            self.synthesis_messages: list[dict[str, object]] = []
+            self.closeout_messages: list[dict[str, object]] = []
+            self.closeout_accounting: dict[str, object] = {}
 
         async def invoke_messages(self, messages, **_kwargs):
-            self.synthesis_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
-            return SimpleNamespace(content="我已经连续核查 requirements.txt，当前应停止重复检查并基于已有结果回答。")
+            self.closeout_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="agent closeout final",
+                    ),
+                    ensure_ascii=False,
+                )
+            )
 
     model = SynthesizingLoopModel()
     tool_base_dir = _project_backend_dir()
@@ -886,14 +896,17 @@ def test_single_agent_turn_tool_loop_synthesizes_answer_without_ninth_tool_call(
 
     events = asyncio.run(_collect())
     observations = [event for event in events if event.get("type") == "tool_observation"]
+    done = next(event for event in events if event.get("type") == "done")
 
     assert model.calls == 9
     assert len(observations) == 8
-    assert any(
-        event.get("type") == "done"
-        and dict(event).get("terminal_reason") == "single_turn_tool_iteration_limit"
-        and "停止重复检查" in str(event.get("content") or "")
-        for event in events
-    )
-    assert model.synthesis_messages[-1]["role"] == "user"
+    assert done["terminal_reason"] == "single_turn_tool_iteration_limit"
+    assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
+    assert done["completion_state"] == "tool_limit_agent_responded"
+    assert done["content"] == "agent closeout final"
+    assert any(event.get("type") == "turn_runtime_control_signal_observed" for event in events)
+    assert model.closeout_accounting["source"] == "harness.single_agent_turn.tool_limit_closeout"
+    assert model.closeout_messages[-1]["role"] == "system"
+    assert "runtime_control_signal" in str(model.closeout_messages[-1].get("content") or "")
+    assert '"tool_calls_allowed_after_signal": false' in str(model.closeout_messages[-1].get("content") or "")
     assert not any("本轮工具观察次数已达到上限" in str(item.get("content") or "") for item in runtime.session_manager.messages)

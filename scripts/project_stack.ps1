@@ -124,7 +124,7 @@ function Read-PidFile {
 function Test-HttpOk {
     param([string]$Url)
     try {
-        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 20
         return [pscustomobject]@{
             ok = ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
             status_code = [int]$response.StatusCode
@@ -186,10 +186,19 @@ function Assert-PortAvailableOrOwned {
 function Start-Backend {
     Ensure-RuntimeDir
     Clear-LegacyRuntimeLogs
+    Clear-LegacyRootLogs
     if (-not (Test-Path $PythonExe)) { throw "Python executable not found: $PythonExe" }
     Assert-PortAvailableOrOwned -Port $BackendPort -Role "backend"
     $health = Test-HttpOk -Url $BackendHealthUrl
-    if ($health.ok) { return "already_healthy" }
+    $managedProcessId = Read-PidFile -Path $BackendPidFile
+    $listeners = @(Get-ListeningProcesses -Port $BackendPort)
+    $managedHealthy = (
+        $health.ok `
+        -and $managedProcessId -gt 0 `
+        -and $listeners.Count -eq 1 `
+        -and ([int]$listeners[0].pid) -eq $managedProcessId
+    )
+    if ($managedHealthy) { return "already_healthy" }
 
     Stop-ManagedProcess -PidFile $BackendPidFile -Port $BackendPort -Role "backend" | Out-Null
     $env:PYTHONPATH = $BackendRoot

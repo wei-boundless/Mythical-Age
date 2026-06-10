@@ -67,14 +67,15 @@ async def list_sessions(
     include_active_task: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
     runtime = require_runtime()
-    sessions = runtime.session_manager.list_sessions(
+    sessions = await asyncio.to_thread(
+        runtime.session_manager.list_sessions,
         workspace_view=workspace_view,
         task_environment_id=task_environment_id,
         project_id=project_id,
     )
     if not include_active_task:
         return sessions
-    return enrich_session_summaries(sessions, runtime)
+    return await asyncio.to_thread(enrich_session_summaries, sessions, runtime)
 
 
 @router.post("/sessions")
@@ -104,7 +105,7 @@ async def get_session_summary(
         project_id=project_id,
     )
     try:
-        summary = runtime.session_manager.get_session_summary(session_id)
+        summary = await asyncio.to_thread(runtime.session_manager.get_session_summary, session_id)
     except InvalidSessionId:
         raise
     except ValueError as exc:
@@ -178,15 +179,13 @@ async def get_session_messages(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
+    await asyncio.to_thread(
+        assert_optional_session_scope,
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return {
-        "messages": runtime.session_manager.load_session(session_id),
-        "latest_prompt_manifest_summary": _latest_prompt_manifest_summary(runtime, session_id),
-    }
+    return await asyncio.to_thread(_get_session_messages_payload, runtime, session_id)
 
 
 @router.get("/sessions/{session_id}/history")
@@ -197,12 +196,13 @@ async def get_session_history(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
+    await asyncio.to_thread(
+        assert_optional_session_scope,
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return runtime.session_manager.get_history(session_id)
+    return await asyncio.to_thread(runtime.session_manager.get_history, session_id)
 
 
 @router.get("/sessions/{session_id}/conversation-state")
@@ -213,12 +213,13 @@ async def get_session_conversation_state(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
+    await asyncio.to_thread(
+        assert_optional_session_scope,
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return runtime.session_manager.get_conversation_state(session_id)
+    return await asyncio.to_thread(runtime.session_manager.get_conversation_state, session_id)
 
 
 @router.put("/sessions/{session_id}/active-task-environment")
@@ -274,12 +275,14 @@ async def get_session_project_binding(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
+    await asyncio.to_thread(
+        assert_optional_session_scope,
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    return {"project_binding": runtime.session_manager.get_project_binding(session_id)}
+    project_binding = await asyncio.to_thread(runtime.session_manager.get_project_binding, session_id)
+    return {"project_binding": project_binding}
 
 
 @router.put("/sessions/{session_id}/project-binding")
@@ -355,12 +358,12 @@ async def open_session_project_in_vscode(
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
     try:
-        binding = runtime.session_manager.require_project_binding(session_id)
+        binding = await asyncio.to_thread(runtime.session_manager.require_project_binding, session_id)
     except SessionProjectBindingMissing as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     workspace_root = str(binding.get("workspace_root") or "").strip()
     connection_store = get_vscode_connection_store()
-    current_status = connection_store.status(session_id, session_manager=runtime.session_manager)
+    current_status = await asyncio.to_thread(connection_store.status, session_id, session_manager=runtime.session_manager)
     if current_status.connected and not current_status.stale and _same_resolved_path(current_status.workspace_root, workspace_root):
         return {
             "ok": True,
@@ -374,7 +377,7 @@ async def open_session_project_in_vscode(
     executable = shutil.which("code")
     if not executable:
         raise HTTPException(status_code=503, detail="VS Code CLI `code` was not found on PATH")
-    extension_installation = _ensure_vscode_connection_extension_installed()
+    extension_installation = await asyncio.to_thread(_ensure_vscode_connection_extension_installed)
     if not extension_installation:
         raise HTTPException(
             status_code=503,
@@ -523,16 +526,16 @@ async def get_session_timeline(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
+    await asyncio.to_thread(
+        assert_optional_session_scope,
         runtime.session_manager,
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    history = runtime.session_manager.get_history(session_id)
-    return build_session_runtime_timeline(
-        session_id=session_id,
-        history=history,
-        runtime_host=runtime.harness_runtime.single_agent_runtime_host,
+    return await asyncio.to_thread(
+        _build_session_timeline_payload,
+        runtime,
+        session_id,
     )
 
 
@@ -595,12 +598,28 @@ async def generate_title(
     if payload.message:
         seed = payload.message
     else:
-        messages = runtime.session_manager.load_session(session_id)
+        messages = await asyncio.to_thread(runtime.session_manager.load_session, session_id)
         first_user = next((item["content"] for item in messages if item.get("role") == "user"), "")
         seed = first_user
     title = await runtime.harness_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
-    runtime.session_manager.set_title(session_id, title)
+    await asyncio.to_thread(runtime.session_manager.set_title, session_id, title)
     return {"session_id": session_id, "title": title}
+
+
+def _get_session_messages_payload(runtime: Any, session_id: str) -> dict[str, Any]:
+    return {
+        "messages": runtime.session_manager.load_session(session_id),
+        "latest_prompt_manifest_summary": _latest_prompt_manifest_summary(runtime, session_id),
+    }
+
+
+def _build_session_timeline_payload(runtime: Any, session_id: str) -> dict[str, Any]:
+    history = runtime.session_manager.get_history(session_id)
+    return build_session_runtime_timeline(
+        session_id=session_id,
+        history=history,
+        runtime_host=runtime.harness_runtime.single_agent_runtime_host,
+    )
 
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:

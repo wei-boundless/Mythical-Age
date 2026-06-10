@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -62,7 +63,8 @@ async def code_environment_workspace_tree(
     )
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="Workspace root not found")
-    return build_workspace_tree(
+    return await asyncio.to_thread(
+        build_workspace_tree,
         root,
         max_depth=max_depth,
         max_entries=max_entries,
@@ -124,7 +126,7 @@ def _workspace_tree_root(
 @router.get("/code-environment/git-status")
 async def code_environment_git_status(refresh: bool = Query(default=False)) -> dict[str, object]:
     layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
-    return _cached_git_status(layout.project_root, refresh=refresh)
+    return await asyncio.to_thread(_cached_git_status, layout.project_root, refresh=refresh)
 
 
 def _cached_git_status(project_root: Path, *, refresh: bool) -> dict[str, object]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
@@ -53,6 +54,24 @@ async def session_tokens(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
+    return await asyncio.to_thread(
+        _session_tokens_payload,
+        runtime,
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    )
+
+
+def _session_tokens_payload(
+    runtime: Any,
+    *,
+    session_id: str,
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> dict[str, Any]:
     assert_optional_session_scope(
         runtime.session_manager,
         session_id,
@@ -233,13 +252,9 @@ async def preview_session_compaction(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
-        runtime.session_manager,
-        session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
-    )
     compact_payload = payload or CompactSessionRequest()
-    return compact_session_history(
+    return await asyncio.to_thread(
+        _compact_session_payload,
         runtime,
         session_id=session_id,
         mode="preview",
@@ -247,6 +262,9 @@ async def preview_session_compaction(
         reason=compact_payload.reason or "manual_compact",
         reserved_output_tokens=int(compact_payload.reserved_output_tokens or 0),
         pressure_source="context",
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
     )
 
 
@@ -259,13 +277,9 @@ async def run_session_compaction(
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert_optional_session_scope(
-        runtime.session_manager,
-        session_id,
-        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
-    )
     compact_payload = payload or CompactSessionRequest()
-    return compact_session_history(
+    return await asyncio.to_thread(
+        _compact_session_payload,
         runtime,
         session_id=session_id,
         mode="run",
@@ -273,13 +287,48 @@ async def run_session_compaction(
         reason=compact_payload.reason or "manual_compact",
         reserved_output_tokens=int(compact_payload.reserved_output_tokens or 0),
         pressure_source="context",
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
     )
 
 
 @router.post("/tokens/files")
 async def file_tokens(payload: FileTokensRequest) -> dict[str, Any]:
     runtime = require_runtime()
+    return await asyncio.to_thread(_file_tokens_payload, runtime, payload)
 
+
+def _compact_session_payload(
+    runtime: Any,
+    *,
+    session_id: str,
+    mode: Literal["preview", "run"],
+    pressure_level: Literal["auto", "microcompact", "full_compact"],
+    reason: str,
+    reserved_output_tokens: int,
+    pressure_source: Literal["context", "history"],
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> dict[str, Any]:
+    assert_optional_session_scope(
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return compact_session_history(
+        runtime,
+        session_id=session_id,
+        mode=mode,
+        pressure_level=pressure_level,
+        reason=reason,
+        reserved_output_tokens=reserved_output_tokens,
+        pressure_source=pressure_source,
+    )
+
+
+def _file_tokens_payload(runtime: Any, payload: FileTokensRequest) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     total = 0
     for relative_path in payload.paths:

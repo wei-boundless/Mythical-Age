@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -226,22 +227,14 @@ async def read_file(
     task_environment_id: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=240),
 ) -> dict[str, str]:
-    file_path = _resolve_path(
-        path,
-        for_write=False,
+    return await asyncio.to_thread(
+        _read_file_payload,
+        path=path,
         session_id=session_id,
         workspace_view=workspace_view,
         task_environment_id=task_environment_id,
         project_id=project_id,
     )
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    if not file_path.is_file():
-        raise HTTPException(status_code=400, detail="Path is not a file")
-    return {
-        "path": path.replace("\\", "/"),
-        "content": _read_text_with_fallback(file_path),
-    }
 
 
 @router.post("/files")
@@ -298,6 +291,36 @@ def _session_project_root(
 @router.get("/skills")
 async def list_skills() -> list[dict[str, Any]]:
     runtime = require_runtime()
+    return await asyncio.to_thread(_list_skills_payload, runtime)
+
+
+def _read_file_payload(
+    *,
+    path: str,
+    session_id: str | None,
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> dict[str, str]:
+    file_path = _resolve_path(
+        path,
+        for_write=False,
+        session_id=session_id,
+        workspace_view=workspace_view,
+        task_environment_id=task_environment_id,
+        project_id=project_id,
+    )
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not file_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+    return {
+        "path": path.replace("\\", "/"),
+        "content": _read_text_with_fallback(file_path),
+    }
+
+
+def _list_skills_payload(runtime: Any) -> list[dict[str, Any]]:
     return [skill.__dict__ for skill in scan_skills(runtime.base_dir)]
 
 
