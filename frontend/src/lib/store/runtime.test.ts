@@ -22,10 +22,12 @@ const api = vi.hoisted(() => ({
   getOrchestrationRuntimeOptions: vi.fn(),
   approveOrchestrationHarnessTaskRunToolCall: vi.fn(),
   pauseOrchestrationHarnessTaskRun: vi.fn(),
+  pauseGraphRun: vi.fn(),
   clearChatStreamCursor: vi.fn(),
   getPermissionMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
   resumeOrchestrationHarnessTaskRun: vi.fn(),
+  resumeGraphRun: vi.fn(),
   submitGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
   setSessionPermissionMode: vi.fn(),
@@ -79,10 +81,12 @@ vi.mock("@/lib/api", () => ({
   getOrchestrationRuntimeOptions: api.getOrchestrationRuntimeOptions,
   approveOrchestrationHarnessTaskRunToolCall: api.approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
+  pauseGraphRun: api.pauseGraphRun,
   clearChatStreamCursor: api.clearChatStreamCursor,
   getPermissionMode: api.getPermissionMode,
   readChatStreamCursor: api.readChatStreamCursor,
   resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
+  resumeGraphRun: api.resumeGraphRun,
   setSessionActiveTaskEnvironment: api.setSessionActiveTaskEnvironment,
   setSessionPermissionMode: api.setSessionPermissionMode,
   setPermissionMode: api.setPermissionMode,
@@ -595,11 +599,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getLatestChatRunForSession.mockRejectedValue(new Error("no active chat run"));
     api.pauseOrchestrationHarnessTaskRun.mockReset();
     api.pauseOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.pauseGraphRun.mockReset();
+    api.pauseGraphRun.mockResolvedValue({ ok: true, accepted: true });
     api.approveOrchestrationHarnessTaskRunToolCall.mockReset();
     api.approveOrchestrationHarnessTaskRunToolCall.mockResolvedValue({ ok: true });
     api.clearChatStreamCursor.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockReset();
     api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.resumeGraphRun.mockReset();
+    api.resumeGraphRun.mockResolvedValue({ ok: true, accepted: true });
     api.submitGraphRunUntilIdle.mockReset();
     api.submitGraphRunUntilIdle.mockResolvedValue({ accepted: true, background_started: true });
     api.stopOrchestrationHarnessTaskRun.mockReset();
@@ -1605,7 +1613,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
-  it("pauses a bound GraphRun through its owning root TaskRun", async () => {
+  it("pauses a bound GraphRun through graph run control", async () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       taskGraphAutoAdvanceEnabled: true,
@@ -1630,7 +1638,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.pauseBoundTaskGraphRun();
 
-    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", "user_pause_graph_run", "");
+    expect(api.pauseGraphRun).toHaveBeenCalledWith("grun:graph-master", {
+      graph_harness_config_id: "ghcfg:graph-master",
+      session_scope: undefined,
+      reason: "user_pause_graph_run",
+    });
     expect(store.getState().taskGraphAutoAdvanceEnabled).toBe(false);
     expect(store.getState().taskGraphAutoAdvancePending).toBe(false);
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
@@ -1664,7 +1676,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.continueBoundTaskGraphRun();
 
-    expect(api.resumeOrchestrationHarnessTaskRun).not.toHaveBeenCalled();
+    expect(api.resumeGraphRun).not.toHaveBeenCalled();
     expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
       graph_harness_config_id: "ghcfg:graph-master",
       session_scope: {
@@ -1680,7 +1692,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
-  it("resumes the root TaskRun before continuing a paused GraphRun", async () => {
+  it("resumes graph run control before continuing a paused GraphRun", async () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       taskGraphMonitorBinding: {
@@ -1707,7 +1719,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.continueBoundTaskGraphRun();
 
-    expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", 12, "");
+    expect(api.resumeGraphRun).toHaveBeenCalledWith("grun:graph-master", {
+      graph_harness_config_id: "ghcfg:graph-master",
+      session_scope: undefined,
+      reason: "run_monitor_continue_graph_run",
+    });
     expect(api.submitGraphRunUntilIdle).toHaveBeenCalledWith("grun:graph-master", {
       graph_harness_config_id: "ghcfg:graph-master",
       session_scope: undefined,
@@ -1716,7 +1732,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       max_dispatches: 1,
       max_dispatch_requests: 1,
     });
-    expect(api.resumeOrchestrationHarnessTaskRun.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(api.resumeGraphRun.mock.invocationCallOrder[0]).toBeLessThan(
       api.submitGraphRunUntilIdle.mock.invocationCallOrder[0],
     );
   });

@@ -16,8 +16,10 @@ import {
   getOrchestrationHarnessSessionLiveMonitor,
   approveOrchestrationHarnessTaskRunToolCall,
   pauseOrchestrationHarnessTaskRun,
+  pauseGraphRun,
   getPermissionMode,
   resumeOrchestrationHarnessTaskRun,
+  resumeGraphRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
   setSessionPermissionMode,
@@ -3970,11 +3972,17 @@ export class WorkspaceRuntime {
   }
 
   private async pauseBoundTaskGraphRun() {
-    const taskRunId = this.boundTaskGraphRunTaskRunId();
-    if (!taskRunId) {
+    const state = this.store.getState();
+    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
+    const graphConfig = monitor?.graph_harness_config && typeof monitor.graph_harness_config === "object" && !Array.isArray(monitor.graph_harness_config)
+      ? monitor.graph_harness_config as Record<string, unknown>
+      : {};
+    const graphRunId = String(state.taskGraphMonitorBinding?.graph_run_id || monitor?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(state.taskGraphMonitorBinding?.graph_harness_config_id || graphConfig.config_id || graphConfig.graph_harness_config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorError: "当前 GraphRun 没有关联可暂停的 TaskRun。",
+        taskGraphMonitorError: "当前 GraphRun 缺少可暂停的图运行绑定。",
       }));
       return;
     }
@@ -3986,7 +3994,11 @@ export class WorkspaceRuntime {
       taskGraphMonitorError: "",
     }));
     try {
-      await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_graph_run", "");
+      await pauseGraphRun(graphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        session_scope: state.taskGraphMonitorBinding?.session_scope,
+        reason: "user_pause_graph_run",
+      });
       await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
       await this.refreshRunMonitor();
     } catch (error) {
@@ -4055,6 +4067,44 @@ export class WorkspaceRuntime {
     ).trim();
   }
 
+  private boundTaskGraphRunControlState() {
+    const state = this.store.getState();
+    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
+    const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
+      ? monitor.task_run as Record<string, unknown>
+      : {};
+    const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
+      ? monitor.task_run_monitor
+      : monitor?.runtime_monitor && typeof monitor.runtime_monitor === "object" && !Array.isArray(monitor.runtime_monitor)
+        ? monitor.runtime_monitor
+        : {}) as Record<string, unknown>;
+    const monitorControl = taskRunMonitor.runtime_control && typeof taskRunMonitor.runtime_control === "object" && !Array.isArray(taskRunMonitor.runtime_control)
+      ? taskRunMonitor.runtime_control as Record<string, unknown>
+      : {};
+    const taskRunDiagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+      ? taskRun.diagnostics as Record<string, unknown>
+      : {};
+    const taskControl = taskRunDiagnostics.runtime_control && typeof taskRunDiagnostics.runtime_control === "object" && !Array.isArray(taskRunDiagnostics.runtime_control)
+      ? taskRunDiagnostics.runtime_control as Record<string, unknown>
+      : {};
+    const graphRun = monitor?.graph_run && typeof monitor.graph_run === "object" && !Array.isArray(monitor.graph_run)
+      ? monitor.graph_run as Record<string, unknown>
+      : {};
+    const graphDiagnostics = graphRun.diagnostics && typeof graphRun.diagnostics === "object" && !Array.isArray(graphRun.diagnostics)
+      ? graphRun.diagnostics as Record<string, unknown>
+      : {};
+    const graphControl = graphDiagnostics.runtime_control && typeof graphDiagnostics.runtime_control === "object" && !Array.isArray(graphDiagnostics.runtime_control)
+      ? graphDiagnostics.runtime_control as Record<string, unknown>
+      : {};
+    return String(
+      taskRunMonitor.control_state
+      || monitorControl.state
+      || taskControl.state
+      || graphControl.state
+      || ""
+    ).trim();
+  }
+
   private async resumeTaskGraphRun(taskGraphRunId: string, payload?: Record<string, unknown>) {
     const runId = taskGraphRunId.trim();
     if (!runId) {
@@ -4067,6 +4117,16 @@ export class WorkspaceRuntime {
     ).trim();
     if (!graphHarnessConfigId) {
       throw new Error("新 GraphHarness 派发需要 graph_harness_config_id。");
+    }
+    const controlState = this.boundTaskGraphRunControlState().toLowerCase();
+    if (controlState === "paused") {
+      await resumeGraphRun(runId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        session_scope: this.store.getState().taskGraphMonitorBinding?.session_scope,
+        reason: "task_graph_interaction_resume",
+      });
+    } else if (controlState === "pause_requested" || controlState === "stop_requested") {
+      throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
     }
     await submitGraphRunUntilIdle(runId, {
       graph_harness_config_id: graphHarnessConfigId,

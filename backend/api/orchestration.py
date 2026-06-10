@@ -54,13 +54,6 @@ class GraphRunDispatchReadyRequest(BaseModel):
     max_requests: int = Field(default=1, ge=1, le=32)
 
 
-class GraphRunResumeRequest(BaseModel):
-    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
-    session_scope: dict[str, Any] | None = None
-    dispatch_ready: bool = True
-    max_requests: int | None = Field(default=None, ge=1, le=32)
-
-
 class GraphRunRequeueNodesRequest(BaseModel):
     graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
@@ -340,34 +333,6 @@ async def delete_graph_task_run(graph_run_id: str, payload: GraphRunDeleteReques
         return manager.preview_delete_graph_run(graph_run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/orchestration/harness/graph-runs/{graph_run_id}/resume")
-async def resume_graph_run(
-    graph_run_id: str,
-    payload: GraphRunResumeRequest,
-) -> dict[str, Any]:
-    runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
-    if graph_config is None:
-        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
-    _assert_graph_run_scope(
-        runtime=runtime,
-        graph_run_id=graph_run_id,
-        graph_harness_config_id=graph_config.config_id,
-        graph_config=graph_config,
-        session_scope=payload.session_scope,
-    )
-    try:
-        result = runtime.harness_runtime.graph_harness.resume_run(
-            graph_config=graph_config,
-            graph_run_id=graph_run_id,
-            dispatch_ready=payload.dispatch_ready,
-            max_requests=payload.max_requests,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return result.to_dict()
 
 
 @router.post("/orchestration/harness/graph-runs/{graph_run_id}/dispatch-ready")

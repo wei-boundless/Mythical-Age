@@ -696,10 +696,31 @@ function graphTaskControlState(monitor: GraphRunMonitorView | null) {
       : {}) as Record<string, unknown>;
   const runtimeControl = taskRunMonitor.runtime_control && typeof taskRunMonitor.runtime_control === "object" && !Array.isArray(taskRunMonitor.runtime_control)
     ? taskRunMonitor.runtime_control as Record<string, unknown>
+    : {};
+  const taskRunDiagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+    ? taskRun.diagnostics as Record<string, unknown>
+    : {};
+  const taskRuntimeControl = taskRunDiagnostics.runtime_control && typeof taskRunDiagnostics.runtime_control === "object" && !Array.isArray(taskRunDiagnostics.runtime_control)
+    ? taskRunDiagnostics.runtime_control as Record<string, unknown>
     : taskRun.runtime_control && typeof taskRun.runtime_control === "object" && !Array.isArray(taskRun.runtime_control)
       ? taskRun.runtime_control as Record<string, unknown>
       : {};
-  return String(taskRunMonitor.control_state || runtimeControl.state || "").trim();
+  const graphRun = monitor?.graph_run && typeof monitor.graph_run === "object" && !Array.isArray(monitor.graph_run)
+    ? monitor.graph_run as Record<string, unknown>
+    : {};
+  const graphRunDiagnostics = graphRun.diagnostics && typeof graphRun.diagnostics === "object" && !Array.isArray(graphRun.diagnostics)
+    ? graphRun.diagnostics as Record<string, unknown>
+    : {};
+  const graphRuntimeControl = graphRunDiagnostics.runtime_control && typeof graphRunDiagnostics.runtime_control === "object" && !Array.isArray(graphRunDiagnostics.runtime_control)
+    ? graphRunDiagnostics.runtime_control as Record<string, unknown>
+    : {};
+  return String(
+    taskRunMonitor.control_state
+    || runtimeControl.state
+    || taskRuntimeControl.state
+    || graphRuntimeControl.state
+    || ""
+  ).trim();
 }
 
 function runMonitorErrorMessage(error: unknown, fallback: string) {

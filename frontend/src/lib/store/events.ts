@@ -2044,14 +2044,13 @@ export function reduceStreamEvent(
       };
     }
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
-    const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) =>
         ({
           ...message,
           ...answerMetadata,
-          stageStatus: publicProjectionEnvelope ? message.stageStatus : taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "部分完成" : "",
+          stageStatus: publicProjectionEnvelope ? message.stageStatus : partialTimeout ? "部分完成" : "",
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
@@ -2067,17 +2066,8 @@ export function reduceStreamEvent(
   }
 
   if (event === "active_task_steer_accepted") {
-    if (publicProjectionEnvelope) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession
-      };
-    }
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
-        ...message,
-        stageStatus: activeTaskSteerTitle(data),
-      })),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }
