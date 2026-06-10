@@ -237,6 +237,8 @@ export type PublicChatTimelineItem = {
   surface?: "assistant_body" | "body" | "tool_window" | "status_bar" | "status" | "timeline" | "control" | string;
   source_authority?: "model" | "runtime" | "tool" | "system" | string;
   action_kind?: "inspect" | "read" | "search" | "edit" | "write" | "run" | "verify" | "memory" | "prepare" | "artifact" | "browse" | "image" | "work" | string;
+  tool_call_id?: string;
+  tool_name?: string;
   phase?: "running" | "done" | "adjusting" | string;
   phase_ref?: string;
   subject_label?: string;

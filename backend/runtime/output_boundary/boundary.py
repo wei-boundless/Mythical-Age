@@ -378,9 +378,7 @@ class CanonicalFinalTextDecision:
 
 _DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
     "active_work_control",
-    "ask_user",
     "task_control",
-    "blocked",
     "orchestration_fail_closed",
     "runtime_control",
 }
@@ -574,8 +572,6 @@ class AssistantOutputBoundary:
             self._add_flag("internal_protocol_ai_update")
         if contains_inline_pseudo_tool_call(text):
             self._add_flag("inline_pseudo_tool_call_ai_update")
-        if has_tool_calls:
-            return
         sanitized = sanitize_visible_assistant_content(text)
         if sanitized and len(sanitized) >= len(self._current.ai_update_visible_text):
             self._current.ai_update_visible_text = sanitized

@@ -18,7 +18,7 @@ import {
   publicProjectionEnvelopeSuppressesLegacy,
 } from "@/lib/projection/reducer";
 
-import type { ActiveTurnState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
+import type { ActiveTurnState, AssistantTextSegmentState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
   makeId
 } from "./utils";
@@ -176,8 +176,6 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     || event === "assistant_text_delta"
     || event === "assistant_text_final"
     || event === "assistant_stream_repair"
-    || event === "answer_candidate"
-    || event === "assistant_text"
     || event === "output_boundary"
   ) {
     return "";
@@ -410,6 +408,155 @@ function assistantStreamContentForEvent(event: string, data: Record<string, unkn
   return "";
 }
 
+function assistantBodySegmentId(data: Record<string, unknown>) {
+  return stringValue(data.body_segment_id)
+    || stringValue(data.segment_id)
+    || stringValue(data.stream_ref)
+    || stringValue(data.message_ref)
+    || "assistant-body";
+}
+
+function assistantBodySegmentRole(data: Record<string, unknown>) {
+  return stringValue(data.segment_role)
+    || stringValue(data.answer_channel)
+    || "conversation";
+}
+
+function assistantBodySequence(
+  current: AssistantTextStreamState | undefined,
+  segmentId: string,
+  data: Record<string, unknown>,
+) {
+  const explicit = numberValue(data.body_sequence);
+  if (explicit > 0) {
+    return explicit;
+  }
+  const existing = current?.segmentsById?.[segmentId]?.bodySequence;
+  if (existing && existing > 0) {
+    return existing;
+  }
+  return (current?.orderedSegmentIds?.length ?? 0) + 1;
+}
+
+function assistantTextSegments(current: AssistantTextStreamState | undefined): Record<string, AssistantTextSegmentState> {
+  if (!current) {
+    return {};
+  }
+  if (current.segmentsById) {
+    return current.segmentsById;
+  }
+  if (!current.canonicalContent) {
+    return {};
+  }
+  const segmentId = current.streamRef || current.messageRef || "assistant-body";
+  return {
+    [segmentId]: {
+      segmentId,
+      messageRef: current.messageRef,
+      streamRef: current.streamRef,
+      bodySequence: 1,
+      segmentRole: "conversation",
+      latestSequence: current.latestSequence,
+      canonicalContent: current.canonicalContent,
+      canonicalContentSha256: current.canonicalContentSha256,
+      accumulatedUtf8Bytes: current.accumulatedUtf8Bytes,
+      finalReceived: current.finalReceived,
+      terminal: current.terminal,
+      repairState: current.repairState,
+      displayHintsBySequence: current.displayHintsBySequence,
+    },
+  };
+}
+
+function assistantTextOrderedSegmentIds(
+  current: AssistantTextStreamState | undefined,
+  segments: Record<string, AssistantTextSegmentState>,
+) {
+  const ordered = (current?.orderedSegmentIds ?? []).filter((id) => Boolean(segments[id]));
+  for (const segmentId of Object.keys(segments)) {
+    if (!ordered.includes(segmentId)) {
+      ordered.push(segmentId);
+    }
+  }
+  return ordered.sort((left, right) => {
+    const leftSequence = segments[left]?.bodySequence ?? 0;
+    const rightSequence = segments[right]?.bodySequence ?? 0;
+    if (leftSequence !== rightSequence) {
+      return leftSequence - rightSequence;
+    }
+    return ordered.indexOf(left) - ordered.indexOf(right);
+  });
+}
+
+function composeAssistantBodyContent(
+  orderedSegmentIds: string[],
+  segments: Record<string, AssistantTextSegmentState>,
+) {
+  return orderedSegmentIds
+    .map((segmentId) => segments[segmentId]?.canonicalContent ?? "")
+    .map((content) => content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function assistantStreamRepairState(segments: Record<string, AssistantTextSegmentState>) {
+  const states = Object.values(segments).map((segment) => segment.repairState);
+  if (states.includes("pending")) return "pending";
+  if (states.includes("failed")) return "failed";
+  if (states.includes("applied")) return "applied";
+  return "none";
+}
+
+function assistantTextStreamStateFromSegments(
+  current: AssistantTextStreamState | undefined,
+  assistantId: string,
+  segments: Record<string, AssistantTextSegmentState>,
+) {
+  const orderedSegmentIds = assistantTextOrderedSegmentIds(current, segments);
+  const canonicalContent = composeAssistantBodyContent(orderedSegmentIds, segments);
+  const lastSegment = segments[orderedSegmentIds[orderedSegmentIds.length - 1]];
+  const allSegments = Object.values(segments);
+  const finalReceived = allSegments.some((segment) => segment.finalReceived);
+  return {
+    messageId: assistantId,
+    messageRef: lastSegment?.messageRef || current?.messageRef || "",
+    streamRef: lastSegment?.streamRef || current?.streamRef || "",
+    latestSequence: Math.max(0, ...allSegments.map((segment) => segment.latestSequence)),
+    canonicalContent,
+    canonicalContentSha256: lastSegment?.canonicalContentSha256 || current?.canonicalContentSha256 || "",
+    accumulatedUtf8Bytes: utf8ByteLength(canonicalContent),
+    finalReceived,
+    terminal: finalReceived && allSegments.every((segment) => segment.finalReceived),
+    repairState: assistantStreamRepairState(segments),
+    displayHintsBySequence: current?.displayHintsBySequence ?? {},
+    orderedSegmentIds,
+    segmentsById: segments,
+  } satisfies AssistantTextStreamState;
+}
+
+function applyAssistantTextStreamState(
+  state: StoreState,
+  assistantId: string,
+  streamState: AssistantTextStreamState,
+  options: { patchContent?: boolean; metadata?: Partial<Message> } = {},
+) {
+  const withStream = {
+    ...state,
+    assistantTextStreamsByMessageId: {
+      ...state.assistantTextStreamsByMessageId,
+      [assistantId]: streamState,
+    },
+  };
+  if (options.patchContent === false) {
+    return withStream;
+  }
+  return patchAssistant(withStream, assistantId, (message) => ({
+    ...message,
+    ...(options.metadata ?? {}),
+    content: streamState.canonicalContent,
+  }));
+}
+
 function mergeAssistantTextDeltaEvent(
   state: StoreState,
   assistantId: string,
@@ -421,14 +568,19 @@ function mergeAssistantTextDeltaEvent(
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
-  if (current && sequence <= current.latestSequence) {
+  const segmentId = assistantBodySegmentId(data);
+  const segments = assistantTextSegments(current);
+  const currentSegment = segments[segmentId];
+  if (currentSegment && sequence <= currentSegment.latestSequence) {
     return state;
   }
-  if (!current && sequence !== 1) {
-    const streamState: AssistantTextStreamState = {
-      messageId: assistantId,
-      messageRef: stringValue(data.message_ref),
-      streamRef: stringValue(data.stream_ref),
+  if (!currentSegment && sequence !== 1) {
+    const pendingSegment: AssistantTextSegmentState = {
+      segmentId,
+      messageRef: stringValue(data.message_ref) || current?.messageRef || "",
+      streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+      bodySequence: assistantBodySequence(current, segmentId, data),
+      segmentRole: assistantBodySegmentRole(data),
       latestSequence: 0,
       canonicalContent: "",
       canonicalContentSha256: "",
@@ -438,27 +590,28 @@ function mergeAssistantTextDeltaEvent(
       repairState: "pending",
       displayHintsBySequence: {},
     };
-    return {
-      ...state,
-      assistantTextStreamsByMessageId: {
-        ...state.assistantTextStreamsByMessageId,
-        [assistantId]: streamState,
-      },
-    };
+    const streamState = assistantTextStreamStateFromSegments(
+      current,
+      assistantId,
+      { ...segments, [segmentId]: pendingSegment },
+    );
+    return applyAssistantTextStreamState(state, assistantId, streamState, { patchContent: false });
   }
-  if (current && sequence !== current.latestSequence + 1) {
-    return {
-      ...state,
-      assistantTextStreamsByMessageId: {
-        ...state.assistantTextStreamsByMessageId,
-        [assistantId]: {
-          ...current,
+  if (currentSegment && sequence !== currentSegment.latestSequence + 1) {
+    const streamState = assistantTextStreamStateFromSegments(
+      current,
+      assistantId,
+      {
+        ...segments,
+        [segmentId]: {
+          ...currentSegment,
           repairState: "pending",
         },
       },
-    };
+    );
+    return applyAssistantTextStreamState(state, assistantId, streamState, { patchContent: false });
   }
-  const previousContent = current?.canonicalContent ?? "";
+  const previousContent = currentSegment?.canonicalContent ?? "";
   const expectedStart = optionalNumberValue(data.content_utf8_start);
   const canonicalContent = `${previousContent}${content}`;
   const previousUtf8Bytes = utf8ByteLength(previousContent);
@@ -472,34 +625,33 @@ function mergeAssistantTextDeltaEvent(
     || (reportedEnd !== null && reportedEnd !== canonicalUtf8Bytes)
     || (reportedContentBytes !== null && reportedContentBytes !== contentUtf8Bytes)
     || (reportedAccumulatedBytes !== null && reportedAccumulatedBytes !== canonicalUtf8Bytes);
-  const repairState = hasOffsetMismatch ? "pending" : current?.repairState ?? "none";
-  const streamState: AssistantTextStreamState = {
-    messageId: assistantId,
-    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
+  const repairState = hasOffsetMismatch ? "pending" : currentSegment?.repairState ?? "none";
+  const segmentState: AssistantTextSegmentState = {
+    segmentId,
+    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
+    bodySequence: assistantBodySequence(current, segmentId, data),
+    segmentRole: assistantBodySegmentRole(data),
     latestSequence: sequence,
     canonicalContent,
-    canonicalContentSha256: stringValue(data.accumulated_sha256) || current?.canonicalContentSha256 || "",
+    canonicalContentSha256: stringValue(data.accumulated_sha256) || currentSegment?.canonicalContentSha256 || "",
     accumulatedUtf8Bytes: hasOffsetMismatch ? canonicalUtf8Bytes : reportedAccumulatedBytes ?? canonicalUtf8Bytes,
     finalReceived: false,
     terminal: false,
     repairState,
     displayHintsBySequence: {
-      ...(current?.displayHintsBySequence ?? {}),
+      ...(currentSegment?.displayHintsBySequence ?? {}),
       [sequence]: recordValue(data.display_hint),
     },
   };
-  const withStream = {
-    ...state,
-    assistantTextStreamsByMessageId: {
-      ...state.assistantTextStreamsByMessageId,
-      [assistantId]: streamState,
-    },
-  };
-  if (!state.chatStreamDisplayEnabled) {
-    return withStream;
-  }
-  return patchAssistant(withStream, assistantId, (message) => ({ ...message, content: canonicalContent }));
+  const streamState = assistantTextStreamStateFromSegments(
+    current,
+    assistantId,
+    { ...segments, [segmentId]: segmentState },
+  );
+  return applyAssistantTextStreamState(state, assistantId, streamState, {
+    patchContent: state.chatStreamDisplayEnabled,
+  });
 }
 
 function mergeAssistantTextFinalEvent(
@@ -510,31 +662,32 @@ function mergeAssistantTextFinalEvent(
   const content = rawStringValue(data.content);
   const sequence = numberValue(data.sequence);
   const current = state.assistantTextStreamsByMessageId[assistantId];
-  const streamState: AssistantTextStreamState = {
-    messageId: assistantId,
-    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
-    latestSequence: Math.max(sequence, current?.latestSequence ?? 0),
+  const segmentId = assistantBodySegmentId(data);
+  const segments = assistantTextSegments(current);
+  const currentSegment = segments[segmentId];
+  const segmentState: AssistantTextSegmentState = {
+    segmentId,
+    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
+    bodySequence: assistantBodySequence(current, segmentId, data),
+    segmentRole: assistantBodySegmentRole(data),
+    latestSequence: Math.max(sequence, currentSegment?.latestSequence ?? 0),
     canonicalContent: content,
-    canonicalContentSha256: stringValue(data.content_sha256) || current?.canonicalContentSha256 || "",
+    canonicalContentSha256: stringValue(data.content_sha256) || currentSegment?.canonicalContentSha256 || "",
     accumulatedUtf8Bytes: optionalNumberValue(data.content_utf8_bytes) ?? utf8ByteLength(content),
     finalReceived: true,
     terminal: true,
-    repairState: current?.repairState === "pending" ? "applied" : current?.repairState ?? "none",
-    displayHintsBySequence: current?.displayHintsBySequence ?? {},
+    repairState: currentSegment?.repairState === "pending" ? "applied" : currentSegment?.repairState ?? "none",
+    displayHintsBySequence: currentSegment?.displayHintsBySequence ?? {},
   };
-  const withStream = {
-    ...state,
-    assistantTextStreamsByMessageId: {
-      ...state.assistantTextStreamsByMessageId,
-      [assistantId]: streamState,
-    },
-  };
-  return patchAssistant(withStream, assistantId, (message) => ({
-    ...message,
-    ...answerMetadataFromEvent(data),
-    content,
-  }));
+  const streamState = assistantTextStreamStateFromSegments(
+    current,
+    assistantId,
+    { ...segments, [segmentId]: segmentState },
+  );
+  return applyAssistantTextStreamState(state, assistantId, streamState, {
+    metadata: answerMetadataFromEvent(data),
+  });
 }
 
 function mergeAssistantStreamRepairEvent(
@@ -547,31 +700,33 @@ function mergeAssistantStreamRepairEvent(
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
+  const segmentId = assistantBodySegmentId(data);
+  const segments = assistantTextSegments(current);
+  const currentSegment = segments[segmentId];
   const repairSequence = numberValue(data.repair_sequence);
-  const streamState: AssistantTextStreamState = {
-    messageId: assistantId,
-    messageRef: stringValue(data.message_ref) || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
-    latestSequence: Math.max(repairSequence, current?.latestSequence ?? 0),
+  const segmentState: AssistantTextSegmentState = {
+    segmentId,
+    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
+    bodySequence: assistantBodySequence(current, segmentId, data),
+    segmentRole: assistantBodySegmentRole(data),
+    latestSequence: Math.max(repairSequence, currentSegment?.latestSequence ?? 0),
     canonicalContent: replacement,
-    canonicalContentSha256: stringValue(data.replacement_content_sha256) || current?.canonicalContentSha256 || "",
+    canonicalContentSha256: stringValue(data.replacement_content_sha256) || currentSegment?.canonicalContentSha256 || "",
     accumulatedUtf8Bytes: utf8ByteLength(replacement),
-    finalReceived: current?.finalReceived ?? false,
-    terminal: current?.terminal ?? false,
+    finalReceived: currentSegment?.finalReceived ?? false,
+    terminal: currentSegment?.terminal ?? false,
     repairState: "applied",
-    displayHintsBySequence: current?.displayHintsBySequence ?? {},
+    displayHintsBySequence: currentSegment?.displayHintsBySequence ?? {},
   };
-  const withStream = {
-    ...state,
-    assistantTextStreamsByMessageId: {
-      ...state.assistantTextStreamsByMessageId,
-      [assistantId]: streamState,
-    },
-  };
-  if (!state.chatStreamDisplayEnabled && !streamState.finalReceived) {
-    return withStream;
-  }
-  return patchAssistant(withStream, assistantId, (message) => ({ ...message, content: replacement }));
+  const streamState = assistantTextStreamStateFromSegments(
+    current,
+    assistantId,
+    { ...segments, [segmentId]: segmentState },
+  );
+  return applyAssistantTextStreamState(state, assistantId, streamState, {
+    patchContent: state.chatStreamDisplayEnabled || streamState.finalReceived,
+  });
 }
 
 function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>): PublicChatTimelineItem | null {
@@ -1047,7 +1202,7 @@ function eventNodeId(event: string) {
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "answer_candidate" || event === "assistant_text" || event === "debug") {
+  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
@@ -1157,8 +1312,6 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 
 function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
-    answer_candidate: "正在整理回答",
-    assistant_text: "正在整理回答",
     assistant_text_delta: "正在生成回答",
     assistant_text_final: "正在整理回答",
     assistant_stream_repair: "正在校准回答",
@@ -1333,7 +1486,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "answer_candidate", "assistant_text", "done", TURN_COMPLETED_EVENT].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "done", TURN_COMPLETED_EVENT].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }

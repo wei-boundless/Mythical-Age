@@ -10,18 +10,15 @@ type VisibilityOptions = {
   defaultVisible?: boolean;
 };
 
-const CANONICAL_TEXT_STATES = new Set(["stable_answer", "tool_summary"]);
+const CANONICAL_TEXT_STATES = new Set(["stable_answer", "stable_feedback", "tool_summary", "needs_user", "blocked"]);
 const IMAGE_TEXT_STATES = new Set(["complete", "stable_answer"]);
 const NON_PUBLIC_STATES = new Set(["missing_answer", "progress_only", "unstable_answer"]);
 const NON_PUBLIC_POLICIES = new Set(["do_not_persist", "persist_debug_only"]);
 const CONTROL_CHANNELS = new Set([
   "active_work_control",
-  "ask_user",
-  "blocked",
   "fallback_answer",
   "orchestration_fail_closed",
   "runtime_control",
-  "stage_feedback",
   "task_control",
 ]);
 
@@ -71,9 +68,6 @@ export function isNonPublicAssistantContent(metadata: AssistantContentMetadata) 
     return true;
   }
   if (CONTROL_CHANNELS.has(channel)) {
-    return true;
-  }
-  if (source.includes("protocol_error")) {
     return true;
   }
   if (policy && policy !== "persist_canonical") {

@@ -75,6 +75,24 @@ export type AssistantTextStreamState = {
   terminal: boolean;
   repairState: "none" | "pending" | "applied" | "failed";
   displayHintsBySequence: Record<number, Record<string, unknown>>;
+  orderedSegmentIds?: string[];
+  segmentsById?: Record<string, AssistantTextSegmentState>;
+};
+
+export type AssistantTextSegmentState = {
+  segmentId: string;
+  messageRef: string;
+  streamRef: string;
+  bodySequence: number;
+  segmentRole: string;
+  latestSequence: number;
+  canonicalContent: string;
+  canonicalContentSha256: string;
+  accumulatedUtf8Bytes: number;
+  finalReceived: boolean;
+  terminal: boolean;
+  repairState: "none" | "pending" | "applied" | "failed";
+  displayHintsBySequence: Record<number, Record<string, unknown>>;
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";

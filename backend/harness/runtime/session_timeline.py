@@ -96,7 +96,6 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
     anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
-    assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
     task_projection = build_single_agent_task_projection(
         runtime_host,
@@ -114,7 +113,6 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         task_run_id=task_run_id,
         final_answer=final_answer,
         status=str(getattr(task_run, "status", "") or ""),
-        assistant_text=assistant_text,
         limit=max_timeline_items,
     )
     public_timeline = _merge_public_timeline(
@@ -162,7 +160,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
-    assistant_text = str(anchor_message.get("content") or "") if anchor_message else ""
     status = str(getattr(turn_run, "status", "") or "")
     terminal_reason = str(getattr(turn_run, "terminal_reason", "") or "")
     public_timeline = project_public_timeline_from_events(
@@ -171,7 +168,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         run_id=turn_run_id,
         turn_run_id=turn_run_id,
         final_answer="",
-        assistant_text="",
         status=status,
         limit=max_timeline_items,
     )

@@ -88,7 +88,6 @@ def project_public_timeline_from_events(
     turn_run_id: str = "",
     final_answer: str = "",
     status: str = "",
-    assistant_text: str = "",
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
@@ -115,7 +114,6 @@ def build_public_chat_timeline(
     artifact_refs: list[Any] | None = None,
     status: str = "",
     terminal_reason: str = "",
-    assistant_text: str = "",
 ) -> list[dict[str, Any]]:
     presentation = record(progress_presentation)
     units = [record(item) for item in list(presentation.get("work_units") or []) if isinstance(item, dict)]
@@ -229,8 +227,6 @@ def public_todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:
 def _public_event_type(event_type: str, event: dict[str, Any]) -> str:
     if event_type == "agent_turn_terminal" and _is_internal_turn_terminal(event):
         return ""
-    if event_type == "assistant_text":
-        return "assistant_text"
     if event_type in {"model_action_request_received", "model_action_admission_checked"}:
         return "model_action_admission"
     if event_type == "step_summary_recorded":
@@ -281,14 +277,6 @@ def _public_event_data(*, public_event_type: str, event: dict[str, Any], monitor
         }
     if public_event_type == "runtime_status":
         return {**base, **_runtime_status_data(event)}
-    if public_event_type == "assistant_text":
-        return {
-            **base,
-            "content": payload.get("content") or payload.get("text") or payload.get("answer"),
-            "answer_channel": payload.get("answer_channel"),
-            "answer_source": payload.get("answer_source"),
-            "answer_canonical_state": payload.get("answer_canonical_state"),
-        }
     if public_event_type in {"done", "error", "stopped"}:
         return {**base, **_terminal_data(event, public_event_type=public_event_type)}
     if public_event_type == "active_task_steer_accepted":

@@ -233,8 +233,7 @@ function orderActivityEntries({
   const timelineFeedback = timelineEntries.filter((entry) => entry.kind !== "tool");
   const timelineTools = timelineEntries.filter((entry) => entry.kind === "tool");
   const projectionFeedback = projectionEntries.filter((entry) => entry.kind !== "tool");
-  const projectionTools = projectionEntries.filter((entry) => entry.kind === "tool");
-  return [...timelineFeedback, ...projectionFeedback, ...timelineTools, ...projectionTools];
+  return [...timelineFeedback, ...projectionFeedback, ...timelineTools];
 }
 
 function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {

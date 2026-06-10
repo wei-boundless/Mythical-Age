@@ -13,7 +13,7 @@ TYPED_ASSISTANT_STREAM_EVENTS = {
     "assistant_text_final",
     "assistant_stream_repair",
 }
-MODEL_BODY_LEGACY_EVENTS = {"assistant_text", "answer_candidate", "done"}
+DEPRECATED_NON_CONTRACT_EVENTS = {"assistant_text", "answer_candidate", "done"}
 LIVE_TOOL_LEGACY_EVENTS = {
     "model_action_admission",
     "turn_tool_observation_recorded",
@@ -77,7 +77,7 @@ def projection_items_for_event(public_event_type: str, data: dict[str, Any]) -> 
         not event_type
         or event_type in TYPED_ASSISTANT_STREAM_EVENTS
         or event_type in LOSSLESS_PUBLIC_EVENTS
-        or event_type in MODEL_BODY_LEGACY_EVENTS
+        or event_type in DEPRECATED_NON_CONTRACT_EVENTS
         or event_type in LIVE_TOOL_LEGACY_EVENTS
     ):
         return []

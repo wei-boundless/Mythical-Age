@@ -122,6 +122,10 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "visibility",
         "markdown_state",
         "display_hint",
+        "body_segment_id",
+        "body_sequence",
+        "segment_sequence",
+        "segment_role",
     },
     ASSISTANT_TEXT_FINAL_EVENT: {
         "frame_schema_version",
@@ -138,7 +142,16 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "answer_source",
         "answer_canonical_state",
         "answer_persist_policy",
+        "answer_finalization_policy",
+        "answer_fallback_reason",
+        "answer_selected_channel",
+        "answer_selected_source",
+        "answer_leak_flags",
         "terminal_reason",
+        "body_segment_id",
+        "body_sequence",
+        "segment_sequence",
+        "segment_role",
     },
     ASSISTANT_STREAM_REPAIR_EVENT: {
         "frame_schema_version",
@@ -153,6 +166,10 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "expected_content_sha256",
         "replacement_content",
         "replacement_content_sha256",
+        "body_segment_id",
+        "body_sequence",
+        "segment_sequence",
+        "segment_role",
     },
     TOOL_ITEM_STARTED_EVENT: {
         "item_id",
@@ -862,6 +879,7 @@ def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
         or result_envelope.get("tool_call_id")
         or execution_receipt.get("tool_call_id")
         or tool_call.get("id")
+        or observation.get("invocation_id")
         or ""
     ).strip()
 

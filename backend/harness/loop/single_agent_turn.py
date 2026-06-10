@@ -19,7 +19,7 @@ from harness.loop.active_work import active_work_action_from_payload
 from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
-from harness.loop.presentation import error_event, final_answer_event
+from harness.loop.presentation import assistant_body_final_event, error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_plan, build_tool_batch_plan
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
@@ -318,6 +318,7 @@ async def run_single_agent_turn(
             yield model_event
         tool_iteration = 0
         tool_observation_payloads: list[dict[str, Any]] = []
+        emitted_feedback_segments: set[str] = set()
         repaired_or_parsed_final_action: SingleAgentActionParse | None = None
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
@@ -397,6 +398,17 @@ async def run_single_agent_turn(
                     return
                 tool_iteration += 1
                 control_action = action_parse.action_request
+                async for event in _action_feedback_segment_events(
+                    action_request=control_action,
+                    response=response,
+                    assistant_stream_normalizer=assistant_stream_normalizer,
+                    turn_id=turn_id,
+                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+                    phase="active_work_control",
+                    iteration=tool_iteration,
+                    emitted_feedback_segments=emitted_feedback_segments,
+                ):
+                    yield event
                 admission = admit_model_action(
                     control_action,
                     packet_allowed_action_types=current_allowed_action_types,
@@ -711,6 +723,19 @@ async def run_single_agent_turn(
                     yield event
                 return
             tool_iteration += 1
+            feedback_action = tool_actions[0] if tool_actions else action_parse.action_request
+            if feedback_action is not None:
+                async for event in _action_feedback_segment_events(
+                    action_request=feedback_action,
+                    response=response,
+                    assistant_stream_normalizer=assistant_stream_normalizer,
+                    turn_id=turn_id,
+                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
+                    phase="tool_call",
+                    iteration=tool_iteration,
+                    emitted_feedback_segments=emitted_feedback_segments,
+                ):
+                    yield event
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
                 admission = admit_model_action(
@@ -2428,6 +2453,125 @@ def _single_agent_protocol_error_user_text(code: str) -> str:
     return "当前运行没有形成可安全推进的下一步，已经停住。请直接补充新的目标或修改要求，我会按最新输入重新开始。"
 
 
+async def _action_feedback_segment_events(
+    *,
+    action_request: ModelActionRequest,
+    response: Any,
+    assistant_stream_normalizer: AssistantStreamNormalizer | None,
+    turn_id: str,
+    turn_run_id: str,
+    phase: str,
+    iteration: int,
+    emitted_feedback_segments: set[str],
+) -> AsyncIterator[dict[str, Any]]:
+    content = _action_feedback_segment_text(action_request, response=response)
+    if not content:
+        return
+    segment_key = f"{phase}:{iteration}:{content}"
+    if segment_key in emitted_feedback_segments:
+        return
+    emitted_feedback_segments.add(segment_key)
+    body_sequence = max(1, int(iteration) * 2 - 1)
+    stream_ref = str(
+        getattr(assistant_stream_normalizer, "stream_ref", "")
+        or f"assistant-body:{turn_id}:{phase}:{iteration}"
+    )
+    extra = {
+        "body_segment_id": stream_ref,
+        "body_sequence": body_sequence,
+        "segment_role": "stage_feedback",
+    }
+    if assistant_stream_normalizer is not None:
+        for event in assistant_final_stream_events(
+            assistant_stream_normalizer,
+            content=content,
+            answer_channel="stage_feedback",
+            answer_source=f"harness.single_agent_turn.{phase}.feedback",
+            terminal_reason="stage_feedback",
+            answer_canonical_state="stable_feedback",
+            answer_persist_policy="persist_canonical",
+            turn_run_id=turn_run_id,
+            extra=extra,
+        ):
+            yield event
+        return
+    event = assistant_body_final_event(
+        content=content,
+        answer_channel="stage_feedback",
+        answer_source=f"harness.single_agent_turn.{phase}.feedback",
+        turn_id=turn_id,
+        turn_run_id=turn_run_id,
+        stream_ref=stream_ref,
+        body_sequence=body_sequence,
+        terminal_reason="stage_feedback",
+        execution_posture="single_agent_turn",
+        extra=extra,
+    )
+    if event:
+        yield event
+
+
+def _action_feedback_segment_text(action_request: ModelActionRequest, *, response: Any) -> str:
+    state = dict(action_request.public_action_state or {})
+    candidates: list[Any] = [
+        state.get("current_judgment"),
+        action_request.public_progress_note,
+    ]
+    if action_request.action_type == "tool_call":
+        candidates.append(_response_content_public_feedback(response))
+    for candidate in candidates:
+        text = public_runtime_progress_summary(candidate or "").strip()
+        if _is_public_feedback_segment(text):
+            return text[:220].rstrip()
+    return ""
+
+
+def _response_content_public_feedback(response: Any) -> str:
+    text = stringify_content(getattr(response, "content", response)).strip()
+    if not text:
+        return ""
+    stripped = text.lstrip()
+    if stripped.startswith(("{", "[", "```json")):
+        return ""
+    if not _meaningful_visible_answer(text):
+        return ""
+    return text
+
+
+def _is_public_feedback_segment(text: str) -> bool:
+    value = sanitize_visible_assistant_content(str(text or "")).strip()
+    if not value or not _meaningful_visible_answer(value):
+        return False
+    normalized = " ".join(value.split()).strip()
+    generic_values = {
+        "开始处理",
+        "开始处理。",
+        "正在处理",
+        "正在处理。",
+        "处理完成",
+        "处理完成。",
+        "正在思考",
+        "正在思考。",
+        "正在调用工具",
+        "正在调用工具。",
+        "已发起工具调用",
+        "已发起工具调用。",
+        "需要用户补充信息后才能继续。",
+        "当前请求无法继续执行。",
+    }
+    if normalized in generic_values:
+        return False
+    generic_prefixes = (
+        "我会开始处理",
+        "我将调用工具",
+        "我正在调用",
+        "正在运行工具",
+        "运行工具 ",
+        "已发起工具调用，正在等待工具返回",
+    )
+    return not any(normalized.startswith(prefix) for prefix in generic_prefixes)
+
+
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:
     allowed = set(allowed_action_types or ())
     tools: list[dict[str, Any]] = []
@@ -2746,6 +2890,7 @@ def _tool_observation_from_admission(
         status=status,
         text=text,
         result_envelope={
+            "tool_call_id": tool_call_id,
             "error": system_reason,
             "error_code": system_reason,
             "admission_decision": admission.decision,
@@ -2798,6 +2943,7 @@ def _tool_observation_from_runtime_exception(
         status="error",
         text=f"工具调用返回运行时错误：{error_text}。请基于该错误调整下一步，不要重复同一失败动作。",
         result_envelope={
+            "tool_call_id": tool_call_id,
             "error": error_text,
             "error_code": type(error).__name__,
             "retryable": True,
@@ -3120,7 +3266,16 @@ async def _invoke_turn_tool(
             operation_id=operation_id,
             status="error",
             text="runtime_tool_control_plane_unavailable",
-            diagnostics={"stage": "runtime_tool_control_plane_unavailable"},
+            result_envelope={
+                "tool_call_id": tool_call_id,
+                "error": "runtime_tool_control_plane_unavailable",
+                "error_code": "runtime_tool_control_plane_unavailable",
+                "retryable": True,
+            },
+            diagnostics={
+                "stage": "runtime_tool_control_plane_unavailable",
+                "action_request": action_request.to_dict(),
+            },
         )
     observation = await control_plane.invoke(request, tool_plan=tool_plan)
     return _publish_turn_tool_artifacts(

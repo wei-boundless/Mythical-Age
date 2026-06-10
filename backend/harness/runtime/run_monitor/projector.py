@@ -157,7 +157,6 @@ class RuntimeMonitorProjector:
             artifact_refs=artifact_refs,
             status=status,
             terminal_reason=str(getattr(task_run, "terminal_reason", "") or ""),
-            assistant_text="",
         ) if progress_presentation else []
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(

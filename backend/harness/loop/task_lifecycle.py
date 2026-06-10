@@ -10,7 +10,7 @@ from runtime.output_boundary import canonical_output_decision_for_final_text
 
 from harness.task_contract_normalization import contract_string_tuple
 
-from .presentation import error_event, final_answer_event
+from .presentation import assistant_body_final_event, error_event, turn_completed_event
 from .model_action_protocol import ModelActionRequest
 
 
@@ -578,11 +578,18 @@ async def start_task_lifecycle_from_contract(
             answer_source=f"{answer_source}.opening_judgment",
             api_protocol_prefix_messages=api_protocol_prefix_messages,
         )
-        yield assistant_text_event(
+        opening_event = assistant_body_final_event(
             content=opening_content,
             answer_channel="opening_judgment",
             answer_source=f"{answer_source}.opening_judgment",
+            turn_id=turn_id,
+            stream_ref=f"assistant-body:{turn_id}:task-opening",
+            body_sequence=1,
+            terminal_reason="task_opening",
+            execution_posture="task_opening",
         )
+        if opening_event:
+            yield opening_event
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
         runtime_host,
         session_id=session_id,
@@ -630,16 +637,11 @@ async def start_task_lifecycle_from_contract(
             gate_policy=launch_gate_policy,
         )
         yield {"type": "task_run_lifecycle_event", "event": gate_event}
-        yield final_answer_event(
-            content="",
-            answer_channel="task_control",
-            answer_source=f"{answer_source}.supervision",
+        yield turn_completed_event(
+            status="completed",
             terminal_reason="task_launch_supervision",
-            extra={
-                "runtime_branch": dict(runtime_branch or {}),
-                "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
-                **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
-            },
+            task_run_id=gated_task.task_run_id,
+            completion_state="task_launch_supervision",
         )
         return
 
@@ -693,16 +695,11 @@ async def start_task_lifecycle_from_contract(
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
     )
     yield {"type": "task_run_lifecycle_event", "event": scheduled_summary_event.to_dict()}
-    yield final_answer_event(
-        content="",
-        answer_channel="task_control",
-        answer_source=answer_source,
+    yield turn_completed_event(
+        status="completed",
         terminal_reason="task_executor_scheduled",
-        extra={
-            "runtime_branch": dict(runtime_branch or {}),
-            "task_run": {"task_run_id": task_run.task_run_id, "status": "running"},
-            **_active_turn_event_payload(runtime_host=runtime_host, session_id=session_id),
-        },
+        task_run_id=task_run.task_run_id,
+        completion_state="task_executor_scheduled",
     )
 
 
@@ -783,28 +780,6 @@ async def commit_task_opening_message(
     )
 
 
-def assistant_text_event(*, content: str, answer_channel: str, answer_source: str) -> dict[str, Any]:
-    return {
-        "type": "assistant_text",
-        "content": str(content or "").strip(),
-        "answer_channel": answer_channel,
-        "answer_source": answer_source,
-    }
-
-
-def _active_turn_event_payload(*, runtime_host: Any | None, session_id: str) -> dict[str, Any]:
-    active_registry = getattr(runtime_host, "active_turn_registry", None) if runtime_host is not None else None
-    if active_registry is None:
-        return {}
-    try:
-        active_turn = active_registry.snapshot(session_id)
-    except Exception:
-        active_turn = None
-    if active_turn is None:
-        return {}
-    return {"active_turn": active_turn.to_dict() if hasattr(active_turn, "to_dict") else dict(active_turn)}
-
-
 def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     return [
@@ -817,9 +792,14 @@ def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest)
 def task_run_opening_message(*, action_request: ModelActionRequest) -> str:
     """Return the user-visible assistant prose for a task handoff."""
 
-    note = _first_text(getattr(action_request, "public_progress_note", ""))
-    if note and not _is_generic_task_opening(note):
-        return note
+    action_state = dict(getattr(action_request, "public_action_state", {}) or {})
+    for candidate in (
+        action_state.get("current_judgment"),
+        getattr(action_request, "public_progress_note", ""),
+    ):
+        note = _first_text(candidate)
+        if note and not _is_generic_task_opening(note):
+            return note
     return ""
 
 
