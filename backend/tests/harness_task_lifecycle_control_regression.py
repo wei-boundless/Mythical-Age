@@ -167,16 +167,9 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
-    task_control_opening_index = next(
-        index
-        for index, event in enumerate(events)
-        if event.get("type") == "assistant_text"
-        and event.get("answer_channel") == "task_control"
-        and "我会开始处理：交付一个真实可验证产物。" in str(event.get("content") or "")
-    )
     assert "task_run_lifecycle_started" in stream_types
     assert "task_run_lifecycle_event" in stream_types
-    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
+    assert not any(event.get("type") == "assistant_text" and event.get("answer_channel") == "task_control" for event in events)
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
     done_contents = [str(event.get("content") or "") for event in events if event.get("type") == "done"]
@@ -185,12 +178,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
         for event in events
         if event.get("type") == "runtime_step_summary"
     )
-    assert any("我会开始处理：交付一个真实可验证产物。" in content for content in done_contents)
-    assert any(
-        event.get("type") == "assistant_text"
-        and "我会开始处理：交付一个真实可验证产物。" in str(event.get("content") or "")
-        for event in events
-    )
+    assert done_contents == [""]
     assert not any("我会按这个目标推进" in content for content in done_contents)
     assert not any("执行器" in content or "TaskRun" in content or "正式任务" in content for content in done_contents)
     _assert_no_visible_runtime_internals("\n".join(done_contents))
@@ -305,7 +293,7 @@ def test_task_lifecycle_start_does_not_rewrite_request_to_current_session_handof
     assert old_task is not None
     assert old_task.status == "waiting_executor"
     assert spawned
-    assert committed
+    assert committed == []
 
 def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
     from harness.loop.model_action_protocol import ModelActionRequest
@@ -482,20 +470,20 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
-    task_control_opening_index = next(
+    opening_index = next(
         index
         for index, event in enumerate(events)
         if event.get("type") == "assistant_text"
-        and event.get("answer_channel") == "task_control"
+        and event.get("answer_channel") == "opening_judgment"
         and "页面目标转成可执行任务" in str(event.get("content") or "")
     )
     assert "task_run_lifecycle_started" in stream_types
-    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
+    assert opening_index < stream_types.index("task_run_lifecycle_started")
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
-    assert any(event.get("type") == "assistant_text" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
-    assert any(event.get("type") == "done" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "assistant_text" and event.get("answer_channel") == "opening_judgment" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 
 def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:
@@ -546,28 +534,28 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     admissions = _admission_payloads(events)
 
-    task_control_opening_index = next(
+    opening_index = next(
         index
         for index, event in enumerate(events)
         if event.get("type") == "assistant_text"
-        and event.get("answer_channel") == "task_control"
+        and event.get("answer_channel") == "opening_judgment"
         and "JSON 页面目标转成持续任务" in str(event.get("content") or "")
     )
     assert "task_run_lifecycle_started" in stream_types
-    assert task_control_opening_index < stream_types.index("task_run_lifecycle_started")
+    assert opening_index < stream_types.index("task_run_lifecycle_started")
     assert admissions
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
     messages = runtime.session_manager.load_session("session-json-taskrun")
-    assert any(
+    assert not any(
         item.get("role") == "assistant"
-        and item.get("content") == "我先把 JSON 页面目标转成持续任务，然后推进实现和验证。"
+        and "JSON 页面目标转成持续任务" in str(item.get("content") or "")
         for item in messages
     )
-    assert any(event.get("type") == "assistant_text" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
-    assert any(event.get("type") == "done" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "assistant_text" and event.get("answer_channel") == "opening_judgment" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "done" and str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 

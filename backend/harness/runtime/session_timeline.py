@@ -12,6 +12,35 @@ from harness.runtime.runtime_monitor_public_projection import project_public_tim
 from harness.runtime.session_task_projection import build_single_agent_task_projection
 
 
+_SUPPRESSED_PROGRESS_TEXT = {
+    "",
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在处理",
+    "正在处理当前请求",
+    "正在处理任务",
+    "正在思考",
+    "正在思考。",
+    "等待模型输出",
+    "等待模型输出。",
+    "已开始处理",
+    "已开始处理。",
+    "已开始处理当前请求",
+    "已开始处理当前请求。",
+    "工具调用已完成，正在根据结果继续。",
+    "工具返回成功，正在根据结果继续。",
+    "工具返回了结构化结果，正在根据结果继续。",
+    "正在判断下一步动作。",
+    "completed",
+    "done",
+    "running",
+    "working",
+    "success",
+}
+
+
 def build_session_runtime_timeline(
     *,
     session_id: str,
@@ -93,6 +122,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         _public_timeline_from_progress_entries(progress_entries),
         limit=max_timeline_items,
     )
+    latest_step = _sanitized_latest_step(monitor.get("latest_step"))
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -102,13 +132,13 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
-        "terminal_reason": public_runtime_progress_summary(getattr(task_run, "terminal_reason", "") or ""),
+        "terminal_reason": _visible_progress_summary(getattr(task_run, "terminal_reason", "") or ""),
         "lifecycle": str(monitor.get("lifecycle") or ""),
         "bucket": str(monitor.get("bucket") or ""),
         "title": str(monitor.get("title") or ""),
-        "summary": public_runtime_progress_summary(monitor.get("summary") or ""),
-        "latest_step": dict(monitor.get("latest_step") or {}),
-        "latest_step_summary": public_runtime_progress_summary(monitor.get("latest_step_summary") or ""),
+        "summary": _visible_progress_summary(monitor.get("summary") or ""),
+        "latest_step": latest_step,
+        "latest_step_summary": _visible_progress_summary(monitor.get("latest_step_summary") or ""),
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         "progress_presentation": progress_presentation,
@@ -195,6 +225,18 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
         "authority": "session_runtime_timeline.turn_attachment",
+    }
+
+
+def _sanitized_latest_step(value: Any) -> dict[str, Any]:
+    latest = dict(value or {}) if isinstance(value, dict) else {}
+    if not latest:
+        return {}
+    return {
+        **latest,
+        "summary": _visible_progress_summary(latest.get("summary") or ""),
+        "public_progress_note": _visible_progress_summary(latest.get("public_progress_note") or ""),
+        "agent_brief_output": _visible_progress_summary(latest.get("agent_brief_output") or ""),
     }
 
 
@@ -483,22 +525,22 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 entries.append(entry)
             continue
         if event_type == "step_summary_recorded":
-            summary = public_runtime_progress_summary(payload.get("summary") or "").strip()
-            public_note = public_runtime_progress_summary(payload.get("public_progress_note") or summary).strip()
-            agent_brief = public_runtime_progress_summary(payload.get("agent_brief_output") or "").strip()
+            summary = _visible_progress_summary(payload.get("summary") or "")
+            public_note = _visible_progress_summary(payload.get("public_progress_note") or summary)
+            agent_brief = _visible_progress_summary(payload.get("agent_brief_output") or "")
             public_action_state = dict(payload.get("public_action_state") or {})
-            completion_status = public_runtime_progress_summary(
+            completion_status = _visible_progress_summary(
                 payload.get("completion_status") or public_action_state.get("completion_status") or ""
-            ).strip()
-            current_judgment = public_runtime_progress_summary(
+            )
+            current_judgment = _visible_progress_summary(
                 payload.get("current_judgment") or public_action_state.get("current_judgment") or ""
-            ).strip()
-            next_action = public_runtime_progress_summary(
+            )
+            next_action = _visible_progress_summary(
                 payload.get("next_action") or public_action_state.get("next_action") or ""
-            ).strip()
+            )
             action_type = str(payload.get("action_type") or public_action_state.get("action_type") or "").strip()
             tool_name = str(payload.get("tool_name") or public_action_state.get("tool_name") or "").strip()
-            tool_target = public_runtime_progress_summary(payload.get("tool_target") or public_action_state.get("tool_target") or "").strip()
+            tool_target = _visible_progress_summary(payload.get("tool_target") or public_action_state.get("tool_target") or "")
             action_brief = _public_action_state_brief(
                 current_judgment=current_judgment,
                 next_action=next_action,
@@ -547,14 +589,12 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 continue
             if _is_internal_step_only(step, summary=summary, public_note=public_note, action_brief=action_brief):
                 continue
-            if public_note or action_brief or summary or step:
+            if public_note or action_brief or summary:
                 body = public_note or action_brief or summary
-                if step.startswith("model_action_received"):
-                    body = public_note or action_brief or _objective_model_step_body(step=step, status=status)
                 entries.append(
                     _entry(
                         event,
-                        title="正在思考" if step.startswith("model_action_received") else _step_title(step, status),
+                        title="模型反馈" if step.startswith("model_action_received") else _step_title(step, status),
                         body=body,
                         kind=_step_kind(step),
                         level=_level_from_status(status),
@@ -580,19 +620,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             )
             continue
-        if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
-            entries.append(
-                _entry(
-                    event,
-                    title="处理已开始",
-                    body="已开始处理。",
-                    kind="stage",
-                    level="running",
-                    status="running",
-                    public_note="已开始处理。",
-                    evidence_type="runtime_step",
-                )
-            )
             continue
         if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
             steer = dict(payload.get("steer") or {})
@@ -669,15 +696,19 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if event_type == "task_run_lifecycle_finished":
             task_run = dict(payload.get("task_run") or {})
             status = str(task_run.get("status") or "completed")
+            terminal_reason = _visible_progress_summary(task_run.get("terminal_reason") or "")
+            if status == "completed" and not terminal_reason:
+                continue
+            body = terminal_reason or "当前处理受阻。"
             entries.append(
                 _entry(
                     event,
-                    title="处理完成" if status == "completed" else "处理遇到阻塞",
-                    body=public_runtime_progress_summary(task_run.get("terminal_reason") or status),
+                    title="结果收口" if status == "completed" else "处理遇到阻塞",
+                    body=body,
                     kind="terminal",
                     level="success" if status == "completed" else "error",
                     status=status,
-                    public_note=public_runtime_progress_summary(task_run.get("terminal_reason") or status),
+                    public_note=body,
                     evidence_type="terminal",
                 )
             )
@@ -687,7 +718,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) -> dict[str, Any]:
     action_request = dict(payload.get("model_action_request") or {})
     action_type = str(action_request.get("action_type") or "").strip()
-    public_note = public_runtime_progress_summary(action_request.get("public_progress_note") or "").strip()
+    public_note = _visible_progress_summary(action_request.get("public_progress_note") or "")
     if action_type == "ask_user":
         question = public_runtime_progress_summary(action_request.get("user_question") or public_note or "需要补充信息后继续。").strip()
         return _entry(
@@ -725,15 +756,16 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
             evidence_type="model_action",
         )
     if action_type != "tool_call":
-        body = public_note or "正在判断下一步动作。"
+        if not public_note:
+            return {}
         return _entry(
             event,
-            title="正在思考",
-            body=body,
+            title="模型反馈",
+            body=public_note,
             kind="model",
             level="running",
             status="running",
-            public_note=body,
+            public_note=public_note,
             evidence_type="model_action",
         )
     tool_call = dict(action_request.get("tool_call") or {})
@@ -743,7 +775,7 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
     return _entry(
         event,
         title=title,
-        body=public_note or preview or "已发起工具请求。",
+        body=public_note or preview,
         kind="tool",
         level="running",
         status=_tool_activity_status(tool_name=tool_name, phase="started"),
@@ -1126,14 +1158,6 @@ def _match_public_text(value: Any) -> str:
     return str(value or "").strip().lower().replace("_", " ").replace("-", " ")
 
 
-def _objective_model_step_body(*, step: str, status: str) -> str:
-    if str(status or "").strip().lower().startswith("wait"):
-        return "等待模型输出。"
-    if step.startswith(("task_model_action_waiting", "model_action_waiting")):
-        return "等待模型输出。"
-    return "正在思考。"
-
-
 def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_brief: str) -> bool:
     if action_brief:
         return False
@@ -1155,7 +1179,7 @@ def _looks_like_raw_json(value: str) -> bool:
 
 
 def _tool_observation_body(value: str) -> str:
-    text = public_runtime_progress_summary(value).strip()
+    text = _visible_progress_summary(value)
     if not text:
         return ""
     if not _looks_like_raw_json(text):
@@ -1163,7 +1187,7 @@ def _tool_observation_body(value: str) -> str:
     try:
         data = json.loads(text)
     except Exception:
-        return "工具返回了结构化结果，正在根据结果继续。"
+        return ""
     if isinstance(data, dict):
         ok = data.get("ok")
         error = data.get("error") or data.get("message")
@@ -1178,9 +1202,21 @@ def _tool_observation_body(value: str) -> str:
             return public_runtime_progress_summary(result)
         artifact_refs = data.get("artifact_refs")
         if isinstance(artifact_refs, list) and artifact_refs:
-            return f"工具返回成功，产生 {len(artifact_refs)} 个产物引用。"
-        return "工具返回成功，正在根据结果继续。"
-    return "工具返回了结构化结果，正在根据结果继续。"
+            return f"产生 {len(artifact_refs)} 个产物引用。"
+        return ""
+    return ""
+
+
+def _visible_progress_summary(value: Any) -> str:
+    text = public_runtime_progress_summary(value).strip()
+    if not text:
+        return ""
+    compact = "".join(text.split()).strip("。.!！?？,，;；:：").lower()
+    suppressed = {
+        "".join(item.split()).strip("。.!！?？,，;；:：").lower()
+        for item in _SUPPRESSED_PROGRESS_TEXT
+    }
+    return "" if compact in suppressed else text
 
 
 def _observation_text_is_failure(value: str) -> bool:

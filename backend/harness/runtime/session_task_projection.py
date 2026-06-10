@@ -51,6 +51,9 @@ GENERIC_ACTIVITY_TITLES = {
     "正在建立任务运行",
     "正在思考",
     "正在整理回复",
+    "工具调用已完成，正在根据结果继续。",
+    "工具返回成功，正在根据结果继续。",
+    "工具返回了结构化结果，正在根据结果继续。",
 }
 
 GENERIC_TOOL_FAILURE_TEXTS = (
@@ -485,7 +488,8 @@ def _activity_visibility(*, kind: str, tool_name: str, title: str, detail: str, 
 def _is_generic_activity_text(title: str, detail: str) -> bool:
     normalized_title = _compact_text(title).removesuffix("。").removesuffix(".")
     normalized_detail = _compact_text(detail).removesuffix("。").removesuffix(".")
-    if normalized_title in {_compact_text(item) for item in GENERIC_ACTIVITY_TITLES}:
+    generic_titles = {_compact_text(item).removesuffix("。").removesuffix(".") for item in GENERIC_ACTIVITY_TITLES}
+    if normalized_title in generic_titles:
         return not normalized_detail or normalized_detail == normalized_title
     return False
 

@@ -42,7 +42,7 @@ from harness.runtime.artifact_scope import (
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
-from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
+from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.sandbox_artifacts import (
     discover_sandbox_artifact_refs,
     publish_sandbox_artifact_refs,
@@ -1234,25 +1234,33 @@ async def _execute_claimed_task_run(
             },
         )
         public_action_state = _action_public_state(action_request)
+        action_progress = _action_progress_note(action_request)
+        visible_public_note = public_runtime_progress_summary(action_request.public_progress_note)
+        presentation_source = (
+            "model_action.public_progress_note"
+            if visible_public_note
+            else ("model_action.public_action_state" if action_progress else "model_action.no_public_feedback")
+        )
         action_tool_call = dict(action_request.tool_call or {})
         action_tool_args = dict(action_tool_call.get("args") or action_tool_call.get("tool_args") or {})
         action_tool_name = str(action_tool_call.get("tool_name") or action_tool_call.get("name") or "").strip()
         action_tool_target = _tool_target_preview(action_tool_args)
+        action_brief = compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else ""
         _record_task_step_summary(
             runtime_host,
             task_run_id=current_task.task_run_id,
             step=f"model_action_received:{step_index}",
             status="running",
-            summary=_action_progress_note(action_request),
+            summary=action_progress,
             public_progress_note=action_request.public_progress_note,
-            agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            agent_brief_output=action_brief,
             action_type=action_request.action_type,
             current_judgment=public_action_state.get("current_judgment", ""),
             next_action=public_action_state.get("next_action", ""),
             completion_status=public_action_state.get("completion_status", ""),
             open_risks=list(public_action_state.get("open_risks") or []),
             evidence_refs=list(public_action_state.get("evidence_refs") or []),
-            presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
+            presentation_source=presentation_source,
             tool_name=action_tool_name,
             tool_target=action_tool_target,
             refs={"action_request_ref": action_request.request_id},
@@ -1271,24 +1279,25 @@ async def _execute_claimed_task_run(
                 steer_ids=consumed_steer_ids,
                 action_ref=action_request.request_id,
             )
-        append_work_rollout_item(
-            runtime_host,
-            task_run=current_task,
-            item_type="progress",
-            title="正在思考",
-            status="running",
-            summary=_action_progress_note(action_request),
-            agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
-            event_offset=action_event.offset,
-            refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
-            payload={
-                "action_type": action_request.action_type,
-                "public_progress_note": action_request.public_progress_note,
-                "public_action_state": public_action_state,
-                "presentation_source": "model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
-                "model_visible": False,
-            },
-        )
+        if action_progress or action_brief:
+            append_work_rollout_item(
+                runtime_host,
+                task_run=current_task,
+                item_type="progress",
+                title="模型反馈",
+                status="running",
+                summary=action_progress,
+                agent_brief_output=action_brief,
+                event_offset=action_event.offset,
+                refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
+                payload={
+                    "action_type": action_request.action_type,
+                    "public_progress_note": visible_public_note,
+                    "public_action_state": public_action_state,
+                    "presentation_source": presentation_source,
+                    "model_visible": False,
+                },
+            )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_model_action:{step_index}")
         if control_result is not None:
@@ -1876,12 +1885,14 @@ async def _process_task_tool_call_batch(
             )
             if repeated_failure.get("return_result") is not None:
                 return repeated_failure
+            observation_summary = _observation_public_step_summary(observation)
+            observation_error = str(observation.get("error") or "")
             _record_task_step_summary(
                 runtime_host,
                 task_run_id=current_task.task_run_id,
                 step=f"task_tool_observation_recorded:{step_index}",
                 status="running",
-                summary="工具调用已完成，正在根据结果继续。",
+                summary=observation_summary,
                 agent_brief_output=_observation_brief(observation),
                 presentation_source="tool_observation.summary",
                 refs={
@@ -1890,19 +1901,21 @@ async def _process_task_tool_call_batch(
                     "action_request_ref": row["action_request"].request_id,
                 },
             )
-            append_work_rollout_item(
-                runtime_host,
-                task_run=current_task,
-                item_type="progress",
-                title="执行操作",
-                status="running",
-                summary="工具调用已完成，正在根据结果继续。" if not observation.get("error") else "工具调用失败，正在根据失败原因调整处理路径。",
-                agent_brief_output=_observation_brief(observation),
-                event_offset=observation_event.offset,
-                refs={"observation_ref": observation["observation_id"], "action_request_ref": row["action_request"].request_id},
-                payload={"artifact_refs": _artifact_refs_from_observation(observation), "error": str(observation.get("error") or "")},
-            )
-            if observation.get("error"):
+            rollout_summary = "工具调用失败，正在根据失败原因调整处理路径。" if observation_error else observation_summary
+            if rollout_summary:
+                append_work_rollout_item(
+                    runtime_host,
+                    task_run=current_task,
+                    item_type="progress",
+                    title="执行操作",
+                    status="running",
+                    summary=rollout_summary,
+                    agent_brief_output=_observation_brief(observation),
+                    event_offset=observation_event.offset,
+                    refs={"observation_ref": observation["observation_id"], "action_request_ref": row["action_request"].request_id},
+                    payload={"artifact_refs": _artifact_refs_from_observation(observation), "error": observation_error},
+                )
+            if observation_error:
                 _record_task_step_summary(
                     runtime_host,
                     task_run_id=current_task.task_run_id,
@@ -5653,6 +5666,26 @@ def _observation_brief(observation: dict[str, Any]) -> str:
     return ""
 
 
+def _observation_public_step_summary(observation: dict[str, Any]) -> str:
+    brief = _observation_brief(observation)
+    if not brief:
+        artifact_refs = _artifact_refs_from_observation(observation)
+        return f"产生 {len(artifact_refs)} 个产物引用。" if artifact_refs else ""
+    parsed = _json_payload(brief)
+    if parsed:
+        if parsed.get("ok") is False or parsed.get("error"):
+            return ""
+        for key in ("result", "summary", "output"):
+            value = compact_text(str(parsed.get(key) or ""), limit=300)
+            if value:
+                return value
+        artifact_refs = parsed.get("artifact_refs")
+        if isinstance(artifact_refs, list) and artifact_refs:
+            return f"产生 {len(artifact_refs)} 个产物引用。"
+        return ""
+    return brief
+
+
 def _compact_observation_for_record(observation: dict[str, Any]) -> dict[str, Any]:
     return {
         "observation_id": str(observation.get("observation_id") or ""),
@@ -6878,7 +6911,6 @@ def _action_progress_note(action_request: AnyModelActionRequest) -> str:
     return (
         public_runtime_progress_summary(action_request.public_progress_note)
         or _action_state_feedback_note(action_request, state)
-        or public_action_progress_summary(action_request.action_type)
     )
 
 

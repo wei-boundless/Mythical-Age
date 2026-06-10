@@ -283,8 +283,15 @@ class GraphContextMaterializer:
         task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
         initial_inputs = dict(state.initial_inputs or {})
-        initial_inputs.update(_revision_request_inputs(node=node, inbound_context=inbound_context))
+        initial_inputs.update(_current_chapter_execution_inputs(initial_inputs))
+        initial_inputs.update(_revision_request_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
+        initial_inputs.update(_current_chapter_outline_inputs(initial_inputs=initial_inputs, inbound_context=inbound_context))
+        inbound_context = _sanitize_revision_context_for_current_chapter(
+            node_id=node_id,
+            initial_inputs=initial_inputs,
+            inbound_context=inbound_context,
+        )
         environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
@@ -368,6 +375,157 @@ class GraphContextMaterializer:
         return context
 
 
+def _current_chapter_execution_inputs(initial_inputs: dict[str, Any]) -> dict[str, Any]:
+    chapter = _int_value(initial_inputs.get("chapter_index"), None)
+    if chapter is None:
+        return {}
+    patch: dict[str, Any] = {
+        "current_chapter_index": chapter,
+        "current_chapter_index_padded": f"{chapter:03d}",
+        "current_chapter_label": f"第{chapter}章",
+        "current_chapter_file_prefix": f"chapter_{chapter:03d}",
+    }
+    revision_range = str(initial_inputs.get("revision_execution_range") or "").strip()
+    active_range = str(initial_inputs.get("active_chapter_range") or "").strip()
+    if revision_range:
+        patch["revision_execution_range"] = revision_range
+    elif active_range:
+        patch["revision_execution_range"] = active_range
+    return patch
+
+
+def _int_value(value: Any, default: int | None = 0) -> int | None:
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _current_chapter_outline_inputs(*, initial_inputs: dict[str, Any], inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
+    chapter = _int_value(initial_inputs.get("current_chapter_index") or initial_inputs.get("chapter_index"), None)
+    if chapter is None:
+        return {}
+    for text in _inbound_artifact_texts(inbound_context, current_chapter=chapter):
+        section = _extract_chapter_outline_section(text, chapter)
+        if not section:
+            continue
+        title = _chapter_outline_title(section, chapter)
+        return _drop_empty(
+            {
+                "current_chapter_outline": section,
+                "current_chapter_outline_title": title,
+                "current_chapter_outline_source": "inbound_artifact_projection",
+            }
+        )
+    return {}
+
+
+def _inbound_artifact_texts(inbound_context: list[dict[str, Any]], *, current_chapter: int | None = None) -> list[str]:
+    texts: list[str] = []
+    for raw in inbound_context:
+        item = dict(raw or {})
+        payload = dict(item.get("payload") or {})
+        for container in (item, payload):
+            for artifact_payload in list(dict(container).get("artifact_payloads") or []):
+                if not isinstance(artifact_payload, dict):
+                    continue
+                text = str(artifact_payload.get("content") or artifact_payload.get("text") or "").strip()
+                if text:
+                    texts.append(text)
+        if current_chapter is not None:
+            revision_text = str(payload.get("handoff_summary") or "").strip()
+            current_requirements = _extract_current_chapter_revision_requirements(revision_text, current_chapter)
+            if current_requirements:
+                texts.append(current_requirements)
+    return texts
+
+
+def _extract_chapter_outline_section(text: str, chapter: int) -> str:
+    normalized = str(text or "")
+    if not normalized:
+        return ""
+    pattern = re.compile(rf"(?m)^###\s*第0*{chapter}\s*章[：:].*$")
+    match = pattern.search(normalized)
+    if not match:
+        return ""
+    tail = normalized[match.start() :]
+    next_match = re.search(r"(?m)^###\s*第0*\d{1,4}\s*章[：:].*$", tail[1:])
+    section = tail[: next_match.start() + 1] if next_match else tail
+    return section.strip()[:6000]
+
+
+def _chapter_outline_title(section: str, chapter: int) -> str:
+    first = str(section or "").strip().splitlines()[0] if str(section or "").strip() else ""
+    return first.lstrip("#").strip() or f"第{chapter}章"
+
+
+def _sanitize_revision_context_for_current_chapter(
+    *,
+    node_id: str,
+    initial_inputs: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if _node_tail(node_id) != "chapter_draft" or not initial_inputs.get("revision_queue_chapter_indexes"):
+        return inbound_context
+    chapter = _int_value(initial_inputs.get("current_chapter_index") or initial_inputs.get("chapter_index"), None)
+    if chapter is None:
+        return inbound_context
+    sanitized: list[dict[str, Any]] = []
+    for raw in inbound_context:
+        item = dict(raw or {})
+        packet_type = str(item.get("packet_type") or "").lower()
+        edge_id = str(item.get("edge_id") or "").lower()
+        target_key = str(item.get("target_context_key") or item.get("target_input_slot") or "")
+        is_revision = "revision" in packet_type or ".revision." in edge_id or target_key == "返修交接包"
+        if not is_revision:
+            sanitized.append(item)
+            continue
+        payload = dict(item.get("payload") or {})
+        refs = _artifact_ref_values(item.get("artifact_refs") or payload.get("artifact_refs"))
+        payload.pop("artifact_payloads", None)
+        payload["handoff_summary"] = str(initial_inputs.get("chapter_revision_requirements") or payload.get("handoff_summary") or "")[:8000]
+        payload["current_chapter_index"] = chapter
+        payload["revision_execution_range"] = str(initial_inputs.get("revision_execution_range") or "")
+        item["payload"] = _drop_empty(payload)
+        item["artifact_refs"] = [{"path": ref} for ref in refs]
+        item["delivery_policy"] = "current_chapter_revision_summary_and_refs"
+        visibility = dict(item.get("visibility") or {})
+        visibility["artifact_text_projection"] = "suppressed_for_current_chapter_revision_packet"
+        visibility["authority"] = "harness.graph.context_materializer.current_chapter_revision_visibility"
+        item["visibility"] = visibility
+        sanitized.append(item)
+    return sanitized
+
+
+def _node_tail(node_id: str) -> str:
+    return str(node_id or "").strip().rsplit("::", 1)[-1]
+
+
+def _extract_current_chapter_revision_requirements(text: str, chapter: int) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    selected: list[str] = []
+    chapter_pattern = re.compile(rf"第\s*0*{chapter}\s*章")
+    next_chapter_pattern = re.compile(r"第\s*0*\d{1,4}\s*章")
+    capture = False
+    for line in lines:
+        if chapter_pattern.search(line):
+            capture = True
+            selected.append(line)
+            continue
+        if capture and next_chapter_pattern.search(line) and not chapter_pattern.search(line):
+            break
+        if capture:
+            selected.append(line)
+    if not selected:
+        return ""
+    return "\n".join(selected).strip()[:6000]
+
+
 def _self_quality_failure_contexts_for_node(
     *,
     services: Any | None,
@@ -382,6 +540,8 @@ def _self_quality_failure_contexts_for_node(
     artifact_refs = _artifact_ref_values(list(result.artifact_refs or []) or summary.get("artifact_refs"))
     source_error = dict(result.error or summary.get("error") or {})
     quality_acceptance = dict(dict(result.diagnostics or {}).get("quality_acceptance") or {})
+    issue_values = list(source_error.get("issues") or quality_acceptance.get("issues") or [])
+    include_artifact_text = not _quality_issues_include_chapter_mismatch(issue_values)
     payload = _drop_empty(
         {
             "source_error": source_error,
@@ -391,10 +551,10 @@ def _self_quality_failure_contexts_for_node(
                 or quality_acceptance.get("quality_issue_summary")
                 or ""
             ),
-            "issues": list(source_error.get("issues") or quality_acceptance.get("issues") or []),
+            "issues": issue_values,
             "handoff_summary": str(result.handoff_summary or summary.get("handoff_summary") or "")[:1200],
             "artifact_refs": artifact_refs,
-            "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=8, max_chars=30000),
+            "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=8, max_chars=30000) if include_artifact_text else [],
             "authority": "harness.graph.self_quality_failure_payload",
         }
     )
@@ -428,7 +588,7 @@ def _self_quality_failure_contexts_for_node(
                 "receipt_refs": [],
                 "visibility": {
                     "source": "graph_loop.result_history.latest_self_quality_failure",
-                    "artifact_text_projection": "bounded",
+                    "artifact_text_projection": "bounded" if include_artifact_text else "suppressed_after_chapter_mismatch",
                     "authority": "harness.graph.self_quality_failure_context.visibility",
                 },
                 "authority": "harness.graph.self_quality_failure_context",
@@ -459,9 +619,23 @@ def _latest_self_quality_failure(
             str(source_error.get("reason") or "") == "quality_gate_failed"
             or quality_acceptance.get("accepted") is False
         ):
+            if not _quality_failure_matches_current_artifact(state=state, result=result, summary=summary):
+                break
             return {"summary": summary, "result": result}
         break
     return {}
+
+
+def _quality_failure_matches_current_artifact(*, state: GraphLoopState, result: Any, summary: dict[str, Any]) -> bool:
+    prefix = str(dict(state.initial_inputs or {}).get("chapter_file_prefix") or "").strip()
+    if not prefix:
+        return True
+    refs = _artifact_ref_values(list(getattr(result, "artifact_refs", ()) or []) or summary.get("artifact_refs"))
+    return any(prefix in str(ref or "") for ref in refs)
+
+
+def _quality_issues_include_chapter_mismatch(issues: list[Any]) -> bool:
+    return any(str(item or "").strip().startswith("chapter_mismatch:") for item in issues)
 
 
 def _node_result_from_history_summary(summary: dict[str, Any]) -> Any | None:
@@ -698,6 +872,7 @@ def _revision_request_inputs(
     *,
     node: dict[str, Any],
     inbound_context: list[dict[str, Any]],
+    initial_inputs: dict[str, Any],
 ) -> dict[str, Any]:
     requirements_key = _node_revision_requirements_key(node)
     if not requirements_key:
@@ -705,7 +880,8 @@ def _revision_request_inputs(
     revision = _first_inbound_revision_request(inbound_context)
     if not revision:
         return {}
-    revision_text = _revision_request_text(revision)
+    current_chapter = _int_value(initial_inputs.get("current_chapter_index") or initial_inputs.get("chapter_index"), None)
+    revision_text = _revision_request_text(revision, current_chapter=current_chapter)
     if not revision_text:
         return {}
     payload = {
@@ -833,18 +1009,49 @@ def _first_inbound_revision_request(inbound_context: list[dict[str, Any]]) -> di
     return {}
 
 
-def _revision_request_text(revision: dict[str, Any]) -> str:
+def _revision_request_text(revision: dict[str, Any], *, current_chapter: int | None = None) -> str:
     parts: list[str] = []
     summary = str(revision.get("handoff_summary") or "").strip()
     if summary:
         parts.append(summary)
+    current_parts: list[str] = []
     for item in list(revision.get("artifact_payloads") or []):
         if not isinstance(item, dict):
             continue
         text = str(item.get("text") or item.get("content") or "").strip()
-        if text:
+        if not text:
+            continue
+        if current_chapter is not None:
+            current_text = _extract_current_chapter_revision_requirements(text, current_chapter)
+            if current_text:
+                current_parts.append(current_text)
+                continue
+            scoped = _revision_requirement_or_blocking_sections(text)
+            if scoped:
+                parts.append(scoped)
+                continue
+        else:
             parts.append(text)
+    if current_parts:
+        prefix = f"当前返修章：第{current_chapter}章。以下要求只用于当前章重写；返修队列中的其他章节由图循环逐章调度。"
+        return "\n\n".join(dict.fromkeys([prefix, *current_parts])).strip()
     return "\n\n".join(dict.fromkeys(parts)).strip()
+
+
+def _revision_requirement_or_blocking_sections(text: str) -> str:
+    normalized = str(text or "")
+    sections: list[str] = []
+    for heading in ("返修要求", "必须修改项", "阻塞性问题", "问题清单"):
+        pattern = re.compile(rf"(?m)^#{{1,4}}\s*{heading}\b.*$")
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        tail = normalized[match.start() :]
+        next_heading = re.search(r"(?m)^#{1,4}\s+", tail[1:])
+        section = tail[: next_heading.start() + 1] if next_heading else tail
+        if section.strip():
+            sections.append(section.strip())
+    return "\n\n".join(dict.fromkeys(sections)).strip()[:8000]
 
 
 def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:

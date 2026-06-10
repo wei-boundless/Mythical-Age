@@ -266,6 +266,93 @@ def test_session_runtime_timeline_uses_task_projection_as_task_attachment_displa
     )
 
 
+def test_session_runtime_timeline_does_not_synthesize_generic_success_feedback() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:turn:session-generic-success:1:abc"
+    turn_id = "turn:session-generic-success:1"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-generic-success",
+            task_id="task:turn:session-generic-success:1",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_run_lifecycle_started",
+        payload={"task_run": {"task_run_id": task_run_id, "status": "running"}},
+        refs={"turn_ref": turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:generic-success",
+                "source": "tool:search_text",
+                "payload": {
+                    "tool_name": "search_text",
+                    "result": json.dumps({"ok": True}),
+                },
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:generic-success"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "task_tool_observation_recorded:1",
+            "status": "running",
+            "summary": "工具调用已完成，正在根据结果继续。",
+            "agent_brief_output": json.dumps({"ok": True}),
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:generic-success"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_run_lifecycle_finished",
+        payload={"task_run": {"task_run_id": task_run_id, "status": "completed", "terminal_reason": "completed"}},
+        refs={"turn_ref": turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-generic-success",
+        history={
+            "messages": [
+                {"role": "user", "content": "run task", "turn_id": turn_id},
+                {"role": "assistant", "content": "", "turn_id": turn_id, "id": "message:assistant"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    visible = json.dumps(
+        {
+            "progress_entries": attachment.get("progress_entries"),
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": attachment.get("task_projection"),
+            "summary": attachment.get("summary"),
+            "latest_step_summary": attachment.get("latest_step_summary"),
+            "latest_public_progress_note": attachment.get("latest_public_progress_note"),
+        },
+        ensure_ascii=False,
+    )
+    assert "工具返回成功" not in visible
+    assert "工具调用已完成，正在根据结果继续" not in visible
+    assert "处理完成" not in visible
+    assert "已开始处理" not in visible
+
+
 def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host

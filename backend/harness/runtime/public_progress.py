@@ -4,12 +4,24 @@ import re
 from typing import Any
 
 
-_ACTION_SUMMARIES = {
-    "respond": "正在整理回复。",
-    "ask_user": "正在整理需要确认的信息。",
-    "tool_call": "正在执行下一步，拿到结果后继续判断。",
-    "request_task_run": "",
-    "block": "当前步骤遇到边界，正在收口说明。",
+_GENERIC_PUBLIC_PROGRESS = {
+    "",
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在处理",
+    "正在处理当前请求",
+    "正在处理当前步骤",
+    "正在处理任务",
+    "正在思考",
+    "正在整理回复",
+    "等待模型输出",
+    "已开始处理",
+    "已开始处理当前请求",
+    "工具调用已完成，正在根据结果继续。",
+    "工具返回成功，正在根据结果继续。",
+    "工具返回了结构化结果，正在根据结果继续。",
 }
 
 _DEPRECATED_STATUS_REWRITES = {
@@ -29,8 +41,7 @@ _PUBLIC_ERROR_REWRITES = {
 
 
 def public_action_progress_summary(action_type: Any) -> str:
-    normalized = str(action_type or "").strip().lower()
-    return _ACTION_SUMMARIES.get(normalized, "正在处理当前步骤。")
+    return ""
 
 
 def public_runtime_progress_summary(summary: Any) -> str:
@@ -42,7 +53,19 @@ def public_runtime_progress_summary(summary: Any) -> str:
     normalized = " ".join(text.split()).strip()
     normalized = _DEPRECATED_STATUS_REWRITES.get(normalized, normalized)
     normalized = _public_progress_scrub(normalized)
+    if _is_generic_public_progress(normalized):
+        return ""
     return _public_role_label(normalized)
+
+
+def _is_generic_public_progress(text: str) -> bool:
+    compact = _compact_public_progress(text)
+    generic = {_compact_public_progress(item) for item in _GENERIC_PUBLIC_PROGRESS}
+    return compact in generic
+
+
+def _compact_public_progress(text: Any) -> str:
+    return re.sub(r"\s+", "", str(text or "")).strip("。.!！?？,，;；:：").lower()
 
 
 def _public_progress_scrub(text: str) -> str:

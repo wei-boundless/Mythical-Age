@@ -22,29 +22,35 @@ def normalize_chapter_progress_receipt(
         raise ChapterProgressReceiptError("chapter_progress_receipt_authority_invalid")
 
     inputs = dict(initial_inputs or {})
-    batch_start = _int_value(receipt.get("batch_start_index"), _int_value(inputs.get("batch_start_index"), 1))
-    batch_end = _int_value(receipt.get("batch_end_index"), _int_value(inputs.get("batch_end_index"), batch_start))
+    revision_queue = _int_list(inputs.get("revision_queue_chapter_indexes"))
+    revision_active = bool(inputs.get("revision_active")) and bool(revision_queue)
+    if revision_active:
+        batch_start = min(revision_queue)
+        batch_end = max(revision_queue)
+    else:
+        batch_start = _int_value(receipt.get("batch_start_index"), _int_value(inputs.get("batch_start_index"), 1))
+        batch_end = _int_value(receipt.get("batch_end_index"), _int_value(inputs.get("batch_end_index"), batch_start))
     if batch_end < batch_start:
         raise ChapterProgressReceiptError("chapter_progress_receipt_batch_range_invalid")
 
     expected = _int_list(receipt.get("expected_chapter_indexes"))
     if not expected:
-        expected = list(range(batch_start, batch_end + 1))
-    if expected != list(range(min(expected), max(expected) + 1)):
+        expected = revision_queue if revision_active else list(range(batch_start, batch_end + 1))
+    if not revision_active and expected != list(range(min(expected), max(expected) + 1)):
         raise ChapterProgressReceiptError("chapter_progress_receipt_expected_indexes_not_contiguous")
     expected_set = set(expected)
 
     committed = _int_list(receipt.get("committed_chapter_indexes"))
     if not committed:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_missing")
-    if committed != list(range(min(committed), max(committed) + 1)):
+    if not revision_active and committed != list(range(min(committed), max(committed) + 1)):
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_not_contiguous")
     if max(committed) > expected[-1]:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_outside_expected")
     committed = [index for index in committed if index in expected_set]
     if not committed:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_indexes_outside_expected")
-    if committed[0] != expected[0]:
+    if committed != expected[: len(committed)]:
         raise ChapterProgressReceiptError("chapter_progress_receipt_committed_prefix_required")
 
     missing = _int_list(receipt.get("missing_chapter_indexes"))
@@ -59,7 +65,7 @@ def normalize_chapter_progress_receipt(
         raise ChapterProgressReceiptError("chapter_progress_receipt_unexpected_indexes_present")
 
     next_chapter = _int_value(receipt.get("next_chapter_index"), (committed[-1] + 1 if missing else batch_end + 1))
-    expected_next = committed[-1] + 1 if missing else batch_end + 1
+    expected_next = missing[0] if revision_active and missing else (committed[-1] + 1 if missing else batch_end + 1)
     if next_chapter != expected_next:
         raise ChapterProgressReceiptError("chapter_progress_receipt_next_chapter_inconsistent")
 
@@ -101,14 +107,20 @@ def build_chapter_progress_receipt(
 ) -> dict[str, Any]:
     inputs = dict(initial_inputs or {})
     chapter = _int_value(inputs.get("chapter_index"), 1)
-    batch_start = _int_value(inputs.get("batch_start_index"), chapter)
-    batch_end = _int_value(inputs.get("batch_end_index"), batch_start)
+    revision_queue = _int_list(inputs.get("revision_queue_chapter_indexes"))
+    revision_active = bool(inputs.get("revision_active")) and bool(revision_queue)
+    if revision_active:
+        batch_start = min(revision_queue)
+        batch_end = max(revision_queue)
+    else:
+        batch_start = _int_value(inputs.get("batch_start_index"), chapter)
+        batch_end = _int_value(inputs.get("batch_end_index"), batch_start)
     if batch_end < batch_start:
         raise ChapterProgressReceiptError("chapter_progress_receipt_batch_range_invalid")
     if chapter < batch_start or chapter > batch_end:
         raise ChapterProgressReceiptError("chapter_progress_receipt_current_chapter_outside_batch")
 
-    expected = list(range(batch_start, batch_end + 1))
+    expected = revision_queue if revision_active else list(range(batch_start, batch_end + 1))
     committed = [index for index in expected if index <= chapter]
     missing = [index for index in expected if index > chapter]
     receipt = {
@@ -121,7 +133,7 @@ def build_chapter_progress_receipt(
         "missing_chapter_indexes": missing,
         "unexpected_chapter_indexes": [],
         "committed_words": max(0, int(committed_words or 0)),
-        "next_chapter_index": chapter + 1,
+        "next_chapter_index": missing[0] if revision_active and missing else chapter + 1,
         "batch_complete": not missing,
         "volume_complete": bool(volume_complete),
         "commit_allowed": True,

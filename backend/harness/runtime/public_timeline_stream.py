@@ -70,6 +70,7 @@ _CONTROL_ASSISTANT_CHANNELS = {
     "task_control",
 }
 _STAGE_FEEDBACK_ASSISTANT_CHANNELS = {
+    "opening_judgment",
     "progress_feedback",
     "stage_feedback",
 }
@@ -181,7 +182,7 @@ def _assistant_text_item(event_type: str, data: dict[str, Any]) -> dict[str, Any
         return {}
     task_run_id = str(data.get("runtime_task_run_id") or data.get("task_run_id") or "").strip()
     trace_ref = str(data.get("event_id") or data.get("debug_trace_ref") or "").strip()
-    kind = "opening_judgment" if answer_channel == "task_control" else "stage_summary"
+    kind = "opening_judgment" if answer_channel == "opening_judgment" else "stage_summary"
     title = "开局判断" if kind == "opening_judgment" else "阶段反馈"
     return _compact(
         {

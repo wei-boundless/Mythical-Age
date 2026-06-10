@@ -2116,7 +2116,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       level: "error",
       title: "结果已返回",
       body: "工具返回失败：Image API request timed out",
-      publicNote: "工具调用已完成，正在根据结果继续。",
+      publicNote: "工具返回失败：Image API request timed out",
       agentBrief: "工具返回失败：Image API request timed out",
       eventType: "step_summary_recorded",
       taskRunId,
@@ -2127,6 +2127,52 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       detail: "结果返回失败：Image API request timed out",
       state: "error",
     });
+  });
+
+  it("does not synthesize generic successful tool observation feedback", () => {
+    const taskRunId = "taskrun:turn:session:generic-observation:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:generic-observation",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:generic-observation:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:generic-observation:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      source: "runtime_event_log",
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:generic-observation",
+          task_id: "task:turn:session:generic-observation:1",
+          latest_event_type: "step_summary_recorded",
+          route: { kind: "agent_runtime_run", session_id: "session:generic-observation", task_run_id: taskRunId },
+        }),
+      ]),
+      runtime_event: {
+        event_id: "rtevt:generic-observation",
+        run_id: taskRunId,
+        event_type: "step_summary_recorded",
+        offset: 13,
+        created_at: 13,
+        payload: {
+          task_run_id: taskRunId,
+          step: "task_tool_observation_recorded:4",
+          status: "running",
+          summary: "工具调用已完成，正在根据结果继续。",
+          agent_brief_output: JSON.stringify({ ok: true }),
+        },
+        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:generic-observation:1" },
+        authority: "orchestration.runtime_event",
+      },
+    });
+
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
   it("projects public timeline deltas from monitor events without requiring a progress entry", () => {

@@ -461,6 +461,25 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("运行中");
   });
 
+  it("renders waiting safe boundary as a control-state activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            projection_id: "projection:taskrun:safe-boundary",
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            task_run_id: "taskrun:safe-boundary",
+            status: "waiting_safe_boundary",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("等待安全边界");
+    expect(html).not.toContain("开始处理");
+    expect(html).not.toContain("处理完成");
+  });
+
   it("renders tool windows from semantic public timeline items", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

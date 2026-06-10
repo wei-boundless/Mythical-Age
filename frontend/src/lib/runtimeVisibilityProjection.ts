@@ -581,17 +581,19 @@ function turnModelActionAdmissionProjection(eventType: string, data: Record<stri
         }),
       };
     }
-    const displayNote = note || "正在判断下一步动作。";
+    if (!note) {
+      return {};
+    }
     return {
-      stageStatus: displayNote,
-      activityTitle: "正在思考",
-      activityDetail: displayNote,
+      stageStatus: note,
+      activityTitle: "模型反馈",
+      activityDetail: note,
       level: "running",
-      progressEntry: entry(eventType, "正在思考", {
-        body: displayNote,
-        publicNote: note || displayNote,
+      progressEntry: entry(eventType, "模型反馈", {
+        body: note,
+        publicNote: note,
         kind: "model",
-        statusText: "思考中",
+        statusText: "进行中",
         runId: meta.runId,
         eventId: meta.eventId,
         createdAt: meta.createdAt,
@@ -720,15 +722,29 @@ function operationGateProjection(eventType: string, payload: Record<string, unkn
 function loopTerminalProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
   const status = text(payload.status) || "completed";
   const terminalReason = publicRuntimeText(payload.terminal_reason || "completed");
-  const title = status === "completed" ? "处理完成" : "处理结束";
+  const completed = ["completed", "done", "success"].includes(status.toLowerCase());
+  if (completed) {
+    return {
+      level: "success",
+      terminalEvent: "done",
+    };
+  }
+  const failed = ["failed", "error", "blocked"].includes(status.toLowerCase()) || terminalReasonIndicatesFailure(terminalReason || status);
+  if (!failed) {
+    return {
+      level: "stopped",
+      terminalEvent: "stopped",
+    };
+  }
+  const title = "处理失败";
   return {
-    stageStatus: status === "completed" ? "完成" : "结束",
+    stageStatus: title,
     activityTitle: title,
     activityDetail: terminalReason,
-    level: status === "completed" ? "success" : "warning",
+    level: "error",
     progressEntry: entry(eventType, title, {
       body: terminalReason,
-      level: status === "completed" ? "success" : "warning",
+      level: "error",
       kind: "terminal",
       statusText: status,
       runId: eventMeta.runId,

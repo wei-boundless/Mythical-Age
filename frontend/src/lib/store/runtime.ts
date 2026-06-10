@@ -4192,7 +4192,8 @@ export class WorkspaceRuntime {
     }
     const eventId = String(latestStep.event_id ?? "").trim();
     const eventCount = Number(monitor.event_count ?? 0);
-    const publicNote = String(
+    const latestSummary = this.runtimeVisibleProgressText(monitor.latest_step_summary);
+    const publicNote = this.runtimeVisibleProgressText(
       latestStep.public_progress_note
       ?? (monitor as Record<string, unknown>).latest_public_progress_note
       ?? monitor.latest_step_summary
@@ -4209,10 +4210,14 @@ export class WorkspaceRuntime {
     const actionBody = kind === "model" && meta.length
       ? meta.map((item) => `${item.label}：${item.value}`).join("；")
       : "";
+    const body = actionBody || publicNote || latestSummary;
+    if (!body) {
+      return null;
+    }
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: kind === "model" ? "正在思考" : String(monitor.latest_step_summary ?? publicNote) || "正在处理",
-      body: actionBody || publicNote || String(monitor.latest_step_summary ?? ""),
+      title: kind === "model" ? "模型反馈" : latestSummary || publicNote,
+      body,
       publicNote,
       agentBrief,
       evidenceType: this.runtimeEvidenceTypeFromStep(stepName),
@@ -4465,8 +4470,8 @@ export class WorkspaceRuntime {
       return null;
     }
     const status = String(payload.status ?? "").trim();
-    const summary = String(payload.summary ?? "").trim();
-    const publicNote = String(payload.public_progress_note ?? summary).trim();
+    const summary = this.runtimeVisibleProgressText(payload.summary);
+    const publicNote = this.runtimeVisibleProgressText(payload.public_progress_note ?? summary);
     const agentBrief = String(payload.agent_brief_output ?? "").trim();
     const kind = this.runtimeProgressKindFromStep(step);
     if (kind === "observation" && this.runtimeIsInternalToolObservation(agentBrief)) {
@@ -4482,17 +4487,17 @@ export class WorkspaceRuntime {
     const actionBody = kind === "model" && meta.length
       ? meta.map((item) => `${item.label}：${item.value}`).join("；")
       : "";
-    const body = observationBody || publicNote || summary;
+    const body = observationBody || publicNote || summary || actionBody;
     const level = kind === "observation" && this.runtimeObservationLooksFailed(agentBrief || observationBody)
       ? "error"
       : this.runtimeProgressLevelFromStatus(status);
-    if (!summary && !publicNote && !step) {
+    if (!body) {
       return null;
     }
     return {
       id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
-      title: kind === "observation" ? "结果已返回" : kind === "model" ? "正在思考" : publicNote || summary || step || "正在处理",
-      body: actionBody || body,
+      title: kind === "observation" ? "结果已返回" : kind === "model" ? "模型反馈" : publicNote || summary,
+      body,
       publicNote: publicNote || actionBody || observationBody,
       agentBrief: observationBody || agentBrief,
       evidenceType: this.runtimeEvidenceTypeFromStep(step),
@@ -4619,7 +4624,7 @@ export class WorkspaceRuntime {
   private runtimeToolObservationBody(value: string) {
     const text = String(value ?? "").trim();
     if (!text) return "";
-    if (!this.looksLikeJson(text)) return text;
+    if (!this.looksLikeJson(text)) return this.runtimeVisibleProgressText(text);
     try {
       const data = JSON.parse(text) as Record<string, unknown>;
       const structured = data.structured_error && typeof data.structured_error === "object" && !Array.isArray(data.structured_error)
@@ -4632,11 +4637,38 @@ export class WorkspaceRuntime {
       const result = String(data.result ?? data.summary ?? data.output ?? "").trim();
       if (result) return result;
       const artifactRefs = Array.isArray(data.artifact_refs) ? data.artifact_refs : [];
-      if (artifactRefs.length) return `工具返回成功，产生 ${artifactRefs.length} 个产物引用。`;
-      return "工具返回成功，正在根据结果继续。";
+      if (artifactRefs.length) return `产生 ${artifactRefs.length} 个产物引用。`;
+      return "";
     } catch {
-      return "工具返回了结构化结果，正在根据结果继续。";
+      return "";
     }
+  }
+
+  private runtimeVisibleProgressText(value: unknown) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    return this.runtimeIsGenericProgressText(text) ? "" : text;
+  }
+
+  private runtimeIsGenericProgressText(value: string) {
+    const normalized = String(value ?? "")
+      .replace(/\s+/g, "")
+      .replace(/[。.!！?？,，;；:：]/g, "")
+      .toLowerCase();
+    if (!normalized) return true;
+    return new Set([
+      "开始处理",
+      "处理完成",
+      "处理已完成",
+      "处理结束",
+      "正在处理",
+      "正在处理当前请求",
+      "正在处理任务",
+      "正在思考",
+      "工具调用已完成正在根据结果继续",
+      "工具返回成功正在根据结果继续",
+      "工具返回了结构化结果正在根据结果继续",
+    ]).has(normalized);
   }
 
   private runtimeObservationLooksFailed(value: string) {
@@ -4724,7 +4756,9 @@ export class WorkspaceRuntime {
     const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
       ? runtimeEvent.payload
       : {};
-    const publicSummary = this.publicTimelineSummary(publicTimelineItems);
+    const publicSummary = this.runtimeVisibleProgressText(this.publicTimelineSummary(publicTimelineItems));
+    const payloadSummary = this.runtimeVisibleProgressText(payload.summary);
+    const payloadPublicNote = this.runtimeVisibleProgressText(payload.public_progress_note);
     const refs = runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
       ? runtimeEvent.refs
       : {};
@@ -4745,19 +4779,19 @@ export class WorkspaceRuntime {
       terminal_reason: "",
       lifecycle: String(taskProjection?.status ?? payload.status ?? "running"),
       title: "处理进展",
-      summary: String(payload.public_progress_note ?? payload.summary ?? publicSummary ?? ""),
+      summary: payloadPublicNote || payloadSummary || publicSummary,
       latest_step: {
         step: String(payload.step ?? ""),
         status: String(payload.status ?? ""),
-        summary: String(payload.summary ?? ""),
-        public_progress_note: String(payload.public_progress_note ?? payload.summary ?? ""),
+        summary: payloadSummary,
+        public_progress_note: payloadPublicNote || payloadSummary,
         agent_brief_output: String(payload.agent_brief_output ?? ""),
         event_id: String(runtimeEvent.event_id ?? ""),
         offset: Number(runtimeEvent.offset ?? -1),
         created_at: Number(runtimeEvent.created_at ?? 0),
       },
-      latest_step_summary: String(payload.summary ?? ""),
-      latest_public_progress_note: String(payload.public_progress_note ?? payload.summary ?? publicSummary ?? ""),
+      latest_step_summary: payloadSummary,
+      latest_public_progress_note: payloadPublicNote || payloadSummary || publicSummary,
       agent_brief_output: String(payload.agent_brief_output ?? ""),
       latest_event_type: runtimeEvent.event_type,
       event_count: Number(runtimeEvent.offset ?? -1) + 1,

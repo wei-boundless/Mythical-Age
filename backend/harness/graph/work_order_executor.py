@@ -1845,7 +1845,7 @@ def _node_quality_acceptance(
         **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
         **dict(work_order.explicit_inputs or {}),
     }
-    return stage_business_acceptance(
+    acceptance = stage_business_acceptance(
         stage_id=work_order.node_id,
         contract={
             "node_type": str(node.get("node_type") or ""),
@@ -1862,6 +1862,49 @@ def _node_quality_acceptance(
         terminal_status=result_status,
         requires_file_artifact_refs=False,
     )
+    chapter_issues = _chapter_heading_quality_issues(explicit_inputs=explicit_inputs, final_answer=final_answer)
+    if not chapter_issues:
+        return acceptance
+    issues = [str(item) for item in list(acceptance.get("issues") or []) if str(item)]
+    return {
+        **acceptance,
+        "accepted": False,
+        "business_accepted": False,
+        "policy": str(acceptance.get("policy") or "chapter_contract"),
+        "issues": [*issues, *chapter_issues],
+        "quality_issue_summary": _join_quality_summary(
+            str(acceptance.get("quality_issue_summary") or ""),
+            "当前章号与正文标题不匹配，必须完整重交当前章。",
+        ),
+        "authority": "harness.graph.work_order_executor.chapter_quality_gate",
+    }
+
+
+def _chapter_heading_quality_issues(*, explicit_inputs: dict[str, Any], final_answer: str) -> list[str]:
+    expected = _int_template_value(explicit_inputs.get("current_chapter_index") or explicit_inputs.get("chapter_index"), 0)
+    if expected <= 0:
+        return []
+    actual = _chapter_heading_index(final_answer)
+    if actual is None or actual == expected:
+        return []
+    return [f"chapter_mismatch:{actual}!={expected}"]
+
+
+def _chapter_heading_index(final_answer: str) -> int | None:
+    text = str(final_answer or "")
+    body = text
+    marker = re.search(r"(?m)^#{1,4}\s*章节正文候选\s*$", text)
+    if marker:
+        body = text[marker.end() :]
+    for match in re.finditer(r"(?m)^#{1,4}\s*第\s*0*(\d{1,4})\s*章\b", body):
+        return int(match.group(1))
+    for match in re.finditer(r"(?m)^第\s*0*(\d{1,4})\s*章\b", body):
+        return int(match.group(1))
+    return None
+
+
+def _join_quality_summary(*parts: str) -> str:
+    return "；".join(part for part in (str(item or "").strip() for item in parts) if part)
 
 
 def _node_result_error(

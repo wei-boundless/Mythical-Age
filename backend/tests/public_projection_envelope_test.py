@@ -93,6 +93,30 @@ def test_model_body_envelope_keeps_body_items_in_body_slot() -> None:
     ]
 
 
+def test_opening_judgment_channel_projects_as_model_body() -> None:
+    delta = project_public_timeline_delta(
+        "assistant_text",
+        {
+            "answer_channel": "opening_judgment",
+            "answer_source": "harness.single_agent_turn.request_task_run.opening_judgment",
+            "content": "我先把页面目标转成可执行任务，然后推进实现和文件验证。",
+        },
+    )
+    envelope = build_public_projection_envelope(
+        "assistant_text",
+        {"answer_channel": "opening_judgment"},
+        session_id="session-envelope",
+        sequence=3,
+        public_timeline_delta=delta,
+    )
+
+    assert delta[0]["kind"] == "opening_judgment"
+    assert envelope["source_authority"] == "model"
+    assert envelope["surface"] == "assistant_body"
+    assert envelope["items"][0]["slot"] == "body"
+    assert "页面目标转成可执行任务" in envelope["items"][0]["text"]
+
+
 def test_projection_builder_drops_items_without_explicit_slot() -> None:
     envelope = build_public_projection_envelope(
         "assistant_text",

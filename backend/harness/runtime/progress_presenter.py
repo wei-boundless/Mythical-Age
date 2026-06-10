@@ -11,6 +11,22 @@ _SUPPRESSED_VISIBLE_TEXT = {
     "",
     "已同步最新进展。",
     "已接上当前工作，正在同步最新进展。",
+    "开始处理",
+    "处理完成",
+    "处理已完成",
+    "处理结束",
+    "正在处理",
+    "正在处理当前请求",
+    "正在处理任务",
+    "正在思考",
+    "正在思考。",
+    "正在整理回复",
+    "等待模型输出",
+    "等待模型输出。",
+    "已开始处理",
+    "已开始处理。",
+    "已开始处理当前请求",
+    "已开始处理当前请求。",
     "工具调用已完成，正在根据结果继续。",
     "工具返回成功，正在根据结果继续。",
     "工具返回了结构化结果，正在根据结果继续。",
@@ -151,11 +167,13 @@ def build_progress_presentation(
             continue
 
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
-            unit = resolve_unit(event, fallback_kind="stage")
-            _set_if_better(unit, "title", "开始处理")
-            _set_if_visible(unit, "action", _goal_from_event(payload) or "已开始处理。")
-            _set_if_better(unit, "state", "running")
-            _append_trace_ref(unit, event)
+            goal = _goal_from_event(payload)
+            if goal:
+                unit = resolve_unit(event, fallback_kind="stage")
+                _set_if_better(unit, "title", "任务目标")
+                _set_if_visible(unit, "action", goal)
+                _set_if_better(unit, "state", "running")
+                _append_trace_ref(unit, event)
             continue
 
         if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
@@ -215,8 +233,9 @@ def _apply_model_action(unit: dict[str, Any], action: dict[str, Any], event: dic
     else:
         _set_if_visible(unit, "agent_feedback", progress_note)
         _set_if_better(unit, "kind", "stage")
-        _set_if_better(unit, "title", "正在思考")
-        _set_if_visible(unit, "action", progress_note or "正在思考。")
+        if _visible_text(progress_note):
+            _set_if_better(unit, "title", "模型反馈")
+            _set_if_visible(unit, "action", progress_note)
         _set_if_better(unit, "state", "running")
     if action_type != "tool_call":
         _apply_agent_public_action_state(unit, action=action, public_state=_record(action.get("public_action_state")))
@@ -231,10 +250,9 @@ def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], act
         _apply_model_action(unit, action, event)
     else:
         _set_if_better(unit, "kind", "stage")
-        _set_if_better(unit, "title", "正在思考")
     if action_type != "tool_call":
         _set_if_visible(unit, "agent_feedback", payload.get("public_progress_note") or payload.get("summary"))
-        _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary") or "正在思考。")
+        _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary"))
         _apply_agent_public_action_state(unit, action=action, public_state=public_state)
         if completion_status:
             _set_if_visible(unit, "risk", completion_status)
@@ -494,9 +512,11 @@ def _tool_evidence(*, tool_name: str, tool_args: dict[str, Any], observation: di
             "status": "success",
         }
     summary = _visible_text(result_text or observation.get("summary"))
+    if not summary:
+        return {}
     return {
         "label": _tool_label(tool_name),
-        "summary": summary or "工具执行完成，结果已写入运行上下文。",
+        "summary": summary,
         "status": "success",
     }
 
@@ -661,20 +681,29 @@ def _normalize_work_unit(unit: dict[str, Any]) -> dict[str, Any]:
         normalized_ref = _text(ref)
         if normalized_ref and normalized_ref not in refs:
             refs.append(normalized_ref)
+    visible_judgment = _visible_text(unit.get("judgment"))
+    visible_action = _visible_text(unit.get("action"))
+    visible_agent_feedback = _visible_text(unit.get("agent_feedback"))
+    visible_next_action = _visible_text(unit.get("next_action"))
+    visible_risk = _visible_text(unit.get("risk"))
+    has_visible_content = any(
+        [visible_judgment, visible_action, visible_agent_feedback, visible_next_action, visible_risk, evidence, _record(unit.get("todo_plan"))]
+    )
+    visible_title = _visible_text(unit.get("title"))
     result = {
         "unit_id": _text(unit.get("unit_id")),
         "kind": _text(unit.get("kind") or "stage"),
-        "title": _visible_text(unit.get("title")) or "推进任务",
+        "title": visible_title or ("推进任务" if has_visible_content else ""),
         "state": _text(unit.get("state") or "running"),
-        "judgment": _visible_text(unit.get("judgment")),
-        "action": _visible_text(unit.get("action")),
-        "agent_feedback": _visible_text(unit.get("agent_feedback")),
+        "judgment": visible_judgment,
+        "action": visible_action,
+        "agent_feedback": visible_agent_feedback,
         "tool_name": _tool_name(unit.get("tool_name")),
         "tool_target": _visible_text(unit.get("tool_target"), limit=180),
         "evidence": evidence,
         "todo_plan": _record(unit.get("todo_plan")),
-        "next_action": _visible_text(unit.get("next_action")),
-        "risk": _visible_text(unit.get("risk")),
+        "next_action": visible_next_action,
+        "risk": visible_risk,
         "technical_trace_refs": refs,
     }
     return result
@@ -990,7 +1019,12 @@ def _visible_text(value: Any, *, limit: int = 220) -> str:
     if not text:
         return ""
     text = " ".join(text.split()).strip()
-    if text in _SUPPRESSED_VISIBLE_TEXT:
+    compact = "".join(text.split()).strip("。.!！?？,，;；:：").lower()
+    suppressed = {
+        "".join(item.split()).strip("。.!！?？,，;；:：").lower()
+        for item in _SUPPRESSED_VISIBLE_TEXT
+    }
+    if text in _SUPPRESSED_VISIBLE_TEXT or compact in suppressed:
         return ""
     lower = text.lower()
     if lower in _RAW_STATUS:
@@ -1274,7 +1308,7 @@ def _closeout_summary(*, task_run: Any, monitor: dict[str, Any]) -> str:
         visible = _visible_text(value, limit=260)
         if visible:
             return visible
-    return "任务已完成，结果和证据已记录。"
+    return ""
 
 
 def _stage_title(step: str, status: Any) -> str:

@@ -501,7 +501,7 @@ function latestModelBodyIndex(items: PublicChatTimelineItem[]) {
 function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActivityTone {
   const state = items.map((item) => String(item.state ?? "").trim().toLowerCase()).reverse().find(Boolean) ?? "";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
-  if (["waiting", "queued", "paused"].includes(state)) return "waiting";
+  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
 }

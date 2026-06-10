@@ -8,7 +8,7 @@ PUBLIC_PROJECTION_ENVELOPE_AUTHORITY = "harness.public_projection.v1"
 PUBLIC_PROJECTION_CONTRACT_REVISION = "20260610-authority-refactor"
 
 _SYSTEM_CHANNELS = {"active_work_control", "ask_user", "blocked", "runtime_control", "task_control"}
-_MODEL_BODY_CHANNELS = {"", "conversation", "progress_feedback", "stage_feedback"}
+_MODEL_BODY_CHANNELS = {"", "conversation", "opening_judgment", "progress_feedback", "stage_feedback"}
 _VALID_ITEM_SLOTS = {"body", "timeline", "tool", "status", "task", "control"}
 
 

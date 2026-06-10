@@ -568,14 +568,13 @@ async def start_task_lifecycle_from_contract(
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
     opening_content = task_run_opening_message(
         action_request=action_request,
-        contract=contract.to_dict(),
-        fallback=_task_opening_fallback(contract.to_dict()),
     )
-    yield assistant_text_event(
-        content=opening_content,
-        answer_channel="task_control",
-        answer_source=answer_source,
-    )
+    if opening_content:
+        yield assistant_text_event(
+            content=opening_content,
+            answer_channel="opening_judgment",
+            answer_source=f"{answer_source}.opening_judgment",
+        )
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
         runtime_host,
         session_id=session_id,
@@ -622,17 +621,8 @@ async def start_task_lifecycle_from_contract(
             gate_policy=launch_gate_policy,
         )
         yield {"type": "task_run_lifecycle_event", "event": gate_event}
-        content = opening_content
-        await commit_task_control_message(
-            commit_assistant_message,
-            session_id=session_id,
-            turn_id=turn_id,
-            content=content,
-            answer_source=f"{answer_source}.supervision",
-            api_protocol_prefix_messages=api_protocol_prefix_messages,
-        )
         yield final_answer_event(
-            content=content,
+            content="",
             answer_channel="task_control",
             answer_source=f"{answer_source}.supervision",
             terminal_reason="task_launch_supervision",
@@ -693,17 +683,8 @@ async def start_task_lifecycle_from_contract(
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
     )
     yield {"type": "task_run_lifecycle_event", "event": scheduled_summary_event.to_dict()}
-    content = opening_content
-    await commit_task_control_message(
-        commit_assistant_message,
-        session_id=session_id,
-        turn_id=turn_id,
-        content=content,
-        answer_source=answer_source,
-        api_protocol_prefix_messages=api_protocol_prefix_messages,
-    )
     yield final_answer_event(
-        content=content,
+        content="",
         answer_channel="task_control",
         answer_source=answer_source,
         terminal_reason="task_executor_scheduled",
@@ -791,23 +772,13 @@ def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest)
     ]
 
 
-def task_run_opening_message(*, action_request: ModelActionRequest, contract: dict[str, Any], fallback: str) -> str:
+def task_run_opening_message(*, action_request: ModelActionRequest) -> str:
     """Return the user-visible assistant prose for a task handoff."""
 
     note = _first_text(getattr(action_request, "public_progress_note", ""))
     if note and not _is_generic_task_opening(note):
         return note
-    goal = _first_text(contract.get("user_visible_goal"), contract.get("task_run_goal"))
-    if goal:
-        return f"我会开始处理：{goal}"
-    return str(fallback or "").strip()
-
-
-def _task_opening_fallback(contract: dict[str, Any]) -> str:
-    goal = _first_text(contract.get("user_visible_goal"), contract.get("task_run_goal"))
-    if goal:
-        return f"我会开始处理：{goal}"
-    return "我会开始处理这个任务，并把关键进展更新在这里。"
+    return ""
 
 
 def _is_generic_task_opening(value: str) -> bool:
@@ -816,7 +787,7 @@ def _is_generic_task_opening(value: str) -> bool:
         "正在建立任务运行。",
         "正在处理当前请求。",
         "已接收明确任务合同，正在启动任务。",
-    }
+    } or normalized.startswith("我会开始处理")
 
 
 def _normalize_task_launch_supervision_policy(policy: dict[str, Any], *, default_enabled: bool) -> dict[str, Any]:

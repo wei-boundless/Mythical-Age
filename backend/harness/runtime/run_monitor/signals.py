@@ -239,18 +239,18 @@ def _public_line(item: dict[str, Any], *, state: str) -> str:
         if text:
             return text
     if state == "active":
-        return "正在处理当前请求。"
+        return "当前运行中。"
     if state == "waiting":
-        return "正在等待继续处理。"
+        return "等待继续。"
     if state == "stale":
-        return "处理已经停滞，需要诊断。"
+        return "运行已停滞，需要诊断。"
     if state == "failed":
-        return "处理失败，需要检查原因。"
+        return "运行失败，需要检查原因。"
     if state == "completed":
         activity_state = str(item.get("activity_state") or dict(item.get("activity") or {}).get("activity_state") or "")
         if activity_state == "stopped":
-            return "处理已停止。"
-        return "处理已完成。"
+            return "运行已停止。"
+        return "运行已完成。"
     return "运行状态已同步。"
 
 
