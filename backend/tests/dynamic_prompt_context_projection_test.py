@@ -611,7 +611,7 @@ def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path)
     assert file_state[0]["evidence_refs"] == ["obs:read-native", "obs:read-native"]
 
 
-def test_task_execution_binds_plan_and_file_state_as_task_stable_context(tmp_path: Path) -> None:
+def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volatile(tmp_path: Path) -> None:
     storage_root = tmp_path / "runtime-state"
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",
@@ -675,17 +675,93 @@ def test_task_execution_binds_plan_and_file_state_as_task_stable_context(tmp_pat
     payload = _payload_containing_title(result.packet.model_messages, "Task execution bound task context")
     bound = payload["bound_task_context"]
     segment_kinds = [dict(item).get("kind") for item in result.packet.segment_plan["segments"]]
+    manifest = result.packet.bound_task_context_manifest
 
     assert bound["plan_refs"] == ["plan:bound-context"]
-    assert bound["task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
-    assert bound["task_files"][0]["next_suggested_read"]["start_line"] == 31
-    assert bound["rehydration_refs"][0]["source"] == "file_state"
+    assert "task_files" not in bound
+    assert "rehydration_refs" not in bound
+    assert manifest["task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
+    assert manifest["task_files"][0]["next_suggested_read"]["start_line"] == 31
+    assert manifest["rehydration_refs"][0]["source"] == "file_state"
     assert "task_run_id" not in json.dumps(payload, ensure_ascii=False)
     assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("task_runtime_boundary_stable")
-    assert result.packet.bound_task_context_manifest["context_hash"] == bound["context_hash"]
+    assert manifest["context_hash"] == bound["context_hash"]
     bound_segment = next(item for item in result.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable")
     assert bound_segment["cache_scope"] == "task"
     assert bound_segment["cache_role"] == "session_stable"
+
+    second_read_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/harness/runtime/compiler.py", "start_line": 31, "line_count": 10},
+        result={
+            "text": "31 | from .bound_task_context import build_bound_task_context",
+            "structured_payload": {
+                "observed_paths": ["backend/harness/runtime/compiler.py"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "backend/harness/runtime/compiler.py",
+                    "start_line": 31,
+                    "end_line": 40,
+                    "returned_lines": 10,
+                    "line_count": 10,
+                    "total_lines": 3000,
+                    "next_start_line": 41,
+                    "has_more": True,
+                    "content_sha256": "sha256:compiler-window-2",
+                },
+            },
+        },
+        tool_call_id="call:read-compiler-2",
+        action_request_id="rtact:read-compiler-2",
+        caller_kind="task_run",
+        caller_ref="taskrun:bound-context",
+    )
+    FileStateAuthorityStore(storage_root).apply_observation(
+        "taskrun:bound-context",
+        {
+            "observation_id": "obs:read-compiler-2",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call:read-compiler-2",
+                "result_envelope": second_read_envelope.to_dict(),
+            },
+        },
+    )
+
+    result_after_replay_growth = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:bound-context",
+        task_run={"task_run_id": "taskrun:bound-context", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "task_run_goal": "实现 bound task context",
+            "completion_criteria": ["bound context 进入 task stable prefix"],
+            "plan_ref": "plan:bound-context",
+            "implementation_lock": {"plan_ref": "plan:bound-context", "status": "approved"},
+        },
+        observations=[],
+        execution_state={"system_projection": {"runtime_status": "running"}},
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {
+                "environment_id": "env.coding.vibe_workspace",
+                "storage_space": {"runtime_state_root": str(storage_root)},
+            },
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+    second_payload = _payload_containing_title(
+        result_after_replay_growth.packet.model_messages,
+        "Task execution bound task context",
+    )
+    second_bound = second_payload["bound_task_context"]
+    second_manifest = result_after_replay_growth.packet.bound_task_context_manifest
+    second_bound_segment = next(
+        item for item in result_after_replay_growth.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable"
+    )
+
+    assert second_bound == bound
+    assert second_bound_segment["model_message_hash"] == bound_segment["model_message_hash"]
+    assert second_manifest["diagnostics"]["runtime_state_hash"] != manifest["diagnostics"]["runtime_state_hash"]
+    assert second_manifest["task_files"][0]["next_suggested_read"]["start_line"] == 41
 
 
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:

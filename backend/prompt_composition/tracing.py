@@ -25,6 +25,7 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "artifact_scope_stable": "runtime_artifact_scope",
     "bound_task_context_stable": "runtime_bound_task_context",
     "environment_stable": "runtime_environment_boundary",
+    "project_instructions_stable": "runtime_project_instructions",
     "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",
     "task_prompt_contract": "runtime_contract",
@@ -131,6 +132,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated artifact scope and should become a registered task-boundary slot"
     if status == "runtime_environment_boundary":
         return "segment is compiler-generated environment boundary and should become a registered environment slot"
+    if status == "runtime_project_instructions":
+        return "segment is scoped project instruction content collected from project instruction files"
     if status == "runtime_contract":
         return "segment is compiler-generated task/runtime contract and should become a registered contract slot"
     if status == "runtime_task_state_replay":

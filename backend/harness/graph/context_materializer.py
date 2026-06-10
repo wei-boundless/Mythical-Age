@@ -707,12 +707,14 @@ def _quality_revision_inputs(
     quality = _first_inbound_quality_failure(inbound_context)
     if not quality:
         return {}
+    unit_start = initial_inputs.get("chapter_index") or initial_inputs.get("unit_start_index") or initial_inputs.get("batch_start_index") or ""
+    unit_end = initial_inputs.get("chapter_index") or initial_inputs.get("unit_end_index") or initial_inputs.get("batch_end_index") or ""
     values = {
         **dict(initial_inputs or {}),
         "quality_issues": "; ".join(str(item) for item in list(quality.get("issues") or []) if str(item)),
         "quality_issue_summary": str(quality.get("quality_issue_summary") or ""),
-        "start": initial_inputs.get("batch_start_index") or initial_inputs.get("unit_start_index") or initial_inputs.get("chapter_index") or "",
-        "end": initial_inputs.get("batch_end_index") or initial_inputs.get("unit_end_index") or "",
+        "start": unit_start,
+        "end": unit_end,
         "count": initial_inputs.get("units_per_batch") or initial_inputs.get("unit_count") or "",
         "unit_target": initial_inputs.get("unit_target_measure") or initial_inputs.get("target_unit_measure") or "",
     }

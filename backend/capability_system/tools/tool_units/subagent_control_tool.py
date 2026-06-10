@@ -55,11 +55,11 @@ class _SubagentLifecycleTool(BaseTool):
 
     def _run(self, run_manager: CallbackManagerForToolRun | None = None, **kwargs: Any) -> str:
         _ = run_manager, kwargs
-        return "subagent lifecycle tools are executed by the harness loop"
+        raise RuntimeError("subagent_lifecycle_requires_task_runtime")
 
     async def _arun(self, run_manager: AsyncCallbackManagerForToolRun | None = None, **kwargs: Any) -> str:
         _ = run_manager, kwargs
-        return "subagent lifecycle tools are executed by the harness loop"
+        raise RuntimeError("subagent_lifecycle_requires_task_runtime")
 
 
 class SpawnSubagentTool(_SubagentLifecycleTool):

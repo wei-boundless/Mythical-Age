@@ -16,6 +16,13 @@ from .tool_scheduling import (
 )
 
 _OPERATION_REGISTRY = build_default_operation_registry()
+_SUBAGENT_LIFECYCLE_TOOL_NAMES = {
+    "spawn_subagent",
+    "send_subagent_message",
+    "wait_subagent",
+    "list_subagents",
+    "close_subagent",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +235,17 @@ def _tool_allowed_for_runtime_plan(
     tool_name = _tool_name(tool)
     definition = definition_by_name.get(tool_name)
     operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
+    if tool_name in _SUBAGENT_LIFECYCLE_TOOL_NAMES and invocation_kind != "task_execution":
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason="subagent_lifecycle_requires_task_execution",
+                source="invocation_kind",
+                metadata={"invocation_kind": str(invocation_kind or "")},
+            )
+        )
+        return False
     authorization_decision = operation_decisions.get(operation_id)
     if operation_decisions and authorization_decision is None:
         filtered_issues.append(

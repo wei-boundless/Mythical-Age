@@ -224,6 +224,62 @@ describe("ChatMessage", () => {
     expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("正在确认目标 backend"));
   });
 
+  it("shows stage feedback from public timeline when message content is non-public", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerChannel: "stage_feedback",
+        answerPersistPolicy: "do_not_persist",
+        content: "这段如果只放在 message.content 会被隐藏。",
+        id: "message:stage-feedback-timeline",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:stage-feedback",
+            anchor_turn_id: "turn:stage-feedback",
+            run_id: "taskrun:stage-feedback",
+            task_run_id: "taskrun:stage-feedback",
+            status: "running",
+            task_projection: {
+              projection_id: "projection:stage-feedback",
+              authority: "harness.runtime.single_agent_task_projection.v1",
+              task_run_id: "taskrun:stage-feedback",
+              status: "running",
+              activities: [
+                {
+                  activity_id: "activity:run-tool",
+                  kind: "action",
+                  tool_target: "frontend tests",
+                  display_surface: "tool_window",
+                  visibility_level: "primary",
+                  title: "正在运行验证",
+                  state: "running",
+                },
+              ],
+            },
+          },
+        ],
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "stage-feedback:after-tool",
+            kind: "stage_summary",
+            slot: "body",
+            surface: "assistant_body",
+            source_authority: "model",
+            title: "阶段反馈",
+            text: "工具结果已返回，我会根据证据继续收口。",
+            state: "running",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("工具结果已返回，我会根据证据继续收口。");
+    expect(html).toContain("正在运行验证");
+    expect(html).not.toContain("这段如果只放在 message.content 会被隐藏。");
+  });
+
   it("keeps non-final streamed prose visible even if the live flag drops", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

@@ -18,6 +18,7 @@ from harness.loop.task_tool_approval import (
 )
 from permissions import OperationGate
 from permissions.operations import build_default_operation_registry
+from capability_system.tools.tool_units.subagent_control_tool import SpawnSubagentTool
 from runtime.shared.models import TaskRun
 from runtime.tool_runtime import RuntimeToolControlPlane, ToolInvocationRequest, ToolObservation
 from runtime.tool_runtime.tool_invocation_control import ToolInvocationContext
@@ -106,6 +107,51 @@ def test_runtime_tool_plan_single_turn_keeps_authorized_side_effect_tools_visibl
     assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file", "write_file"]
     assert plan.dispatchable_tool_names == ("read_file", "write_file")
     assert "write_file" not in filtered
+
+
+def test_runtime_tool_plan_hides_subagent_lifecycle_tools_outside_task_execution() -> None:
+    definitions = {
+        "spawn_subagent": SimpleNamespace(operation_id="op.subagent_spawn", is_read_only=False),
+        "read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "spawn_subagent", "operation_id": "op.subagent_spawn"},
+                {"name": "read_file", "operation_id": "op.read_file"},
+            ],
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name=definitions,
+    )
+
+    filtered = {
+        item["tool_name"]: item["reason"]
+        for item in plan.capability_table.to_dict()["filtered"]
+        if item.get("tool_name")
+    }
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
+    assert "spawn_subagent" not in plan.dispatchable_tool_names
+    assert filtered["spawn_subagent"] == "subagent_lifecycle_requires_task_execution"
+
+
+def test_runtime_tool_plan_keeps_subagent_lifecycle_tools_for_task_execution() -> None:
+    definitions = {
+        "list_subagents": SimpleNamespace(operation_id="op.subagent_list", is_read_only=True),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "list_subagents", "operation_id": "op.subagent_list"},
+            ],
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=definitions,
+    )
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["list_subagents"]
+    assert plan.dispatchable_tool_names == ("list_subagents",)
 
 
 def test_runtime_tool_plan_general_environment_keeps_agent_authorized_tools_dispatchable() -> None:
@@ -887,6 +933,130 @@ def test_runtime_tool_control_plane_dispatches_agent_turn_through_core_without_t
     assert "task_run_id" not in executor.last_core
 
 
+def test_runtime_tool_control_plane_routes_task_subagent_by_reserved_tool_name() -> None:
+    task_run = TaskRun(
+        task_run_id="taskrun:subagent-list",
+        session_id="session:subagent",
+        task_id="task:subagent",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+    )
+    state_index = _SubagentStateIndex(task_run)
+    runtime_host = SimpleNamespace(
+        execution_store=None,
+        backend_dir=BACKEND_DIR,
+        operation_gate=_AllowingGate(),
+        state_index=state_index,
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"list_subagents": SimpleNamespace(operation_id="op.subagent_list", is_read_only=True)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "list_subagents", "operation_id": "op.subagent_list"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"list_subagents": SimpleNamespace(operation_id="op.subagent_list", is_read_only=True)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task-subagent-list",
+        caller_kind="task_run",
+        caller_ref=task_run.task_run_id,
+        session_id=task_run.session_id,
+        turn_id="turn:subagent",
+        task_run_id=task_run.task_run_id,
+        agent_run_id="",
+        action_request_ref="action:list-subagents",
+        packet_ref="packet:subagent",
+        tool_name="list_subagents",
+        tool_call_id="call:list-subagents",
+        tool_args={},
+        operation_id="list_subagents",
+        tool_plan_ref=plan.plan_id,
+        admission_ref="admission:list-subagents",
+        action_permit=_permit(
+            action_request_ref="action:list-subagents",
+            invocation_kind="task_execution",
+            tool_name="list_subagents",
+            operation_id="op.subagent_list",
+            read_only=True,
+        ),
+        requested_constraints={
+            "runtime_host": runtime_host,
+            "runtime_assembly": {},
+            "backend_dir": str(BACKEND_DIR),
+        },
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(operation_gate=runtime_host.operation_gate).invoke(request, tool_plan=plan))
+    envelope = dict(observation.result_envelope or {})
+    structured = dict(envelope.get("structured_payload") or {})
+    control = dict(structured.get("subagent_control") or {})
+
+    assert observation.status == "ok"
+    assert observation.operation_id == "op.subagent_list"
+    assert observation.diagnostics["handler_id"] == "subagent_control"
+    assert control["ok"] is True
+    assert control["count"] == 0
+    assert runtime_host.operation_gate.checked == [("op.subagent_list", "runtime-directive:taskrun:subagent-list:tool:action:list-subagents")]
+
+
+def test_runtime_tool_control_plane_does_not_dispatch_agent_turn_subagent_to_core_executor() -> None:
+    gate = _AllowingGate()
+    executor = _RecordingCoreToolExecutor()
+    runtime_host = SimpleNamespace(
+        backend_dir=BACKEND_DIR,
+        operation_gate=gate,
+        tool_authorization_index=SimpleNamespace(
+            definitions_by_name={"spawn_subagent": SimpleNamespace(operation_id="op.subagent_spawn", is_read_only=False)}
+        ),
+    )
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"tool_name": "spawn_subagent", "operation_id": "op.subagent_spawn"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"spawn_subagent": SimpleNamespace(operation_id="op.subagent_spawn", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:turn-subagent-spawn",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:subagent",
+        session_id="session:subagent",
+        turn_id="turn:subagent",
+        action_request_ref="action:spawn-subagent",
+        packet_ref="packet:subagent",
+        tool_name="spawn_subagent",
+        tool_call_id="call:spawn-subagent",
+        tool_args={"target_agent_id": "agent:verifier", "goal": "verify"},
+        operation_id="op.subagent_spawn",
+        tool_plan_ref=plan.plan_id,
+        admission_ref="admission:spawn-subagent",
+        action_permit=_permit(
+            action_request_ref="action:spawn-subagent",
+            invocation_kind="agent_turn",
+            tool_name="spawn_subagent",
+            operation_id="op.subagent_spawn",
+            read_only=False,
+        ),
+        requested_constraints={"runtime_host": runtime_host, "runtime_assembly": {}, "backend_dir": str(BACKEND_DIR)},
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane(tool_runtime_executor=executor, operation_gate=gate).invoke(request, tool_plan=plan))
+
+    assert observation.status == "error"
+    assert observation.text == "caller tool dispatch handler is not valid for this caller"
+    assert observation.diagnostics["handler_id"] == "subagent_control"
+    assert executor.core_calls == 0
+
+
+def test_subagent_lifecycle_placeholder_tool_fails_closed_when_invoked_directly() -> None:
+    tool = SpawnSubagentTool(root_dir=BACKEND_DIR)
+
+    try:
+        tool._run(target_agent_id="agent:verifier", goal="verify")
+    except RuntimeError as exc:
+        assert str(exc) == "subagent_lifecycle_requires_task_runtime"
+    else:
+        raise AssertionError("subagent lifecycle placeholder tool must not return a success-looking result")
+
+
 def test_runtime_tool_control_plane_agent_turn_side_effect_runs_without_default_approval_gate() -> None:
     executor = _RecordingCoreToolExecutor()
     plan = build_runtime_tool_plan(
@@ -1450,3 +1620,27 @@ class _TaskRunStateIndex:
 
     def upsert_task_run(self, task_run: TaskRun) -> None:
         self.task_run = task_run
+
+
+class _SubagentStateIndex(_TaskRunStateIndex):
+    def __init__(self, task_run: TaskRun) -> None:
+        super().__init__(task_run)
+        self.agent_runs: list[object] = []
+
+    def list_task_agent_runs(self, task_run_id: str) -> list[object]:
+        return [item for item in self.agent_runs if str(getattr(item, "task_run_id", "") or "") == task_run_id]
+
+    def upsert_agent_run(self, agent_run: object) -> None:
+        agent_run_id = str(getattr(agent_run, "agent_run_id", "") or "")
+        self.agent_runs = [
+            item for item in self.agent_runs if str(getattr(item, "agent_run_id", "") or "") != agent_run_id
+        ]
+        self.agent_runs.append(agent_run)
+
+    def read_snapshot(self) -> dict[str, object]:
+        return {
+            "agent_runs": {
+                str(getattr(item, "agent_run_id", "") or ""): item.to_dict() if hasattr(item, "to_dict") else {}
+                for item in self.agent_runs
+            }
+        }

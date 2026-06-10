@@ -10,9 +10,18 @@ import type { SessionActivityState, StoreState } from "./types";
 
 type ApplyProjectionOptions = {
   assistantId?: string;
+  streamAnchor?: ProjectionStreamAnchor;
+};
+
+type ProjectionStreamAnchor = {
+  turnId?: string;
+  runId?: string;
+  taskRunId?: string;
+  turnRunId?: string;
 };
 
 const VALID_PROJECTION_SLOTS = new Set(["body", "timeline", "tool", "status", "task", "control"]);
+const MESSAGE_BODY_ITEM_KINDS = new Set(["assistant_text", "final_summary"]);
 
 export function publicProjectionEnvelopeFromRecord(value: unknown): PublicProjectionEnvelope | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -112,7 +121,7 @@ function patchProjectionMessage(
   envelope: PublicProjectionEnvelope,
   options: ApplyProjectionOptions,
 ): StoreState {
-  const messageIndex = projectionMessageIndex(state, envelope, options.assistantId);
+  const messageIndex = projectionMessageIndex(state, envelope, options);
   if (messageIndex < 0) {
     return state;
   }
@@ -149,21 +158,19 @@ function patchProjectionMessage(
   };
 }
 
-function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnvelope, assistantId = "") {
-  if (assistantId) {
-    const index = state.messages.findIndex((message) => message.id === assistantId);
-    if (index >= 0) {
-      return index;
-    }
-  }
+function projectionMessageIndex(
+  state: StoreState,
+  envelope: PublicProjectionEnvelope,
+  options: ApplyProjectionOptions,
+) {
   const anchor = envelope.anchor ?? {};
   const anchorMessageId = text(anchor.message_id);
   if (anchorMessageId) {
     const index = state.messages.findIndex((message) => message.id === anchorMessageId);
     if (index >= 0) return index;
   }
-  const runId = text(anchor.task_run_id ?? anchor.run_id);
-  if (runId) {
+  const runIds = projectionRunIds(anchor);
+  for (const runId of runIds) {
     const index = state.messages.findIndex((message) =>
       message.role === "assistant" && (message.runtimeAttachments ?? []).some((attachment) => runtimeAttachmentRunId(attachment) === runId)
     );
@@ -175,12 +182,36 @@ function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnv
     const index = state.messages.findIndex((message) => message.role === "assistant" && message.sourceIndex === sourceIndex);
     if (index >= 0) return index;
   }
-  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-    if (state.messages[index]?.role === "assistant") {
-      return index;
-    }
+  const hasAnchor = Boolean(anchorMessageId || turnId || runIds.length);
+  const assistantId = text(options.assistantId);
+  if (assistantId && (!hasAnchor || streamAnchorMatches(anchor, options.streamAnchor))) {
+    const index = state.messages.findIndex((message) => message.id === assistantId);
+    if (index >= 0) return index;
   }
   return -1;
+}
+
+function projectionRunIds(anchor: NonNullable<PublicProjectionEnvelope["anchor"]>) {
+  const ids = [anchor.task_run_id, anchor.run_id, anchor.turn_run_id]
+    .map(text)
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function streamAnchorMatches(
+  anchor: NonNullable<PublicProjectionEnvelope["anchor"]>,
+  streamAnchor: ProjectionStreamAnchor | undefined,
+) {
+  if (!streamAnchor) return false;
+  const anchorTurnId = text(anchor.turn_id);
+  if (anchorTurnId && text(streamAnchor.turnId) && anchorTurnId === text(streamAnchor.turnId)) {
+    return true;
+  }
+  const anchorRunIds = projectionRunIds(anchor);
+  const streamRunIds = [streamAnchor.runId, streamAnchor.taskRunId, streamAnchor.turnRunId]
+    .map(text)
+    .filter(Boolean);
+  return anchorRunIds.some((runId) => streamRunIds.includes(runId));
 }
 
 function runtimeAttachmentFromEnvelope(envelope: PublicProjectionEnvelope): SessionRuntimeAttachment | null {
@@ -241,7 +272,7 @@ function timelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicCh
 
 function bodyFromItems(items: PublicProjectionItem[] | undefined) {
   for (const item of items ?? []) {
-    if (text(item.slot) === "body") {
+    if (isMessageBodyItem(item)) {
       const body = text(item.text ?? item.detail ?? item.public_summary);
       if (body) return body;
     }
@@ -252,8 +283,13 @@ function bodyFromItems(items: PublicProjectionItem[] | undefined) {
 function isBodyItem(envelope: PublicProjectionEnvelope, item: PublicProjectionItem) {
   return envelope.source_authority === "model"
     && envelope.surface === "assistant_body"
-    && text(item.slot) === "body"
-    && text(item.source_authority) === "model";
+    && isMessageBodyItem(item);
+}
+
+function isMessageBodyItem(item: PublicProjectionItem) {
+  return text(item.slot) === "body"
+    && text(item.source_authority) === "model"
+    && MESSAGE_BODY_ITEM_KINDS.has(text(item.kind));
 }
 
 function latestItemForSlot(items: PublicProjectionItem[] | undefined, slot: string) {

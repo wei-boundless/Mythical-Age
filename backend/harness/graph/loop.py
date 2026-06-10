@@ -298,13 +298,7 @@ class GraphLoop:
             loop_state=loop_state,
             active_work_orders=active_work_orders,
         )
-        route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope, services=self._services)
-        if route_decision:
-            next_state = _state_after_loop_route(graph_config=graph_config, state=next_state, decision=route_decision)
-            node_states = {key: dict(value) for key, value in next_state.node_states.items()}
-            edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
-            result_index = {key: dict(value) for key, value in next_state.result_index.items()}
-            active_work_orders = dict(next_state.active_work_orders)
+        route_decision: dict[str, Any] = {}
         revision_route_decision: dict[str, Any] = {}
         revision_targets = _ready_rejected_revision_targets(graph_config=graph_config, state=next_state)
         if revision_targets:
@@ -326,6 +320,14 @@ class GraphLoop:
                 "revision_target_node_ids": list(revision_targets),
                 "reset_node_ids": list(reset_node_ids),
             }
+        else:
+            route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope, services=self._services)
+            if route_decision:
+                next_state = _state_after_loop_route(graph_config=graph_config, state=next_state, decision=route_decision)
+                node_states = {key: dict(value) for key, value in next_state.node_states.items()}
+                edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
+                result_index = {key: dict(value) for key, value in next_state.result_index.items()}
+                active_work_orders = dict(next_state.active_work_orders)
         quality_retry_decision = _quality_same_node_retry_decision(graph_config=graph_config, state=next_state, result=envelope)
         if quality_retry_decision:
             next_state = _state_after_quality_same_node_retry(
@@ -2501,6 +2503,8 @@ def _revision_reset_node_ids(
         for edge in graph_config.edges:
             if str(edge.get("source_node_id") or "") != source:
                 continue
+            if _edge_is_revision(dict(edge)):
+                continue
             target = str(edge.get("target_node_id") or "").strip()
             if not target or target in reset:
                 continue
@@ -2530,6 +2534,13 @@ def _state_after_revision_requeue(
     active_work_orders = dict(state.active_work_orders)
     target_set = set(targets)
     reset_set = set(reset_node_ids)
+    preserved_revision_edges = {
+        edge_id: dict(edge_state)
+        for edge_id, edge_state in edge_states.items()
+        if str(edge_state.get("status") or "") == "ready"
+        and str(edge_state.get("target_node_id") or "") in target_set
+        and _edge_is_revision(_edge_by_id(graph_config, edge_id) or {})
+    }
     now = time.time()
     for node_id in reset_node_ids:
         node = dict(node_states.get(node_id) or {})
@@ -2567,6 +2578,10 @@ def _state_after_revision_requeue(
             "latest_packet",
         ):
             edge_state.pop(key, None)
+        if edge_id in preserved_revision_edges:
+            edge_state.update(preserved_revision_edges[edge_id])
+            edge_state["status"] = "ready"
+            edge_state["updated_at"] = now
         edge_states[edge_id] = edge_state
     return _replace_state(
         state,
@@ -2827,6 +2842,12 @@ def _node_by_id(graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any
 def _edge_by_id(graph_config: GraphHarnessConfig, edge_id: str) -> dict[str, Any] | None:
     target = str(edge_id or "")
     return next((dict(item) for item in graph_config.edges if str(item.get("edge_id") or "") == target), None)
+
+
+def _edge_is_revision(edge: dict[str, Any]) -> bool:
+    edge_type = str(edge.get("edge_type") or "").strip()
+    semantic_role = str(edge.get("semantic_role") or "").strip()
+    return edge_type in REVISION_EDGE_TYPES or semantic_role == "revision"
 
 
 def _assert_human_edge_decision_allowed(*, graph_config: GraphHarnessConfig, edge: dict[str, Any], action: str) -> None:

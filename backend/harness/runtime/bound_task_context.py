@@ -25,29 +25,17 @@ class BoundTaskContext:
 
     @property
     def empty(self) -> bool:
-        return not (
-            self.plan_refs
-            or self.task_files
-            or self.edit_targets
-            or self.artifact_refs
-            or self.context_refs
-            or self.rehydration_refs
-        )
+        return not self._stable_payload_body()
 
     def to_model_visible_payload(self) -> dict[str, Any]:
-        if self.empty:
+        body = self._stable_payload_body()
+        if not body:
             return {}
         return _drop_empty_payload(
             {
                 "bound_task_context": {
                     "context_hash": self.context_hash,
-                    "plan_refs": list(self.plan_refs),
-                    "task_files": [dict(item) for item in self.task_files],
-                    "edit_targets": [dict(item) for item in self.edit_targets],
-                    "artifact_refs": [dict(item) for item in self.artifact_refs],
-                    "context_refs": list(self.context_refs),
-                    "rehydration_refs": [dict(item) for item in self.rehydration_refs],
-                    "restore_policy": dict(self.restore_policy),
+                    **body,
                     "authority": self.authority,
                 }
             }
@@ -64,6 +52,15 @@ class BoundTaskContext:
         payload["restore_policy"] = dict(self.restore_policy)
         payload["diagnostics"] = dict(self.diagnostics)
         return payload
+
+    def _stable_payload_body(self) -> dict[str, Any]:
+        return _drop_empty_payload(
+            {
+                "plan_refs": list(self.plan_refs),
+                "context_refs": list(self.context_refs),
+                "restore_policy": dict(self.restore_policy),
+            }
+        )
 
 
 def build_bound_task_context(
@@ -87,19 +84,23 @@ def build_bound_task_context(
     rehydration_refs = _rehydration_refs(task_files=task_files, replay_entries=replay_entries)
     edit_targets = _edit_targets(task_files)
     plan_refs = _plan_refs(contract_payload, planning_payload)
-    restore_policy = _restore_policy(has_task_files=bool(task_files), has_rehydration_refs=bool(rehydration_refs))
-    model_visible_seed = _drop_empty_payload(
+    stable_seed = _drop_empty_payload(
         {
             "plan_refs": list(plan_refs),
+            "context_refs": list(context_refs),
+            "restore_policy": _restore_policy(enabled=bool(plan_refs or context_refs)),
+        }
+    )
+    runtime_state_seed = _drop_empty_payload(
+        {
             "task_files": task_files,
             "edit_targets": edit_targets,
             "artifact_refs": artifact_refs,
-            "context_refs": list(context_refs),
             "rehydration_refs": rehydration_refs,
-            "restore_policy": restore_policy,
         }
     )
-    context_hash = _stable_hash(model_visible_seed)
+    context_hash = _stable_hash(stable_seed)
+    runtime_state_hash = _stable_hash(runtime_state_seed) if runtime_state_seed else ""
     context_id = "boundctx:" + context_hash.removeprefix("sha256:")[:16]
     return BoundTaskContext(
         context_id=context_id,
@@ -111,7 +112,7 @@ def build_bound_task_context(
         artifact_refs=tuple(artifact_refs),
         context_refs=context_refs,
         rehydration_refs=tuple(rehydration_refs),
-        restore_policy=restore_policy,
+        restore_policy=_restore_policy(enabled=bool(plan_refs or context_refs)),
         diagnostics={
             "task_run_id": str(task_run_id or ""),
             "plan_ref_count": len(plan_refs),
@@ -120,6 +121,7 @@ def build_bound_task_context(
             "artifact_ref_count": len(artifact_refs),
             "context_ref_count": len(context_refs),
             "rehydration_ref_count": len(rehydration_refs),
+            "runtime_state_hash": runtime_state_hash,
             "source_authority": "harness.runtime.bound_task_context.builder",
         },
     )
@@ -279,14 +281,14 @@ def _content_range(value: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _restore_policy(*, has_task_files: bool, has_rehydration_refs: bool) -> dict[str, Any]:
-    if not has_task_files and not has_rehydration_refs:
+def _restore_policy(*, enabled: bool) -> dict[str, Any]:
+    if not enabled:
         return {}
     return {
         "mode": "task_bound_context_restore",
-        "compact_resume": "Restore bound plan refs, task files, artifact refs, and rehydration refs before relying on older transcript summaries.",
-        "file_precision": "Bound read windows are evidence previews; before line-level edits or exact claims, re-read the current target range.",
-        "stale_handling": "If a bound file is stale, partial, or hash-mismatched, refresh it before using it as edit authority.",
+        "compact_resume": "Restore bound plan refs and context refs before relying on older transcript summaries.",
+        "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries, not by this stable binding segment.",
+        "file_precision": "Before line-level edits or exact claims, re-read the current target range from the live file state.",
     }
 
 

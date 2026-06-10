@@ -48,6 +48,7 @@ from .project_instructions import ProjectInstructionBundle, collect_project_inst
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
 from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
+from .tool_plan import build_runtime_tool_plan
 
 
 _SUBAGENT_TOOL_NAMES = {
@@ -971,7 +972,7 @@ class RuntimeCompiler:
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             )
-        environment_stable_payload.update(_project_instruction_model_payload(project_instruction_bundle))
+        project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         dynamic_context = self.dynamic_context_manager.project(
@@ -1080,6 +1081,26 @@ class RuntimeCompiler:
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
+                ),
+                (
+                    _runtime_payload_spec(
+                        role="system",
+                        title="Task execution project instructions",
+                        payload=project_instruction_payload,
+                        kind="project_instructions_stable",
+                        source_ref=project_instruction_bundle.prompt_ref,
+                        cache_scope="task",
+                        cache_role="session_stable",
+                        compression_role="preserve",
+                        metadata={
+                            "authority_class": "project_instruction_boundary",
+                            "cache_impact": "task_prefix_stable",
+                            "projection_strategy": "scoped_project_instruction_bundle",
+                            "content_source": "harness.runtime.project_instructions",
+                        },
+                    )
+                    if project_instruction_payload
+                    else None
                 ),
                 _runtime_payload_spec(
                     role="system",
@@ -2274,16 +2295,12 @@ def _single_agent_turn_tools(
 ) -> tuple[dict[str, Any], ...]:
     if bool(control_capabilities.get("may_call_tools") is False):
         return ()
-    tools: list[dict[str, Any]] = []
-    for item in list(assembly_payload.get("available_tools") or []):
-        if not isinstance(item, dict):
-            continue
-        tool = dict(item)
-        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
-        if not name:
-            continue
-        tools.append(tool)
-    return tuple(sorted(tools, key=lambda item: str(item.get("tool_name") or item.get("name") or "")))
+    plan = build_runtime_tool_plan(
+        runtime_assembly=assembly_payload,
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={},
+    )
+    return tuple(dict(item) for item in plan.model_visible_tools)
 
 
 def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:

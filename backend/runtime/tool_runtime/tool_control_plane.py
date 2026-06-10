@@ -46,12 +46,20 @@ _FILE_WRITE_OPERATION_ACTIONS = {
     "op.write_file": "write",
     "op.edit_file": "edit",
 }
+_SUBAGENT_OPERATION_BY_TOOL_NAME = {
+    "spawn_subagent": "op.subagent_spawn",
+    "send_subagent_message": "op.subagent_message",
+    "wait_subagent": "op.subagent_wait",
+    "list_subagents": "op.subagent_list",
+    "close_subagent": "op.subagent_close",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class ToolDispatchHandler:
     handler_id: str
     caller_kinds: tuple[str, ...]
+    tool_names: tuple[str, ...] = ()
     operation_prefixes: tuple[str, ...] = ()
     operation_ids: tuple[str, ...] = ()
     default_for_caller: bool = False
@@ -60,7 +68,10 @@ class ToolDispatchHandler:
         caller_kind = str(request.caller_kind or "").strip()
         if caller_kind not in set(self.caller_kinds):
             return False
-        operation_id = str(request.operation_id or "").strip()
+        tool_name = str(request.tool_name or "").strip()
+        if self.tool_names and tool_name in set(self.tool_names):
+            return True
+        operation_id = _request_operation_id(request)
         if self.operation_ids and operation_id in set(self.operation_ids):
             return True
         if self.operation_prefixes and any(operation_id.startswith(prefix) for prefix in self.operation_prefixes):
@@ -83,7 +94,8 @@ _DEFAULT_TOOL_HANDLER_REGISTRY = ToolDispatchHandlerRegistry(
     handlers=(
         ToolDispatchHandler(
             handler_id="subagent_control",
-            caller_kinds=("task_run",),
+            caller_kinds=("task_run", "agent_turn"),
+            tool_names=tuple(sorted(_SUBAGENT_OPERATION_BY_TOOL_NAME)),
             operation_prefixes=("op.subagent_",),
         ),
         ToolDispatchHandler(
@@ -194,11 +206,12 @@ class RuntimeToolControlPlane:
                 text="runtime tool control plane has no OperationGate",
                 diagnostics={"stage": "operation_gate_unavailable", "tool_plan_ref": tool_plan.plan_id},
             )
+        operation_id = _request_operation_id(request)
         supervision = supervisor.supervise(
             task_run_id=request.task_run_id,
             agent_run_id=request.agent_run_id,
             tool_call_id=request.tool_call_id,
-            operation_id=request.operation_id,
+            operation_id=operation_id,
             tool_name=request.tool_name,
             tool_args=dict(request.tool_args or {}),
             directive=directive,
@@ -345,11 +358,12 @@ class RuntimeToolControlPlane:
                 text="runtime tool control plane has no OperationGate",
                 diagnostics={"stage": "operation_gate_unavailable", "tool_plan_ref": tool_plan.plan_id},
             )
+        operation_id = _request_operation_id(request)
         supervision = supervisor.supervise(
             task_run_id="",
             agent_run_id=request.agent_run_id,
             tool_call_id=request.tool_call_id,
-            operation_id=request.operation_id,
+            operation_id=operation_id,
             tool_name=request.tool_name,
             tool_args=dict(request.tool_args or {}),
             directive=directive,
@@ -438,7 +452,7 @@ def _membership_denial(request: ToolInvocationRequest, *, tool_plan: Any) -> str
     table = tool_plan.capability_table
     if table is None:
         return "runtime tool plan has no ToolCapabilityTable"
-    operation_id = str(request.operation_id or "").strip()
+    operation_id = _request_operation_id(request)
     tool_name = str(request.tool_name or "").strip()
     capability = table.capability_for_operation(operation_id)
     if capability is None:
@@ -456,8 +470,22 @@ def _action_permit_denial(request: ToolInvocationRequest) -> str:
         action_request_ref=request.action_request_ref,
         invocation_kind="task_execution" if request.caller_kind == "task_run" else str(request.caller_kind or ""),
         tool_name=request.tool_name,
-        operation_id=request.operation_id,
+        operation_id=_request_operation_id(request),
     )
+
+
+def _request_operation_id(request: ToolInvocationRequest) -> str:
+    return _canonical_operation_id(
+        tool_name=str(request.tool_name or "").strip(),
+        operation_id=str(request.operation_id or "").strip(),
+    )
+
+
+def _canonical_operation_id(*, tool_name: str, operation_id: str) -> str:
+    reserved_operation_id = _SUBAGENT_OPERATION_BY_TOOL_NAME.get(str(tool_name or "").strip())
+    if reserved_operation_id:
+        return reserved_operation_id
+    return str(operation_id or "").strip()
 
 
 def _observation(
@@ -493,7 +521,7 @@ def _observation(
         caller_kind=request.caller_kind,
         caller_ref=request.caller_ref,
         tool_name=request.tool_name,
-        operation_id=request.operation_id,
+        operation_id=_request_operation_id(request),
         status=status,  # type: ignore[arg-type]
         text=text,
         result_ref=str(result_ref or envelope.get("result_ref") or ""),
@@ -507,7 +535,10 @@ def _observation(
 
 def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> tuple[Any, Any, dict[str, Any], dict[str, Any], Any]:
     definition = _definition(request)
-    operation_id = str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name)
+    operation_id = _canonical_operation_id(
+        tool_name=request.tool_name,
+        operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+    )
     directive = RuntimeDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"runtime-directive:{request.caller_ref}:tool:{request.action_request_ref or request.tool_call_id}"),
         task_id=str(_caller_resource_scope(request).get("task_id") or request.caller_ref or request.turn_id),
@@ -592,7 +623,10 @@ class _ToolPermissionDirective:
 
 
 def _agent_turn_execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any, definition: Any) -> tuple[Any, dict[str, Any], dict[str, Any], Any]:
-    operation_id = str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name)
+    operation_id = _canonical_operation_id(
+        tool_name=request.tool_name,
+        operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+    )
     directive = _ToolPermissionDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"tool-permit:{request.caller_ref}:{request.tool_call_id}"),
         operation_refs=(operation_id,),
@@ -714,10 +748,11 @@ def _create_execution_record(
     diagnostics: dict[str, Any],
 ) -> Any:
     registry = build_default_operation_registry()
-    descriptor = registry.get_operation(request.operation_id)
+    operation_id = str(runtime_action.operation_id or _request_operation_id(request))
+    descriptor = registry.get_operation(operation_id)
     fingerprint = build_request_fingerprint(
         step_id=runtime_action.step_id,
-        operation_id=request.operation_id,
+        operation_id=operation_id,
         payload=runtime_action.payload,
     )
     return execution_store.create_record(
@@ -725,14 +760,14 @@ def _create_execution_record(
         step_id=runtime_action.step_id,
         action_request=runtime_action,
         directive_ref=directive.directive_id,
-        operation_id=request.operation_id,
+        operation_id=operation_id,
         executor_type="tool",
         replay_policy=derive_replay_policy(descriptor),
         request_fingerprint=fingerprint,
         idempotency_token=build_idempotency_token(
             task_run_id=request.task_run_id,
             step_id=runtime_action.step_id,
-            operation_id=request.operation_id,
+            operation_id=operation_id,
             request_fingerprint=fingerprint,
         ),
         diagnostics=diagnostics,
@@ -1048,7 +1083,7 @@ def _consume_approval_grant_if_present(
         return
     updated_diagnostics = consume_matching_task_tool_approval(
         task_run,
-        operation_id=request.operation_id,
+        operation_id=_request_operation_id(request),
         directive_ref=directive_ref,
         approval_risk_fingerprint=approval_risk_fingerprint,
     )
@@ -1206,7 +1241,7 @@ def _execution_context(request: ToolInvocationRequest) -> dict[str, Any]:
         "action_request_ref": request.action_request_ref,
         "admission_ref": request.admission_ref,
         "tool_name": request.tool_name,
-        "operation_id": request.operation_id,
+        "operation_id": _request_operation_id(request),
         "caller_kind": request.caller_kind,
         "caller_ref": request.caller_ref,
         "permission_mode": request.permission_mode,

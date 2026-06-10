@@ -37,8 +37,9 @@ class TaskStateProjector:
         envelope_projection: dict[str, Any],
         include_task_run_context: bool = True,
     ) -> dict[str, Any]:
-        current_facts = _dedupe_by_semantic(dict_tuple(execution_projection.get("current_facts")))
-        current_fact_keys = {_semantic_projection_key(item) for item in current_facts if _semantic_projection_key(item)}
+        raw_current_facts = _dedupe_by_semantic(dict_tuple(execution_projection.get("current_facts")))
+        current_fact_keys = {_semantic_projection_key(item) for item in raw_current_facts if _semantic_projection_key(item)}
+        current_facts = _current_fact_projection(raw_current_facts)
         latest_results = _latest_results(
             execution_projection=execution_projection,
             observation_projection=observation_projection,
@@ -74,7 +75,9 @@ class TaskStateProjector:
                     *dict_tuple(observation_projection.get("historical_failures")),
                 ]
             )[-4:],
-            "exploration_advisory": dict(execution_projection.get("exploration_advisory") or {}),
+            "exploration_advisory": _exploration_advisory_projection(
+                dict(execution_projection.get("exploration_advisory") or {})
+            ),
             "artifact_evidence": artifact_evidence,
             "pending_user_steers": _dedupe_by_ref(dict_tuple(execution_projection.get("pending_user_steers")), ref_keys=("steer_id",)),
             "active_contract_revisions": _dedupe_by_ref(
@@ -196,16 +199,16 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "path": _projection_path(item),
             "visibility": str(item.get("visibility") or ""),
             "reason": str(item.get("reason") or error.get("code") or ""),
-            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=300),
+            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=180),
             "error": _replay_safe_value(error),
             "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
-            "artifact_refs": _replay_safe_value(list(dict_tuple(item.get("artifact_refs")))),
+            "artifact_refs": _replay_artifact_refs(item.get("artifact_refs")),
             "replacement_ref": str(item.get("replacement_ref") or ""),
-            "code_structure": _replay_safe_value(dict(item.get("code_structure") or {})),
-            "content_range": _replay_safe_value(dict(item.get("content_range") or {})),
-            "evidence_policy": _replay_safe_value(dict(item.get("evidence_policy") or {})),
-            "preview": compact_text(item.get("preview") or "", limit=1200),
-            "rehydration_plan": _replay_safe_value(dict(item.get("rehydration_plan") or {})),
+            "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
+            "content_range": _replay_content_range(dict(item.get("content_range") or {})),
+            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "preview": _replay_preview(item),
+            "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
             "authority": "harness.runtime.dynamic_context.task_state_replay_entry",
         }
@@ -268,6 +271,217 @@ def _replay_safe_value(value: Any) -> Any:
     return value
 
 
+def _replay_artifact_refs(value: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in dict_tuple(value)[-4:]:
+        refs.append(
+            drop_empty(
+                {
+                    "artifact_ref": str(item.get("artifact_ref") or item.get("ref") or item.get("artifact_id") or ""),
+                    "path": _projection_path(item),
+                    "kind": str(item.get("kind") or item.get("artifact_kind") or ""),
+                }
+            )
+        )
+    return [item for item in refs if item]
+
+
+def _replay_code_structure_summary(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    files: list[dict[str, Any]] = []
+    for item in dict_tuple(value.get("files"))[:6]:
+        slices: list[dict[str, Any]] = []
+        for segment in dict_tuple(item.get("slices"))[:4]:
+            slices.append(
+                drop_empty(
+                    {
+                        "evidence_ref": str(segment.get("evidence_ref") or ""),
+                        "symbol": str(segment.get("symbol") or ""),
+                        "matched_line": segment.get("matched_line"),
+                        "start_line": segment.get("start_line"),
+                        "end_line": segment.get("end_line"),
+                        "read_request": _replay_read_request(dict(segment.get("read_request") or {})),
+                    }
+                )
+            )
+        files.append(
+            drop_empty(
+                {
+                    "path": _projection_path(item),
+                    "candidate_only": item.get("candidate_only") if isinstance(item.get("candidate_only"), bool) else None,
+                    "must_read_source_before_edit": item.get("must_read_source_before_edit")
+                    if isinstance(item.get("must_read_source_before_edit"), bool)
+                    else None,
+                    "slices": [segment for segment in slices if segment],
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "source_kind": str(value.get("source_kind") or ""),
+            "source_authority": str(value.get("source_authority") or ""),
+            "candidate_only": value.get("candidate_only") if isinstance(value.get("candidate_only"), bool) else None,
+            "files": [item for item in files if item],
+            "limitations": [str(item) for item in list(value.get("limitations") or [])[:3] if str(item)],
+            "projection": "locator_refs_only",
+        }
+    )
+
+
+def _replay_read_request(value: dict[str, Any]) -> dict[str, Any]:
+    args = dict(value.get("args") or {})
+    return drop_empty(
+        {
+            "tool_name": _tool_name(str(value.get("tool_name") or "")),
+            "args": drop_empty(
+                {
+                    "path": _projection_path(args),
+                    "start_line": args.get("start_line"),
+                    "line_count": args.get("line_count"),
+                }
+            ),
+        }
+    )
+
+
+def _replay_content_range(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "path": _projection_path(value),
+            "start_line": value.get("start_line"),
+            "end_line": value.get("end_line"),
+            "next_start_line": value.get("next_start_line"),
+            "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
+            "content_sha256": str(value.get("content_sha256") or ""),
+        }
+    )
+
+
+def _replay_evidence_policy(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "source_kind": str(value.get("source_kind") or ""),
+            "source_authority": str(value.get("source_authority") or ""),
+            "visible_content_authority": str(value.get("visible_content_authority") or ""),
+            "must_read_source_before_edit": value.get("must_read_source_before_edit")
+            if isinstance(value.get("must_read_source_before_edit"), bool)
+            else None,
+            "instruction": compact_text(value.get("instruction") or "", limit=160),
+        }
+    )
+
+
+def _replay_preview(item: dict[str, Any]) -> str:
+    if item.get("replacement_ref") or dict(item.get("content_range") or {}):
+        return ""
+    return compact_text(item.get("preview") or "", limit=180)
+
+
+def _replay_rehydration_plan(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    capabilities: list[dict[str, Any]] = []
+    for item in dict_tuple(value.get("capabilities"))[:2]:
+        capabilities.append(
+            drop_empty(
+                {
+                    "capability": str(item.get("capability") or ""),
+                    "tool_name": _tool_name(str(item.get("tool_name") or "")),
+                    "args": _rehydration_args_ref(dict(item.get("args") or {})),
+                    "content_range": _replay_content_range(dict(item.get("content_range") or {})),
+                    "next_request": _rehydration_next_request(dict(item.get("next_request") or {})),
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "prompt_status": str(value.get("prompt_status") or ""),
+            "replacement_ref": str(value.get("replacement_ref") or ""),
+            "content_hash": str(value.get("content_hash") or ""),
+            "capabilities": [item for item in capabilities if item],
+            "authority": str(value.get("authority") or "harness.runtime.dynamic_context.rehydration_plan"),
+        }
+    )
+
+
+def _rehydration_args_ref(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "path": _projection_path(value),
+            "start_line": value.get("start_line"),
+            "line_count": value.get("line_count"),
+        }
+    )
+
+
+def _rehydration_next_request(value: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "tool_name": _tool_name(str(value.get("tool_name") or "")),
+            "args": _rehydration_args_ref(dict(value.get("args") or {})),
+        }
+    )
+
+
+def _current_fact_projection(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        projected = drop_empty(
+            {
+                "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+                "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+                "status": str(item.get("status") or ""),
+                "path": _projection_path(item),
+                "visibility": str(item.get("visibility") or ""),
+                "reason": str(item.get("reason") or ""),
+                "summary": compact_text(item.get("summary") or "", limit=140),
+                "content_range": _replay_content_range(dict(item.get("content_range") or {})),
+                "replacement_ref": str(item.get("replacement_ref") or ""),
+            }
+        )
+        if projected:
+            facts.append(projected)
+    return facts[-8:]
+
+
+def _exploration_advisory_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    recent_tools: list[dict[str, Any]] = []
+    for item in dict_tuple(value.get("recent_tools"))[-4:]:
+        recent_tools.append(
+            drop_empty(
+                {
+                    "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+                    "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+                    "status": str(item.get("status") or ""),
+                    "path": _projection_path(item),
+                    "summary": compact_text(item.get("summary") or "", limit=100),
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "triggered": value.get("triggered") if isinstance(value.get("triggered"), bool) else None,
+            "kind": str(value.get("kind") or ""),
+            "consecutive_exploration_tool_calls": value.get("consecutive_exploration_tool_calls"),
+            "threshold": value.get("threshold"),
+            "recommended_action": str(value.get("recommended_action") or ""),
+            "non_blocking": value.get("non_blocking") if isinstance(value.get("non_blocking"), bool) else None,
+            "decision_questions": [
+                compact_text(item, limit=80)
+                for item in list(value.get("decision_questions") or [])[:2]
+                if str(item)
+            ],
+            "recent_tools": [item for item in recent_tools if item],
+            "authority": str(value.get("authority") or "harness.task_observation_projection.exploration_advisory"),
+        }
+    )
+
+
 def _latest_results(
     *,
     execution_projection: dict[str, Any],
@@ -287,9 +501,9 @@ def _latest_results(
                     "summary": compact_text(item.get("summary") or "", limit=300),
                     "code_structure": dict(item.get("code_structure") or {}),
                     "content_range": dict(item.get("content_range") or {}),
-                    "evidence_policy": dict(item.get("evidence_policy") or {}),
+                    "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
                     "preview": _code_evidence_preview(item),
-                    "rehydration_plan": dict(item.get("rehydration_plan") or {}),
+                    "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
                     "event_offset": item.get("event_offset"),
                     "observation_event_offset": item.get("observation_event_offset"),
                     "action_event_offset": item.get("action_event_offset"),
@@ -322,9 +536,9 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
-            "evidence_policy": dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {}),
+            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {})),
             "preview": _code_evidence_preview(tool_result),
-            "rehydration_plan": dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {}),
+            "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {})),
             "event_offset": item.get("event_offset") or tool_result.get("event_offset"),
             "observation_event_offset": item.get("observation_event_offset") or tool_result.get("observation_event_offset"),
             "action_event_offset": item.get("action_event_offset") or tool_result.get("action_event_offset"),
@@ -356,7 +570,7 @@ def _code_evidence_preview(item: dict[str, Any]) -> str:
     preview = str(item.get("preview") or "")
     if not preview:
         return ""
-    return preview[:4000].rstrip()
+    return preview[:1200].rstrip()
 
 
 def _dedupe_failures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -426,7 +640,7 @@ def _cursor_file_state_projection(items: list[dict[str, Any]] | tuple[dict[str, 
         if not isinstance(item, dict) or _low_value_file_state_cursor_item(item):
             continue
         result.append(dict(item))
-    return result[-8:]
+    return result[-5:]
 
 
 def _low_value_file_state_cursor_item(item: dict[str, Any]) -> bool:
@@ -555,7 +769,7 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
         projected = drop_empty(
             {
                 "path": path,
-                "read_ranges": ranges[-12:],
+                "read_ranges": ranges[-6:],
                 "coverage": dict(item.get("coverage") or {}),
                 "total_lines": item.get("total_lines"),
                 "content_sha256": str(item.get("content_sha256") or ""),
@@ -573,15 +787,15 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                             str(segment.get("observation_ref") or "")
                             for segment in dict_tuple(item.get("read_ranges"))
                             if str(segment.get("observation_ref") or "")
-                        ][-4:],
+                        ][-3:],
                     ]
                     if ref
-                ][-5:],
+                ][-4:],
             }
         )
         if projected:
             result.append(projected)
-    return result[-20:]
+    return result[-10:]
 
 
 def _projection_path(item: dict[str, Any]) -> str:

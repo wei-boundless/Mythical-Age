@@ -4,7 +4,7 @@ import { getDefaultState } from "./core";
 import { reduceStreamEvent, startStreamingTurn } from "./events";
 
 describe("public projection reducer contract", () => {
-  it("renders body only from explicit model body slot in a public projection envelope", () => {
+  it("renders assistant text body only from explicit model body slot in a public projection envelope", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
       public_projection_envelope: {
@@ -16,7 +16,7 @@ describe("public projection reducer contract", () => {
         items: [
           {
             item_id: "body:1",
-            kind: "stage_summary",
+            kind: "assistant_text",
             slot: "body",
             surface: "assistant_body",
             source_authority: "model",
@@ -28,6 +28,41 @@ describe("public projection reducer contract", () => {
     });
 
     expect(transition.state.messages.at(-1)?.content).toBe("I am checking the projection chain.");
+  });
+
+  it("keeps stage feedback body items in public timeline instead of hidden message content", () => {
+    let transition = startStreamingTurn(getDefaultState(), "hello");
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
+      answer_channel: "stage_feedback",
+      answer_source: "harness.single_agent_turn.tool_commentary",
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:stage-feedback",
+        lifecycle: "running",
+        source_authority: "model",
+        surface: "assistant_body",
+        items: [
+          {
+            item_id: "stage-feedback:1",
+            kind: "stage_summary",
+            slot: "body",
+            surface: "assistant_body",
+            source_authority: "model",
+            title: "阶段反馈",
+            text: "工具结果已返回，我会根据证据继续收口。",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
+      item_id: "stage-feedback:1",
+      kind: "stage_summary",
+      text: "工具结果已返回，我会根据证据继续收口。",
+    });
   });
 
   it("fails closed for body-looking projection items without explicit slot", () => {

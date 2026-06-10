@@ -54,6 +54,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "prompt_composition.section_renderer.agent"
     if normalized_kind in {"environment_stable"}:
         return "prompt_composition.section_renderer.environment"
+    if normalized_kind == "project_instructions_stable":
+        return "harness.runtime.project_instructions"
     if normalized_kind == "task_prompt_contract":
         return "prompt_composition.section_renderer.task_contract"
     if normalized_kind == "turn_context":

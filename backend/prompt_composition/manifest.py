@@ -220,6 +220,7 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
         "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
+        "runtime_project_instructions_count": status_counts.get("runtime_project_instructions", 0),
         "runtime_environment_boundary_count": status_counts.get("runtime_environment_boundary", 0),
         "runtime_contract_count": status_counts.get("runtime_contract", 0),
         "runtime_protocol_count": status_counts.get("runtime_protocol", 0),
@@ -286,6 +287,8 @@ def _runtime_layer(*, kind: str, source_kind: str) -> str:
         return "lifecycle_stable"
     if source_kind == "runtime_artifact_scope":
         return "artifact_scope_stable"
+    if source_kind == "runtime_project_instructions":
+        return "project_stable"
     if source_kind == "runtime_contract":
         return "task_contract_stable"
     if source_kind == "runtime_task_boundary":
@@ -329,6 +332,10 @@ _LAYER_CACHE_POLICY = {
     "lifecycle_stable": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
+    },
+    "project_stable": {
+        "allowed_prefix_tiers": {"task"},
+        "allowed_cache_roles": {"session_stable"},
     },
     "personality_stable": {
         "allowed_prefix_tiers": {"session"},

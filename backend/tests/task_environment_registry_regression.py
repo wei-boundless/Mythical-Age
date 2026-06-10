@@ -794,6 +794,9 @@ def test_single_agent_turn_packet_keeps_development_environment_authorized_side_
     assert "image_generate" in tool_names
     assert "terminal" in tool_names
     assert "write_file" in tool_names
+    assert "spawn_subagent" not in tool_names
+    assert "wait_subagent" not in tool_names
+    assert "list_subagents" not in tool_names
     assert any(dict(item).get("read_only") is False for item in packet.available_tools)
     assert "tool_call" in packet.allowed_action_types
     assert packet.output_contract["native_actions"]["tool_call"]["boundary"] == "runtime_visible_tools_only"
@@ -822,7 +825,6 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
             "action_selection",
             "task_run_handoff",
             "tool_dispatch",
-            "subagent_delegation",
             "finalization",
         }
     ]
@@ -879,12 +881,7 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         ]
         == "tool_call action is allowed"
     )
-    assert (
-        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
-            "environment.general.lifecycle.subagent_delegation"
-        ]
-        == "subagent control tools are visible"
-    )
+    assert "environment.general.lifecycle.subagent_delegation" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
