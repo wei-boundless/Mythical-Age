@@ -311,9 +311,10 @@ class GraphLoop:
         )
         route_decision: dict[str, Any] = {}
         revision_route_decision: dict[str, Any] = {}
+        initial_inputs = dict(next_state.initial_inputs or {})
         revision_targets = (
             ()
-            if dict(next_state.initial_inputs or {}).get("revision_queue_chapter_indexes")
+            if bool(initial_inputs.get("revision_active")) and initial_inputs.get("revision_queue_chapter_indexes")
             else _ready_rejected_revision_targets(
                 graph_config=graph_config,
                 state=next_state,
@@ -2923,6 +2924,7 @@ def _revision_cursor_input_patch(
         text = _revision_source_text(summary)
         route = _revision_route_from_result_summary(summary)
         indexes = _revision_route_chapter_indexes(route, state=state) if route else _revision_affected_chapter_indexes(text)
+        indexes = _revision_indexes_within_current_batch(indexes, state=state)
         if not indexes:
             continue
         if not revision_plan_text:
@@ -2950,6 +2952,35 @@ def _revision_cursor_input_patch(
             affected_start,
         )
     return patch
+
+
+def _revision_indexes_within_current_batch(indexes: list[int], *, state: GraphLoopState) -> list[int]:
+    if not indexes:
+        return []
+    initial_inputs = dict(state.initial_inputs or {})
+    start = _numeric_value(
+        initial_inputs.get("batch_start_index")
+        or initial_inputs.get("active_chapter_start_index"),
+        None,
+    )
+    end = _numeric_value(
+        initial_inputs.get("batch_end_index")
+        or initial_inputs.get("active_chapter_end_index"),
+        None,
+    )
+    if start is None or end is None:
+        return sorted(dict.fromkeys(index for index in indexes if int(index) > 0))
+    start_index = int(start)
+    end_index = int(end)
+    if start_index > end_index:
+        start_index, end_index = end_index, start_index
+    return sorted(
+        dict.fromkeys(
+            int(index)
+            for index in indexes
+            if int(index) >= start_index and int(index) <= end_index
+        )
+    )
 
 
 def _revision_route_from_result_summary(summary: dict[str, Any]) -> dict[str, Any]:

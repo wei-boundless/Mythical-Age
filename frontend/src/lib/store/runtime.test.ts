@@ -395,7 +395,7 @@ function statusProjectionEnvelope({
   };
 }
 
-function bodyProjectionEnvelope({
+function anchoredStatusProjectionEnvelope({
   projectionId,
   runId,
   taskRunId,
@@ -416,8 +416,8 @@ function bodyProjectionEnvelope({
     authority: "harness.public_projection",
     projection_id: projectionId,
     lifecycle: state,
-    source_authority: "model",
-    surface: "assistant_body",
+    source_authority: "runtime",
+    surface: "timeline",
     anchor: {
       run_id: runId,
       task_run_id: taskRunId,
@@ -427,12 +427,12 @@ function bodyProjectionEnvelope({
     items: [
       {
         item_id: itemId,
-        kind: "opening_judgment",
-        slot: "body",
-        surface: "assistant_body",
-        source_authority: "model",
-        title: "开局判断",
-        text,
+        kind: "status_update",
+        slot: "status",
+        surface: "timeline",
+        source_authority: "runtime",
+        title: text,
+        detail: text,
         state,
       },
     ],
@@ -752,12 +752,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.streamExistingChatRun.mockReset();
     api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
     });
     api.streamChat.mockReset();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:test", eventLogId: "chatrun:test", lastEventOffset: 1 };
     });
     api.truncateSessionMessages.mockReset();
     api.truncateSessionMessages.mockResolvedValue({ ok: true });
@@ -2236,12 +2236,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         authority: "orchestration.runtime_event",
         public_projection_authority: "runtime_monitor.public_event_projection.v1",
         public_event_type: "model_action_admission",
-        public_projection_envelope: bodyProjectionEnvelope({
+        public_projection_envelope: anchoredStatusProjectionEnvelope({
           projectionId: "publicproj:public-delta",
           runId: taskRunId,
           taskRunId,
           turnId: "turn:session:public-delta:1",
-          itemId: "opening:public-delta",
+          itemId: "status:public-delta",
           text: "我正在公开说明当前判断。",
         }),
       },
@@ -2254,9 +2254,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(attachment?.public_timeline).toEqual([
       expect.objectContaining({
-        item_id: "opening:public-delta",
-        kind: "opening_judgment",
-        text: "我正在公开说明当前判断。",
+        item_id: "status:public-delta",
+        kind: "status_update",
+        detail: "我正在公开说明当前判断。",
       }),
     ]);
   });
@@ -2301,12 +2301,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         payload: {},
         refs: {},
         authority: "orchestration.runtime_event",
-        public_projection_envelope: bodyProjectionEnvelope({
+        public_projection_envelope: anchoredStatusProjectionEnvelope({
           projectionId: "publicproj:hydrate",
           runId: taskRunId,
           taskRunId,
           turnId: "turn:session:hydrate:1",
-          itemId: "opening:hydrate",
+          itemId: "status:hydrate",
           text: "这条 live 公开反馈还没有持久化到 session timeline。",
         }),
       },
@@ -2321,8 +2321,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
     expect(attachment?.run_id).toBe(taskRunId);
     expect(attachment?.public_timeline?.[0]).toMatchObject({
-      item_id: "opening:hydrate",
-      text: "这条 live 公开反馈还没有持久化到 session timeline。",
+      item_id: "status:hydrate",
+      detail: "这条 live 公开反馈还没有持久化到 session timeline。",
     });
   });
 
@@ -2460,7 +2460,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:background",
         active_turn_id: "turn:session:background:1",
       });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
       active_task_run_id: "taskrun:background",
@@ -2503,7 +2503,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:background",
         active_turn_id: "turn:session:background:1",
       });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2554,7 +2554,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         taskRunId: "taskrun:streaming",
         activeTurnId: "turn:session:streaming:1",
       });
-      return { terminalEvent: "done", streamRunId: "strun:steer", eventLogId: "chatrun:steer", lastEventOffset: 2 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:steer", eventLogId: "chatrun:steer", lastEventOffset: 2 };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2644,7 +2644,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           detail: "已收到，会纳入当前处理。",
         });
       }
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2752,7 +2752,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         activeTurnId: "turn:session-queue-only:1",
         detail: "已加入当前任务队列，会在当前执行中优先纳入。",
       });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     api.getSessionTimeline.mockResolvedValue({
       messages: [
@@ -2830,7 +2830,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             resolve();
           };
         });
-        return { terminalEvent: "done" };
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       })
       .mockImplementationOnce(async (_payload, handlers) => {
         emitRuntimeControlSteerDone(handlers, {
@@ -2838,7 +2838,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           activeTurnId: "turn:session-auto-active-stream:1",
           detail: "第二条补充已处理。",
         });
-        return { terminalEvent: "done" };
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       });
     api.getSessionTimeline.mockResolvedValue({
       messages: [
@@ -2940,7 +2940,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             resolve();
           };
         });
-        return { terminalEvent: "done" };
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       })
       .mockImplementationOnce(async (_payload, handlers) => {
         emitRuntimeControlSteerDone(handlers, {
@@ -2948,7 +2948,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           activeTurnId: "turn:session-stream-queue:1",
           detail: "已加入当前任务队列，会在当前执行中优先纳入。",
         });
-        return { terminalEvent: "done" };
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       });
     api.getSessionTimeline.mockResolvedValue({
       messages: [
@@ -3697,7 +3697,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.loadFile.mockImplementation(() => new Promise(() => undefined));
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -4596,7 +4596,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("assistant_text_delta", { sequence: 1, content: "续", content_utf8_start: 0, event_offset: 4 });
       handlers.onEvent("assistant_text_final", { sequence: 2, content: "续接完成", content_sha256: "sha256:resume", event_offset: 5 });
       handlers.onEvent("done", { content: "续接完成", event_offset: 5 });
-      return { terminalEvent: "done", streamRunId: "strun:resume", eventLogId: "chatrun:resume", lastEventOffset: 5 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:resume", eventLogId: "chatrun:resume", lastEventOffset: 5 };
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -4663,7 +4663,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("assistant_text_delta", { sequence: 1, content: "恢复", content_utf8_start: 0, event_offset: 1 });
       handlers.onEvent("assistant_text_final", { sequence: 2, content: "恢复完成", content_sha256: "sha256:latest", event_offset: 2 });
       handlers.onEvent("done", { content: "恢复完成", event_offset: 2 });
-      return { terminalEvent: "done", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -4836,7 +4836,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         .flatMap((message) => message.runtimePublicTimelineDraft ?? [])
         .find((item) => item.item_id === "stream-restore:strun:fresh");
       handlers.onEvent("done", { content: "已接回", event_offset: 5 });
-      return { terminalEvent: "done", streamRunId: "strun:fresh", eventLogId: "chatrun:fresh", lastEventOffset: 5 };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:fresh", eventLogId: "chatrun:fresh", lastEventOffset: 5 };
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -4887,7 +4887,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       root_request_ref: "chatreq:terminal",
       status: "completed",
       latest_event_offset: 9,
-      terminal_event: "done",
+      terminal_event: "turn_completed",
       is_reconnectable: true,
       stream_url: "/api/chat/runs/strun:terminal/events",
     });
@@ -5093,7 +5093,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("sends enabled thinking without explicit effort for a reasoning-capable system default chat model", async () => {
     vi.useRealTimers();
-    api.streamChat.mockResolvedValue({ terminalEvent: "done" });
+    api.streamChat.mockResolvedValue({ terminalEvent: "turn_completed", terminalStatus: "completed" });
     api.listSessions.mockResolvedValue([{
       id: "session:reasoning",
       title: "Reasoning",
@@ -5411,7 +5411,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           caption: "revised prompt",
         },
       });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -5494,7 +5494,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.getSessionHistory).not.toHaveBeenCalled();
     expect(lastMessage?.role).toBe("assistant");
-    expect(lastMessage?.content).toContain("Image API failed with status 400");
+    expect(lastMessage?.content).toBe("");
+    expect(lastMessage?.runtimePublicTimelineDraft?.[0]).toMatchObject({
+      title: "处理失败",
+      detail: "Image API failed with status 400",
+      state: "error",
+    });
     expect(store.getState().sessionActivity.level).toBe("error");
   });
 
@@ -5850,7 +5855,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         agent_run: { agent_run_id: "agentrun:abc" },
       });
       handlers.onEvent("done", { content: "done" });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -6077,7 +6082,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
-  it("writes terminal error detail into the assistant message instead of only the status bar", () => {
+  it("writes terminal error detail into timeline status without changing assistant prose", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "error", {
       error: "当前环境的写入权限不足，且创建文件的工具不可见。",
@@ -6085,7 +6090,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("处理失败\n\n当前环境的写入权限不足，且创建文件的工具不可见。");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
+      title: "处理失败",
+      detail: "当前环境的写入权限不足，且创建文件的工具不可见。",
+      state: "error",
+    });
     expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
       title: "处理失败",
       body: "当前环境的写入权限不足，且创建文件的工具不可见。",
@@ -6196,7 +6206,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
       });
       handlers.onEvent("done", { content: "已直接回复。" });
-      return { terminalEvent: "done" };
+      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -6217,7 +6227,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
   });
 
-  it("writes public projection envelope timeline into the assistant draft during live stream", () => {
+  it("writes first-class tool item lifecycle events into the assistant draft during live stream", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续执行");
     transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
       turn_run: {
@@ -6225,48 +6235,38 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         turn_run_id: "turnrun:turn:runtime:tool-write:1",
       },
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
-      step: "task_tool_executed",
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "call:write",
+      tool_call_id: "call:write",
+      turn_run_id: "turnrun:turn:runtime:tool-write:1",
+      tool_name: "write_file",
+      title: "正在更新文件",
+      target: "docs/plan.md",
+      arguments_preview: "path=docs/plan.md",
       status: "running",
-      public_projection_envelope: {
-        authority: "harness.public_projection",
-        projection_id: "publicproj:tool-write",
-        lifecycle: "running",
-        source_authority: "tool",
-        surface: "tool_window",
-        anchor: {
-          turn_id: "turn:runtime:tool-write:1",
-          turn_run_id: "turnrun:turn:runtime:tool-write:1",
-          run_id: "turnrun:turn:runtime:tool-write:1",
-        },
-        items: [
-          {
-            item_id: "tool:write",
-            kind: "work_action",
-            slot: "tool",
-            surface: "tool_window",
-            source_authority: "tool",
-            action_kind: "edit",
-            title: "正在更新文件",
-            subject_label: "docs/plan.md",
-            public_summary: "正在更新文件 docs/plan.md",
-            state: "running",
-          },
-        ],
-      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_completed", {
+      item_id: "call:write",
+      tool_call_id: "call:write",
+      turn_run_id: "turnrun:turn:runtime:tool-write:1",
+      tool_name: "write_file",
+      state: "done",
+      observation: "文件已更新",
     });
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimePublicTimelineDraft).toEqual([
       expect.objectContaining({
-        item_id: "tool:write",
+        item_id: "call:write",
         kind: "work_action",
-        public_summary: "正在更新文件 docs/plan.md",
+        public_summary: "文件已更新",
+        state: "done",
+        stream_state: "done",
       }),
     ]);
   });
 
-  it("does not finalize a tool window without a matching tool completion envelope", () => {
+  it("does not finalize a tool item without a matching tool completion event", () => {
     let transition = startStreamingTurn(getDefaultState(), "再做一个踢足球小游戏");
     transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
       turn_run: {
@@ -6274,47 +6274,24 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         turn_run_id: "turnrun:turn:runtime:football:1",
       },
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
-      step: "task_tool_executed",
-      status: "running",
-      public_projection_envelope: {
-        authority: "harness.public_projection",
-        projection_id: "publicproj:football-start",
-        lifecycle: "running",
-        source_authority: "tool",
-        surface: "tool_window",
-        anchor: {
-          turn_id: "turn:runtime:football:1",
-          turn_run_id: "turnrun:turn:runtime:football:1",
-          run_id: "turnrun:turn:runtime:football:1",
-        },
-        items: [
-          {
-            item_id: "tool:football:start",
-            kind: "work_action",
-            slot: "tool",
-            surface: "tool_window",
-            source_authority: "tool",
-            action_kind: "edit",
-            title: "正在更新文件",
-            subject_label: "artifacts/football.html",
-            public_summary: "正在更新文件 artifacts/football.html",
-            state: "running",
-            stream_state: "streaming",
-          },
-        ],
-      },
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "call:football",
+      tool_call_id: "call:football",
+      turn_run_id: "turnrun:turn:runtime:football:1",
+      tool_name: "write_file",
+      title: "正在更新文件",
+      target: "artifacts/football.html",
+      state: "running",
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "done", {
-      content: "写好了。\n\nD:\\AI应用\\langchain-agent\\storage\\task_environments\\general\\workspace\\artifacts\\football.html",
-      answer_canonical_state: "stable_answer",
-      answer_channel: "conversation",
+    transition = reduceStreamEvent(transition.state, transition.session, "turn_completed", {
+      status: "completed",
+      turn_run_id: "turnrun:turn:runtime:football:1",
     });
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimePublicTimelineDraft).toEqual([
       expect.objectContaining({
-        item_id: "tool:football:start",
+        item_id: "call:football",
         kind: "work_action",
         state: "running",
         stream_state: "streaming",
@@ -6330,7 +6307,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         error: "backend failed",
         terminal_reason: "backend_error",
       });
-      return { terminalEvent: "error" };
+      return { terminalEvent: "turn_completed", terminalStatus: "failed" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),

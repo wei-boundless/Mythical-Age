@@ -53,6 +53,9 @@ const INTERNAL_RUNTIME_STEP_SUMMARIES = new Set([
   "action_admission_checked",
   "bounded_observation_recorded",
 ]);
+const TOOL_ITEM_STARTED_EVENT = "tool_item_started";
+const TOOL_ITEM_COMPLETED_EVENT = "tool_item_completed";
+const TURN_COMPLETED_EVENT = "turn_completed";
 
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
@@ -95,6 +98,38 @@ function stoppedPublicTimelineItem(): PublicChatTimelineItem {
     text: "你已停止本轮生成，当前运行不会继续推进。",
     state: "stopped",
     phase: "stopped",
+    stream_state: "done",
+  };
+}
+
+function turnCompletedStatus(data: Record<string, unknown>) {
+  const status = stringValue(data.status).toLowerCase();
+  if (status === "failed" || status === "stopped" || status === "completed") {
+    return status;
+  }
+  return "completed";
+}
+
+function terminalPublicTimelineItemFromTurnCompleted(data: Record<string, unknown>): PublicChatTimelineItem | null {
+  const status = turnCompletedStatus(data);
+  if (status === "stopped") {
+    return stoppedPublicTimelineItem();
+  }
+  if (status !== "failed") {
+    return null;
+  }
+  const detail = stringValue(data.error_summary) || "本轮运行失败，详情已写入会话。";
+  return {
+    item_id: "stream:failed",
+    kind: "status_update",
+    slot: "status",
+    surface: "status_bar",
+    source_authority: "system",
+    title: "处理失败",
+    detail,
+    text: detail,
+    state: "error",
+    phase: "done",
     stream_state: "done",
   };
 }
@@ -150,6 +185,23 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "done") {
     return "";
   }
+  if (event === TURN_COMPLETED_EVENT) {
+    const status = turnCompletedStatus(data);
+    if (status === "failed") {
+      return "出错";
+    }
+    if (status === "stopped") {
+      return "已停止";
+    }
+    return "";
+  }
+  if (event === TOOL_ITEM_STARTED_EVENT) {
+    return stringValue(data.title) || `运行工具 ${stringValue(data.tool_name) || "tool"}`;
+  }
+  if (event === TOOL_ITEM_COMPLETED_EVENT) {
+    const state = stringValue(data.state).toLowerCase();
+    return state === "error" || state === "failed" ? "工具执行失败" : "工具已返回";
+  }
   if (event === "error") {
     return "出错";
   }
@@ -157,6 +209,23 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
 }
 
 function activityLevelForEvent(event: string, data: Record<string, unknown>) {
+  if (event === TURN_COMPLETED_EVENT) {
+    const status = turnCompletedStatus(data);
+    if (status === "failed") {
+      return "error" as const;
+    }
+    if (status === "stopped") {
+      return "stopped" as const;
+    }
+    return "success" as const;
+  }
+  if (event === TOOL_ITEM_COMPLETED_EVENT) {
+    const state = stringValue(data.state).toLowerCase();
+    return state === "error" || state === "failed" ? "error" as const : "success" as const;
+  }
+  if (event === TOOL_ITEM_STARTED_EVENT) {
+    return "running" as const;
+  }
   if (event === "done") {
     if (isTaskRunHandoffEvent(data)) {
       return "waiting" as const;
@@ -199,6 +268,22 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   }
   if (event === "done") {
     return "";
+  }
+  if (event === TURN_COMPLETED_EVENT) {
+    const status = turnCompletedStatus(data);
+    if (status === "failed") {
+      return stringValue(data.error_summary) || "详情已写入会话。";
+    }
+    if (status === "stopped") {
+      return stringValue(data.stopped_reason) || "已按你的操作停止本轮生成";
+    }
+    return "";
+  }
+  if (event === TOOL_ITEM_STARTED_EVENT) {
+    return stringValue(data.target) || stringValue(data.arguments_preview);
+  }
+  if (event === TOOL_ITEM_COMPLETED_EVENT) {
+    return stringValue(data.error) || stringValue(data.observation);
   }
   if (event === "error") {
     return "详情已写入会话。";
@@ -285,6 +370,9 @@ function isTransportStreamEvent(event: string) {
   return event === "stream_reconnecting"
     || event === "stream_reconnected"
     || event === "stream_reconnect_failed"
+    || event === TOOL_ITEM_STARTED_EVENT
+    || event === TOOL_ITEM_COMPLETED_EVENT
+    || event === TURN_COMPLETED_EVENT
     || event === "error"
     || event === "stopped";
 }
@@ -486,6 +574,86 @@ function mergeAssistantStreamRepairEvent(
   return patchAssistant(withStream, assistantId, (message) => ({ ...message, content: replacement }));
 }
 
+function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>): PublicChatTimelineItem | null {
+  const toolCallId = stringValue(data.tool_call_id) || stringValue(data.item_id);
+  if (!toolCallId) {
+    return null;
+  }
+  const toolName = stringValue(data.tool_name) || "tool";
+  const target = stringValue(data.target);
+  const argumentsPreview = stringValue(data.arguments_preview);
+  const observation = stringValue(data.observation);
+  const error = stringValue(data.error);
+  const stateValue = stringValue(data.state).toLowerCase();
+  const failed = stateValue === "error" || stateValue === "failed";
+  const state = event === TOOL_ITEM_COMPLETED_EVENT
+    ? failed ? "error" : "done"
+    : "running";
+  const title = event === TOOL_ITEM_STARTED_EVENT
+    ? stringValue(data.title) || `运行工具 ${toolName}`
+    : failed ? "工具执行失败" : "工具已完成";
+  const publicSummary = event === TOOL_ITEM_COMPLETED_EVENT
+    ? error || observation || title
+    : title;
+  const sections = [
+    event === TOOL_ITEM_STARTED_EVENT && argumentsPreview
+      ? { label: "参数", text: argumentsPreview }
+      : null,
+    event === TOOL_ITEM_COMPLETED_EVENT && observation
+      ? { label: failed ? "失败信息" : "结果", text: observation }
+      : null,
+    event === TOOL_ITEM_COMPLETED_EVENT && error && error !== observation
+      ? { label: "错误", text: error }
+      : null,
+  ].filter((section): section is { label: string; text: string } => Boolean(section?.text));
+  const traceRefs = [
+    stringValue(data.runtime_event_id),
+    stringValue(data.turn_run_id),
+    stringValue(data.task_run_id),
+  ].filter(Boolean);
+  const item: PublicChatTimelineItem = {
+    item_id: toolCallId,
+    kind: "work_action",
+    slot: "tool",
+    surface: "tool_window",
+    source_authority: "tool",
+    tool_name: toolName,
+    title,
+    public_summary: publicSummary,
+    state,
+    stream_state: state === "running" ? "streaming" : "done",
+    trace_refs: traceRefs,
+    tool_window: {
+      tool_label: toolName,
+      status: toolTimelineStatusLabel(state),
+      sections,
+    },
+  };
+  if (target) {
+    item.subject_label = target;
+    if (item.tool_window) {
+      item.tool_window.target = target;
+    }
+  }
+  if (observation) {
+    item.observation = observation;
+  }
+  if (error) {
+    item.recovery_hint = error;
+  }
+  return item;
+}
+
+function toolTimelineStatusLabel(state: string) {
+  if (state === "error") {
+    return "失败";
+  }
+  if (state === "done") {
+    return "已完成";
+  }
+  return "运行中";
+}
+
 function numberValue(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -547,8 +715,16 @@ function bindStreamSessionAnchor(
       bind("boundTurnId", turnIdFromRuntimeRunId(taskRunId));
     }
   }
-  if (event === "assistant_text_delta" || event === "assistant_text_final") {
+  if (
+    event === "assistant_text_delta"
+    || event === "assistant_text_final"
+    || event === "assistant_stream_repair"
+    || event === TOOL_ITEM_STARTED_EVENT
+    || event === TOOL_ITEM_COMPLETED_EVENT
+    || event === TURN_COMPLETED_EVENT
+  ) {
     bindTurnRun(stringValue(data.turn_run_id), stringValue(data.turn_id));
+    bind("boundTaskRunId", stringValue(data.task_run_id));
   }
   const envelope = recordValue(data.public_projection_envelope);
   const envelopeAnchor = recordValue(envelope.anchor);
@@ -680,6 +856,31 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
       },
     };
   }
+  if (event === TURN_COMPLETED_EVENT) {
+    const status = turnCompletedStatus(data);
+    if (status === "failed") {
+      return {
+        level: "error",
+        title: "处理失败",
+        body: stringValue(data.error_summary) || "详情已写入会话。",
+        debug: { event },
+      };
+    }
+    if (status === "stopped") {
+      return {
+        level: "stopped",
+        title: "已停止本轮生成",
+        body: stringValue(data.stopped_reason) || "这轮生成已停止。",
+        debug: { event },
+      };
+    }
+    return {
+      level: "success",
+      title: "已收口",
+      body: "结果已写回会话。",
+      debug: { event },
+    };
+  }
   if (event === "error") {
     return {
       level: "error",
@@ -729,7 +930,7 @@ function patchSessionActivity(
       title,
       detail,
       event,
-      toolName: event.startsWith("tool") ? String(data.tool ?? "").trim() || undefined : undefined,
+      toolName: event.startsWith("tool") ? String(data.tool_name ?? data.tool ?? "").trim() || undefined : undefined,
       receipt,
       updatedAt: Date.now()
     }
@@ -843,13 +1044,13 @@ function eventNodeId(event: string) {
   if (event.startsWith("worker") || event === "retrieval") {
     return "tool";
   }
-  if (event.startsWith("tool")) {
+  if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
   if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "answer_candidate" || event === "assistant_text" || event === "debug") {
     return "model";
   }
-  if (event === "done" || event === "error") {
+  if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
     return "output";
   }
   if (event === "runtime_branch_decided" || event === "single_agent_turn_started") {
@@ -877,6 +1078,9 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
     debug: "model",
     done: "output",
     error: "output",
+    [TURN_COMPLETED_EVENT]: "output",
+    [TOOL_ITEM_STARTED_EVENT]: "tool",
+    [TOOL_ITEM_COMPLETED_EVENT]: "tool",
     worker_start: "tool",
     worker_end: "tool"
   };
@@ -920,6 +1124,16 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
     return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
   }
+  if (event === TURN_COMPLETED_EVENT) {
+    const status = turnCompletedStatus(data);
+    if (status === "failed") {
+      return stringValue(data.error_summary) || "执行失败";
+    }
+    if (status === "stopped") {
+      return stringValue(data.stopped_reason) || "已停止";
+    }
+    return "完成输出";
+  }
   if (event === "error") {
     return String(data.error ?? "执行失败");
   }
@@ -929,8 +1143,8 @@ function eventSummary(event: string, data: Record<string, unknown>) {
   if (event.startsWith("worker")) {
     return String(data.worker ?? data.task_status ?? "worker");
   }
-  if (event.startsWith("tool")) {
-    return String(data.tool ?? "tool");
+  if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
+    return String(data.tool_name ?? data.tool ?? "tool");
   }
   if (event === "memory_context") {
     return "状态记忆与长期记忆上下文已读取。";
@@ -955,6 +1169,9 @@ function publicStreamEventLabel(event: string) {
     debug: "同步状态",
     done: "已收口",
     error: "处理失败",
+    [TURN_COMPLETED_EVENT]: "已收口",
+    [TOOL_ITEM_STARTED_EVENT]: "正在调用工具",
+    [TOOL_ITEM_COMPLETED_EVENT]: "工具结果已返回",
     harness_loop_event: "处理进展更新",
     memory_context: "已读取相关记忆",
     orchestration_diff: "处理计划已更新",
@@ -989,7 +1206,7 @@ function runtimeControlWarningLabel(warning: string) {
 }
 
 function runtimeEventToUiEvent(eventType: string) {
-  if (eventType === "loop_terminal") return "done";
+  if (eventType === "loop_terminal") return TURN_COMPLETED_EVENT;
   if (eventType === "task_contract_built") return "orchestration_plan";
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") return "harness_loop_event";
   if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
@@ -1116,15 +1333,16 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "answer_candidate", "assistant_text", "done"].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "answer_candidate", "assistant_text", "done", TURN_COMPLETED_EVENT].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }
+  const turnCompletedStatusValue = event === TURN_COMPLETED_EVENT ? turnCompletedStatus(data) : "";
   const nodes = snapshot.nodes.map((node) => {
-    if (event === "error" && node.id === nodeId) {
+    if ((event === "error" || turnCompletedStatusValue === "failed") && node.id === nodeId) {
       return { ...node, status: "failed" as const, summary, source_event: event };
     }
-    if (node.id === "persistence" && event === "done") {
+    if (node.id === "persistence" && (event === "done" || turnCompletedStatusValue === "completed")) {
       return { ...node, status: "success" as const, summary: "会话与运行状态等待后处理写回。", source_event: event };
     }
     if (node.id === nodeId || autoVisited.has(node.id)) {
@@ -1149,13 +1367,13 @@ function updateOrchestrationSnapshot(
     ...snapshot,
     execution_mode: executionMode === "undefined" ? snapshot.execution_mode : executionMode,
     route: route === "undefined" ? snapshot.route : route,
-    status: event === "error" ? "failed" : event === "done" ? "success" : "running",
-    summary: event === "done"
+    status: event === "error" || turnCompletedStatusValue === "failed" ? "failed" : event === "done" || turnCompletedStatusValue === "completed" ? "success" : "running",
+    summary: event === "done" || turnCompletedStatusValue === "completed"
       ? "编排完成"
-      : event === "error"
-        ? `编排失败：${String(data.error ?? "unknown")}`
+      : event === "error" || turnCompletedStatusValue === "failed"
+        ? `编排失败：${String(data.error_summary ?? data.error ?? "unknown")}`
         : publicStreamEventLabel(event),
-    problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
+    problem_node_id: event === "error" || turnCompletedStatusValue === "failed" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,
     edges: snapshot.edges?.length ? snapshot.edges : deriveOrchestrationEdges(nextNodes),
     events
@@ -1258,10 +1476,13 @@ function patchAssistantTaskProjectionDraft(
 }
 
 function terminalProgressEntryForEvent(event: string, data: Record<string, unknown>): RuntimeProgressEntry | undefined {
-  if (event !== "error") {
+  const failedTurnCompleted = event === TURN_COMPLETED_EVENT && turnCompletedStatus(data) === "failed";
+  if (event !== "error" && !failedTurnCompleted) {
     return undefined;
   }
-  const body = stringValue(data.content ?? data.error) || "请求执行失败";
+  const body = failedTurnCompleted
+    ? stringValue(data.error_summary) || "请求执行失败"
+    : stringValue(data.content ?? data.error) || "请求执行失败";
   return {
     id: `terminal:${event}`,
     level: "error",
@@ -1274,6 +1495,9 @@ function terminalProgressEntryForEvent(event: string, data: Record<string, unkno
 }
 
 function terminalActivityTitle(event: string, receipt: UserReceipt | null) {
+  if (event === TURN_COMPLETED_EVENT) {
+    return receipt?.level === "error" || receipt?.level === "stopped" ? receipt.title || "" : "";
+  }
   return event === "error" || event === "stopped" ? receipt?.title || "" : "";
 }
 
@@ -1505,7 +1729,7 @@ export function reduceStreamEvent(
     ? { ...state, activeTurnSnapshot }
     : taskRunHandoffSnapshot
       ? { ...state, activeTurnSnapshot: taskRunHandoffSnapshot }
-    : event === "done" || event === "error" || event === "stopped"
+    : event === "done" || event === "error" || event === "stopped" || event === TURN_COMPLETED_EVENT
       ? { ...state, activeTurnSnapshot: null }
       : state;
   const stateWithStreamAnchor = patchAssistantStreamAnchor(stateWithActiveTurn, boundSession);
@@ -1592,6 +1816,47 @@ export function reduceStreamEvent(
     };
   }
 
+  if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT) {
+    const item = toolTimelineItemFromEvent(event, data);
+    if (!item) {
+      return {
+        state: stateWithTimelineDraft,
+        session: boundSession,
+      };
+    }
+    return {
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
+        ...message,
+        runtimePublicTimelineDraft: mergePublicTimelineItems(
+          message.runtimePublicTimelineDraft,
+          [item],
+        ),
+      })),
+      session: boundSession,
+    };
+  }
+
+  if (event === TURN_COMPLETED_EVENT) {
+    const item = terminalPublicTimelineItemFromTurnCompleted(data);
+    if (!item) {
+      return {
+        state: stateWithTimelineDraft,
+        session: boundSession,
+      };
+    }
+    return {
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
+        ...message,
+        runtimePublicTimelineDraft: mergePublicTimelineItems(
+          message.runtimePublicTimelineDraft,
+          [item],
+          { terminalState: turnCompletedStatus(data) === "stopped" ? "stopped" : "error" },
+        ),
+      })),
+      session: boundSession,
+    };
+  }
+
   if (event === "token" || event === "content_delta") {
     return {
       state: stateWithTimelineDraft,
@@ -1647,18 +1912,10 @@ export function reduceStreamEvent(
 
   if (event === "error") {
     const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
-    const visibleError = `处理失败\n\n${errorText}`;
+    const item = terminalPublicTimelineItemFromTurnCompleted({ status: "failed", error_summary: errorText });
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => {
-        const current = message.content.trim();
-        if (!current) {
-          return {
-            ...message,
-            content: visibleError,
-            stageStatus: "出错",
-          };
-        }
-        if (current.includes(errorText)) {
+        if (!item) {
           return {
             ...message,
             stageStatus: "出错",
@@ -1666,7 +1923,11 @@ export function reduceStreamEvent(
         }
         return {
           ...message,
-          content: `${current}\n\n${visibleError}`,
+          runtimePublicTimelineDraft: mergePublicTimelineItems(
+            message.runtimePublicTimelineDraft,
+            [item],
+            { terminalState: "error" },
+          ),
           stageStatus: "出错",
         };
       }),

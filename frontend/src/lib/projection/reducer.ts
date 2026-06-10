@@ -159,59 +159,7 @@ function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnv
       return index;
     }
   }
-  const activeTurnMatch = activeTurnMatchesProjection(state, { turnId, runId, taskRunId, turnRunId });
-  if (activeTurnMatch) {
-    const index = latestCurrentAssistantIndex(state, { turnId, runId, taskRunId, turnRunId });
-    if (index >= 0) return index;
-  }
   return -1;
-}
-
-function activeTurnMatchesProjection(
-  state: StoreState,
-  anchor: Required<ProjectionStreamAnchor>,
-) {
-  const activeTurn = state.activeTurnSnapshot;
-  if (!activeTurn) return false;
-  return Boolean(
-    (anchor.turnId && text(activeTurn.turn_id) === anchor.turnId)
-    || (anchor.taskRunId && text(activeTurn.task_run_id) === anchor.taskRunId)
-    || (anchor.turnRunId && text(activeTurn.turn_run_id) === anchor.turnRunId)
-  );
-}
-
-function latestCurrentAssistantIndex(
-  state: StoreState,
-  anchor: Required<ProjectionStreamAnchor>,
-) {
-  const latestUserIndex = latestMessageIndex(state, "user");
-  for (let index = state.messages.length - 1; index > latestUserIndex; index -= 1) {
-    const message = state.messages[index];
-    if (message.role !== "assistant") continue;
-    if (assistantHasConflictingProjectionSource(message, anchor)) continue;
-    return index;
-  }
-  return -1;
-}
-
-function latestMessageIndex(state: StoreState, role: "user" | "assistant") {
-  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-    if (state.messages[index]?.role === role) return index;
-  }
-  return -1;
-}
-
-function assistantHasConflictingProjectionSource(
-  message: StoreState["messages"][number],
-  anchor: Required<ProjectionStreamAnchor>,
-) {
-  const checks: Array<[string, string]> = [
-    [text(message.sourceTurnId), anchor.turnId],
-    [text(message.sourceRunId), anchor.runId],
-    [text(message.sourceTaskRunId), anchor.taskRunId],
-    [text(message.sourceTurnRunId), anchor.turnRunId],
-  ];
-  return checks.some(([existing, incoming]) => existing && incoming && existing !== incoming);
 }
 
 function runtimeAttachmentFromEnvelope(envelope: PublicProjectionEnvelope): SessionRuntimeAttachment | null {
@@ -252,9 +200,8 @@ function isValidProjectionItem(item: PublicProjectionItem | undefined): item is 
   if (!item || typeof item !== "object") return false;
   const slot = text(item.slot);
   const surface = text(item.surface);
-  const authority = text(item.source_authority);
-  if (surface === "assistant_body" && (slot !== "body" || authority !== "model")) return false;
-  if (slot === "body" && (authority !== "model" || surface !== "assistant_body")) return false;
+  if (slot === "body" || surface === "assistant_body") return false;
+  if (slot === "tool" || surface === "tool_window") return false;
   return true;
 }
 

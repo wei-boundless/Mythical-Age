@@ -294,7 +294,7 @@ export type PublicProjectionEnvelope = {
   source_authority?: "model" | "tool" | "system" | "runtime" | string;
   surface?: "assistant_body" | "timeline" | "tool_window" | "status_bar" | "task_projection" | "control" | "diagnostics" | string;
   terminal?: {
-    event?: "done" | "error" | "stopped" | string;
+    event?: "turn_completed" | string;
     visible?: boolean;
     reason?: string;
   };
@@ -3990,7 +3990,8 @@ export type StreamHandlers = {
 };
 
 export type StreamResult = {
-  terminalEvent: "done" | "error" | "stopped";
+  terminalEvent: "turn_completed";
+  terminalStatus: "completed" | "failed" | "stopped" | string;
   streamRunId: string;
   eventLogId: string;
   lastEventOffset: number;
@@ -4044,7 +4045,8 @@ export type OrchestrationSubagentPolicy = {
   allow_nested_subagents: boolean;
 };
 
-const TERMINAL_STREAM_EVENTS = new Set(["done", "error", "stopped"]);
+const TURN_COMPLETED_EVENT = "turn_completed";
+const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
 const MAX_STREAM_BUFFER_CHARS = 1_000_000;
 const MAX_CHAT_STREAM_RECONNECT_ATTEMPTS = 5;
 
@@ -5836,6 +5838,14 @@ function parseSseBlock(block: string): { id: string; event: string; data: Record
   };
 }
 
+function terminalStatusFromTurnCompleted(data: Record<string, unknown>) {
+  const status = String(data.status ?? "").trim().toLowerCase();
+  if (status === "failed" || status === "stopped" || status === "completed") {
+    return status;
+  }
+  return "completed";
+}
+
 async function consumeChatRunStream(
   run: ChatRun,
   sessionId: string,
@@ -5853,6 +5863,7 @@ async function consumeChatRunStream(
     : Number(options.initialCursor?.lastEventOffset ?? run.latest_event_offset ?? -1);
   let lastEventId = options.replayFromStart ? "" : String(options.initialCursor?.lastEventId || "");
   let terminalEvent: StreamResult["terminalEvent"] | "" = "";
+  let terminalStatus: StreamResult["terminalStatus"] = "";
   let reconnectAttempt = 0;
 
   if (persistCursor) {
@@ -5896,6 +5907,9 @@ async function consumeChatRunStream(
       reconnectAttempt = 0;
     }
     handlers.onEvent(parsed.event, parsed.data);
+    if (TERMINAL_STREAM_EVENTS.has(parsed.event)) {
+      terminalStatus = terminalStatusFromTurnCompleted(parsed.data);
+    }
     return parsed.event;
   };
 
@@ -6012,6 +6026,7 @@ async function consumeChatRunStream(
 
   return {
     terminalEvent,
+    terminalStatus: terminalStatus || "completed",
     streamRunId: run.stream_run_id,
     eventLogId: run.event_log_id,
     lastEventOffset,

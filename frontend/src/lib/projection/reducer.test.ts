@@ -13,7 +13,7 @@ describe("public projection reducer contract", () => {
     });
   }
 
-  it("renders assistant text body only from explicit model body slot in a public projection envelope", () => {
+  it("drops explicit model body slots from public projection envelopes", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
       public_projection_envelope: {
@@ -37,14 +37,13 @@ describe("public projection reducer contract", () => {
       },
     });
 
-    expect(transition.state.messages.at(-1)?.runtimeAttachments?.[0]?.public_timeline?.[0]).toMatchObject({
-      text: "I am checking the projection chain.",
-      source_authority: "model",
-      surface: "assistant_body",
-    });
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("");
+    expect(assistant?.runtimeAttachments ?? []).toEqual([]);
+    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
   });
 
-  it("keeps stage feedback body items in public timeline instead of hidden message content", () => {
+  it("drops stage feedback body items instead of treating them as timeline content", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
       answer_channel: "stage_feedback",
@@ -73,11 +72,8 @@ describe("public projection reducer contract", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
-      item_id: "stage-feedback:1",
-      kind: "stage_summary",
-      text: "工具结果已返回，我会根据证据继续收口。",
-    });
+    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
+    expect(assistant?.runtimeAttachments ?? []).toEqual([]);
   });
 
   it("fails closed for body-looking projection items without explicit slot", () => {
@@ -87,8 +83,8 @@ describe("public projection reducer contract", () => {
         authority: "harness.public_projection",
         projection_id: "publicproj:no-slot",
         lifecycle: "running",
-        source_authority: "model",
-        surface: "assistant_body",
+        source_authority: "runtime",
+        surface: "timeline",
         items: [
           {
             item_id: "legacy-body",
@@ -182,10 +178,10 @@ describe("public projection reducer contract", () => {
         items: [
           {
             item_id: "observation:task-feedback",
-            kind: "observation_report",
-            slot: "body",
-            surface: "assistant_body",
-            source_authority: "model",
+            kind: "status_update",
+            slot: "status",
+            surface: "timeline",
+            source_authority: "runtime",
             title: "观察反馈",
             detail: "已确认上一阶段结果，可以继续推进。",
             state: "done",
@@ -235,7 +231,7 @@ describe("public projection reducer contract", () => {
     expect(assistant?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("attaches a matching anchored projection to the bound current stream assistant", () => {
+  it("does not attach tool-window projection to the bound current stream assistant", () => {
     let transition = startStreamingTurn(getDefaultState(), "inspect files");
     transition = bindTurnRun(transition, "turn:session:current:4");
     const assistantId = transition.session.assistantId;
@@ -267,9 +263,38 @@ describe("public projection reducer contract", () => {
 
     const assistant = transition.state.messages.find((message) => message.id === assistantId);
     expect(assistant?.sourceTurnId).toBe("turn:session:current:4");
-    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
-      item_id: "tool:current",
+    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
+  });
+
+  it("updates a first-class tool item in place by tool_call_id", () => {
+    let transition = startStreamingTurn(getDefaultState(), "inspect files");
+    transition = bindTurnRun(transition, "turn:session:tool:1");
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "call:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:session:tool:1",
+      tool_name: "read_file",
       title: "读取文件",
+      target: "README.md",
+      state: "running",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_completed", {
+      item_id: "call:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:session:tool:1",
+      tool_name: "read_file",
+      state: "done",
+      observation: "读取完成",
+    });
+
+    const timeline = transition.state.messages.at(-1)?.runtimePublicTimelineDraft ?? [];
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      item_id: "call:read",
+      tool_name: "read_file",
+      state: "done",
+      stream_state: "done",
+      observation: "读取完成",
     });
   });
 
@@ -348,8 +373,13 @@ describe("public projection reducer contract", () => {
       },
     });
 
-    expect(transition.state.messages.at(-1)?.content).toContain("处理失败");
-    expect(transition.state.messages.at(-1)?.content).toContain("模型连接失败");
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
+      title: "处理失败",
+      detail: "模型连接失败",
+      state: "error",
+    });
   });
 
   it("does not overwrite active-work pause projection with generic steer text", () => {

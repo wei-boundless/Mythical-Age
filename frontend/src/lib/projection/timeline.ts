@@ -106,7 +106,7 @@ export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | undefine
 export function isTaskProjectionCompanionTimelineItem(item: PublicChatTimelineItem | null | undefined) {
   if (!item) return false;
   const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  return ["body", "control", "timeline", "tool", "status", "task"].includes(slot);
+  return ["control", "timeline", "tool", "status", "task"].includes(slot);
 }
 
 export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {
@@ -155,6 +155,7 @@ export function normalizePublicTimelineItems(
   const indexByKey = new Map<string, number>();
   const indexBySemanticKey = new Map<string, number>();
   for (const [index, rawItem] of (items ?? []).entries()) {
+    if (isPublicTimelineBodyItem(rawItem)) continue;
     const item = options.terminalState
       ? finalizePublicTimelineItem(sanitizePublicTimelineItem(rawItem), options.terminalState)
       : sanitizePublicTimelineItem(rawItem);

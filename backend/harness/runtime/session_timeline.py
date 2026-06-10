@@ -277,30 +277,7 @@ def _public_timeline_item_is_error(item: dict[str, Any]) -> bool:
 
 def _public_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     visible_entries = [entry for entry in entries if not _is_control_model_action_progress_entry(entry)]
-    items = list(build_public_chat_timeline_from_progress_entries(visible_entries))
-    if any(str(item.get("kind") or "") == "opening_judgment" for item in items):
-        return items
-    for entry in visible_entries:
-        if str(entry.get("kind") or "") != "model":
-            continue
-        text = public_runtime_progress_summary(entry.get("body") or entry.get("publicNote") or entry.get("agentBrief") or "").strip()
-        if not text:
-            continue
-        return [
-            {
-                "item_id": f"opening:{entry.get('id') or entry.get('eventType') or len(items)}",
-                "kind": "opening_judgment",
-                "slot": "body",
-                "surface": "assistant_body",
-                "source_authority": "model",
-                "title": "开局判断",
-                "text": text,
-                "state": "error" if str(entry.get("level") or "") == "error" else "done" if str(entry.get("level") or "") == "success" else "running",
-                "trace_refs": [str(entry.get("id") or "")] if str(entry.get("id") or "") else [],
-            },
-            *items,
-        ]
-    return items
+    return list(build_public_chat_timeline_from_progress_entries(visible_entries))
 
 
 def _is_control_model_action_progress_entry(entry: dict[str, Any]) -> bool:

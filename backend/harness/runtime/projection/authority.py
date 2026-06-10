@@ -7,7 +7,7 @@ from .guards import compact, record, stable_id, text
 
 PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
 PUBLIC_PROJECTION_CONTRACT_REVISION = "20260610-replacement"
-VALID_SURFACES = {"assistant_body", "tool_window", "control", "timeline", "diagnostics"}
+VALID_SURFACES = {"control", "timeline", "diagnostics"}
 VALID_SOURCES = {"model", "tool", "runtime", "system", "user"}
 
 
@@ -28,8 +28,7 @@ def build_public_projection_frame(
     anchor = projection_anchor(payload, task_projection=projection)
     projected_items = [item for item in [_authorize_item(item) for item in list(items or [])] if item]
     source, surface = _frame_source_surface(public_event_type, payload, projected_items, task_projection=projection)
-    if source != "model" or surface != "assistant_body":
-        projected_items = [item for item in projected_items if text(item.get("slot")) != "body"]
+    projected_items = [item for item in projected_items if text(item.get("slot")) != "body"]
     frame = {
         "authority": PUBLIC_PROJECTION_AUTHORITY,
         "contract_revision": PUBLIC_PROJECTION_CONTRACT_REVISION,
@@ -98,11 +97,7 @@ def _authorize_item(item: dict[str, Any]) -> dict[str, Any]:
     slot = text(payload.get("slot"))
     if surface not in VALID_SURFACES or source not in VALID_SOURCES:
         return {}
-    if slot == "body" and (surface != "assistant_body" or source != "model"):
-        return {}
-    if surface == "assistant_body" and source != "model":
-        return {}
-    if payload.get("kind") == "tool_observation" and surface == "assistant_body":
+    if slot == "body" or surface == "assistant_body" or surface == "tool_window":
         return {}
     return compact({**payload, "surface": surface, "source_authority": source})
 
@@ -114,27 +109,26 @@ def _frame_source_surface(
     *,
     task_projection: dict[str, Any],
 ) -> tuple[str, str]:
-    if any(text(item.get("slot")) == "body" for item in items):
-        return "model", "assistant_body"
-    if any(text(item.get("surface")) == "tool_window" for item in items):
-        return "tool", "tool_window"
     if any(text(item.get("surface")) == "control" for item in items):
         return "runtime", "control"
     if task_projection:
         return "runtime", "timeline"
     event_type = text(public_event_type)
-    if event_type in {"done", "error", "stopped", "runtime_status", "active_task_steer_accepted"}:
+    if event_type in {"turn_completed", "runtime_status", "active_task_steer_accepted"}:
         return "runtime", "control"
     return "runtime", "timeline"
 
 
 def _lifecycle(public_event_type: str, data: dict[str, Any], *, items: list[dict[str, Any]]) -> str:
     event_type = text(public_event_type)
-    if event_type == "error":
-        return "error"
-    if event_type == "stopped":
-        return "stopped"
-    if event_type in {"done", "assistant_text_final"}:
+    if event_type == "turn_completed":
+        status = text(data.get("status")).lower()
+        if status == "failed":
+            return "error"
+        if status == "stopped":
+            return "stopped"
+        return "done"
+    if event_type == "assistant_text_final":
         return "done"
     state = text(data.get("state") or data.get("status")).lower()
     if state in {"failed", "error", "blocked"}:
@@ -149,12 +143,11 @@ def _lifecycle(public_event_type: str, data: dict[str, Any], *, items: list[dict
 
 
 def _terminal(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    if public_event_type not in {"done", "error", "stopped"}:
+    if public_event_type != "turn_completed":
         return {}
     reason = text(data.get("terminal_reason") or data.get("reason") or data.get("code"))
-    answer_channel = text(data.get("answer_channel")).lower()
-    handoff = reason == "task_executor_scheduled" or answer_channel == "task_control"
-    return compact({"event": public_event_type, "visible": False if handoff else True, "reason": reason})
+    status = text(data.get("status")).lower()
+    return compact({"event": public_event_type, "status": status, "visible": True, "reason": reason})
 
 
 def _active_turn_update(data: dict[str, Any], *, task_projection: dict[str, Any]) -> dict[str, Any]:
@@ -177,4 +170,3 @@ def _projection_id(public_event_type: str, data: dict[str, Any], anchor: dict[st
         anchor.get("task_run_id"),
         sequence,
     )
-

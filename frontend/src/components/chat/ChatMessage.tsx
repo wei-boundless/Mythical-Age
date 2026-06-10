@@ -11,7 +11,7 @@ import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { cleanPublicTimelineText, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -87,20 +87,11 @@ export function ChatMessage({
       runtimePublicTimelineDraft,
       terminalState,
     );
-  const publicTimelineItemsWithoutRedundantBody = !isUser && baseDisplayContent.trim()
-    ? withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent)
-    : basePublicTimelineItems;
-  const timelineBodyContent = !isUser
-    ? assistantBodyFromPublicTimelineItems(publicTimelineItemsWithoutRedundantBody)
-    : "";
-  const resolvedDisplayContent = combineAssistantDisplayContent(baseDisplayContent, timelineBodyContent);
-  const publicTimelineItems = !isUser
-    ? withoutAssistantBodyItems(publicTimelineItemsWithoutRedundantBody)
-    : basePublicTimelineItems;
+  const publicTimelineItems = basePublicTimelineItems;
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
   const messageDisplayContent = isUser
     ? baseDisplayContent
-    : resolvedDisplayContent;
+    : baseDisplayContent;
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -295,127 +286,6 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   return attachments.flatMap((attachment) =>
     attachment.task_projection ? [attachment.task_projection] : [],
   );
-}
-
-function withoutRedundantAssistantFinalBody(items: PublicChatTimelineItem[], content: string) {
-  return items.filter((item) => !isRedundantAssistantFinalBody(item, content));
-}
-
-function withoutAssistantBodyItems(items: PublicChatTimelineItem[]) {
-  return items.filter((item) => !isStrictAssistantBodyItem(item));
-}
-
-function combineAssistantDisplayContent(baseContent: string, timelineBodyContent: string) {
-  const base = String(baseContent || "");
-  const timeline = String(timelineBodyContent || "").trim();
-  if (!timeline) return base;
-  if (!base.trim()) return timelineBodyContent;
-  const baseTrimmed = base.trim();
-  if (isRedundantAssistantText(timeline, base)) {
-    return normalizedAssistantComparisonText(timeline).length > normalizedAssistantComparisonText(base).length
-      ? timelineBodyContent
-      : base;
-  }
-  if (normalizedAssistantComparisonText(timeline).startsWith(normalizedAssistantComparisonText(baseTrimmed))) {
-    return timelineBodyContent;
-  }
-  if (normalizedAssistantComparisonText(baseTrimmed).startsWith(normalizedAssistantComparisonText(timeline))) {
-    return base;
-  }
-  return `${timelineBodyContent.trimEnd()}\n\n${baseTrimmed}`;
-}
-
-function assistantBodyFromPublicTimelineItems(items: PublicChatTimelineItem[]) {
-  const bodyLines = items
-    .filter((item) => isStrictAssistantBodyItem(item))
-    .map((item) => strictAssistantBodyText(item))
-    .map((text) => String(text || "").trim())
-    .filter((text) => text && !looksLikeRawToolOutput(text));
-  return dedupeConsecutiveBodyLines(bodyLines).join("\n\n");
-}
-
-function dedupeConsecutiveBodyLines(lines: string[]) {
-  const result: string[] = [];
-  for (const line of lines) {
-    const previous = result[result.length - 1] ?? "";
-    if (isRedundantAssistantText(line, previous)) {
-      continue;
-    }
-    result.push(line);
-  }
-  return result;
-}
-
-function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: string) {
-  const kind = String(item.kind ?? "").trim();
-  if (!["assistant_text", "final_answer", "final_summary", "model_body_final", "observation_report"].includes(kind)) {
-    return false;
-  }
-  if (!isStrictAssistantBodyItem(item)) {
-    return false;
-  }
-  return isRedundantAssistantText(strictAssistantBodyText(item), content);
-}
-
-function isStrictAssistantBodyItem(item: PublicChatTimelineItem | null | undefined) {
-  if (!item) return false;
-  const slot = cleanPublicTimelineText(item.slot).toLowerCase();
-  const surface = cleanPublicTimelineText(item.surface).toLowerCase();
-  const authority = cleanPublicTimelineText(item.source_authority).toLowerCase();
-  return slot === "body" && surface === "assistant_body" && authority === "model";
-}
-
-function strictAssistantBodyText(item: PublicChatTimelineItem | null | undefined) {
-  if (!isStrictAssistantBodyItem(item)) return "";
-  for (const candidate of [item?.text, item?.detail, item?.observation, item?.public_summary, item?.implication]) {
-    const text = cleanAssistantBodyText(candidate);
-    if (text && !looksLikeRawToolOutput(text)) return text;
-  }
-  return "";
-}
-
-function cleanAssistantBodyText(value: unknown) {
-  return String(value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""))
-    .join("\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function isRedundantAssistantText(candidate: unknown, content: string) {
-  const candidateText = normalizedAssistantComparisonText(candidate);
-  const contentText = normalizedAssistantComparisonText(content);
-  if (!candidateText || !contentText) {
-    return false;
-  }
-  if (candidateText === contentText) {
-    return true;
-  }
-  const shortText = candidateText.length <= contentText.length ? candidateText : contentText;
-  const longText = candidateText.length <= contentText.length ? contentText : candidateText;
-  if (shortText.length < 80) {
-    return false;
-  }
-  if (longText.includes(shortText)) {
-    return true;
-  }
-  return commonPrefixLength(shortText, longText) / shortText.length >= 0.92;
-}
-
-function normalizedAssistantComparisonText(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function commonPrefixLength(left: string, right: string) {
-  const limit = Math.min(left.length, right.length);
-  let index = 0;
-  while (index < limit && left[index] === right[index]) {
-    index += 1;
-  }
-  return index;
 }
 
 function assistantDisplayContent(

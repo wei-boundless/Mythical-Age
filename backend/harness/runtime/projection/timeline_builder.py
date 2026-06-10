@@ -5,9 +5,6 @@ from typing import Any
 from .guards import compact, public_text, record, stable_id, text
 from .items import (
     control_item,
-    model_body_item,
-    observation_report_item,
-    opening_judgment_item,
     status_item,
     todo_plan_item,
     work_action_item,
@@ -108,17 +105,6 @@ def project_public_timeline_from_events(
         )
         for item in _projection_items_from_envelope(record(delta.get("public_projection_envelope"))):
             _append_or_replace_public_item(items, index_by_key, item)
-    if final_answer or assistant_text:
-        final_item = model_body_item(
-            item_id=stable_id("final", run_id, task_run_id, turn_run_id, final_answer or assistant_text),
-            kind="final_answer",
-            title="最终回答",
-            text_value=final_answer or assistant_text,
-            state="done" if status in {"completed", "done", "success"} else "running",
-            trace_refs=[text(run_id or task_run_id or turn_run_id)],
-        )
-        if final_item:
-            _append_or_replace_public_item(items, index_by_key, final_item)
     return _trim_public_timeline_items(items, limit)
 
 
@@ -135,18 +121,16 @@ def build_public_chat_timeline(
     units = [record(item) for item in list(presentation.get("work_units") or []) if isinstance(item, dict)]
     items: list[dict[str, Any]] = []
     index_by_key: dict[str, int] = {}
-    has_opening = False
     for unit in units:
         feedback = public_text(unit.get("agent_brief_output") or unit.get("current_judgment") or unit.get("summary"), limit=260)
-        if feedback and not has_opening:
-            item = opening_judgment_item(
-                item_id=stable_id("opening", unit.get("unit_id"), feedback),
-                text_value=feedback,
+        if feedback:
+            item = status_item(
+                item_id=stable_id("status", unit.get("unit_id"), feedback),
+                title=feedback,
                 state=unit.get("status") or "running",
                 trace_refs=_trace_refs(unit),
             )
             _append_or_replace_public_item(items, index_by_key, item)
-            has_opening = bool(item)
         if record(unit.get("todo_plan")):
             _append_or_replace_public_item(items, index_by_key, todo_plan_item(record(unit.get("todo_plan"))))
             continue
@@ -166,9 +150,9 @@ def build_public_chat_timeline(
             _append_or_replace_public_item(
                 items,
                 index_by_key,
-                observation_report_item(
+                status_item(
                     item_id=stable_id("report", unit.get("unit_id"), report_text),
-                    detail=report_text,
+                    title=report_text,
                     state=unit.get("status") or "done",
                     trace_refs=_trace_refs(unit),
                 ),
@@ -189,21 +173,12 @@ def build_public_chat_timeline(
             state="error",
         )
         _append_or_replace_public_item(items, index_by_key, item)
-    final_item = model_body_item(
-        item_id=stable_id("final", final_answer or assistant_text),
-        kind="final_answer",
-        title="最终回答",
-        text_value=final_answer or assistant_text,
-        state="done",
-    )
-    _append_or_replace_public_item(items, index_by_key, final_item)
     return items
 
 
 def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     index_by_key: dict[str, int] = {}
-    has_opening = False
     for entry in list(entries or []):
         payload = record(entry)
         kind = text(payload.get("kind"))
@@ -221,18 +196,10 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
                 state=state,
                 trace_refs=refs,
             )
-        elif kind == "model" and not has_opening:
-            item = opening_judgment_item(
-                item_id=stable_id("progress-opening", payload.get("id"), body),
-                text_value=body,
-                state=state,
-                trace_refs=refs,
-            )
-            has_opening = bool(item)
         elif kind == "model":
-            item = observation_report_item(
-                item_id=stable_id("progress-report", payload.get("id"), body),
-                detail=body,
+            item = status_item(
+                item_id=stable_id("progress-model", payload.get("id"), body),
+                title=body,
                 state=state,
                 trace_refs=refs,
             )

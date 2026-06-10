@@ -106,27 +106,6 @@ def _meaningful_visible_answer(content: str) -> bool:
     return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in visible)
 
 
-def _assistant_body_event_from_model_response(
-    response: Any,
-    *,
-    turn_id: str,
-    turn_run_id: str = "",
-    answer_source: str,
-) -> dict[str, Any]:
-    content = sanitize_visible_assistant_content(stringify_content(getattr(response, "content", response))).strip()
-    if not _meaningful_visible_answer(content):
-        return {}
-    return {
-        "type": "assistant_text",
-        "content": content,
-        "answer_channel": "conversation",
-        "answer_source": answer_source,
-        "turn_id": turn_id,
-        "turn_run_id": turn_run_id,
-        "active_turn_id": turn_id,
-    }
-
-
 def _tool_limit_protocol_blocked_text() -> str:
     return "本轮已经达到工具预算上限，但模型返回了内部工具协议而不是可展示结论。系统已停止本轮输出，避免把工具调用残片当作回答。"
 
@@ -587,17 +566,6 @@ async def run_single_agent_turn(
                 if action_parse.action_request is not None:
                     repaired_or_parsed_final_action = action_parse
                 break
-            assistant_body_event = _assistant_body_event_from_model_response(
-                response,
-                turn_id=turn_id,
-                turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-                answer_source="harness.single_agent_turn.tool_call_body",
-            )
-            if assistant_body_event:
-                if assistant_stream_normalizer is not None:
-                    for frame_event in assistant_stream_normalizer.flush():
-                        yield frame_event
-                yield assistant_body_event
             if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
                 synthesis_messages = _sanitize_model_messages(
                     [
@@ -1189,18 +1157,6 @@ async def run_single_agent_turn(
         tool_calls = action_parse.native_tool_calls
         action_request = action_parse.action_request
         if action_request is not None:
-            if action_request.action_type == "request_task_run":
-                assistant_body_event = _assistant_body_event_from_model_response(
-                    response,
-                    turn_id=turn_id,
-                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-                    answer_source="harness.single_agent_turn.task_request_body",
-                )
-                if assistant_body_event:
-                    if assistant_stream_normalizer is not None:
-                        for frame_event in assistant_stream_normalizer.flush():
-                            yield frame_event
-                    yield assistant_body_event
             admission = admit_model_action(
                 action_request,
                 packet_allowed_action_types=current_allowed_action_types,

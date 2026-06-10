@@ -2330,7 +2330,7 @@ export class WorkspaceRuntime {
 
   private chatRunCursorAlreadyReachedTerminal(run: { terminal_event?: string; latest_event_offset?: number }, cursor: ChatStreamCursor | null) {
     const terminalEvent = String(run.terminal_event || "").trim();
-    if (!terminalEvent || !["done", "error", "stopped"].includes(terminalEvent)) {
+    if (terminalEvent !== "turn_completed") {
       return false;
     }
     const latestOffset = Number(run.latest_event_offset ?? -1);
@@ -2477,7 +2477,8 @@ export class WorkspaceRuntime {
             replayFromStart: !cursor,
           }
         );
-        if (streamResult.terminalEvent === "stopped") {
+        streamEndedWithError = streamResult.terminalStatus === "failed";
+        if (streamResult.terminalStatus === "stopped") {
           this.stoppedStreamingSessionIds.add(sessionId);
         }
       } catch (error) {
@@ -2741,8 +2742,8 @@ export class WorkspaceRuntime {
         },
         { signal: abortController.signal }
       );
-      streamEndedWithError = streamResult.terminalEvent === "error";
-      if (streamResult.terminalEvent === "stopped") {
+      streamEndedWithError = streamResult.terminalStatus === "failed";
+      if (streamResult.terminalStatus === "stopped") {
         this.stoppedStreamingSessionIds.add(sessionId);
       }
     } catch (error) {
