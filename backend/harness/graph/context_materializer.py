@@ -1047,8 +1047,10 @@ def _revision_requirement_or_blocking_sections(text: str) -> str:
         if not match:
             continue
         tail = normalized[match.start() :]
-        next_heading = re.search(r"(?m)^#{1,4}\s+", tail[1:])
-        section = tail[: next_heading.start() + 1] if next_heading else tail
+        first_newline = tail.find("\n")
+        search_tail = tail[first_newline + 1 :] if first_newline >= 0 else ""
+        next_heading = re.search(r"(?m)^#{1,4}\s+", search_tail)
+        section = tail[: first_newline + 1 + next_heading.start()] if next_heading and first_newline >= 0 else tail
         if section.strip():
             sections.append(section.strip())
     return "\n\n".join(dict.fromkeys(sections)).strip()[:8000]

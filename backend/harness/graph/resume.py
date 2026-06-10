@@ -115,7 +115,7 @@ class GraphResumeService:
                 active_work_orders=active,
                 events=tuple([*recovered, *reset.events]),
             )
-        if dispatch_ready:
+        if dispatch_ready and not dict(state.initial_inputs or {}).get("revision_queue_chapter_indexes"):
             revision = self._graph_loop.requeue_ready_revision_targets_and_checkpoint(
                 graph_config=graph_config,
                 state=state,

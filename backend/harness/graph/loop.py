@@ -302,7 +302,11 @@ class GraphLoop:
         )
         route_decision: dict[str, Any] = {}
         revision_route_decision: dict[str, Any] = {}
-        revision_targets = _ready_rejected_revision_targets(graph_config=graph_config, state=next_state)
+        revision_targets = (
+            ()
+            if dict(next_state.initial_inputs or {}).get("revision_queue_chapter_indexes")
+            else _ready_rejected_revision_targets(graph_config=graph_config, state=next_state)
+        )
         if revision_targets:
             reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=revision_targets)
             next_state = _state_after_revision_requeue(
@@ -2150,6 +2154,11 @@ def _revision_queue_route_patch_after_unit_acceptance(
         next_chapter = queue[next_position]
         patch.update(_single_chapter_cursor_patch(next_chapter))
         patch["revision_current_chapter_index"] = next_chapter
+        patch.pop("quality_gate_feedback", None)
+        patch.pop("previous_chapter_draft_ref", None)
+        plan_text = str(patch.get("revision_plan_text") or "").strip()
+        if plan_text:
+            patch["chapter_revision_requirements"] = _revision_requirements_for_chapter(plan_text, next_chapter)
         action = "continue"
         reason = "revision_queue_next_chapter"
     else:
@@ -2799,6 +2808,7 @@ def _revision_cursor_input_patch(
         return {}
     affected_start: int | None = None
     affected_end: int | None = None
+    revision_plan_text = ""
     for edge in graph_config.edges:
         target = str(edge.get("target_node_id") or "").strip()
         if target not in target_set or not _edge_is_revision(dict(edge)):
@@ -2809,6 +2819,8 @@ def _revision_cursor_input_patch(
         start, end = _revision_affected_chapter_range(text)
         if start is None:
             continue
+        if not revision_plan_text:
+            revision_plan_text = _revision_plan_excerpt(text)
         if "chapter_review" in source and "chapter_draft" in target:
             batch_end = int(_numeric_value(dict(state.initial_inputs or {}).get("batch_end_index"), end or start) or (end or start))
             if batch_end >= start:
@@ -2828,6 +2840,12 @@ def _revision_cursor_input_patch(
         "revision_current_chapter_index": int(affected_start),
         "revision_execution_range": f"{int(affected_start):03d}-{int(affected_end):03d}",
     }
+    if revision_plan_text:
+        patch["revision_plan_text"] = revision_plan_text
+        patch["chapter_revision_requirements"] = _revision_requirements_for_chapter(
+            revision_plan_text,
+            int(affected_start),
+        )
     return patch
 
 
@@ -2875,6 +2893,53 @@ def _revision_source_text(summary: dict[str, Any]) -> str:
         except Exception:
             continue
     return str(dict(summary or {}).get("handoff_summary") or "")
+
+
+def _revision_plan_excerpt(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    sections: list[str] = []
+    for heading in ("返修要求", "必须修改项", "阻塞性问题", "问题清单", "语义连续性与矛盾点检查", "层级一致性检查"):
+        match = re.search(rf"(?m)^#{{1,4}}\s*{heading}\b.*$", normalized)
+        if not match:
+            continue
+        tail = normalized[match.start() :]
+        first_newline = tail.find("\n")
+        search_tail = tail[first_newline + 1 :] if first_newline >= 0 else ""
+        next_heading = re.search(r"(?m)^#{1,4}\s+", search_tail)
+        section = tail[: first_newline + 1 + next_heading.start()] if next_heading and first_newline >= 0 else tail
+        if section.strip():
+            sections.append(section.strip())
+    return "\n\n".join(dict.fromkeys(sections)).strip()[:16000] or normalized[:16000]
+
+
+def _revision_requirements_for_chapter(plan_text: str, chapter: int) -> str:
+    normalized = str(plan_text or "").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    selected: list[str] = []
+    chapter_pattern = re.compile(rf"第\s*0*{chapter}\s*章")
+    any_chapter_pattern = re.compile(r"第\s*0*\d{1,4}\s*章")
+    capture = False
+    for line in lines:
+        if chapter_pattern.search(line):
+            capture = True
+            selected.append(line)
+            continue
+        if capture and any_chapter_pattern.search(line) and not chapter_pattern.search(line):
+            break
+        if capture:
+            selected.append(line)
+    body = "\n".join(selected).strip() if selected else normalized[:6000]
+    if len(body) < 200:
+        body = normalized[:6000]
+    return (
+        f"当前返修章：第{chapter}章。以下要求只用于当前章重写；"
+        "返修队列中的其他章节由图循环逐章调度。\n\n"
+        f"{body}"
+    ).strip()[:8000]
 
 
 def _artifact_ref_path(ref: Any) -> str:
