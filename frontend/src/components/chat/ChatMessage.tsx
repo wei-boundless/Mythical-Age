@@ -310,8 +310,19 @@ function combineAssistantDisplayContent(baseContent: string, timelineBodyContent
   const timeline = String(timelineBodyContent || "").trim();
   if (!timeline) return base;
   if (!base.trim()) return timelineBodyContent;
-  if (isRedundantAssistantText(timeline, base)) return base;
-  return `${base.trimEnd()}\n\n${timeline}`;
+  const baseTrimmed = base.trim();
+  if (isRedundantAssistantText(timeline, base)) {
+    return normalizedAssistantComparisonText(timeline).length > normalizedAssistantComparisonText(base).length
+      ? timelineBodyContent
+      : base;
+  }
+  if (normalizedAssistantComparisonText(timeline).startsWith(normalizedAssistantComparisonText(baseTrimmed))) {
+    return timelineBodyContent;
+  }
+  if (normalizedAssistantComparisonText(baseTrimmed).startsWith(normalizedAssistantComparisonText(timeline))) {
+    return base;
+  }
+  return `${timelineBodyContent.trimEnd()}\n\n${baseTrimmed}`;
 }
 
 function assistantBodyFromPublicTimelineItems(items: PublicChatTimelineItem[]) {
@@ -337,7 +348,7 @@ function dedupeConsecutiveBodyLines(lines: string[]) {
 
 function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: string) {
   const kind = String(item.kind ?? "").trim();
-  if (kind !== "final_summary" && kind !== "assistant_text") {
+  if (!["assistant_text", "final_answer", "final_summary", "model_body_final", "observation_report"].includes(kind)) {
     return false;
   }
   if (!isStrictAssistantBodyItem(item)) {

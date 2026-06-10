@@ -419,6 +419,8 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             if runtime_task_run_id:
                 data.setdefault("runtime_task_run_id", runtime_task_run_id)
                 _attach_task_projection_to_public_data(runtime, runtime_task_run_id, data)
+            if runtime_turn_run_id:
+                data.setdefault("turn_run_id", runtime_turn_run_id)
             if runtime_active_turn_id:
                 data.setdefault("active_turn_id", runtime_active_turn_id)
             next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1

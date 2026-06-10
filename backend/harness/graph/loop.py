@@ -3911,13 +3911,21 @@ def _edge_states_after_node_result(
 ) -> dict[str, dict[str, Any]]:
     edge_states = {key: dict(value) for key, value in state.edge_states.items()}
     now = time.time()
-    for edge in _outgoing_state_edges(graph_config, result.node_id):
+    outgoing_edges = _outgoing_state_edges(graph_config, result.node_id)
+    review_verdict = extract_review_verdict(result.handoff_summary)
+    review_rejected = review_verdict_is_rejected(review_verdict)
+    review_routes_revision = bool(review_verdict and any(_edge_is_revision(dict(edge)) for edge in outgoing_edges))
+    for edge in outgoing_edges:
         edge_id = str(edge.get("edge_id") or "")
         if not edge_id:
             continue
+        is_revision_edge = _edge_is_revision(dict(edge))
+        edge_ready = result.status == "completed"
+        if edge_ready and review_routes_revision:
+            edge_ready = is_revision_edge if review_rejected else not is_revision_edge
         edge_state = dict(edge_states.get(edge_id) or {})
         packet_summary: dict[str, Any] = {}
-        if result.status == "completed" and edge_delivers_flow_packet(edge, graph_config=graph_config):
+        if edge_ready and edge_delivers_flow_packet(edge, graph_config=graph_config):
             packet = build_flow_packet(
                 graph_config=graph_config,
                 state=state,
@@ -3948,9 +3956,17 @@ def _edge_states_after_node_result(
                 "edge_id": edge_id,
             "source_node_id": result.node_id,
             "target_node_id": str(edge.get("target_node_id") or ""),
-            "status": "ready" if result.status == "completed" else "source_failed",
+            "status": "ready" if edge_ready else ("source_failed" if result.status != "completed" else "pending"),
             "source_result_ref": result_ref,
             "packet_persisted": bool(packet_summary),
+            "review_verdict_gate": _drop_empty(
+                {
+                    "verdict": review_verdict,
+                    "routed_to_revision": review_rejected,
+                    "edge_revision": is_revision_edge,
+                    "authority": "harness.graph.review_verdict_edge_gate",
+                }
+            ),
             "updated_at": now,
         }
     )

@@ -7,10 +7,10 @@ from typing import Any
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
 from .runtime_run_registry import RuntimeRun
+from runtime.output_stream.public_contract import is_terminal_public_event
 
 
 PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
-TERMINAL_PUBLIC_EVENTS = {"done", "error", "stopped"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,7 @@ class RuntimeStreamReplayService:
             "stream_run_id": run.stream_run_id,
             "public_event_type": event_name,
             "data": dict(data or {}),
-            "terminal": event_name in TERMINAL_PUBLIC_EVENTS,
+            "terminal": is_terminal_public_event(event_name),
         }
         return self.event_log.append(
             run.event_log_id,
@@ -85,7 +85,7 @@ class RuntimeStreamReplayService:
 
     def is_terminal_event(self, event: RuntimeEvent) -> bool:
         payload = dict(event.payload or {})
-        return bool(payload.get("terminal") is True) or str(payload.get("public_event_type") or "") in TERMINAL_PUBLIC_EVENTS
+        return bool(payload.get("terminal") is True) or is_terminal_public_event(str(payload.get("public_event_type") or ""))
 
 
 def stream_event_id(stream_run_id: str, event_log_id: str, offset: int) -> str:

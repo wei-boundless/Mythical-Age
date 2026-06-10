@@ -16,6 +16,7 @@ from runtime.output_boundary.output_models import (
 
 
 INTERNAL_PROTOCOL_MARKERS = (
+    "<think",
     "</think>",
     "<tool_call",
     "</tool_call>",
@@ -92,6 +93,7 @@ _HALF_DSML_TOOL_LINE_RE = re.compile(
     rf"^\s*(?:name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s*>?|<\s*{_DSML_TOKEN_RE}\s*/?parameter\b.*|</?\s*{_DSML_TOKEN_RE}\s*[^>]*>?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+_THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>[\s\S]*?(?:</think>|\Z)", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 _NO_NEWLINE_MARKER_RE = re.compile(r"\\ No newline at end of file", re.IGNORECASE)
 _TOOL_CALL_BLOCK_RE = re.compile(
@@ -252,6 +254,7 @@ def _sanitize_visible_assistant_content(
     cleaned = _DSML_PARAMETER_FRAGMENT_RE.sub("", cleaned)
     cleaned = _DSML_TAG_FRAGMENT_RE.sub("", cleaned)
     cleaned = _HALF_DSML_TOOL_LINE_RE.sub("", cleaned)
+    cleaned = _THINK_BLOCK_RE.sub("", cleaned)
     cleaned = _THINK_CLOSE_RE.sub("", cleaned)
     cleaned = _NO_NEWLINE_MARKER_RE.sub("", cleaned)
     cleaned = _TOOL_CALL_BLOCK_RE.sub("", cleaned)

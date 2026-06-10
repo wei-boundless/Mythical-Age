@@ -4,7 +4,7 @@ from typing import Any
 
 from .authority import build_public_projection_frame
 from .guards import compact, record, stable_id, text
-from .items import control_item, observation_report_item, opening_judgment_item, status_item, work_action_item
+from .items import control_item, model_body_item, observation_report_item, opening_judgment_item, status_item, work_action_item
 
 
 TYPED_ASSISTANT_STREAM_EVENTS = {
@@ -24,6 +24,7 @@ def project_public_projection_event(
     task_projection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = dict(data or {})
+    payload.setdefault("sequence", int(sequence or payload.get("sequence") or 0))
     if public_anchor:
         payload["public_anchor"] = dict(public_anchor)
     items = projection_items_for_event(public_event_type, payload)
@@ -64,7 +65,7 @@ def projection_items_for_event(public_event_type: str, data: dict[str, Any]) -> 
     event_type = text(public_event_type)
     if not event_type or event_type in TYPED_ASSISTANT_STREAM_EVENTS:
         return []
-    if event_type == "assistant_text":
+    if event_type in {"assistant_text", "answer_candidate"}:
         item = _assistant_text_item(data)
         return [item] if item else []
     if event_type == "model_action_admission":
@@ -132,10 +133,11 @@ def _assistant_text_item(data: dict[str, Any]) -> dict[str, Any]:
         text_value=content,
         state="done" if data.get("answer_canonical_state") == "final" else "running",
         trace_refs=_trace_refs(data),
-    ) if kind == "opening_judgment" else observation_report_item(
+    ) if kind == "opening_judgment" else model_body_item(
         item_id=_item_id(kind, data),
-        detail=content,
-        state="done",
+        kind=kind,
+        text_value=content,
+        state="done" if data.get("answer_canonical_state") == "final" else "running",
         trace_refs=_trace_refs(data),
     )
 
@@ -259,9 +261,11 @@ def _done_item(data: dict[str, Any]) -> dict[str, Any]:
         return {}
     content = data.get("content")
     if content:
-        return observation_report_item(
+        return model_body_item(
             item_id=_item_id("done", data),
-            detail=content,
+            kind="final_answer",
+            title="",
+            text_value=content,
             state="done",
             trace_refs=_trace_refs(data),
         )
