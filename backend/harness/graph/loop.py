@@ -32,6 +32,7 @@ from .models import (
     GraphRuntimeEnvelope,
     NodeResultEnvelope,
     safe_id,
+    stable_hash,
 )
 from .runtime_objects import (
     flow_packet_summary,
@@ -47,6 +48,9 @@ from .state_machine import GraphStateMachine
 
 
 _STATE_MACHINE = GraphStateMachine()
+_MAX_RESULT_HISTORY_PER_NODE = 24
+_MAX_WORK_ORDER_INDEX_ENTRIES = 96
+_BULKY_DIAGNOSTIC_KEYS = ("contract_index", "static_topology_view")
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,8 +135,8 @@ class GraphLoop:
                 "config_snapshot_id": envelope.config_snapshot_id or envelope.config_id,
                 "config_snapshot_hash": envelope.config_snapshot_hash or envelope.config_hash,
                 "runtime_scope": dict(envelope.memory_scope.get("runtime_scope") or {}),
-                "static_topology_view": dict(envelope.static_topology_view or {}),
-                "contract_index": dict(envelope.contract_index or {}),
+                "static_topology_view_summary": _payload_summary(envelope.static_topology_view or {}),
+                "contract_index_summary": _payload_summary(envelope.contract_index or {}),
                 "state_machine_spec": dict(envelope.state_machine_spec or {}),
                 "loop_control_spec": dict(envelope.loop_control_spec or {}),
                 "source": "harness.graph_loop.initialize",
@@ -1055,24 +1059,25 @@ class GraphLoop:
         return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
 
     def _write_state(self, state: GraphLoopState, *, pending_work_orders: tuple[GraphNodeWorkOrder, ...] = ()) -> dict[str, Any]:
-        self._state_machine.validate(state)
+        checkpoint_state = _compact_state_for_checkpoint(state)
+        self._state_machine.validate(checkpoint_state)
         checkpoint = self._checkpoint_store.put_checkpoint(
-            state=state,
+            state=checkpoint_state,
             metadata={"created_at": time.time(), "authority": "harness.graph_loop_checkpoint"},
         )
         if pending_work_orders:
             self._checkpoint_store.put_pending_writes(
-                graph_run_id=state.graph_run_id,
-                task_id=f"dispatch:{state.graph_run_id}:{int(time.time() * 1000)}",
+                graph_run_id=checkpoint_state.graph_run_id,
+                task_id=f"dispatch:{checkpoint_state.graph_run_id}:{int(time.time() * 1000)}",
                 writes=tuple(
                     (
                         "active_work_order",
-                        dict(state.work_order_index.get(item.work_order_id) or _work_order_summary(item)),
+                        dict(checkpoint_state.work_order_index.get(item.work_order_id) or _work_order_summary(item)),
                     )
                     for item in pending_work_orders
                 ),
             )
-            latest = self._checkpoint_store.get_latest_checkpoint(state.graph_run_id)
+            latest = self._checkpoint_store.get_latest_checkpoint(checkpoint_state.graph_run_id)
             return latest.to_dict() if latest is not None else checkpoint.to_dict()
         return checkpoint.to_dict()
 
@@ -2630,8 +2635,79 @@ def _result_history_with_result(
     history = {key: tuple(dict(item) for item in value) for key, value in state.result_history.items()}
     node_history = list(history.get(result.node_id) or ())
     node_history.append(_node_result_summary(result, result_ref=result_ref))
-    history[result.node_id] = tuple(node_history)
+    history[result.node_id] = tuple(node_history[-_MAX_RESULT_HISTORY_PER_NODE:])
     return history
+
+
+def _compact_state_for_checkpoint(state: GraphLoopState) -> GraphLoopState:
+    return _replace_state(
+        state,
+        diagnostics=_compact_diagnostics(state.diagnostics),
+        result_history=_compact_result_history(state.result_history),
+        work_order_index=_compact_work_order_index(
+            state.work_order_index,
+            active_work_orders=state.active_work_orders,
+            node_states=state.node_states,
+        ),
+    )
+
+
+def _compact_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(diagnostics or {})
+    for key in _BULKY_DIAGNOSTIC_KEYS:
+        if key not in payload:
+            continue
+        raw = payload.pop(key)
+        payload[f"{key}_summary"] = _payload_summary(raw)
+    return payload
+
+
+def _compact_result_history(history: dict[str, tuple[dict[str, Any], ...]]) -> dict[str, tuple[dict[str, Any], ...]]:
+    compacted: dict[str, tuple[dict[str, Any], ...]] = {}
+    for key, value in dict(history or {}).items():
+        items = [dict(item) for item in tuple(value or ()) if isinstance(item, dict)]
+        compacted[str(key)] = tuple(items[-_MAX_RESULT_HISTORY_PER_NODE:])
+    return compacted
+
+
+def _compact_work_order_index(
+    index: dict[str, dict[str, Any]],
+    *,
+    active_work_orders: dict[str, str],
+    node_states: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    payload = {str(key): dict(value) for key, value in dict(index or {}).items() if str(key)}
+    keep: set[str] = {str(item) for item in dict(active_work_orders or {}).values() if str(item)}
+    for state in dict(node_states or {}).values():
+        if not isinstance(state, dict):
+            continue
+        work_order_id = str(state.get("work_order_id") or "")
+        if work_order_id and str(state.get("status") or "") in {"running", "blocked"}:
+            keep.add(work_order_id)
+    if len(payload) <= _MAX_WORK_ORDER_INDEX_ENTRIES:
+        return payload
+    recent_keys = list(payload.keys())[-_MAX_WORK_ORDER_INDEX_ENTRIES:]
+    keep.update(recent_keys)
+    return {key: payload[key] for key in payload.keys() if key in keep}
+
+
+def _payload_summary(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        count = len(value)
+        keys = [str(key) for key in list(value.keys())[:30]]
+    elif isinstance(value, (list, tuple)):
+        count = len(value)
+        keys = []
+    else:
+        count = 0
+        keys = []
+    return {
+        "content_hash": stable_hash(value),
+        "content_chars": len(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)),
+        "item_count": count,
+        **({"keys": keys} if keys else {}),
+        "authority": "harness.graph_loop.compacted_payload_summary",
+    }
 
 
 def _numeric_value(value: Any, default: Any = 0) -> Any:

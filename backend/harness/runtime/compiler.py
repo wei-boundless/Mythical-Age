@@ -2031,12 +2031,12 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         ],
         "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run/respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”“正在建立任务运行”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
-            "visible_status": "可选；thinking|waiting_for_tool|tool_returned|responding|blocked",
+            "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
-            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；request_task_run 时是建立任务运行；block 时是说明阻塞。tool_call 时通常留空或只保留 completion_status=waiting_for_tool，不要把工具调用动作改写成公开判断文本。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；request_task_run 时是建立任务运行；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
-            "completion_status": "可选；working|waiting_for_tool|verifying|ready_to_finish|blocked"
+            "completion_status": "可选机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。只供系统状态机使用，不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
         },
         "final_answer": "",
         "user_question": "",
@@ -2096,12 +2096,12 @@ def task_execution_action_schema() -> dict[str, Any]:
         "action_type": "respond|ask_user|tool_call|block",
         "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
-            "visible_status": "thinking|waiting_for_tool|tool_returned|responding|blocked",
+            "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
-            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；block 时是说明阻塞。tool_call 时通常留空或只保留 completion_status=waiting_for_tool，不要把工具调用动作改写成公开判断文本。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
-            "completion_status": "working|waiting_for_tool|verifying|ready_to_finish|blocked"
+            "completion_status": "机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。只供系统状态机使用，不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
         },
         "final_answer": "",
         "user_question": "",
@@ -3892,7 +3892,11 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "不要把它当作当前可控制任务，也不要据此直接续入同一个任务。"
         )
     if bool(planning.get("todo_required_when_task_run") is True):
-        lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
+        lines.append(
+            "- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。"
+            "使用 agent_todo 时绑定当前任务清单：开始阶段用 start，阶段有真实证据后用 complete，范围变化用 replace/append/update_status；"
+            "不要把 default/runtime 当作真实任务 id。"
+        )
     if bool(task_lifecycle.get("requires_completion_evidence") is True):
         lines.append("- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。")
     if bool(task_lifecycle.get("artifact_evidence_required") is True):

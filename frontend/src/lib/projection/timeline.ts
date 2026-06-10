@@ -39,6 +39,30 @@ const SUPPRESSED_TEXT = new Set([
   "正在处理",
   "正在处理当前请求",
   "正在思考",
+  "thinking",
+  "working",
+  "responding",
+  "verifying",
+  "waiting_for_tool",
+  "tool_returned",
+  "ready_to_finish",
+  "已同步最新进展",
+  "已接上当前工作，正在同步最新进展。",
+  "已接上当前工作正在同步最新进展",
+  "已开始继续处理；接下来会持续汇报正在推进的步骤。",
+  "已开始继续处理接下来会持续汇报正在推进的步骤",
+  "已把任务目标转成可跟踪的待办清单。",
+  "已把任务目标转成可跟踪的待办清单",
+  "已把任务目标转成可跟踪的处理清单。",
+  "已把任务目标转成可跟踪的处理清单",
+  "处理清单已建立",
+  "处理清单已更新。",
+  "处理清单已更新",
+  "等待结果返回",
+  "结果已返回",
+  "上下文已返回",
+  "读取未完成，需要重新确认读取范围后继续。",
+  "读取未完成需要重新确认读取范围后继续",
   "任务执行器已接管",
   "任务执行器已接管，正在推进第一步。",
   "已接手任务，正在整理执行步骤。",
@@ -65,6 +89,7 @@ export function sanitizePublicTimelineText(value: unknown) {
   if (!text) return "";
   const compact = text.replace(/[。.!！?？,，;；:：]/g, "").toLowerCase();
   if (SUPPRESSED_TEXT.has(text) || SUPPRESSED_TEXT.has(compact)) return "";
+  if (looksLikeMachineStatusText(text)) return "";
   if (isInternalActiveWorkControlText(text)) return "";
   if (looksLikeRawProjectedOutput(text)) return "";
   if (looksLikeProtocolText(text)) return "";
@@ -101,6 +126,13 @@ export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | undefine
   const surface = cleanPublicTimelineText((item as { surface?: unknown }).surface).toLowerCase();
   const authority = cleanPublicTimelineText(item.source_authority).toLowerCase();
   return slot === "body" && surface === "assistant_body" && authority === "model";
+}
+
+export function isPublicTimelineStatusBarItem(item: PublicChatTimelineItem | undefined) {
+  if (!item) return false;
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  const surface = cleanPublicTimelineText((item as { surface?: unknown }).surface).toLowerCase();
+  return slot === "status" || surface === "status_bar";
 }
 
 export function isTaskProjectionCompanionTimelineItem(item: PublicChatTimelineItem | null | undefined) {
@@ -156,6 +188,7 @@ export function normalizePublicTimelineItems(
   const indexBySemanticKey = new Map<string, number>();
   for (const [index, rawItem] of (items ?? []).entries()) {
     if (isPublicTimelineBodyItem(rawItem)) continue;
+    if (isPublicTimelineStatusBarItem(rawItem)) continue;
     const item = options.terminalState
       ? finalizePublicTimelineItem(sanitizePublicTimelineItem(rawItem), options.terminalState)
       : sanitizePublicTimelineItem(rawItem);
@@ -245,6 +278,18 @@ function looksLikeProtocolText(value: string) {
   if (!value) return false;
   if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) return true;
   return /(action_type|tool_call|task_control|terminal_reason|model_action_request|public_action_state|runtime_invocation_packet)/i.test(value);
+}
+
+function looksLikeMachineStatusText(value: string) {
+  const lowered = cleanPublicTimelineText(value).toLowerCase();
+  if (!lowered) return false;
+  const states = ["thinking", "working", "responding", "verifying", "waiting_for_tool", "tool_returned", "ready_to_finish", "blocked"];
+  if (states.includes(lowered)) return true;
+  if (/^(状态|status|completion[_\s-]*status|visible[_\s-]*status)\s*[:：]?\s*(thinking|working|responding|verifying|waiting_for_tool|tool_returned|ready_to_finish|blocked)$/i.test(lowered)) {
+    return true;
+  }
+  const compact = lowered.replace(/[\s。.!！?？,，;；:：_-]+/g, "");
+  return states.some((item) => item.replace(/_/g, "") === compact);
 }
 
 function looksLikeRawProjectedOutput(value: string) {

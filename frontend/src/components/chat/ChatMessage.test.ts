@@ -962,6 +962,38 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
+  it("hides generic completed tool activity once final answer exists", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "这是最终总结。",
+        id: "message:final-over-tools",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "call:read",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            action_kind: "read",
+            title: "工具已完成",
+            public_summary: "工具已完成",
+            state: "done",
+            stream_state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("这是最终总结");
+    expect(html).not.toContain("工具已完成");
+    expect(html).not.toContain("public-run-activity");
+  });
+
   it("hides raw file listing output instead of rendering assistant prose or noisy activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

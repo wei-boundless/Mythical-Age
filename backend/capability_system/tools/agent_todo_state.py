@@ -48,7 +48,17 @@ def agent_todo_state_store_from_root(root_dir: str | Path) -> AgentTodoStateStor
 
 def normalize_todo_items(*, items: Any = None) -> list[dict[str, Any]]:
     raw_items = list(items or [])
-    return [dict(item) for item in raw_items if isinstance(item, dict)]
+    normalized: list[dict[str, Any]] = []
+    for item in raw_items:
+        if isinstance(item, dict):
+            normalized.append(dict(item))
+            continue
+        model_dump = getattr(item, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                normalized.append(dict(dumped))
+    return normalized
 
 
 def todo_items(payload: dict[str, Any]) -> list[dict[str, Any]]:

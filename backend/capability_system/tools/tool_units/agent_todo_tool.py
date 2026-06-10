@@ -19,16 +19,33 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
+class AgentTodoItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(description="Concrete todo item content.")
+    active_form: str = Field(default="", description="Short active-form wording for the item while it is in progress.")
+    status: Literal["pending", "in_progress", "completed"] = Field(default="pending", description="Current item status.")
+    notes: str = Field(default="", description="Brief evidence, blocker, or progress note for this item.")
+    evidence_expectations: list[str] = Field(default_factory=list, description="Evidence expected before this item can be completed.")
+    contract_refs: list[str] = Field(default_factory=list, description="Task contract references this item satisfies.")
+    owner_agent_id: str = Field(default="", description="Optional subagent or owner agent id responsible for this item.")
+    scope: str = Field(default="", description="Optional work scope for this item.")
+    subagent_run_ref: str = Field(default="", description="Optional subagent run reference.")
+    depends_on: list[str] = Field(default_factory=list, description="Todo ids that must be completed before this item.")
+    handoff_goal: str = Field(default="", description="Optional goal when handing the item to another agent.")
+    parallel_group: str = Field(default="", description="Optional group id for items that can progress in parallel.")
+
+
 class AgentTodoInput(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     operation: Literal["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"] = Field(
         default="replace",
         description="Todo operation. Use replace for a fresh task list, append for discovered work, start/complete/update_status for progress, remove for irrelevant items, clear to reset, view to inspect.",
     )
     session_id: str = Field(default="default", description="Current session id; use default when no runtime session id is provided.")
-    task_id: str = Field(default="runtime", description="Current task id; use runtime when no task id is provided.")
-    items: list[dict[str, Any]] = Field(
+    task_id: str = Field(default="runtime", description="Current task id; task execution runtime binds default/runtime to the active task run.")
+    items: list[AgentTodoItemInput] = Field(
         default_factory=list,
         description=(
             "Todo items for replace/append. Each item should include content, optional active_form, status, "
@@ -49,7 +66,8 @@ class AgentTodoTool(BaseTool):
         "Use it after understanding a non-trivial request, when the user provides multiple steps, "
         "when you start a step, when you complete a step, or when new work is discovered. "
         "Todo items are execution state: they must be concrete, update as work changes, and should not replace the user's goal or the semantic task contract. "
-        "Keep at most one item in_progress. Do not mark an item completed unless the work is actually done or the blocker is recorded."
+        "Keep at most one item in_progress. Do not mark an item completed unless the work is actually done or the blocker is recorded. "
+        "In task execution, omit session_id/task_id or leave their defaults to update the current task-bound plan."
     )
     args_schema: type[BaseModel] = AgentTodoInput
     model_config = ConfigDict(arbitrary_types_allowed=True)

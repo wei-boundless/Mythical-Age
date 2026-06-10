@@ -321,7 +321,7 @@ class TaskExecutorController:
             },
             refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
         )
-        progress_summary = "已开始继续处理；接下来会持续汇报正在推进的步骤。"
+        progress_summary = ""
         progress_event = self.runtime_host.event_log.append(
             task_run_id,
             "step_summary_recorded",
@@ -329,7 +329,7 @@ class TaskExecutorController:
                 "step": "task_executor_scheduled",
                 "status": "running",
                 "summary": progress_summary,
-                "public_progress_note": progress_summary,
+                "visibility": "internal",
                 "presentation_source": "conversation_task_schedule",
             },
             refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},

@@ -6,6 +6,13 @@ from typing import Any
 
 _GENERIC_PUBLIC_PROGRESS = {
     "",
+    "thinking",
+    "working",
+    "responding",
+    "verifying",
+    "waiting_for_tool",
+    "tool_returned",
+    "ready_to_finish",
     "开始处理",
     "处理完成",
     "处理已完成",
@@ -19,9 +26,31 @@ _GENERIC_PUBLIC_PROGRESS = {
     "等待模型输出",
     "已开始处理",
     "已开始处理当前请求",
+    "已同步最新进展。",
+    "已接上当前工作，正在同步最新进展。",
+    "已开始继续处理；接下来会持续汇报正在推进的步骤。",
+    "已把任务目标转成可跟踪的待办清单。",
+    "已把任务目标转成可跟踪的处理清单。",
+    "处理清单已建立",
+    "处理清单已更新。",
     "工具调用已完成，正在根据结果继续。",
     "工具返回成功，正在根据结果继续。",
     "工具返回了结构化结果，正在根据结果继续。",
+    "等待结果返回",
+    "结果已返回",
+    "上下文已返回",
+    "读取未完成，需要重新确认读取范围后继续。",
+}
+
+_MACHINE_STATUS_VALUES = {
+    "thinking",
+    "working",
+    "responding",
+    "verifying",
+    "waiting_for_tool",
+    "tool_returned",
+    "ready_to_finish",
+    "blocked",
 }
 
 _DEPRECATED_STATUS_REWRITES = {
@@ -55,6 +84,8 @@ def public_runtime_progress_summary(summary: Any) -> str:
     normalized = " ".join(text.split()).strip()
     normalized = _DEPRECATED_STATUS_REWRITES.get(normalized, normalized)
     normalized = _public_progress_scrub(normalized)
+    if _looks_like_machine_status_leak(normalized):
+        return ""
     if _is_generic_public_progress(normalized):
         return ""
     return _public_role_label(normalized)
@@ -98,6 +129,30 @@ def _public_progress_scrub(text: str) -> str:
     return normalized.strip()
 
 
+def _looks_like_machine_status_leak(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    if lowered in _MACHINE_STATUS_VALUES:
+        return True
+    compact = re.sub(r"[\s。.!！?？,，;；:：_\-]+", "", lowered)
+    status_compacts = {
+        re.sub(r"[\s。.!！?？,，;；:：_\-]+", "", item)
+        for item in _MACHINE_STATUS_VALUES
+    }
+    if compact in status_compacts:
+        return True
+    status_values = "|".join(re.escape(item) for item in sorted(_MACHINE_STATUS_VALUES, key=len, reverse=True))
+    return bool(
+        re.fullmatch(
+            rf"(?:状态|status|completion[_\s-]*status|visible[_\s-]*status)\s*[:：]?\s*(?:{status_values})",
+            lowered,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _rewrite_raw_tool_failure(text: str) -> str:
     normalized = str(text or "").strip()
     if not normalized:
@@ -111,7 +166,7 @@ def _rewrite_raw_tool_failure(text: str) -> str:
     if re.match(r"^Edit failed:", normalized, flags=re.IGNORECASE):
         return "文件更新未完成，需要根据返回结果调整后继续。"
     if re.match(r"^Read failed:", normalized, flags=re.IGNORECASE):
-        return "读取未完成，需要重新确认读取范围后继续。"
+        return ""
     if re.match(r"^Write failed:", normalized, flags=re.IGNORECASE):
         return "写入未完成，需要确认目标路径和写入条件后继续。"
     return normalized

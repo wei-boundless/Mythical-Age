@@ -1579,6 +1579,13 @@ def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) 
     return selection
 
 
+def _model_selection_for_native_tool_protocol(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection.pop("structured_output", None)
+    selection.pop("response_format", None)
+    return selection
+
+
 def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
     selection = dict(model_selection or {})
     mappings = {
@@ -1607,6 +1614,9 @@ async def _invoke_single_turn_model_with_stream_events(
 ) -> AsyncIterator[dict[str, Any]]:
     if require_json_action:
         model_selection = _model_selection_with_json_object_contract(model_selection)
+        native_tools = []
+    elif native_tools:
+        model_selection = _model_selection_for_native_tool_protocol(model_selection)
     stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
     stream_enabled = bool(stream_policy.get("enabled") is True)
     if not stream_enabled:

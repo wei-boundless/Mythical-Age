@@ -225,7 +225,6 @@ def _public_line(item: dict[str, Any], *, state: str) -> str:
     candidates = [
         latest_progress.get("tool_status"),
         latest_progress.get("observation"),
-        latest_progress.get("completion_status"),
         latest_progress.get("summary"),
         item.get("latest_public_progress_note"),
         item.get("latest_step_summary"),

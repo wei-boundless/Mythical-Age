@@ -11,6 +11,11 @@ _SUPPRESSED_VISIBLE_TEXT = {
     "",
     "已同步最新进展。",
     "已接上当前工作，正在同步最新进展。",
+    "已开始继续处理；接下来会持续汇报正在推进的步骤。",
+    "已把任务目标转成可跟踪的待办清单。",
+    "已把任务目标转成可跟踪的处理清单。",
+    "处理清单已建立",
+    "处理清单已更新。",
     "开始处理",
     "处理完成",
     "处理已完成",
@@ -158,8 +163,7 @@ def build_progress_presentation(
         if event_type == "agent_todo_initialized":
             unit = resolve_unit(event, fallback_kind="stage")
             todo_plan = public_todo_plan_from_event(event)
-            _set_if_better(unit, "title", "建立处理清单")
-            _set_if_visible(unit, "action", "已把任务目标转成可跟踪的处理清单。")
+            _set_if_better(unit, "title", "处理清单")
             if todo_plan:
                 unit["todo_plan"] = todo_plan
             _set_if_better(unit, "state", "completed")
@@ -244,7 +248,6 @@ def _apply_model_action(unit: dict[str, Any], action: dict[str, Any], event: dic
 
 def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], action: dict[str, Any], event: dict[str, Any]) -> None:
     public_state = _record(payload.get("public_action_state"))
-    completion_status = payload.get("completion_status") or public_state.get("completion_status")
     action_type = _text(action.get("action_type") or payload.get("action_type"))
     if action:
         _apply_model_action(unit, action, event)
@@ -254,8 +257,6 @@ def _apply_model_action_state(unit: dict[str, Any], payload: dict[str, Any], act
         _set_if_visible(unit, "agent_feedback", payload.get("public_progress_note") or payload.get("summary"))
         _set_if_visible(unit, "action", payload.get("public_progress_note") or payload.get("summary"))
         _apply_agent_public_action_state(unit, action=action, public_state=public_state)
-        if completion_status:
-            _set_if_visible(unit, "risk", completion_status)
     _set_if_better(unit, "state", _state_from_status(payload.get("status")))
     _append_trace_ref(unit, event)
 
@@ -374,8 +375,7 @@ def _apply_tool_observation(unit: dict[str, Any], observation: dict[str, Any], e
     todo_plan = _todo_plan_from_observation(observation, trace_ref=_event_id(event))
     if todo_plan:
         _set_if_better(unit, "kind", "stage")
-        _set_if_better(unit, "title", "更新处理清单")
-        _set_if_visible(unit, "action", "处理清单已更新。")
+        _set_if_better(unit, "title", "处理清单")
         unit["todo_plan"] = todo_plan
         _set_if_better(unit, "state", "completed" if todo_plan.get("completion_ready") else "running")
         _append_trace_ref(unit, event)

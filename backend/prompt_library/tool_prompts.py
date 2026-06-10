@@ -72,6 +72,8 @@ TOOL_TODO_GUIDANCE = """
 使用 agent_todo 时，你只是在维护多步骤工作的执行状态。
 todo 不是事实来源，不能替代工具观察、文件读取、任务合同或用户当前请求。
 一次只保留真实正在执行的 active 项；完成项必须基于已经发生的工作或验证证据。
+持续任务中 agent_todo 绑定当前 session/task；除非运行上下文明确提供其它 id，不要手写 default/runtime。
+当你真正开始某个阶段时用 start；阶段有真实完成证据后用 complete；发现新阶段或范围变化时用 replace/append/update_status。
 简单问答、单步观察或无需持续跟踪的工作不要创建 todo。
 用户改变范围、暂停、恢复或插入更高优先级要求时，应更新 todo 与当前合同一致；不要让过期 todo 反向改写用户最新请求。
 """.strip()

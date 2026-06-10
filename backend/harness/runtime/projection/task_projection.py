@@ -115,6 +115,8 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
     if event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded"}:
         observation = record(payload.get("observation") or payload)
         tool_name = text(observation.get("tool_name") or payload.get("tool_name") or "工具")
+        if tool_name == "agent_todo" or text(observation.get("source")) in {"system:agent_todo", "tool:agent_todo"}:
+            return {}
         summary = public_text(observation.get("summary") or observation.get("result") or payload.get("summary"), limit=180)
         return compact(
             {
@@ -147,17 +149,7 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
             }
         )
     if event_type == "agent_todo_initialized":
-        return compact(
-            {
-                "activity_id": stable_id("activity", event_id, "todo"),
-                "kind": "todo",
-                "title": "处理清单已建立",
-                "state": "running",
-                "event_ref": event_id,
-                "display_surface": "timeline",
-                "visibility_level": "secondary",
-            }
-        )
+        return {}
     return {}
 
 
@@ -233,4 +225,3 @@ def _turn_id_from_task_run(task_run_id: str) -> str:
     if len(parts) >= 3 and parts[1] == "turn":
         return f"turn:{parts[2]}"
     return ""
-

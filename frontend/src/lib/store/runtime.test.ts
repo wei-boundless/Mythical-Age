@@ -6259,11 +6259,77 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.objectContaining({
         item_id: "call:write",
         kind: "work_action",
+        action_kind: "edit",
         public_summary: "文件已更新",
+        collapse_after_body_feedback: true,
         state: "done",
         stream_state: "done",
       }),
     ]);
+  });
+
+  it("updates empty completed tool items in place instead of appending generic rows", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续检查");
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
+      turn_run: {
+        turn_id: "turn:runtime:tool-read:1",
+        turn_run_id: "turnrun:turn:runtime:tool-read:1",
+      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "call:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:1",
+      tool_name: "read_file",
+      title: "正在读取文件",
+      target: "README.md",
+      state: "running",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_completed", {
+      item_id: "call:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:1",
+      tool_name: "read_file",
+      state: "done",
+    });
+
+    const timeline = transition.state.messages.at(-1)?.runtimePublicTimelineDraft ?? [];
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      item_id: "call:read",
+      action_kind: "read",
+      public_summary: "工具已完成",
+      state: "done",
+      stream_state: "done",
+    });
+  });
+
+  it("ignores completed tool lifecycle events that do not carry a tool_call_id", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续检查");
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "call:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:2",
+      tool_name: "read_file",
+      title: "正在读取文件",
+      target: "README.md",
+      state: "running",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_completed", {
+      item_id: "toolinvoke:turnrun:tool-read:2:read_file:call:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:2",
+      tool_name: "read_file",
+      state: "done",
+    });
+
+    const timeline = transition.state.messages.at(-1)?.runtimePublicTimelineDraft ?? [];
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      item_id: "call:read",
+      title: "正在读取文件",
+      state: "running",
+      stream_state: "streaming",
+    });
   });
 
   it("does not finalize a tool item without a matching tool completion event", () => {

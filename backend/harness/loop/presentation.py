@@ -127,11 +127,12 @@ def error_event(
     reason: str = "",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    public_content = sanitize_visible_assistant_content(str(content or "")).strip() or "处理失败"
     return {
         "type": "error",
-        "error": reason or code,
+        "error": public_content,
         "code": code,
-        "content": sanitize_visible_assistant_content(str(content or "")),
+        "content": public_content,
         "answer_channel": "orchestration_fail_closed",
         "answer_source": "harness.loop.single_agent",
         **dict(extra or {}),

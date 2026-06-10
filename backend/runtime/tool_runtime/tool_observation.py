@@ -40,7 +40,27 @@ class ToolObservation:
         payload["execution_receipt"] = dict(self.execution_receipt or {})
         payload["artifact_refs"] = [dict(item) for item in self.artifact_refs]
         payload["diagnostics"] = dict(self.diagnostics or {})
+        tool_call_id = self._tool_call_id()
+        if tool_call_id:
+            payload["tool_call_id"] = tool_call_id
         return payload
+
+    def _tool_call_id(self) -> str:
+        result_envelope = dict(self.result_envelope or {})
+        execution_receipt = dict(self.execution_receipt or result_envelope.get("execution_receipt") or {})
+        diagnostics = dict(self.diagnostics or {})
+        action_request = diagnostics.get("action_request")
+        if not isinstance(action_request, dict):
+            action_request = {}
+        tool_call = action_request.get("tool_call")
+        if not isinstance(tool_call, dict):
+            tool_call = {}
+        return str(
+            result_envelope.get("tool_call_id")
+            or execution_receipt.get("tool_call_id")
+            or tool_call.get("id")
+            or ""
+        ).strip()
 
     def to_task_observation(self, *, task_run_id: str, request_ref: str = "", directive_ref: str = "") -> dict[str, Any]:
         if self.status == "needs_approval":

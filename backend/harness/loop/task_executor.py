@@ -731,7 +731,7 @@ async def execute_task_run(
         task_run_id=task_run.task_run_id,
         step="task_executor_started",
         status="running",
-        summary="已接上当前工作，正在同步最新进展。",
+        summary="",
     )
 
     observation_context = _observations_for_packet(
@@ -2811,6 +2811,7 @@ async def _execute_task_tool_call(
     task_run = runtime_host.state_index.get_task_run(task_run.task_run_id) or latest_task_run
     tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
+    tool_args = _runtime_bound_tool_args(tool_name, tool_args, task_run=task_run)
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
     operation_id = str(getattr(definition, "operation_id", "") or tool_name)
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
@@ -3022,6 +3023,19 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         },
     }
     return normalize_model_selection_for_invocation(resolved)
+
+
+def _runtime_bound_tool_args(tool_name: str, tool_args: dict[str, Any], *, task_run: Any) -> dict[str, Any]:
+    args = dict(tool_args or {})
+    if str(tool_name or "").strip() != "agent_todo":
+        return args
+    session_id = str(args.get("session_id") or "").strip()
+    task_id = str(args.get("task_id") or "").strip()
+    if not session_id or session_id == "default":
+        args["session_id"] = str(getattr(task_run, "session_id", "") or "default")
+    if not task_id or task_id in {"runtime", "default"}:
+        args["task_id"] = str(getattr(task_run, "task_run_id", "") or getattr(task_run, "task_id", "") or "runtime")
+    return args
 
 
 def _model_selection_with_runtime_requirement(
@@ -5373,6 +5387,8 @@ def _observation_tool_name(observation: dict[str, Any]) -> str:
     source = str(observation.get("source") or "")
     if source.startswith("tool:"):
         source_name = source.split(":", 1)[1].strip()
+    elif source == "system:agent_todo":
+        source_name = "agent_todo"
     else:
         source_name = ""
     return str(

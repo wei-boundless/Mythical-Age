@@ -1576,9 +1576,20 @@ class HarnessRuntimeFacade:
                 "agent_todo_initialized",
                 payload={
                     "observation": {
+                        "observation_id": f"todoobs:{task_run_id}:initial",
+                        "observation_type": "tool_result",
                         "source": "system:agent_todo",
+                        "tool_name": "agent_todo",
                         "summary": str(result or "")[:300],
-                        "payload": {"result": str(result or "")},
+                        "payload": {
+                            "tool_name": "agent_todo",
+                            "tool_args": {
+                                "operation": "replace",
+                                "session_id": session_id,
+                                "task_id": task_run_id,
+                            },
+                            "result": str(result or ""),
+                        },
                     },
                 },
                 refs={"task_run_ref": task_run_id},

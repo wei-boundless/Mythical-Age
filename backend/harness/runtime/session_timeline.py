@@ -29,10 +29,26 @@ _SUPPRESSED_PROGRESS_TEXT = {
     "已开始处理。",
     "已开始处理当前请求",
     "已开始处理当前请求。",
+    "已同步最新进展。",
+    "已接上当前工作，正在同步最新进展。",
+    "已开始继续处理；接下来会持续汇报正在推进的步骤。",
+    "已把任务目标转成可跟踪的待办清单。",
+    "已把任务目标转成可跟踪的处理清单。",
+    "处理清单已建立",
+    "处理清单已更新。",
     "工具调用已完成，正在根据结果继续。",
     "工具返回成功，正在根据结果继续。",
     "工具返回了结构化结果，正在根据结果继续。",
     "正在判断下一步动作。",
+    "等待结果返回",
+    "结果已返回",
+    "上下文已返回",
+    "读取未完成，需要重新确认读取范围后继续。",
+    "waiting_for_tool",
+    "tool_returned",
+    "ready_to_finish",
+    "responding",
+    "verifying",
     "completed",
     "done",
     "running",
@@ -500,9 +516,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             public_note = _visible_progress_summary(payload.get("public_progress_note") or summary)
             agent_brief = _visible_progress_summary(payload.get("agent_brief_output") or "")
             public_action_state = dict(payload.get("public_action_state") or {})
-            completion_status = _visible_progress_summary(
-                payload.get("completion_status") or public_action_state.get("completion_status") or ""
-            )
             current_judgment = _visible_progress_summary(
                 payload.get("current_judgment") or public_action_state.get("current_judgment") or ""
             )
@@ -515,7 +528,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             action_brief = _public_action_state_brief(
                 current_judgment=current_judgment,
                 next_action=next_action,
-                completion_status=completion_status,
                 action_type=action_type,
                 tool_name=tool_name,
                 tool_target=tool_target,
@@ -523,7 +535,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             meta = _public_action_state_meta(
                 current_judgment=current_judgment,
                 next_action=next_action,
-                completion_status=completion_status,
                 action_type=action_type,
                 tool_name=tool_name,
                 tool_target=tool_target,
@@ -546,13 +557,13 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     _entry(
                         event,
                         title=_observation_title(source or (f"tool:{tool_name}" if tool_name else ""), observation=observation),
-                        body=observation_body or public_note or summary,
+                        body=observation_body,
                         kind="observation",
                         level="error" if failed else _level_from_status(status),
                         status="failed" if failed else (status or "completed"),
                         tool_name=tool_name,
-                        public_note=observation_body or public_note or summary,
-                        agent_brief=observation_body or agent_brief,
+                        public_note=observation_body,
+                        agent_brief=observation_body,
                         evidence_type="tool_observation",
                         meta=meta,
                     )
@@ -578,19 +589,6 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             continue
         if event_type == "agent_todo_initialized":
-            entries.append(
-                _entry(
-                    event,
-                    title="待办已建立",
-                    body="已把任务目标转成可跟踪的待办清单。",
-                    kind="stage",
-                    level="success",
-                    status="completed",
-                    public_note="已把任务目标转成可跟踪的待办清单。",
-                    evidence_type="todo",
-                )
-            )
-            continue
             continue
         if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
             steer = dict(payload.get("steer") or {})
@@ -779,7 +777,7 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         error
         or observation.get("text")
         or envelope.get("text")
-        or (f"工具状态：{status}" if status else "工具结果已返回。")
+        or ""
     ).strip()
     if failed and should_hide_public_tool_observation(
         tool_name,
@@ -1023,7 +1021,6 @@ def _public_action_state_brief(
     *,
     current_judgment: str = "",
     next_action: str = "",
-    completion_status: str = "",
     action_type: str = "",
     tool_name: str = "",
     tool_target: str = "",
@@ -1039,8 +1036,6 @@ def _public_action_state_brief(
     )
     if visible_next_action:
         parts.append(f"计划：{visible_next_action}")
-    if completion_status:
-        parts.append(f"状态：{completion_status}")
     return public_runtime_progress_summary("；".join(parts))
 
 
@@ -1048,7 +1043,6 @@ def _public_action_state_meta(
     *,
     current_judgment: str = "",
     next_action: str = "",
-    completion_status: str = "",
     action_type: str = "",
     tool_name: str = "",
     tool_target: str = "",
@@ -1062,7 +1056,6 @@ def _public_action_state_meta(
     labels = (
         ("模型说明", current_judgment),
         ("计划动作", visible_next_action),
-        ("状态", completion_status),
     )
     return [{"label": label, "value": value} for label, value in labels if value]
 
@@ -1167,7 +1160,7 @@ def _tool_observation_body(value: str) -> str:
             error = error or structured_error.get("message") or structured_error.get("error")
         if ok is False or error:
             message = public_runtime_progress_summary(error or "工具调用失败").strip()
-            return f"工具返回失败：{message}"
+            return f"工具返回失败：{message}" if message else ""
         result = data.get("result") or data.get("summary") or data.get("output")
         if result:
             return public_runtime_progress_summary(result)
@@ -1260,7 +1253,7 @@ def _observation_title(source: str, *, observation: dict[str, Any] | None = None
 def _tool_result_title(tool_name: str) -> str:
     normalized = str(tool_name or "").strip().lower()
     if normalized in {"read_file", "read_path", "stat_path", "list_dir", "path_exists"}:
-        return "上下文已返回"
+        return "读取结果"
     if normalized in {"search_text", "search_files", "glob_paths", "memory_search"}:
         return "检索结果已返回"
     if normalized in {"write_file", "edit_file", "apply_patch"}:

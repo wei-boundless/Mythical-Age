@@ -879,7 +879,6 @@ def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
         or result_envelope.get("tool_call_id")
         or execution_receipt.get("tool_call_id")
         or tool_call.get("id")
-        or observation.get("invocation_id")
         or ""
     ).strip()
 

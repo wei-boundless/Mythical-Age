@@ -4,6 +4,7 @@ from api.chat import _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
 from harness.runtime.projection.projector import project_public_projection_event
 from harness.runtime.projection.timeline_builder import project_runtime_monitor_event_public_delta
+from runtime.tool_runtime import ToolObservation
 
 
 def test_projection_does_not_generate_assistant_body_or_live_tool_items():
@@ -119,6 +120,47 @@ def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     assert data["tool_name"] == "read_file"
     assert data["state"] == "done"
     assert data["observation"] == "读取完成。"
+
+
+def test_tool_observation_promotes_real_tool_call_id_for_public_completion():
+    observation = ToolObservation(
+        observation_id="toolobs:read:1",
+        invocation_id="toolinvoke:turnrun:1:read_file:call:read",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:turn:test:1",
+        tool_name="read_file",
+        operation_id="op.read_file",
+        status="ok",
+        text="读取完成。",
+        result_envelope={"tool_name": "read_file", "tool_call_id": "call:read", "text": "读取完成。"},
+    )
+
+    payload = observation.to_dict()
+
+    assert payload["tool_call_id"] == "call:read"
+
+
+def test_chat_public_stream_does_not_use_invocation_id_as_completed_item_id():
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:observation:without-tool-call",
+                "payload": {
+                    "tool_observation": {
+                        "invocation_id": "toolinvoke:turnrun:1:read_file:call:read",
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "caller_ref": "turnrun:turn:test:1",
+                        "text": "读取完成。",
+                    },
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert projected is None
 
 
 def test_chat_public_stream_maps_internal_done_error_stopped_to_turn_completed():

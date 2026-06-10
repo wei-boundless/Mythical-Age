@@ -88,7 +88,8 @@ export function ChatMessage({
       terminalState,
     );
   const publicTimelineItems = basePublicTimelineItems;
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
+  const compactCompletedTools = Boolean(baseDisplayContent.trim());
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections, { compactCompletedTools });
   const messageDisplayContent = isUser
     ? baseDisplayContent
     : baseDisplayContent;
@@ -242,7 +243,11 @@ export function ChatMessage({
         </div>
       ) : null}
       {!isUser && hasPublicTimelineActivity ? (
-        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjections} />
+        <PublicTimelineActivity
+          compactCompletedTools={compactCompletedTools}
+          items={publicTimelineItems}
+          taskProjections={taskProjections}
+        />
       ) : null}
     </article>
   );

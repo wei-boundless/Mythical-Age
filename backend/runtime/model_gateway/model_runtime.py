@@ -1763,7 +1763,17 @@ def _bind_tools_with_options(
 ) -> Any:
     options = _normalize_tool_call_options(tool_call_options)
     kwargs = options.bind_kwargs() if options is not None else {}
+    if tools and kwargs.get("strict") is None and _response_format_requires_strict_tools(spec):
+        kwargs["strict"] = True
     return model.bind_tools(tools, **kwargs)
+
+
+def _response_format_requires_strict_tools(spec: ModelSpec | None) -> bool:
+    if spec is None:
+        return False
+    if dict(spec.response_format or {}):
+        return True
+    return str(spec.structured_output or "").strip().lower() in {"json_object", "json_schema", "structured"}
 
 
 def _is_deepseek_thinking_spec(spec: ModelSpec | None, *, thinking_mode: str = "") -> bool:

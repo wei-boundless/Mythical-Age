@@ -70,17 +70,17 @@ class LangGraphCheckpointStore:
         return dict(record.state) if record is not None else None
 
     def get_latest_checkpoint(self, graph_run_id: str) -> GraphCheckpointRecord | None:
-        records = self.list_checkpoints(graph_run_id)
+        checkpoint_tuple = self._saver.get_tuple(_config(graph_run_id))
+        if checkpoint_tuple is not None:
+            return _record_from_checkpoint_tuple(
+                checkpoint_tuple,
+                fallback_graph_run_id=graph_run_id,
+                fallback_checkpoint_id="",
+            )
+        records = self.list_checkpoints(graph_run_id, limit=1)
         if records:
             return _latest_checkpoint_record(records)
-        checkpoint_tuple = self._saver.get_tuple(_config(graph_run_id))
-        if checkpoint_tuple is None:
-            return None
-        return _record_from_checkpoint_tuple(
-            checkpoint_tuple,
-            fallback_graph_run_id=graph_run_id,
-            fallback_checkpoint_id="",
-        )
+        return None
 
     def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[GraphCheckpointRecord, ...]:
         records: list[GraphCheckpointRecord] = []

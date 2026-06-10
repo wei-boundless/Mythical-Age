@@ -4274,62 +4274,17 @@ export class WorkspaceRuntime {
 
   private publicTimelineSummary(items: PublicChatTimelineItem[]) {
     for (const item of items) {
+      const surface = String((item as { surface?: unknown }).surface ?? "").trim().toLowerCase();
+      const slot = String((item as { slot?: unknown }).slot ?? "").trim().toLowerCase();
+      if (surface === "status_bar" || surface === "tool_window" || slot === "status" || slot === "tool" || slot === "control") {
+        continue;
+      }
       const text = String(item.text ?? item.detail ?? item.public_summary ?? item.title ?? "").trim();
       if (text) {
         return text;
       }
     }
     return "";
-  }
-
-  private publicTimelineStatusItemFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const status = String(monitor.status ?? taskRun.status ?? "").trim().toLowerCase();
-    const lifecycle = String((monitor as Record<string, unknown>).lifecycle ?? taskRun.lifecycle ?? "").trim().toLowerCase();
-    const bucket = String((monitor as Record<string, unknown>).bucket ?? taskRun.bucket ?? "").trim().toLowerCase();
-    const stale = Boolean((monitor as Record<string, unknown>).stale ?? taskRun.stale);
-    const controlState = this.runtimeControlState(monitor).trim().toLowerCase();
-    const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
-
-    let title = "";
-    let detail = "";
-    if (controlState === "paused") {
-      title = "已暂停";
-      detail = "当前处理已停在可继续状态，可以直接继续。";
-    } else if (staleOrDiagnostic) {
-      title = "等待检查";
-      detail = "最近没有新的运行动作，需要在监控中检查或关闭运行。";
-    } else if (status === "waiting_executor") {
-      title = "等待继续";
-      detail = "当前任务已进入等待队列，继续后会接上现有进度。";
-    } else if (status === "waiting_approval") {
-      title = "等待确认";
-      detail = "需要确认后继续执行。";
-    } else if (status === "waiting_safe_boundary") {
-      title = "等待安全边界";
-      detail = "暂停或中断请求已记录，当前步骤到达安全边界后会收口。";
-    } else if (status === "blocked") {
-      title = "已停住";
-      detail = "当前处理暂时停住，我会换一种方式继续。";
-    } else {
-      return null;
-    }
-
-    const staleState = staleOrDiagnostic && controlState !== "paused";
-    return {
-      item_id: `live:${taskRunId}:monitor-status`,
-      kind: "status_update",
-      slot: "status",
-      surface: "status_bar",
-      source_authority: "runtime",
-      phase: staleState ? "stale" : "waiting",
-      title,
-      detail,
-      text: detail,
-      state: staleState ? "stale" : "waiting",
-      stream_state: "done",
-      trace_refs: [taskRunId].filter(Boolean),
-    };
   }
 
   private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
@@ -4483,7 +4438,9 @@ export class WorkspaceRuntime {
     const actionBody = kind === "model" && meta.length
       ? meta.map((item) => `${item.label}：${item.value}`).join("；")
       : "";
-    const body = observationBody || publicNote || summary || actionBody;
+    const body = kind === "observation"
+      ? observationBody
+      : publicNote || summary || actionBody;
     const level = kind === "observation" && this.runtimeObservationLooksFailed(agentBrief || observationBody)
       ? "error"
       : this.runtimeProgressLevelFromStatus(status);
@@ -4517,7 +4474,6 @@ export class WorkspaceRuntime {
     return [
       { label: "模型说明", value: currentJudgment },
       { label: "计划动作", value: nextAction },
-      { label: "状态", value: String(payload.completion_status ?? actionState.completion_status ?? "").trim() },
     ].filter((item) => item.value);
   }
 
@@ -4628,7 +4584,8 @@ export class WorkspaceRuntime {
         : {};
       const error = String(data.error ?? data.message ?? structured.message ?? structured.error ?? "").trim();
       if (data.ok === false || error) {
-        return `工具返回失败：${error || "工具调用失败"}`;
+        const visibleError = this.runtimeVisibleProgressText(error);
+        return visibleError ? `工具返回失败：${visibleError}` : "";
       }
       const result = String(data.result ?? data.summary ?? data.output ?? "").trim();
       if (result) return result;
@@ -4643,7 +4600,29 @@ export class WorkspaceRuntime {
   private runtimeVisibleProgressText(value: unknown) {
     const text = String(value ?? "").trim();
     if (!text) return "";
+    if (this.runtimeLooksLikeMachineStatusLeak(text)) return "";
     return this.runtimeIsGenericProgressText(text) ? "" : text;
+  }
+
+  private runtimeLooksLikeMachineStatusLeak(value: string) {
+    const lowered = String(value ?? "").trim().toLowerCase();
+    if (!lowered) return false;
+    const machineStates = new Set([
+      "thinking",
+      "working",
+      "responding",
+      "verifying",
+      "waiting_for_tool",
+      "tool_returned",
+      "ready_to_finish",
+      "blocked",
+    ]);
+    if (machineStates.has(lowered)) return true;
+    if (/^(状态|status|completion[_\s-]*status|visible[_\s-]*status)\s*[:：]?\s*(thinking|working|responding|verifying|waiting_for_tool|tool_returned|ready_to_finish|blocked)$/i.test(lowered)) {
+      return true;
+    }
+    const compact = lowered.replace(/[\s。.!！?？,，;；:：_-]+/g, "");
+    return Array.from(machineStates).some((item) => item.replace(/_/g, "") === compact);
   }
 
   private runtimeIsGenericProgressText(value: string) {
@@ -4661,9 +4640,25 @@ export class WorkspaceRuntime {
       "正在处理当前请求",
       "正在处理任务",
       "正在思考",
+      "已同步最新进展",
+      "已接上当前工作正在同步最新进展",
+      "已开始继续处理接下来会持续汇报正在推进的步骤",
+      "已把任务目标转成可跟踪的待办清单",
+      "已把任务目标转成可跟踪的处理清单",
+      "处理清单已建立",
+      "处理清单已更新",
       "工具调用已完成正在根据结果继续",
       "工具返回成功正在根据结果继续",
       "工具返回了结构化结果正在根据结果继续",
+      "等待结果返回",
+      "结果已返回",
+      "上下文已返回",
+      "读取未完成需要重新确认读取范围后继续",
+      "waiting_for_tool",
+      "tool_returned",
+      "ready_to_finish",
+      "responding",
+      "verifying",
     ]).has(normalized);
   }
 
@@ -4859,10 +4854,9 @@ export class WorkspaceRuntime {
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const taskProjection = this.taskProjectionFromRecord(monitor);
     const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
-    const monitorStatusItem = this.publicTimelineStatusItemFromMonitor(monitor, taskRunId);
     const publicTimelineItems = mergePublicTimelineItems(
       monitorPublicTimeline,
-      monitorStatusItem ? [monitorStatusItem] : [],
+      undefined,
       { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
     );
     const attachment: SessionRuntimeAttachment = {

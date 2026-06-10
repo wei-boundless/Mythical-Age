@@ -74,6 +74,11 @@ class GraphContextMaterializer:
             dispatch_seq=dispatch_seq,
             session_policy=node_session_policy,
         )
+        execution_input_package = _execution_input_package(input_package)
+        execution_memory_view = _execution_memory_view_request(input_package.get("memory_view"))
+        execution_artifact_view = _execution_artifact_view_request(input_package.get("artifact_view"))
+        execution_file_view = _execution_file_view_request(input_package.get("file_view"))
+        execution_expected_result_contract = _execution_expected_result_contract(input_package.get("expected_result_contract"))
         return GraphNodeWorkOrder(
             work_order_id=work_order_id,
             work_kind=_graph_work_kind(executor_type),
@@ -94,7 +99,7 @@ class GraphContextMaterializer:
             agent_profile_id=str(node.get("agent_profile_id") or ""),
             message=str(input_package.get("agent_instruction") or ""),
             explicit_inputs=dict(input_package.get("initial_inputs") or {}),
-            input_package=input_package,
+            input_package=execution_input_package,
             graph_slot=graph_slot,
             graph_state={
                 "graph_run_id": state.graph_run_id,
@@ -118,9 +123,9 @@ class GraphContextMaterializer:
                 "authority": "harness.graph_loop.node_work_order_graph_state",
             },
             context_refs=dict(node.get("context") or {}),
-            memory_view_request=dict(input_package.get("memory_view") or {}),
-            artifact_view_request=dict(input_package.get("artifact_view") or {}),
-            file_view_request=dict(input_package.get("file_view") or {}),
+            memory_view_request=execution_memory_view,
+            artifact_view_request=execution_artifact_view,
+            file_view_request=execution_file_view,
             artifact_space_ref=str(environment_refs.get("artifact_space_ref") or ""),
             memory_space_ref=str(environment_refs.get("memory_space_ref") or ""),
             file_access_table_refs=tuple(environment_refs.get("file_access_table_refs") or ()),
@@ -128,7 +133,7 @@ class GraphContextMaterializer:
             memory_repository_targets=tuple(dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)),
             permission_scope=dict(input_package.get("permission_summary") or graph_config.permissions or {}),
             tool_scope=dict(input_package.get("tool_capability_table") or graph_config.tools or {}),
-            expected_result_contract=dict(input_package.get("expected_result_contract") or {}),
+            expected_result_contract=execution_expected_result_contract,
             async_policy=dict(node.get("async_policy") or {}),
             retry_policy=dict(node.get("retry") or {}),
             timeout_policy=dict(node.get("timeout") or {}),
@@ -194,10 +199,10 @@ class GraphContextMaterializer:
                 "node_id": node_id,
                 "work_order_id": str(work_order_id or ""),
             },
-            node_contract=_node_contract_from_input_package(graph_config=graph_config, node=node, input_package=input_package),
+            node_contract=_execution_node_contract_from_input_package(graph_config=graph_config, node=node, input_package=input_package),
             edge_contracts={
                 "inbound_flow_packets": _inbound_flow_packets(slot_inbound_context),
-                "inbound_edge_contexts": slot_inbound_context,
+                "inbound_edge_contexts": _execution_inbound_contexts(slot_inbound_context),
                 "outbound_edge_policies": [
                     _outbound_edge_policy(graph_config=graph_config, edge=dict(edge))
                     for edge in build_outbound_flow_edges(graph_config, node_id)
@@ -206,20 +211,20 @@ class GraphContextMaterializer:
             },
             memory_contract={
                 "namespace_id": _memory_namespace_id(graph_config=graph_config, state=state),
-                "read_protocols": read_protocols,
-                "resolved_snapshots": list(memory_resolution.get("resolved_snapshots") or []),
-                "write_candidate_protocols": list(dict(memory_view.get("graph_memory_policy") or {}).get("write_rules") or []),
-                "commit_protocols": list(dict(memory_view.get("graph_memory_policy") or {}).get("commit_rules") or []),
+                "read_protocols": _memory_protocol_refs(read_protocols),
+                "resolved_snapshots": _execution_memory_snapshots(memory_resolution.get("resolved_snapshots")),
+                "write_candidate_protocols": _memory_protocol_refs(dict(memory_view.get("graph_memory_policy") or {}).get("write_rules")),
+                "commit_protocols": _memory_protocol_refs(dict(memory_view.get("graph_memory_policy") or {}).get("commit_rules")),
                 "memory_receipt_refs": list(memory_resolution.get("memory_receipt_refs") or []),
                 "diagnostics": dict(memory_resolution.get("diagnostics") or {}),
                 "memory_space_ref": str(input_package.get("memory_space_ref") or ""),
                 "authority": "harness.graph.memory_contract_projection",
             },
             loop_contract={
-                "loop_context": loop_context,
+                "loop_context": _execution_loop_context(loop_context),
                 "scope_id": str(loop_context.get("scope_id") or ""),
-                "variables": dict(dict(loop_context.get("active_frame") or {}).get("variables") or {}),
-                "dynamic_bindings": dict(dict(loop_context.get("node_loop") or {}).get("bindings") or {}),
+                "variables": _loop_variables(loop_context),
+                "dynamic_bindings": _loop_dynamic_bindings(loop_context),
                 "authority": "harness.graph.loop_contract_projection",
             },
             output_contract={
@@ -227,14 +232,14 @@ class GraphContextMaterializer:
                 "artifact_targets": _output_artifact_targets(input_package),
                 "formal_memory_targets": [],
                 "environment_projection": _output_environment_projection(graph_config, input_package=input_package),
-                "expected_result_contract": dict(input_package.get("expected_result_contract") or {}),
+                "expected_result_contract": _execution_expected_result_contract(input_package.get("expected_result_contract")),
                 "authority": "harness.graph.output_contract_projection",
             },
             state_refs={
                 "inbound_packet_refs": _inbound_packet_refs(inbound_context),
                 "artifact_refs": [],
                 "checkpoint_ref": "",
-                "prior_result_refs": [dict(item) for item in dict(state.result_index or {}).values() if isinstance(item, dict)],
+                "prior_result_ref_count": len(dict(state.result_index or {})),
                 "authority": "harness.graph.node_state_refs",
             },
             runtime_controls={

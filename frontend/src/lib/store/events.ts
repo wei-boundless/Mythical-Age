@@ -730,7 +730,9 @@ function mergeAssistantStreamRepairEvent(
 }
 
 function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>): PublicChatTimelineItem | null {
-  const toolCallId = stringValue(data.tool_call_id) || stringValue(data.item_id);
+  const toolCallId = event === TOOL_ITEM_COMPLETED_EVENT
+    ? stringValue(data.tool_call_id)
+    : stringValue(data.tool_call_id) || stringValue(data.item_id);
   if (!toolCallId) {
     return null;
   }
@@ -739,6 +741,7 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
   const argumentsPreview = stringValue(data.arguments_preview);
   const observation = stringValue(data.observation);
   const error = stringValue(data.error);
+  const actionKind = actionKindForTool(toolName, `${target} ${argumentsPreview}`);
   const stateValue = stringValue(data.state).toLowerCase();
   const failed = stateValue === "error" || stateValue === "failed";
   const state = event === TOOL_ITEM_COMPLETED_EVENT
@@ -773,11 +776,14 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
     surface: "tool_window",
     source_authority: "tool",
     tool_name: toolName,
+    action_kind: actionKind,
     title,
     public_summary: publicSummary,
+    phase: state === "running" ? "running" : "done",
     state,
     stream_state: state === "running" ? "streaming" : "done",
     trace_refs: traceRefs,
+    collapse_after_body_feedback: event === TOOL_ITEM_COMPLETED_EVENT && !failed,
     tool_window: {
       tool_label: toolName,
       status: toolTimelineStatusLabel(state),
@@ -797,6 +803,19 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
     item.recovery_hint = error;
   }
   return item;
+}
+
+function actionKindForTool(toolName: string, context: string): NonNullable<PublicChatTimelineItem["action_kind"]> {
+  const value = `${toolName} ${context}`.toLowerCase();
+  if (/(search|grep|ripgrep|\brg\b|find_text|lookup|query)/.test(value)) return "search";
+  if (/(read|get_file|open_file|load_file|cat|fetch_file)/.test(value)) return "read";
+  if (/(write|edit|patch|apply_patch|update|create|delete|remove|move|rename|save)/.test(value)) return "edit";
+  if (/(test|verify|check|lint|typecheck|pytest|vitest|playwright)/.test(value)) return "verify";
+  if (/(shell|command|exec|run|powershell|npm|node|python)/.test(value)) return "run";
+  if (/(browser|web|page|click|navigate|screenshot)/.test(value)) return "browse";
+  if (/(image|vision|render)/.test(value)) return "image";
+  if (/(list|glob|inspect|stat|tree|ls)/.test(value)) return "inspect";
+  return "work";
 }
 
 function toolTimelineStatusLabel(state: string) {

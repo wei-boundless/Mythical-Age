@@ -11,6 +11,11 @@ import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTi
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
   taskProjections?: SingleAgentTaskProjection[] | null;
+  compactCompletedTools?: boolean;
+};
+
+type PublicTimelineActivityOptions = {
+  compactCompletedTools?: boolean;
 };
 
 type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
@@ -37,8 +42,8 @@ type ToolWindowProjection = {
   }>;
 };
 
-export function PublicTimelineActivity({ items, taskProjections }: PublicTimelineActivityProps) {
-  const view = publicTimelineActivityView(items, taskProjections);
+export function PublicTimelineActivity({ items, taskProjections, compactCompletedTools = false }: PublicTimelineActivityProps) {
+  const view = publicTimelineActivityView(items, taskProjections, { compactCompletedTools });
   if (!view) {
     return null;
   }
@@ -57,13 +62,15 @@ export function PublicTimelineActivity({ items, taskProjections }: PublicTimelin
 export function publicTimelineHasDisplayableActivity(
   items: PublicChatTimelineItem[] | null | undefined,
   taskProjections?: SingleAgentTaskProjection[] | null,
+  options: PublicTimelineActivityOptions = {},
 ) {
-  return Boolean(publicTimelineActivityView(items, taskProjections));
+  return Boolean(publicTimelineActivityView(items, taskProjections, options));
 }
 
 function publicTimelineActivityView(
   items: PublicChatTimelineItem[] | null | undefined,
   taskProjections?: SingleAgentTaskProjection[] | null,
+  options: PublicTimelineActivityOptions = {},
 ): PublicTimelineActivityView | null {
   const normalizedItems = normalizePublicTimelineItems(items ?? []).filter((item) => !isPublicTimelineControlItem(item));
   const projections = taskProjections ?? [];
@@ -72,7 +79,7 @@ function publicTimelineActivityView(
     ? normalizedItems.filter((item) => !isStalePublicTimelineItemForProjectionTone(item, projectionTone))
     : normalizedItems;
   const projectionEntries = taskProjectionActivityEntries(projections);
-  const timelineEntries = activityEntries(timelineItems);
+  const timelineEntries = activityEntries(timelineItems, options);
   const entries = orderActivityEntries({
     timelineEntries,
     projectionEntries,
@@ -328,6 +335,9 @@ function isGenericTaskProjectionTitle(title: string, detail: string) {
     "开始处理",
     "建立处理清单",
     "更新处理清单",
+    "处理清单",
+    "处理清单已建立",
+    "处理清单已更新",
     "读取文件内容",
     "检查路径信息",
     "确认路径状态",
@@ -363,6 +373,11 @@ function isGenericStatusActivity(title: string, detail: string) {
     "正在处理",
     "正在处理任务",
     "正在建立任务运行",
+    "已同步最新进展",
+    "已接上当前工作正在同步最新进展",
+    "已开始继续处理接下来会持续汇报正在推进的步骤",
+    "已把任务目标转成可跟踪的待办清单",
+    "已把任务目标转成可跟踪的处理清单",
     "补齐验收证据",
     "搜索证据",
     "读取文件内容",
@@ -408,13 +423,13 @@ function dedupeActivityEntries(entries: ActivityEntry[]) {
   return result;
 }
 
-function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
+function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelineActivityOptions = {}): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const [index, item] of items.entries()) {
     if (kindOf(item) === "todo_plan") {
       continue;
     }
-    if (isLowSignalCompletedToolActivity(item)) {
+    if (isLowSignalCompletedToolActivity(item, options)) {
       continue;
     }
     const kind = activityLineKind(item);
@@ -449,7 +464,7 @@ function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] |
   return "";
 }
 
-function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem) {
+function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem, options: PublicTimelineActivityOptions = {}) {
   const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
   if (slot !== "tool") {
     return false;
@@ -468,10 +483,50 @@ function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem) {
   if (rawOutputSuppressed && ["读取完成", "已读取完成", "读取已完成", "工具已完成", "操作已返回", "结果已返回"].map(compactActivityText).includes(normalizedTitle)) {
     return true;
   }
+  const hasMeaningfulPayload = hasMeaningfulCompletedToolPayload(item);
+  if (!hasMeaningfulPayload && isGenericCompletedToolText(title) && isGenericCompletedToolText(item.public_summary)) {
+    return true;
+  }
+  if (options.compactCompletedTools && !hasMeaningfulPayload) {
+    return true;
+  }
   return ["inspect", "search"].includes(actionKind)
     || title.startsWith("已确认目标")
     || title.startsWith("已搜索引用");
 }
+
+function hasMeaningfulCompletedToolPayload(item: PublicChatTimelineItem) {
+  for (const candidate of [item.public_summary, item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text, item.path, item.href]) {
+    const text = cleanPublicTimelineText(candidate);
+    if (!text || looksLikeRawToolOutput(text) || isGenericCompletedToolText(text)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isGenericCompletedToolText(value: unknown) {
+  const normalized = compactActivityText(cleanPublicTimelineText(value)).replace(/[。.!！?？,，;；:：]$/g, "");
+  return GENERIC_COMPLETED_TOOL_TEXT.has(normalized);
+}
+
+const GENERIC_COMPLETED_TOOL_TEXT = new Set([
+  "",
+  "工具已完成",
+  "工具调用已完成",
+  "工具返回成功",
+  "操作已返回",
+  "结果已返回",
+  "执行完成",
+  "调用完成",
+  "运行完成",
+  "读取完成",
+  "已读取完成",
+  "读取已完成",
+  "完成",
+  "已完成",
+].map(compactActivityText));
 
 function shouldCollapseToolWindow(item: PublicChatTimelineItem) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
