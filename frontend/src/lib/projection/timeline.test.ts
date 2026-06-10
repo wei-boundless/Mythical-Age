@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergePublicTimelineItems,
+  sanitizePublicTimelineText,
   publicTimelineTerminalStateFromAnswer,
-} from "./publicTimeline";
+} from "@/lib/projection/timeline";
 
 describe("publicTimeline", () => {
   it("reconciles started and completed tool activity by semantic target", () => {
@@ -69,5 +70,22 @@ describe("publicTimeline", () => {
       answerCanonicalState: "missing_answer",
       answerChannel: "blocked",
     })).toBe("error");
+  });
+
+  it("suppresses line-numbered tool output before timeline items reach chat rendering", () => {
+    const rawFilePreview = "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是一段工具读取的文件原文";
+
+    expect(sanitizePublicTimelineText(rawFilePreview)).toBe("");
+    expect(mergePublicTimelineItems([], [
+      {
+        item_id: "body:raw-file",
+        kind: "final_summary",
+        slot: "body",
+        surface: "assistant_body",
+        source_authority: "model",
+        text: rawFilePreview,
+        state: "done",
+      },
+    ])).toEqual([]);
   });
 });

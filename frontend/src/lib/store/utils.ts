@@ -98,14 +98,11 @@ function historyMessageId(message: SessionHistory["messages"][number], sourceInd
 }
 
 function historyTurnId(message: SessionHistory["messages"][number]) {
-  return String(message.turn_id ?? message.turn_ref ?? message.anchor_turn_id ?? "").trim();
-}
-
-function attachmentTurnIndex(anchorTurnId: string) {
-  const parts = String(anchorTurnId || "").split(":");
-  const tail = parts.at(-1) || "";
-  const parsed = Number(tail);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const record = message as SessionHistory["messages"][number] & {
+    anchor_turn_id?: unknown;
+    turn_ref?: unknown;
+  };
+  return String(message.turn_id ?? record.turn_ref ?? record.anchor_turn_id ?? "").trim();
 }
 
 function runtimeAttachmentsByAssistantMessageId(
@@ -163,9 +160,10 @@ function syntheticAssistantMessagesForRuntimeAttachments(
     const anchorIndex = history.findIndex((message) =>
       message.role === "user" && String(message.turn_id ?? "").trim() === anchorTurnId
     );
-    const sourceIndex = anchorIndex >= 0
-      ? anchorIndex + 0.5
-      : attachmentTurnIndex(anchorTurnId) + 0.5;
+    if (anchorIndex < 0) {
+      continue;
+    }
+    const sourceIndex = anchorIndex + 0.5;
     const existing = syntheticById.get(syntheticId);
     syntheticById.set(syntheticId, {
       id: syntheticId,

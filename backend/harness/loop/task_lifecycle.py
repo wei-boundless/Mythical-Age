@@ -570,6 +570,14 @@ async def start_task_lifecycle_from_contract(
         action_request=action_request,
     )
     if opening_content:
+        await commit_task_opening_message(
+            commit_assistant_message,
+            session_id=session_id,
+            turn_id=turn_id,
+            content=opening_content,
+            answer_source=f"{answer_source}.opening_judgment",
+            api_protocol_prefix_messages=api_protocol_prefix_messages,
+        )
         yield assistant_text_event(
             content=opening_content,
             answer_channel="opening_judgment",
@@ -589,7 +597,7 @@ async def start_task_lifecycle_from_contract(
     )
     for event in lifecycle_events:
         yield event
-    started_summary = "已接手任务，正在整理执行步骤。"
+    started_summary = ""
     started_summary_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "step_summary_recorded",
@@ -598,6 +606,7 @@ async def start_task_lifecycle_from_contract(
             "status": "running",
             "summary": started_summary,
             "public_progress_note": started_summary,
+            "visibility": "internal",
             "presentation_source": "task_lifecycle.start",
         },
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
@@ -669,7 +678,7 @@ async def start_task_lifecycle_from_contract(
             },
         )
         return
-    scheduled_summary = "任务执行器已接管，正在推进第一步。"
+    scheduled_summary = ""
     scheduled_summary_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "step_summary_recorded",
@@ -678,6 +687,7 @@ async def start_task_lifecycle_from_contract(
             "status": "running",
             "summary": scheduled_summary,
             "public_progress_note": scheduled_summary,
+            "visibility": "internal",
             "presentation_source": "task_lifecycle.schedule",
         },
         refs={"task_run_ref": task_run.task_run_id, "turn_ref": turn_id},
@@ -728,6 +738,38 @@ async def commit_task_control_message(
         answer_channel="task_control",
         answer_source=answer_source,
         execution_posture="task_control",
+    )
+    await commit_assistant_message(
+        session_id,
+        {
+            "role": "assistant",
+            "content": decision.content,
+            "turn_id": turn_id,
+            **decision.to_payload(),
+            "api_protocol_messages": protocol_messages,
+        },
+    )
+
+
+async def commit_task_opening_message(
+    commit_assistant_message: CommitAssistantMessage,
+    *,
+    session_id: str,
+    turn_id: str,
+    content: str,
+    answer_source: str,
+    api_protocol_prefix_messages: list[dict[str, Any]] | None = None,
+) -> None:
+    if not str(content or "").strip():
+        return
+    protocol_messages = [dict(item) for item in list(api_protocol_prefix_messages or []) if isinstance(item, dict)]
+    if protocol_messages:
+        protocol_messages.append({"role": "assistant", "content": content, "turn_id": turn_id})
+    decision = canonical_output_decision_for_final_text(
+        content,
+        answer_channel="opening_judgment",
+        answer_source=answer_source,
+        execution_posture="task_opening",
     )
     await commit_assistant_message(
         session_id,

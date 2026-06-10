@@ -52,8 +52,8 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "./publicProjectionReducer";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
+import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "@/lib/projection/reducer";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
@@ -4260,12 +4260,7 @@ export class WorkspaceRuntime {
         Boolean(item && typeof item === "object" && !Array.isArray(item))
       )
       : [];
-    const delta = Array.isArray(record.public_timeline_delta)
-      ? record.public_timeline_delta.filter((item): item is PublicChatTimelineItem =>
-        Boolean(item && typeof item === "object" && !Array.isArray(item))
-      )
-      : [];
-    return mergePublicTimelineItems(direct, delta, { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES });
+    return mergePublicTimelineItems(direct, undefined, { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES });
   }
 
   private publicTimelineItemsFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): PublicChatTimelineItem[] {
@@ -5050,13 +5045,13 @@ export class WorkspaceRuntime {
       ? ""
       : String(monitorRecord.activity_state || activityRecord.activity_state || "").trim();
     const effectiveStatus = projectedActivityState === "waiting" ? "waiting_executor" : projectedActivityState || normalizedStatus;
-    const projectedTitle = String(monitorRecord.activity_label || activityRecord.activity_label || "").trim();
-    const projectedDetail = String(
+    const projectedTitle = this.runtimeVisibleProgressText(monitorRecord.activity_label || activityRecord.activity_label);
+    const projectedDetail = this.runtimeVisibleProgressText(
       monitorRecord.latest_public_progress_note
       || monitorRecord.latest_step_summary
       || monitorRecord.summary
       || "",
-    ).trim();
+    );
     if (effectiveStatus === "stale") {
       this.store.setState((prev) => ({
         ...prev,
@@ -5157,8 +5152,11 @@ export class WorkspaceRuntime {
       return;
     }
     if (effectiveStatus === "running" || effectiveStatus === "created") {
-      const title = projectedTitle || "正在处理";
-      const detail = projectedDetail || "正在同步当前处理进展";
+      if (!projectedTitle && !projectedDetail) {
+        return;
+      }
+      const title = projectedTitle || projectedDetail;
+      const detail = projectedDetail && projectedDetail !== title ? projectedDetail : "";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
@@ -5169,7 +5167,7 @@ export class WorkspaceRuntime {
           receipt: {
             level: "running",
             title,
-            body: detail.endsWith("。") ? detail : `${detail}。`,
+            body: detail ? detail.endsWith("。") ? detail : `${detail}。` : undefined,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -5182,8 +5180,11 @@ export class WorkspaceRuntime {
       return;
     }
     if (["completed", "complete", "success", "succeeded"].includes(effectiveStatus)) {
-      const title = projectedTitle || "已完成";
-      const detail = projectedDetail || "结果已写回会话，运行记录可在监控中查看";
+      if (!projectedTitle && !projectedDetail) {
+        return;
+      }
+      const title = projectedTitle || projectedDetail;
+      const detail = projectedDetail && projectedDetail !== title ? projectedDetail : "";
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
@@ -5194,7 +5195,7 @@ export class WorkspaceRuntime {
           receipt: {
             level: "success",
             title,
-            body: detail.endsWith("。") ? detail : `${detail}。`,
+            body: detail ? detail.endsWith("。") ? detail : `${detail}。` : undefined,
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",

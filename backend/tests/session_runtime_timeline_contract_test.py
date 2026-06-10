@@ -135,11 +135,11 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["task_run_id"] == lifecycle.task_run_id
     assert attachment["anchor_turn_id"] == "turn:session-timeline:1"
     assert attachment["status"] == "completed"
-    assert attachment["final_answer"] == "Timeline final answer."
+    assert "final_answer" not in attachment
     assert attachment["anchor_role"] == "assistant"
     task_projection = dict(attachment.get("task_projection") or {})
     assert task_projection
-    assert task_projection["final_answer"] == "Timeline final answer."
+    assert "final_answer" not in task_projection
     assert attachment["public_timeline"]
     assert any(
         item.get("kind") in {"opening_judgment", "stage_summary", "observation_report"}
@@ -353,6 +353,57 @@ def test_session_runtime_timeline_does_not_synthesize_generic_success_feedback()
     assert "已开始处理" not in visible
 
 
+def test_session_runtime_timeline_does_not_expose_line_numbered_tool_output() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-raw-tool-output"
+    turn_id = "turn:session-raw-tool-output:1"
+    task_run_id = "taskrun:turn:session-raw-tool-output:1:abc"
+    raw_output = "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是工具读取的文件原文。"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-raw-tool-output:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:raw-file",
+                "source": "tool:read_file",
+                "summary": raw_output,
+                "payload": {"result": raw_output},
+            },
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:raw-file"},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={
+            "messages": [
+                {"role": "user", "content": "审查项目", "turn_id": turn_id},
+                {"role": "assistant", "content": "", "turn_id": turn_id, "id": "message:assistant"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    visible = json.dumps(timeline["runtime_attachments"], ensure_ascii=False)
+    assert "LangChain-Agent" not in visible
+    assert "1 | #" not in visible
+
+
 def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
@@ -438,8 +489,13 @@ def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
     assert any(item.get("kind") == "work_action" for item in attachment["public_timeline"])
     assert "docs/turn.md" in json.dumps(attachment["public_timeline"], ensure_ascii=False)
     assert any(
-        item.get("kind") == "stage_summary"
-        and item.get("text") == "I found the target file and will write the update next."
+        item.get("slot") == "body"
+        and item.get("surface") == "assistant_body"
+        and item.get("source_authority") == "model"
+        and (
+            item.get("text") == "I found the target file and will write the update next."
+            or item.get("detail") == "I found the target file and will write the update next."
+        )
         for item in attachment["public_timeline"]
     )
     assert not any(

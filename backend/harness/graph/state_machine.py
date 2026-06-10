@@ -72,11 +72,14 @@ class GraphStateMachine:
         scheduler_view = build_scheduler_view(graph_config)
         executable_ids = set(scheduler_view.executable_node_ids)
         gated_exit_ids = _active_loop_exit_node_ids(graph_config=graph_config, loop_state=loop_state)
+        closed_scope_ids = _closed_loop_scope_node_ids(graph_config=graph_config, loop_state=loop_state)
         for node in graph_config.nodes:
             node_id = str(node.get("node_id") or "")
             if node_id not in executable_ids:
                 continue
             if node_id in gated_exit_ids:
+                continue
+            if node_id in closed_scope_ids:
                 continue
             status = str(dict(node_states.get(node_id) or {}).get("status") or "")
             if status == "ready":
@@ -193,6 +196,24 @@ def _active_loop_exit_node_ids(*, graph_config: GraphHarnessConfig, loop_state: 
         if exit_id:
             exit_ids.add(exit_id)
     return exit_ids
+
+
+def _closed_loop_scope_node_ids(*, graph_config: GraphHarnessConfig, loop_state: dict[str, Any] | None) -> set[str]:
+    frames = dict(dict(loop_state or {}).get("frames") or {})
+    if not frames:
+        return set()
+    closed_ids: set[str] = set()
+    for raw_frame in graph_config.loop_frames:
+        configured = dict(raw_frame or {})
+        frame_id = str(configured.get("frame_id") or configured.get("scope_id") or "").strip()
+        frame = dict(frames.get(frame_id) or {})
+        if str(frame.get("status") or "active") == "active":
+            continue
+        for item in list(frame.get("scope_node_ids") or configured.get("scope_node_ids") or []):
+            node_id = str(item or "").strip()
+            if node_id:
+                closed_ids.add(node_id)
+    return closed_ids
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

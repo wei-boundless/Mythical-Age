@@ -258,6 +258,8 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
         result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=30000)
     if isinstance(payload.get("loop_iteration_results"), list):
         result["loop_iteration_results"] = _truncate_value(list(payload.get("loop_iteration_results") or [])[:32], max_chars=12000)
+    if isinstance(payload.get("batch_chapter_ledger"), dict):
+        result["batch_chapter_ledger"] = _truncate_value(dict(payload.get("batch_chapter_ledger") or {}), max_chars=30000)
     if isinstance(payload.get("artifact_payloads"), list):
         artifact_payload_limit = 16 if isinstance(payload.get("loop_iteration_results"), list) else 8
         result["artifact_payloads"] = [

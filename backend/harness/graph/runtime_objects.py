@@ -97,9 +97,19 @@ def node_result_summary(result: NodeResultEnvelope, *, result_ref: str = "") -> 
         "artifact_materialization_receipt_count": len(result.artifact_materialization_receipts),
         "memory_commit_receipt_count": len(result.memory_commit_receipts),
         "handoff_summary": result.handoff_summary[:1200],
+        "outputs": _node_result_routing_outputs(outputs),
         "error": dict(result.error or {}),
         "created_at": result.created_at,
     }
+
+
+def _node_result_routing_outputs(outputs: dict[str, Any]) -> dict[str, Any]:
+    routing: dict[str, Any] = {}
+    for key in ("revision_route", "structured_output", "node_output"):
+        value = outputs.get(key)
+        if isinstance(value, dict):
+            routing[key] = dict(value)
+    return routing
 
 
 def flow_packet_summary(packet: FlowPacket, *, packet_ref: str = "") -> dict[str, Any]:

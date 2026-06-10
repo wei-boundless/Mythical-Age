@@ -4,12 +4,12 @@ import json
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.public_chat_timeline import build_public_chat_timeline_from_progress_entries
-from harness.runtime.public_projection_filters import should_hide_public_tool_observation
+from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
+from harness.runtime.projection.filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.public_progress import public_runtime_progress_title
-from harness.runtime.runtime_monitor_public_projection import project_public_timeline_from_events
-from harness.runtime.session_task_projection import build_single_agent_task_projection
+from harness.runtime.projection.timeline_builder import project_public_timeline_from_events
+from harness.runtime.projection.task_projection import build_single_agent_task_projection
 
 
 _SUPPRESSED_PROGRESS_TEXT = {
@@ -146,7 +146,6 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "public_timeline": public_timeline,
         **({"task_projection": task_projection} if task_projection else {}),
         "artifact_refs": artifact_refs,
-        "final_answer": final_answer,
         "trace_available": True,
         "debug_trace_ref": task_run_id,
         "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
@@ -171,8 +170,8 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         runtime_host=runtime_host,
         run_id=turn_run_id,
         turn_run_id=turn_run_id,
-        final_answer=assistant_text,
-        assistant_text=assistant_text,
+        final_answer="",
+        assistant_text="",
         status=status,
         limit=max_timeline_items,
     )
@@ -219,7 +218,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "progress_entries": progress_entries,
         "public_timeline": public_timeline,
         "artifact_refs": _artifact_refs_from_progress_entries(progress_entries),
-        "final_answer": "",
         "trace_available": True,
         "debug_trace_ref": turn_run_id,
         "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
@@ -1237,7 +1235,7 @@ def _observation_text_is_failure(value: str) -> bool:
 
 def _step_title(step: str, status: str) -> str:
     if step.startswith("task_model_action_invocation_started"):
-        return "正在思考"
+        return ""
     if step.startswith("task_model_action_waiting"):
         return "等待模型输出"
     if step.startswith("task_execution_packet_compiled"):
@@ -1247,9 +1245,9 @@ def _step_title(step: str, status: str) -> str:
     if step.startswith("task_completion_repair_required"):
         return "补充验收证据"
     if step == "task_run_completed":
-        return "处理已完成"
+        return ""
     if status == "completed":
-        return "步骤已完成"
+        return ""
     return public_runtime_progress_title(step=step, status=status)
 
 

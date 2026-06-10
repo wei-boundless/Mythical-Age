@@ -12,9 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
-from harness.runtime.public_projection_projector import attach_public_projection_event
+from harness.runtime.projection.projector import attach_public_projection_event
 from harness.runtime.public_progress import public_runtime_progress_summary
-from harness.runtime.session_task_projection import build_single_agent_task_projection
+from harness.runtime.projection.task_projection import build_single_agent_task_projection
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
@@ -724,8 +724,6 @@ def _public_action_summary_from_request(request: dict[str, Any]) -> dict[str, An
     if not kind:
         return {}
     public_action: dict[str, Any] = {"kind": kind}
-    if action_type == "request_task_run":
-        return public_action
     progress_note = _safe_public_action_text(request.get("public_progress_note"))
     if progress_note:
         public_action["progress_note"] = progress_note

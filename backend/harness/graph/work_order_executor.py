@@ -632,6 +632,7 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
     allowed_keys = (
         "semantic_evidence",
         "monitor_verdict",
+        "revision_route",
         "structured_output",
         "node_output",
     )

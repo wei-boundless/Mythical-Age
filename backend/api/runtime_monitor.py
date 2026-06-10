@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.runtime.run_monitor import RuntimeMonitorActionService
-from harness.runtime.runtime_monitor_public_projection import project_runtime_monitor_event_public_delta
+from harness.runtime.projection.timeline_builder import project_runtime_monitor_event_public_delta
 
 router = APIRouter()
 

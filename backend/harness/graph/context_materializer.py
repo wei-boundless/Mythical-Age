@@ -292,6 +292,7 @@ class GraphContextMaterializer:
             initial_inputs=initial_inputs,
             inbound_context=inbound_context,
         )
+        initial_inputs.update(_batch_chapter_ledger_inputs_for_node(node_id=node_id, inbound_context=inbound_context))
         environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
@@ -440,6 +441,56 @@ def _inbound_artifact_texts(inbound_context: list[dict[str, Any]], *, current_ch
             if current_requirements:
                 texts.append(current_requirements)
     return texts
+
+
+def _batch_chapter_ledger_inputs_for_node(*, node_id: str, inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
+    if _node_tail(node_id) != "chapter_batch_assemble":
+        return {}
+    for raw in inbound_context:
+        if not isinstance(raw, dict):
+            continue
+        payload = dict(raw.get("payload") or {})
+        ledger = payload.get("batch_chapter_ledger")
+        if isinstance(ledger, dict) and ledger:
+            return {
+                "batch_chapter_ledger": _compact_batch_chapter_ledger(dict(ledger)),
+                "batch_chapter_ledger_authority": "harness.graph.batch_chapter_ledger",
+            }
+    return {}
+
+
+def _compact_batch_chapter_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
+    chapters: list[dict[str, Any]] = []
+    for raw in list(ledger.get("chapters") or []):
+        if not isinstance(raw, dict):
+            continue
+        draft = dict(raw.get("draft") or {})
+        route = dict(raw.get("route") or {})
+        chapters.append(
+            _drop_empty(
+                {
+                    "chapter_index": raw.get("chapter_index"),
+                    "status": str(raw.get("status") or ""),
+                    "draft_artifact_refs": _artifact_ref_values(draft.get("artifact_refs")),
+                    "route_artifact_refs": _artifact_ref_values(route.get("artifact_refs")),
+                    "draft_source": str(draft.get("source") or ""),
+                    "route_source": str(route.get("source") or ""),
+                    "warnings": [str(item) for item in list(raw.get("warnings") or []) if str(item)],
+                }
+            )
+        )
+    return _drop_empty(
+        {
+            "authority": "harness.graph.batch_chapter_ledger",
+            "source": str(ledger.get("source") or ""),
+            "batch_start_index": ledger.get("batch_start_index"),
+            "batch_end_index": ledger.get("batch_end_index"),
+            "expected_chapter_indexes": [int(item) for item in list(ledger.get("expected_chapter_indexes") or []) if _int_value(item, None) is not None],
+            "complete_chapter_indexes": [int(item) for item in list(ledger.get("complete_chapter_indexes") or []) if _int_value(item, None) is not None],
+            "missing_chapter_indexes": [int(item) for item in list(ledger.get("missing_chapter_indexes") or []) if _int_value(item, None) is not None],
+            "chapters": chapters,
+        }
+    )
 
 
 def _extract_chapter_outline_section(text: str, chapter: int) -> str:
@@ -697,19 +748,10 @@ def _loop_iteration_contexts_for_node(
                 if not isinstance(raw_summary, dict):
                     continue
                 summary = dict(raw_summary)
-                artifact_refs = _artifact_ref_values(summary.get("artifact_refs"))
+                node_entry = _node_result_context_entry(result_node_id=result_node_id, summary=summary)
+                artifact_refs = list(node_entry.get("artifact_refs") or [])
                 aggregate_refs.extend(artifact_refs)
-                node_entries.append(
-                    _drop_empty(
-                        {
-                            "node_id": str(result_node_id or summary.get("node_id") or ""),
-                            "status": str(summary.get("status") or ""),
-                            "result_ref": str(summary.get("result_ref") or ""),
-                            "artifact_refs": artifact_refs,
-                            "handoff_summary": str(summary.get("handoff_summary") or "")[:1200],
-                        }
-                    )
-                )
+                node_entries.append(node_entry)
             if node_entries:
                 iteration_entries.append(
                     {
@@ -717,6 +759,13 @@ def _loop_iteration_contexts_for_node(
                         "node_results": node_entries,
                     }
                 )
+        batch_chapter_ledger = _batch_chapter_ledger(
+            graph_config=graph_config,
+            state=state,
+            frame=frame,
+            iteration_entries=iteration_entries,
+        )
+        aggregate_refs.extend(_artifact_ref_values(dict(batch_chapter_ledger).get("artifact_refs")))
         artifact_refs = _artifact_ref_values(aggregate_refs)
         contexts.append(
             _drop_empty(
@@ -736,6 +785,7 @@ def _loop_iteration_contexts_for_node(
                         "scope_id": scope_id,
                         "frame_status": str(frame.get("status") or ""),
                         "loop_iteration_results": iteration_entries,
+                        "batch_chapter_ledger": batch_chapter_ledger,
                         "artifact_refs": artifact_refs,
                         "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=24, max_chars=12000),
                         "authority": "harness.graph.loop_iteration_results_payload",
@@ -754,6 +804,243 @@ def _loop_iteration_contexts_for_node(
             )
         )
     return contexts
+
+
+def _node_result_context_entry(*, result_node_id: str, summary: dict[str, Any]) -> dict[str, Any]:
+    artifact_refs = _artifact_ref_values(summary.get("artifact_refs"))
+    return _drop_empty(
+        {
+            "node_id": str(result_node_id or summary.get("node_id") or ""),
+            "status": str(summary.get("status") or ""),
+            "result_ref": str(summary.get("result_ref") or ""),
+            "artifact_refs": artifact_refs,
+            "handoff_summary": str(summary.get("handoff_summary") or "")[:1200],
+        }
+    )
+
+
+def _batch_chapter_ledger(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    frame: dict[str, Any],
+    iteration_entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if _node_tail(str(frame.get("exit_node_id") or "")) != "chapter_batch_assemble":
+        return {}
+    initial_inputs = dict(state.initial_inputs or {})
+    start = _int_value(initial_inputs.get("batch_start_index"), None)
+    end = _int_value(initial_inputs.get("batch_end_index"), start)
+    if start is None or end is None:
+        return {}
+    if end < start:
+        start, end = end, start
+    if end - start > 100:
+        return {}
+    existing_by_chapter: dict[int, dict[str, Any]] = {}
+    for entry in iteration_entries:
+        chapter = _chapter_index_from_iteration_entry(entry)
+        if chapter is not None and start <= chapter <= end and chapter not in existing_by_chapter:
+            existing_by_chapter[chapter] = dict(entry)
+    scope_nodes = [str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)]
+    draft_node_id = _node_id_for_tail(graph_config=graph_config, scope_node_ids=scope_nodes, tail="chapter_draft")
+    router_node_id = _node_id_for_tail(graph_config=graph_config, scope_node_ids=scope_nodes, tail="chapter_unit_router")
+    history_index = _batch_chapter_artifact_index(
+        state=state,
+        start=start,
+        end=end,
+        draft_node_id=draft_node_id,
+        router_node_id=router_node_id,
+    )
+    chapter_entries: list[dict[str, Any]] = []
+    all_refs: list[Any] = []
+    for chapter in range(start, end + 1):
+        loop_entry = dict(existing_by_chapter.get(chapter) or {})
+        loop_results = _chapter_node_results_by_tail(loop_entry)
+        history_results = {
+            tail: dict(summary)
+            for tail, summary in dict(history_index.get(chapter) or {}).items()
+            if isinstance(summary, dict)
+        }
+        draft_entry = dict(loop_results.get("chapter_draft") or history_results.get("chapter_draft") or {})
+        router_entry = dict(loop_results.get("chapter_unit_router") or history_results.get("chapter_unit_router") or {})
+        draft_refs = _artifact_ref_values(draft_entry.get("artifact_refs"))
+        router_refs = _artifact_ref_values(router_entry.get("artifact_refs"))
+        all_refs.extend(draft_refs)
+        all_refs.extend(router_refs)
+        warnings: list[str] = []
+        if not loop_entry and (draft_refs or router_refs):
+            warnings.append("artifact_found_without_loop_iteration_result")
+        if not draft_refs:
+            warnings.append("draft_artifact_missing")
+        if not router_refs:
+            warnings.append("route_artifact_missing")
+        chapter_entries.append(
+            _drop_empty(
+                {
+                    "chapter_index": chapter,
+                    "chapter_index_padded": f"{chapter:03d}",
+                    "iteration_id": str(loop_entry.get("iteration_id") or f"chapter-{chapter}"),
+                    "loop_iteration_present": bool(loop_entry),
+                    "status": "complete" if draft_refs and router_refs else "incomplete",
+                    "draft": _ledger_node_result_projection(draft_entry, source="loop_iteration_results" if loop_results.get("chapter_draft") else "result_history"),
+                    "route": _ledger_node_result_projection(router_entry, source="loop_iteration_results" if loop_results.get("chapter_unit_router") else "result_history"),
+                    "warnings": warnings,
+                }
+            )
+        )
+    complete = [entry["chapter_index"] for entry in chapter_entries if entry.get("status") == "complete"]
+    missing = [entry["chapter_index"] for entry in chapter_entries if entry.get("status") != "complete"]
+    return _drop_empty(
+        {
+            "authority": "harness.graph.batch_chapter_ledger",
+            "source": "loop_iteration_results_plus_completed_result_history",
+            "batch_start_index": start,
+            "batch_end_index": end,
+            "expected_chapter_indexes": list(range(start, end + 1)),
+            "complete_chapter_indexes": complete,
+            "missing_chapter_indexes": missing,
+            "chapters": chapter_entries,
+            "artifact_refs": _artifact_ref_values(all_refs),
+        }
+    )
+
+
+def _chapter_node_results_by_tail(entry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    results: dict[str, dict[str, Any]] = {}
+    for raw in list(dict(entry or {}).get("node_results") or []):
+        if not isinstance(raw, dict):
+            continue
+        node_result = dict(raw)
+        tail = _node_tail(str(node_result.get("node_id") or ""))
+        if tail in {"chapter_draft", "chapter_unit_router"} and tail not in results:
+            results[tail] = node_result
+    return results
+
+
+def _ledger_node_result_projection(entry: dict[str, Any], *, source: str) -> dict[str, Any]:
+    if not entry:
+        return {}
+    return _drop_empty(
+        {
+            "source": source,
+            "node_id": str(entry.get("node_id") or ""),
+            "status": str(entry.get("status") or ""),
+            "result_ref": str(entry.get("result_ref") or ""),
+            "artifact_refs": _artifact_ref_values(entry.get("artifact_refs")),
+            "handoff_summary": str(entry.get("handoff_summary") or "")[:800],
+        }
+    )
+
+
+def _batch_chapter_artifact_index(
+    *,
+    state: GraphLoopState,
+    start: int,
+    end: int,
+    draft_node_id: str,
+    router_node_id: str,
+) -> dict[int, dict[str, dict[str, Any]]]:
+    index: dict[int, dict[str, dict[str, Any]]] = {chapter: {} for chapter in range(start, end + 1)}
+    for node_id, summaries in dict(state.result_history or {}).items():
+        tail = _node_tail(str(node_id or ""))
+        if tail not in {"chapter_draft", "chapter_unit_router"}:
+            continue
+        marker = "draft_round_" if tail == "chapter_draft" else "unit_route_round_"
+        fallback_node_id = draft_node_id if tail == "chapter_draft" else router_node_id
+        for raw_summary in list(summaries or []):
+            if not isinstance(raw_summary, dict):
+                continue
+            if str(raw_summary.get("status") or "") != "completed":
+                continue
+            for chapter, refs in _chapter_artifact_refs_from_summary(raw_summary, marker=marker, start=start, end=end).items():
+                summary = {
+                    **dict(raw_summary),
+                    "node_id": str(raw_summary.get("node_id") or fallback_node_id),
+                    "artifact_refs": refs,
+                    "source": "result_history",
+                    "context_authority": "harness.graph.batch_chapter_artifact_index",
+                }
+                current = dict(index.get(chapter, {}).get(tail) or {})
+                if not current or _chapter_summary_is_newer(summary, current):
+                    index.setdefault(chapter, {})[tail] = summary
+    return index
+
+
+def _chapter_artifact_refs_from_summary(
+    summary: dict[str, Any],
+    *,
+    marker: str,
+    start: int,
+    end: int,
+) -> dict[int, list[str]]:
+    refs_by_chapter: dict[int, list[str]] = {}
+    for ref in _artifact_ref_values(summary.get("artifact_refs")):
+        if marker not in str(ref):
+            continue
+        chapter = _chapter_index_from_artifact_ref(ref)
+        if chapter is None or chapter < start or chapter > end:
+            continue
+        refs_by_chapter.setdefault(chapter, []).append(ref)
+    return refs_by_chapter
+
+
+def _chapter_index_from_iteration_entry(entry: dict[str, Any]) -> int | None:
+    chapter = _chapter_index_from_iteration_id(str(dict(entry or {}).get("iteration_id") or ""))
+    if chapter is not None:
+        return chapter
+    for node_result in list(dict(entry or {}).get("node_results") or []):
+        if not isinstance(node_result, dict):
+            continue
+        for ref in _artifact_ref_values(node_result.get("artifact_refs")):
+            chapter = _chapter_index_from_artifact_ref(ref)
+            if chapter is not None:
+                return chapter
+    return None
+
+
+def _chapter_index_from_iteration_id(iteration_id: str) -> int | None:
+    match = re.search(r"(?:^|[^A-Za-z])chapter[-_:](\d{1,4})(?:$|[^0-9])", str(iteration_id or ""))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _chapter_index_from_artifact_ref(ref: str) -> int | None:
+    match = re.search(r"(?:^|[\\/])chapter_(\d{3,4})(?:[\\/]|$)", str(ref or ""))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _chapter_summary_is_newer(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+    return _chapter_summary_sort_key(candidate) > _chapter_summary_sort_key(current)
+
+
+def _chapter_summary_sort_key(summary: dict[str, Any]) -> tuple[float, int, str]:
+    refs = _artifact_ref_values(summary.get("artifact_refs"))
+    identity = str(summary.get("result_id") or (refs[-1] if refs else ""))
+    return (
+        float(summary.get("created_at") or 0.0),
+        max([_round_index_from_ref(ref) for ref in refs] or [0]),
+        identity,
+    )
+
+
+def _round_index_from_ref(ref: str) -> int:
+    numbers = [int(match) for match in re.findall(r"round_(\d+)", str(ref or ""))]
+    return max(numbers) if numbers else 0
+
+
+def _node_id_for_tail(*, graph_config: GraphHarnessConfig, scope_node_ids: list[str], tail: str) -> str:
+    for node_id in scope_node_ids:
+        if _node_tail(node_id) == tail:
+            return node_id
+    for node in graph_config.nodes:
+        node_id = str(dict(node or {}).get("node_id") or "")
+        if _node_tail(node_id) == tail:
+            return node_id
+    return tail
 
 
 def _ordered_iteration_items(frame_results: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:

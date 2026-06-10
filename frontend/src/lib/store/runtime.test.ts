@@ -374,7 +374,7 @@ function statusProjectionEnvelope({
   terminal?: Record<string, unknown>;
 }) {
   return {
-    authority: "harness.public_projection.v1",
+    authority: "harness.public_projection",
     projection_id: projectionId,
     lifecycle,
     source_authority: "system",
@@ -389,6 +389,50 @@ function statusProjectionEnvelope({
         source_authority: "system",
         title,
         detail,
+        state,
+      },
+    ],
+  };
+}
+
+function bodyProjectionEnvelope({
+  projectionId,
+  runId,
+  taskRunId,
+  turnId,
+  itemId,
+  text,
+  state = "running",
+}: {
+  projectionId: string;
+  runId: string;
+  taskRunId: string;
+  turnId: string;
+  itemId: string;
+  text: string;
+  state?: string;
+}) {
+  return {
+    authority: "harness.public_projection",
+    projection_id: projectionId,
+    lifecycle: state,
+    source_authority: "model",
+    surface: "assistant_body",
+    anchor: {
+      run_id: runId,
+      task_run_id: taskRunId,
+      turn_id: turnId,
+      anchor_role: "assistant",
+    },
+    items: [
+      {
+        item_id: itemId,
+        kind: "opening_judgment",
+        slot: "body",
+        surface: "assistant_body",
+        source_authority: "model",
+        title: "开局判断",
+        text,
         state,
       },
     ],
@@ -2051,7 +2095,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("projects live tool observation summaries as observation rows", () => {
+  it("keeps raw tool observation summaries out of public timeline without an envelope", () => {
     const taskRunId = "taskrun:turn:session:observation:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2092,17 +2136,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             error: "Image API request timed out",
             retryable: true,
           }),
-          public_timeline_delta: [
-            {
-              item_id: "observation:image-timeout",
-              kind: "observation_report",
-              slot: "body",
-              surface: "assistant_body",
-              source_authority: "model",
-              detail: "结果返回失败：Image API request timed out",
-              state: "error",
-            },
-          ],
         },
         refs: { task_run_ref: taskRunId, turn_ref: "turn:session:observation:1" },
         authority: "orchestration.runtime_event",
@@ -2121,12 +2154,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       eventType: "step_summary_recorded",
       taskRunId,
     });
-    expect(attachment?.public_timeline?.[0]).toMatchObject({
-      item_id: "observation:image-timeout",
-      kind: "observation_report",
-      detail: "结果返回失败：Image API request timed out",
-      state: "error",
-    });
+    expect(attachment?.public_timeline ?? []).toEqual([]);
   });
 
   it("does not synthesize generic successful tool observation feedback", () => {
@@ -2175,7 +2203,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("projects public timeline deltas from monitor events without requiring a progress entry", () => {
+  it("projects public projection envelopes from monitor events without requiring a progress entry", () => {
     const taskRunId = "taskrun:turn:session:public-delta:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2208,24 +2236,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         authority: "orchestration.runtime_event",
         public_projection_authority: "runtime_monitor.public_event_projection.v1",
         public_event_type: "model_action_admission",
-        public_anchor: {
-          run_id: taskRunId,
-          task_run_id: taskRunId,
-          anchor_turn_id: "turn:session:public-delta:1",
-          anchor_role: "assistant",
-        },
-        public_timeline_delta: [
-          {
-            item_id: "opening:public-delta",
-            kind: "opening_judgment",
-            slot: "body",
-            surface: "assistant_body",
-            source_authority: "model",
-            title: "开局判断",
-            text: "我正在公开说明当前判断。",
-            state: "running",
-          },
-        ],
+        public_projection_envelope: bodyProjectionEnvelope({
+          projectionId: "publicproj:public-delta",
+          runId: taskRunId,
+          taskRunId,
+          turnId: "turn:session:public-delta:1",
+          itemId: "opening:public-delta",
+          text: "我正在公开说明当前判断。",
+        }),
       },
     });
 
@@ -2233,8 +2251,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(attachment).toMatchObject({
       run_id: taskRunId,
       anchor_turn_id: "turn:session:public-delta:1",
-      summary: "我正在公开说明当前判断。",
-      progress_entries: [],
     });
     expect(attachment?.public_timeline).toEqual([
       expect.objectContaining({
@@ -2285,24 +2301,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         payload: {},
         refs: {},
         authority: "orchestration.runtime_event",
-        public_anchor: {
-          run_id: taskRunId,
-          task_run_id: taskRunId,
-          anchor_turn_id: "turn:session:hydrate:1",
-          anchor_role: "assistant",
-        },
-        public_timeline_delta: [
-          {
-            item_id: "opening:hydrate",
-            kind: "opening_judgment",
-            slot: "body",
-            surface: "assistant_body",
-            source_authority: "model",
-            title: "开局判断",
-            text: "这条 live 公开反馈还没有持久化到 session timeline。",
-            state: "running",
-          },
-        ],
+        public_projection_envelope: bodyProjectionEnvelope({
+          projectionId: "publicproj:hydrate",
+          runId: taskRunId,
+          taskRunId,
+          turnId: "turn:session:hydrate:1",
+          itemId: "opening:hydrate",
+          text: "这条 live 公开反馈还没有持久化到 session timeline。",
+        }),
       },
     });
     runtime.applyRunMonitorStreamPayload({
@@ -2480,7 +2486,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1500);
     expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(1);
-    expect(store.getState().sessionActivity.title).toBe("正在处理");
+    expect(store.getState().sessionActivity.title).toBe("");
     expect(store.getState().activeTurnSnapshot).toMatchObject({
       turn_id: "turn:session:background:1",
       task_run_id: "taskrun:background",
@@ -3002,8 +3008,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "running",
-      title: "正在处理",
+      level: "success",
+      title: "已收到补充要求",
     });
   });
 
@@ -3431,7 +3437,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.role).toBe("assistant");
     expect(assistant?.content).toBe("你好，我在。");
-    expect(assistant?.stageStatus).toBe("完成");
+    expect(assistant?.stageStatus).toBe("");
     expect(assistant?.answerCanonicalState).toBe("stable_answer");
     expect(assistant?.answerPersistPolicy).toBe("persist_canonical");
     expect(assistant?.answerSelectedChannel).toBe("answer_candidate");
@@ -3641,10 +3647,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }),
     });
 
-    expect(transition.state.messages).toHaveLength(1);
+    expect(transition.state.messages).toHaveLength(2);
     expect(transition.state.messages[0]).toMatchObject({
       role: "user",
       content: "补充限制条件",
+    });
+    expect(transition.state.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "",
+      answerChannel: "runtime_control",
+      runtimePublicTimelineDraft: [],
     });
     expect(transition.state.sessionActivity).toMatchObject({
       level: "success",
@@ -5929,7 +5941,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
     expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
-    expect(assistant?.stageStatus).toBe("正在思考");
+    expect(assistant?.stageStatus).toBe("");
   });
 
   it("ignores raw tool runtime requests without reviving legacy tool results", () => {
@@ -6002,8 +6014,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(transition.state.sessionActivity).toMatchObject({
-      level: "running",
-      title: "正在思考",
+      level: "idle",
+      title: "",
       detail: "",
     });
 
@@ -6035,8 +6047,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(transition.state.sessionActivity).toMatchObject({
-      level: "running",
-      title: "正在思考",
+      level: "idle",
+      title: "",
     });
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
   });
@@ -6061,7 +6073,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("正在思考");
+    expect(assistant?.stageStatus).toBe("");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
@@ -6104,7 +6116,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("正在思考");
+    expect(assistant?.stageStatus).toBe("");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
@@ -6207,15 +6219,26 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("writes public projection envelope timeline into the assistant draft during live stream", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续执行");
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
+      turn_run: {
+        turn_id: "turn:runtime:tool-write:1",
+        turn_run_id: "turnrun:turn:runtime:tool-write:1",
+      },
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
       step: "task_tool_executed",
       status: "running",
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:tool-write",
         lifecycle: "running",
         source_authority: "tool",
         surface: "tool_window",
+        anchor: {
+          turn_id: "turn:runtime:tool-write:1",
+          turn_run_id: "turnrun:turn:runtime:tool-write:1",
+          run_id: "turnrun:turn:runtime:tool-write:1",
+        },
         items: [
           {
             item_id: "tool:write",
@@ -6243,17 +6266,28 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     ]);
   });
 
-  it("finalizes live public timeline draft when the turn completes without a matching tool completion delta", () => {
+  it("does not finalize a tool window without a matching tool completion envelope", () => {
     let transition = startStreamingTurn(getDefaultState(), "再做一个踢足球小游戏");
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
+      turn_run: {
+        turn_id: "turn:runtime:football:1",
+        turn_run_id: "turnrun:turn:runtime:football:1",
+      },
+    });
     transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
       step: "task_tool_executed",
       status: "running",
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:football-start",
         lifecycle: "running",
         source_authority: "tool",
         surface: "tool_window",
+        anchor: {
+          turn_id: "turn:runtime:football:1",
+          turn_run_id: "turnrun:turn:runtime:football:1",
+          run_id: "turnrun:turn:runtime:football:1",
+        },
         items: [
           {
             item_id: "tool:football:start",
@@ -6282,8 +6316,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.objectContaining({
         item_id: "tool:football:start",
         kind: "work_action",
-        state: "done",
-        stream_state: "done",
+        state: "running",
+        stream_state: "streaming",
       }),
     ]);
   });

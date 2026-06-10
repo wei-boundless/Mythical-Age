@@ -10,15 +10,19 @@ import {
   type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
-import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
+import { projectRuntimeTransportEvent, type RuntimeTransportProjection } from "@/lib/projection/runtimeTransportProjection";
 import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
-import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "./publicProjectionReducer";
+import {
+  applyPublicProjectionEnvelope,
+  publicProjectionEnvelopeFromRecord,
+  publicProjectionEnvelopeSuppressesLegacy,
+} from "@/lib/projection/reducer";
 
 import type { ActiveTurnState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
   makeId
 } from "./utils";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromEvent } from "./publicTimeline";
+import { mergePublicTimelineItems } from "@/lib/projection/timeline";
 
 export type StreamSession = {
   assistantId: string;
@@ -123,7 +127,7 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     || event === "runtime_commit_gate"
   ) {
     const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
-    return stageStatusForRuntimeEvent(eventType) ? "正在思考" : "";
+    return stageStatusForRuntimeEvent(eventType);
   }
   if (
     event === "input_commit_gate"
@@ -141,7 +145,7 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     || event === "assistant_text"
     || event === "output_boundary"
   ) {
-    return "正在思考";
+    return "";
   }
   if (event === "done") {
     return "";
@@ -236,6 +240,10 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function rawStringValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function activeTurnStateValue(value: unknown): ActiveTurnState | undefined {
   const normalized = stringValue(value);
   return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
@@ -306,10 +314,10 @@ function shouldKeepStreamAssistantText(event: string, data: Record<string, unkno
 
 function assistantStreamContentForEvent(event: string, data: Record<string, unknown>) {
   if (event === "assistant_stream_repair") {
-    return stringValue(data.replacement_content);
+    return rawStringValue(data.replacement_content);
   }
   if (event === "assistant_text_delta" || event === "assistant_text_final") {
-    return stringValue(data.content);
+    return rawStringValue(data.content);
   }
   return "";
 }
@@ -319,9 +327,9 @@ function mergeAssistantTextDeltaEvent(
   assistantId: string,
   data: Record<string, unknown>,
 ): StoreState {
-  const content = stringValue(data.content);
+  const content = rawStringValue(data.content);
   const sequence = numberValue(data.sequence);
-  if (!content || sequence <= 0) {
+  if (content.length === 0 || sequence <= 0) {
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
@@ -364,30 +372,19 @@ function mergeAssistantTextDeltaEvent(
   }
   const previousContent = current?.canonicalContent ?? "";
   const expectedStart = optionalNumberValue(data.content_utf8_start);
-  if (expectedStart !== null && expectedStart !== utf8ByteLength(previousContent)) {
-    const streamState: AssistantTextStreamState = {
-      messageId: assistantId,
-      messageRef: stringValue(data.message_ref) || current?.messageRef || "",
-      streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
-      latestSequence: current?.latestSequence ?? 0,
-      canonicalContent: previousContent,
-      canonicalContentSha256: current?.canonicalContentSha256 ?? "",
-      accumulatedUtf8Bytes: current?.accumulatedUtf8Bytes ?? utf8ByteLength(previousContent),
-      finalReceived: current?.finalReceived ?? false,
-      terminal: current?.terminal ?? false,
-      repairState: "pending",
-      displayHintsBySequence: current?.displayHintsBySequence ?? {},
-    };
-    return {
-      ...state,
-      assistantTextStreamsByMessageId: {
-        ...state.assistantTextStreamsByMessageId,
-        [assistantId]: streamState,
-      },
-    };
-  }
-  const repairState = current?.repairState ?? "none";
   const canonicalContent = `${previousContent}${content}`;
+  const previousUtf8Bytes = utf8ByteLength(previousContent);
+  const contentUtf8Bytes = utf8ByteLength(content);
+  const canonicalUtf8Bytes = previousUtf8Bytes + contentUtf8Bytes;
+  const reportedEnd = optionalNumberValue(data.content_utf8_end);
+  const reportedContentBytes = optionalNumberValue(data.content_utf8_bytes);
+  const reportedAccumulatedBytes = optionalNumberValue(data.accumulated_utf8_bytes);
+  const hasOffsetMismatch =
+    (expectedStart !== null && expectedStart !== previousUtf8Bytes)
+    || (reportedEnd !== null && reportedEnd !== canonicalUtf8Bytes)
+    || (reportedContentBytes !== null && reportedContentBytes !== contentUtf8Bytes)
+    || (reportedAccumulatedBytes !== null && reportedAccumulatedBytes !== canonicalUtf8Bytes);
+  const repairState = hasOffsetMismatch ? "pending" : current?.repairState ?? "none";
   const streamState: AssistantTextStreamState = {
     messageId: assistantId,
     messageRef: stringValue(data.message_ref) || current?.messageRef || "",
@@ -395,7 +392,7 @@ function mergeAssistantTextDeltaEvent(
     latestSequence: sequence,
     canonicalContent,
     canonicalContentSha256: stringValue(data.accumulated_sha256) || current?.canonicalContentSha256 || "",
-    accumulatedUtf8Bytes: optionalNumberValue(data.accumulated_utf8_bytes) ?? utf8ByteLength(canonicalContent),
+    accumulatedUtf8Bytes: hasOffsetMismatch ? canonicalUtf8Bytes : reportedAccumulatedBytes ?? canonicalUtf8Bytes,
     finalReceived: false,
     terminal: false,
     repairState,
@@ -422,7 +419,7 @@ function mergeAssistantTextFinalEvent(
   assistantId: string,
   data: Record<string, unknown>,
 ): StoreState {
-  const content = stringValue(data.content);
+  const content = rawStringValue(data.content);
   const sequence = numberValue(data.sequence);
   const current = state.assistantTextStreamsByMessageId[assistantId];
   const streamState: AssistantTextStreamState = {
@@ -457,8 +454,8 @@ function mergeAssistantStreamRepairEvent(
   assistantId: string,
   data: Record<string, unknown>,
 ): StoreState {
-  const replacement = stringValue(data.replacement_content);
-  if (!replacement) {
+  const replacement = rawStringValue(data.replacement_content);
+  if (replacement.length === 0) {
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
@@ -552,6 +549,14 @@ function bindStreamSessionAnchor(
   }
   if (event === "assistant_text_delta" || event === "assistant_text_final") {
     bindTurnRun(stringValue(data.turn_run_id), stringValue(data.turn_id));
+  }
+  const envelope = recordValue(data.public_projection_envelope);
+  const envelopeAnchor = recordValue(envelope.anchor);
+  if (envelopeAnchor) {
+    bind("boundTurnId", stringValue(envelopeAnchor.turn_id));
+    bind("boundRunId", stringValue(envelopeAnchor.run_id));
+    bind("boundTaskRunId", stringValue(envelopeAnchor.task_run_id));
+    bind("boundTurnRunId", stringValue(envelopeAnchor.turn_run_id));
   }
   const rawRunId = stringValue(data.run_id);
   if (!options.hasPublicProjectionEnvelope && rawRunId.startsWith("turnrun:")) {
@@ -711,19 +716,21 @@ function patchSessionActivity(
   if (event === "done" && isTaskRunHandoffEvent(data)) {
     return state;
   }
-  const title = stageStatusForEvent(event, data) || fallbackTitle;
+  const receipt = userReceiptForEvent(event, data);
+  const title = terminalActivityTitle(event, receipt) || stageStatusForEvent(event, data) || fallbackTitle || receipt?.title || "";
   if (!title) {
     return state;
   }
+  const detail = activityDetailForEvent(event, data);
   return {
     ...state,
     sessionActivity: {
-      level: activityLevelForEvent(event, data),
+      level: receipt?.level || activityLevelForEvent(event, data),
       title,
-      detail: activityDetailForEvent(event, data),
+      detail,
       event,
       toolName: event.startsWith("tool") ? String(data.tool ?? "").trim() || undefined : undefined,
-      receipt: userReceiptForEvent(event, data),
+      receipt,
       updatedAt: Date.now()
     }
   };
@@ -1219,20 +1226,6 @@ function appendAssistantProgress(
   });
 }
 
-function patchAssistantPublicTimelineDraft(
-  state: StoreState,
-  assistantId: string,
-  items: PublicChatTimelineItem[] | undefined,
-) {
-  if (!assistantId || !items?.length) {
-    return state;
-  }
-  return patchAssistant(state, assistantId, (message) => ({
-    ...message,
-    runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, items),
-  }));
-}
-
 function patchAssistantTaskProjectionDraft(
   state: StoreState,
   assistantId: string,
@@ -1262,6 +1255,26 @@ function patchAssistantTaskProjectionDraft(
       runtimeAttachments: next,
     };
   });
+}
+
+function terminalProgressEntryForEvent(event: string, data: Record<string, unknown>): RuntimeProgressEntry | undefined {
+  if (event !== "error") {
+    return undefined;
+  }
+  const body = stringValue(data.content ?? data.error) || "请求执行失败";
+  return {
+    id: `terminal:${event}`,
+    level: "error",
+    title: "处理失败",
+    body,
+    eventType: event,
+    kind: "terminal",
+    completedAt: Date.now() / 1000,
+  };
+}
+
+function terminalActivityTitle(event: string, receipt: UserReceipt | null) {
+  return event === "error" || event === "stopped" ? receipt?.title || "" : "";
 }
 
 function taskProjectionFromEventData(data: Record<string, unknown>): SingleAgentTaskProjection | null {
@@ -1308,7 +1321,7 @@ function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment) {
 function applyVisibilitySessionActivity(
   state: StoreState,
   event: string,
-  visibility: RuntimeVisibilityProjection,
+  visibility: RuntimeTransportProjection,
 ): StoreState {
   const title = visibility.activityTitle || visibility.stageStatus || "";
   if (!title) {
@@ -1356,7 +1369,7 @@ export function startStreamingTurn(
     retrievals: [],
     runtimeProgress: [],
     runtimePublicTimelineDraft: [],
-    stageStatus: "正在思考"
+    stageStatus: ""
   };
 
   return {
@@ -1373,18 +1386,7 @@ export function startStreamingTurn(
           : [...state.messages, userMessage]),
         assistantMessage
       ],
-      sessionActivity: {
-        level: "running",
-        title: "正在思考",
-        detail: "",
-        event: "user_message",
-        receipt: {
-          level: "running",
-          title: "正在思考",
-          debug: { event: "user_message" },
-        },
-        updatedAt: Date.now()
-      },
+      sessionActivity: silentSessionActivity(Date.now()),
       orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)
     },
     session: {
@@ -1407,36 +1409,52 @@ export function startQueuedActiveTurn(
     toolCalls: [],
     retrievals: []
   };
+  const assistantMessage: Message = {
+    id: makeId(),
+    role: "assistant",
+    content: "",
+    toolCalls: [],
+    retrievals: [],
+    runtimeProgress: [],
+    runtimePublicTimelineDraft: [],
+    runtimeAttachments: [],
+    stageStatus: "",
+    answerChannel: "runtime_control",
+    answerCanonicalState: "progress_only",
+    answerPersistPolicy: "persist_debug_only",
+  };
+  const messages = options.existingUserMessageId
+    ? [
+        ...state.messages.map((message) =>
+          message.id === options.existingUserMessageId
+            ? { ...message, content: userContent.trim() }
+            : message
+        ),
+        assistantMessage,
+      ]
+    : [...state.messages, userMessage, assistantMessage];
 
   return {
     state: {
       ...state,
-      messages: options.existingUserMessageId
-        ? state.messages.map((message) =>
-          message.id === options.existingUserMessageId
-            ? { ...message, content: userContent.trim() }
-            : message
-        )
-        : [...state.messages, userMessage],
-      sessionActivity: {
-        level: "running",
-        title: "正在纳入补充要求",
-        detail: "这条补充输入会进入当前任务队列。",
-        event: "active_turn_input_queued_locally",
-        receipt: {
-          level: "running",
-          title: "正在纳入补充要求",
-          body: "这条补充输入会进入当前任务队列。",
-          debug: { event: "active_turn_input_queued_locally" },
-        },
-        updatedAt: Date.now()
-      }
+      messages,
+      sessionActivity: silentSessionActivity(Date.now()),
     },
     session: {
-      assistantId: "",
+      assistantId: assistantMessage.id,
       userId,
       queueOnly: true,
     }
+  };
+}
+
+function silentSessionActivity(updatedAt = 0): StoreState["sessionActivity"] {
+  return {
+    level: "idle",
+    title: "",
+    detail: "",
+    event: "",
+    updatedAt,
   };
 }
 
@@ -1450,9 +1468,7 @@ export function reduceStreamEvent(
   const suppressLegacyVisibility = publicProjectionEnvelopeSuppressesLegacy(publicProjectionEnvelope);
   const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionEnvelope: suppressLegacyVisibility });
   const allowRawVisibility = isTransportStreamEvent(event);
-  const visibility = !suppressLegacyVisibility && allowRawVisibility ? projectRuntimeStreamEvent(event, data) : {};
-  const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
-  const publicTimelineDelta = undefined as PublicChatTimelineItem[] | undefined;
+  const visibility = !suppressLegacyVisibility && allowRawVisibility ? projectRuntimeTransportEvent(event, data) : {};
   const taskProjectionDelta = suppressLegacyVisibility ? null : taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
@@ -1481,7 +1497,7 @@ export function reduceStreamEvent(
     ? {
         turn_id: state.activeTurnSnapshot?.turn_id || "",
         task_run_id: taskRunHandoffId,
-        state: "waiting_executor",
+        state: "waiting_executor" as ActiveTurnState,
         updated_at: Date.now() / 1000,
       }
     : null;
@@ -1506,7 +1522,7 @@ export function reduceStreamEvent(
   const stateWithStage = patchAssistantStage(
     stateWithPublicProjection,
     boundSession.assistantId,
-    allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
+    publicProjectionEnvelope ? "" : allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
   );
   const stateWithLegacyActivity = allowRawVisibility ? patchSessionActivity(stateWithStage, event, data) : stateWithStage;
   const stateWithVisibilityActivity = allowRawVisibility ? applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility) : stateWithLegacyActivity;
@@ -1515,16 +1531,17 @@ export function reduceStreamEvent(
     boundSession.assistantId,
     visibility.progressEntry,
   );
-  const stateWithTaskProjection = patchAssistantTaskProjectionDraft(
+  const stateWithTerminalProgress = appendAssistantProgress(
     stateWithOrchestration,
+    boundSession.assistantId,
+    terminalProgressEntryForEvent(event, data),
+  );
+  const stateWithTaskProjection = patchAssistantTaskProjectionDraft(
+    stateWithTerminalProgress,
     boundSession.assistantId,
     taskProjectionDelta,
   );
-  const stateWithTimelineDraft = patchAssistantPublicTimelineDraft(
-    stateWithTaskProjection,
-    boundSession.assistantId,
-    publicTimelineDelta,
-  );
+  const stateWithTimelineDraft = stateWithTaskProjection;
 
   if (event === "retrieval") {
     return {
@@ -1597,12 +1614,7 @@ export function reduceStreamEvent(
         ({
           ...message,
           ...answerMetadata,
-          runtimePublicTimelineDraft: mergePublicTimelineItems(
-            message.runtimePublicTimelineDraft,
-            publicTimelineDelta,
-            { terminalState: terminalTimelineState },
-          ),
-          stageStatus: publicProjectionEnvelope ? message.stageStatus : taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "部分完成" : "完成",
+          stageStatus: publicProjectionEnvelope ? message.stageStatus : taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "部分完成" : "",
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
@@ -1643,21 +1655,18 @@ export function reduceStreamEvent(
           return {
             ...message,
             content: visibleError,
-            runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
             stageStatus: "出错",
           };
         }
         if (current.includes(errorText)) {
           return {
             ...message,
-            runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
             stageStatus: "出错",
           };
         }
         return {
           ...message,
           content: `${current}\n\n${visibleError}`,
-          runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, publicTimelineDelta, { terminalState: terminalTimelineState }),
           stageStatus: "出错",
         };
       }),
@@ -1666,14 +1675,20 @@ export function reduceStreamEvent(
   }
 
   if (event === "stopped") {
+    if (publicProjectionEnvelope) {
+      return {
+        state: stateWithTimelineDraft,
+        session: boundSession,
+      };
+    }
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
         ...message,
         content: message.content,
         runtimePublicTimelineDraft: mergePublicTimelineItems(
           message.runtimePublicTimelineDraft,
-          [...(publicTimelineDelta ?? []), stoppedPublicTimelineItem()],
-          { terminalState: terminalTimelineState },
+          [stoppedPublicTimelineItem()],
+          { terminalState: "stopped" },
         ),
         stageStatus: "已停止"
       })),

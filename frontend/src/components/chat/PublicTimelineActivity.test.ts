@@ -243,6 +243,16 @@ describe("PublicTimelineActivity", () => {
             detail: "上一步观察已返回，继续按证据推进。",
             state: "done",
           },
+          {
+            item_id: "tool:timeline-read",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "正在读取 projection.ts",
+            detail: "读取公开投影实现。",
+            state: "running",
+          },
         ],
         taskProjections: [
           {
@@ -286,11 +296,13 @@ describe("PublicTimelineActivity", () => {
     expect(html).toContain("同步运行进度");
     expect(html).toContain("任务观察");
     expect(html).toContain("已确认任务投影链路");
+    expect(html).toContain("正在读取 projection.ts");
     expect(html).toContain("正在确认目标 backend");
     expect(html).not.toContain("正在执行操作");
     expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("任务观察"));
     expect(html.indexOf("任务观察")).toBeLessThan(html.indexOf("已确认任务投影链路"));
-    expect(html.indexOf("已确认任务投影链路")).toBeLessThan(html.indexOf("正在确认目标 backend"));
+    expect(html.indexOf("已确认任务投影链路")).toBeLessThan(html.indexOf("正在读取 projection.ts"));
+    expect(html.indexOf("正在读取 projection.ts")).toBeLessThan(html.indexOf("正在确认目标 backend"));
   });
 
   it("lets stopped task projection dominate stale running projection activity", () => {
@@ -389,7 +401,7 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("旧的工具窗口仍在运行");
     expect(html).not.toContain("旧等待状态");
     expect(html).not.toContain("旧的正文进度还在运行");
-    expect(html).toContain("已保留的完成正文");
+    expect(html).not.toContain("已保留的完成正文");
     expect(html).not.toContain("运行中");
   });
 
@@ -569,7 +581,7 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("No paths matched");
   });
 
-  it("keeps model body items in chronological order with tool activity", () => {
+  it("renders tool activity without taking ownership of model body items", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         items: [
@@ -605,8 +617,9 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html.indexOf("我先确认当前文件状态。")).toBeLessThan(html.indexOf("正在读取 ChatMessage.tsx"));
-    expect(html.indexOf("正在读取 ChatMessage.tsx")).toBeLessThan(html.indexOf("已确认投影入口。"));
+    expect(html).not.toContain("我先确认当前文件状态。");
+    expect(html).toContain("正在读取 ChatMessage.tsx");
+    expect(html).not.toContain("已确认投影入口。");
   });
 
   it("does not render ask-user control status as public activity", () => {
@@ -629,6 +642,11 @@ describe("PublicTimelineActivity", () => {
     );
 
     expect(html).toBe("");
+    expect(html).not.toContain("等待补充信息");
+    expect(html).not.toContain("审查项目没问题");
+    expect(html).not.toContain("LangChain-Agent");
+    expect(html).not.toContain("1 | #");
+    expect(html).not.toContain("这是工具读取的文件原文");
   });
 
   it("does not render generic system status as public activity", () => {
@@ -660,7 +678,37 @@ describe("PublicTimelineActivity", () => {
     expect(html).toBe("");
   });
 
-  it("preserves markdown paragraphs for model body timeline text", () => {
+  it("does not render line-numbered tool output as model body activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "body:raw-tool-output",
+            kind: "final_summary",
+            slot: "body",
+            surface: "assistant_body",
+            source_authority: "model",
+            text: "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是工具读取的文件原文。",
+            state: "done",
+          },
+          {
+            item_id: "tool:raw-observation",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "读取完成",
+            observation: "  1 | # LangChain-Agent 项目代码审查报告",
+            state: "done",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toBe("");
+  });
+
+  it("leaves markdown model body timeline text for the chat message body renderer", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         items: [
@@ -677,13 +725,12 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html).toContain("<p>第一段说明。</p>");
-    expect(html).toContain("<p>第二段说明。</p>");
-    expect(html).toContain("<li>第三段要点</li>");
-    expect(html).not.toContain("第一段说明。 第二段说明。");
+    expect(html).toBe("");
+    expect(html).not.toContain("第一段说明。");
+    expect(html).not.toContain("<li>第三段要点</li>");
   });
 
-  it("restores readable paragraphs for long single-line model body text", () => {
+  it("does not render long single-line model body text as activity", () => {
     const denseText = Array(3).fill([
       "柳如焰没有立刻回答。",
       "她的手指仍贴在他腹部，感受着那片滚烫的皮肤底下越来越失控的脉动。",
@@ -712,6 +759,7 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html.match(/<p>/g)?.length ?? 0).toBeGreaterThan(1);
+    expect(html).toBe("");
+    expect(html).not.toContain("柳如焰没有立刻回答");
   });
 });

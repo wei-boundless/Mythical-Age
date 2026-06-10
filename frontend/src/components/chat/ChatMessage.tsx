@@ -7,15 +7,11 @@ import remarkGfm from "remark-gfm";
 
 import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/components/chat/PublicTimelineActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import {
-  isPublicTimelineBodyItem,
-  looksLikeRawToolOutput,
-  publicTimelineBodyText,
-} from "@/components/chat/agentRunProjection";
+import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { cleanPublicTimelineText, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -24,7 +20,6 @@ export function ChatMessage({
   role,
   content,
   image,
-  stageStatus,
   runtimeAttachments = [],
   runtimePublicTimelineDraft,
   answerChannel,
@@ -92,18 +87,20 @@ export function ChatMessage({
       runtimePublicTimelineDraft,
       terminalState,
     );
-  const publicTimelineItems = !isUser && baseDisplayContent.trim()
+  const publicTimelineItemsWithoutRedundantBody = !isUser && baseDisplayContent.trim()
     ? withoutRedundantAssistantFinalBody(basePublicTimelineItems, baseDisplayContent)
     : basePublicTimelineItems;
-  const taskProjectionsForActivity = !isUser && baseDisplayContent.trim()
-    ? withoutRedundantTaskProjectionFinalAnswers(taskProjections, baseDisplayContent)
-    : taskProjections;
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjectionsForActivity);
-  const normalizedStageStatus = !isUser ? String(stageStatus ?? "").trim() : "";
-  const askUserQuestionContent = !isUser ? askUserQuestionFromPublicTimelineItems(publicTimelineItems) : "";
+  const timelineBodyContent = !isUser
+    ? assistantBodyFromPublicTimelineItems(publicTimelineItemsWithoutRedundantBody)
+    : "";
+  const resolvedDisplayContent = combineAssistantDisplayContent(baseDisplayContent, timelineBodyContent);
+  const publicTimelineItems = !isUser
+    ? withoutAssistantBodyItems(publicTimelineItemsWithoutRedundantBody)
+    : basePublicTimelineItems;
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections);
   const messageDisplayContent = isUser
     ? baseDisplayContent
-    : baseDisplayContent || askUserQuestionContent;
+    : resolvedDisplayContent;
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -113,10 +110,6 @@ export function ChatMessage({
     || Boolean(image?.src)
     || imageUnavailable
     || Boolean(naturalizedMessageDisplayContent.trim());
-  const shouldRenderStageStatus = !isUser
-    && !shouldRenderContent
-    && !hasPublicTimelineActivity
-    && Boolean(normalizedStageStatus);
   const copyableReplyText = !isUser && shouldRenderContent ? naturalizedMessageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -180,14 +173,6 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {!isUser && hasPublicTimelineActivity ? (
-        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjectionsForActivity} />
-      ) : null}
-      {shouldRenderStageStatus ? (
-        <div aria-live="polite" className="chat-message-shell__stage-status">
-          {normalizedStageStatus}
-        </div>
-      ) : null}
       {shouldRenderContent ? (
         <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
           {!isUser && copyableReplyText ? (
@@ -265,6 +250,9 @@ export function ChatMessage({
           )}
         </div>
       ) : null}
+      {!isUser && hasPublicTimelineActivity ? (
+        <PublicTimelineActivity items={publicTimelineItems} taskProjections={taskProjections} />
+      ) : null}
     </article>
   );
 }
@@ -309,48 +297,42 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   );
 }
 
-function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (!isPublicTimelineControlItem(item)) {
-      continue;
-    }
-    const title = normalizedAssistantComparisonText(item.title);
-    const question = String(item.detail || item.text || "").trim();
-    if (question && normalizedAssistantComparisonText(question) !== title) {
-      return normalizeAskUserQuestionMarkdown(question);
-    }
-  }
-  return "";
-}
-
-function normalizeAskUserQuestionMarkdown(value: string) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  const withListBreaks = text.replace(/\s+(?=\d{1,2}\.\s+\S)/g, "\n");
-  return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
-}
-
 function withoutRedundantAssistantFinalBody(items: PublicChatTimelineItem[], content: string) {
   return items.filter((item) => !isRedundantAssistantFinalBody(item, content));
 }
 
-function withoutRedundantTaskProjectionFinalAnswers(
-  projections: SingleAgentTaskProjection[],
-  content: string,
-) {
-  let changed = false;
-  const next = projections.map((projection) => {
-    if (!isRedundantAssistantText(projection.final_answer, content)) {
-      return projection;
+function withoutAssistantBodyItems(items: PublicChatTimelineItem[]) {
+  return items.filter((item) => !isStrictAssistantBodyItem(item));
+}
+
+function combineAssistantDisplayContent(baseContent: string, timelineBodyContent: string) {
+  const base = String(baseContent || "");
+  const timeline = String(timelineBodyContent || "").trim();
+  if (!timeline) return base;
+  if (!base.trim()) return timelineBodyContent;
+  if (isRedundantAssistantText(timeline, base)) return base;
+  return `${base.trimEnd()}\n\n${timeline}`;
+}
+
+function assistantBodyFromPublicTimelineItems(items: PublicChatTimelineItem[]) {
+  const bodyLines = items
+    .filter((item) => isStrictAssistantBodyItem(item))
+    .map((item) => strictAssistantBodyText(item))
+    .map((text) => String(text || "").trim())
+    .filter((text) => text && !looksLikeRawToolOutput(text));
+  return dedupeConsecutiveBodyLines(bodyLines).join("\n\n");
+}
+
+function dedupeConsecutiveBodyLines(lines: string[]) {
+  const result: string[] = [];
+  for (const line of lines) {
+    const previous = result[result.length - 1] ?? "";
+    if (isRedundantAssistantText(line, previous)) {
+      continue;
     }
-    changed = true;
-    return {
-      ...projection,
-      final_answer: "",
-    };
-  });
-  return changed ? next : projections;
+    result.push(line);
+  }
+  return result;
 }
 
 function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: string) {
@@ -358,10 +340,38 @@ function isRedundantAssistantFinalBody(item: PublicChatTimelineItem, content: st
   if (kind !== "final_summary" && kind !== "assistant_text") {
     return false;
   }
-  if (!isPublicTimelineBodyItem(item)) {
+  if (!isStrictAssistantBodyItem(item)) {
     return false;
   }
-  return isRedundantAssistantText(publicTimelineBodyText(item), content);
+  return isRedundantAssistantText(strictAssistantBodyText(item), content);
+}
+
+function isStrictAssistantBodyItem(item: PublicChatTimelineItem | null | undefined) {
+  if (!item) return false;
+  const slot = cleanPublicTimelineText(item.slot).toLowerCase();
+  const surface = cleanPublicTimelineText(item.surface).toLowerCase();
+  const authority = cleanPublicTimelineText(item.source_authority).toLowerCase();
+  return slot === "body" && surface === "assistant_body" && authority === "model";
+}
+
+function strictAssistantBodyText(item: PublicChatTimelineItem | null | undefined) {
+  if (!isStrictAssistantBodyItem(item)) return "";
+  for (const candidate of [item?.text, item?.detail, item?.observation, item?.public_summary, item?.implication]) {
+    const text = cleanAssistantBodyText(candidate);
+    if (text && !looksLikeRawToolOutput(text)) return text;
+  }
+  return "";
+}
+
+function cleanAssistantBodyText(value: unknown) {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function isRedundantAssistantText(candidate: unknown, content: string) {

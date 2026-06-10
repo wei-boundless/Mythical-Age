@@ -16,7 +16,7 @@ import {
   Github,
   Globe2,
   HardDrive,
-  Settings,
+  RefreshCw,
   SquarePlus,
 } from "lucide-react";
 
@@ -32,6 +32,7 @@ import { codeEnvironmentDiagnosticsText } from "./codeEnvironmentDiagnostics";
 const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
 const FLOAT_EDGE_GAP = 12;
 const FLOAT_DRAG_THRESHOLD = 4;
+const GIT_STATUS_CLIENT_TTL_MS = 15_000;
 
 type FloatingPosition = {
   left: number;
@@ -47,6 +48,14 @@ type DragState = {
   startTop: number;
   moved: boolean;
 };
+
+type LoadEnvironmentOptions = {
+  refreshGit?: boolean;
+};
+
+let gitStatusClientCache: { capturedAtMs: number; value: CodeEnvironmentGitStatus } | null = null;
+let gitStatusClientInFlight: { request: Promise<CodeEnvironmentGitStatus>; token: number } | null = null;
+let gitStatusClientRequestToken = 0;
 
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
@@ -73,6 +82,31 @@ function gitChangesLabel(gitStatus: CodeEnvironmentGitStatus | null) {
   if (!gitStatus.available) return gitStatus.error || "Git 不可用";
   const count = gitChangedCount(gitStatus);
   return count ? `${count} changes` : "Clean";
+}
+
+function loadGitStatusCached(options: { refresh?: boolean } = {}) {
+  const refresh = Boolean(options.refresh);
+  const now = Date.now();
+  if (!refresh && gitStatusClientCache && now - gitStatusClientCache.capturedAtMs <= GIT_STATUS_CLIENT_TTL_MS) {
+    return Promise.resolve(gitStatusClientCache.value);
+  }
+  if (!refresh && gitStatusClientInFlight) {
+    return gitStatusClientInFlight.request;
+  }
+
+  const token = ++gitStatusClientRequestToken;
+  const request = getCodeEnvironmentGitStatus({ refresh })
+    .then((nextGitStatus) => {
+      gitStatusClientCache = { capturedAtMs: Date.now(), value: nextGitStatus };
+      return nextGitStatus;
+    })
+    .finally(() => {
+      if (gitStatusClientInFlight?.token === token) {
+        gitStatusClientInFlight = null;
+      }
+    });
+  gitStatusClientInFlight = { request, token };
+  return request;
 }
 
 function DevelopmentGitFloatingPanel({
@@ -228,7 +262,6 @@ function DevelopmentGitFloatingPanel({
     }
     const nextOpen = !open;
     setOpen(nextOpen);
-    if (nextOpen) onRefresh();
   }
 
   return (
@@ -238,7 +271,7 @@ function DevelopmentGitFloatingPanel({
           <header className="development-git-popover__head">
             <span>Environment</span>
             <button aria-label="刷新环境状态" disabled={loading} onClick={onRefresh} title="刷新环境状态" type="button">
-              <Settings size={15} />
+              <RefreshCw size={15} />
             </button>
           </header>
 
@@ -314,21 +347,26 @@ export function CodeEnvironmentView() {
   const [gitStatus, setGitStatus] = useState<CodeEnvironmentGitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loadSequenceRef = useRef(0);
   const host = useMemo(() => hostConfig(), []);
 
-  const loadEnvironment = useCallback(async () => {
+  const loadEnvironment = useCallback(async (options: LoadEnvironmentOptions = {}) => {
+    const loadSequence = ++loadSequenceRef.current;
     setLoading(true);
     setError("");
     try {
       const [nextEnvironment, nextGitStatus] = await Promise.all([
         getCodeEnvironment(host),
-        getCodeEnvironmentGitStatus(),
+        loadGitStatusCached({ refresh: Boolean(options.refreshGit) }),
       ]);
+      if (loadSequence !== loadSequenceRef.current) return;
       setEnvironment(nextEnvironment);
       setGitStatus(nextGitStatus);
     } catch (loadError) {
+      if (loadSequence !== loadSequenceRef.current) return;
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
+      if (loadSequence !== loadSequenceRef.current) return;
       setLoading(false);
     }
   }, [host]);
@@ -353,7 +391,7 @@ export function CodeEnvironmentView() {
       <DevelopmentGitFloatingPanel
         gitStatus={gitStatus}
         loading={loading}
-        onRefresh={() => void loadEnvironment()}
+        onRefresh={() => void loadEnvironment({ refreshGit: true })}
         scopeKey={CODING_TASK_ENVIRONMENT_ID}
       />
     </>

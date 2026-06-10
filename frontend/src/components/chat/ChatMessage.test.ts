@@ -55,7 +55,7 @@ describe("ChatMessage", () => {
     expect(user).not.toContain("复制回复");
   });
 
-  it("renders lightweight stage status without treating it as assistant prose", () => {
+  it("does not render stage status as assistant prose or public activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -67,9 +67,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("chat-message-shell__stage-status");
-    expect(html).toContain("正在思考");
+    expect(html).not.toContain("chat-message-shell__stage-status");
+    expect(html).not.toContain("正在思考");
     expect(html).not.toContain("chat-message-shell__content");
+    expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("复制回复");
   });
 
@@ -513,7 +514,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("已确认任务间观察反馈仍需要显示。");
     expect(html).toContain("正在运行验证 前端测试");
     expect(html.indexOf("观察反馈")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
-    expect(html).toContain("请选择要优先验证的页面。");
+    expect(html).not.toContain("请选择要优先验证的页面。");
   });
 
   it("keeps companion timeline visible when task projection entries are all diagnostics", () => {
@@ -615,7 +616,8 @@ describe("ChatMessage", () => {
     expect(html.match(/我先确认现有输出链路/g)?.length ?? 0).toBe(1);
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
-    expect(html).toContain("public-run-activity");
+    expect(html).toContain("chat-message-shell__content");
+    expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("正在思考");
   });
 
@@ -712,7 +714,6 @@ describe("ChatMessage", () => {
               authority: "harness.runtime.single_agent_task_projection.v1",
               task_run_id: "taskrun:projection-final",
               status: "completed",
-              final_answer: "修好了。",
               activities: [
                 {
                   activity_id: "activity:write-report",
@@ -867,7 +868,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
-  it("renders ask-user questions as assistant prose without the waiting status title", () => {
+  it("does not render ask-user control detail as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -891,10 +892,40 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("审查项目没问题。不过在开始之前");
-    expect(html).toContain("<ol>");
-    expect(html).toContain("<strong>审查范围</strong>");
+    expect(html).not.toContain("审查项目没问题。不过在开始之前");
+    expect(html).not.toContain("<ol>");
+    expect(html).not.toContain("<strong>审查范围</strong>");
     expect(html).not.toContain("等待补充信息");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("复制回复");
+  });
+
+  it("renders model body timeline markdown as assistant prose", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:timeline-markdown-body",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "body:final-markdown",
+            kind: "final_summary",
+            slot: "body",
+            surface: "assistant_body",
+            source_authority: "model",
+            text: "第一段说明。\n\n第二段说明。\n\n- 第三段要点",
+            state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("<p>第一段说明。</p>");
+    expect(html).toContain("<p>第二段说明。</p>");
+    expect(html).toContain("<li>第三段要点</li>");
+    expect(html).toContain("复制回复");
     expect(html).not.toContain("public-run-activity");
   });
 

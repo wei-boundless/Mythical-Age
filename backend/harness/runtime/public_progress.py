@@ -35,7 +35,7 @@ _PUBLIC_ERROR_REWRITES = {
     "Image generation is not configured": "生图服务没有配置",
     "image generation is not configured": "生图服务没有配置",
     "task_executor_schedule_failed": "任务调度失败",
-    "single_turn_tool_iteration_limit": "工具检查次数达到边界",
+    "single_turn_tool_iteration_limit": "",
     "repeated_admission_denial": "重复未获准动作",
 }
 
@@ -49,6 +49,8 @@ def public_runtime_progress_summary(summary: Any) -> str:
 
     text = str(summary or "").strip()
     if not text:
+        return ""
+    if _looks_like_raw_tool_output(text):
         return ""
     normalized = " ".join(text.split()).strip()
     normalized = _DEPRECATED_STATUS_REWRITES.get(normalized, normalized)
@@ -123,7 +125,24 @@ def _public_role_label(text: str) -> str:
     return text
 
 
-def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback: str = "处理进展") -> str:
+def _looks_like_raw_tool_output(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    if re.search(r"(?m)^\s*\d{1,6}\s*\|\s+", raw):
+        return True
+    if re.search(r"\b(?:Exit code|Wall time|Output):", raw, flags=re.IGNORECASE):
+        return True
+    if re.search(r"\b(?:Get-Content|Get-ChildItem|Select-Object|Stop-Process|Start-Process|python -m|npm run|npx )\b", raw, flags=re.IGNORECASE):
+        return True
+    if re.search(r"(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results|tool-results[\\/]+session[-_A-Za-z0-9]+", raw, flags=re.IGNORECASE):
+        return True
+    if re.search(r"Read persisted tool result failed|persisted tool result read failed", raw, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback: str = "") -> str:
     step_text = str(step or "")
     status_text = str(status or "")
     if step_text.startswith(("runtime_invocation_packet", "task_execution_packet_compiled")):
@@ -131,13 +150,13 @@ def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback:
     if step_text.startswith(("model_action_waiting", "task_model_action_waiting")):
         return "等待模型输出"
     if step_text.startswith(("model_action_invocation_started", "model_action_received", "task_model_action_invocation_started")):
-        return "正在思考"
+        return ""
     if step_text.startswith(("task_tool_", "tool_", "executor_observation", "bounded_observation")):
         return "等待结果返回"
     if step_text.startswith(("task_completion_repair", "model_action_protocol_repair", "verification")):
         return "补齐证据"
     if step_text.endswith("completed") or status_text == "completed":
-        return "步骤已完成"
+        return ""
     if status_text.startswith("wait"):
         return "等待继续"
     return fallback

@@ -275,8 +275,8 @@ export type PublicChatTimelineItem = {
 export type PublicProjectionItem = PublicChatTimelineItem;
 
 export type PublicProjectionEnvelope = {
-  authority: "harness.public_projection.v1" | string;
-  contract_revision?: "20260610-authority-refactor" | string;
+  authority: "harness.public_projection" | string;
+  contract_revision?: "20260610-replacement" | string;
   projection_mode?: "shadow" | "authoritative" | string;
   projection_id: string;
   sequence?: number;
@@ -344,7 +344,6 @@ export type SingleAgentTaskProjection = {
   current_action?: Record<string, unknown>;
   todo?: SingleAgentTaskProjectionTodo;
   activities?: SingleAgentTaskProjectionActivity[];
-  final_answer?: string;
   artifact_refs?: Array<Record<string, unknown>>;
   control?: Record<string, unknown>;
   debug_trace_ref?: string;
@@ -401,7 +400,6 @@ export type SessionRuntimeAttachment = {
   public_timeline?: PublicChatTimelineItem[];
   task_projection?: SingleAgentTaskProjection;
   artifact_refs?: Array<Record<string, unknown>>;
-  final_answer?: string;
   trace_available?: boolean;
   debug_trace_ref?: string;
   created_at?: number;
@@ -535,11 +533,14 @@ export type CodeEnvironmentGitStatus = {
   branch: string;
   items: Array<{ status: string; path: string }>;
   changed_count?: number;
+  captured_at?: number;
+  cache_status?: "fresh" | "cached" | string;
   diff_stat?: {
     additions?: number;
     deletions?: number;
   };
   gh_available?: boolean;
+  ttl_seconds?: number;
   error?: string;
 };
 
@@ -2702,7 +2703,6 @@ export type RunMonitorEventPayload = {
     public_projection_authority?: string;
     public_projection_envelope?: PublicProjectionEnvelope;
     public_event_type?: string;
-    public_timeline_delta?: PublicChatTimelineItem[];
     public_timeline?: PublicChatTimelineItem[];
     task_projection?: SingleAgentTaskProjection;
     task_projection_delta?: SingleAgentTaskProjection;
@@ -5278,8 +5278,11 @@ export async function openCodeEnvironmentWorkspaceRoot() {
   });
 }
 
-export async function getCodeEnvironmentGitStatus() {
-  return request<CodeEnvironmentGitStatus>("/code-environment/git-status");
+export async function getCodeEnvironmentGitStatus(options: { refresh?: boolean } = {}) {
+  const params = new URLSearchParams();
+  if (options.refresh) params.set("refresh", "true");
+  const query = params.toString();
+  return request<CodeEnvironmentGitStatus>(`/code-environment/git-status${query ? `?${query}` : ""}`);
 }
 
 export async function getPiSidecarStatus() {

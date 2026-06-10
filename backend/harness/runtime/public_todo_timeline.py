@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.runtime.public_timeline_projection import compact, public_text, stable_id
+from harness.runtime.projection.guards import compact, public_text, stable_id
 
 
 def public_todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:

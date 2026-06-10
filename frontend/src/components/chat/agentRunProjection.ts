@@ -1,49 +1,11 @@
-import type { PublicChatTimelineItem } from "@/lib/api";
 import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
-import { isPublicTimelineBodyItem as isStorePublicTimelineBodyItem } from "@/lib/store/publicTimeline";
-
-export function isPublicTimelineBodyItem(item: PublicChatTimelineItem | null | undefined) {
-  return isStorePublicTimelineBodyItem(item ?? undefined);
-}
-
-export function isSemanticPublicTimelineItem(item: PublicChatTimelineItem | null | undefined) {
-  if (!item) return false;
-  if (isPublicTimelineBodyItem(item)) return true;
-  return Boolean(
-    cleanRunText(item.surface)
-    || cleanRunText(item.source_authority)
-    || item.collapse_after_body_feedback
-    || item.covers_tool_refs,
-  );
-}
-
-export function hasDisplayablePublicTimelineBody(items: PublicChatTimelineItem[] | null | undefined) {
-  return (items ?? []).some((item) => {
-    if (!isPublicTimelineBodyItem(item)) return false;
-    const text = cleanRunText(publicTimelineBodyText(item));
-    return Boolean(text && !looksLikeRawToolOutput(text));
-  });
-}
-
-export function publicTimelineBodyText(item: PublicChatTimelineItem | null | undefined) {
-  if (!item) return "";
-  for (const candidate of [
-    item.text,
-    item.detail,
-    item.observation,
-    item.public_summary,
-    item.implication,
-  ]) {
-    const text = cleanRunBodyText(candidate);
-    if (text) return text;
-  }
-  return "";
-}
 
 export function looksLikeRawToolOutput(value: unknown) {
-  const text = cleanRunText(value);
+  const raw = String(value ?? "");
+  const text = cleanRunText(raw);
   if (!text) return false;
-  return looksLikeToolPlaceholder(text)
+  return looksLikeLineNumberedFilePreview(raw)
+    || looksLikeToolPlaceholder(text)
     || looksLikeRawCommandText(text)
     || looksLikePersistedToolResultFailure(text)
     || looksLikeRawFileListing(text)
@@ -55,43 +17,6 @@ export function looksLikeRawToolOutput(value: unknown) {
 
 function cleanRunText(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function cleanRunBodyText(value: unknown) {
-  const text = String(value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""))
-    .join("\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return restoreReadableBodyParagraphs(text);
-}
-
-function restoreReadableBodyParagraphs(text: string) {
-  if (!text || text.includes("\n\n") || text.length < 480) {
-    return text;
-  }
-  const sentences = text.split(/(?<=[。！？!?；;」”）】])\s+/u).map((item) => item.trim()).filter(Boolean);
-  if (sentences.length < 4) {
-    return text;
-  }
-  const paragraphs: string[] = [];
-  let current = "";
-  for (const sentence of sentences) {
-    const next = current ? `${current} ${sentence}` : sentence;
-    if (current && (current.length >= 220 || next.length > 360 || /^["“「]/.test(sentence))) {
-      paragraphs.push(current);
-      current = sentence;
-    } else {
-      current = next;
-    }
-  }
-  if (current) {
-    paragraphs.push(current);
-  }
-  return paragraphs.length > 1 ? paragraphs.join("\n\n") : text;
 }
 
 function looksLikeToolPlaceholder(value: string) {
@@ -115,6 +40,14 @@ function looksLikePersistedToolResultFailure(value: string) {
 function looksLikeRawFileListing(value: string) {
   return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(value)
     || /\b\d+\s+bytes\s+(?:file|directory|dir)\b/i.test(value);
+}
+
+function looksLikeLineNumberedFilePreview(value: string) {
+  const raw = String(value ?? "").replace(/\r\n?/g, "\n");
+  if (/(?:^|\n)\s*\d{1,6}\s*\|\s+/.test(raw)) {
+    return true;
+  }
+  return /^\d{1,6}\s*\|\s+/.test(cleanRunText(raw));
 }
 
 function looksLikeCopiedOutput(value: string) {

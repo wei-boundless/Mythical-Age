@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getDefaultState } from "./core";
-import { reduceStreamEvent, startStreamingTurn } from "./events";
+import { getDefaultState } from "@/lib/store/core";
+import { reduceStreamEvent, startStreamingTurn } from "@/lib/store/events";
 
 describe("public projection reducer contract", () => {
   function bindTurnRun(transition: ReturnType<typeof startStreamingTurn>, turnId: string, turnRunId = `turnrun:${turnId}`) {
@@ -17,7 +17,8 @@ describe("public projection reducer contract", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
+        anchor: { turn_id: "turn:projection" },
         projection_id: "publicproj:body",
         lifecycle: "running",
         source_authority: "model",
@@ -36,7 +37,11 @@ describe("public projection reducer contract", () => {
       },
     });
 
-    expect(transition.state.messages.at(-1)?.content).toBe("I am checking the projection chain.");
+    expect(transition.state.messages.at(-1)?.runtimeAttachments?.[0]?.public_timeline?.[0]).toMatchObject({
+      text: "I am checking the projection chain.",
+      source_authority: "model",
+      surface: "assistant_body",
+    });
   });
 
   it("keeps stage feedback body items in public timeline instead of hidden message content", () => {
@@ -45,7 +50,8 @@ describe("public projection reducer contract", () => {
       answer_channel: "stage_feedback",
       answer_source: "harness.single_agent_turn.tool_commentary",
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
+        anchor: { turn_id: "turn:projection" },
         projection_id: "publicproj:stage-feedback",
         lifecycle: "running",
         source_authority: "model",
@@ -78,7 +84,7 @@ describe("public projection reducer contract", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:no-slot",
         lifecycle: "running",
         source_authority: "model",
@@ -111,7 +117,7 @@ describe("public projection reducer contract", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.stageStatus).toBe("完成");
+    expect(assistant?.stageStatus).toBe("");
   });
 
   it("ignores legacy public timeline delta without an envelope", () => {
@@ -158,11 +164,11 @@ describe("public projection reducer contract", () => {
     transition = bindTurnRun(transition, "turn:session:feedback:1");
     transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:task-feedback",
         lifecycle: "running",
         source_authority: "model",
-        surface: "status_bar",
+        surface: "assistant_body",
         anchor: {
           task_run_id: "taskrun:feedback",
           turn_id: "turn:session:feedback:1",
@@ -177,8 +183,8 @@ describe("public projection reducer contract", () => {
           {
             item_id: "observation:task-feedback",
             kind: "observation_report",
-            slot: "status",
-            surface: "status_bar",
+            slot: "body",
+            surface: "assistant_body",
             source_authority: "model",
             title: "观察反馈",
             detail: "已确认上一阶段结果，可以继续推进。",
@@ -200,7 +206,7 @@ describe("public projection reducer contract", () => {
     const assistantId = transition.session.assistantId;
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:old-tool",
         lifecycle: "running",
         source_authority: "tool",
@@ -235,7 +241,7 @@ describe("public projection reducer contract", () => {
     const assistantId = transition.session.assistantId;
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:current-tool",
         lifecycle: "running",
         source_authority: "tool",
@@ -271,7 +277,7 @@ describe("public projection reducer contract", () => {
     let transition = startStreamingTurn(getDefaultState(), "inspect files");
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
         projection_id: "publicproj:tool",
         lifecycle: "running",
         source_authority: "tool",
@@ -293,15 +299,15 @@ describe("public projection reducer contract", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.stageStatus).toBe("正在思考");
+    expect(assistant?.stageStatus).toBe("");
   });
 
   it("fails closed for new authoritative projection envelopes without an anchor", () => {
     let transition = startStreamingTurn(getDefaultState(), "inspect files");
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
-        contract_revision: "20260610-authority-refactor",
+        authority: "harness.public_projection",
+        contract_revision: "20260610-replacement",
         projection_mode: "authoritative",
         projection_id: "publicproj:no-anchor",
         lifecycle: "running",
@@ -331,8 +337,8 @@ describe("public projection reducer contract", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "error", {
       content: "模型连接失败",
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
-        contract_revision: "20260610-authority-refactor",
+        authority: "harness.public_projection",
+        contract_revision: "20260610-replacement",
         projection_mode: "shadow",
         projection_id: "publicproj:shadow-error",
         lifecycle: "error",
@@ -350,18 +356,19 @@ describe("public projection reducer contract", () => {
     let transition = startStreamingTurn(getDefaultState(), "pause it");
     transition = reduceStreamEvent(transition.state, transition.session, "active_task_steer_accepted", {
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
+        anchor: { turn_id: "turn:pause" },
         projection_id: "publicproj:pause",
         lifecycle: "running",
-        source_authority: "system",
-        surface: "status_bar",
+        source_authority: "runtime",
+        surface: "control",
         items: [
           {
             item_id: "pause:1",
-            kind: "status_update",
-            slot: "status",
-            surface: "status_bar",
-            source_authority: "system",
+            kind: "control_state",
+            slot: "control",
+            surface: "control",
+            source_authority: "runtime",
             title: "已暂停当前工作",
             detail: "暂停请求已记录。",
             state: "done",
@@ -382,18 +389,19 @@ describe("public projection reducer contract", () => {
       completion_state: "task_steer_accepted",
       summary: "好，我先停在这里。",
       public_projection_envelope: {
-        authority: "harness.public_projection.v1",
+        authority: "harness.public_projection",
+        anchor: { turn_id: "turn:pause" },
         projection_id: "publicproj:pause-done",
         lifecycle: "done",
-        source_authority: "system",
+        source_authority: "runtime",
         surface: "control",
         items: [
           {
             item_id: "pause-done:1",
-            kind: "status_update",
-            slot: "status",
-            surface: "status_bar",
-            source_authority: "system",
+            kind: "control_state",
+            slot: "control",
+            surface: "control",
+            source_authority: "runtime",
             title: "已暂停当前工作",
             detail: "好，我先停在这里。",
             state: "running",

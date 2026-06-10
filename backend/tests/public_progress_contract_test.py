@@ -17,6 +17,12 @@ def test_public_progress_summary_suppresses_generic_control_text() -> None:
         assert public_runtime_progress_summary(text) == ""
 
 
+def test_public_progress_summary_suppresses_raw_line_numbered_tool_output() -> None:
+    raw_output = "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是工具读取的文件原文。"
+
+    assert public_runtime_progress_summary(raw_output) == ""
+
+
 def test_action_progress_note_does_not_fallback_to_action_type() -> None:
     action = TaskExecutionModelActionRequest(
         request_id="model-action:test:no-public-feedback",

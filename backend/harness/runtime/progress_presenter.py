@@ -1260,24 +1260,24 @@ def _mission_state(*, task_run: Any, monitor: dict[str, Any], latest: dict[str, 
 
 def _mission_phase(latest: dict[str, Any], state: str) -> str:
     if state == "completed":
-        return "结果收口"
+        return ""
     if state == "failed":
         title = _visible_text(latest.get("title"))
         return "" if title in {"确认阻塞原因", "确认阻塞边界", "处理已停止", "失败", "受阻"} else title
     if state == "waiting":
         return "等待确认"
     title = _visible_text(latest.get("title"))
-    return title or "推进中"
+    return title
 
 
 def _state_label(state: str) -> str:
     return {
-        "running": "正在处理",
+        "running": "",
         "waiting": "等待确认",
-        "completed": "已完成",
+        "completed": "",
         "blocked": "受阻",
         "failed": "失败",
-    }.get(state, "正在处理")
+    }.get(state, "")
 
 
 def _terminal_reason_indicates_failure(value: Any) -> bool:
@@ -1291,8 +1291,6 @@ def _terminal_reason_summary(value: Any) -> str:
     text = _visible_text(value)
     if text == "任务调度失败":
         return "当前步骤没有进入执行，需要先确认调度或工具服务是否可用。"
-    if text == "工具检查次数达到边界":
-        return "连续几次工具检查没有拿到新信息，需要基于已有事实收口，或等待新的核查方向。"
     return text
 
 
@@ -1313,12 +1311,12 @@ def _closeout_summary(*, task_run: Any, monitor: dict[str, Any]) -> str:
 
 def _stage_title(step: str, status: Any) -> str:
     if step.startswith("task_run_completed") or _text(status) == "completed":
-        return "处理已完成"
+        return ""
     if step.startswith("task_tool"):
         return "执行操作"
     if step.startswith("model"):
-        return "正在思考"
-    return "推进任务"
+        return ""
+    return ""
 
 
 def _goal_from_task_run(task_run: Any, monitor: dict[str, Any]) -> str:
@@ -1361,7 +1359,7 @@ def _raw_preview(value: Any, limit: int = 220) -> str:
             text = json.dumps(value, ensure_ascii=False, sort_keys=True)
         except Exception:
             text = str(value)
-    return _short(public_runtime_progress_summary(text) or text, limit)
+    return _short(public_runtime_progress_summary(text), limit)
 
 
 def _looks_like_raw_json(value: str) -> bool:

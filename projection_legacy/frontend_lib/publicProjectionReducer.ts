@@ -4,7 +4,7 @@ import type {
   PublicProjectionItem,
   SessionRuntimeAttachment,
 } from "@/lib/api";
-import { mergePublicTimelineItems } from "@/lib/store/publicTimeline";
+import { mergePublicTimelineItems } from "@/lib/projection/timeline";
 
 import type { ActiveTurnState, SessionActivityState, StoreState } from "./types";
 

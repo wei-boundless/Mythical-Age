@@ -4,9 +4,9 @@ import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { isPublicTimelineBodyItem, looksLikeRawToolOutput, publicTimelineBodyText } from "@/components/chat/agentRunProjection";
+import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, SingleAgentTaskProjection } from "@/lib/api";
-import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/store/publicTimeline";
+import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/projection/timeline";
 
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
@@ -19,7 +19,7 @@ type ActivityEntry = {
   collapsed?: boolean;
   detail?: string;
   id: string;
-  kind: "body" | "status" | "stopped" | "tool";
+  kind: "status" | "stopped" | "tool";
   text: string;
   toolWindow?: ToolWindowProjection;
 };
@@ -46,9 +46,7 @@ export function PublicTimelineActivity({ items, taskProjections }: PublicTimelin
   return (
     <div className={`public-run-activity public-run-activity--${view.tone}`} aria-label="处理进展">
       {view.entries.map((entry) => (
-        entry.kind === "body"
-          ? <BodyLine key={entry.id || entry.text} text={entry.text} />
-        : entry.kind === "tool"
+        entry.kind === "tool"
           ? <ToolWindow entry={entry} key={entry.id || entry.text} />
         : <ActivityLine detail={entry.detail} kind={entry.kind} key={entry.id || entry.text} text={entry.text} />
       ))}
@@ -107,14 +105,6 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
       if (entry) {
         entries.push(entry);
       }
-    }
-    const finalAnswer = cleanPublicTimelineText(projection.final_answer);
-    if (finalAnswer) {
-      entries.push({
-        id: `${projectionId}:final`,
-        kind: "body",
-        text: finalAnswer,
-      });
     }
     for (const artifact of projection.artifact_refs ?? []) {
       const label = cleanPublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
@@ -211,19 +201,19 @@ function taskProjectionActivityEntry(
   const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
   const state = cleanPublicTimelineText(activity.state).toLowerCase();
   const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  const isObservation = kind === "observation";
   const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window"
     ? "tool"
     : kind === "error" || state === "failed"
       ? "stopped"
-      : kind === "final"
-        ? "body"
-        : "status";
+      : "status";
+  const observationDetail = [title, detail].filter(Boolean).join("\n");
   return {
     collapsed: entryKind === "tool" ? true : undefined,
     id: `${projectionId}:activity:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || title || detail}`,
     kind: entryKind,
-    text: title || detail,
-    detail: detail && detail !== title ? detail : "",
+    text: isObservation && entryKind !== "tool" ? "任务观察" : title || detail,
+    detail: isObservation && entryKind !== "tool" ? observationDetail : detail && detail !== title ? detail : "",
     toolWindow: entryKind === "tool"
       ? {
           meta: taskProjectionToolMeta(activity, state),
@@ -240,9 +230,11 @@ function orderActivityEntries({
   timelineEntries: ActivityEntry[];
   projectionEntries: ActivityEntry[];
 }) {
+  const timelineFeedback = timelineEntries.filter((entry) => entry.kind !== "tool");
+  const timelineTools = timelineEntries.filter((entry) => entry.kind === "tool");
   const projectionFeedback = projectionEntries.filter((entry) => entry.kind !== "tool");
   const projectionTools = projectionEntries.filter((entry) => entry.kind === "tool");
-  return [...timelineEntries, ...projectionFeedback, ...projectionTools];
+  return [...timelineFeedback, ...projectionFeedback, ...timelineTools, ...projectionTools];
 }
 
 function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
@@ -419,7 +411,6 @@ function dedupeActivityEntries(entries: ActivityEntry[]) {
 
 function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
-  const latestBodyIndex = latestModelBodyIndex(items);
   for (const [index, item] of items.entries()) {
     if (kindOf(item) === "todo_plan") {
       continue;
@@ -440,11 +431,11 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
       continue;
     }
     entries.push({
-      collapsed: kind === "tool" ? shouldCollapseToolWindow(item, index, latestBodyIndex) : undefined,
+      collapsed: kind === "tool" ? shouldCollapseToolWindow(item) : undefined,
       detail,
       id: String(item.item_id ?? "") || `${kind}:${index}:${text}`,
       kind,
-      text: kind === "body" ? text : shortText(text, kind === "tool" ? 180 : 220),
+      text: shortText(text, kind === "tool" ? 180 : 220),
       toolWindow: kind === "tool" ? toolWindowProjection(item, detail) : undefined,
     });
   }
@@ -452,7 +443,6 @@ function activityEntries(items: PublicChatTimelineItem[]): ActivityEntry[] {
 }
 
 function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] | "" {
-  if (isPublicTimelineBodyItem(item)) return "body";
   const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
   if (slot === "tool") return "tool";
   if (slot === "status" || slot === "timeline" || slot === "task") return "status";
@@ -474,28 +464,23 @@ function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem) {
   }
   const actionKind = cleanPublicTimelineText(item.action_kind).toLowerCase();
   const title = cleanPublicTimelineText(item.title);
+  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
+  const rawOutputSuppressed = (item as { raw_output_suppressed?: unknown }).raw_output_suppressed === true;
+  if (rawOutputSuppressed && ["读取完成", "已读取完成", "读取已完成", "工具已完成", "操作已返回", "结果已返回"].map(compactActivityText).includes(normalizedTitle)) {
+    return true;
+  }
   return ["inspect", "search"].includes(actionKind)
     || title.startsWith("已确认目标")
     || title.startsWith("已搜索引用");
 }
 
-function shouldCollapseToolWindow(item: PublicChatTimelineItem, index: number, latestBodyIndex: number) {
+function shouldCollapseToolWindow(item: PublicChatTimelineItem) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
   const running = ["", "running", "working", "partial"].includes(state) || item.stream_state === "streaming";
   const failed = ["error", "failed", "blocked", "missing"].includes(state);
   if (running || failed) return false;
-  if (latestBodyIndex > index) return true;
   if (typeof item.collapsed === "boolean") return item.collapsed;
   return Boolean(item.collapse_after_body_feedback);
-}
-
-function latestModelBodyIndex(items: PublicChatTimelineItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (isPublicTimelineBodyItem(items[index])) {
-      return index;
-    }
-  }
-  return -1;
 }
 
 function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActivityTone {
@@ -555,9 +540,6 @@ function isStalePublicTimelineItemForProjectionTone(
   projectionTone: PublicTimelineActivityTone,
 ) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
-  if (isPublicTimelineBodyItem(item)) {
-    return isActivePublicTimelineItem(item) || ["waiting", "queued", "paused"].includes(state);
-  }
   if (isActivePublicTimelineItem(item)) {
     return true;
   }
@@ -578,10 +560,6 @@ function isActivePublicTimelineItem(item: PublicChatTimelineItem) {
 }
 
 function publicText(item: PublicChatTimelineItem) {
-  if (isPublicTimelineBodyItem(item)) {
-    const text = publicTimelineBodyText(item);
-    return text && !looksLikeRawToolOutput(text) ? text : "";
-  }
   const candidates = [
     item.public_summary,
     item.title,
@@ -686,16 +664,6 @@ function activityDetailMarkdown(value: string) {
   if (!text) return "";
   const withListBreaks = text.replace(/\s+(?=\d{1,2}\.\s+\S)/g, "\n");
   return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
-}
-
-function BodyLine({ text }: { text: string }) {
-  return (
-    <div className="public-run-activity__body markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 function ToolWindow({ entry }: { entry: ActivityEntry }) {

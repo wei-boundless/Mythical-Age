@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import re
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -181,10 +182,18 @@ class GraphLoop:
         max_requests: int | None = None,
     ) -> tuple[GraphNodeWorkOrder, ...]:
         limit = int(max_requests or dict(graph_config.control or {}).get("max_active_nodes") or 1)
+        allowed_ready = set(
+            self._state_machine.ready_nodes(
+                graph_config=graph_config,
+                node_states={key: dict(value) for key, value in state.node_states.items()},
+                loop_state=state.loop_state,
+            )
+        )
         selected = [
             node_id
             for node_id in state.ready_node_ids
             if node_id not in state.active_work_orders
+            and node_id in allowed_ready
         ][: max(1, limit)]
         orders: list[GraphNodeWorkOrder] = []
         for node_id in selected:
@@ -305,7 +314,12 @@ class GraphLoop:
         revision_targets = (
             ()
             if dict(next_state.initial_inputs or {}).get("revision_queue_chapter_indexes")
-            else _ready_rejected_revision_targets(graph_config=graph_config, state=next_state)
+            else _ready_rejected_revision_targets(
+                graph_config=graph_config,
+                state=next_state,
+                source_node_id=envelope.node_id,
+                source_result_ref=result_ref,
+            )
         )
         if revision_targets:
             reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=revision_targets)
@@ -486,6 +500,7 @@ class GraphLoop:
             state=state,
             targets=targets,
             reset_node_ids=reset_node_ids,
+            preserve_ready_revision_edges=False,
         )
         diagnostics = dict(next_state.diagnostics or {})
         diagnostics.update(
@@ -667,43 +682,6 @@ class GraphLoop:
                 payload={
                     "graph_run_id": next_state.graph_run_id,
                     "node_ids": list(targets),
-                    "graph_loop_state": _loop_state_summary(next_state),
-                },
-                refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_id},
-            )
-        ]
-        return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
-
-    def requeue_ready_revision_targets_and_checkpoint(
-        self,
-        *,
-        graph_config: GraphHarnessConfig,
-        state: GraphLoopState,
-    ) -> GraphLoopStart:
-        targets = _ready_rejected_revision_targets(graph_config=graph_config, state=state)
-        if not targets:
-            checkpoint = self.get_latest_checkpoint(state.graph_run_id)
-            return GraphLoopStart(
-                loop_state=state,
-                checkpoint=checkpoint.to_dict() if checkpoint is not None else {},
-            )
-        reset_node_ids = _revision_reset_node_ids(graph_config=graph_config, start_node_ids=targets)
-        next_state = _state_after_revision_requeue(
-            graph_config=graph_config,
-            state=state,
-            targets=targets,
-            reset_node_ids=reset_node_ids,
-        )
-        next_state = _advance_event_cursor(next_state)
-        checkpoint = self._write_state(next_state)
-        events = [
-            self._append_event(
-                next_state.task_run_id,
-                "graph_revision_targets_requeued",
-                payload={
-                    "graph_run_id": next_state.graph_run_id,
-                    "revision_target_node_ids": list(targets),
-                    "reset_node_ids": list(reset_node_ids),
                     "graph_loop_state": _loop_state_summary(next_state),
                 },
                 refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_id},
@@ -2164,6 +2142,18 @@ def _revision_queue_route_patch_after_unit_acceptance(
     else:
         patch["revision_current_chapter_index"] = current
         patch["revision_active"] = False
+        for key in (
+            "revision_queue_chapter_indexes",
+            "revision_queue_position",
+            "revision_current_chapter_index",
+            "revision_execution_range",
+            "revision_plan_text",
+            "chapter_revision_requirements",
+            "quality_gate_feedback",
+            "previous_chapter_draft_ref",
+            "previous_chapter_review_ref",
+        ):
+            patch.pop(key, None)
         action = "exit"
         reason = "revision_queue_complete"
     return {
@@ -2376,6 +2366,78 @@ def _loop_state_without_revision_iteration_results(
     return {**loop_state, "iteration_results": iteration_results}
 
 
+def _loop_state_with_revision_frames_active(
+    *,
+    graph_config: GraphHarnessConfig,
+    loop_state: dict[str, Any],
+    target_node_ids: tuple[str, ...],
+    initial_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    target_set = {str(item) for item in target_node_ids if str(item)}
+    if not target_set:
+        return loop_state
+    frames = {
+        str(frame_id): dict(frame)
+        for frame_id, frame in dict(loop_state.get("frames") or {}).items()
+        if isinstance(frame, dict)
+    }
+    changed = False
+    now = time.time()
+    for frame_id, frame in list(frames.items()):
+        scope_nodes = {str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)}
+        if not scope_nodes.intersection(target_set):
+            continue
+        cursor_key = str(frame.get("cursor_key") or "").strip()
+        start_key = str(frame.get("start_key") or "").strip()
+        end_key = str(frame.get("end_key") or "").strip()
+        cursor_value = _numeric_value(initial_inputs.get(cursor_key), frame.get("cursor")) if cursor_key else frame.get("cursor")
+        start_value = _numeric_value(initial_inputs.get(start_key), frame.get("start")) if start_key else frame.get("start")
+        end_value = _numeric_value(initial_inputs.get(end_key), frame.get("end")) if end_key else frame.get("end")
+        iteration_index = int(_numeric_value(frame.get("iteration_index"), 0) or 0)
+        frame["status"] = "active"
+        frame["cursor"] = cursor_value
+        frame["start"] = start_value
+        frame["end"] = end_value
+        frame["active_iteration_id"] = _loop_iteration_id(
+            frame=frame,
+            values={**initial_inputs, **frame, "cursor": cursor_value, "iteration_index": iteration_index},
+        )
+        frame["updated_at"] = now
+        frames[frame_id] = frame
+        changed = True
+    if not changed:
+        return loop_state
+    return {**loop_state, "frames": frames}
+
+
+def _loop_state_with_requeue_exit_frames(
+    *,
+    loop_state: dict[str, Any],
+    target_node_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    target_set = {str(item) for item in target_node_ids if str(item)}
+    if not target_set:
+        return loop_state
+    frames = {
+        str(frame_id): dict(frame)
+        for frame_id, frame in dict(loop_state.get("frames") or {}).items()
+        if isinstance(frame, dict)
+    }
+    changed = False
+    now = time.time()
+    for frame_id, frame in list(frames.items()):
+        exit_node_id = str(frame.get("exit_node_id") or "").strip()
+        if not exit_node_id or exit_node_id not in target_set:
+            continue
+        frame["status"] = "exited"
+        frame["updated_at"] = now
+        frames[frame_id] = frame
+        changed = True
+    if not changed:
+        return loop_state
+    return {**loop_state, "frames": frames}
+
+
 def _revision_iteration_ids_for_range(*, template: str, start: int, end: int) -> set[str]:
     if not template:
         return set()
@@ -2499,11 +2561,47 @@ def _cancel_descendant_loop_nodes_after_parent_exit(
 
 def _active_loop_frame_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> dict[str, Any]:
     frames = [dict(item) for item in dict(dict(state.loop_state or {}).get("frames") or {}).values() if isinstance(item, dict)]
+    frame_index = {
+        str(frame.get("frame_id") or frame.get("scope_id") or ""): frame
+        for frame in frames
+        if str(frame.get("frame_id") or frame.get("scope_id") or "")
+    }
+    candidates: list[tuple[int, int, str, dict[str, Any]]] = []
     for frame in frames:
         if str(frame.get("status") or "active") != "active":
             continue
         if node_id in _loop_scope_node_ids(graph_config=graph_config, frame=frame):
-            return frame
+            frame_id = str(frame.get("frame_id") or frame.get("scope_id") or "").strip()
+            scope_size = len(_loop_scope_node_ids(graph_config=graph_config, frame=frame))
+            candidates.append((_loop_frame_depth(frame=frame, frames=frame_index), -scope_size, frame_id, frame))
+    if not candidates:
+        return {}
+    return max(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+
+
+def _loop_frame_depth(*, frame: dict[str, Any], frames: dict[str, dict[str, Any]]) -> int:
+    depth = 0
+    current = dict(frame or {})
+    visited: set[str] = set()
+    while True:
+        parent_ref = str(current.get("parent_scope_id") or "").strip()
+        if not parent_ref or parent_ref in visited:
+            return depth
+        visited.add(parent_ref)
+        parent = _loop_parent_frame(parent_ref=parent_ref, frames=frames)
+        if not parent:
+            return depth
+        depth += 1
+        current = parent
+
+
+def _loop_parent_frame(*, parent_ref: str, frames: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    if parent_ref in frames:
+        return dict(frames[parent_ref])
+    parent_tail = _loop_scope_tail(parent_ref)
+    for frame_id, frame in frames.items():
+        if _loop_scope_tail(frame_id) == parent_tail:
+            return dict(frame)
     return {}
 
 
@@ -2705,18 +2803,26 @@ def _ready_rejected_revision_targets(
     *,
     graph_config: GraphHarnessConfig,
     state: GraphLoopState,
+    source_node_id: str = "",
+    source_result_ref: str = "",
 ) -> tuple[str, ...]:
     targets: list[str] = []
+    source_filter = str(source_node_id or "").strip()
+    result_ref_filter = str(source_result_ref or "").strip()
     for edge in graph_config.edges:
         edge_type = str(edge.get("edge_type") or "").strip()
         semantic_role = str(edge.get("semantic_role") or "").strip()
         if edge_type not in REVISION_EDGE_TYPES and semantic_role != "revision":
             continue
+        source = str(edge.get("source_node_id") or "").strip()
+        if source_filter and source != source_filter:
+            continue
         edge_id = str(edge.get("edge_id") or "").strip()
         edge_state = dict(state.edge_states.get(edge_id) or {})
         if str(edge_state.get("status") or "") != "ready":
             continue
-        source = str(edge.get("source_node_id") or "").strip()
+        if result_ref_filter and str(edge_state.get("source_result_ref") or "").strip() != result_ref_filter:
+            continue
         target = str(edge.get("target_node_id") or "").strip()
         if not source or not target:
             continue
@@ -2806,8 +2912,7 @@ def _revision_cursor_input_patch(
     target_set = {str(item) for item in target_node_ids if str(item)}
     if not target_set:
         return {}
-    affected_start: int | None = None
-    affected_end: int | None = None
+    affected_indexes: list[int] = []
     revision_plan_text = ""
     for edge in graph_config.edges:
         target = str(edge.get("target_node_id") or "").strip()
@@ -2816,37 +2921,195 @@ def _revision_cursor_input_patch(
         source = str(edge.get("source_node_id") or "").strip()
         summary = _latest_result_summary(state=state, node_id=source)
         text = _revision_source_text(summary)
-        start, end = _revision_affected_chapter_range(text)
-        if start is None:
+        route = _revision_route_from_result_summary(summary)
+        indexes = _revision_route_chapter_indexes(route, state=state) if route else _revision_affected_chapter_indexes(text)
+        if not indexes:
             continue
         if not revision_plan_text:
-            revision_plan_text = _revision_plan_excerpt(text)
-        if "chapter_review" in source and "chapter_draft" in target:
-            batch_end = int(_numeric_value(dict(state.initial_inputs or {}).get("batch_end_index"), end or start) or (end or start))
-            if batch_end >= start:
-                end = batch_end
-        if affected_start is None or start < affected_start:
-            affected_start = start
-            affected_end = end
-    if affected_start is None:
+            revision_plan_text = _revision_route_plan_text(route=route, review_text=text) if route else _revision_plan_excerpt(text)
+        for index in indexes:
+            if index not in affected_indexes:
+                affected_indexes.append(index)
+    queue = sorted(affected_indexes)
+    if not queue:
         return {}
-    affected_end = affected_end if affected_end is not None else affected_start
-    queue = list(range(int(affected_start), int(affected_end) + 1))
+    affected_start = int(queue[0])
+    affected_end = int(queue[-1])
     patch: dict[str, Any] = {
-        **_single_chapter_cursor_patch(int(affected_start)),
+        **_single_chapter_cursor_patch(affected_start),
         "revision_active": True,
         "revision_queue_chapter_indexes": queue,
         "revision_queue_position": 0,
-        "revision_current_chapter_index": int(affected_start),
-        "revision_execution_range": f"{int(affected_start):03d}-{int(affected_end):03d}",
+        "revision_current_chapter_index": affected_start,
+        "revision_execution_range": _revision_execution_range_label(queue),
     }
     if revision_plan_text:
         patch["revision_plan_text"] = revision_plan_text
         patch["chapter_revision_requirements"] = _revision_requirements_for_chapter(
             revision_plan_text,
-            int(affected_start),
+            affected_start,
         )
     return patch
+
+
+def _revision_route_from_result_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    outputs = dict(dict(summary or {}).get("outputs") or {})
+    candidates: list[Any] = [
+        dict(summary or {}).get("revision_route"),
+        outputs.get("revision_route"),
+    ]
+    for key in ("structured_output", "node_output"):
+        payload = outputs.get(key)
+        if isinstance(payload, dict):
+            candidates.extend(
+                [
+                    payload.get("revision_route"),
+                    payload.get("review_revision_route"),
+                    payload.get("revision"),
+                ]
+            )
+    for candidate in candidates:
+        route = _normalize_revision_route(candidate)
+        if route:
+            return route
+    return {}
+
+
+def _normalize_revision_route(candidate: Any) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        return {}
+    route = dict(candidate or {})
+    action = str(route.get("action") or route.get("decision") or route.get("route") or "").strip().lower()
+    if action and action not in {
+        "revise",
+        "revision",
+        "request_revision",
+        "rewrite",
+        "return_to_writer",
+        "reject",
+        "rejected",
+        "返修",
+        "拒绝",
+    }:
+        return {}
+    if not action and not any(
+        key in route
+        for key in (
+            "chapter_indexes",
+            "affected_chapter_indexes",
+            "revision_chapter_indexes",
+            "rewrite_chapter_indexes",
+            "scope",
+            "full_batch",
+        )
+    ):
+        return {}
+    route["action"] = action or "revise"
+    route["authority"] = str(route.get("authority") or "chapter_review.revision_route")
+    return route
+
+
+def _revision_route_chapter_indexes(route: dict[str, Any], *, state: GraphLoopState) -> list[int]:
+    if not route:
+        return []
+    scope = str(route.get("scope") or route.get("revision_scope") or "").strip().lower()
+    full_batch = bool(route.get("full_batch") is True) or scope in {
+        "full_batch",
+        "batch",
+        "all_batch",
+        "entire_batch",
+        "all",
+        "整批",
+        "全批",
+    }
+    if full_batch:
+        initial_inputs = dict(state.initial_inputs or {})
+        start = _numeric_value(route.get("batch_start_index"), None)
+        end = _numeric_value(route.get("batch_end_index"), None)
+        if start is None:
+            start = _numeric_value(initial_inputs.get("batch_start_index"), None)
+        if end is None:
+            end = _numeric_value(initial_inputs.get("batch_end_index"), start)
+        return _revision_indexes_from_range_values(start, end)
+    indexes: list[int] = []
+    for key in (
+        "chapter_indexes",
+        "affected_chapter_indexes",
+        "revision_chapter_indexes",
+        "rewrite_chapter_indexes",
+        "chapters",
+        "affected_chapters",
+    ):
+        indexes.extend(_revision_route_indexes_from_value(route.get(key)))
+    if indexes:
+        return sorted(dict.fromkeys(indexes))
+    start = _numeric_value(
+        route.get("revision_start_index")
+        or route.get("start_chapter_index")
+        or route.get("chapter_start_index"),
+        None,
+    )
+    end = _numeric_value(
+        route.get("revision_end_index")
+        or route.get("end_chapter_index")
+        or route.get("chapter_end_index"),
+        start,
+    )
+    return _revision_indexes_from_range_values(start, end)
+
+
+def _revision_route_indexes_from_value(value: Any) -> list[int]:
+    raw_items = value if isinstance(value, list) else ([value] if value is not None else [])
+    indexes: list[int] = []
+    for item in raw_items:
+        if isinstance(item, dict):
+            number = _numeric_value(item.get("chapter_index") or item.get("index") or item.get("chapter"), None)
+        else:
+            number = _numeric_value(item, None)
+        if number is None:
+            continue
+        chapter = int(number)
+        if chapter > 0 and chapter not in indexes:
+            indexes.append(chapter)
+    return indexes
+
+
+def _revision_indexes_from_range_values(start_value: Any, end_value: Any) -> list[int]:
+    start = _numeric_value(start_value, None)
+    end = _numeric_value(end_value, start)
+    if start is None or end is None:
+        return []
+    start_index = int(start)
+    end_index = int(end)
+    if start_index > end_index:
+        start_index, end_index = end_index, start_index
+    if start_index <= 0 or end_index - start_index > 100:
+        return []
+    return list(range(start_index, end_index + 1))
+
+
+def _revision_route_plan_text(*, route: dict[str, Any], review_text: str) -> str:
+    route_text = json.dumps(route, ensure_ascii=False, indent=2) if route else ""
+    requirements = (
+        route.get("requirements")
+        or route.get("revision_requirements")
+        or route.get("instructions")
+        or route.get("reason")
+        or route.get("issue_summary")
+    )
+    if isinstance(requirements, (dict, list)):
+        requirements_text = json.dumps(requirements, ensure_ascii=False, indent=2)
+    else:
+        requirements_text = str(requirements or "").strip()
+    sections = []
+    if route_text:
+        sections.append(f"## 返修路由\n\n```json\n{route_text}\n```")
+    if requirements_text:
+        sections.append(f"## 返修要求\n\n{requirements_text}")
+    excerpt = _revision_plan_excerpt(review_text)
+    if excerpt:
+        sections.append(excerpt)
+    return "\n\n".join(sections).strip()[:16000]
 
 
 def _has_ready_revision_target(
@@ -2900,18 +3163,26 @@ def _revision_plan_excerpt(text: str) -> str:
     if not normalized:
         return ""
     sections: list[str] = []
-    for heading in ("返修要求", "必须修改项", "阻塞性问题", "问题清单", "语义连续性与矛盾点检查", "层级一致性检查"):
-        match = re.search(rf"(?m)^#{{1,4}}\s*{heading}\b.*$", normalized)
+    for heading in ("返修要求", "必须修改项", "阻塞问题", "阻塞性问题", "问题清单", "语义连续性与矛盾点检查", "层级一致性检查"):
+        match = re.search(rf"(?m)^(#{{1,4}})\s*{heading}\b.*$", normalized)
         if not match:
             continue
-        tail = normalized[match.start() :]
-        first_newline = tail.find("\n")
-        search_tail = tail[first_newline + 1 :] if first_newline >= 0 else ""
-        next_heading = re.search(r"(?m)^#{1,4}\s+", search_tail)
-        section = tail[: first_newline + 1 + next_heading.start()] if next_heading and first_newline >= 0 else tail
+        section = _markdown_heading_section(normalized, start=match.start(), level=len(match.group(1)))
         if section.strip():
             sections.append(section.strip())
     return "\n\n".join(dict.fromkeys(sections)).strip()[:16000] or normalized[:16000]
+
+
+def _markdown_heading_section(text: str, *, start: int, level: int) -> str:
+    tail = str(text or "")[start:]
+    first_newline = tail.find("\n")
+    if first_newline < 0:
+        return tail
+    search_tail = tail[first_newline + 1 :]
+    next_heading = re.search(rf"(?m)^#{{1,{max(1, int(level))}}}\s+", search_tail)
+    if not next_heading:
+        return tail
+    return tail[: first_newline + 1 + next_heading.start()]
 
 
 def _revision_requirements_for_chapter(plan_text: str, chapter: int) -> str:
@@ -2953,28 +3224,60 @@ def _artifact_ref_path(ref: Any) -> str:
     return ""
 
 
-def _revision_affected_chapter_range(text: str) -> tuple[int | None, int | None]:
+def _revision_affected_chapter_indexes(text: str) -> list[int]:
     normalized = str(text or "")
     if not normalized:
-        return None, None
+        return []
     explicit_patterns = (
         r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*[-至到~—－]\s*0*(\d{1,4})\s*章",
         r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*章",
     )
     requirement_section = _revision_requirement_section(normalized)
     if requirement_section:
-        requirement_candidates = _revision_range_candidates(requirement_section, explicit_patterns)
-        if requirement_candidates:
-            return _revision_range_from_candidates(requirement_candidates)
+        requirement_indexes = _revision_chapter_indexes_from_section(requirement_section, explicit_patterns)
+        if requirement_indexes:
+            return requirement_indexes
     blocking_section = _revision_blocking_section(normalized)
     if blocking_section:
-        blocking_candidates = _revision_range_candidates(blocking_section, explicit_patterns)
-        if blocking_candidates:
-            return _revision_range_from_candidates(blocking_candidates)
+        blocking_indexes = _revision_chapter_indexes_from_section(blocking_section, explicit_patterns)
+        if blocking_indexes:
+            return blocking_indexes
     explicit_candidates = _revision_range_candidates(normalized, explicit_patterns)
     if explicit_candidates:
-        return _revision_range_from_candidates(explicit_candidates)
-    return None, None
+        return _revision_indexes_from_ranges(explicit_candidates)
+    return []
+
+
+def _revision_chapter_indexes_from_section(text: str, patterns: tuple[str, ...]) -> list[int]:
+    indexes = _revision_indexes_from_ranges(_revision_range_candidates(text, patterns))
+    for line in str(text or "").splitlines():
+        if not re.search(r"第\s*0*\d{1,4}\s*章", line):
+            continue
+        if _revision_line_is_scope_description(line):
+            continue
+        if not _revision_line_is_issue(line):
+            continue
+        for match in re.finditer(r"第\s*0*(\d{1,4})\s*章", line):
+            chapter = int(match.group(1))
+            if chapter > 0 and chapter not in indexes:
+                indexes.append(chapter)
+    return sorted(indexes)
+
+
+def _revision_line_is_scope_description(line: str) -> bool:
+    text = str(line or "")
+    if re.search(r"(?:返修|重写|修改|修正|阻塞|问题|矛盾|缺失|不达标|偏离|必须|需要|不足)", text):
+        return False
+    return bool(re.search(r"(?:汇总范围|审核范围|当前批次|允许范围|章节引用索引)", text))
+
+
+def _revision_line_is_issue(line: str) -> bool:
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if re.search(r"(?:返修|重写|修改|修正|阻塞|问题|矛盾|缺失|不达标|偏离|必须|需要|不足|不允许|不能通过)", text):
+        return True
+    return bool(re.match(r"^(?:[-*+]\s*)?(?:B-\d+|R-\d+|问题\s*\d+|第\s*0*\d{1,4}\s*章)[：:、.\s]", text))
 
 
 def _revision_range_candidates(text: str, patterns: tuple[str, ...]) -> list[tuple[int, int]]:
@@ -2989,6 +3292,28 @@ def _revision_range_candidates(text: str, patterns: tuple[str, ...]) -> list[tup
     return candidates
 
 
+def _revision_indexes_from_ranges(candidates: list[tuple[int, int]]) -> list[int]:
+    indexes: list[int] = []
+    for start, end in candidates:
+        if start > end:
+            start, end = end, start
+        if end - start > 100:
+            continue
+        for chapter in range(start, end + 1):
+            if chapter > 0 and chapter not in indexes:
+                indexes.append(chapter)
+    return sorted(indexes)
+
+
+def _revision_execution_range_label(indexes: list[int]) -> str:
+    ordered = sorted({int(item) for item in indexes if int(item) > 0})
+    if not ordered:
+        return ""
+    if ordered == list(range(ordered[0], ordered[-1] + 1)):
+        return f"{ordered[0]:03d}-{ordered[-1]:03d}"
+    return ",".join(f"{item:03d}" for item in ordered)
+
+
 def _revision_requirement_section(text: str) -> str:
     match = re.search(r"(?m)^#{1,4}\s*返修要求\s*$", text)
     if not match:
@@ -2999,7 +3324,7 @@ def _revision_requirement_section(text: str) -> str:
 
 
 def _revision_blocking_section(text: str) -> str:
-    match = re.search(r"(?m)^#{1,4}\s*(?:必须修改项|阻塞性问题|问题清单)\b.*$", text)
+    match = re.search(r"(?m)^#{1,4}\s*(?:必须修改项|阻塞问题|阻塞性问题|问题清单)\b.*$", text)
     if not match:
         return ""
     tail = text[match.end() :]
@@ -3010,18 +3335,13 @@ def _revision_blocking_section(text: str) -> str:
     return tail[: next_major.start()] if next_major else tail
 
 
-def _revision_range_from_candidates(candidates: list[tuple[int, int]]) -> tuple[int, int]:
-    min_start = min(start for start, _ in candidates)
-    max_end = max(end for start, end in candidates if start == min_start)
-    return min_start, max_end
-
-
 def _state_after_revision_requeue(
     *,
     graph_config: GraphHarnessConfig,
     state: GraphLoopState,
     targets: tuple[str, ...],
     reset_node_ids: tuple[str, ...],
+    preserve_ready_revision_edges: bool = True,
 ) -> GraphLoopState:
     node_states = {key: dict(value) for key, value in state.node_states.items()}
     edge_states = {key: dict(value) for key, value in state.edge_states.items()}
@@ -3037,7 +3357,7 @@ def _state_after_revision_requeue(
         state=state,
         target_node_ids=targets,
     )
-    has_revision_target = _has_ready_revision_target(graph_config=graph_config, state=state, target_node_ids=targets)
+    has_revision_target = bool(preserve_ready_revision_edges) and _has_ready_revision_target(graph_config=graph_config, state=state, target_node_ids=targets)
     if cursor_patch:
         initial_inputs.update(cursor_patch)
     initial_inputs = _apply_derived_fields(initial_inputs, _loop_derived_fields(graph_config))
@@ -3046,9 +3366,20 @@ def _state_after_revision_requeue(
         target_node_ids=targets,
         initial_inputs=initial_inputs,
     )
+    loop_state = _loop_state_with_revision_frames_active(
+        graph_config=graph_config,
+        loop_state=loop_state,
+        target_node_ids=targets,
+        initial_inputs=initial_inputs,
+    )
+    loop_state = _loop_state_with_requeue_exit_frames(
+        loop_state=loop_state,
+        target_node_ids=targets,
+    )
     preserved_revision_edges = {
         edge_id: dict(edge_state)
         for edge_id, edge_state in edge_states.items()
+        if preserve_ready_revision_edges
         if str(edge_state.get("status") or "") == "ready"
         and str(edge_state.get("target_node_id") or "") in target_set
         and _edge_is_revision(_edge_by_id(graph_config, edge_id) or {})
@@ -3110,6 +3441,7 @@ def _state_after_revision_requeue(
         active_work_orders=active_work_orders,
         ready_node_ids=() if has_revision_target and not cursor_patch else targets,
         running_node_ids=(),
+        failed_node_ids=tuple(item for item in state.failed_node_ids if item not in reset_set),
         blocked_node_ids=targets if has_revision_target and not cursor_patch else (),
         terminal_reason="",
     )
@@ -3450,6 +3782,7 @@ def _edge_states_after_result_for_edge(
             "source_node_id": result.node_id,
             "target_node_id": str(edge.get("target_node_id") or ""),
             "status": "ready" if result.status == "completed" else "source_failed",
+            "source_result_ref": result_ref,
             "packet_persisted": bool(packet_summary),
             "human_edge_decision": _human_edge_decision_state(dict(result.diagnostics.get("human_edge_decision") or {})),
             "updated_at": now,
@@ -3613,13 +3946,14 @@ def _edge_states_after_node_result(
         edge_state.update(
             {
                 "edge_id": edge_id,
-                "source_node_id": result.node_id,
-                "target_node_id": str(edge.get("target_node_id") or ""),
-                "status": "ready" if result.status == "completed" else "source_failed",
-                "packet_persisted": bool(packet_summary),
-                "updated_at": now,
-            }
-        )
+            "source_node_id": result.node_id,
+            "target_node_id": str(edge.get("target_node_id") or ""),
+            "status": "ready" if result.status == "completed" else "source_failed",
+            "source_result_ref": result_ref,
+            "packet_persisted": bool(packet_summary),
+            "updated_at": now,
+        }
+    )
         edge_states[edge_id] = edge_state
     return edge_states
 

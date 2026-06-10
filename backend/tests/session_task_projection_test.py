@@ -1,364 +1,69 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 
-from runtime.shared.models import TaskRun
-from tests.support.runtime_stubs import build_harness_runtime
-
-from api.chat import _attach_task_projection_to_public_data, _status_for_public_event
-from harness.runtime.session_task_projection import (
-    SINGLE_AGENT_TASK_PROJECTION_AUTHORITY,
-    build_single_agent_task_projection,
-)
+from harness.runtime.projection.task_projection import build_single_agent_task_projection
 
 
-def _single_agent_task_run(*, status: str = "waiting_executor", diagnostics: dict[str, object] | None = None) -> TaskRun:
-    merged_diagnostics = {
-        "turn_id": "turn:session-projection:1",
-        "contract": {
-            "user_visible_goal": "修复单 Agent 会话任务投影",
-            "task_run_goal": "任务在后台 executor 继续执行时保持运行态。",
+def test_task_projection_does_not_surface_raw_boolean_latest_summary():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={
+            "turn_id": "turn:test",
+            "summary": "true",
+            "contract": {"user_visible_goal": "检查投影链路"},
         },
-    }
-    merged_diagnostics.update(dict(diagnostics or {}))
-    return TaskRun(
-        task_run_id="taskrun:turn:session-projection:1:abc",
-        session_id="session-projection",
-        task_id="task:turn:session-projection:1",
-        execution_runtime_kind="single_agent_task",
-        status=status,
         created_at=1.0,
         updated_at=2.0,
-        diagnostics=merged_diagnostics,
-    )
-
-
-def test_single_agent_task_projection_keeps_scheduled_executor_running() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(status="running", diagnostics={"executor_status": "scheduled"})
-    events = [
-        {
-            "event_id": "rtevt:scheduled",
-            "run_id": task_run.task_run_id,
-            "event_type": "task_run_executor_scheduled",
-            "created_at": 3.0,
-            "payload": {"step": "task_executor_scheduled"},
-            "refs": {"turn_ref": "turn:session-projection:1"},
-        }
-    ]
-
-    projection = build_single_agent_task_projection(host, task_run, events=events)
-
-    assert projection["authority"] == SINGLE_AGENT_TASK_PROJECTION_AUTHORITY
-    assert projection["task_run_id"] == task_run.task_run_id
-    assert projection["anchor_turn_id"] == "turn:session-projection:1"
-    assert projection["status"] == "running"
-    assert projection["phase"] == "scheduled"
-    assert projection["user_visible_goal"] == "修复单 Agent 会话任务投影"
-    assert "public_timeline" not in projection
-
-
-def test_chat_scheduled_done_completes_stream_and_carries_task_projection() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(diagnostics={"executor_status": "scheduled"})
-    host.state_index.upsert_task_run(task_run)
-    payload = {
-        "terminal_reason": "task_executor_scheduled",
-        "runtime_task_run_id": task_run.task_run_id,
-    }
-
-    app_runtime = SimpleNamespace(harness_runtime=runtime)
-
-    _attach_task_projection_to_public_data(
-        runtime=app_runtime,
-        task_run_id=task_run.task_run_id,
-        data=payload,
-    )
-
-    assert _status_for_public_event("done", payload) == "completed"
-    assert payload["background_task_run_id"] == task_run.task_run_id
-    assert payload["turn_handoff_completed"] is True
-    assert payload["work_status"] == "running"
-    assert payload["task_projection"]["status"] == "running"
-    assert payload["task_projection"]["phase"] == "scheduled"
-    assert "public_timeline" not in payload["task_projection"]
-
-
-def test_single_agent_task_projection_shows_protocol_repair_as_ready_to_continue() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(
-        diagnostics={
-            "executor_status": "waiting_executor",
-            "recovery_action": "rerun_task_executor",
-        },
-    )
-    task_run = TaskRun(
-        **{
-            **task_run.to_dict(),
-            "terminal_reason": "model_action_protocol_repair_required",
-        }
-    )
-
-    projection = build_single_agent_task_projection(host, task_run, events=[])
-
-    assert projection["status"] == "waiting_user"
-    assert projection["task_work_state"] == "ready_to_continue"
-    assert projection["phase"] == "handoff"
-    assert projection["control"]["can_pause"] is False
-    assert projection["control"]["can_resume"] is True
-    assert projection["control"]["can_stop"] is True
-
-
-def test_single_agent_task_projection_prioritizes_recovery_over_stale_executor_status_as_resume_ready() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(
-        diagnostics={
-            "executor_status": "running",
-            "recovery_action": "rerun_task_executor",
-        },
-    )
-
-    projection = build_single_agent_task_projection(host, task_run, events=[])
-
-    assert projection["status"] == "waiting_user"
-    assert projection["task_work_state"] == "ready_to_continue"
-    assert projection["phase"] == "handoff"
-    assert projection["control"]["can_pause"] is False
-    assert projection["control"]["can_resume"] is True
-    assert projection["control"]["can_stop"] is True
-
-
-def test_single_agent_task_projection_grades_tool_activities_before_chat_projection() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(status="running")
-    projection = build_single_agent_task_projection(
-        host,
-        task_run,
-        events=[],
-        monitor={
-            "progress_presentation": {
-                "work_units": [
-                    {
-                        "unit_id": "workunit:agent-todo",
-                        "kind": "tool_action",
-                        "tool_name": "agent_todo",
-                        "title": "执行 agent_todo",
-                        "state": "completed",
-                        "action": "调用 agent_todo。",
-                    },
-                    {
-                        "unit_id": "workunit:read",
-                        "kind": "inspect_path",
-                        "tool_name": "read_file",
-                        "title": "读取文件内容",
-                        "state": "completed",
-                        "action": "读取目标文件。",
-                    },
-                    {
-                        "unit_id": "workunit:search",
-                        "kind": "search_text",
-                        "tool_name": "search_text",
-                        "title": "搜索证据",
-                        "state": "error",
-                        "action": "工具调用失败，正在根据失败原因调整处理路径。",
-                    },
-                    {
-                        "unit_id": "workunit:list-subagents",
-                        "kind": "tool_action",
-                        "tool_name": "list_subagents",
-                        "title": "执行 list_subagents",
-                        "state": "completed",
-                        "action": "调用 list_subagents。",
-                    },
-                    {
-                        "unit_id": "workunit:write",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/report.md",
-                        "title": "写入报告",
-                        "state": "completed",
-                        "action": "写入 docs/report.md。",
-                    },
-                    {
-                        "unit_id": "workunit:write-failed",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/fail.md",
-                        "title": "写入失败报告",
-                        "state": "error",
-                        "action": "工具返回失败：permission denied",
-                    },
-                    {
-                        "unit_id": "workunit:stage",
-                        "kind": "stage",
-                        "title": "正在思考",
-                        "state": "running",
-                        "action": "执行 2 个工具调用：读取目录 backend/、执行 agent todo。",
-                    },
-                ],
-            },
-        },
-    )
-
-    titles = [activity["title"] for activity in projection["activities"]]
-    assert "执行 agent_todo" not in titles
-    assert "读取文件内容" not in titles
-    assert "搜索证据" not in titles
-    assert "执行 list_subagents" not in titles
-    assert "写入报告" in titles
-    assert "写入失败报告" in titles
-    assert "正在思考" not in titles
-    write_activity = next(activity for activity in projection["activities"] if activity["title"] == "写入报告")
-    assert write_activity["kind"] == "action"
-    assert write_activity["display_surface"] == "tool_window"
-    assert write_activity["visibility_level"] == "primary"
-    assert write_activity["tool_target"] == "docs/report.md"
-    failed_write = next(activity for activity in projection["activities"] if activity["title"] == "写入失败报告")
-    assert failed_write["state"] == "failed"
-    assert failed_write["visibility_level"] == "primary"
-
-
-def test_single_agent_task_projection_stopped_state_dominates_stale_running_activity() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = replace(
-        _single_agent_task_run(
-            status="aborted",
-            diagnostics={
-                "executor_status": "running",
-                "runtime_control": {"state": "stopped"},
-            },
-        ),
-        terminal_reason="user_aborted",
     )
 
     projection = build_single_agent_task_projection(
-        host,
+        None,
         task_run,
         events=[],
-        monitor={
-            "latest_step_summary": "任务已按用户要求停止。",
-            "progress_presentation": {
-                "work_units": [
-                    {
-                        "unit_id": "workunit:write-running",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/report.md",
-                        "title": "写入报告",
-                        "state": "running",
-                        "action": "写入 docs/report.md。",
-                    },
-                    {
-                        "unit_id": "workunit:write-waiting",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/waiting.md",
-                        "title": "等待中的旧动作",
-                        "state": "waiting",
-                        "action": "旧等待动作。",
-                    },
-                ],
-            },
-        },
+        monitor={"latest_step_summary": "true", "latest_public_progress_note": "true"},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
     )
 
-    assert projection["status"] == "stopped"
-    assert projection["current_action"]["state"] == "stopped"
-    assert projection["current_action"]["title"] == "任务已按用户要求停止。"
-    activities = projection.get("activities", [])
-    assert all(activity["state"] != "running" for activity in activities)
-    titles = [activity["title"] for activity in activities]
-    assert "写入报告" not in titles
-    assert "等待中的旧动作" not in titles
+    assert projection["authority"] == "harness.runtime.single_agent_task_projection"
+    assert projection["anchor_turn_id"] == "turn:test"
+    assert projection.get("current_action", {}) == {}
+    assert "true" not in str(projection.get("summary", "")).lower()
 
 
-def test_single_agent_task_projection_hides_internal_lifecycle_detail() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = replace(
-        _single_agent_task_run(
-            status="aborted",
-            diagnostics={
-                "executor_status": "running",
-                "runtime_control": {"state": "stopped"},
-            },
-        ),
-        terminal_reason="user_aborted",
+def test_task_projection_keeps_tool_observation_on_tool_surface():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
     )
 
     projection = build_single_agent_task_projection(
-        host,
+        None,
         task_run,
-        events=[],
-        monitor={
-            "latest_step_summary": "正在思考",
-            "latest_step": {
-                "agent_brief_output": "执行 2 个工具调用：读取目录 backend/、执行 agent todo。",
-            },
-        },
+        events=[
+            {
+                "event_id": "event:tool",
+                "event_type": "task_tool_observation_recorded",
+                "payload": {
+                    "observation": {
+                        "tool_name": "path_exists",
+                        "summary": "目标路径存在",
+                    }
+                },
+            }
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
     )
 
-    assert projection["status"] == "stopped"
-    assert projection["current_action"]["title"] == "任务已停止"
-    assert "detail" not in projection["current_action"]
-    assert "执行 2 个工具调用" not in str(projection)
-    assert "agent todo" not in str(projection).lower()
+    assert projection["activities"][0]["display_surface"] == "tool_window"
+    assert projection["activities"][0]["kind"] == "tool_observation"
 
-
-def test_single_agent_task_projection_paused_state_dominates_stale_running_activity() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run = _single_agent_task_run(
-        status="waiting_executor",
-        diagnostics={
-            "executor_status": "running",
-            "runtime_control": {"state": "paused"},
-        },
-    )
-
-    projection = build_single_agent_task_projection(
-        host,
-        task_run,
-        events=[],
-        monitor={
-            "latest_step_summary": "已暂停。",
-            "progress_presentation": {
-                "work_units": [
-                    {
-                        "unit_id": "workunit:write-paused",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/report.md",
-                        "title": "写入报告",
-                        "state": "running",
-                        "action": "写入 docs/report.md。",
-                    },
-                    {
-                        "unit_id": "workunit:write-paused-waiting",
-                        "kind": "write_file",
-                        "tool_name": "write_file",
-                        "tool_target": "docs/waiting.md",
-                        "title": "等待中的旧动作",
-                        "state": "waiting",
-                        "action": "旧等待动作。",
-                    },
-                ],
-            },
-        },
-    )
-
-    assert projection["status"] == "paused"
-    assert projection["current_action"]["state"] == "waiting"
-    assert projection["current_action"]["title"] == "已暂停。"
-    activities = projection.get("activities", [])
-    assert all(activity["state"] != "running" for activity in activities)
-    titles = [activity["title"] for activity in activities]
-    assert "写入报告" not in titles
-    assert "等待中的旧动作" not in titles

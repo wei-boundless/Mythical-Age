@@ -126,8 +126,8 @@ def append_work_rollout_item(
     payload: dict[str, Any] | None = None,
 ) -> WorkRolloutRecord:
     record = ensure_work_rollout(runtime_host, task_run, status=str(getattr(task_run, "status", "") or status or "running"))
-    visible_summary = public_runtime_progress_summary(summary) or str(summary or "").strip()
-    brief = public_runtime_progress_summary(agent_brief_output) or str(agent_brief_output or "").strip()
+    visible_summary = public_runtime_progress_summary(summary)
+    brief = public_runtime_progress_summary(agent_brief_output)
     item_refs = dict(refs or {})
     item_payload = dict(payload or {})
     checkpoint_ref = _first_text(

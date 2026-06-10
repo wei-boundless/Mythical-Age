@@ -46,6 +46,57 @@ describe("assistant typed stream replay", () => {
     expect(stream?.repairState).toBe("none");
   });
 
+  it("preserves whitespace-only delta frames so byte offsets do not strand the visible prefix", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "Lang",
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: 4,
+      accumulated_sha256: "sha256:lang",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 2,
+      content: "\n\n",
+      content_utf8_start: 4,
+      accumulated_utf8_bytes: 6,
+      accumulated_sha256: "sha256:break",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 3,
+      content: "Chain-Agent",
+      content_utf8_start: 6,
+      accumulated_utf8_bytes: 17,
+      accumulated_sha256: "sha256:full",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("Lang\n\nChain-Agent");
+    expect(stream?.canonicalContent).toBe("Lang\n\nChain-Agent");
+    expect(stream?.latestSequence).toBe(3);
+    expect(stream?.repairState).toBe("none");
+  });
+
+  it("preserves final answer whitespace instead of normalizing the model body", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      content: "第一行\n\n第二行  ",
+      content_sha256: "sha256:final",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("第一行\n\n第二行  ");
+    expect(stream?.canonicalContent).toBe("第一行\n\n第二行  ");
+    expect(stream?.finalReceived).toBe(true);
+  });
+
   it("applies repair replacement without waiting for legacy done content", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
@@ -79,7 +130,7 @@ describe("assistant typed stream replay", () => {
     expect(stream?.finalReceived).toBe(true);
   });
 
-  it("keeps mismatched offset deltas out of visible content until final repair", () => {
+  it("keeps contiguous mismatched offset deltas visible while marking the stream for repair", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
       sequence: 1,
@@ -98,9 +149,9 @@ describe("assistant typed stream replay", () => {
 
     let assistant = transition.state.messages.at(-1);
     let stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
-    expect(assistant?.content).toBe("第一段");
-    expect(stream?.canonicalContent).toBe("第一段");
-    expect(stream?.latestSequence).toBe(1);
+    expect(assistant?.content).toBe("第一段错位内容");
+    expect(stream?.canonicalContent).toBe("第一段错位内容");
+    expect(stream?.latestSequence).toBe(2);
     expect(stream?.repairState).toBe("pending");
 
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
@@ -116,6 +167,33 @@ describe("assistant typed stream replay", () => {
     expect(assistant?.content).toBe("第一段正确收口");
     expect(stream?.repairState).toBe("applied");
     expect(stream?.finalReceived).toBe(true);
+  });
+
+  it("keeps CJK streams visible when upstream reports character offsets instead of UTF-8 bytes", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 1,
+      content: "测试",
+      content_utf8_start: 0,
+      accumulated_utf8_bytes: 6,
+      accumulated_sha256: "sha256:first",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {
+      sequence: 2,
+      content: "继续",
+      content_utf8_start: 2,
+      accumulated_utf8_bytes: 4,
+      accumulated_sha256: "sha256:char-offset",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("测试继续");
+    expect(stream?.canonicalContent).toBe("测试继续");
+    expect(stream?.latestSequence).toBe(2);
+    expect(stream?.accumulatedUtf8Bytes).toBe(12);
+    expect(stream?.repairState).toBe("pending");
   });
 
   it("does not display a non-initial first delta when offset metadata is missing", () => {

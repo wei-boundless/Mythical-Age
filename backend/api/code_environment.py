@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -24,6 +25,9 @@ from code_environment.workspace_tree import build_workspace_tree
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
+
+GIT_STATUS_CACHE_TTL_SECONDS = 15.0
+_GIT_STATUS_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 
 
 @router.get("/code-environment/environment")
@@ -118,9 +122,31 @@ def _workspace_tree_root(
 
 
 @router.get("/code-environment/git-status")
-async def code_environment_git_status() -> dict[str, object]:
+async def code_environment_git_status(refresh: bool = Query(default=False)) -> dict[str, object]:
     layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
-    project_root = layout.project_root
+    return _cached_git_status(layout.project_root, refresh=refresh)
+
+
+def _cached_git_status(project_root: Path, *, refresh: bool) -> dict[str, object]:
+    cache_key = str(project_root.resolve())
+    now = time.monotonic()
+    cached = _GIT_STATUS_CACHE.get(cache_key)
+    if not refresh and cached is not None:
+        captured_monotonic, payload = cached
+        if now - captured_monotonic <= GIT_STATUS_CACHE_TTL_SECONDS:
+            response = dict(payload)
+            response["cache_status"] = "cached"
+            return response
+
+    payload = _collect_git_status(project_root)
+    payload["captured_at"] = time.time()
+    payload["cache_status"] = "fresh"
+    payload["ttl_seconds"] = GIT_STATUS_CACHE_TTL_SECONDS
+    _GIT_STATUS_CACHE[cache_key] = (time.monotonic(), dict(payload))
+    return payload
+
+
+def _collect_git_status(project_root: Path) -> dict[str, object]:
     try:
         branch_result = subprocess.run(
             ["git", "-C", str(project_root), "branch", "--show-current"],

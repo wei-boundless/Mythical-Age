@@ -115,48 +115,7 @@ class GraphResumeService:
                 active_work_orders=active,
                 events=tuple([*recovered, *reset.events]),
             )
-        if dispatch_ready and not dict(state.initial_inputs or {}).get("revision_queue_chapter_indexes"):
-            revision = self._graph_loop.requeue_ready_revision_targets_and_checkpoint(
-                graph_config=graph_config,
-                state=state,
-            )
-            if tuple(revision.events or ()):
-                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
-                    graph_config=graph_config,
-                    graph_run_id=graph_run_id,
-                    max_requests=max_requests,
-                )
-                return GraphResumeResult(
-                    graph_run_id=graph_run_id,
-                    resumed=True,
-                    reason="revision_targets_requeued",
-                    loop_state=dispatch.loop_state,
-                    checkpoint=dict(dispatch.checkpoint),
-                    active_work_orders=_active_work_orders_from_state(dispatch.loop_state),
-                    node_work_orders=dispatch.node_work_orders,
-                    events=tuple([*recovered, *revision.events, *dispatch.events]),
-                )
         if state.status == "blocked" and dispatch_ready:
-            revision = self._graph_loop.requeue_ready_revision_targets_and_checkpoint(
-                graph_config=graph_config,
-                state=state,
-            )
-            if tuple(revision.loop_state.ready_node_ids if revision.loop_state is not None else ()):
-                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
-                    graph_config=graph_config,
-                    graph_run_id=graph_run_id,
-                    max_requests=max_requests,
-                )
-                return GraphResumeResult(
-                    graph_run_id=graph_run_id,
-                    resumed=True,
-                    reason="revision_targets_requeued",
-                    loop_state=dispatch.loop_state,
-                    checkpoint=dict(dispatch.checkpoint),
-                    active_work_orders=_active_work_orders_from_state(dispatch.loop_state),
-                    node_work_orders=dispatch.node_work_orders,
-                    events=tuple([*recovered, *revision.events, *dispatch.events]),
-                )
             blocked = _blocked_replay_node_ids(state)
             if blocked:
                 replay = self._graph_loop.requeue_blocked_nodes_and_checkpoint(

@@ -5,7 +5,7 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
 from harness.task_run_state_view import task_run_state_view
 from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.public_chat_timeline import build_public_chat_timeline
+from harness.runtime.projection.timeline_builder import build_public_chat_timeline
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 from .activity import RuntimeActivityControlContext, activity_is_monitor_visible, activity_sort_rank, with_runtime_activity
@@ -1410,19 +1410,13 @@ def _active_turn_status(state: str) -> str:
 
 def _active_turn_summary(state: str) -> str:
     normalized = str(state or "").strip()
-    if normalized == "starting":
-        return "正在建立当前处理。"
-    if normalized == "model_turn":
-        return "正在分析请求并准备执行。"
-    if normalized == "running_task":
-        return "正在持续处理当前任务。"
     if normalized == "waiting_user":
-        return "正在等待新的用户输入。"
+        return "等待新的用户输入。"
     if normalized == "waiting_executor":
-        return "正在等待执行器继续。"
+        return "等待执行器继续。"
     if normalized == "interrupting":
-        return "正在处理中断与切换。"
-    return "正在持续处理当前请求。"
+        return "中断请求已记录。"
+    return ""
 
 
 def _session_current_item_key(item: dict[str, Any]) -> tuple[int, int, int, float, float]:
