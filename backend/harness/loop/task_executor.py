@@ -22,6 +22,7 @@ from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
+from runtime.cache_manager import runtime_cache_manager_for_host
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 
@@ -2498,7 +2499,8 @@ async def _invoke_task_model_action(
     stream_enabled = bool(stream_policy.get("enabled") is True)
     if not callable(invoker) and not (stream_enabled and callable(streamer)):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
-    timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection=model_selection)
+    effective_model_selection = _model_selection_with_json_object_contract(model_selection)
+    timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection=effective_model_selection)
     accounting_context = {
         "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
         "session_id": session_id,
@@ -2515,7 +2517,7 @@ async def _invoke_task_model_action(
             invoker=invoker,
             streamer=streamer,
             messages=list(packet.model_messages),
-            model_selection=model_selection,
+            model_selection=effective_model_selection,
             accounting_context=accounting_context,
         ),
         timeout=timeout_seconds,
@@ -2550,7 +2552,7 @@ async def _invoke_task_model_action(
             "parse_diagnostics": dict(protocol_result.parse_diagnostics),
             "response_diagnostics": {
                 **dict(protocol_result.response_diagnostics),
-                **_model_action_response_diagnostics(response, model_selection=model_selection),
+                **_model_action_response_diagnostics(response, model_selection=effective_model_selection),
             },
             "model_response_protocol": protocol_result.to_dict(),
         }
@@ -2642,6 +2644,30 @@ def _task_stream_non_stream_fallback_enabled(stream_policy: dict[str, Any]) -> b
         if key in stream_policy:
             return bool(stream_policy.get(key) is not False)
     return True
+
+
+def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection = _model_selection_with_action_budget(selection)
+    selection.setdefault("structured_output", "json_object")
+    selection.setdefault("response_format", {"type": "json_object"})
+    return normalize_model_selection_for_invocation(selection)
+
+
+def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    mappings = {
+        "action_max_output_tokens": "max_output_tokens",
+        "action_timeout_seconds": "timeout_seconds",
+        "action_long_output_timeout_seconds": "long_output_timeout_seconds",
+        "action_thinking_mode": "thinking_mode",
+        "action_reasoning_effort": "reasoning_effort",
+    }
+    for action_key, provider_key in mappings.items():
+        value = selection.pop(action_key, None)
+        if value not in (None, "", {}, []):
+            selection[provider_key] = value
+    return selection
 
 
 async def _await_task_model_action_with_status(
@@ -2932,6 +2958,13 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
         "temperature": profile_payload.get("temperature"),
         "thinking_mode": str(requirement.get("thinking_mode") or profile_payload.get("thinking_mode") or "").strip(),
         "reasoning_effort": str(requirement.get("reasoning_effort") or profile_payload.get("reasoning_effort") or "").strip(),
+        "action_max_output_tokens": requirement.get("action_max_output_tokens") or profile_payload.get("action_max_output_tokens"),
+        "action_timeout_seconds": requirement.get("action_timeout_seconds") or profile_payload.get("action_timeout_seconds"),
+        "action_long_output_timeout_seconds": requirement.get("action_long_output_timeout_seconds") or profile_payload.get("action_long_output_timeout_seconds"),
+        "action_thinking_mode": str(requirement.get("action_thinking_mode") or profile_payload.get("action_thinking_mode") or "").strip(),
+        "action_reasoning_effort": str(requirement.get("action_reasoning_effort") or profile_payload.get("action_reasoning_effort") or "").strip(),
+        "response_format": dict(requirement.get("response_format") or profile_payload.get("response_format") or {}),
+        "structured_output": str(requirement.get("structured_output") or "").strip().lower(),
         "stream_policy": _stream_policy_for_task_model_requirement(
             profile_payload.get("stream_policy"),
             requirement=requirement,
@@ -2966,6 +2999,22 @@ def _model_selection_with_runtime_requirement(
     )
     if stream_policy:
         selection["stream_policy"] = stream_policy
+    response_format = dict(requirement.get("response_format") or {})
+    if response_format:
+        selection["response_format"] = response_format
+    structured_output = str(requirement.get("structured_output") or "").strip().lower()
+    if structured_output:
+        selection["structured_output"] = structured_output
+    for key in (
+        "action_max_output_tokens",
+        "action_timeout_seconds",
+        "action_long_output_timeout_seconds",
+        "action_thinking_mode",
+        "action_reasoning_effort",
+    ):
+        value = requirement.get(key)
+        if value not in (None, "", {}, []):
+            selection[key] = value
     return selection
 
 
@@ -3088,7 +3137,7 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = task_run_id.replace(":", "_")
-        sandbox_root = str((Path(runtime_host.root_dir) / "sandboxes" / namespace).resolve())
+        sandbox_root = str(runtime_cache_manager_for_host(runtime_host).sandbox_root(namespace))
     return {
         **sandbox,
         "enabled": bool(sandbox.get("enabled") is True),

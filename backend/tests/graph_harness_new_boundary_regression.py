@@ -25,7 +25,13 @@ def test_graph_harness_imports_only_harness_graph_layers() -> None:
 
     assert any("graph.runtime" in imports for imports in imports_by_file.values())
     assert any("graph.loop" in imports for imports in imports_by_file.values())
-    assert all(not any(item.startswith("task_system") for item in imports) for imports in imports_by_file.values())
+    forbidden_task_system_imports = {
+        item
+        for imports in imports_by_file.values()
+        for item in imports
+        if item.startswith("task_system") and not item.startswith("task_system.runtime_semantics")
+    }
+    assert forbidden_task_system_imports == set()
 
 
 def test_new_graph_harness_public_contract_uses_graph_run_language() -> None:

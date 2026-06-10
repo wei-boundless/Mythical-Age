@@ -90,6 +90,10 @@ class ProjectLayout:
         return self.storage_root / "runtime_state"
 
     @property
+    def runtime_cache_dir(self) -> Path:
+        return self.storage_root / "runtime_cache"
+
+    @property
     def health_system_dir(self) -> Path:
         return self.storage_root / "health_system"
 

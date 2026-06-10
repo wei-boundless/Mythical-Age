@@ -408,6 +408,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
     model_input = _model_input_text(packet)
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    manifest = packet.diagnostics["prompt_manifest"]
     expected_environment_refs = [
         "runtime.rule.file_management.generic",
         "environment.resource.managed_project_workspace.orientation",
@@ -423,10 +424,14 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "coding.rule.windows_shell",
         "coding.rule.task_progress",
     ]
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
-    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert manifest["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert manifest["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert "environment_prompt_refs" not in stable_payload["task_environment"]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
+    assert stable_payload["task_environment"]["prompt_mount_summary"]["environment_prompt_count"] == len(
+        expected_environment_refs
+    )
 
 
 def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None:
@@ -465,6 +470,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
     model_input = _model_input_text(packet)
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    manifest = packet.diagnostics["prompt_manifest"]
     expected_environment_refs = [
         "runtime.rule.file_management.generic",
         "environment.resource.managed_project_workspace.orientation",
@@ -481,11 +487,12 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
         "coding.rule.task_progress",
     ]
 
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
-    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
-    assert "coding.rule.engineering_judgment" not in stable_payload["task_environment"]["environment_prompt_refs"]
+    assert manifest["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert manifest["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert "environment_prompt_refs" not in stable_payload["task_environment"]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
+    assert "coding.rule.engineering_judgment" not in manifest["prompt_mount_plan"]["base_prompt_refs"]
 
 
 def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
@@ -850,33 +857,34 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
 
     assert assembly.environment_prompt_refs == tuple(expected_environment_refs)
     assert assembly.personality_prompt_refs == (DEFAULT_PERSONALITY_PROMPT_REF,)
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == expected_environment_refs
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
-    assert stable_payload["task_environment"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["personality_prompt_refs"] == [
-        DEFAULT_PERSONALITY_PROMPT_REF
-    ]
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
+    assert "environment_prompt_refs" not in stable_payload["task_environment"]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
+    assert stable_payload["task_environment"]["prompt_mount_summary"]["environment_prompt_count"] == len(
+        expected_environment_refs
+    )
+    assert stable_payload["task_environment"]["prompt_mount_summary"]["lifecycle_prompt_count"] == len(
+        expected_lifecycle_refs
+    )
+    assert stable_payload["task_environment"]["prompt_mount_summary"]["personality_prompt_count"] == 1
+    assert packet.diagnostics["prompt_manifest"]["stable_prompt_refs"].count(DEFAULT_PERSONALITY_PROMPT_REF) == 1
+    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["base_prompt_refs"] == expected_environment_refs
+    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"].get("overlay_prompt_refs", []) == []
+    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
     assert set(
-        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
     ) == set(expected_lifecycle_refs)
     assert (
-        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
+        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
             "environment.general.lifecycle.tool_dispatch"
         ]
         == "tool_call action is allowed"
     )
     assert (
-        stable_payload["task_environment"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
+        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
             "environment.general.lifecycle.subagent_delegation"
         ]
         == "subagent control tools are visible"
     )
-    assert packet.diagnostics["prompt_manifest"]["stable_prompt_refs"].count(DEFAULT_PERSONALITY_PROMPT_REF) == 1
-    assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"] == expected_lifecycle_refs
-    assert set(
-        packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
-    ) == set(expected_lifecycle_refs)
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
         DEFAULT_PERSONALITY_PROMPT_REF
     ]
@@ -1440,12 +1448,15 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     ).packet
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    manifest = packet.diagnostics["prompt_manifest"]
 
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+    assert manifest["prompt_mount_plan"]["base_prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
         "environment.custom.prompted",
     ]
+    assert "environment_prompt_refs" not in stable_payload["task_environment"]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
     assert "environment_prompts" not in stable_payload["task_environment"]
     assert "你处在自定义提示环境中" not in json.dumps(stable_payload, ensure_ascii=False)
     assert (
@@ -1541,12 +1552,15 @@ def test_configured_environment_can_reuse_prompt_library_resources(tmp_path: Pat
     ).packet
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
+    manifest = packet.diagnostics["prompt_manifest"]
 
-    assert stable_payload["task_environment"]["environment_prompt_refs"] == [
+    assert manifest["prompt_mount_plan"]["base_prompt_refs"] == [
         "runtime.rule.file_management.generic",
         "environment.resource.general_workspace.orientation",
         "environment.shared.readonly_workspace.orientation",
     ]
+    assert "environment_prompt_refs" not in stable_payload["task_environment"]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
     assert stable_payload["task_environment"]["boundary_contract"]["environment_prompts_source"] == "prompt_library"
 
 
@@ -1609,9 +1623,8 @@ def test_runtime_contract_can_select_custom_personality_prompt(tmp_path: Path) -
     assert assembly.personality_prompt_refs == (custom_personality_ref,)
     assert assembly.personality_prompt_selection["selected_personality_ref"] == custom_personality_ref
     assert assembly.personality_prompt_selection["selection_source"] == "runtime_contract"
-    assert stable_payload["task_environment"]["prompt_mount_plan"]["personality_prompt_refs"] == [
-        custom_personality_ref
-    ]
+    assert "prompt_mount_plan" not in stable_payload["task_environment"]
+    assert stable_payload["task_environment"]["prompt_mount_summary"]["personality_prompt_count"] == 1
     assert manifest["prompt_mount_plan"]["personality_prompt_refs"] == [custom_personality_ref]
     assert custom_personality_ref in manifest["stable_prompt_refs"]
     assert DEFAULT_PERSONALITY_PROMPT_REF not in manifest["stable_prompt_refs"]

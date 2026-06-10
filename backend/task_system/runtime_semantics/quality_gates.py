@@ -495,8 +495,9 @@ def sectioned_text_batch_quality_gate(
         for item in list(policy.get("ignored_heading_parent_keywords") or [])
         if str(item).strip()
     )
+    heading_scan_text = metric_text if metric_text_diagnostics.get("metric_content_source") == "section" else text
     section_ranges = _extract_indexed_section_ranges(
-        text,
+        heading_scan_text,
         heading_patterns,
         heading_match_scope=heading_match_scope,
         ignored_parent_keywords=ignored_heading_parent_keywords,
@@ -510,7 +511,7 @@ def sectioned_text_batch_quality_gate(
     )
     unexpected_ranges = (
         _unexpected_unit_range_declarations(
-            text,
+            heading_scan_text,
             expected_start=start_index,
             expected_end=end_index,
             expected_indexes=expected_index_set,

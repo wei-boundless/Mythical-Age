@@ -517,32 +517,8 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
 
 def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
     return {
-        "acceptance_policies": ["sectioned_text_batch_quality"],
         "quality_failure_mode": "retry_same_node",
-        "unit_start_key": "chapter_index",
-        "unit_end_key": "chapter_index",
-        "unit_count_key": "unit_count",
-        "target_metric_key": "unit_target_measure",
-        "unit_target_metric_key": "unit_target_measure",
-        "minimum_metric_ratio": 0.0,
-        "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
         "max_quality_retries": 1,
-        "unit_label": "章",
-        "unit_summary_template": "第{index}章",
-        "metric_summary_label": "字",
-        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-        "heading_match_scope": "formal_heading",
-        "metric_section_keys": ["章节正文候选"],
-        "metric_stop_section_keys": [
-            "承接说明",
-            "本章目标完成说明",
-            "人物与冲突推进",
-            "商业钩子与爽点兑现",
-            "后续伏笔或待承接事项",
-            "自检风险",
-            "公开摘要",
-        ],
-        "forbid_unexpected_unit_indexes": True,
         "carry_current_output_as": "previous_chapter_draft_ref",
         "requirements_input_key": "chapter_revision_requirements",
         "requirements_template": (

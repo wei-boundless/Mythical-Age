@@ -28,6 +28,7 @@ from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
 from runtime.trace import RuntimeTraceService
+from runtime.cache_manager import RuntimeCacheManager
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
 from .active_turn import ActiveTurnRegistry
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -58,6 +59,7 @@ class SingleAgentRuntimeHost:
         self.owner_process_id = os.getpid()
         self.instance_id = f"runtime-instance:{os.getpid()}:{uuid.uuid4().hex[:12]}"
         self.backend_dir = Path(backend_dir) if backend_dir is not None else ProjectLayout.from_runtime_root(self.root_dir).backend_dir
+        self.runtime_cache = RuntimeCacheManager.from_runtime_root(self.root_dir)
         self.fact_ledger = RuntimeFactLedger(self.root_dir)
         self.event_log = RuntimeEventLog(self.root_dir, fact_ledger=self.fact_ledger)
         self.run_registry = RuntimeRunRegistry(self.root_dir)

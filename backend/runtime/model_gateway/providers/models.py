@@ -6,6 +6,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+class ProviderCapabilityError(ValueError):
+    def __init__(self, *, provider: str, model: str, feature: str) -> None:
+        super().__init__(f"Provider {provider}/{model} does not support {feature}")
+        self.provider = provider
+        self.model = model
+        self.feature = feature
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderRequestProfile:
     provider: str
@@ -49,3 +57,21 @@ class ProviderAdapterResult:
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCapabilityProfile:
+    provider: str
+    model: str
+    supports_json_output: bool = False
+    supports_tool_calling: bool = False
+    supports_strict_tools: bool = False
+    supports_chat_prefix: bool = False
+    supported_context_budget_presets: tuple[str, ...] = ()
+    preferred_context_budget_preset: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.model_gateway.providers.capability_profile"
+
+    def supports_context_budget_preset(self, preset_id: str) -> bool:
+        normalized = str(preset_id or "").strip()
+        return bool(normalized and normalized in set(self.supported_context_budget_presets))

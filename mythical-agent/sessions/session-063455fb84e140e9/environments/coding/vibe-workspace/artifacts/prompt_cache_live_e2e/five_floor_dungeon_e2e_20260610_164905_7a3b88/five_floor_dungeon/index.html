@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五层地下塔</title>
+<style>
+  body {
+    font-family: 'Microsoft YaHei', monospace;
+    background: #0a0a0a;
+    color: #ddd;
+    margin: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 {
+    margin-top: 0;
+    color: #ff8c00;
+  }
+  #stats {
+    border: 1px solid #555;
+    padding: 8px 16px;
+    margin-bottom: 10px;
+    background: #1a1a1a;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  #stats span {
+    margin: 0 8px;
+  }
+  #map {
+    display: grid;
+    grid-template-columns: repeat(9, 40px);
+    gap: 2px;
+    margin-bottom: 10px;
+  }
+  .cell {
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: bold;
+    border: 1px solid #222;
+  }
+  .wall { background: #2a2a2a; color: #666; }
+  .passage { background: #3a3a3a; }
+  .explored { background: #4a4a4a; }
+  .player { background: #0066cc; color: #fff; }
+  .enemy { background: #cc0000; color: #fff; }
+  .boss { background: #cc00cc; color: #fff; }
+  .stairs-down { background: #008800; color: #fff; }
+  .treasure { background: #ccaa00; color: #000; }
+  .fog { background: #111; }
+  #controls {
+    margin: 10px 0;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    padding: 8px 16px;
+    font-size: 14px;
+    border: 1px solid #888;
+    background: #333;
+    color: #ddd;
+    cursor: pointer;
+  }
+  button:hover { background: #555; }
+  #log {
+    width: 380px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #555;
+    padding: 8px;
+    background: #1a1a1a;
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 10px;
+  }
+  .msg { margin: 2px 0; }
+  .msg.combat { color: #ff6666; }
+  .msg.loot { color: #ffcc00; }
+  .msg.info { color: #aaa; }
+</style>
+</head>
+<body>
+<h1>🗡️ 五层地下塔</h1>
+<div id="stats">
+  <span>❤️ HP: <span id="hp">100/100</span></span>
+  <span>⚔️ 攻击: <span id="atk">10</span></span>
+  <span>🛡️ 防御: <span id="def">5</span></span>
+  <span>💰 金币: <span id="gold">0</span></span>
+  <span>🧪 药水: <span id="potion">0</span></span>
+  <span>🏰 第 <span id="floor">1</span> 层</span>
+</div>
+<div id="map"></div>
+<div>方向键移动 · <button onclick="game.usePotion()">使用药水</button></div>
+<div id="log"></div>
+<button onclick="restartGame()">重新开始</button>
+
+<script>
+(function(){
+  const ROWS = 9, COLS = 9;
+  const FLOOR_COUNT = 5;
+
+  let game = {
+    floor: 1,
+    map: [],
+    playerPos: {x:0, y:0},
+    hp: 100,
+    maxHp: 100,
+    atk: 10,
+    def: 5,
+    gold: 0,
+    potion: 0,
+    status: 'playing', // playing, won, lost
+    messages: []
+  };
+
+  function createCell() {
+    return { type: 'wall', explored: false, enemy: null, item: null, stairs: null };
+  }
+
+  function initGrid() {
+    let g = [];
+    for (let y=0; y<ROWS; y++) {
+      g[y] = [];
+      for (let x=0; x<COLS; x++) {
+        g[y][x] = createCell();
+      }
+    }
+    return g;
+  }
+
+  function shuffle(arr) {
+    for (let i=arr.length-1; i>0; i--) {
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+  }
+
+  function generateMaze(grid) {
+    let visited = Array(ROWS).fill().map(()=>Array(COLS).fill(false));
+    function carve(x, y) {
+      visited[y][x] = true;
+      grid[y][x].type = 'passage';
+      const dirs = [[2,0],[-2,0],[0,2],[0,-2]];
+      shuffle(dirs);
+      for (let [dx,dy] of dirs) {
+        let nx = x+dx, ny = y+dy;
+        if (nx>=0 && nx<COLS && ny>=0 && ny<ROWS && !visited[ny][nx]) {
+          grid[y+dy/2][x+dx/2].type = 'passage';
+          carve(nx, ny);
+        }
+      }
+    }
+    carve(0,0);
+  }
+
+  function getEnemyStats(floorNum) {
+    const base = {
+      hp: 15 + floorNum*10 + Math.floor(Math.random()*10),
+      atk: 5 + floorNum*2 + Math.floor(Math.random()*3),
+      def: 2 + floorNum*2 + Math.floor(Math.random()*2),
+      gold: 20 + floorNum*5 + Math.floor(Math.random()*10),
+      dropChance: 0.3 + floorNum*0.1
+    };
+    return base;
+  }
+
+  function getBossStats() {
+    return {
+      name: '地下塔守护者',
+      hp: 120, atk: 18, def: 10, gold: 200,
+      dropChance: 1.0, isBoss: true
+    };
+  }
+
+  function placeEnemies(grid, floorNum) {
+    const passages = [];
+    for (let y=0; y<ROWS; y++) {
+      for (let x=0; x<COLS; x++) {
+        if (grid[y][x].type === 'passage' && !(x===0 && y===0) && !(x===COLS-1 && y===ROWS-1)) {
+          passages.push({x,y});
+        }
+      }
+    }
+    shuffle(passages);
+    let count = Math.min(passages.length, 4 + floorNum); // floor 1: 5 enemies
+    for (let i=0; i<count; i++) {
+      let pos = passages[i];
+      let stats = getEnemyStats(floorNum);
+      const names = ['骷髅兵','暗影蜘蛛','毒蝎','石像鬼','幽灵','食尸鬼','恶魔猎犬','邪恶法师','血奴'];
+      grid[pos.y][pos.x].enemy = {
+        name: names[Math.floor(Math.random()*names.length)],
+        hp: stats.hp,
+        maxHp: stats.hp,
+        atk: stats.atk,
+        def: stats.def,
+        gold: stats.gold,
+        dropChance: stats.dropChance
+      };
+    }
+    if (floorNum === 5) {
+      grid[ROWS-1][COLS-1].enemy = getBossStats();
+      grid[ROWS-1][COLS-1].stairs = null;
+    }
+  }
+
+  function placeStairs(grid, floorNum) {
+    if (floorNum < FLOOR_COUNT) {
+      grid[ROWS-1][COLS-1].stairs = 'down';
+    } else {
+      grid[ROWS-1][COLS-1].stairs = null; // boss cell
+    }
+  }
+
+  function generateFloor(floorNum) {
+    let grid = initGrid();
+    generateMaze(grid);
+    placeStairs(grid, floorNum);
+    placeEnemies(grid, floorNum);
+    // Ensure start cell is passage and no enemy there
+    grid[0][0].type = 'passage';
+    grid[0][0].enemy = null;
+    grid[0][0].explored = true;
+    // Ensure goal cell is passage (already done by maze)
+    return grid;
+  }
+
+  function applyDrop(enemy) {
+    game.gold += enemy.gold || 0;
+    game.addMessage(`获得 ${enemy.gold} 金币`,'loot');
+    if (Math.random() < (enemy.dropChance || 0.3)) {
+      const dropType = Math.floor(Math.random()*4);
+      if (dropType === 0) {
+        game.potion += 1;
+        game.addMessage('获得一瓶生命药水 🧪','loot');
+      } else if (dropType === 1) {
+        game.atk += 2;
+        game.addMessage('攻击力 +2 ⚔️','loot');
+      } else if (dropType === 2) {
+        game.def += 1;
+        game.addMessage('防御力 +1 🛡️','loot');
+      } else {
+        game.potion += 1;
+        game.addMessage('获得一瓶生命药水 🧪','loot');
+      }
+    }
+  }
+
+  function startCombat(enemy) {
+    let playerHp = game.hp;
+    let enemyHp = enemy.hp;
+    game.addMessage(`与 ${enemy.name} 交战！`,'combat');
+    while (playerHp > 0 && enemyHp > 0) {
+      // player attack
+      let pDmg = Math.max(1, game.atk - enemy.def + Math.floor(Math.random()*3));
+      enemyHp -= pDmg;
+      game.addMessage(`你对 ${enemy.name} 造成 ${pDmg} 点伤害`,'combat');
+      if (enemyHp <= 0) break;
+      // enemy attack
+      let eDmg = Math.max(1, enemy.atk - game.def + Math.floor(Math.random()*2));
+      playerHp -= eDmg;
+      game.addMessage(`${enemy.name} 对你造成 ${eDmg} 点伤害`,'combat');
+    }
+    if (playerHp <= 0) {
+      game.hp = 0;
+      game.status = 'lost';
+      game.addMessage('你被击败了... 游戏结束','combat');
+      return;
+    }
+    game.hp = playerHp;
+    game.addMessage(`你击败了 ${enemy.name}！`,'combat');
+    applyDrop(enemy);
+  }
+
+  function movePlayer(dx, dy) {
+    if (game.status !== 'playing') return;
+    let nx = game.playerPos.x + dx;
+    let ny = game.playerPos.y + dy;
+    if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return;
+    let cell = game.map[ny][nx];
+    if (cell.type === 'wall') {
+      game.addMessage('前方是墙壁，无法通行','info');
+      return;
+    }
+    game.playerPos.x = nx;
+    game.playerPos.y = ny;
+    cell.explored = true;
+    if (cell.enemy) {
+      startCombat(cell.enemy);
+      if (game.status === 'lost') {
+        render();
+        return;
+      }
+      cell.enemy = null; // enemy defeated
+    }
+    if (cell.stairs === 'down' && game.status === 'playing') {
+      game.floor += 1;
+      game.addMessage(`进入第 ${game.floor} 层！`,'info');
+      if (game.floor > FLOOR_COUNT) {
+        game.status = 'won';
+        game.addMessage('你打败了地下塔守护者，赢得了胜利！','loot');
+      } else {
+        game.map = generateFloor(game.floor);
+        game.playerPos = {x:0, y:0};
+        game.map[0][0].explored = true;
+      }
+    }
+    if (cell.stairs === null && nx === COLS-1 && ny === ROWS-1 && game.floor === FLOOR_COUNT && game.status === 'playing') {
+      // boss cell, already combat initiated if enemy present
+      // check if boss dead
+      if (!cell.enemy) {
+        // boss already defeated, but we might have arrived after combat? boss cell already cleared in move
+        // Actually combat triggered above; if boss died, enemy becomes null.
+      }
+    }
+    render();
+  }
+
+  game.addMessage = function(msg, cls) {
+    this.messages.push({msg, cls});
+    if (this.messages.length > 50) this.messages.shift();
+  };
+
+  game.usePotion = function() {
+    if (this.status !== 'playing') return;
+    if (this.potion <= 0) {
+      this.addMessage('没有药水可用','info');
+      render();
+      return;
+    }
+    this.potion -= 1;
+    this.hp = Math.min(this.maxHp, this.hp + 30);
+    this.addMessage('使用了生命药水，恢复 30 HP','loot');
+    render();
+  };
+
+  function renderStats() {
+    document.getElementById('hp').textContent = game.hp + '/' + game.maxHp;
+    document.getElementById('atk').textContent = game.atk;
+    document.getElementById('def').textContent = game.def;
+    document.getElementById('gold').textContent = game.gold;
+    document.getElementById('potion').textContent = game.potion;
+    document.getElementById('floor').textContent = game.floor;
+  }
+
+  function renderMap() {
+    const container = document.getElementById('map');
+    container.innerHTML = '';
+    for (let y=0; y<ROWS; y++) {
+      for (let x=0; x<COLS; x++) {
+        let cell = game.map[y][x];
+        let div = document.createElement('div');
+        div.className = 'cell';
+        let isPlayer = (x === game.playerPos.x && y === game.playerPos.y);
+        if (cell.type === 'wall') {
+          div.classList.add('wall');
+          div.textContent = '■';
+        } else if (!cell.explored) {
+          div.classList.add('fog');
+          div.textContent = '';
+        } else {
+          div.classList.add('explored');
+          if (isPlayer) {
+            div.classList.add('player');
+            div.textContent = '👤';
+          } else if (cell.enemy) {
+            div.classList.add(cell.enemy.isBoss ? 'boss' : 'enemy');
+            div.textContent = cell.enemy.isBoss ? '💀' : '👾';
+          } else if (cell.stairs === 'down') {
+            div.classList.add('stairs-down');
+            div.textContent = '⬇';
+          } else if (cell.item) {
+            div.classList.add('treasure');
+            div.textContent = '💎';
+          } else {
+            div.textContent = '·';
+          }
+        }
+        container.appendChild(div);
+      }
+    }
+  }
+
+  function renderLog() {
+    const logDiv = document.getElementById('log');
+    logDiv.innerHTML = '';
+    for (let m of game.messages.slice(-20)) {
+      let p = document.createElement('div');
+      p.className = 'msg ' + m.cls;
+      p.textContent = m.msg;
+      logDiv.appendChild(p);
+    }
+    logDiv.scrollTop = logDiv.scrollHeight;
+  }
+
+  function render() {
+    renderStats();
+    renderMap();
+    renderLog();
+    if (game.status === 'won') {
+      alert('🎉 恭喜！你成功通关五层地下塔！');
+    } else if (game.status === 'lost') {
+      alert('💀 你倒在了地下塔中...\n点击重新开始');
+    }
+  }
+
+  window.restartGame = function() {
+    game.floor = 1;
+    game.hp = 100;
+    game.maxHp = 100;
+    game.atk = 10;
+    game.def = 5;
+    game.gold = 0;
+    game.potion = 0;
+    game.status = 'playing';
+    game.messages = [];
+    game.map = generateFloor(1);
+    game.playerPos = {x:0, y:0};
+    game.map[0][0].explored = true;
+    render();
+  };
+
+  window.addEventListener('keydown', function(e) {
+    if (game.status !== 'playing') return;
+    switch(e.key) {
+      case 'ArrowUp': movePlayer(0, -1); e.preventDefault(); break;
+      case 'ArrowDown': movePlayer(0, 1); e.preventDefault(); break;
+      case 'ArrowLeft': movePlayer(-1, 0); e.preventDefault(); break;
+      case 'ArrowRight': movePlayer(1, 0); e.preventDefault(); break;
+    }
+  });
+
+  // init
+  game.map = generateFloor(1);
+  game.playerPos = {x:0, y:0};
+  game.map[0][0].explored = true;
+  render();
+})();
+</script>
+</body>
+</html>

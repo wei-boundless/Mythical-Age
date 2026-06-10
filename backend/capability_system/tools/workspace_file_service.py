@@ -20,6 +20,7 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
 DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "backend/knowledge",
     "output",
+    "storage/runtime_cache",
     "storage/runtime_state/sandboxes",
 )
 TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "utf-8-sig", "gb18030", "gbk")

@@ -91,7 +91,8 @@ def test_task_environment_catalog_endpoint_reads_registry(tmp_path: Path) -> Non
     environment_ids = {item["record"]["environment_id"] for item in payload["environments"]}
     assert "env.general.workspace" in environment_ids
     assert "env.coding.vibe_workspace" in environment_ids
-    assert payload["summary"]["environment_count"] >= 4
+    assert "env.office.file_search" in environment_ids
+    assert payload["summary"]["environment_count"] == len(payload["environments"])
 
 
 def test_session_active_task_environment_api_validates_registry(tmp_path: Path) -> None:

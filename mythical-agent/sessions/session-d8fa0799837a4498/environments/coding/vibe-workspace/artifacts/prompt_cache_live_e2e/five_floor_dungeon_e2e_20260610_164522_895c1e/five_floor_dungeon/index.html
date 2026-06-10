@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五层地下塔</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', monospace;
+  background: #1a1a2e;
+  color: #eaeaea;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+#game-container {
+  max-width: 800px;
+  width: 100%;
+  background: #16213e;
+  border: 2px solid #0f3460;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 0 20px rgba(0,255,255,0.1);
+}
+h1, h2, h3 { color: #e94560; text-align: center; margin-bottom: 10px; }
+.stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  background: #0f3460;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+}
+.stats-bar span { margin: 0 10px; font-weight: bold; }
+.floor-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  margin: 15px 0;
+}
+.room {
+  aspect-ratio: 1;
+  border: 2px solid #0f3460;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  background: #1a1a2e;
+  color: #ccc;
+}
+.room:hover { background: #0f3460; }
+.room.player { border-color: #00ffcc; background: #0f3460; }
+.room.adjacent { border-color: #e94560; }
+.room.unknown { background: #000; color: #333; cursor: default; }
+.room.unknown:hover { background: #000; }
+.room-icon { font-size: 24px; }
+.room-label { font-size: 11px; }
+#message-log {
+  background: #0f3460;
+  border: 1px solid #e94560;
+  border-radius: 4px;
+  padding: 10px;
+  min-height: 80px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 15px 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+#combat-area {
+  background: #0f3460;
+  border: 1px solid #e94560;
+  border-radius: 4px;
+  padding: 15px;
+  margin: 15px 0;
+  display: none;
+}
+#combat-area.active { display: block; }
+.combat-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+button {
+  background: #e94560;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+button:hover { background: #ff6b6b; }
+button:disabled { background: #555; cursor: not-allowed; }
+#game-over-screen {
+  display: none;
+  text-align: center;
+  padding: 30px;
+}
+#game-over-screen.active { display: block; }
+#victory-screen {
+  display: none;
+  text-align: center;
+  padding: 30px;
+}
+#victory-screen.active { display: block; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <h1>⚔️ 五层地下塔 ⚔️</h1>
+  <div class="stats-bar">
+    <span>❤️ HP: <span id="hp">100</span>/<span id="max-hp">100</span></span>
+    <span>⚔️ 攻击: <span id="atk">10</span></span>
+    <span>🛡️ 防御: <span id="def">5</span></span>
+    <span>⭐ 等级: <span id="lvl">1</span></span>
+    <span>✨ 经验: <span id="xp">0</span>/<span id="xp-next">50</span></span>
+    <span>💰 金币: <span id="gold">0</span></span>
+    <span>🏰 层数: <span id="floor-display">1</span>/5</span>
+  </div>
+  <h3>地图</h3>
+  <div id="floor-grid" class="floor-grid"></div>
+  <div id="message-log">欢迎来到五层地下塔！探索每个房间，击败怪物，变强，到达第五层深处！</div>
+  <div id="combat-area">
+    <h3>⚔️ 战斗</h3>
+    <p>怪物: <span id="monster-name"></span></p>
+    <p>怪物 HP: <span id="monster-hp"></span></p>
+    <div class="combat-actions">
+      <button onclick="combatAction('attack')">攻击</button>
+      <button onclick="combatAction('potion')" id="potion-btn">使用药水</button>
+      <button onclick="combatAction('flee')">逃跑</button>
+    </div>
+    <div id="combat-log" style="margin-top:10px;"></div>
+  </div>
+  <div id="game-over-screen">
+    <h2>💀 你死了</h2>
+    <p>你倒在了地下塔的第 <span id="death-floor"></span> 层。</p>
+    <button onclick="restartGame()">重新开始</button>
+  </div>
+  <div id="victory-screen">
+    <h2>🏆 胜利！</h2>
+    <p>你征服了五层地下塔！</p>
+    <button onclick="restartGame()">再来一次</button>
+  </div>
+</div>
+<script>
+// 游戏状态
+const GRID_SIZE = 5;
+const MAX_FLOOR = 5;
+
+let player = {
+  hp: 100, maxHp: 100, attack: 10, defense: 5,
+  level: 1, xp: 0, xpNext: 50,
+  gold: 0,
+  potions: 3,
+  weapon: null, armor: null
+};
+
+let currentFloor = 1;
+let floorGrid = []; // 5x5 房间数据
+let playerPos = { r: 0, c: 0 };
+let gameOver = false;
+let victory = false;
+let combatActive = false;
+let currentMonster = null;
+
+// 怪物模板
+const monsterTypes = [
+  { name: '骷髅兵', hp: 30, attack: 8, defense: 2, xp: 30, gold: 10 },
+  { name: '哥布林', hp: 20, attack: 6, defense: 1, xp: 20, gold: 8 },
+  { name: '石像鬼', hp: 40, attack: 10, defense: 4, xp: 40, gold: 15 },
+  { name: '暗影法师', hp: 25, attack: 12, defense: 1, xp: 45, gold: 18 },
+  { name: '食人魔', hp: 60, attack: 14, defense: 5, xp: 60, gold: 25 },
+  { name: '蛇妖', hp: 35, attack: 9, defense: 3, xp: 35, gold: 12 },
+  { name: '幽灵', hp: 15, attack: 5, defense: 0, xp: 15, gold: 5 },
+  { name: '火焰元素', hp: 50, attack: 13, defense: 3, xp: 50, gold: 20 },
+];
+
+// 根据层数调整怪物属性
+function scaleMonster(monster) {
+  let m = Object.assign({}, monster);
+  m.hp = Math.floor(m.hp * (1 + 0.2 * (currentFloor - 1)));
+  m.attack = Math.floor(m.attack * (1 + 0.2 * (currentFloor - 1)));
+  m.defense = Math.floor(m.defense * (1 + 0.15 * (currentFloor - 1)));
+  m.xp = Math.floor(m.xp * (1 + 0.15 * (currentFloor - 1)));
+  m.gold = Math.floor(m.gold * (1 + 0.15 * (currentFloor - 1)));
+  return m;
+}
+
+// 物品
+const itemTypes = [
+  { name: '铁剑', type: 'weapon', attackBonus: 5 },
+  { name: '钢盾', type: 'armor', defenseBonus: 3 },
+  { name: '生命药水', type: 'potion', heal: 30 },
+  { name: '力量护符', type: 'weapon', attackBonus: 3 },
+  { name: '勇气盔甲', type: 'armor', defenseBonus: 2 },
+];
+
+// 生成一层
+function generateFloor() {
+  const grid = [];
+  // 初始化空白房间
+  for (let r = 0; r < GRID_SIZE; r++) {
+    grid[r] = [];
+    for (let c = 0; c < GRID_SIZE; c++) {
+      grid[r][c] = { type: 'empty', monster: null, item: null, stairs: false };
+    }
+  }
+
+  // 放置楼梯（下楼），只有一个，且不在玩家起始位置
+  const stairsPos = findEmptyRoomExcluding(0,0);
+  if (stairsPos) grid[stairsPos.r][stairsPos.c].stairs = true;
+
+  // 随机放置怪物（约40%房间）
+  const totalRooms = GRID_SIZE * GRID_SIZE;
+  const monsterCount = Math.floor(totalRooms * 0.4);
+  for (let i = 0; i < monsterCount; i++) {
+    const pos = findEmptyRoom();
+    if (pos) {
+      const monsterTmpl = monsterTypes[Math.floor(Math.random() * monsterTypes.length)];
+      grid[pos.r][pos.c].monster = scaleMonster(monsterTmpl);
+    }
+  }
+
+  // 随机放置物品（约25%房间）
+  const itemCount = Math.floor(totalRooms * 0.25);
+  for (let i = 0; i < itemCount; i++) {
+    const pos = findEmptyRoom();
+    if (pos && !grid[pos.r][pos.c].stairs) {
+      grid[pos.r][pos.c].item = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+    }
+  }
+
+  return grid;
+}
+
+// 查找空房间（无怪物、无物品、无楼梯）
+function findEmptyRoom() {
+  let attempts = 50;
+  while (attempts-- > 0) {
+    const r = Math.floor(Math.random() * GRID_SIZE);
+    const c = Math.floor(Math.random() * GRID_SIZE);
+    const room = floorGrid[r][c];
+    if (!room.monster && !room.item && !room.stairs && (r !== playerPos.r || c !== playerPos.c)) {
+      return { r, c };
+    }
+  }
+  return null;
+}
+
+function findEmptyRoomExcluding(er, ec) {
+  let attempts = 50;
+  while (attempts-- > 0) {
+    const r = Math.floor(Math.random() * GRID_SIZE);
+    const c = Math.floor(Math.random() * GRID_SIZE);
+    if (r === er && c === ec) continue;
+    const room = floorGrid[r][c];
+    if (!room.monster && !room.item && !room.stairs) {
+      return { r, c };
+    }
+  }
+  return null;
+}
+
+// 初始化游戏
+function initGame() {
+  player = {
+    hp: 100, maxHp: 100, attack: 10, defense: 5,
+    level: 1, xp: 0, xpNext: 50,
+    gold: 0,
+    potions: 3,
+    weapon: null, armor: null
+  };
+  currentFloor = 1;
+  gameOver = false;
+  victory = false;
+  combatActive = false;
+  currentMonster = null;
+  floorGrid = generateFloor();
+  playerPos = { r: 0, c: 0 };
+  updateUI();
+  showMessage('你进入地下塔第一层。寻找通往下一层的楼梯！');
+  document.getElementById('game-over-screen').classList.remove('active');
+  document.getElementById('victory-screen').classList.remove('active');
+  document.getElementById('combat-area').classList.remove('active');
+}
+
+// 重新开始
+function restartGame() {
+  initGame();
+}
+
+// 移动到指定房间
+function moveTo(r, c) {
+  if (gameOver || victory) return;
+  if (combatActive) { showMessage('战斗中无法移动！'); return; }
+  const dr = Math.abs(r - playerPos.r);
+  const dc = Math.abs(c - playerPos.c);
+  if (dr + dc !== 1) { showMessage('只能移动到相邻房间！'); return; }
+  playerPos = { r, c };
+  const room = floorGrid[r][c];
+
+  if (room.monster) {
+    startCombat(room.monster);
+  } else if (room.item) {
+    collectItem(room.item);
+    room.item = null;
+  } else if (room.stairs) {
+    descendStairs();
+  } else {
+    showMessage('这是一个空房间。');
+  }
+  updateUI();
+}
+
+// 收集物品
+function collectItem(item) {
+  if (item.type === 'weapon') {
+    // 比较攻击加成
+    const oldBonus = player.weapon ? player.weapon.attackBonus : 0;
+    if (item.attackBonus > oldBonus) {
+      player.weapon = item;
+      player.attack += (item.attackBonus - oldBonus);
+      showMessage('获得新武器：' + item.name + ' 攻击+'+item.attackBonus);
+    } else {
+      showMessage('物品 ' + item.name + ' 不如你现有武器，卖掉获得 ' + Math.floor(item.attackBonus*5) + ' 金币。');
+      player.gold += Math.floor(item.attackBonus * 5);
+    }
+  } else if (item.type === 'armor') {
+    const oldBonus = player.armor ? player.armor.defenseBonus : 0;
+    if (item.defenseBonus > oldBonus) {
+      player.armor = item;
+      player.defense += (item.defenseBonus - oldBonus);
+      showMessage('获得新护甲：' + item.name + ' 防御+'+item.defenseBonus);
+    } else {
+      showMessage('物品 ' + item.name + ' 不如你现有护甲，卖掉获得 ' + Math.floor(item.defenseBonus*5) + ' 金币。');
+      player.gold += Math.floor(item.defenseBonus * 5);
+    }
+  } else if (item.type === 'potion') {
+    player.potions++;
+    showMessage('获得一瓶生命药水。');
+  }
+  updateUI();
+}
+
+// 下楼
+function descendStairs() {
+  if (currentFloor >= MAX_FLOOR) {
+    victory = true;
+    showMessage('找到了通往地面的出口！你胜利了！');
+    document.getElementById('victory-screen').classList.add('active');
+    return;
+  }
+  currentFloor++;
+  floorGrid = generateFloor();
+  playerPos = { r: 0, c: 0 };
+  showMessage('你下到第 ' + currentFloor + ' 层。');
+  updateUI();
+}
+
+// 战斗系统
+function startCombat(monster) {
+  combatActive = true;
+  currentMonster = Object.assign({}, monster); // 拷贝
+  document.getElementById('combat-area').classList.add('active');
+  updateCombatUI();
+  showMessage('遭遇 ' + currentMonster.name + '！');
+}
+
+function combatAction(action) {
+  if (!combatActive || gameOver || victory) return;
+  const mon = currentMonster;
+  switch(action) {
+    case 'attack':
+      playerAttack();
+      break;
+    case 'potion':
+      usePotion();
+      break;
+    case 'flee':
+      attemptFlee();
+      break;
+  }
+}
+
+function playerAttack() {
+  const damage = Math.max(1, player.attack - currentMonster.defense);
+  currentMonster.hp -= damage;
+  document.getElementById('combat-log').innerText = '你对 ' + currentMonster.name + ' 造成 ' + damage + ' 点伤害。';
+  if (currentMonster.hp <= 0) {
+    monsterDefeated();
+    return;
+  }
+  monsterTurn();
+}
+
+function monsterTurn() {
+  const dmg = Math.max(1, currentMonster.attack - player.defense);
+  player.hp -= dmg;
+  document.getElementById('combat-log').innerText += '\n' + currentMonster.name + ' 对你造成 ' + dmg + ' 点伤害。';
+  if (player.hp <= 0) {
+    playerDeath();
+    return;
+  }
+  updateCombatUI();
+}
+
+function usePotion() {
+  if (player.potions <= 0) {
+    document.getElementById('combat-log').innerText = '没有药水了！';
+    return;
+  }
+  player.potions--;
+  const heal = 30 + Math.floor(Math.random() * 10);
+  player.hp = Math.min(player.maxHp, player.hp + heal);
+  document.getElementById('combat-log').innerText = '你喝下一瓶药水，恢复 ' + heal + ' 点生命。';
+  monsterTurn();
+}
+
+function attemptFlee() {
+  const chance = 0.4 + (player.level * 0.05);
+  if (Math.random() < chance) {
+    showMessage('你成功逃跑了！');
+    endCombat(false);
+    // 随机移动到相邻空房间
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (let [dr,dc] of dirs) {
+      const nr = playerPos.r + dr;
+      const nc = playerPos.c + dc;
+      if (nr>=0 && nr<GRID_SIZE && nc>=0 && nc<GRID_SIZE && !floorGrid[nr][nc].monster) {
+        playerPos = {r:nr, c:nc};
+        break;
+      }
+    }
+  } else {
+    document.getElementById('combat-log').innerText = '逃跑失败！';
+    monsterTurn();
+  }
+}
+
+function monsterDefeated() {
+  showMessage('你击败了 ' + currentMonster.name + '！');
+  player.xp += currentMonster.xp;
+  player.gold += currentMonster.gold;
+  floorGrid[playerPos.r][playerPos.c].monster = null;
+  checkLevelUp();
+  endCombat(true);
+}
+
+function playerDeath() {
+  gameOver = true;
+  document.getElementById('game-over-screen').classList.add('active');
+  document.getElementById('death-floor').innerText = currentFloor;
+  endCombat(false);
+  showMessage('你被击败了……');
+  document.getElementById('combat-area').classList.remove('active');
+}
+
+function endCombat(victoryFlag) {
+  combatActive = false;
+  currentMonster = null;
+  document.getElementById('combat-area').classList.remove('active');
+  updateUI();
+}
+
+function updateCombatUI() {
+  if (!currentMonster) return;
+  document.getElementById('monster-name').innerText = currentMonster.name;
+  document.getElementById('monster-hp').innerText = currentMonster.hp;
+  document.getElementById('potion-btn').disabled = player.potions <= 0;
+  updateUI();
+}
+
+// 升级
+function checkLevelUp() {
+  while (player.xp >= player.xpNext) {
+    player.xp -= player.xpNext;
+    player.level++;
+    player.xpNext = Math.floor(player.xpNext * 1.5);
+    player.maxHp += 10;
+    player.hp = player.maxHp; // 升级满血
+    player.attack += 2;
+    player.defense += 1;
+    showMessage('升级！现在是 Lv.' + player.level);
+  }
+}
+
+// UI 更新
+function updateUI() {
+  document.getElementById('hp').innerText = player.hp;
+  document.getElementById('max-hp').innerText = player.maxHp;
+  document.getElementById('atk').innerText = player.attack;
+  document.getElementById('def').innerText = player.defense;
+  document.getElementById('lvl').innerText = player.level;
+  document.getElementById('xp').innerText = player.xp;
+  document.getElementById('xp-next').innerText = player.xpNext;
+  document.getElementById('gold').innerText = player.gold;
+  document.getElementById('floor-display').innerText = currentFloor;
+  renderGrid();
+}
+
+function renderGrid() {
+  const gridDiv = document.getElementById('floor-grid');
+  gridDiv.innerHTML = '';
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const room = floorGrid[r][c];
+      const div = document.createElement('div');
+      div.className = 'room';
+      const dr = Math.abs(r - playerPos.r);
+      const dc = Math.abs(c - playerPos.c);
+      if (r === playerPos.r && c === playerPos.c) {
+        div.classList.add('player');
+      } else if (dr + dc === 1) {
+        div.classList.add('adjacent');
+      }
+      let icon = '';
+      let label = '';
+      if (room.monster) { icon = '👹'; label = '怪物'; }
+      else if (room.item) {
+        if (room.item.type === 'weapon') icon = '⚔️';
+        else if (room.item.type === 'armor') icon = '🛡️';
+        else if (room.item.type === 'potion') icon = '🧪';
+        label = '物品';
+      } else if (room.stairs) { icon = '⬇️'; label = '楼梯'; }
+      else {
+        icon = '⬜';
+      }
+      div.innerHTML = '<span class="room-icon">'+icon+'</span><span class="room-label">'+label+'</span>';
+      if (dr+dc === 1 && !gameOver && !victory && !combatActive) {
+        div.addEventListener('click', (() => { moveTo(r,c); }));
+        div.style.cursor = 'pointer';
+      } else {
+        div.style.cursor = 'default';
+      }
+      gridDiv.appendChild(div);
+    }
+  }
+}
+
+function showMessage(msg) {
+  const log = document.getElementById('message-log');
+  log.innerText += '\n' + msg;
+  log.scrollTop = log.scrollHeight;
+}
+
+// 启动
+initGame();
+</script>
+</body>
+</html>

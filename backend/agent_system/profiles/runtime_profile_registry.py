@@ -90,6 +90,15 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             blocked_operations=("op.python_repl", "op.memory_write_candidate", "op.git_push"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
             allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
+            model_profile=parse_agent_model_profile(
+                {
+                    "profile_id": "model.profile.main_interactive.action_control",
+                    "display_name": "Main interactive agent action control profile",
+                    "action_max_output_tokens": 65536,
+                    "action_timeout_seconds": 90,
+                    "action_long_output_timeout_seconds": 90,
+                }
+            ),
             subagent_policy=SubagentPolicy(
                 enabled=True,
                 allowed_subagent_ids=(
@@ -987,6 +996,11 @@ def _model_profile_has_default_authority(payload: dict[str, Any]) -> bool:
             "temperature",
             "thinking_mode",
             "reasoning_effort",
+            "action_max_output_tokens",
+            "action_timeout_seconds",
+            "action_long_output_timeout_seconds",
+            "action_thinking_mode",
+            "action_reasoning_effort",
             "stream_policy",
             "response_format",
         )
@@ -1065,5 +1079,3 @@ def _without_allowed_operations(blocked_operations: Any, *, allowed_operations: 
         seen.add(value)
         result.append(value)
     return tuple(result)
-
-

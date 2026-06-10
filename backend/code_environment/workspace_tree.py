@@ -41,6 +41,7 @@ EXCLUDED_RELATIVE_PATHS = {
     "storage/health_system",
     "storage/indexes",
     "storage/modality_artifacts",
+    "storage/runtime_cache",
     "storage/runtime_state",
     "storage/session_memory",
     "storage/sessions",

@@ -326,6 +326,17 @@ class GraphLoop:
                 "revision_target_node_ids": list(revision_targets),
                 "reset_node_ids": list(reset_node_ids),
             }
+        quality_retry_decision = _quality_same_node_retry_decision(graph_config=graph_config, state=next_state, result=envelope)
+        if quality_retry_decision:
+            next_state = _state_after_quality_same_node_retry(
+                graph_config=graph_config,
+                state=next_state,
+                decision=quality_retry_decision,
+            )
+            node_states = {key: dict(value) for key, value in next_state.node_states.items()}
+            edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
+            result_index = {key: dict(value) for key, value in next_state.result_index.items()}
+            active_work_orders = dict(next_state.active_work_orders)
         status_snapshot = self._state_machine.status_snapshot(
             graph_config=graph_config,
             node_states=node_states,
@@ -365,6 +376,7 @@ class GraphLoop:
                     "node_result": _node_result_summary(envelope, result_ref=result_ref),
                     "loop_route_decision": route_decision,
                     "revision_route_decision": revision_route_decision,
+                    "quality_retry_decision": quality_retry_decision,
                     "graph_loop_state": _loop_state_summary(next_state),
                     "node_work_orders": [_work_order_summary(item) for item in work_orders],
                     "graph_result": _graph_result_summary(graph_result),
@@ -2335,6 +2347,120 @@ def _blocked_nodes(
 
 def _node_is_resource(node: dict[str, Any]) -> bool:
     return str(node.get("node_class") or node.get("node_type") or "").strip() == "resource"
+
+
+def _quality_same_node_retry_decision(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+) -> dict[str, Any]:
+    if result.status != "blocked" or not _node_result_is_quality_gate_failure(result):
+        return {}
+    node = _node_by_id(graph_config, result.node_id) or {}
+    retry_policy = dict(node.get("retry") or {})
+    mode = str(retry_policy.get("quality_failure_mode") or retry_policy.get("failure_mode") or "").strip().lower()
+    if mode not in {"retry_same_node", "requeue_same_node"}:
+        return {}
+    max_retries = int(_numeric_value(retry_policy.get("max_quality_retries") or retry_policy.get("max_metric_retries"), 0) or 0)
+    if max_retries < 1:
+        return {}
+    failure_count = _quality_gate_failure_count(state=state, node_id=result.node_id)
+    if failure_count > max_retries:
+        return {}
+    return {
+        "authority": "harness.graph.quality_same_node_retry_decision",
+        "action": "requeue_same_node",
+        "node_id": result.node_id,
+        "result_id": result.result_id,
+        "attempt_index": failure_count,
+        "max_quality_retries": max_retries,
+        "reason": "quality_gate_failed",
+    }
+
+
+def _state_after_quality_same_node_retry(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    decision: dict[str, Any],
+) -> GraphLoopState:
+    node_id = str(decision.get("node_id") or "").strip()
+    if not node_id:
+        return state
+    node_states = {key: dict(value) for key, value in state.node_states.items()}
+    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+    active_work_orders = dict(state.active_work_orders)
+    now = time.time()
+    node = dict(node_states.get(node_id) or {})
+    if not node:
+        return state
+    node["status"] = "ready"
+    node["updated_at"] = now
+    for key in ("blocked_reason", "result_ref", "work_order_id", "human_gate"):
+        node.pop(key, None)
+    node_states[node_id] = node
+    active_work_orders.pop(node_id, None)
+    edge_states = _reset_outgoing_failed_edges(
+        edge_states=edge_states,
+        source_node_id=node_id,
+        updated_at=now,
+    )
+    target_set = {node_id}
+    return _replace_state(
+        state,
+        status="running",
+        node_states=node_states,
+        edge_states=edge_states,
+        active_work_orders=active_work_orders,
+        ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, node_id])),
+        running_node_ids=(),
+        blocked_node_ids=tuple(
+            current_node_id
+            for current_node_id, payload in node_states.items()
+            if current_node_id not in target_set and str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
+        ),
+        terminal_reason="",
+    )
+
+
+def _node_result_is_quality_gate_failure(result: NodeResultEnvelope) -> bool:
+    error = dict(result.error or {})
+    diagnostics = dict(result.diagnostics or {})
+    quality_acceptance = dict(diagnostics.get("quality_acceptance") or {})
+    return str(error.get("reason") or "").strip() == "quality_gate_failed" or quality_acceptance.get("accepted") is False
+
+
+def _quality_gate_failure_count(*, state: GraphLoopState, node_id: str) -> int:
+    reset_after = _quality_gate_retry_reset_after(state=state, node_id=node_id)
+    count = 0
+    for raw_summary in reversed(tuple(dict(state.result_history or {}).get(node_id) or ())):
+        if not isinstance(raw_summary, dict):
+            continue
+        summary = dict(raw_summary)
+        created_at = float(_numeric_value(summary.get("created_at"), 0.0) or 0.0)
+        if reset_after and (not created_at or created_at <= reset_after):
+            break
+        error = dict(summary.get("error") or {})
+        diagnostics = dict(summary.get("diagnostics") or {})
+        quality_acceptance = dict(diagnostics.get("quality_acceptance") or {})
+        if str(summary.get("status") or "") == "blocked" and (
+            str(error.get("reason") or "").strip() == "quality_gate_failed"
+            or quality_acceptance.get("accepted") is False
+        ):
+            count += 1
+            continue
+        break
+    return count
+
+
+def _quality_gate_retry_reset_after(*, state: GraphLoopState, node_id: str) -> float:
+    resets = dict(dict(state.diagnostics or {}).get("quality_retry_reset_after") or {})
+    value = resets.get(node_id)
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _ready_rejected_revision_targets(

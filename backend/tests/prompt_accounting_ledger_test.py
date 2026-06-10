@@ -388,6 +388,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "artifact_scope_stable",
         "tool_index_stable",
         "task_contract_stable",
+        "bound_task_context_stable",
         "task_runtime_boundary_stable",
         "task_state_replay_entry",
         "volatile_task_state",
@@ -401,6 +402,19 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "session_stable",
         "session_stable",
         "session_stable",
+        "volatile",
+        "volatile",
+    ]
+    assert [segment.prefix_tier for segment in segment_map.segments] == [
+        "provider_global",
+        "session",
+        "session",
+        "task",
+        "task",
+        "task",
+        "task",
+        "task",
+        "volatile",
         "volatile",
     ]
     assert not any(
@@ -427,7 +441,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
 
 
-def test_task_execution_replay_entries_append_before_volatile_state() -> None:
+def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:
     base_kwargs = {
         "session_id": "session:append-only",
         "task_run": {
@@ -499,9 +513,9 @@ def test_task_execution_replay_entries_append_before_volatile_state() -> None:
     )
     assert first_request.provider_global_prefix_hash == second_request.provider_global_prefix_hash
     assert first_request.session_prefix_hash == second_request.session_prefix_hash
-    assert first_request.task_prefix_hash != second_request.task_prefix_hash
-    assert first_request.stable_prefix_hash != second_request.stable_prefix_hash
-    assert second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"].count("task_state_replay_entry") == 2
+    assert first_request.task_prefix_hash == second_request.task_prefix_hash
+    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
+    assert "task_state_replay_entry" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert "task_runtime_boundary_stable" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True

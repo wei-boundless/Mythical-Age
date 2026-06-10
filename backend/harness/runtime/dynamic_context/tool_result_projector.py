@@ -125,7 +125,6 @@ class ToolResultProjector:
                 "code_structure": _compact_code_structure(normalized.get("code_structure")),
                 "content_range": dict(normalized.get("content_range") or {}),
                 "evidence_policy": evidence_policy,
-                "tool_guidance": compact_text(normalized.get("tool_guidance") or "", limit=500),
                 "content_replacements": content_replacements,
                 "rehydration_plan": rehydration_plan,
                 "authority": "harness.runtime.dynamic_context.tool_result_projection",
@@ -233,7 +232,6 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
             "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or parsed_text.get("result_ref") or ""),
             "code_structure": dict(envelope.get("code_structure") or item.get("code_structure") or parsed_text.get("code_structure") or structured.get("code_structure") or {}),
             "content_range": dict(result_metadata.get("content_range") or {}),
-            "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
             "error": error,
         }
     )
@@ -289,16 +287,7 @@ def _read_file_metadata_from_structured(
     )
     if not content_range:
         return {}
-    next_start_line = content_range.get("next_start_line")
-    if content_range.get("has_more") and next_start_line is not None:
-        guidance = (
-            f"read_file 已返回 {path} 的第 {content_range.get('start_line')} 行到第 {content_range.get('end_line')} 行。"
-            f"如仍需要后续内容，下一次应使用 start_line={next_start_line} 和 line_count={content_range.get('line_count') or ''}；不要重复读取相同行窗口。"
-            "修改或定位错误前，需要读取目标行所在的当前精确窗口。"
-        )
-    else:
-        guidance = f"read_file 已读到 {path} 的当前可用结尾；不要重复读取相同行窗口。修改或定位错误前，需要读取目标行所在的当前精确窗口。"
-    return {"content_range": content_range, "tool_guidance": guidance}
+    return {"content_range": content_range}
 
 
 def _build_rehydration_plan(

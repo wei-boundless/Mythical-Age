@@ -11,7 +11,8 @@ class DeepSeekProviderAdapter:
     def build(self, profile: ProviderRequestProfile) -> ProviderAdapterResult:
         thinking_enabled = str(profile.thinking_mode or "disabled").strip().lower() == "enabled"
         response_format = profile.normalized_response_format()
-        effective_base_url = _deepseek_effective_base_url(profile)
+        strict_tool_schema = bool(dict(profile.provider_extensions or {}).get("strict_tool_schema") is True)
+        effective_base_url = _deepseek_effective_base_url(profile, strict_tool_schema=strict_tool_schema)
         extra_body: dict[str, Any] = {
             "thinking": {
                 "type": "enabled" if thinking_enabled else "disabled",
@@ -25,6 +26,8 @@ class DeepSeekProviderAdapter:
             "completion_profile": dict(profile.completion_profile or {}),
             "structured_output": str(profile.structured_output or ""),
         }
+        if strict_tool_schema:
+            request_params["strict_tool_schema"] = True
         if response_format:
             model_kwargs["model_kwargs"] = {"response_format": response_format}
             request_params["response_format"] = response_format
@@ -38,18 +41,18 @@ class DeepSeekProviderAdapter:
                 "thinking_enabled": thinking_enabled,
                 "response_format_enabled": bool(response_format),
                 "chat_prefix_endpoint": effective_base_url.rstrip("/").endswith("/beta"),
+                "strict_tool_schema": strict_tool_schema,
             },
         )
 
 
-def _deepseek_effective_base_url(profile: ProviderRequestProfile) -> str:
+def _deepseek_effective_base_url(profile: ProviderRequestProfile, *, strict_tool_schema: bool = False) -> str:
     base_url = str(profile.base_url or "").rstrip("/")
     completion = dict(profile.completion_profile or {})
-    if (
+    needs_beta = strict_tool_schema or (
         str(completion.get("mode") or "").strip() == "chat_prefix"
         and str(completion.get("provider_mode") or "").strip() == "deepseek_chat_prefix"
-        and base_url
-        and not base_url.endswith("/beta")
-    ):
+    )
+    if needs_beta and base_url and not base_url.endswith("/beta"):
         return f"{base_url}/beta"
     return base_url

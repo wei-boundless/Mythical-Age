@@ -31,6 +31,7 @@ from harness.runtime.sandbox_artifacts import (
     sandbox_publish_scopes,
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
+from runtime.cache_manager import runtime_cache_manager_for_host
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -308,6 +309,7 @@ async def run_single_agent_turn(
             },
             native_tools=_native_tools_for_packet(compilation.packet.allowed_action_types, available_tools=compilation.packet.available_tools),
             allow_assistant_text_delta=not single_agent_requires_json_action,
+            require_json_action=single_agent_requires_json_action,
         ):
             if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                 response = model_event.get("response")
@@ -545,6 +547,7 @@ async def run_single_agent_turn(
                     },
                     native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
                     allow_assistant_text_delta=False,
+                    require_json_action=True,
                 ):
                     if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                         response = model_event.get("response")
@@ -1081,6 +1084,7 @@ async def run_single_agent_turn(
                 },
                 native_tools=_native_tools_for_packet(current_allowed_action_types, available_tools=current_available_tools),
                 allow_assistant_text_delta=not current_requires_json_action,
+                require_json_action=current_requires_json_action,
             ):
                 if model_event.get("type") == _INTERNAL_MODEL_RESPONSE_EVENT:
                     response = model_event.get("response")
@@ -1542,6 +1546,30 @@ async def _invoke_single_turn_model(
     )
 
 
+def _model_selection_with_json_object_contract(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection = _model_selection_with_action_budget(selection)
+    selection.setdefault("structured_output", "json_object")
+    selection.setdefault("response_format", {"type": "json_object"})
+    return selection
+
+
+def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    mappings = {
+        "action_max_output_tokens": "max_output_tokens",
+        "action_timeout_seconds": "timeout_seconds",
+        "action_long_output_timeout_seconds": "long_output_timeout_seconds",
+        "action_thinking_mode": "thinking_mode",
+        "action_reasoning_effort": "reasoning_effort",
+    }
+    for action_key, provider_key in mappings.items():
+        value = selection.pop(action_key, None)
+        if value not in (None, "", {}, []):
+            selection[provider_key] = value
+    return selection
+
+
 async def _invoke_single_turn_model_with_stream_events(
     *,
     model_runtime: Any,
@@ -1550,7 +1578,10 @@ async def _invoke_single_turn_model_with_stream_events(
     accounting_context: dict[str, Any],
     native_tools: list[dict[str, Any]],
     allow_assistant_text_delta: bool,
+    require_json_action: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
+    if require_json_action:
+        model_selection = _model_selection_with_json_object_contract(model_selection)
     stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
     stream_enabled = bool(stream_policy.get("enabled") is True)
     if not stream_enabled:
@@ -3247,12 +3278,10 @@ def _single_turn_sandbox_scope(
     )
     project_root = Path(_single_turn_workspace_root(assembly_payload, runtime_host=runtime_host)).resolve()
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
-    backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
-    runtime_root = Path(str(getattr(runtime_host, "root_dir", "") or (backend_dir / "storage" / "runtime"))).resolve()
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = str(turn_id or assembly_payload.get("turn_id") or "single_turn").replace(":", "_")
-        sandbox_root = str((runtime_root / "sandboxes" / namespace).resolve())
+        sandbox_root = str(runtime_cache_manager_for_host(runtime_host).sandbox_root(namespace))
     if storage.get("workspace_root") and "workspace_root" not in sandbox:
         sandbox["workspace_root"] = str(storage.get("workspace_root") or "")
     workspace_root = Path(str(sandbox.get("workspace_root") or project_root)).resolve()

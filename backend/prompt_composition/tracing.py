@@ -23,6 +23,7 @@ DYNAMIC_SEGMENT_KINDS = {
 RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "action_schema_static": "runtime_action_schema",
     "artifact_scope_stable": "runtime_artifact_scope",
+    "bound_task_context_stable": "runtime_bound_task_context",
     "environment_stable": "runtime_environment_boundary",
     "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",

@@ -5,11 +5,10 @@ from typing import Any
 
 from config import get_settings, runtime_config
 from context_system.budget.presets import get_context_budget_preset, normalize_context_budget_preset_id
+from runtime.model_gateway.providers import provider_capabilities_for
 
 
 CHARS_PER_TOKEN_ESTIMATE = 4
-
-_DEEPSEEK_1M_MODELS = frozenset({"deepseek-v4-pro", "deepseek-v4-flash"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +63,7 @@ def build_model_aware_context_budget_policy(
         provider=provider,
         model=model,
     )
+    capabilities = provider_capabilities_for(provider=provider, model=model)
     preset = get_context_budget_preset(effective_preset_id)
     reserved_output_tokens = max(int(preset.reserved_output_tokens), max_output_tokens)
     safety_margin_tokens = max(1024, int(preset.context_window_tokens * 0.02))
@@ -83,10 +83,12 @@ def build_model_aware_context_budget_policy(
     diagnostics = {
         "requested_context_window_tokens": int(get_context_budget_preset(requested_preset_id).context_window_tokens),
         "safety_margin_tokens": safety_margin_tokens,
-        "deepseek_1m_compatible": _is_deepseek_1m_model(provider=provider, model=model),
+        "provider_capability_source": str(capabilities.diagnostics.get("capability_source") or ""),
+        "provider_supported_context_budget_presets": list(capabilities.supported_context_budget_presets),
+        "deepseek_1m_compatible": capabilities.supports_context_budget_preset("deepseek_1m"),
     }
     if preset_status != "selected":
-        diagnostics["preset_rejection_reason"] = "deepseek_1m_requires_deepseek_v4_pro_or_flash"
+        diagnostics["preset_rejection_reason"] = "provider_capability_does_not_support_requested_context_budget_preset"
     return ModelAwareContextBudgetPolicy(
         invocation_kind=str(invocation_kind or ""),
         provider=provider,
@@ -135,16 +137,10 @@ def _requested_preset(*, selection: dict[str, Any], runtime_assembly: dict[str, 
 
 def _effective_preset_for_model(requested_preset_id: str, *, provider: str, model: str) -> tuple[str, str]:
     requested = normalize_context_budget_preset_id(requested_preset_id)
-    if requested == "deepseek_1m" and not _is_deepseek_1m_model(provider=provider, model=model):
+    capabilities = provider_capabilities_for(provider=provider, model=model)
+    if requested == "deepseek_1m" and not capabilities.supports_context_budget_preset(requested):
         return "long_128k", "incompatible_model_downgraded"
     return requested, "selected"
-
-
-def _is_deepseek_1m_model(*, provider: str, model: str) -> bool:
-    if str(provider or "").strip().lower() != "deepseek":
-        return False
-    normalized = str(model or "").strip().lower().split("/")[-1]
-    return normalized in _DEEPSEEK_1M_MODELS
 
 
 def _allocation_tokens(*, invocation_kind: str, available_context_tokens: int) -> dict[str, int]:

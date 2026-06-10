@@ -163,6 +163,50 @@ class ModelProfileResolver:
             or getattr(settings, "llm_reasoning_effort", "auto")
             or "auto"
         ).strip().lower()
+        action_max_output_tokens = _optional_positive_int(
+            requirement.action_max_output_tokens,
+            _optional_positive_int(agent_model_profile.action_max_output_tokens, None),
+        )
+        action_timeout_seconds = _optional_positive_float(
+            requirement.action_timeout_seconds,
+            _optional_positive_float(agent_model_profile.action_timeout_seconds, None),
+        )
+        action_long_output_timeout_seconds = _optional_positive_float(
+            requirement.action_long_output_timeout_seconds,
+            _optional_positive_float(agent_model_profile.action_long_output_timeout_seconds, None),
+        )
+        action_thinking_mode = str(
+            requirement.action_thinking_mode
+            or agent_model_profile.action_thinking_mode
+            or ""
+        ).strip().lower()
+        action_reasoning_effort = str(
+            requirement.action_reasoning_effort
+            or agent_model_profile.action_reasoning_effort
+            or ""
+        ).strip().lower()
+        if any(
+            value not in (None, "")
+            for value in (
+                agent_model_profile.action_max_output_tokens,
+                agent_model_profile.action_timeout_seconds,
+                agent_model_profile.action_long_output_timeout_seconds,
+                agent_model_profile.action_thinking_mode,
+                agent_model_profile.action_reasoning_effort,
+            )
+        ):
+            source_chain.append("agent_runtime_profile.model_profile.action_budget")
+        if any(
+            value not in (None, "")
+            for value in (
+                requirement.action_max_output_tokens,
+                requirement.action_timeout_seconds,
+                requirement.action_long_output_timeout_seconds,
+                requirement.action_thinking_mode,
+                requirement.action_reasoning_effort,
+            )
+        ):
+            source_chain.append("node.contract_bindings.runtime.model_requirement.action_budget")
 
         api_key = self.resolve_credential_ref(credential_ref=credential_ref, provider=provider)
         if not api_key and provider != "ollama":
@@ -200,6 +244,11 @@ class ModelProfileResolver:
             temperature=temperature,
             thinking_mode=thinking_mode or "disabled",
             reasoning_effort=reasoning_effort or "auto",
+            action_max_output_tokens=action_max_output_tokens,
+            action_timeout_seconds=action_timeout_seconds,
+            action_long_output_timeout_seconds=action_long_output_timeout_seconds,
+            action_thinking_mode=action_thinking_mode,
+            action_reasoning_effort=action_reasoning_effort,
             stream_policy=stream_policy,
             response_format=response_format,
             structured_output=structured_output,
@@ -356,6 +405,22 @@ def _positive_float(value: Any, default: float) -> float:
         parsed = float(value)
     except (TypeError, ValueError):
         parsed = float(default)
+    return max(0.01, parsed)
+
+
+def _optional_positive_int(value: Any, default: int | None) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, parsed)
+
+
+def _optional_positive_float(value: Any, default: float | None) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
     return max(0.01, parsed)
 
 

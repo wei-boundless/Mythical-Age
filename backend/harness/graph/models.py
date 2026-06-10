@@ -749,6 +749,8 @@ def _runtime_only_structure_key(key: str) -> bool:
         "temperature",
         "reasoning_effort",
         "thinking_mode",
+        "response_format",
+        "structured_output",
         "cache_policy",
         "prompt_cache",
         "prompt_cache_policy",

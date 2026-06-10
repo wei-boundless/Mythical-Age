@@ -152,8 +152,7 @@ class GraphRunBackgroundSupervisor:
             if not execution.get("accepted_result"):
                 return
             state = self._graph_loop.get_state(work_order.graph_run_id)
-            next_orders = _active_work_orders_from_state(state, services=self._services)
-            if not next_orders:
+            if not _state_needs_followup_submit(state):
                 return
             self.submit_until_idle(
                 graph_config=graph_config,
@@ -189,6 +188,18 @@ def _active_work_orders_from_state(state: Any | None, *, services: Any) -> tuple
             raise ValueError("GraphNodeWorkOrder node_id does not match active_work_orders")
         orders.append(order)
     return tuple(orders)
+
+
+def _state_needs_followup_submit(state: Any | None) -> bool:
+    if state is None:
+        return False
+    if dict(getattr(state, "active_work_orders", {}) or {}):
+        return True
+    if tuple(getattr(state, "ready_node_ids", ()) or ()):
+        return True
+    if str(getattr(state, "status", "") or "") in {"blocked", "failed"}:
+        return bool(tuple(getattr(state, "blocked_node_ids", ()) or ()) or tuple(getattr(state, "failed_node_ids", ()) or ()))
+    return False
 
 
 def _work_order_task_name(order: GraphNodeWorkOrder) -> str:

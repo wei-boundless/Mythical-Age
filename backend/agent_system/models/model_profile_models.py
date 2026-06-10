@@ -29,6 +29,11 @@ class AgentModelProfile:
     temperature: float | None = None
     thinking_mode: str = ""
     reasoning_effort: str = ""
+    action_max_output_tokens: int | None = None
+    action_timeout_seconds: float | None = None
+    action_long_output_timeout_seconds: float | None = None
+    action_thinking_mode: str = ""
+    action_reasoning_effort: str = ""
     stream_policy: dict[str, Any] = field(default_factory=dict)
     response_format: dict[str, Any] = field(default_factory=dict)
     fallback_profile_ref: str = ""
@@ -51,6 +56,11 @@ class ModelRequirement:
     min_context_tokens: int | None = None
     min_output_tokens: int | None = None
     preferred_output_tokens: int | None = None
+    action_max_output_tokens: int | None = None
+    action_timeout_seconds: float | None = None
+    action_long_output_timeout_seconds: float | None = None
+    action_thinking_mode: str = ""
+    action_reasoning_effort: str = ""
     thinking_mode: str = ""
     reasoning_required: bool | None = None
     streaming_required: bool | None = None
@@ -79,6 +89,11 @@ class ResolvedModelSpec:
     temperature: float
     thinking_mode: str
     reasoning_effort: str
+    action_max_output_tokens: int | None = None
+    action_timeout_seconds: float | None = None
+    action_long_output_timeout_seconds: float | None = None
+    action_thinking_mode: str = ""
+    action_reasoning_effort: str = ""
     stream_policy: dict[str, Any] = field(default_factory=dict)
     response_format: dict[str, Any] = field(default_factory=dict)
     structured_output: str = ""
@@ -99,6 +114,11 @@ class ResolvedModelSpec:
             "temperature": self.temperature,
             "thinking_mode": self.thinking_mode,
             "reasoning_effort": self.reasoning_effort,
+            "action_max_output_tokens": self.action_max_output_tokens,
+            "action_timeout_seconds": self.action_timeout_seconds,
+            "action_long_output_timeout_seconds": self.action_long_output_timeout_seconds,
+            "action_thinking_mode": self.action_thinking_mode,
+            "action_reasoning_effort": self.action_reasoning_effort,
             "stream_policy": dict(self.stream_policy or {}),
             "response_format": dict(self.response_format or {}),
             "structured_output": self.structured_output,
@@ -122,6 +142,11 @@ def parse_agent_model_profile(value: Any) -> AgentModelProfile:
         temperature=_optional_float(payload.get("temperature")),
         thinking_mode=str(payload.get("thinking_mode") or "").strip().lower(),
         reasoning_effort=str(payload.get("reasoning_effort") or "").strip().lower(),
+        action_max_output_tokens=_optional_int(payload.get("action_max_output_tokens")),
+        action_timeout_seconds=_optional_float(payload.get("action_timeout_seconds")),
+        action_long_output_timeout_seconds=_optional_float(payload.get("action_long_output_timeout_seconds")),
+        action_thinking_mode=str(payload.get("action_thinking_mode") or "").strip().lower(),
+        action_reasoning_effort=str(payload.get("action_reasoning_effort") or "").strip().lower(),
         stream_policy=dict(payload.get("stream_policy") or {}),
         response_format=_dict_or_empty(payload.get("response_format")),
         fallback_profile_ref=str(payload.get("fallback_profile_ref") or "").strip(),
@@ -141,6 +166,11 @@ def parse_model_requirement(value: Any) -> ModelRequirement:
         min_context_tokens=_optional_int(payload.get("min_context_tokens")),
         min_output_tokens=_optional_int(payload.get("min_output_tokens")),
         preferred_output_tokens=_optional_int(payload.get("preferred_output_tokens")),
+        action_max_output_tokens=_optional_int(payload.get("action_max_output_tokens")),
+        action_timeout_seconds=_optional_float(payload.get("action_timeout_seconds")),
+        action_long_output_timeout_seconds=_optional_float(payload.get("action_long_output_timeout_seconds")),
+        action_thinking_mode=str(payload.get("action_thinking_mode") or "").strip().lower(),
+        action_reasoning_effort=str(payload.get("action_reasoning_effort") or "").strip().lower(),
         thinking_mode=str(payload.get("thinking_mode") or "").strip().lower(),
         reasoning_required=_optional_bool(payload.get("reasoning_required")),
         streaming_required=_optional_bool(payload.get("streaming_required")),

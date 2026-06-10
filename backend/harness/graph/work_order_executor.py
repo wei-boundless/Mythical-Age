@@ -1944,6 +1944,8 @@ def _quality_failure_soft_passes(
     retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
     if str(retry_policy.get("quality_failure_mode") or "").strip().lower() != "retry_same_node":
         return False
+    if retry_policy.get("allow_quality_soft_pass") is not True:
+        return False
     max_retries = int(retry_policy.get("max_quality_retries") or retry_policy.get("max_metric_retries") or 0)
     if max_retries < 1:
         return False

@@ -584,7 +584,7 @@ def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_pat
     assert (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png").exists()
 
 
-def test_sandbox_terminal_materializes_full_workspace_snapshot_before_command(tmp_path: Path) -> None:
+def test_sandbox_terminal_does_not_materialize_full_workspace_by_default(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     (workspace / "backend" / "api").mkdir(parents=True)
@@ -603,12 +603,12 @@ def test_sandbox_terminal_materializes_full_workspace_snapshot_before_command(tm
     )
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"].splitlines() == ["True", "True"]
-    assert (sandbox_root / "backend" / "api" / "chat.py").exists()
-    assert (sandbox_root / "backend" / "tests" / "api" / "chat_api_regression.py").exists()
+    assert result["observation"].payload["result"].splitlines() == ["False", "False"]
+    assert not (sandbox_root / "backend" / "api" / "chat.py").exists()
+    assert not (sandbox_root / "backend" / "tests" / "api" / "chat_api_regression.py").exists()
 
 
-def test_sandbox_terminal_full_snapshot_excludes_secrets_git_and_dependency_dirs(tmp_path: Path) -> None:
+def test_sandbox_terminal_explicit_workspace_materialization_excludes_secrets_git_and_dependency_dirs(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     (workspace / "backend").mkdir(parents=True)
@@ -627,6 +627,7 @@ def test_sandbox_terminal_full_snapshot_excludes_secrets_git_and_dependency_dirs
             "command": "python -c \"from pathlib import Path; print(Path('backend/app.py').exists()); print(Path('.env.production').exists()); print(Path('.git/config').exists()); print(Path('node_modules/pkg/index.js').exists())\""
         },
         operation_id="op.shell",
+        sandbox_policy_extra={"materialized_roots": ["."]},
     )
 
     assert result["error"] == ""
@@ -637,7 +638,41 @@ def test_sandbox_terminal_full_snapshot_excludes_secrets_git_and_dependency_dirs
     assert not (sandbox_root / "node_modules" / "pkg" / "index.js").exists()
 
 
-def test_sandbox_terminal_full_snapshot_keeps_command_writes_in_sandbox(tmp_path: Path) -> None:
+def test_sandbox_terminal_explicit_workspace_materialization_excludes_runtime_generated_dirs(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "backend").mkdir(parents=True)
+    (workspace / "backend" / "app.py").write_text("APP = True\n", encoding="utf-8")
+    (workspace / "storage" / "runtime_state" / "sandboxes" / "old" / "nested").mkdir(parents=True)
+    (workspace / "storage" / "runtime_state" / "sandboxes" / "old" / "nested" / "state.json").write_text("{}", encoding="utf-8")
+    (workspace / "output" / "sandbox_runs" / "old").mkdir(parents=True)
+    (workspace / "output" / "sandbox_runs" / "old" / "artifact.txt").write_text("old", encoding="utf-8")
+    (workspace / "storage" / "runtime_cache" / "sandboxes" / "old").mkdir(parents=True)
+    (workspace / "storage" / "runtime_cache" / "sandboxes" / "old" / "cache.txt").write_text("cache", encoding="utf-8")
+    (workspace / "logs").mkdir(parents=True)
+    (workspace / "logs" / "backend.log").write_text("old log", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={
+            "command": "python -c \"from pathlib import Path; print(Path('backend/app.py').exists()); print(Path('storage/runtime_state/sandboxes/old/nested/state.json').exists()); print(Path('storage/runtime_cache/sandboxes/old/cache.txt').exists()); print(Path('output/sandbox_runs/old/artifact.txt').exists()); print(Path('logs/backend.log').exists())\""
+        },
+        operation_id="op.shell",
+        sandbox_policy_extra={"materialized_roots": ["."]},
+    )
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"].splitlines() == ["True", "False", "False", "False", "False"]
+    assert (sandbox_root / "backend" / "app.py").exists()
+    assert not (sandbox_root / "storage" / "runtime_state" / "sandboxes" / "old" / "nested" / "state.json").exists()
+    assert not (sandbox_root / "storage" / "runtime_cache" / "sandboxes" / "old" / "cache.txt").exists()
+    assert not (sandbox_root / "output" / "sandbox_runs" / "old" / "artifact.txt").exists()
+    assert not (sandbox_root / "logs" / "backend.log").exists()
+
+
+def test_sandbox_terminal_keeps_command_writes_in_sandbox(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     (workspace / "backend").mkdir(parents=True)
@@ -658,7 +693,7 @@ def test_sandbox_terminal_full_snapshot_keeps_command_writes_in_sandbox(tmp_path
     assert (sandbox_root / "generated.txt").read_text(encoding="utf-8") == "sandbox"
 
 
-def test_sandbox_terminal_full_snapshot_blocks_direct_real_workspace_absolute_path(tmp_path: Path) -> None:
+def test_sandbox_terminal_blocks_direct_real_workspace_absolute_path(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     real_file = workspace / "backend" / "app.py"

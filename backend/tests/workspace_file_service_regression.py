@@ -29,15 +29,27 @@ def test_glob_paths_excludes_runtime_sandbox_artifacts_by_default(tmp_path: Path
         / "artifacts"
         / "old.html"
     )
+    cache_file = (
+        tmp_path
+        / "project"
+        / "storage"
+        / "runtime_cache"
+        / "sandboxes"
+        / "taskrun_new"
+        / "artifact.html"
+    )
     public_file.parent.mkdir(parents=True)
     sandbox_file.parent.mkdir(parents=True)
+    cache_file.parent.mkdir(parents=True)
     public_file.write_text("<html>public</html>", encoding="utf-8")
     sandbox_file.write_text("<html>old sandbox</html>", encoding="utf-8")
+    cache_file.write_text("<html>cache</html>", encoding="utf-8")
 
     matches = WorkspaceFileService(backend_dir).glob_paths("**/*.html", max_results=20)
 
     assert "docs/game/index.html" in matches
     assert not any("storage/runtime_state/sandboxes" in item for item in matches)
+    assert not any("storage/runtime_cache" in item for item in matches)
 
 
 def test_glob_paths_excludes_output_by_default_but_allows_explicit_output(tmp_path: Path) -> None:

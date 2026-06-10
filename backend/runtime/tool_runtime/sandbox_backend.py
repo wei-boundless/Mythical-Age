@@ -34,7 +34,6 @@ FIXED_STORE_TOOL_NAMES = {"image_generate"}
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
 OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl", "glob_paths", "search_files", "search_text", "list_dir"}
-FULL_WORKSPACE_SNAPSHOT_TOOL_NAMES = {"terminal", "python_repl"}
 DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
     ".cache",
     ".git",
@@ -55,6 +54,14 @@ DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
     "node_modules",
     "target",
     "venv",
+}
+DEFAULT_FULL_WORKSPACE_EXCLUDED_PATH_PREFIXES = {
+    "backend/mythical-agent/sessions",
+    "backend/storage/logs",
+    "logs",
+    "output/sandbox_runs",
+    "storage/runtime_cache",
+    "storage/runtime_state",
 }
 DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES = {
     ".env",
@@ -147,8 +154,6 @@ class LocalOverlaySandboxBackend:
             return
         effective_tool_name = str(tool_name or "").strip()
         requested_roots = _requested_materialized_roots(context, effective_tool_name, tool_args)
-        if _requires_full_workspace_snapshot(context, effective_tool_name):
-            requested_roots = (".", *requested_roots)
         if effective_tool_name in OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES:
             self._materialize_roots(context, requested_roots=requested_roots)
         if effective_tool_name not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES and effective_tool_name not in OVERLAY_COPY_ON_READ_TOOL_NAMES:
@@ -183,6 +188,8 @@ class LocalOverlaySandboxBackend:
             if not _is_inside(source, context.workspace_root) or not _is_inside(target, context.sandbox_root):
                 continue
             if not source.exists():
+                continue
+            if _should_skip_workspace_path(source, root=context.workspace_root, context=context):
                 continue
             if source.is_file():
                 if _should_skip_workspace_file(source, root=context.workspace_root, context=context):
@@ -239,14 +246,6 @@ def _materialized_roots(context: SandboxToolContext, *, requested_roots: tuple[s
     return tuple(dict.fromkeys(roots))
 
 
-def _requires_full_workspace_snapshot(context: SandboxToolContext, tool_name: str) -> bool:
-    if context.mode != "workspace_overlay":
-        return False
-    if tool_name not in FULL_WORKSPACE_SNAPSHOT_TOOL_NAMES:
-        return False
-    return context.workspace_root is not None
-
-
 def _should_skip_workspace_path(path: Path, *, root: Path, context: SandboxToolContext) -> bool:
     if _is_inside(path.resolve(), context.sandbox_root.resolve()):
         return True
@@ -255,6 +254,8 @@ def _should_skip_workspace_path(path: Path, *, root: Path, context: SandboxToolC
     except ValueError:
         return True
     if any(part in DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES for part in relative.parts):
+        return True
+    if _is_excluded_workspace_relative_path(relative):
         return True
     if path.is_file() and _should_skip_workspace_file(path, root=root, context=context):
         return True
@@ -268,6 +269,8 @@ def _should_skip_workspace_file(path: Path, *, root: Path, context: SandboxToolC
         relative = path.resolve().relative_to(root.resolve())
     except ValueError:
         return True
+    if _is_excluded_workspace_relative_path(relative):
+        return True
     name = path.name
     lowered_name = name.lower()
     if lowered_name == ".env" or lowered_name.startswith(".env."):
@@ -275,6 +278,16 @@ def _should_skip_workspace_file(path: Path, *, root: Path, context: SandboxToolC
     if name in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES or lowered_name in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_NAMES:
         return True
     return any(lowered_name.endswith(suffix) for suffix in DEFAULT_FULL_WORKSPACE_EXCLUDED_FILE_SUFFIXES)
+
+
+def _is_excluded_workspace_relative_path(relative: Path) -> bool:
+    normalized = relative.as_posix().strip("/")
+    if not normalized or normalized == ".":
+        return False
+    return any(
+        normalized == prefix or normalized.startswith(f"{prefix}/")
+        for prefix in DEFAULT_FULL_WORKSPACE_EXCLUDED_PATH_PREFIXES
+    )
 
 
 def _requested_materialized_roots(context: SandboxToolContext, tool_name: str, tool_args: dict[str, Any]) -> tuple[str, ...]:

@@ -332,7 +332,7 @@ class GraphRunRunner:
         work_order: GraphNodeWorkOrder,
         execution: dict[str, Any],
     ) -> None:
-        task_run = self._executor_task_run_payload(execution)
+        task_run = self._executor_task_run_payload(execution, work_order=work_order)
         if not task_run:
             return
         if _task_run_origin_kind(task_run) != "graph_node_assigned":
@@ -342,9 +342,11 @@ class GraphRunRunner:
         if _task_run_work_order_id(task_run) != work_order.work_order_id:
             raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
 
-    def _executor_task_run_payload(self, execution: dict[str, Any]) -> dict[str, Any]:
+    def _executor_task_run_payload(self, execution: dict[str, Any], *, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
         task_run = dict(execution.get("node_executor_task_run") or {})
         if _task_run_origin_kind(task_run) and _task_run_graph_run_id(task_run) and _task_run_work_order_id(task_run):
+            if _task_run_work_order_id(task_run) != work_order.work_order_id:
+                raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
             return task_run
         task_run_id = str(
             task_run.get("task_run_id")
@@ -356,11 +358,18 @@ class GraphRunRunner:
         persisted = self._services.state_index.get_task_run(task_run_id)
         persisted_payload = persisted.to_dict() if hasattr(persisted, "to_dict") else (dict(persisted) if isinstance(persisted, dict) else {})
         if not persisted_payload:
-            return task_run
-        return {
+            if _task_run_work_order_id(task_run):
+                return task_run
+            return {}
+        resolved = {
             **persisted_payload,
             **{key: value for key, value in task_run.items() if value not in ("", None, {}, [])},
         }
+        if _task_run_work_order_id(resolved) and _task_run_work_order_id(resolved) != work_order.work_order_id:
+            raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
+        if not _task_run_work_order_id(resolved) and task_run_id == work_order.task_run_id:
+            return {}
+        return resolved
 
     def _append_runner_event(
         self,

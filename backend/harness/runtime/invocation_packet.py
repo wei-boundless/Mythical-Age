@@ -21,6 +21,7 @@ class RuntimeInvocationPacket:
     artifact_scope_manifest: dict[str, Any] = field(default_factory=dict)
     tool_catalog_manifest: dict[str, Any] = field(default_factory=dict)
     task_contract_manifest: dict[str, Any] = field(default_factory=dict)
+    bound_task_context_manifest: dict[str, Any] = field(default_factory=dict)
     prompt_pack_refs: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
     allowed_action_types: tuple[str, ...] = ()
@@ -62,6 +63,7 @@ class RuntimeInvocationPacket:
         payload["artifact_scope_manifest"] = dict(self.artifact_scope_manifest)
         payload["tool_catalog_manifest"] = dict(self.tool_catalog_manifest)
         payload["task_contract_manifest"] = dict(self.task_contract_manifest)
+        payload["bound_task_context_manifest"] = dict(self.bound_task_context_manifest)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["allowed_action_types"] = list(self.allowed_action_types)

@@ -40,6 +40,7 @@ from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
 from .action_schema_manifest import ActionSchemaManifest, build_action_schema_manifest
 from .artifact_scope_manifest import ArtifactScopeManifest, build_artifact_scope_manifest
+from .bound_task_context import build_bound_task_context
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, prompt_mount_plan_for_invocation, prompt_mount_plan_from_payload
 from .prompt_segment_plan import build_prompt_segment_plan
@@ -1003,6 +1004,14 @@ class RuntimeCompiler:
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dynamic_context.volatile_state_projection
+        bound_task_context = build_bound_task_context(
+            contract=contract,
+            planning_protocol=planning_protocol,
+            dynamic_context=dynamic_context,
+            task_state_projection=volatile_payload,
+            task_run_id=task_run_id,
+        )
+        bound_task_context_payload = bound_task_context.to_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
@@ -1146,6 +1155,25 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
+                    title="Task execution bound task context",
+                    payload=bound_task_context_payload,
+                    kind="bound_task_context_stable",
+                    source_ref=bound_task_context.source_ref,
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "bound_task_context",
+                        "semantic_layer": "L7_bound_task_context",
+                        "cache_impact": "task_prefix_stable",
+                        "projection_strategy": "task_bound_context_manifest",
+                        "content_source": "harness.runtime.bound_task_context",
+                    },
+                )
+                if bound_task_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
                     title="Task execution graph node runtime context",
                     payload=graph_node_runtime_context_payload,
                     kind="graph_node_runtime_context",
@@ -1282,6 +1310,8 @@ class RuntimeCompiler:
         artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
         task_contract_manifest_payload = _attach_task_contract_manifest(prompt_manifest, task_contract_manifest)
+        bound_task_context_manifest_payload = bound_task_context.to_manifest_payload()
+        prompt_manifest["bound_task_context_manifest"] = bound_task_context_manifest_payload
         prompt_composition_layers = [
             PromptCompositionLayerInput(
                 layer_id="runtime_pack",
@@ -1369,6 +1399,7 @@ class RuntimeCompiler:
             artifact_scope_manifest=artifact_scope_manifest_payload,
             tool_catalog_manifest=tool_catalog_manifest_payload,
             task_contract_manifest=task_contract_manifest_payload,
+            bound_task_context_manifest=bound_task_context_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
@@ -1384,6 +1415,7 @@ class RuntimeCompiler:
                 "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
                 "task_contract_manifest": task_contract_manifest_payload,
+                "bound_task_context_manifest": bound_task_context_manifest_payload,
                 "model_input_authority": "prompt_composition.message_projection",
                 "artifact_scope": {
                     **sandbox_execution_scope.to_diagnostics(),
@@ -2363,12 +2395,14 @@ def _task_state_replay_message_specs(entries: tuple[dict[str, Any], ...]) -> lis
                 payload={"task_state_replay_entry": entry},
                 kind="task_state_replay_entry",
                 source_ref=f"task_state_replay:{entry_ref}",
-                cache_scope="task",
-                cache_role="session_stable",
+                cache_scope="none",
+                cache_role="volatile",
                 compression_role="preserve",
                 metadata={
                     "authority_class": "runtime_state",
-                    "cache_impact": "task_prefix_append_only",
+                    "cache_impact": "volatile_suffix_append_only",
+                    "volatility_reason": "task_state_replay_entries append after each tool observation and must not change the cacheable task prefix",
+                    "dynamic_context_report_ref": "task_state_replay_entries",
                     "projection_strategy": "bounded_task_state_replay_entry",
                     "task_state_replay_entry_index": index,
                     "task_state_replay_entry_ref": entry_ref,
@@ -3885,7 +3919,6 @@ def _environment_model_visible_payload(
     prompt_mount_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = dict(environment_payload or {})
-    group = dict(payload.get("group") or {})
     storage = dict(payload.get("storage_space") or {})
     sandbox = dict(payload.get("sandbox_policy") or {})
     execution = dict(payload.get("execution_policy") or {})
@@ -3901,8 +3934,6 @@ def _environment_model_visible_payload(
     model_payload = {
         "environment_id": str(payload.get("environment_id") or payload.get("task_environment_id") or ""),
         "title": str(payload.get("title") or ""),
-        "description": str(payload.get("description") or ""),
-        "group_id": str(group.get("group_id") or ""),
         "environment_kind": str(payload.get("environment_kind") or ""),
         "storage": _drop_empty_payload(
             {
@@ -3922,18 +3953,15 @@ def _environment_model_visible_payload(
                 "canonical_write_policy": str(file_management.get("canonical_write_policy") or ""),
             }
         ),
-        "environment_prompt_refs": prompt_refs,
-        "prompt_mount_plan": _drop_empty_payload(
+        "prompt_mount_summary": _drop_empty_payload(
             {
                 "base_environment_id": mount_plan.base_environment_id,
                 "selected_environment_id": mount_plan.selected_environment_id,
-                "personality_prompt_refs": list(mount_plan.personality_prompt_refs),
-                "base_prompt_refs": list(mount_plan.base_prompt_refs),
-                "overlay_prompt_refs": list(mount_plan.overlay_prompt_refs),
-                "lifecycle_prompt_refs": list(mount_plan.lifecycle_prompt_refs),
-                "lifecycle_trigger_reasons": dict(mount_plan.lifecycle_trigger_reasons),
-                "environment_switch_policy": dict(mount_plan.environment_switch_policy),
-                "diagnostics": dict(mount_plan.diagnostics),
+                "environment_prompt_count": len(prompt_refs),
+                "base_prompt_count": len(mount_plan.base_prompt_refs),
+                "overlay_prompt_count": len(mount_plan.overlay_prompt_refs),
+                "lifecycle_prompt_count": len(mount_plan.lifecycle_prompt_refs),
+                "personality_prompt_count": len(mount_plan.personality_prompt_refs),
             }
         ),
         "boundary_contract": _drop_empty_payload(
@@ -3944,7 +3972,6 @@ def _environment_model_visible_payload(
                 "environment_prompt_role": str(boundary_contract.get("environment_prompt_role") or ""),
             }
         ),
-        "policy_hash": _stable_json_hash(payload) if payload else "",
         "authority": "task_system.environment.model_visible_projection",
     }
     return _drop_empty_payload(model_payload)

@@ -611,6 +611,83 @@ def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path)
     assert file_state[0]["evidence_refs"] == ["obs:read-native", "obs:read-native"]
 
 
+def test_task_execution_binds_plan_and_file_state_as_task_stable_context(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    read_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/harness/runtime/compiler.py", "start_line": 21, "line_count": 10},
+        result={
+            "text": "21 | from prompt_composition import (",
+            "structured_payload": {
+                "observed_paths": ["backend/harness/runtime/compiler.py"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "backend/harness/runtime/compiler.py",
+                    "start_line": 21,
+                    "end_line": 30,
+                    "returned_lines": 10,
+                    "line_count": 10,
+                    "total_lines": 3000,
+                    "next_start_line": 31,
+                    "has_more": True,
+                    "content_sha256": "sha256:compiler-window",
+                },
+            },
+        },
+        tool_call_id="call:read-compiler",
+        action_request_id="rtact:read-compiler",
+        caller_kind="task_run",
+        caller_ref="taskrun:bound-context",
+    )
+    FileStateAuthorityStore(storage_root).apply_observation(
+        "taskrun:bound-context",
+        {
+            "observation_id": "obs:read-compiler",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call:read-compiler",
+                "result_envelope": read_envelope.to_dict(),
+            },
+        },
+    )
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:bound-context",
+        task_run={"task_run_id": "taskrun:bound-context", "diagnostics": {"executor_status": "running"}},
+        contract={
+            "task_run_goal": "实现 bound task context",
+            "completion_criteria": ["bound context 进入 task stable prefix"],
+            "plan_ref": "plan:bound-context",
+            "implementation_lock": {"plan_ref": "plan:bound-context", "status": "approved"},
+        },
+        observations=[],
+        execution_state={"system_projection": {"runtime_status": "running"}},
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {
+                "environment_id": "env.coding.vibe_workspace",
+                "storage_space": {"runtime_state_root": str(storage_root)},
+            },
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    payload = _payload_containing_title(result.packet.model_messages, "Task execution bound task context")
+    bound = payload["bound_task_context"]
+    segment_kinds = [dict(item).get("kind") for item in result.packet.segment_plan["segments"]]
+
+    assert bound["plan_refs"] == ["plan:bound-context"]
+    assert bound["task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
+    assert bound["task_files"][0]["next_suggested_read"]["start_line"] == 31
+    assert bound["rehydration_refs"][0]["source"] == "file_state"
+    assert "task_run_id" not in json.dumps(payload, ensure_ascii=False)
+    assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("task_runtime_boundary_stable")
+    assert result.packet.bound_task_context_manifest["context_hash"] == bound["context_hash"]
+    bound_segment = next(item for item in result.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable")
+    assert bound_segment["cache_scope"] == "task"
+    assert bound_segment["cache_role"] == "session_stable"
+
+
 def test_task_execution_prompt_uses_canonical_artifact_scope_only() -> None:
     artifact_root = "storage/task_environments/coding/vibe-workspace/artifacts"
     requested_path = "artifacts/prompt_cache_live_e2e/run/index.html"
@@ -1608,6 +1685,8 @@ def test_model_aware_context_budget_uses_deepseek_1m_for_v4_models() -> None:
     assert policy.volatile_char_budget > 1_000_000
     assert policy.thinking_mode == "enabled"
     assert policy.reasoning_effort == "max"
+    assert policy.diagnostics["provider_capability_source"] == "runtime.model_gateway.providers.deepseek"
+    assert "deepseek_1m" in policy.diagnostics["provider_supported_context_budget_presets"]
 
 
 def test_model_aware_context_budget_does_not_enable_deepseek_1m_for_other_models() -> None:
@@ -1624,7 +1703,25 @@ def test_model_aware_context_budget_does_not_enable_deepseek_1m_for_other_models
     assert policy.effective_preset_id == "long_128k"
     assert policy.preset_status == "incompatible_model_downgraded"
     assert policy.context_window_tokens == 128_000
-    assert policy.diagnostics["preset_rejection_reason"] == "deepseek_1m_requires_deepseek_v4_pro_or_flash"
+    assert policy.diagnostics["preset_rejection_reason"] == "provider_capability_does_not_support_requested_context_budget_preset"
+    assert policy.diagnostics["provider_capability_source"] == "runtime.model_gateway.providers.openai_compatible"
+
+
+def test_model_aware_context_budget_does_not_enable_deepseek_1m_for_non_v4_deepseek_models() -> None:
+    policy = build_model_aware_context_budget_policy(
+        invocation_kind="single_agent_turn",
+        model_selection={
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "context_budget_preset": "deepseek_1m",
+        },
+    )
+
+    assert policy.requested_preset_id == "deepseek_1m"
+    assert policy.effective_preset_id == "long_128k"
+    assert policy.preset_status == "incompatible_model_downgraded"
+    assert policy.diagnostics["provider_capability_source"] == "runtime.model_gateway.providers.deepseek"
+    assert "deepseek_1m" not in policy.diagnostics["provider_supported_context_budget_presets"]
 
 
 def test_runtime_compiler_exposes_model_budget_policy_in_context_window_report() -> None:

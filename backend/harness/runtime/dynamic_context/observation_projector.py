@@ -193,7 +193,6 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "code_structure": dict(tool_projection.get("code_structure") or {}),
             "content_range": dict(tool_projection.get("content_range") or {}),
             "evidence_policy": dict(tool_projection.get("evidence_policy") or {}),
-            "tool_guidance": str(tool_projection.get("tool_guidance") or ""),
             "rehydration_plan": dict(tool_projection.get("rehydration_plan") or {}),
         }
     )

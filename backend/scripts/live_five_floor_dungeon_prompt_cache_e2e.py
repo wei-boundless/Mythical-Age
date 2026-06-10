@@ -35,7 +35,7 @@ def main() -> int:
     parser.add_argument("--min-provider-calls", type=int, default=4)
     parser.add_argument("--stop-after-provider-calls", type=int, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
-    parser.add_argument("--scenario", default="basic", choices=("basic", "complex"))
+    parser.add_argument("--scenario", default="basic", choices=("basic", "complex", "code_review"))
     parser.add_argument(
         "--output-root",
         default=str(PROJECT_ROOT / "storage" / "runtime_state" / "prompt_cache_live_tests"),
@@ -76,12 +76,17 @@ def _validate_model_mode_args(args: argparse.Namespace, parser: argparse.Argumen
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
-    run_id = f"five_floor_dungeon_e2e_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    scenario = str(getattr(args, "scenario", "basic") or "basic")
+    run_id_prefix = "code_review_cache_e2e" if scenario == "code_review" else "five_floor_dungeon_e2e"
+    run_id = f"{run_id_prefix}_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     report_dir = Path(args.output_root).resolve() / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
-    scenario = str(getattr(args, "scenario", "basic") or "basic")
-    artifact_dir = "five_floor_dungeon_complex" if scenario == "complex" else "five_floor_dungeon"
-    artifact_path = f"artifacts/prompt_cache_live_e2e/{run_id}/{artifact_dir}/index.html"
+    artifact_dir = "code_review" if scenario == "code_review" else "five_floor_dungeon_complex" if scenario == "complex" else "five_floor_dungeon"
+    artifact_path = (
+        f"artifacts/prompt_cache_live_e2e/{run_id}/{artifact_dir}/review.md"
+        if scenario == "code_review"
+        else f"artifacts/prompt_cache_live_e2e/{run_id}/{artifact_dir}/index.html"
+    )
 
     runtime = AppRuntime()
     runtime.initialize(BACKEND_DIR)
@@ -105,16 +110,19 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "reasoning_effort": str(args.reasoning_effort or "auto"),
     }
     runtime_contract = _runtime_contract(run_id=run_id, artifact_path=artifact_path, model_selection=model_selection, scenario=scenario)
-    request = HarnessRuntimeRequest(
-        session_id=session_id,
-        message=(
+    request_message = (
+        "启动真实代码审核缓存测试：请按系统给出的显式合同执行只读代码审查，不要修改或写入任何项目文件。"
+        if scenario == "code_review"
+        else (
             "启动真实长任务缓存测试：请按系统给出的显式合同完成复杂版五层地下塔网页小游戏。"
             if scenario == "complex"
             else "启动真实长任务缓存测试：请按系统给出的显式合同完成五层地下塔网页小游戏。"
         )
-        + (
-            "必须真实写入文件并验证，不要只写计划。"
-        ),
+        + "必须真实写入文件并验证，不要只写计划。"
+    )
+    request = HarnessRuntimeRequest(
+        session_id=session_id,
+        message=request_message,
         runtime_contract=runtime_contract,
         model_selection=model_selection,
     )
@@ -150,7 +158,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     measurement_ok = bool(provider_usage) and bool(segment_maps)
 
     report = {
-        "ok": measurement_ok and task_status == "completed",
+        "ok": measurement_ok
+        and (
+            task_status == "completed"
+            or (
+                int(args.stop_after_provider_calls or 0) > 0
+                and bool(wait_report.get("provider_usage_sufficient"))
+            )
+        ),
         "measurement_ok": measurement_ok,
         "authority": "backend.scripts.live_five_floor_dungeon_prompt_cache_e2e",
         "run_id": run_id,
@@ -187,6 +202,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[str, Any], scenario: str = "basic") -> dict[str, Any]:
+    if str(scenario or "basic") == "code_review":
+        return _code_review_runtime_contract(run_id=run_id, model_selection=model_selection)
     complex_scenario = str(scenario or "basic") == "complex"
     allowed_operations = [
         "op.model_response",
@@ -336,6 +353,94 @@ def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[
         "runtime_profile": {
             "task_environment_id": "env.coding.vibe_workspace",
             "model_requirement": model_selection,
+            "control_capabilities": {
+                "may_call_tools": True,
+                "may_request_task_run": False,
+                "may_use_subagents": False,
+                "requires_json_action_protocol": True,
+            },
+        },
+    }
+
+
+def _code_review_runtime_contract(*, run_id: str, model_selection: dict[str, Any]) -> dict[str, Any]:
+    allowed_operations = [
+        "op.model_response",
+        "op.read_file",
+        "op.list_dir",
+        "op.stat_path",
+        "op.path_exists",
+        "op.glob_paths",
+        "op.search_files",
+        "op.search_text",
+        "op.agent_todo",
+    ]
+    task_run_goal = (
+        "执行一次真实的只读代码审核任务，用于测量代码审核型 agent 运行中的 prompt cache。"
+        "审查范围限定在 prompt/cache/runtime 相关链路："
+        "`backend/runtime/prompt_accounting`, `backend/runtime/model_gateway`, "
+        "`backend/harness/loop`, `backend/agent_system/profiles`, "
+        "以及 `backend/scripts/diagnose_deepseek_prompt_cache.py`。"
+        "不得修改、写入、删除或格式化任何项目代码；不得写交付文件。"
+        "必须进行至少三轮独立的 read/search 观察："
+        "第一轮定位 prompt accounting/cache 记录链路；"
+        "第二轮审查 model runtime/provider usage 记录链路；"
+        "第三轮审查 harness action/task 执行与模型选择链路。"
+        "每轮观察之后再决定下一步，不要一次性结束。"
+        "最终只在 final_answer 中输出简短代码审核结论，列出真实文件引用、风险等级和 cache 相关判断。"
+    )
+    contract = {
+        "system_issued": True,
+        "contract_id": f"prompt-cache-live-code-review:{run_id}",
+        "task_environment_id": "env.coding.vibe_workspace",
+        "title": "代码审核 prompt cache 实测",
+        "user_visible_goal": "执行一次只读代码审核任务，测量代码审核型 prompt cache 表现。",
+        "task_run_goal": task_run_goal,
+        "required_artifacts": [],
+        "required_verifications": [
+            {
+                "kind": "read_only_code_inspection",
+                "description": "必须通过 read_file/search_text/glob_paths/list_dir 等只读工具审查真实代码文件。",
+            }
+        ],
+        "completion_criteria": [
+            "至少完成三轮独立的只读代码观察，且每轮后基于观察结果选择下一步。",
+            "覆盖 prompt accounting、model gateway/provider usage、harness loop/model selection 三类文件。",
+            "最终回答必须包含真实文件引用和 cache 相关审核结论。",
+            "不得执行任何代码修改、文件写入、删除或格式化。",
+        ],
+        "acceptance_policy": {
+            "fail_closed": True,
+            "artifact_evidence_required": False,
+            "verification_required": True,
+        },
+        "runtime_profile": {
+            "task_environment_id": "env.coding.vibe_workspace",
+            "model_requirement": model_selection,
+            "execution_permit": {
+                "allowed_operations": allowed_operations,
+                "operation_ceiling": allowed_operations,
+            },
+            "control_capabilities": {
+                "may_call_tools": True,
+                "may_request_task_run": False,
+                "may_use_subagents": False,
+                "requires_json_action_protocol": True,
+            },
+        },
+    }
+    return {
+        "system_issued_contract": True,
+        "task_environment_id": "env.coding.vibe_workspace",
+        "allowed_operations": allowed_operations,
+        "task_contract": contract,
+        "runtime_profile": {
+            "task_environment_id": "env.coding.vibe_workspace",
+            "model_requirement": model_selection,
+            "execution_permit": {
+                "allowed_operations": allowed_operations,
+                "operation_ceiling": allowed_operations,
+            },
             "control_capabilities": {
                 "may_call_tools": True,
                 "may_request_task_run": False,
