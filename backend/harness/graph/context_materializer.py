@@ -1256,7 +1256,10 @@ def _execution_inbound_contexts(value: Any) -> list[dict[str, Any]]:
 def _execution_context_payload(payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if isinstance(payload.get("initial_inputs"), dict):
-        result["initial_inputs"] = _execution_initial_inputs(payload.get("initial_inputs"))
+        result["initial_inputs"] = _execution_initial_inputs(
+            payload.get("initial_inputs"),
+            include_project_brief=str(payload.get("authority") or "") == "harness.graph.initial_input_payload",
+        )
     for key in ("graph_id", "project_id", "title"):
         if payload.get(key):
             result[key] = str(payload.get(key) or "")
@@ -1411,7 +1414,7 @@ def _execution_loop_frame(value: Any) -> dict[str, Any]:
     )
 
 
-def _execution_initial_inputs(value: Any) -> dict[str, Any]:
+def _execution_initial_inputs(value: Any, *, include_project_brief: bool = False) -> dict[str, Any]:
     payload = dict(value or {})
     allowed_keys = {
         *set(_loop_contract_inputs(payload).keys()),
@@ -1438,7 +1441,6 @@ def _execution_initial_inputs(value: Any) -> dict[str, Any]:
         "group_target_measure",
         "last_batch_words",
         "metric_label",
-        "project_brief",
         "project_title",
         "quality_gate_feedback",
         "revision_queue_chapter_indexes",
@@ -1461,12 +1463,12 @@ def _execution_initial_inputs(value: Any) -> dict[str, Any]:
             continue
         if key == "current_chapter_outline":
             result[key] = str(value)[:6000]
-        elif key == "project_brief":
-            result[key] = str(value)[:2000]
         elif key == "quality_gate_feedback" and isinstance(value, dict):
             result[key] = _truncate_value(value, max_chars=6000)
         else:
             result[key] = value
+    if include_project_brief and payload.get("project_brief"):
+        result["project_brief"] = str(payload.get("project_brief") or "")[:12000]
     return _drop_empty(result)
 
 

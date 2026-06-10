@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import { PublicTimelineActivity } from "./PublicTimelineActivity";
 
+function attributeValues(html: string, name: string) {
+  return Array.from(html.matchAll(new RegExp(`${name}="([^"]*)"`, "g"))).map((match) => match[1]);
+}
+
 describe("PublicTimelineActivity", () => {
   it("renders task projection current action and activities without exposing todo", () => {
     const html = renderToStaticMarkup(
@@ -219,73 +223,78 @@ describe("PublicTimelineActivity", () => {
     expect(html).not.toContain("public-run-activity__tool-window");
   });
 
-  it("renders recovery and observation feedback before task projection tools", () => {
+  it("orders timeline and task projection activity by runtime refs and merges matching tools", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         items: [
           {
-            item_id: "stream-restore:strun:test",
-            kind: "status_update",
+            item_id: "timeline:status:first",
+            kind: "work_action",
             slot: "timeline",
-            surface: "status_bar",
-            source_authority: "system",
-            title: "同步运行进度",
-            detail: "已拿到上次进度，继续同步后续结果。",
+            surface: "timeline",
+            source_authority: "runtime",
+            title: "phase-a",
             state: "running",
+            trace_refs: ["rtevt:taskrun:test:1:aaa"],
           },
           {
-            item_id: "observation:status",
-            kind: "observation_report",
-            slot: "status",
-            surface: "status_bar",
-            source_authority: "model",
-            title: "任务观察",
-            detail: "上一步观察已返回，继续按证据推进。",
-            state: "done",
-          },
-          {
-            item_id: "tool:timeline-read",
+            item_id: "tool:shared-read",
             kind: "work_action",
             slot: "tool",
             surface: "tool_window",
             source_authority: "tool",
-            title: "正在读取 projection.ts",
-            detail: "读取公开投影实现。",
+            action_kind: "read",
+            subject_label: "src/projection.ts",
+            title: "tool-a-running",
+            detail: "tool-a-call",
             state: "running",
+            trace_refs: ["rtevt:taskrun:test:2:bbb"],
+            tool_window: {
+              tool_label: "read_file",
+              target: "src/projection.ts",
+              status: "running",
+              sections: [{ label: "call", text: "src/projection.ts" }],
+            },
+          },
+          {
+            item_id: "timeline:status:last",
+            kind: "work_action",
+            slot: "timeline",
+            surface: "timeline",
+            source_authority: "runtime",
+            title: "phase-c",
+            state: "running",
+            trace_refs: ["rtevt:taskrun:test:4:ddd"],
           },
         ],
         taskProjections: [
           {
-            projection_id: "projection:taskrun:feedback-order",
+            projection_id: "projection:taskrun:ordered-merge",
             authority: "harness.runtime.single_agent_task_projection.v1",
-            task_run_id: "taskrun:feedback-order",
+            task_run_id: "taskrun:ordered-merge",
             status: "running",
             activities: [
               {
-                activity_id: "activity:empty-tool",
+                activity_id: "activity:shared-read-result",
                 kind: "action",
+                source_kind: "read",
+                tool_name: "read_file",
+                tool_target: "src/projection.ts",
                 display_surface: "tool_window",
                 visibility_level: "primary",
-                title: "正在执行操作",
-                state: "running",
+                title: "tool-a-done",
+                detail: "tool-a-result",
+                state: "completed",
+                event_ref: "rtevt:taskrun:test:2:bbb",
               },
               {
-                activity_id: "activity:observation",
+                activity_id: "activity:phase-b",
                 kind: "observation",
                 display_surface: "timeline",
                 visibility_level: "secondary",
-                title: "已确认任务投影链路",
-                detail: "观察反馈会先用于说明判断。",
+                title: "phase-b",
                 state: "completed",
-              },
-              {
-                activity_id: "activity:inspect-backend",
-                kind: "action",
-                tool_target: "backend",
-                display_surface: "tool_window",
-                visibility_level: "primary",
-                title: "正在确认目标 backend",
-                state: "running",
+                event_ref: "rtevt:taskrun:test:3:ccc",
               },
             ],
           },
@@ -293,16 +302,12 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html).toContain("同步运行进度");
-    expect(html).toContain("任务观察");
-    expect(html).toContain("已确认任务投影链路");
-    expect(html).toContain("正在读取 projection.ts");
-    expect(html).toContain("正在确认目标 backend");
-    expect(html).not.toContain("正在执行操作");
-    expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("任务观察"));
-    expect(html.indexOf("任务观察")).toBeLessThan(html.indexOf("已确认任务投影链路"));
-    expect(html.indexOf("已确认任务投影链路")).toBeLessThan(html.indexOf("正在读取 projection.ts"));
-    expect(html.indexOf("正在读取 projection.ts")).toBeLessThan(html.indexOf("正在确认目标 backend"));
+    expect(attributeValues(html, "data-activity-kind").filter((value) => value === "tool")).toHaveLength(1);
+    expect(attributeValues(html, "data-activity-source")).toContain("timeline+projection");
+    const orders = attributeValues(html, "data-activity-order").map(Number);
+    expect(orders).toHaveLength(4);
+    expect(orders).toEqual([...orders].sort((left, right) => left - right));
+    expect(Math.floor(orders[1])).toBe(2);
   });
 
   it("lets stopped task projection dominate stale running projection activity", () => {

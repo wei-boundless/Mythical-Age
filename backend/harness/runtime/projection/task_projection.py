@@ -144,18 +144,29 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
         step = text(payload.get("step"))
         if step in {"task_lifecycle_started", "task_executor_scheduled"}:
             return {}
-        summary = public_text(payload.get("public_progress_note") or payload.get("summary"), limit=180)
+        action_state = record(payload.get("public_action_state"))
+        summary = public_text(
+            payload.get("current_judgment")
+            or action_state.get("current_judgment")
+            or payload.get("agent_brief_output")
+            or payload.get("public_progress_note")
+            or payload.get("summary"),
+            limit=180,
+        )
         if not summary:
             return {}
+        next_action = public_text(payload.get("next_action") or action_state.get("next_action"), limit=180)
         return compact(
             {
                 "activity_id": stable_id("activity", event_id, step),
                 "kind": "progress",
                 "title": summary,
+                "detail": next_action if next_action != summary else "",
                 "state": "completed" if text(payload.get("status")) == "completed" else "running",
                 "event_ref": event_id,
                 "display_surface": "timeline",
                 "visibility_level": "secondary",
+                "source_kind": "stage_feedback",
             }
         )
     if event_type == "agent_todo_initialized":
@@ -180,15 +191,33 @@ def _current_action(
     todo_action = _current_action_from_todo(todo)
     if todo_action:
         return todo_action
-    title = public_text(monitor.get("latest_public_progress_note") or monitor.get("latest_step_summary"), limit=120)
+    latest_action_state = record(diagnostics.get("latest_public_action_state") or monitor.get("latest_public_action_state"))
+    title = public_text(
+        diagnostics.get("latest_current_judgment")
+        or latest_action_state.get("current_judgment")
+        or monitor.get("current_judgment")
+        or monitor.get("latest_current_judgment")
+        or monitor.get("latest_public_progress_note")
+        or monitor.get("latest_step_summary"),
+        limit=120,
+    )
     if not title:
         return {}
+    next_action = public_text(
+        diagnostics.get("latest_next_action")
+        or latest_action_state.get("next_action")
+        or monitor.get("next_action")
+        or monitor.get("latest_next_action"),
+        limit=180,
+    )
     return compact(
         {
             "title": title,
+            "detail": next_action if next_action != title else "",
             "state": "completed" if status in TERMINAL_STATUSES else "running",
             "display_surface": "timeline",
             "visibility_level": "secondary",
+            "source_kind": "stage_feedback",
         }
     )
 

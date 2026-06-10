@@ -272,6 +272,8 @@ def _public_event_data(*, public_event_type: str, event: dict[str, Any], monitor
             "public_progress_note": payload.get("public_progress_note"),
             "agent_brief_output": payload.get("agent_brief_output"),
             "current_judgment": payload.get("current_judgment"),
+            "next_action": payload.get("next_action"),
+            "completion_status": payload.get("completion_status"),
             "public_action_state": payload.get("public_action_state"),
             "tool_name": payload.get("tool_name"),
         }

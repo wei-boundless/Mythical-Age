@@ -20,12 +20,26 @@ type PublicTimelineActivityOptions = {
 
 type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
 
+type ActivityEntrySource = "timeline" | "projection";
+
 type ActivityEntry = {
   collapsed?: boolean;
   detail?: string;
+  eventRefs?: string[];
+  groupKey?: string;
   id: string;
   kind: "status" | "stopped" | "tool";
+  order?: number;
+  source?: ActivityEntrySource;
+  sourceIndex?: number;
+  sourceRank?: number;
+  sources?: ActivityEntrySource[];
+  state?: string;
+  stateRank?: number;
   text: string;
+  actionKind?: string;
+  toolName?: string;
+  toolTarget?: string;
   toolWindow?: ToolWindowProjection;
 };
 
@@ -49,11 +63,15 @@ export function PublicTimelineActivity({ items, taskProjections, compactComplete
   }
 
   return (
-    <div className={`public-run-activity public-run-activity--${view.tone}`} aria-label="处理进展">
+    <div
+      className={`public-run-activity public-run-activity--${view.tone}`}
+      aria-label="处理进展"
+      data-entry-count={view.entries.length}
+    >
       {view.entries.map((entry) => (
         entry.kind === "tool"
           ? <ToolWindow entry={entry} key={entry.id || entry.text} />
-        : <ActivityLine detail={entry.detail} kind={entry.kind} key={entry.id || entry.text} text={entry.text} />
+        : <ActivityLine entry={entry} key={entry.id || entry.text} />
       ))}
     </div>
   );
@@ -95,41 +113,47 @@ function publicTimelineActivityView(
 
 function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[]): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
+  let sourceIndex = 0;
+  const pushEntry = (entry: ActivityEntry | null) => {
+    if (!entry) {
+      return;
+    }
+    entries.push(finalizeActivityEntry(entry, "projection", sourceIndex++));
+  };
   for (const projection of projections) {
     const projectionId = cleanPublicTimelineText(projection.projection_id || projection.task_run_id);
     const projectionTone = taskProjectionStatusTone(projection.status);
     const lifecycleEntry = taskProjectionLifecycleEntry(projection, projectionId, projectionTone);
     if (lifecycleEntry) {
-      entries.push(lifecycleEntry);
+      pushEntry(lifecycleEntry);
     } else {
       const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
       if (currentAction) {
-        entries.push(currentAction);
+        pushEntry(currentAction);
       } else {
         const todoEntry = taskProjectionTodoStatusEntry(projection, projectionId);
         if (todoEntry) {
-          entries.push(todoEntry);
+          pushEntry(todoEntry);
         }
       }
     }
     for (const activity of projection.activities ?? []) {
       const entry = taskProjectionActivityEntry(activity, projectionId, projectionTone);
-      if (entry) {
-        entries.push(entry);
-      }
+      pushEntry(entry);
     }
     for (const artifact of projection.artifact_refs ?? []) {
       const label = cleanPublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
       if (!label) continue;
-      entries.push({
+      pushEntry({
         id: `${projectionId}:artifact:${label}`,
         kind: "status",
+        state: "done",
         text: "产物已更新",
         detail: label,
       });
     }
   }
-  return dedupeActivityEntries(entries);
+  return entries;
 }
 
 function taskProjectionLifecycleEntry(
@@ -160,6 +184,7 @@ function taskProjectionLifecycleEntry(
     detail,
     id: `${projectionId}:lifecycle:${status || projectionTone}`,
     kind: projectionTone === "waiting" ? "status" : "stopped",
+    state: status || projectionTone,
     text: title,
   };
 }
@@ -180,9 +205,12 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
   if (isGenericStatusActivity(title, detail)) {
     return null;
   }
+  const state = cleanPublicTimelineText(current.state).toLowerCase();
   return {
+    eventRefs: eventRefsFromUnknown(current.event_ref),
     id: `${projectionId}:current:${cleanPublicTimelineText(current.event_ref) || title || detail}`,
     kind: "status",
+    state,
     text: title || detail,
     detail,
   };
@@ -210,8 +238,10 @@ function taskProjectionTodoStatusEntry(projection: SingleAgentTaskProjection, pr
   }
   return {
     detail,
+    eventRefs: eventRefsFromUnknown((todo as Record<string, unknown>)?.trace_refs),
     id: `${projectionId}:todo:${cleanPublicTimelineText(todo?.plan_id) || detail}`,
     kind: "status",
+    state: completed >= total ? "completed" : "running",
     text: "任务进度",
   };
 }
@@ -248,12 +278,20 @@ function taskProjectionActivityEntry(
       ? "stopped"
       : "status";
   const observationDetail = [title, detail].filter(Boolean).join("\n");
+  const sourceKind = cleanPublicTimelineText(activity.source_kind);
+  const toolName = cleanPublicTimelineText(activity.tool_name);
+  const toolTarget = cleanPublicTimelineText(activity.tool_target);
   return {
     collapsed: entryKind === "tool" ? true : undefined,
+    eventRefs: eventRefsFromUnknown(activity.event_ref),
     id: `${projectionId}:activity:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || title || detail}`,
     kind: entryKind,
+    actionKind: sourceKind,
+    state,
     text: isObservation && entryKind !== "tool" ? "任务观察" : title || detail,
     detail: isObservation && entryKind !== "tool" ? observationDetail : detail && detail !== title ? detail : "",
+    toolName,
+    toolTarget,
     toolWindow: entryKind === "tool"
       ? {
           meta: taskProjectionToolMeta(activity, state),
@@ -270,10 +308,299 @@ function orderActivityEntries({
   timelineEntries: ActivityEntry[];
   projectionEntries: ActivityEntry[];
 }) {
-  const timelineFeedback = timelineEntries.filter((entry) => entry.kind !== "tool");
-  const timelineTools = timelineEntries.filter((entry) => entry.kind === "tool");
-  const projectionFeedback = projectionEntries.filter((entry) => entry.kind !== "tool");
-  return [...timelineFeedback, ...projectionFeedback, ...timelineTools];
+  return mergeAndOrderActivityEntries([...timelineEntries, ...projectionEntries]);
+}
+
+function mergeAndOrderActivityEntries(entries: ActivityEntry[]) {
+  const ordered = entries
+    .map((entry, index) => finalizeActivityEntry(entry, entry.source ?? "timeline", entry.sourceIndex ?? index))
+    .sort(compareActivityEntries);
+  const result: ActivityEntry[] = [];
+  const indexByKey = new Map<string, number>();
+  for (const entry of ordered) {
+    const keys = activityMergeKeys(entry);
+    const matchingIndexes = [...new Set(
+      keys
+        .map((key) => indexByKey.get(key))
+        .filter((value): value is number => value !== undefined),
+    )].sort((left, right) => left - right);
+    if (!matchingIndexes.length) {
+      result.push(entry);
+      rebuildActivityMergeIndex(result, indexByKey);
+      continue;
+    }
+    const targetIndex = matchingIndexes[0];
+    let merged = mergeActivityEntries(result[targetIndex], entry);
+    for (const duplicateIndex of matchingIndexes.slice(1).reverse()) {
+      merged = mergeActivityEntries(result[duplicateIndex], merged);
+      result.splice(duplicateIndex, 1);
+    }
+    result[targetIndex] = merged;
+    rebuildActivityMergeIndex(result, indexByKey);
+  }
+  return result.sort(compareActivityEntries);
+}
+
+function rebuildActivityMergeIndex(entries: ActivityEntry[], indexByKey: Map<string, number>) {
+  indexByKey.clear();
+  for (const [index, entry] of entries.entries()) {
+    for (const key of activityMergeKeys(entry)) {
+      if (!indexByKey.has(key)) {
+        indexByKey.set(key, index);
+      }
+    }
+  }
+}
+
+function mergeActivityEntries(left: ActivityEntry, right: ActivityEntry): ActivityEntry {
+  const mergedKind: ActivityEntry["kind"] = left.kind === "tool" || right.kind === "tool"
+    ? "tool"
+    : left.kind === "stopped" || right.kind === "stopped"
+      ? "stopped"
+      : "status";
+  const preferred = preferActivityEntry(left, right);
+  const secondary = preferred === left ? right : left;
+  const state = preferred.state || secondary.state;
+  const toolWindow = mergedKind === "tool"
+    ? mergeToolWindowProjection(activityToolWindowProjection(left), activityToolWindowProjection(right))
+    : undefined;
+  return {
+    ...preferred,
+    actionKind: preferred.actionKind || secondary.actionKind,
+    collapsed: mergedKind === "tool" ? mergedToolCollapsed(preferred, secondary, state) : undefined,
+    detail: mergeActivityDetail(preferred.detail, secondary.detail),
+    eventRefs: uniqueStrings([...(left.eventRefs ?? []), ...(right.eventRefs ?? [])]),
+    groupKey: preferred.groupKey || secondary.groupKey,
+    id: preferred.id || secondary.id,
+    kind: mergedKind,
+    order: Math.min(activityEntryOrder(left), activityEntryOrder(right)),
+    sourceIndex: Math.min(left.sourceIndex ?? 0, right.sourceIndex ?? 0),
+    sourceRank: Math.min(left.sourceRank ?? 0, right.sourceRank ?? 0),
+    sources: uniqueActivitySources([...(left.sources ?? sourceList(left.source)), ...(right.sources ?? sourceList(right.source))]),
+    state,
+    stateRank: Math.max(left.stateRank ?? activityStateRank(left.state), right.stateRank ?? activityStateRank(right.state)),
+    text: preferred.text || secondary.text,
+    toolName: preferred.toolName || secondary.toolName,
+    toolTarget: preferred.toolTarget || secondary.toolTarget,
+    toolWindow,
+  };
+}
+
+function preferActivityEntry(left: ActivityEntry, right: ActivityEntry) {
+  return activityDisplayRank(right) > activityDisplayRank(left) ? right : left;
+}
+
+function activityDisplayRank(entry: ActivityEntry) {
+  let rank = activityStateRank(entry.state) * 100;
+  rank += entry.source === "timeline" ? 14 : 8;
+  if (entry.toolTarget) rank += 6;
+  if (entry.detail) rank += 3;
+  if (entry.toolWindow?.sections.length) rank += 3;
+  if (entry.toolWindow?.meta.length) rank += 1;
+  if (isGenericCompletedToolText(entry.text)) rank -= 24;
+  if (/^[a-z0-9_.-]+\s+已返回$/i.test(entry.text)) rank -= 8;
+  return rank;
+}
+
+function mergeToolWindowProjection(
+  left: ToolWindowProjection | undefined,
+  right: ToolWindowProjection | undefined,
+): ToolWindowProjection | undefined {
+  const meta = uniqueStrings([...(left?.meta ?? []), ...(right?.meta ?? [])]).slice(0, 5);
+  const sections: ToolWindowProjection["sections"] = [];
+  const seen = new Set<string>();
+  for (const section of [...(left?.sections ?? []), ...(right?.sections ?? [])]) {
+    const label = shortText(cleanPublicTimelineText(section.label), 36);
+    const text = shortText(cleanPublicTimelineText(section.text), 260);
+    if (!label || !text) {
+      continue;
+    }
+    const key = compactActivityText(`${label}:${text}`);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    sections.push({ label, text });
+  }
+  if (!meta.length && !sections.length) {
+    return undefined;
+  }
+  return { meta, sections: sections.slice(0, 5) };
+}
+
+function activityToolWindowProjection(entry: ActivityEntry): ToolWindowProjection | undefined {
+  if (entry.toolWindow) {
+    return entry.toolWindow;
+  }
+  if (entry.kind !== "tool" || !entry.detail) {
+    return undefined;
+  }
+  return { meta: [], sections: [{ label: "结果", text: shortText(entry.detail, 260) }] };
+}
+
+function mergedToolCollapsed(preferred: ActivityEntry, secondary: ActivityEntry, state: string | undefined) {
+  const normalized = cleanPublicTimelineText(state).toLowerCase();
+  if (["", "running", "working", "partial", "error", "failed", "blocked", "missing"].includes(normalized)) {
+    return false;
+  }
+  if (typeof preferred.collapsed === "boolean") {
+    return preferred.collapsed;
+  }
+  if (typeof secondary.collapsed === "boolean") {
+    return secondary.collapsed;
+  }
+  return undefined;
+}
+
+function mergeActivityDetail(primary: string | undefined, secondary: string | undefined) {
+  const left = cleanPublicTimelineText(primary);
+  const right = cleanPublicTimelineText(secondary);
+  if (!left) return right;
+  if (!right) return left;
+  const compactLeft = compactActivityText(left);
+  const compactRight = compactActivityText(right);
+  if (compactLeft === compactRight || compactLeft.includes(compactRight)) {
+    return left;
+  }
+  if (compactRight.includes(compactLeft)) {
+    return right;
+  }
+  return `${left}\n${right}`;
+}
+
+function activityMergeKeys(entry: ActivityEntry) {
+  return uniqueStrings([
+    ...(entry.eventRefs ?? []).map((ref) => `event:${ref}`),
+    entry.groupKey,
+  ].filter(Boolean));
+}
+
+function finalizeActivityEntry(entry: ActivityEntry, source: ActivityEntrySource, sourceIndex: number): ActivityEntry {
+  const eventRefs = normalizedEventRefs(entry.eventRefs);
+  const sourceRank = source === "timeline" ? 0 : 1;
+  const finalized: ActivityEntry = {
+    ...entry,
+    eventRefs,
+    order: entry.order ?? activityOrderFromRefs(eventRefs, sourceIndex, sourceRank),
+    source,
+    sourceIndex,
+    sourceRank,
+    sources: entry.sources ?? [source],
+    stateRank: entry.stateRank ?? activityStateRank(entry.state),
+  };
+  return {
+    ...finalized,
+    groupKey: finalized.groupKey || activityGroupKey(finalized),
+  };
+}
+
+function activityGroupKey(entry: ActivityEntry) {
+  if (entry.kind !== "tool") {
+    return "";
+  }
+  const target = normalizedActivityKey(entry.toolTarget);
+  if (!target) {
+    return "";
+  }
+  const action = normalizedActivityKey(entry.actionKind || entry.toolName || "tool") || "tool";
+  return `tool:${action}:${target}`;
+}
+
+function activityOrderFromRefs(eventRefs: string[], sourceIndex: number, sourceRank: number) {
+  const order = eventRefs.map(eventRefOrder).find((value) => Number.isFinite(value));
+  if (order !== undefined) {
+    return Number(order) + sourceRank / 10 + sourceIndex / 10000;
+  }
+  return 100000 + sourceRank * 10000 + sourceIndex;
+}
+
+function eventRefOrder(ref: string) {
+  const parts = cleanPublicTimelineText(ref).split(":");
+  for (let index = parts.length - 2; index >= 0; index -= 1) {
+    const value = parts[index];
+    if (/^\d+$/.test(value)) {
+      return Number(value);
+    }
+  }
+  const last = parts.at(-1);
+  return last && /^\d+$/.test(last) ? Number(last) : Number.NaN;
+}
+
+function compareActivityEntries(left: ActivityEntry, right: ActivityEntry) {
+  return activityEntryOrder(left) - activityEntryOrder(right)
+    || (left.sourceRank ?? 0) - (right.sourceRank ?? 0)
+    || (left.sourceIndex ?? 0) - (right.sourceIndex ?? 0)
+    || left.id.localeCompare(right.id);
+}
+
+function activityEntryOrder(entry: ActivityEntry) {
+  return Number.isFinite(entry.order) ? Number(entry.order) : Number.MAX_SAFE_INTEGER;
+}
+
+function activityStateRank(state: unknown) {
+  const normalized = cleanPublicTimelineText(state).toLowerCase();
+  if (["error", "failed", "blocked", "missing"].includes(normalized)) return 5;
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return 5;
+  if (["completed", "complete", "done", "ready", "passed", "success"].includes(normalized)) return 4;
+  if (["waiting", "waiting_user", "waiting_approval", "waiting_safe_boundary", "queued", "paused"].includes(normalized)) return 3;
+  if (["running", "working", "partial", ""].includes(normalized)) return 2;
+  return 1;
+}
+
+function eventRefsFromUnknown(value: unknown) {
+  if (Array.isArray(value)) {
+    return normalizedEventRefs(value);
+  }
+  return normalizedEventRefs(
+    cleanPublicTimelineText(value)
+      .split(",")
+      .map((item) => item.trim()),
+  );
+}
+
+function normalizedEventRefs(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return uniqueStrings(values.map((value) => cleanPublicTimelineText(value)).filter(isRuntimeEventRef));
+}
+
+function isRuntimeEventRef(value: string) {
+  return /^(rtevt|event|rtobs|obs|toolobs):/.test(value);
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const text = cleanPublicTimelineText(value);
+    if (!text || seen.has(text)) {
+      continue;
+    }
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+}
+
+function uniqueActivitySources(values: ActivityEntrySource[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function sourceList(source: ActivityEntrySource | undefined) {
+  return source ? [source] : [];
+}
+
+function normalizedActivityKey(value: unknown) {
+  return cleanPublicTimelineText(value)
+    .replace(/^正在(?:调用|读取|写入|更新|确认|搜索|运行)\s*/g, "")
+    .replace(/^工具(?:已完成|结果已返回|已返回)\s*/g, "")
+    .replace(/^已(?:读取|写入|更新|确认|搜索)\s*/g, "")
+    .replace(/^命令已返回\s*/g, "")
+    .replace(/[\\]+/g, "/")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
@@ -442,20 +769,6 @@ function readableTaskActivityState(state: string) {
   return shortText(state, 48);
 }
 
-function dedupeActivityEntries(entries: ActivityEntry[]) {
-  const seen = new Set<string>();
-  const result: ActivityEntry[] = [];
-  for (const entry of entries) {
-    const key = entry.id || `${entry.kind}:${entry.text}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(entry);
-  }
-  return result;
-}
-
 function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelineActivityOptions = {}): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const [index, item] of items.entries()) {
@@ -477,16 +790,29 @@ function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelin
     if (kind === "status" && isGenericStatusActivity(text, detail)) {
       continue;
     }
+    const toolTarget = publicTimelineToolTarget(item);
     entries.push({
       collapsed: kind === "tool" ? shouldCollapseToolWindow(item) : undefined,
       detail,
+      eventRefs: eventRefsFromUnknown(item.trace_refs),
       id: String(item.item_id ?? "") || `${kind}:${index}:${text}`,
       kind,
+      actionKind: cleanPublicTimelineText(item.action_kind),
+      state: cleanPublicTimelineText(item.state).toLowerCase(),
       text: shortText(text, kind === "tool" ? 180 : 220),
+      toolName: cleanPublicTimelineText(item.tool_name),
+      toolTarget,
       toolWindow: kind === "tool" ? toolWindowProjection(item, detail) : undefined,
     });
   }
   return entries;
+}
+
+function publicTimelineToolTarget(item: PublicChatTimelineItem) {
+  return cleanPublicTimelineText(item.tool_window?.target)
+    || cleanPublicTimelineText(item.subject_label)
+    || cleanPublicTimelineText(item.path)
+    || cleanPublicTimelineText(item.href);
 }
 
 function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] | "" {
@@ -722,18 +1048,18 @@ function shortText(value: unknown, limit: number) {
   return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}...` : text;
 }
 
-function ActivityLine({
-  detail,
-  kind,
-  text,
-}: {
-  detail?: string;
-  kind: "status" | "stopped";
-  text: string;
-}) {
+function ActivityLine({ entry }: { entry: ActivityEntry }) {
+  const { detail, kind, text } = entry;
   const detailMarkdown = detail ? activityDetailMarkdown(detail) : "";
   return (
-    <div className={`public-run-activity__line public-run-activity__line--${kind}`}>
+    <div
+      className={`public-run-activity__line public-run-activity__line--${kind}`}
+      data-activity-group={entry.groupKey || undefined}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.kind}
+      data-activity-order={formatActivityOrder(entry.order)}
+      data-activity-source={activitySourcesLabel(entry)}
+    >
       <p>{text}</p>
       {detailMarkdown ? (
         <div className="public-run-activity__line-detail markdown">
@@ -764,6 +1090,11 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
   return (
     <details
       className="public-run-activity__tool-window"
+      data-activity-group={entry.groupKey || undefined}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.kind}
+      data-activity-order={formatActivityOrder(entry.order)}
+      data-activity-source={activitySourcesLabel(entry)}
       onToggle={(event) => setOpen(event.currentTarget.open)}
       open={open}
     >
@@ -793,4 +1124,15 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
       ) : null}
     </details>
   );
+}
+
+function formatActivityOrder(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+  return Number(value).toFixed(4).replace(/\.?0+$/g, "");
+}
+
+function activitySourcesLabel(entry: ActivityEntry) {
+  return (entry.sources?.length ? entry.sources : sourceList(entry.source)).join("+") || undefined;
 }
