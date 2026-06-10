@@ -75,9 +75,7 @@ class GraphContextMaterializer:
             session_policy=node_session_policy,
         )
         execution_input_package = _execution_input_package(input_package)
-        execution_memory_view = _execution_memory_view_request(input_package.get("memory_view"))
         execution_artifact_view = _execution_artifact_view_request(input_package.get("artifact_view"))
-        execution_file_view = _execution_file_view_request(input_package.get("file_view"))
         execution_expected_result_contract = _execution_expected_result_contract(input_package.get("expected_result_contract"))
         return GraphNodeWorkOrder(
             work_order_id=work_order_id,
@@ -123,16 +121,16 @@ class GraphContextMaterializer:
                 "authority": "harness.graph_loop.node_work_order_graph_state",
             },
             context_refs=dict(node.get("context") or {}),
-            memory_view_request=execution_memory_view,
+            memory_view_request={},
             artifact_view_request=execution_artifact_view,
-            file_view_request=execution_file_view,
+            file_view_request={},
             artifact_space_ref=str(environment_refs.get("artifact_space_ref") or ""),
             memory_space_ref=str(environment_refs.get("memory_space_ref") or ""),
-            file_access_table_refs=tuple(environment_refs.get("file_access_table_refs") or ()),
-            artifact_repository_targets=tuple(dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)),
-            memory_repository_targets=tuple(dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)),
-            permission_scope=dict(input_package.get("permission_summary") or graph_config.permissions or {}),
-            tool_scope=dict(input_package.get("tool_capability_table") or graph_config.tools or {}),
+            file_access_table_refs=(),
+            artifact_repository_targets=(),
+            memory_repository_targets=(),
+            permission_scope=_explicit_permission_scope(input_package),
+            tool_scope=_explicit_tool_scope(input_package),
             expected_result_contract=execution_expected_result_contract,
             async_policy=dict(node.get("async_policy") or {}),
             retry_policy=dict(node.get("retry") or {}),
@@ -211,10 +209,10 @@ class GraphContextMaterializer:
             },
             memory_contract={
                 "namespace_id": _memory_namespace_id(graph_config=graph_config, state=state),
-                "read_protocols": _memory_protocol_refs(read_protocols),
+                "read_protocol_count": len(read_protocols),
                 "resolved_snapshots": _execution_memory_snapshots(memory_resolution.get("resolved_snapshots")),
-                "write_candidate_protocols": _memory_protocol_refs(dict(memory_view.get("graph_memory_policy") or {}).get("write_rules")),
-                "commit_protocols": _memory_protocol_refs(dict(memory_view.get("graph_memory_policy") or {}).get("commit_rules")),
+                "write_candidate_protocol_count": len(list(dict(memory_view.get("graph_memory_policy") or {}).get("write_rules") or [])),
+                "commit_protocol_count": len(list(dict(memory_view.get("graph_memory_policy") or {}).get("commit_rules") or [])),
                 "memory_receipt_refs": list(memory_resolution.get("memory_receipt_refs") or []),
                 "diagnostics": dict(memory_resolution.get("diagnostics") or {}),
                 "memory_space_ref": str(input_package.get("memory_space_ref") or ""),
@@ -257,8 +255,6 @@ class GraphContextMaterializer:
                     "node_contract.model_requirement",
                     "node_contract.tool_contract",
                     "node_contract.permission_contract",
-                    "memory_contract.read_protocols",
-                    "memory_contract.commit_protocols",
                     "output_contract.artifact_targets",
                 ],
                 "model_visible_projection": [
@@ -314,7 +310,6 @@ class GraphContextMaterializer:
             "prompt_contract": prompt_contract,
             "compiled_node_contract": compiled_node_contract,
             "task_environment_id": task_environment_id,
-            "task_environment": dict(graph_config.environment or {}),
             "runtime_scope": _runtime_scope_from_state(state),
             "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract),
             "execution_boundary": {
@@ -351,8 +346,8 @@ class GraphContextMaterializer:
             "artifact_repository_targets": [dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)],
             "memory_repository_targets": [dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)],
             "issue_view": _issue_view_request(graph_config=graph_config, node=node),
-            "permission_summary": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or graph_config.permissions or {}),
-            "tool_capability_table": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or graph_config.tools or {}),
+            "permission_summary": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or {}),
+            "tool_capability_table": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or {}),
             "hidden_control_refs": {
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
@@ -1111,6 +1106,513 @@ def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
+def _execution_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(input_package or {})
+    return _drop_empty(
+        {
+            "package_id": str(payload.get("package_id") or ""),
+            "authority": str(payload.get("authority") or "harness.graph.node_materialization_package"),
+            "materializer_authority": str(payload.get("materializer_authority") or ""),
+            "node_identity": _execution_node_identity(payload.get("node_identity")),
+            "task_environment_id": str(payload.get("task_environment_id") or ""),
+            "runtime_scope": _execution_runtime_scope(payload.get("runtime_scope")),
+            "execution_boundary": dict(payload.get("execution_boundary") or {}),
+            "agent_instruction": str(payload.get("agent_instruction") or ""),
+            "initial_inputs": _execution_initial_inputs(payload.get("initial_inputs")),
+            "loop_context": _execution_loop_context(payload.get("loop_context")),
+            "inbound_context": _execution_inbound_contexts(payload.get("inbound_context")),
+        }
+    )
+
+
+def _execution_node_identity(value: Any) -> dict[str, Any]:
+    identity = dict(value or {})
+    return _drop_empty(
+        {
+            "node_id": str(identity.get("node_id") or ""),
+            "title": str(identity.get("title") or ""),
+            "node_type": str(identity.get("node_type") or ""),
+            "task_ref": str(identity.get("task_ref") or ""),
+            "agent_id": str(identity.get("agent_id") or ""),
+            "agent_profile_id": str(identity.get("agent_profile_id") or ""),
+        }
+    )
+
+
+def _execution_runtime_scope(value: Any) -> dict[str, Any]:
+    scope = dict(value or {})
+    allowed = {
+        "project_id",
+        "graph_task_instance_id",
+        "workspace_view",
+        "artifact_root",
+        "scope_id",
+        "graph_binding_mode",
+        "memory_namespace_id",
+    }
+    return _drop_empty({key: scope.get(key) for key in allowed})
+
+
+def _explicit_permission_scope(input_package: dict[str, Any]) -> dict[str, Any]:
+    return dict(dict(input_package or {}).get("permission_summary") or {})
+
+
+def _explicit_tool_scope(input_package: dict[str, Any]) -> dict[str, Any]:
+    return dict(dict(input_package or {}).get("tool_capability_table") or {})
+
+
+def _execution_runtime_policy(value: Any) -> dict[str, Any]:
+    policy = dict(value or {})
+    return _drop_empty(
+        {
+            "source": str(policy.get("source") or ""),
+            "node_id": str(policy.get("node_id") or ""),
+            "context_policy": dict(policy.get("context_policy") or {}),
+            "prompt_pack_refs_by_invocation": dict(policy.get("prompt_pack_refs_by_invocation") or {}),
+            "operation_authorization_projection": dict(policy.get("operation_authorization_projection") or {}),
+            "prompt_policy": dict(policy.get("prompt_policy") or {}),
+            "subagent_policy": dict(policy.get("subagent_policy") or {}),
+            "control_capabilities": dict(policy.get("control_capabilities") or {}),
+        }
+    )
+
+
+def _execution_artifact_view_request(value: Any) -> dict[str, Any]:
+    view = dict(value or {})
+    graph_policy = dict(view.get("graph_artifact_policy") or {})
+    return _drop_empty(
+        {
+            "artifact_space_ref": str(view.get("artifact_space_ref") or ""),
+            "node_artifact_policy": dict(view.get("node_artifact_policy") or {}),
+            "graph_artifact_policy": _drop_empty(
+                {
+                    "context_edges": _memory_protocol_refs(graph_policy.get("context_edges")),
+                    "context_edge_count": graph_policy.get("context_edge_count"),
+                    "total_context_edge_count": graph_policy.get("total_context_edge_count"),
+                    "authority": str(graph_policy.get("authority") or ""),
+                }
+            ),
+        }
+    )
+
+
+def _execution_expected_result_contract(value: Any) -> dict[str, Any]:
+    contract = dict(value or {})
+    bindings = dict(contract.get("contract_bindings") or {})
+    slim_bindings = {
+        key: dict(bindings.get(key) or {})
+        for key in ("output", "artifact", "acceptance")
+        if isinstance(bindings.get(key), dict) and dict(bindings.get(key) or {})
+    }
+    return _drop_empty(
+        {
+            "node_contract_id": str(contract.get("node_contract_id") or ""),
+            "input_contract_id": str(contract.get("input_contract_id") or ""),
+            "output_contract_id": str(contract.get("output_contract_id") or ""),
+            "contract_bindings": slim_bindings,
+            "required_sections": [str(item) for item in list(contract.get("required_sections") or []) if str(item)],
+            "constraints": [str(item) for item in list(contract.get("constraints") or []) if str(item)],
+            "authority": str(contract.get("authority") or "harness.graph.execution_expected_result_contract"),
+        }
+    )
+
+
+def _execution_inbound_contexts(value: Any) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for item in list(value or [])[:16]:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item.get("payload") or {})
+        contexts.append(
+            _drop_empty(
+                {
+                    "authority": str(item.get("authority") or "harness.graph.inbound_context"),
+                    "context_id": str(item.get("context_id") or ""),
+                    "packet_id": str(item.get("packet_id") or ""),
+                    "packet_ref": str(item.get("packet_ref") or ""),
+                    "packet_type": str(item.get("packet_type") or ""),
+                    "source_node_id": str(item.get("source_node_id") or ""),
+                    "target_node_id": str(item.get("target_node_id") or ""),
+                    "source_edge_id": str(item.get("source_edge_id") or ""),
+                    "edge_id": str(item.get("edge_id") or item.get("source_edge_id") or ""),
+                    "payload_contract_id": str(item.get("payload_contract_id") or ""),
+                    "packet_contract_id": str(item.get("packet_contract_id") or item.get("payload_contract_id") or ""),
+                    "target_context_key": str(item.get("target_context_key") or ""),
+                    "target_input_slot": str(item.get("target_input_slot") or ""),
+                    "delivery_policy": str(item.get("delivery_policy") or ""),
+                    "payload": _execution_context_payload(payload),
+                    "artifact_refs": _artifact_ref_summaries(item.get("artifact_refs")),
+                    "memory_refs": _bounded_dicts(item.get("memory_refs"), limit=12),
+                    "result_refs": _bounded_dicts(item.get("result_refs"), limit=8),
+                    "receipt_refs": _bounded_dicts(item.get("receipt_refs"), limit=12),
+                    "visibility": dict(item.get("visibility") or {}),
+                    "lineage": _execution_lineage(item.get("lineage")),
+                }
+            )
+        )
+    return contexts
+
+
+def _execution_context_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if isinstance(payload.get("initial_inputs"), dict):
+        result["initial_inputs"] = _execution_initial_inputs(payload.get("initial_inputs"))
+    for key in ("graph_id", "project_id", "title"):
+        if payload.get(key):
+            result[key] = str(payload.get(key) or "")
+    if payload.get("handoff_summary"):
+        result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
+    if isinstance(payload.get("source_error"), dict):
+        result["source_error"] = _truncate_value(dict(payload.get("source_error") or {}), max_chars=4000)
+    if isinstance(payload.get("quality_acceptance"), dict):
+        result["quality_acceptance"] = _truncate_value(dict(payload.get("quality_acceptance") or {}), max_chars=4000)
+    if payload.get("quality_issue_summary"):
+        result["quality_issue_summary"] = str(payload.get("quality_issue_summary") or "")[:4000]
+    if isinstance(payload.get("issues"), list):
+        result["issues"] = [str(item) for item in list(payload.get("issues") or [])[:32] if str(item)]
+    if isinstance(payload.get("artifact_refs"), list):
+        result["artifact_refs"] = _artifact_ref_values(payload.get("artifact_refs"))[:16]
+    if isinstance(payload.get("receipt_refs"), list):
+        result["receipt_refs"] = _bounded_dicts(payload.get("receipt_refs"), limit=12)
+    if isinstance(payload.get("bounded_outputs"), dict):
+        result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=8000)
+    if isinstance(payload.get("loop_iteration_results"), list):
+        result["loop_iteration_results"] = _truncate_value(list(payload.get("loop_iteration_results") or [])[:10], max_chars=6000)
+    if isinstance(payload.get("batch_chapter_ledger"), dict):
+        result["batch_chapter_ledger"] = _compact_batch_chapter_ledger(dict(payload.get("batch_chapter_ledger") or {}))
+    if isinstance(payload.get("artifact_payloads"), list):
+        payload_limit = 6 if isinstance(payload.get("loop_iteration_results"), list) else 2
+        result["artifact_payloads"] = [
+            _execution_artifact_payload(dict(item))
+            for item in list(payload.get("artifact_payloads") or [])[:payload_limit]
+            if isinstance(item, dict)
+        ]
+    if payload.get("authority"):
+        result["authority"] = str(payload.get("authority") or "")
+    return _drop_empty(result)
+
+
+def _execution_artifact_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "artifact_ref": str(item.get("artifact_ref") or item.get("path") or item.get("absolute_path") or ""),
+            "content": str(item.get("content") or item.get("text") or "")[:16000],
+            "truncated": bool(item.get("truncated") is True),
+            "max_chars": min(_safe_int(item.get("max_chars"), 16000), 16000),
+            "authority": str(item.get("authority") or "harness.graph.flow_packet.artifact_text_projection"),
+        }
+    )
+
+
+def _execution_memory_snapshots(value: Any) -> list[dict[str, Any]]:
+    snapshots: list[dict[str, Any]] = []
+    for item in _selected_execution_memory_snapshots(value):
+        if not isinstance(item, dict):
+            continue
+        snapshot = dict(item)
+        records = snapshot.get("records") or snapshot.get("items") or snapshot.get("memories") or []
+        snapshots.append(
+            _drop_empty(
+                {
+                    "snapshot_id": str(snapshot.get("snapshot_id") or ""),
+                    "graph_id": str(snapshot.get("graph_id") or ""),
+                    "node_id": str(snapshot.get("node_id") or ""),
+                    "edge_id": str(snapshot.get("edge_id") or ""),
+                    "logical_repository_id": str(snapshot.get("logical_repository_id") or snapshot.get("repository_id") or ""),
+                    "collection_id": str(snapshot.get("collection_id") or snapshot.get("collection") or ""),
+                    "record_count": snapshot.get("record_count"),
+                    "records": [_execution_memory_record(dict(record)) for record in list(records)[:4] if isinstance(record, dict)],
+                    "read_log_id": str(snapshot.get("read_log_id") or ""),
+                    "model_visible_label": str(snapshot.get("model_visible_label") or ""),
+                    "usage_instruction": str(snapshot.get("usage_instruction") or "")[:1200],
+                    "summary": str(snapshot.get("summary") or "")[:2000],
+                    "authority": str(snapshot.get("authority") or "harness.graph.resolved_memory_snapshot"),
+                }
+            )
+        )
+    return snapshots
+
+
+def _selected_execution_memory_snapshots(value: Any) -> list[dict[str, Any]]:
+    items = [dict(item) for item in list(value or []) if isinstance(item, dict)]
+    if len(items) <= 10:
+        return items
+    selected = [*items[:6], *items[-4:]]
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for item in selected:
+        key = str(item.get("snapshot_id") or item.get("collection_id") or item)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def _execution_memory_record(record: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "record_key": str(record.get("record_key") or ""),
+            "record_kind": str(record.get("record_kind") or ""),
+            "canonical_text": str(record.get("canonical_text") or record.get("content") or record.get("text") or "")[:1800],
+            "summary": str(record.get("summary") or "")[:1000],
+            "model_visible_label": str(record.get("model_visible_label") or ""),
+            "usage_instruction": str(record.get("usage_instruction") or "")[:1000],
+            "authority": str(record.get("authority") or "formal_memory.resolved_record.model_visible"),
+        }
+    )
+
+
+def _execution_loop_context(value: Any) -> dict[str, Any]:
+    loop_context = dict(value or {})
+    return _drop_empty(
+        {
+            "authority": str(loop_context.get("authority") or "harness.graph.loop_engine"),
+            "scope_id": str(loop_context.get("scope_id") or ""),
+            "current_scope_id": str(loop_context.get("current_scope_id") or ""),
+            "current_frame_id": str(loop_context.get("current_frame_id") or ""),
+            "iteration_index": loop_context.get("iteration_index"),
+            "iteration_id": str(loop_context.get("iteration_id") or ""),
+            "cursor_key": str(loop_context.get("cursor_key") or ""),
+            "cursor_value": loop_context.get("cursor_value"),
+            "active_frame": _execution_loop_frame(loop_context.get("active_frame")),
+            "result_history_counts": dict(loop_context.get("result_history_counts") or {}),
+            "contract_inputs": _loop_contract_inputs(loop_context.get("contract_inputs")),
+        }
+    )
+
+
+def _execution_loop_frame(value: Any) -> dict[str, Any]:
+    frame = dict(value or {})
+    return _drop_empty(
+        {
+            "frame_id": str(frame.get("frame_id") or ""),
+            "scope_id": str(frame.get("scope_id") or ""),
+            "status": str(frame.get("status") or ""),
+            "kind": str(frame.get("kind") or ""),
+            "router_node_id": str(frame.get("router_node_id") or ""),
+            "exit_node_id": str(frame.get("exit_node_id") or ""),
+            "cursor_key": str(frame.get("cursor_key") or ""),
+            "start_key": str(frame.get("start_key") or ""),
+            "end_key": str(frame.get("end_key") or ""),
+            "step": frame.get("step"),
+            "iteration_index_key": str(frame.get("iteration_index_key") or ""),
+            "iteration_identity_template": str(frame.get("iteration_identity_template") or ""),
+            "unit_kind": str(frame.get("unit_kind") or ""),
+            "iteration_size_key": str(frame.get("iteration_size_key") or ""),
+            "iteration_index": frame.get("iteration_index"),
+            "cursor": frame.get("cursor"),
+            "start": frame.get("start"),
+            "end": frame.get("end"),
+            "active_iteration_id": str(frame.get("active_iteration_id") or ""),
+            "initial_inputs": _loop_contract_inputs(frame.get("initial_inputs")),
+            "authority": str(frame.get("authority") or ""),
+        }
+    )
+
+
+def _execution_initial_inputs(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    allowed_keys = {
+        *set(_loop_contract_inputs(payload).keys()),
+        "active_chapter_count",
+        "active_chapter_end_index",
+        "active_chapter_start_index",
+        "batch_chapter_list",
+        "batch_chapter_numbers",
+        "batch_end_index_padded",
+        "batch_index_padded",
+        "batch_label",
+        "batch_start_index_padded",
+        "batch_target_measure",
+        "chapter_batch_iteration",
+        "chapter_file_prefix",
+        "chapter_index_padded",
+        "chapter_label",
+        "chapter_unit_completed_count",
+        "current_chapter_outline",
+        "current_chapter_outline_source",
+        "current_chapter_outline_title",
+        "graph_task_instance_id",
+        "group_current_measure",
+        "group_target_measure",
+        "last_batch_words",
+        "metric_label",
+        "project_brief",
+        "project_title",
+        "quality_gate_feedback",
+        "revision_queue_chapter_indexes",
+        "source",
+        "target_group_count",
+        "target_unit_count",
+        "title",
+        "total_current_measure",
+        "unit_index",
+        "units_per_group",
+        "volume_index",
+        "volume_index_padded",
+        "volume_label",
+        "workspace_view",
+    }
+    result: dict[str, Any] = {}
+    for key in allowed_keys:
+        value = payload.get(key)
+        if value in ("", None, [], {}):
+            continue
+        if key == "current_chapter_outline":
+            result[key] = str(value)[:6000]
+        elif key == "project_brief":
+            result[key] = str(value)[:2000]
+        elif key == "quality_gate_feedback" and isinstance(value, dict):
+            result[key] = _truncate_value(value, max_chars=6000)
+        else:
+            result[key] = value
+    return _drop_empty(result)
+
+
+def _loop_contract_inputs(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    allowed_keys = {
+        "project_id",
+        "artifact_root",
+        "chapter_index",
+        "current_chapter_index",
+        "current_chapter_index_padded",
+        "current_chapter_label",
+        "current_chapter_file_prefix",
+        "batch_index",
+        "batch_start_index",
+        "batch_end_index",
+        "batch_chapter_range",
+        "unit_start_index",
+        "unit_end_index",
+        "unit_count",
+        "units_per_batch",
+        "target_measure_units",
+        "unit_target_measure",
+        "target_unit_measure",
+        "revision_execution_range",
+        "active_chapter_range",
+        "round_index",
+    }
+    return {key: payload.get(key) for key in allowed_keys if payload.get(key) not in ("", None, [], {})}
+
+
+def _loop_variables(loop_context: dict[str, Any]) -> dict[str, Any]:
+    active_frame = dict(dict(loop_context or {}).get("active_frame") or {})
+    variables = dict(active_frame.get("variables") or {})
+    payload = {
+        **_loop_contract_inputs(dict(loop_context or {}).get("contract_inputs")),
+        **_loop_contract_inputs(active_frame.get("initial_inputs")),
+        **_loop_contract_inputs(active_frame.get("values")),
+        **_loop_contract_inputs(active_frame.get("state")),
+        **_loop_contract_inputs(variables),
+    }
+    cursor_key = str(active_frame.get("cursor_key") or dict(loop_context or {}).get("cursor_key") or "")
+    if cursor_key and active_frame.get("cursor") not in ("", None):
+        payload[cursor_key] = active_frame.get("cursor")
+    for key in ("iteration_index", "active_iteration_id", "start", "end", "cursor"):
+        if active_frame.get(key) not in ("", None):
+            payload[key] = active_frame.get(key)
+    return _truncate_value(_drop_empty(payload), max_chars=4000)
+
+
+def _loop_dynamic_bindings(loop_context: dict[str, Any]) -> dict[str, Any]:
+    return dict(dict(dict(loop_context or {}).get("node_loop") or {}).get("bindings") or {})
+
+
+def _memory_protocol_refs(value: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in list(value or [])[:24]:
+        if not isinstance(item, dict):
+            continue
+        protocol = dict(item)
+        selector = dict(protocol.get("selector") or {})
+        refs.append(
+            _drop_empty(
+                {
+                    "edge_id": str(protocol.get("edge_id") or ""),
+                    "edge_type": str(protocol.get("edge_type") or ""),
+                    "source_node_id": str(protocol.get("source_node_id") or ""),
+                    "target_node_id": str(protocol.get("target_node_id") or ""),
+                    "semantic_role": str(protocol.get("semantic_role") or ""),
+                    "scheduler_role": str(protocol.get("scheduler_role") or ""),
+                    "repository": str(protocol.get("repository") or protocol.get("repository_id") or ""),
+                    "repository_id": str(protocol.get("repository_id") or protocol.get("repository") or ""),
+                    "collection": str(protocol.get("collection") or protocol.get("collection_id") or selector.get("collection") or ""),
+                    "collection_id": str(protocol.get("collection_id") or protocol.get("collection") or selector.get("collection") or ""),
+                    "record_key": str(protocol.get("record_key") or selector.get("record_key") or ""),
+                    "record_kind": str(protocol.get("record_kind") or selector.get("record_kind") or ""),
+                    "record_keys": [str(value) for value in list(protocol.get("record_keys") or selector.get("record_keys") or []) if str(value)],
+                    "record_kinds": [str(value) for value in list(protocol.get("record_kinds") or selector.get("record_kinds") or []) if str(value)],
+                    "version_selector": str(protocol.get("version_selector") or selector.get("version_selector") or ""),
+                    "on_missing": str(protocol.get("on_missing") or selector.get("on_missing") or ""),
+                    "model_visible_label": str(protocol.get("model_visible_label") or ""),
+                    "usage_instruction": str(protocol.get("usage_instruction") or "")[:1200],
+                    "authority": str(protocol.get("authority") or ""),
+                }
+            )
+        )
+    return refs
+
+
+def _artifact_ref_summaries(value: Any) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for ref in _artifact_ref_values(value)[:16]:
+        result.append({"ref_kind": "artifact", "artifact_ref": ref})
+    return result
+
+
+def _execution_lineage(value: Any) -> dict[str, Any]:
+    lineage = dict(value or {})
+    return _drop_empty(
+        {
+            "source_authority": str(lineage.get("source_authority") or ""),
+            "graph_config_id": str(lineage.get("graph_config_id") or ""),
+            "result_id": str(lineage.get("result_id") or ""),
+            "result_ref": str(lineage.get("result_ref") or ""),
+            "work_order_id": str(lineage.get("work_order_id") or ""),
+            "edge_id": str(lineage.get("edge_id") or ""),
+            "source_node_id": str(lineage.get("source_node_id") or ""),
+            "target_node_id": str(lineage.get("target_node_id") or ""),
+        }
+    )
+
+
+def _environment_lock_ref(value: Any) -> dict[str, Any]:
+    lock = dict(value or {})
+    return _drop_empty(
+        {
+            "task_environment_id": str(lock.get("task_environment_id") or ""),
+            "environment_id": str(lock.get("environment_id") or ""),
+            "source": str(lock.get("source") or ""),
+            "locked": bool(lock.get("locked") is True),
+            "authority": str(lock.get("authority") or ""),
+        }
+    )
+
+
+def _bounded_dicts(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    return [dict(item) for item in list(value or [])[:limit] if isinstance(item, dict)]
+
+
+def _truncate_value(value: Any, *, max_chars: int) -> Any:
+    if isinstance(value, str):
+        return value[:max_chars]
+    if isinstance(value, dict):
+        return {str(key): _truncate_value(item, max_chars=max_chars) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_truncate_value(item, max_chars=max_chars) for item in value]
+    return value
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _slot_inbound_contexts(
     *,
     graph_config: GraphHarnessConfig,
@@ -1420,7 +1922,7 @@ def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
-def _node_contract_from_input_package(
+def _execution_node_contract_from_input_package(
     *,
     graph_config: GraphHarnessConfig,
     node: dict[str, Any],
@@ -1429,38 +1931,53 @@ def _node_contract_from_input_package(
     runtime_profile = dict(input_package.get("runtime_profile") or {})
     node_contract = dict(input_package.get("output_contract") or {})
     compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
-    payload = {
-        "node_identity": dict(input_package.get("node_identity") or {}),
-        "agent_assembly": {
-            "agent_id": str(node.get("agent_id") or ""),
-            "agent_profile_id": str(node.get("agent_profile_id") or ""),
-            "executor": dict(node.get("executor") or {}),
-            "authority": "harness.graph.node_agent_assembly_projection",
-        },
-        "prompt_contract": dict(input_package.get("prompt_contract") or {}),
-        "model_requirement": dict(dict(node_contract.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement", {}),
-        "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
-        "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
-        "tool_contract": dict(node.get("tools") or graph_config.tools or {}),
-        "skill_contract": dict(dict(node_contract.get("contract_bindings") or {}).get("skills") or {}),
-        "permission_contract": dict(node.get("permissions") or graph_config.permissions or {}),
-        "input_contract": dict(input_package.get("input_contract") or {}),
-        "output_contract": node_contract,
-        "memory_permission": dict(node.get("memory") or {}),
-        "acceptance_policy": dict(dict(node_contract.get("contract_bindings") or {}).get("acceptance") or {}),
-        "authority": "harness.graph.node_contract_projection",
-    }
-    if compiled_node_contract:
-        payload = {
-            **compiled_node_contract,
-            **payload,
+    bindings = dict(node_contract.get("contract_bindings") or {})
+    runtime_binding = dict(bindings.get("runtime") or {})
+    executor = dict(node.get("executor") or {})
+    agent = dict(compiled_node_contract.get("agent") or {})
+    model_requirement = dict(
+        runtime_binding.get("model_requirement")
+        or runtime_profile.get("model_requirement")
+        or compiled_node_contract.get("model_requirement")
+        or {}
+    )
+    return _drop_empty(
+        {
+            "contract_id": str(compiled_node_contract.get("contract_id") or node_contract.get("node_contract_id") or ""),
             "compiled_contract_id": str(compiled_node_contract.get("contract_id") or ""),
-            "environment_lock": dict(compiled_node_contract.get("environment_lock") or {}),
-            "project_binding": dict(compiled_node_contract.get("project_binding") or {}),
-            "session_policy": dict(compiled_node_contract.get("session_policy") or {}),
-            "authority": "harness.graph.node_contract_projection",
+            "node_id": str(compiled_node_contract.get("node_id") or node.get("node_id") or ""),
+            "node_kind": str(compiled_node_contract.get("node_kind") or ""),
+            "node_class": str(compiled_node_contract.get("node_class") or ""),
+            "node_identity": dict(input_package.get("node_identity") or {}),
+            "agent_assembly": _drop_empty(
+                {
+                    "agent_id": str(node.get("agent_id") or agent.get("agent_id") or ""),
+                    "agent_profile_id": str(node.get("agent_profile_id") or agent.get("agent_profile_id") or ""),
+                    "executor_type": str(executor.get("executor_type") or "agent"),
+                    "authority": "harness.graph.node_agent_assembly_projection",
+                }
+            ),
+            "prompt_contract": dict(input_package.get("prompt_contract") or {}),
+            "model_requirement": model_requirement,
+            "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
+            "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
+            "runtime_policy": _execution_runtime_policy(runtime_profile.get("runtime_policy") or compiled_node_contract.get("runtime_policy")),
+            "tool_contract": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or {}),
+            "skill_contract": dict(bindings.get("skills") or {}),
+            "permission_contract": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or {}),
+            "input_contract": dict(input_package.get("input_contract") or {}),
+            "acceptance_policy": dict(bindings.get("acceptance") or {}),
+            "contract_bindings": _drop_empty(
+                {
+                    "execution": dict(bindings.get("execution") or {}),
+                }
+            ),
+            "environment_lock": _environment_lock_ref(compiled_node_contract.get("environment_lock") or runtime_profile.get("node_environment_lock")),
+            "project_binding": dict(compiled_node_contract.get("project_binding") or runtime_profile.get("graph_project_binding") or {}),
+            "session_policy": dict(compiled_node_contract.get("session_policy") or runtime_profile.get("node_session_policy") or {}),
+            "authority": "harness.graph.node_contract_execution_projection",
         }
-    return payload
+    )
 
 
 def _inbound_flow_packets(inbound_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1722,25 +2239,19 @@ def _output_artifact_targets(input_package: dict[str, Any]) -> list[dict[str, An
 
 
 def _output_environment_projection(graph_config: GraphHarnessConfig, *, input_package: dict[str, Any] | None = None) -> dict[str, Any]:
-    environment = dict(graph_config.environment or {})
     compiled_node_contract = dict(dict(input_package or {}).get("compiled_node_contract") or {})
     environment_lock = dict(compiled_node_contract.get("environment_lock") or {})
-    storage = dict(environment.get("storage_space") or {})
-    artifact_policy = dict(environment.get("artifact_policy") or {})
-    return {
-        "task_environment_id": str(
-            environment_lock.get("task_environment_id")
-            or dict(input_package or {}).get("task_environment_id")
-            or graph_config.task_environment_id
-            or environment.get("environment_id")
-            or ""
-        ),
-        "environment_artifact_root": str(storage.get("artifact_root") or ""),
-        "environment_storage_root": str(storage.get("environment_storage_root") or ""),
-        "environment_artifact_repository": str(artifact_policy.get("artifact_root") or artifact_policy.get("artifact_repository_id") or ""),
-        "node_environment_lock": environment_lock,
-        "authority": "harness.graph.output_environment_projection",
-    }
+    return _drop_empty(
+        {
+            "task_environment_id": str(
+                environment_lock.get("task_environment_id")
+                or dict(input_package or {}).get("task_environment_id")
+                or ""
+            ),
+            "node_environment_lock": environment_lock,
+            "authority": "harness.graph.output_environment_projection",
+        }
+    )
 
 
 def _node_memory_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
@@ -1896,7 +2407,6 @@ def _node_effective_environment_id(
         or metadata.get("environment_id")
         or runtime_profile.get("task_environment_id")
         or runtime_profile.get("environment_id")
-        or graph_config.task_environment_id
         or ""
     ).strip()
 
@@ -1968,20 +2478,27 @@ def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, A
         runtime_profile = dict(metadata.get("runtime") or {})
     compiled = dict(compiled_node_contract or {})
     environment_lock = dict(compiled.get("environment_lock") or {})
-    task_environment_id = str(environment_lock.get("task_environment_id") or graph_config.task_environment_id or "")
+    task_environment_id = str(environment_lock.get("task_environment_id") or "")
     return {
         **runtime_profile,
         "task_environment_id": task_environment_id,
         "node_environment_lock": environment_lock,
         "node_session_policy": dict(compiled.get("session_policy") or {}),
         "graph_project_binding": dict(compiled.get("project_binding") or {}),
-        "tool_policy": dict(compiled.get("tool_contract") or node.get("tools") or graph_config.tools or {}),
-        "permission_policy": dict(compiled.get("permission_ceiling") or node.get("permissions") or graph_config.permissions or {}),
+        "tool_policy": dict(compiled.get("tool_contract") or node.get("tools") or {}),
+        "permission_policy": dict(compiled.get("permission_ceiling") or node.get("permissions") or {}),
         "runtime_policy": {
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),
             "context_policy": {"task_run_context": "disabled"},
             "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_policy": {
+                "environment_prompt_visibility": "hidden",
+                "environment_payload_visibility": "hidden",
+                "project_instruction_visibility": "hidden",
+                "personality_prompt_visibility": "hidden",
+                "runtime_environment_boundary_visibility": "hidden",
+            },
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",

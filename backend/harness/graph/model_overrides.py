@@ -102,19 +102,12 @@ def work_order_with_model_overrides(
     node_contract["model_requirement"] = effective_requirement
     graph_slot["node_contract"] = node_contract
 
-    input_package = dict(work_order.input_package or {})
-    runtime_profile = dict(input_package.get("runtime_profile") or {})
-    runtime_profile["model_requirement"] = dict(effective_requirement)
-    input_package["runtime_profile"] = runtime_profile
-    input_package["model_override_diagnostics"] = dict(diagnostics)
-
     dispatch_context = dict(work_order.dispatch_context or {})
     dispatch_context["model_override_diagnostics"] = dict(diagnostics)
 
     return replace(
         work_order,
         graph_slot=graph_slot,
-        input_package=input_package,
         dispatch_context=dispatch_context,
     ), diagnostics
 

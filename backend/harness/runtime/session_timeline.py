@@ -137,6 +137,12 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         limit=max_timeline_items,
     )
     latest_step = _sanitized_latest_step(monitor.get("latest_step"))
+    closeout_summary = _attachment_closeout_summary(task_run=task_run, diagnostics=diagnostics, monitor=monitor)
+    visible_summary = closeout_summary or _visible_progress_summary(monitor.get("summary") or "")
+    visible_latest_step_summary = closeout_summary or _visible_progress_summary(monitor.get("latest_step_summary") or "")
+    visible_latest_public_progress_note = closeout_summary or _visible_progress_summary(
+        monitor.get("latest_public_progress_note") or monitor.get("latest_step_summary") or ""
+    )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -150,9 +156,10 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "lifecycle": str(monitor.get("lifecycle") or ""),
         "bucket": str(monitor.get("bucket") or ""),
         "title": str(monitor.get("title") or ""),
-        "summary": _visible_progress_summary(monitor.get("summary") or ""),
+        "summary": visible_summary,
         "latest_step": latest_step,
-        "latest_step_summary": _visible_progress_summary(monitor.get("latest_step_summary") or ""),
+        "latest_step_summary": visible_latest_step_summary,
+        "latest_public_progress_note": visible_latest_public_progress_note,
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         "progress_presentation": progress_presentation,
@@ -261,6 +268,32 @@ def _is_internal_turn_terminal_reason(reason: str) -> bool:
         "turn_stream_closed",
         "harness.entrypoint_error",
     }
+
+
+def _attachment_closeout_summary(*, task_run: Any, diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
+    status = str(getattr(task_run, "status", "") or monitor.get("status") or "").strip().lower()
+    if status not in {"completed", "failed", "stopped", "aborted", "cancelled", "canceled"}:
+        return ""
+    for value in (
+        diagnostics.get("closeout_summary"),
+        diagnostics.get("final_answer"),
+        monitor.get("closeout_summary"),
+        monitor.get("final_answer"),
+    ):
+        visible = _visible_progress_summary(value)
+        if visible:
+            return visible
+    if status == "completed":
+        return "结果收口"
+    for value in (
+        getattr(task_run, "terminal_reason", ""),
+        monitor.get("diagnostic_summary"),
+        monitor.get("summary"),
+    ):
+        visible = _visible_progress_summary(value)
+        if visible:
+            return visible
+    return ""
 
 
 def _merge_public_timeline(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:

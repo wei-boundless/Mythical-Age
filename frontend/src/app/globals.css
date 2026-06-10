@@ -15859,6 +15859,36 @@ html[data-workspace-tone] .agent-workbench {
   line-height: 24px;
 }
 
+.agent-workbench .chat-message-shell__thinking-placeholder {
+  grid-column: 1;
+  justify-self: start;
+  min-height: 24px;
+  color: #64748b;
+  font-family: "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0;
+}
+
+.agent-workbench .chat-message-shell__thinking-placeholder span::after {
+  display: inline-block;
+  width: 1.2em;
+  content: "...";
+  animation: chat-thinking-dots 1.2s steps(4, end) infinite;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+@keyframes chat-thinking-dots {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 1.2em;
+  }
+}
+
 .agent-workbench .chat-message-shell--user .chat-message-shell__content {
   width: max-content;
   max-width: min(82%, 760px);

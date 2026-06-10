@@ -105,6 +105,11 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
       const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
       if (currentAction) {
         entries.push(currentAction);
+      } else {
+        const todoEntry = taskProjectionTodoStatusEntry(projection, projectionId);
+        if (todoEntry) {
+          entries.push(todoEntry);
+        }
       }
     }
     for (const activity of projection.activities ?? []) {
@@ -180,6 +185,34 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
     kind: "status",
     text: title || detail,
     detail,
+  };
+}
+
+function taskProjectionTodoStatusEntry(projection: SingleAgentTaskProjection, projectionId: string): ActivityEntry | null {
+  const todo = projection.todo;
+  const items = Array.isArray(todo?.items) ? todo.items : [];
+  if (!items.length) {
+    return null;
+  }
+  const completed = Number.isFinite(Number(todo?.completed_count))
+    ? Number(todo?.completed_count)
+    : items.filter((item) => cleanPublicTimelineText(item.status).toLowerCase() === "completed").length;
+  const total = Number.isFinite(Number(todo?.total_count)) && Number(todo?.total_count) > 0
+    ? Number(todo?.total_count)
+    : items.length;
+  const hasActive = Boolean(cleanPublicTimelineText(todo?.active_item_id));
+  const detail = [
+    total ? `${completed}/${total} 已完成` : "",
+    hasActive ? "当前阶段正在推进" : "",
+  ].filter(Boolean).join("；");
+  if (!detail) {
+    return null;
+  }
+  return {
+    detail,
+    id: `${projectionId}:todo:${cleanPublicTimelineText(todo?.plan_id) || detail}`,
+    kind: "status",
+    text: "任务进度",
   };
 }
 

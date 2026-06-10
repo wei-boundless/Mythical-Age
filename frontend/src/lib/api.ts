@@ -156,6 +156,10 @@ export type SessionHistory = {
     id?: string;
     message_id?: string;
     turn_id?: string;
+    task_run_id?: string;
+    task_id?: string;
+    completion_state?: string;
+    terminal_reason?: string;
     role: "user" | "assistant";
     content: string;
     turn_environment_snapshot?: TurnEnvironmentSnapshot;
@@ -313,6 +317,8 @@ export type SingleAgentTaskProjectionTodo = {
   plan_id?: string;
   active_item_id?: string;
   completion_ready?: boolean;
+  completed_count?: number;
+  total_count?: number;
   authority?: string;
   items?: PublicTodoItem[];
 };

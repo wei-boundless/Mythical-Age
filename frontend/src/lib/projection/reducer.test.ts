@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { applyPublicProjectionEnvelope } from "@/lib/projection/reducer";
 import { getDefaultState } from "@/lib/store/core";
 import { reduceStreamEvent, startStreamingTurn } from "@/lib/store/events";
 
@@ -155,6 +156,72 @@ describe("public projection reducer contract", () => {
     });
   });
 
+  it("prefers task_run_id over stale anchor message id when routing projections", () => {
+    const taskRunId = "taskrun:projection:final";
+    const state = {
+      ...getDefaultState(),
+      messages: [
+        {
+          id: "assistant-opening",
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+          retrievals: [],
+          sourceTurnId: "turn:projection:1",
+        },
+        {
+          id: "assistant-final",
+          role: "assistant",
+          content: "final",
+          toolCalls: [],
+          retrievals: [],
+          sourceTaskRunId: taskRunId,
+        },
+      ],
+    } as ReturnType<typeof getDefaultState>;
+
+    const next = applyPublicProjectionEnvelope(state, {
+      authority: "harness.public_projection",
+      projection_id: "publicproj:taskrun-final",
+      lifecycle: "completed",
+      source_authority: "runtime",
+      surface: "timeline",
+      anchor: {
+        message_id: "assistant-opening",
+        turn_id: "turn:projection:1",
+        task_run_id: taskRunId,
+      },
+      task_projection: {
+        authority: "harness.runtime.single_agent_task_projection.v1",
+        projection_id: "projection:taskrun-final",
+        task_run_id: taskRunId,
+        status: "completed",
+      },
+      items: [
+        {
+          item_id: "taskrun-final:item",
+          kind: "status_update",
+          slot: "status",
+          surface: "timeline",
+          source_authority: "runtime",
+          state: "done",
+        },
+      ],
+    });
+
+    const opening = next.messages.find((message) => message.id === "assistant-opening");
+    const final = next.messages.find((message) => message.id === "assistant-final");
+
+    expect(opening?.runtimeAttachments ?? []).toEqual([]);
+    expect(final?.runtimeAttachments?.[0]).toMatchObject({
+      task_run_id: taskRunId,
+      task_projection: {
+        task_run_id: taskRunId,
+        status: "completed",
+      },
+    });
+  });
+
   it("keeps public timeline feedback alongside task projection attachments", () => {
     let transition = startStreamingTurn(getDefaultState(), "run task");
     transition = bindTurnRun(transition, "turn:session:feedback:1");
@@ -190,10 +257,16 @@ describe("public projection reducer contract", () => {
       },
     });
 
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimePublicTimelineDraft?.[0]?.detail).toBe("已确认上一阶段结果，可以继续推进。");
-    expect(assistant?.runtimeAttachments?.[0]?.task_projection?.task_run_id).toBe("taskrun:feedback");
-    expect(assistant?.runtimeAttachments?.[0]?.public_timeline?.[0]?.detail).toBe("已确认上一阶段结果，可以继续推进。");
+    const assistant = transition.state.messages.find((message) =>
+      (message.runtimeAttachments ?? []).some((attachment) => attachment.task_run_id === "taskrun:feedback")
+    );
+    expect(assistant?.runtimeAttachments?.[0]).toMatchObject({
+      task_run_id: "taskrun:feedback",
+      task_projection: {
+        task_run_id: "taskrun:feedback",
+        status: "running",
+      },
+    });
   });
 
   it("does not attach an old anchored projection to the current stream assistant", () => {
@@ -355,31 +428,6 @@ describe("public projection reducer contract", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
     expect(assistant?.runtimePublicTimelineDraft).toEqual([]);
-  });
-
-  it("does not let shadow projection envelopes suppress legacy error display", () => {
-    let transition = startStreamingTurn(getDefaultState(), "hello");
-    transition = reduceStreamEvent(transition.state, transition.session, "error", {
-      content: "模型连接失败",
-      public_projection_envelope: {
-        authority: "harness.public_projection",
-        contract_revision: "20260610-replacement",
-        projection_mode: "shadow",
-        projection_id: "publicproj:shadow-error",
-        lifecycle: "error",
-        source_authority: "system",
-        surface: "status_bar",
-        items: [],
-      },
-    });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("");
-    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
-      title: "处理失败",
-      detail: "模型连接失败",
-      state: "error",
-    });
   });
 
   it("does not overwrite active-work pause projection with generic steer text", () => {

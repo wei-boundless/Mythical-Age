@@ -102,14 +102,7 @@ export function publicTimelineItemText(item: PublicChatTimelineItem | undefined)
     const visible = sanitizePublicTimelineText(item[field]);
     if (visible) return visible;
   }
-  if (cleanPublicTimelineText(item.kind) !== "todo_plan" || !Array.isArray(item.todo_items)) {
-    return "";
-  }
-  const activeItemId = cleanPublicTimelineText(item.active_item_id);
-  const active = item.todo_items.find((todo) => cleanPublicTimelineText(todo.todo_id) === activeItemId)
-    ?? item.todo_items.find((todo) => cleanPublicTimelineText(todo.status) === "in_progress")
-    ?? item.todo_items[0];
-  return sanitizePublicTimelineText(active?.active_form || active?.content);
+  return "";
 }
 
 export function isPublicTimelineControlItem(item: PublicChatTimelineItem | null | undefined) {
@@ -187,6 +180,7 @@ export function normalizePublicTimelineItems(
   const indexByKey = new Map<string, number>();
   const indexBySemanticKey = new Map<string, number>();
   for (const [index, rawItem] of (items ?? []).entries()) {
+    if (cleanPublicTimelineText(rawItem.kind) === "todo_plan") continue;
     if (isPublicTimelineBodyItem(rawItem)) continue;
     if (isPublicTimelineStatusBarItem(rawItem)) continue;
     const item = options.terminalState

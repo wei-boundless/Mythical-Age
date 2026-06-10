@@ -6,7 +6,6 @@ from .guards import compact, public_text, record, stable_id, text
 from .items import (
     control_item,
     status_item,
-    todo_plan_item,
     work_action_item,
 )
 from .projector import project_public_projection_event
@@ -120,18 +119,23 @@ def build_public_chat_timeline(
     items: list[dict[str, Any]] = []
     index_by_key: dict[str, int] = {}
     for unit in units:
-        feedback = public_text(unit.get("agent_brief_output") or unit.get("current_judgment") or unit.get("summary"), limit=260)
+        unit_state = unit.get("status") or unit.get("state") or "running"
+        feedback = public_text(
+            unit.get("agent_brief_output")
+            or unit.get("current_judgment")
+            or unit.get("judgment")
+            or unit.get("summary")
+            or unit.get("agent_feedback"),
+            limit=260,
+        )
         if feedback:
             item = status_item(
                 item_id=stable_id("status", unit.get("unit_id"), feedback),
                 title=feedback,
-                state=unit.get("status") or "running",
+                state=unit_state,
                 trace_refs=_trace_refs(unit),
             )
             _append_or_replace_public_item(items, index_by_key, item)
-        if record(unit.get("todo_plan")):
-            _append_or_replace_public_item(items, index_by_key, todo_plan_item(record(unit.get("todo_plan"))))
-            continue
         if _is_tool_like(unit):
             item = work_action_item(
                 item_id=stable_id("work", unit.get("unit_id"), unit.get("tool_name"), unit.get("title")),
@@ -139,7 +143,7 @@ def build_public_chat_timeline(
                 raw_target=unit.get("target") or unit.get("title"),
                 summary=unit.get("summary") or unit.get("action"),
                 observation=_first_evidence_summary(unit),
-                state=unit.get("status") or "running",
+                state=unit_state,
                 trace_refs=_trace_refs(unit),
             )
             _append_or_replace_public_item(items, index_by_key, item)
@@ -151,7 +155,7 @@ def build_public_chat_timeline(
                 status_item(
                     item_id=stable_id("report", unit.get("unit_id"), report_text),
                     title=report_text,
-                    state=unit.get("status") or "done",
+                    state=unit_state,
                     trace_refs=_trace_refs(unit),
                 ),
             )
@@ -218,10 +222,6 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
             )
         _append_or_replace_public_item(items, index_by_key, item)
     return items
-
-
-def public_todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:
-    return todo_plan_item(plan)
 
 
 def _public_event_type(event_type: str, event: dict[str, Any]) -> str:

@@ -67,6 +67,7 @@ def _graph_node_runtime_profile(
             "source": "graph_slot.node_contract",
             "context_policy": {"task_run_context": "disabled"},
             "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_policy": _graph_node_prompt_policy(),
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
@@ -92,11 +93,7 @@ def _graph_node_runtime_profile(
 def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str, Any]:
     graph_slot = dict(getattr(work_order, "graph_slot", {}) or {})
     node_contract = dict(graph_slot.get("node_contract") or {})
-    task_environment_id = str(
-        _graph_slot_task_environment_id(graph_slot)
-        or getattr(graph_config, "task_environment_id", "")
-        or ""
-    )
+    task_environment_id = str(_graph_slot_task_environment_id(graph_slot) or "")
     runtime_profile = {
         "task_environment_id": task_environment_id,
         "node_session_id": str(getattr(work_order, "node_session_id", "") or ""),
@@ -104,14 +101,15 @@ def _graph_node_runtime_contract(graph_config: Any, work_order: Any) -> dict[str
         "model_requirement": dict(node_contract.get("model_requirement") or {}),
         "reasoning_policy": dict(node_contract.get("reasoning_policy") or {}),
         "completion_profile": dict(node_contract.get("completion_profile") or {}),
-        "tool_policy": dict(getattr(work_order, "tool_scope", {}) or node_contract.get("tool_contract") or getattr(graph_config, "tools", {}) or {}),
-        "permission_policy": dict(getattr(work_order, "permission_scope", {}) or node_contract.get("permission_contract") or getattr(graph_config, "permissions", {}) or {}),
+        "tool_policy": dict(getattr(work_order, "tool_scope", {}) or node_contract.get("tool_contract") or {}),
+        "permission_policy": dict(getattr(work_order, "permission_scope", {}) or node_contract.get("permission_contract") or {}),
         "runtime_policy": {
             "source": "graph_slot.node_contract",
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
             "context_policy": {"task_run_context": "disabled"},
             "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution"]},
+            "prompt_policy": _graph_node_prompt_policy(),
             "operation_authorization_projection": {
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
@@ -146,6 +144,16 @@ def _graph_node_allowed_operations(*, work_order: Any, node_contract: dict[str, 
     candidates.extend(list(executor_operation_policy.get("allowed_operations") or []))
     normalized = tuple(dict.fromkeys(str(item).strip() for item in candidates if str(item).strip()))
     return normalized or ("op.model_response",)
+
+
+def _graph_node_prompt_policy() -> dict[str, str]:
+    return {
+        "environment_prompt_visibility": "hidden",
+        "environment_payload_visibility": "hidden",
+        "project_instruction_visibility": "hidden",
+        "personality_prompt_visibility": "hidden",
+        "runtime_environment_boundary_visibility": "hidden",
+    }
 
 
 def _graph_coordinator_profile_ref(graph_config: Any) -> str:

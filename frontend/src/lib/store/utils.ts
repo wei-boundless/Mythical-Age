@@ -105,6 +105,14 @@ function historyTurnId(message: SessionHistory["messages"][number]) {
   return String(message.turn_id ?? record.turn_ref ?? record.anchor_turn_id ?? "").trim();
 }
 
+function historyTaskRunId(message: SessionHistory["messages"][number]) {
+  const record = message as SessionHistory["messages"][number] & {
+    task_run_id?: unknown;
+    source_task_run_id?: unknown;
+  };
+  return String(record.task_run_id ?? record.source_task_run_id ?? "").trim();
+}
+
 function runtimeAttachmentsByAssistantMessageId(
   history: SessionHistory["messages"],
   attachments: SessionRuntimeAttachment[],
@@ -112,18 +120,24 @@ function runtimeAttachmentsByAssistantMessageId(
   const buckets = new Map<string, SessionRuntimeAttachment[]>();
   const assistantRefs = history
     .map((message, index) => message.role === "assistant"
-      ? { index, id: historyMessageId(message, index), turnId: historyTurnId(message) }
+      ? { index, id: historyMessageId(message, index), turnId: historyTurnId(message), taskRunId: historyTaskRunId(message) }
       : null)
-    .filter((item): item is { index: number; id: string; turnId: string } => Boolean(item));
+    .filter((item): item is { index: number; id: string; turnId: string; taskRunId: string } => Boolean(item));
 
   for (const attachment of attachments) {
     const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
     const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
-    const assistantRef = explicitMessageId
+    const taskRunId = String(attachment.task_run_id ?? "").trim();
+    const taskRunRef = taskRunId
+      ? assistantRefs.find((item) => item.taskRunId === taskRunId)
+      : null;
+    const explicitRef = explicitMessageId
       ? assistantRefs.find((item) => item.id === explicitMessageId)
-      : anchorTurnId
-        ? assistantRefs.find((item) => item.turnId === anchorTurnId)
-        : null;
+      : null;
+    const turnRef = anchorTurnId
+      ? assistantRefs.find((item) => item.turnId === anchorTurnId)
+      : null;
+    const assistantRef = taskRunRef ?? explicitRef ?? turnRef;
     const targetId = assistantRef?.id ?? "";
     if (!targetId) {
       continue;
@@ -138,11 +152,16 @@ function syntheticAssistantMessagesForRuntimeAttachments(
   history: SessionHistory["messages"],
   attachments: SessionRuntimeAttachment[],
   existingAssistantIds: Set<string>,
+  existingAssistantTaskRunIds: Set<string>,
 ) {
   const syntheticById = new Map<string, Message>();
   for (const attachment of attachments) {
     const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
     const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
+    const taskRunId = String(attachment.task_run_id ?? "").trim();
+    if (taskRunId && existingAssistantTaskRunIds.has(taskRunId)) {
+      continue;
+    }
     const syntheticId = explicitMessageId || (anchorTurnId ? `history-message:${anchorTurnId}:assistant` : "");
     if (!syntheticId || existingAssistantIds.has(syntheticId)) {
       continue;
@@ -173,6 +192,7 @@ function syntheticAssistantMessagesForRuntimeAttachments(
       retrievals: [],
       sourceIndex,
       sourceTurnId: anchorTurnId || undefined,
+      sourceTaskRunId: taskRunId || undefined,
       runtimeAttachments: existing
         ? [...(existing.runtimeAttachments ?? []), attachment]
         : [attachment],
@@ -212,6 +232,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         retrievals: [],
         sourceIndex,
         sourceTurnId: historyTurnId(message) || undefined,
+        sourceTaskRunId: historyTaskRunId(message) || undefined,
         answerChannel: message.answer_channel,
         answerSource: message.answer_source,
         answerCanonicalState: message.answer_canonical_state,
@@ -231,10 +252,14 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
   const existingAssistantIds = new Set(normalized
     .filter((message) => message.role === "assistant")
     .map((message) => message.id));
+  const existingAssistantTaskRunIds = new Set(normalized
+    .map((message) => message.sourceTaskRunId)
+    .filter((value): value is string => Boolean(value)));
   const syntheticRuntimeMessages = syntheticAssistantMessagesForRuntimeAttachments(
     history,
     runtimeAttachments,
     existingAssistantIds,
+    existingAssistantTaskRunIds,
   );
   const ordered = [...normalized, ...syntheticRuntimeMessages].sort((left, right) => {
     const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;

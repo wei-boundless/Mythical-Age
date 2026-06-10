@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .guards import compact, public_state, public_text, record, stable_id, text
@@ -29,7 +30,15 @@ def build_single_agent_task_projection(
     status = text(getattr(task_run, "status", "") or monitor_payload.get("status") or "running")
     control = _control_projection(task_run, diagnostics, monitor=monitor_payload)
     activities = _activities_from_events(event_dicts)
-    current_action = _current_action(activities=activities, status=status, monitor=monitor_payload)
+    todo = _todo_from_events(event_dicts)
+    current_action = _current_action(
+        activities=activities,
+        status=status,
+        monitor=monitor_payload,
+        diagnostics=diagnostics,
+        task_run=task_run,
+        todo=todo,
+    )
     return compact(
         {
             "authority": SINGLE_AGENT_TASK_PROJECTION_AUTHORITY,
@@ -43,6 +52,7 @@ def build_single_agent_task_projection(
             "title": public_text(_task_title(task_run, diagnostics), limit=120) or "任务执行",
             "summary": public_text(monitor_payload.get("summary") or diagnostics.get("summary"), limit=220),
             "current_action": current_action,
+            "todo": todo,
             "activities": activities[-20:],
             "control": control,
             "artifact_refs": list(diagnostics.get("artifact_refs") or monitor_payload.get("artifact_refs") or []),
@@ -153,10 +163,23 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _current_action(*, activities: list[dict[str, Any]], status: str, monitor: dict[str, Any]) -> dict[str, Any]:
+def _current_action(
+    *,
+    activities: list[dict[str, Any]],
+    status: str,
+    monitor: dict[str, Any],
+    diagnostics: dict[str, Any],
+    task_run: Any,
+    todo: dict[str, Any],
+) -> dict[str, Any]:
+    if text(status).lower() in TERMINAL_STATUSES:
+        return _terminal_current_action(status=status, monitor=monitor, diagnostics=diagnostics, task_run=task_run)
     for activity in reversed(activities):
         if text(activity.get("state")) in {"running", "waiting"}:
             return activity
+    todo_action = _current_action_from_todo(todo)
+    if todo_action:
+        return todo_action
     title = public_text(monitor.get("latest_public_progress_note") or monitor.get("latest_step_summary"), limit=120)
     if not title:
         return {}
@@ -168,6 +191,221 @@ def _current_action(*, activities: list[dict[str, Any]], status: str, monitor: d
             "visibility_level": "secondary",
         }
     )
+
+
+def _terminal_current_action(
+    *,
+    status: str,
+    monitor: dict[str, Any],
+    diagnostics: dict[str, Any],
+    task_run: Any,
+) -> dict[str, Any]:
+    normalized = text(status).lower()
+    if normalized == "completed":
+        return compact(
+            {
+                "kind": "closeout",
+                "title": "结果收口",
+                "detail": _closeout_summary(diagnostics=diagnostics, monitor=monitor),
+                "state": "completed",
+                "display_surface": "timeline",
+                "visibility_level": "primary",
+                "source_kind": "closeout",
+            }
+        )
+    if normalized in {"stopped", "aborted", "cancelled", "canceled"}:
+        return compact(
+            {
+                "kind": "closeout",
+                "title": "任务已停止",
+                "detail": _terminal_detail(diagnostics=diagnostics, monitor=monitor, task_run=task_run),
+                "state": "stopped",
+                "display_surface": "timeline",
+                "visibility_level": "primary",
+                "source_kind": "closeout",
+            }
+        )
+    return compact(
+        {
+            "kind": "closeout",
+            "title": "处理遇到阻塞",
+            "detail": _terminal_detail(diagnostics=diagnostics, monitor=monitor, task_run=task_run),
+            "state": "error",
+            "display_surface": "timeline",
+            "visibility_level": "primary",
+            "source_kind": "closeout",
+        }
+    )
+
+
+def _closeout_summary(*, diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
+    for value in (
+        diagnostics.get("closeout_summary"),
+        diagnostics.get("final_answer"),
+        monitor.get("closeout_summary"),
+        monitor.get("final_answer"),
+    ):
+        visible = public_text(value, limit=260)
+        if visible:
+            return visible
+    return ""
+
+
+def _todo_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    for event in reversed(events):
+        plan = _todo_plan_from_event(event)
+        if plan:
+            return plan
+    return {}
+
+
+def _todo_plan_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    event_type = text(event.get("event_type"))
+    payload = record(event.get("payload"))
+    if event_type == "agent_todo_initialized":
+        for candidate in (payload, payload.get("observation"), record(payload.get("observation")).get("payload")):
+            plan = _parse_todo_plan(candidate, trace_ref=text(event.get("event_id")))
+            if plan:
+                return plan
+        return {}
+    if event_type not in {"turn_tool_observation_recorded", "task_tool_observation_recorded"}:
+        return {}
+    observation = record(payload.get("observation") or payload.get("tool_observation") or payload)
+    source = text(observation.get("source"))
+    observation_payload = record(observation.get("payload"))
+    envelope = record(observation_payload.get("result_envelope") or observation.get("result_envelope"))
+    structured = record(observation_payload.get("structured_payload") or envelope.get("structured_payload"))
+    tool_name = text(
+        observation.get("tool_name")
+        or observation_payload.get("tool_name")
+        or envelope.get("tool_name")
+        or structured.get("tool_name")
+        or source.removeprefix("tool:")
+    )
+    if tool_name != "agent_todo" and source not in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
+        return {}
+    for candidate in (
+        observation_payload.get("result"),
+        observation_payload.get("text"),
+        observation_payload.get("structured_payload"),
+        envelope.get("text"),
+        envelope.get("structured_payload"),
+        observation.get("summary"),
+        observation,
+    ):
+        plan = _parse_todo_plan(candidate, trace_ref=text(event.get("event_id")))
+        if plan:
+            return plan
+    return {}
+
+
+def _parse_todo_plan(value: Any, *, trace_ref: str = "") -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {}
+    elif isinstance(value, dict):
+        parsed = dict(value)
+    else:
+        return {}
+    for key in ("result", "structured_payload", "tool_result", "payload"):
+        nested_value = parsed.get(key)
+        if nested_value is not None and "items" not in parsed:
+            nested = _parse_todo_plan(nested_value, trace_ref=trace_ref)
+            if nested:
+                return nested
+    items = [_todo_item(item) for item in list(parsed.get("items") or []) if isinstance(item, dict)]
+    items = [item for item in items if item]
+    if not items:
+        return {}
+    active = text(parsed.get("active_item_id"))
+    if active and not any(item.get("todo_id") == active and item.get("status") == "in_progress" for item in items):
+        active = ""
+    trace_refs = _trace_refs(parsed)
+    if trace_ref and trace_ref not in trace_refs:
+        trace_refs.append(trace_ref)
+    completed = sum(1 for item in items if item.get("status") == "completed")
+    total = len(items)
+    return compact(
+        {
+            "plan_id": text(parsed.get("plan_id")),
+            "active_item_id": active,
+            "completion_ready": bool(parsed.get("completion_ready") or (total and completed == total)),
+            "completed_count": completed,
+            "total_count": total,
+            "items": items,
+            "trace_refs": trace_refs,
+            "authority": "harness.runtime.single_agent_task_projection.todo",
+        }
+    )
+
+
+def _todo_item(item: dict[str, Any]) -> dict[str, Any]:
+    content = public_text(item.get("content") or item.get("title"), limit=180)
+    if not content:
+        return {}
+    status = text(item.get("status") or "pending")
+    if status not in {"pending", "in_progress", "completed", "blocked"}:
+        status = "pending"
+    return compact(
+        {
+            "todo_id": text(item.get("todo_id") or content),
+            "content": content,
+            "active_form": public_text(item.get("active_form") or content, limit=180),
+            "status": status,
+            "notes": public_text(item.get("notes"), limit=180),
+        }
+    )
+
+
+def _current_action_from_todo(todo: dict[str, Any]) -> dict[str, Any]:
+    items = [record(item) for item in list(record(todo).get("items") or []) if isinstance(item, dict)]
+    if not items:
+        return {}
+    active_id = text(todo.get("active_item_id"))
+    active = next((item for item in items if text(item.get("todo_id")) == active_id), {})
+    completed = int(todo.get("completed_count") or sum(1 for item in items if text(item.get("status")) == "completed"))
+    total = int(todo.get("total_count") or len(items))
+    title = "任务进度"
+    detail_parts = []
+    if total:
+        detail_parts.append(f"{completed}/{total} 已完成")
+    if active:
+        detail_parts.append("当前阶段正在推进")
+    return compact(
+        {
+            "kind": "todo",
+            "title": title,
+            "detail": "；".join(detail_parts),
+            "state": "completed" if total and completed == total else "running",
+            "display_surface": "task_projection",
+            "visibility_level": "secondary",
+            "source_kind": "todo",
+            "event_ref": ",".join(_trace_refs(todo)),
+        }
+    )
+
+
+def _trace_refs(value: dict[str, Any]) -> list[str]:
+    refs = value.get("trace_refs") or value.get("technical_trace_refs") or []
+    if not isinstance(refs, list):
+        return []
+    return [text(item) for item in refs if text(item)]
+
+
+def _terminal_detail(*, diagnostics: dict[str, Any], monitor: dict[str, Any], task_run: Any) -> str:
+    control = record(diagnostics.get("runtime_control"))
+    for value in (
+        control.get("reason"),
+        monitor.get("diagnostic_summary"),
+        monitor.get("summary"),
+        getattr(task_run, "terminal_reason", ""),
+    ):
+        visible = public_text(value, limit=220)
+        if visible:
+            return visible
+    return ""
 
 
 def _control_projection(task_run: Any, diagnostics: dict[str, Any], *, monitor: dict[str, Any]) -> dict[str, Any]:

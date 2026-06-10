@@ -102,6 +102,11 @@ export function ChatMessage({
     || Boolean(image?.src)
     || imageUnavailable
     || Boolean(naturalizedMessageDisplayContent.trim());
+  const showThinkingPlaceholder =
+    !isUser
+    && streamingContent
+    && !shouldRenderContent
+    && !hasPublicTimelineActivity;
   const copyableReplyText = !isUser && shouldRenderContent ? naturalizedMessageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -240,6 +245,11 @@ export function ChatMessage({
               {naturalizedMessageDisplayContent}
             </ReactMarkdown>
           )}
+        </div>
+      ) : null}
+      {showThinkingPlaceholder ? (
+        <div className="chat-message-shell__thinking-placeholder" aria-live="polite">
+          <span>正在思考</span>
         </div>
       ) : null}
       {!isUser && hasPublicTimelineActivity ? (

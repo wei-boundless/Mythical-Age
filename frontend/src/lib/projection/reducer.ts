@@ -126,18 +126,22 @@ function patchProjectionMessage(
 
 function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnvelope, options: ApplyProjectionOptions) {
   const anchor = envelope.anchor ?? {};
-  const messageId = text(anchor.message_id);
-  if (messageId) {
-    const index = state.messages.findIndex((message) => message.id === messageId && message.role === "assistant");
-    if (index >= 0) return index;
-  }
   const turnId = text(anchor.turn_id);
   const runId = text(anchor.run_id);
   const taskRunId = text(anchor.task_run_id);
   const turnRunId = text(anchor.turn_run_id);
+  if (taskRunId) {
+    const taskRunIndex = findAssistantMessageIndexByTaskRunId(state, taskRunId);
+    if (taskRunIndex >= 0) return taskRunIndex;
+  }
   if (options.assistantId && streamAnchorMatchesEnvelope(options.streamAnchor, envelope)) {
     const streamIndex = state.messages.findIndex((message) => message.id === options.assistantId && message.role === "assistant");
     if (streamIndex >= 0) return streamIndex;
+  }
+  const messageId = text(anchor.message_id);
+  if (messageId) {
+    const index = state.messages.findIndex((message) => message.id === messageId && message.role === "assistant");
+    if (index >= 0) return index;
   }
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
@@ -158,6 +162,17 @@ function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnv
     ) {
       return index;
     }
+  }
+  return -1;
+}
+
+function findAssistantMessageIndexByTaskRunId(state: StoreState, taskRunId: string) {
+  const normalized = text(taskRunId);
+  if (!normalized) return -1;
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.role !== "assistant") continue;
+    if (message.sourceTaskRunId === normalized) return index;
   }
   return -1;
 }

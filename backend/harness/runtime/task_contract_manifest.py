@@ -9,6 +9,13 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from harness.task_contract_normalization import contract_string_list
 
 
+_GRAPH_STABLE_INPUT_LIMIT = 4000
+_GRAPH_STABLE_PAYLOAD_LIMIT = 12000
+_GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT = 16000
+_GRAPH_STABLE_ARTIFACT_PAYLOAD_LIMIT = 2
+_GRAPH_STABLE_LOOP_ARTIFACT_PAYLOAD_LIMIT = 4
+
+
 @dataclass(frozen=True, slots=True)
 class TaskContractManifest:
     manifest_id: str
@@ -231,7 +238,7 @@ def _inbound_context_stable_payload(value: Any) -> list[dict[str, Any]]:
 def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if isinstance(payload.get("initial_inputs"), dict):
-        result["initial_inputs"] = _truncate_value(dict(payload.get("initial_inputs") or {}), max_chars=30000)
+        result["initial_inputs"] = _truncate_value(dict(payload.get("initial_inputs") or {}), max_chars=_GRAPH_STABLE_INPUT_LIMIT)
     if payload.get("graph_id"):
         result["graph_id"] = str(payload.get("graph_id") or "")
     if payload.get("project_id"):
@@ -239,9 +246,9 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if "handoff_summary" in payload:
         result["handoff_summary"] = str(payload.get("handoff_summary") or "")[:1200]
     if isinstance(payload.get("source_error"), dict):
-        result["source_error"] = _truncate_value(dict(payload.get("source_error") or {}), max_chars=12000)
+        result["source_error"] = _truncate_value(dict(payload.get("source_error") or {}), max_chars=4000)
     if isinstance(payload.get("quality_acceptance"), dict):
-        result["quality_acceptance"] = _truncate_value(dict(payload.get("quality_acceptance") or {}), max_chars=12000)
+        result["quality_acceptance"] = _truncate_value(dict(payload.get("quality_acceptance") or {}), max_chars=4000)
     if payload.get("quality_issue_summary"):
         result["quality_issue_summary"] = str(payload.get("quality_issue_summary") or "")[:4000]
     if isinstance(payload.get("issues"), list):
@@ -255,13 +262,13 @@ def _bounded_graph_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload.get("receipt_refs"), list):
         result["receipt_refs"] = _bounded_dict_list(payload.get("receipt_refs"), limit=12)
     if isinstance(payload.get("bounded_outputs"), dict):
-        result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=30000)
+        result["bounded_outputs"] = _truncate_value(dict(payload.get("bounded_outputs") or {}), max_chars=8000)
     if isinstance(payload.get("loop_iteration_results"), list):
-        result["loop_iteration_results"] = _truncate_value(list(payload.get("loop_iteration_results") or [])[:32], max_chars=12000)
+        result["loop_iteration_results"] = _truncate_value(list(payload.get("loop_iteration_results") or [])[:10], max_chars=6000)
     if isinstance(payload.get("batch_chapter_ledger"), dict):
-        result["batch_chapter_ledger"] = _truncate_value(dict(payload.get("batch_chapter_ledger") or {}), max_chars=30000)
+        result["batch_chapter_ledger"] = _truncate_value(dict(payload.get("batch_chapter_ledger") or {}), max_chars=6000)
     if isinstance(payload.get("artifact_payloads"), list):
-        artifact_payload_limit = 16 if isinstance(payload.get("loop_iteration_results"), list) else 8
+        artifact_payload_limit = _GRAPH_STABLE_LOOP_ARTIFACT_PAYLOAD_LIMIT if isinstance(payload.get("loop_iteration_results"), list) else _GRAPH_STABLE_ARTIFACT_PAYLOAD_LIMIT
         result["artifact_payloads"] = [
             _bounded_artifact_payload(dict(item))
             for item in list(payload.get("artifact_payloads") or [])[:artifact_payload_limit]
@@ -276,9 +283,9 @@ def _bounded_artifact_payload(item: dict[str, Any]) -> dict[str, Any]:
         "path": str(item.get("path") or ""),
         "kind": str(item.get("kind") or item.get("artifact_kind") or ""),
         "summary": str(item.get("summary") or "")[:2000],
-        "content": str(item.get("content") or "")[:30000],
+        "content": str(item.get("content") or "")[:_GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT],
         "truncated": bool(item.get("truncated") is True),
-        "max_chars": int(item.get("max_chars") or 30000),
+        "max_chars": min(_safe_int(item.get("max_chars")) or _GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT, _GRAPH_STABLE_ARTIFACT_CONTENT_LIMIT),
         "authority": str(item.get("authority") or "harness.graph.flow_packet.artifact_text_projection"),
     }
 
@@ -312,6 +319,13 @@ def _bounded_view_payload(view: dict[str, Any]) -> dict[str, Any]:
 
 def _bounded_dict_list(value: Any, *, limit: int) -> list[dict[str, Any]]:
     return [dict(item) for item in list(value or [])[:limit] if isinstance(item, dict)]
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _string_list(value: Any) -> list[str]:

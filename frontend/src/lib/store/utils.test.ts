@@ -90,6 +90,46 @@ describe("toUiMessages runtime attachments", () => {
     });
   });
 
+  it("binds task-run attachments to the persisted final assistant message by task_run_id", () => {
+    const taskRunId = "taskrun:turn:session-a:1:abc";
+    const attachment: SessionRuntimeAttachment = {
+      attachment_id: `runtime-attachment:${taskRunId}`,
+      run_id: taskRunId,
+      anchor_turn_id: "turn:session-a:1",
+      anchor_message_id: "assistant-opening",
+      anchor_role: "assistant",
+      task_run_id: taskRunId,
+      status: "completed",
+      public_timeline: [
+        {
+          item_id: "tool:1",
+          kind: "tool_activity",
+          state: "done",
+        },
+      ],
+    };
+
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "request", turn_id: "turn:session-a:1" },
+        { id: "assistant-opening", role: "assistant", content: "opening", turn_id: "turn:session-a:1" },
+        { id: "assistant-final", role: "assistant", content: "final", task_run_id: taskRunId, completion_state: "completed" },
+      ],
+      [attachment],
+    );
+
+    const opening = messages.find((message) => message.id === "assistant-opening");
+    const final = messages.find((message) => message.id === "assistant-final");
+
+    expect(opening?.runtimeAttachments ?? []).toEqual([]);
+    expect(final?.sourceTaskRunId).toBe(taskRunId);
+    expect(final?.runtimeAttachments?.[0]).toMatchObject({
+      attachment_id: `runtime-attachment:${taskRunId}`,
+      task_run_id: taskRunId,
+      status: "completed",
+    });
+  });
+
   it("creates a runtime assistant placeholder when the anchored assistant message is not persisted yet", () => {
     const attachment: SessionRuntimeAttachment = {
       attachment_id: "runtime-attachment:turnrun:turn:session-a:3",

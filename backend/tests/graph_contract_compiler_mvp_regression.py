@@ -435,7 +435,10 @@ def test_materializer_uses_node_environment_and_node_session_policy() -> None:
     assert "\\" not in order.node_session_id
     assert order.node_session_policy["mode"] == "per_node_run_session"
     assert order.input_package["task_environment_id"] == "env.writer"
-    assert order.input_package["runtime_profile"]["task_environment_id"] == "env.writer"
+    assert "runtime_profile" not in order.input_package
+    assert "task_environment" not in order.input_package
+    assert order.memory_view_request == {}
+    assert order.file_view_request == {}
     assert order.graph_slot["node_contract"]["environment_lock"]["task_environment_id"] == "env.writer"
 
 

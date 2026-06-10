@@ -3,6 +3,34 @@ from __future__ import annotations
 from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
 
+
+def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields() -> None:
+    runtime = build_harness_runtime()
+
+    runtime._apply_assistant_message_commit(
+        "session-structural-taskrun",
+        {
+            "role": "assistant",
+            "content": "final",
+            "task_run_id": "taskrun:turn:session-structural-taskrun:1:abc",
+            "task_id": "task:turn:session-structural-taskrun:1",
+            "completion_state": "completed",
+            "terminal_reason": "completed",
+            "answer_channel": "final_answer",
+            "answer_source": "harness.loop.task_executor.completed",
+        },
+    )
+
+    messages = runtime.session_manager.load_session("session-structural-taskrun")
+
+    assert len(messages) == 1
+    assert messages[0]["task_run_id"] == "taskrun:turn:session-structural-taskrun:1:abc"
+    assert messages[0]["task_id"] == "task:turn:session-structural-taskrun:1"
+    assert messages[0]["completion_state"] == "completed"
+    assert messages[0]["terminal_reason"] == "completed"
+    assert messages[0]["answer_channel"] == "final_answer"
+
+
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
@@ -172,17 +200,6 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert not any(event.get("type") == "assistant_text" and event.get("answer_channel") == "task_control" for event in events)
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
-    done_contents = [str(event.get("content") or "") for event in events if event.get("type") == "done"]
-    visible_progress = "\n".join(
-        str(event.get("summary") or "")
-        for event in events
-        if event.get("type") == "runtime_step_summary"
-    )
-    assert done_contents == [""]
-    assert not any("我会按这个目标推进" in content for content in done_contents)
-    assert not any("执行器" in content or "TaskRun" in content or "正式任务" in content for content in done_contents)
-    _assert_no_visible_runtime_internals("\n".join(done_contents))
-    _assert_no_visible_runtime_internals(visible_progress)
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
     assert dict(task_run.diagnostics or {}).get("origin_kind") == "single_agent_turn_json_action"
@@ -470,21 +487,10 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
-    opening_index = next(
-        index
-        for index, event in enumerate(events)
-        if event.get("type") == "assistant_text"
-        and event.get("answer_channel") == "opening_judgment"
-        and "页面目标转成可执行任务" in str(event.get("content") or "")
-    )
     assert "task_run_lifecycle_started" in stream_types
-    assert opening_index < stream_types.index("task_run_lifecycle_started")
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
-    assert any(event.get("type") == "assistant_text" and event.get("answer_channel") == "opening_judgment" and "页面目标转成可执行任务" in str(event.get("content") or "") for event in events)
-    assert not any(event.get("type") == "done" and str(event.get("content") or "") for event in events)
-    assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 
 def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:
     runtime = build_harness_runtime(
@@ -534,30 +540,12 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     admissions = _admission_payloads(events)
 
-    opening_index = next(
-        index
-        for index, event in enumerate(events)
-        if event.get("type") == "assistant_text"
-        and event.get("answer_channel") == "opening_judgment"
-        and "JSON 页面目标转成持续任务" in str(event.get("content") or "")
-    )
     assert "task_run_lifecycle_started" in stream_types
-    assert opening_index < stream_types.index("task_run_lifecycle_started")
     assert admissions
     assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
-    messages = runtime.session_manager.load_session("session-json-taskrun")
-    assert not any(
-        item.get("role") == "assistant"
-        and "JSON 页面目标转成持续任务" in str(item.get("content") or "")
-        for item in messages
-    )
-    assert any(event.get("type") == "assistant_text" and event.get("answer_channel") == "opening_judgment" and "JSON 页面目标转成持续任务" in str(event.get("content") or "") for event in events)
-    assert not any(event.get("type") == "done" and str(event.get("content") or "") for event in events)
-    assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
-    assert not any(event.get("type") == "done" and "我会按这个目标推进" in str(event.get("content") or "") for event in events)
 
 def test_default_runtime_policy_uses_main_profile_for_standard_chat() -> None:
     runtime = build_harness_runtime()

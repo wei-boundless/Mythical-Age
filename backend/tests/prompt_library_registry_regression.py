@@ -70,6 +70,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "runtime.rule.subagent_delegation",
         "runtime.rule.subagent_invocation_protocol",
         "runtime.rule.plan_mode_boundary",
+        "runtime.rule.lifecycle_control",
     )
     migrated_legacy_refs = {
         "runtime.single_agent_turn.v1",
@@ -89,6 +90,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "runtime.rule.subagent_invocation_protocol.v1",
         "runtime.rule.multi_tool_scheduling.v1",
         "runtime.rule.plan_mode_boundary.v1",
+        "runtime.rule.lifecycle_control.v1",
         "graph.rule.node_boundary.v1",
         "graph.rule.node_output_contract.v1",
         "runtime.rule.file_management.generic.v1",
@@ -220,10 +222,16 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id["runtime.task_execution"].requires == (
         "runtime.rule.system_call_protocol",
         "runtime.rule.turn_decision_alignment",
+        "runtime.rule.lifecycle_control",
     )
     assert rule_by_id["runtime.graph_node_execution"].requires == ("runtime.rule.system_call_protocol",)
     assert rule_by_id["runtime.rule.system_call_protocol"].rule_kind == "runtime.system_call_protocol"
     assert rule_by_id["runtime.rule.turn_decision_alignment"].rule_kind == "runtime.turn_decision_alignment"
+    assert rule_by_id["runtime.rule.lifecycle_control"].rule_kind == "runtime.lifecycle_control"
+    assert rule_by_id["runtime.rule.lifecycle_control"].requires == (
+        "runtime.rule.turn_decision_alignment",
+        "runtime.rule.output_boundary",
+    )
     assert rule_by_id["runtime.rule.tool_use"].rule_kind == "runtime.tool_use"
     assert rule_by_id["runtime.rule.subagent_invocation_protocol"].rule_kind == "runtime.subagent_invocation_protocol"
     assert rule_by_id["coding.rule.large_scope_exploration"].rule_kind == "coding.large_scope_exploration"

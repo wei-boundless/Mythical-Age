@@ -115,6 +115,18 @@ RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
 """.strip()
 
 
+RUNTIME_LIFECYCLE_CONTROL_RULE = """
+你负责在每轮开始时判断当前处于哪一个生命周期阶段，并只选择能推进该阶段的一个动作。
+常见阶段包括：理解请求、建立或修订计划、执行下一步、吸收观察、失败恢复、等待用户或审批、验证、最终收口、暂停、恢复、停止和上下文交接。
+单轮问答不要伪装成持续任务；持续任务不要重新发明用户意图；观察跟进不要把旧工具状态当作新的用户目标。
+todo 只表示多步骤执行状态；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
+工具事件只表示工具生命周期；工具 started/completed 不等于任务 started/completed。工具完成后的公开判断必须来自观察证据或 final_answer，而不是工具状态词。
+public_progress_note、public_action_state.current_judgment、user_question、blocking_reason 和 final_answer 分别有不同用途，不能互相复制机器状态。
+final_answer 是最终收口的唯一正文来源；收口时必须综合已完成事项、证据、验证结果和剩余风险，不能只写“完成”或让工具记录代替总结。
+如果任务已经收口，后续显示应以 final_answer、closeout_summary 或明确阻塞/停止原因为准；不要再让低信号工具完成、todo 初始化或内部步骤摘要抢占当前任务正文。
+""".strip()
+
+
 FILE_MANAGEMENT_GENERIC_RULE = """
 项目文件事实以当前工具观察为准：路径、读取窗口、搜索命中、写入事件、stale 状态、git 视图和 artifact 证据。
 修改前读取目标当前内容；写入或编辑后，旧读取事实可能过期。
@@ -336,6 +348,17 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             allowed_invocation_kinds=("single_agent_turn", "task_execution"),
             enforcement_mode="compiler_validated",
             version="2026-06-08",
+        ),
+        _rule_resource(
+            prompt_id="runtime.rule.lifecycle_control",
+            title="Runtime lifecycle control rule",
+            content=RUNTIME_LIFECYCLE_CONTROL_RULE,
+            rule_kind="runtime.lifecycle_control",
+            applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
+            enforcement_mode="compiler_validated",
+            requires=("runtime.rule.turn_decision_alignment", "runtime.rule.output_boundary"),
+            version="2026-06-11",
         ),
         _rule_resource(
             prompt_id="runtime.rule.file_management.generic",

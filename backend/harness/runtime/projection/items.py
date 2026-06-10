@@ -190,32 +190,6 @@ def status_item(
     )
 
 
-def todo_plan_item(plan: dict[str, Any]) -> dict[str, Any]:
-    todo_plan = record(plan)
-    items = [_todo_item(item) for item in list(todo_plan.get("items") or []) if isinstance(item, dict)]
-    items = [item for item in items if item]
-    if not items:
-        return {}
-    completed = sum(1 for item in items if item.get("status") == "completed")
-    refs = _trace_refs(todo_plan)
-    return compact(
-        {
-            "item_id": stable_id("todo-plan", ",".join(refs), text(todo_plan.get("plan_id")), str(items)),
-            "kind": "todo_plan",
-            "slot": "timeline",
-            "surface": "timeline",
-            "source_authority": "runtime",
-            "title": "处理清单",
-            "detail": f"{completed}/{len(items)} 已完成",
-            "state": "done" if todo_plan.get("completion_ready") else "running",
-            "todo_items": items,
-            "active_item_id": text(todo_plan.get("active_item_id")),
-            "completion_ready": bool(todo_plan.get("completion_ready")),
-            "trace_refs": refs,
-        }
-    )
-
-
 def action_kind_for_tool(tool_name: str, raw_target: Any = "") -> str:
     normalized = text(tool_name).lower()
     target = text(raw_target).lower()
@@ -301,19 +275,6 @@ def observation_text_for_tool(*, tool_name: str, action_kind: str, state: str, s
     if state == "error":
         return "工具返回失败，需要根据结果调整。"
     return ""
-
-
-def _todo_item(item: dict[str, Any]) -> dict[str, Any]:
-    content = public_text(item.get("content"), limit=180)
-    return compact(
-        {
-            "todo_id": text(item.get("todo_id")),
-            "content": content,
-            "active_form": public_text(item.get("active_form"), limit=180) or content,
-            "status": text(item.get("status") or "pending"),
-            "notes": public_text(item.get("notes"), limit=180),
-        }
-    )
 
 
 def _trace_refs(value: dict[str, Any]) -> list[str]:
