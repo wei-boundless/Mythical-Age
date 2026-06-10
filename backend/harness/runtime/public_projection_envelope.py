@@ -5,6 +5,7 @@ from typing import Any
 
 
 PUBLIC_PROJECTION_ENVELOPE_AUTHORITY = "harness.public_projection.v1"
+PUBLIC_PROJECTION_CONTRACT_REVISION = "20260610-authority-refactor"
 
 _SYSTEM_CHANNELS = {"active_work_control", "ask_user", "blocked", "runtime_control", "task_control"}
 _MODEL_BODY_CHANNELS = {"", "conversation", "progress_feedback", "stage_feedback"}
@@ -39,6 +40,8 @@ def build_public_projection_envelope(
         projected_items = [item for item in projected_items if _text(item.get("slot")) != "body"]
     envelope = {
         "authority": PUBLIC_PROJECTION_ENVELOPE_AUTHORITY,
+        "contract_revision": _text(payload.get("contract_revision")) or PUBLIC_PROJECTION_CONTRACT_REVISION,
+        "projection_mode": _projection_mode(payload.get("projection_mode")),
         "projection_id": _projection_id(event_type, payload, anchor, sequence),
         "sequence": int(sequence or 0),
         "created_at": payload.get("created_at") or payload.get("updated_at") or 0,
@@ -116,13 +119,13 @@ def _lifecycle(event_type: str, data: dict[str, Any], *, items: list[dict[str, A
         return "error"
     if state in {"stopped", "aborted", "cancelled", "canceled"}:
         return "stopped"
-    if state in {"waiting", "queued", "paused", "waiting_executor", "waiting_approval"}:
+    if state in {"waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"}:
         return "waiting"
     for item in reversed(items):
         item_state = _text(item.get("state")).lower()
         if item_state in {"error", "failed", "blocked"}:
             return "error"
-        if item_state in {"waiting", "queued", "paused"}:
+        if item_state in {"waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"}:
             return "waiting"
     return "running"
 
@@ -239,6 +242,11 @@ def _record(value: Any) -> dict[str, Any]:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _projection_mode(value: Any) -> str:
+    mode = _text(value).lower()
+    return mode if mode in {"shadow", "authoritative"} else "authoritative"
 
 
 def _compact(value: dict[str, Any]) -> dict[str, Any]:

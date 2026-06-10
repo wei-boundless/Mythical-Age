@@ -276,6 +276,8 @@ export type PublicProjectionItem = PublicChatTimelineItem;
 
 export type PublicProjectionEnvelope = {
   authority: "harness.public_projection.v1" | string;
+  contract_revision?: "20260610-authority-refactor" | string;
+  projection_mode?: "shadow" | "authoritative" | string;
   projection_id: string;
   sequence?: number;
   created_at?: number;

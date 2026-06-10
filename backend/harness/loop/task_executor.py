@@ -146,6 +146,30 @@ def task_run_control_state(task_run: Any) -> str:
     return state if state in _TASK_RUN_CONTROL_STATES else ""
 
 
+def _bind_active_turn_for_task_state(runtime_host: Any, task_run: Any, *, state: str) -> None:
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is None:
+        return
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+    if not session_id or not task_run_id:
+        return
+    try:
+        active_turn = active_registry.snapshot(session_id)
+        if active_turn is None:
+            return
+        if str(getattr(active_turn, "bound_task_run_id", "") or "").strip() != task_run_id:
+            return
+        active_registry.bind_task_run(
+            session_id=session_id,
+            turn_id=str(getattr(active_turn, "turn_id", "") or "").strip(),
+            task_run_id=task_run_id,
+            state=state,
+        )
+    except Exception:
+        return
+
+
 def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
     return recovery_state_for_task_run(task_run).same_run_resumable
 
@@ -315,6 +339,11 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
         ),
     )
     runtime_host.state_index.upsert_task_run(updated)
+    _bind_active_turn_for_task_state(
+        runtime_host,
+        updated,
+        state="waiting_executor" if control_state == _TASK_RUN_PAUSED else "waiting_safe_boundary",
+    )
     if control_state == _TASK_RUN_PAUSE_REQUESTED:
         request_executor_pause(runtime_host, task_run_id=task_run_id, reason=reason, requested_by=requested_by)
     if control_state == _TASK_RUN_PAUSED:
@@ -4281,6 +4310,7 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         },
     )
     runtime_host.state_index.upsert_task_run(paused_task)
+    _bind_active_turn_for_task_state(runtime_host, paused_task, state="waiting_executor")
     if agent_run is not None:
         runtime_host.state_index.upsert_agent_run(
             replace(
@@ -4555,6 +4585,7 @@ def _pause_executor_for_tool_approval(
         },
     )
     runtime_host.state_index.upsert_task_run(waiting_task)
+    _bind_active_turn_for_task_state(runtime_host, waiting_task, state="waiting_approval")
     runtime_host.state_index.upsert_agent_run(
         replace(
             agent_run,

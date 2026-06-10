@@ -3014,7 +3014,13 @@ def _revision_edges_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any
                         {"input_key": "返修交接包", "source": "current_review"},
                         {"input_key": "previous_candidate_ref", "source": "inherited_input", "from_key": "上游交接包"},
                     ],
-                    "clear_input_keys": [],
+                    "clear_input_keys": [
+                        "chapter_revision_requirements",
+                        "quality_gate_feedback",
+                        "previous_chapter_review_ref",
+                        "previous_chapter_draft_ref",
+                        "revision_required",
+                    ],
                     "model_visible_label": "返修交接包",
                 },
             }

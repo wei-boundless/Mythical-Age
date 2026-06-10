@@ -4,6 +4,15 @@ import { getDefaultState } from "./core";
 import { reduceStreamEvent, startStreamingTurn } from "./events";
 
 describe("public projection reducer contract", () => {
+  function bindTurnRun(transition: ReturnType<typeof startStreamingTurn>, turnId: string, turnRunId = `turnrun:${turnId}`) {
+    return reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
+      turn_run: {
+        turn_id: turnId,
+        turn_run_id: turnRunId,
+      },
+    });
+  }
+
   it("renders assistant text body only from explicit model body slot in a public projection envelope", () => {
     let transition = startStreamingTurn(getDefaultState(), "hello");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text", {
@@ -146,6 +155,7 @@ describe("public projection reducer contract", () => {
 
   it("keeps public timeline feedback alongside task projection attachments", () => {
     let transition = startStreamingTurn(getDefaultState(), "run task");
+    transition = bindTurnRun(transition, "turn:session:feedback:1");
     transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
       public_projection_envelope: {
         authority: "harness.public_projection.v1",
@@ -184,6 +194,79 @@ describe("public projection reducer contract", () => {
     expect(assistant?.runtimeAttachments?.[0]?.public_timeline?.[0]?.detail).toBe("已确认上一阶段结果，可以继续推进。");
   });
 
+  it("does not attach an old anchored projection to the current stream assistant", () => {
+    let transition = startStreamingTurn(getDefaultState(), "new request");
+    transition = bindTurnRun(transition, "turn:session:new:3");
+    const assistantId = transition.session.assistantId;
+    transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:old-tool",
+        lifecycle: "running",
+        source_authority: "tool",
+        surface: "tool_window",
+        anchor: {
+          turn_id: "turn:session:old:1",
+          turn_run_id: "turnrun:turn:session:old:1",
+          run_id: "turnrun:turn:session:old:1",
+        },
+        items: [
+          {
+            item_id: "tool:old",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "旧工具动作",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.find((message) => message.id === assistantId);
+    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
+    expect(assistant?.runtimeAttachments ?? []).toEqual([]);
+  });
+
+  it("attaches a matching anchored projection to the bound current stream assistant", () => {
+    let transition = startStreamingTurn(getDefaultState(), "inspect files");
+    transition = bindTurnRun(transition, "turn:session:current:4");
+    const assistantId = transition.session.assistantId;
+    transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        projection_id: "publicproj:current-tool",
+        lifecycle: "running",
+        source_authority: "tool",
+        surface: "tool_window",
+        anchor: {
+          turn_id: "turn:session:current:4",
+          turn_run_id: "turnrun:turn:session:current:4",
+          run_id: "turnrun:turn:session:current:4",
+        },
+        items: [
+          {
+            item_id: "tool:current",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "读取文件",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.find((message) => message.id === assistantId);
+    expect(assistant?.sourceTurnId).toBe("turn:session:current:4");
+    expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
+      item_id: "tool:current",
+      title: "读取文件",
+    });
+  });
+
   it("uses thinking stage status for tool-window projection without creating body text", () => {
     let transition = startStreamingTurn(getDefaultState(), "inspect files");
     transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
@@ -211,6 +294,56 @@ describe("public projection reducer contract", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
     expect(assistant?.stageStatus).toBe("正在思考");
+  });
+
+  it("fails closed for new authoritative projection envelopes without an anchor", () => {
+    let transition = startStreamingTurn(getDefaultState(), "inspect files");
+    transition = reduceStreamEvent(transition.state, transition.session, "model_action_admission", {
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        contract_revision: "20260610-authority-refactor",
+        projection_mode: "authoritative",
+        projection_id: "publicproj:no-anchor",
+        lifecycle: "running",
+        source_authority: "tool",
+        surface: "tool_window",
+        items: [
+          {
+            item_id: "tool:no-anchor",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            title: "读取文件",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.content).toBe("");
+    expect(assistant?.runtimePublicTimelineDraft).toEqual([]);
+  });
+
+  it("does not let shadow projection envelopes suppress legacy error display", () => {
+    let transition = startStreamingTurn(getDefaultState(), "hello");
+    transition = reduceStreamEvent(transition.state, transition.session, "error", {
+      content: "模型连接失败",
+      public_projection_envelope: {
+        authority: "harness.public_projection.v1",
+        contract_revision: "20260610-authority-refactor",
+        projection_mode: "shadow",
+        projection_id: "publicproj:shadow-error",
+        lifecycle: "error",
+        source_authority: "system",
+        surface: "status_bar",
+        items: [],
+      },
+    });
+
+    expect(transition.state.messages.at(-1)?.content).toContain("处理失败");
+    expect(transition.state.messages.at(-1)?.content).toContain("模型连接失败");
   });
 
   it("does not overwrite active-work pause projection with generic steer text", () => {

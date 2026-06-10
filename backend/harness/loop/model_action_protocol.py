@@ -129,10 +129,17 @@ def model_action_request_from_payload(
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
-    if require_public_progress_note and action_type != "tool_call" and not public_progress_note:
-        errors.append("public_progress_note_required")
-    if require_public_action_state and action_type != "tool_call" and not _has_public_action_state(public_action_state):
-        errors.append("public_action_state_required")
+    contract_gaps: list[str] = []
+    if require_public_progress_note and not public_progress_note:
+        if action_type == "tool_call":
+            contract_gaps.append("public_progress_note_missing_for_tool_call")
+        else:
+            errors.append("public_progress_note_required")
+    if require_public_action_state and not _has_public_action_state(public_action_state):
+        if action_type == "tool_call":
+            contract_gaps.append("public_action_state_missing_for_tool_call")
+        else:
+            errors.append("public_action_state_required")
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:
@@ -163,6 +170,12 @@ def model_action_request_from_payload(
             "validation_errors": errors,
             "authority": "harness.loop.model_action_protocol",
         }
+    normalized_diagnostics = dict(raw.get("diagnostics") or {})
+    if contract_gaps:
+        normalized_diagnostics["contract_gaps"] = [
+            *list(normalized_diagnostics.get("contract_gaps") or []),
+            *contract_gaps,
+        ]
     return ModelActionRequest(
         request_id=str(raw.get("request_id") or f"model-action:{turn_id}:1"),
         turn_id=raw_turn_id,
@@ -178,10 +191,11 @@ def model_action_request_from_payload(
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
-        diagnostics=dict(raw.get("diagnostics") or {}),
+        diagnostics=normalized_diagnostics,
     ), {
         "status": "accepted",
         "validation_errors": [],
+        "contract_gaps": contract_gaps,
         "authority": "harness.loop.model_action_protocol",
     }
 

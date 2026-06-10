@@ -43,6 +43,10 @@ export type Message = {
   runtimePublicTimelineDraft?: PublicChatTimelineItem[];
   stageStatus?: string;
   sourceIndex?: number;
+  sourceTurnId?: string;
+  sourceRunId?: string;
+  sourceTaskRunId?: string;
+  sourceTurnRunId?: string;
   answerChannel?: string;
   answerSource?: string;
   answerCanonicalState?: string;
@@ -288,11 +292,22 @@ export type TaskGraphMonitorBinding = {
   bound_at: number;
 };
 
+export type ActiveTurnState =
+  | "starting"
+  | "model_turn"
+  | "running_task"
+  | "waiting_executor"
+  | "waiting_user"
+  | "waiting_approval"
+  | "waiting_safe_boundary"
+  | "interrupting"
+  | "terminal";
+
 export type ActiveTurnSnapshot = {
   turn_id: string;
   turn_run_id?: string;
   task_run_id?: string;
-  state?: string;
+  state?: ActiveTurnState;
   updated_at?: number;
 };
 

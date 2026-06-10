@@ -333,7 +333,6 @@ def _plan_from_provider_payload_boundary(
             "model": model,
             "prefix_key_tier": key_tier,
             "provider_payload_prefix_hash": prefix_hash,
-            "boundary_segment_id": boundary_segment_id,
             "boundary_kind": str(selected_prefix.get("boundary_kind") or ""),
             "boundary_ordinal": int(selected_prefix.get("boundary_ordinal") or 0),
             "boundary_content_hash": str(selected_prefix.get("boundary_content_hash") or ""),

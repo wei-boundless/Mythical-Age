@@ -6,7 +6,7 @@ import type {
 } from "@/lib/api";
 import { mergePublicTimelineItems } from "@/lib/store/publicTimeline";
 
-import type { SessionActivityState, StoreState } from "./types";
+import type { ActiveTurnState, SessionActivityState, StoreState } from "./types";
 
 type ApplyProjectionOptions = {
   assistantId?: string;
@@ -20,6 +20,8 @@ type ProjectionStreamAnchor = {
   turnRunId?: string;
 };
 
+export const PUBLIC_PROJECTION_CONTRACT_REVISION = "20260610-authority-refactor";
+
 const VALID_PROJECTION_SLOTS = new Set(["body", "timeline", "tool", "status", "task", "control"]);
 const MESSAGE_BODY_ITEM_KINDS = new Set(["assistant_text", "final_summary"]);
 
@@ -29,6 +31,16 @@ export function publicProjectionEnvelopeFromRecord(value: unknown): PublicProjec
   }
   const record = value as Partial<PublicProjectionEnvelope>;
   return String(record.authority ?? "").trim() === "harness.public_projection.v1" ? record as PublicProjectionEnvelope : null;
+}
+
+export function publicProjectionEnvelopeSuppressesLegacy(envelope: PublicProjectionEnvelope | null): boolean {
+  if (!envelope || !isAuthorityRefactorEnvelope(envelope)) {
+    return false;
+  }
+  if (text(envelope.projection_mode).toLowerCase() !== "authoritative") {
+    return false;
+  }
+  return hasProjectionAnchor(envelope) && hasProjectionPayload(envelope);
 }
 
 export function applyPublicProjectionEnvelope(
@@ -60,7 +72,7 @@ function applyActiveTurnUpdate(state: StoreState, envelope: PublicProjectionEnve
     activeTurnSnapshot: {
       turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
       task_run_id: taskRunId || state.activeTurnSnapshot?.task_run_id,
-      state: text(update?.state) || state.activeTurnSnapshot?.state,
+      state: activeTurnState(update?.state) || state.activeTurnSnapshot?.state,
       turn_run_id: text(anchor.turn_run_id) || state.activeTurnSnapshot?.turn_run_id,
       updated_at: Date.now() / 1000,
     },
@@ -172,17 +184,27 @@ function projectionMessageIndex(
   const runIds = projectionRunIds(anchor);
   for (const runId of runIds) {
     const index = state.messages.findIndex((message) =>
-      message.role === "assistant" && (message.runtimeAttachments ?? []).some((attachment) => runtimeAttachmentRunId(attachment) === runId)
+      message.role === "assistant"
+      && (
+        text(message.sourceRunId) === runId
+        || text(message.sourceTaskRunId) === runId
+        || text(message.sourceTurnRunId) === runId
+        || (message.runtimeAttachments ?? []).some((attachment) => runtimeAttachmentRunId(attachment) === runId)
+      )
     );
     if (index >= 0) return index;
   }
   const turnId = text(anchor.turn_id);
-  const sourceIndex = sourceIndexFromTurnId(turnId);
-  if (sourceIndex !== null) {
-    const index = state.messages.findIndex((message) => message.role === "assistant" && message.sourceIndex === sourceIndex);
+  if (turnId) {
+    const index = state.messages.findIndex((message) =>
+      message.role === "assistant" && text(message.sourceTurnId) === turnId
+    );
     if (index >= 0) return index;
   }
   const hasAnchor = Boolean(anchorMessageId || turnId || runIds.length);
+  if (isAuthorityRefactorEnvelope(envelope) && !hasAnchor) {
+    return -1;
+  }
   const assistantId = text(options.assistantId);
   if (assistantId && (!hasAnchor || streamAnchorMatches(anchor, options.streamAnchor))) {
     const index = state.messages.findIndex((message) => message.id === assistantId);
@@ -330,7 +352,7 @@ function activityLevel(value: unknown): SessionActivityState["level"] {
   const normalized = text(value).toLowerCase();
   if (["error", "failed", "blocked"].includes(normalized)) return "error";
   if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return "stopped";
-  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval"].includes(normalized)) return "waiting";
+  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(normalized)) return "waiting";
   if (["done", "completed", "success"].includes(normalized)) return "success";
   return "running";
 }
@@ -339,12 +361,36 @@ function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined
   return text(attachment?.run_id ?? attachment?.task_run_id);
 }
 
-function sourceIndexFromTurnId(turnId: string) {
-  if (!turnId) return null;
-  const parsed = Number(turnId.split(":").at(-1));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function activeTurnState(value: unknown): ActiveTurnState | undefined {
+  const normalized = text(value);
+  return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
+}
+
+const ACTIVE_TURN_STATES = new Set([
+  "starting",
+  "model_turn",
+  "running_task",
+  "waiting_executor",
+  "waiting_user",
+  "waiting_approval",
+  "waiting_safe_boundary",
+  "interrupting",
+  "terminal",
+]);
+
+function isAuthorityRefactorEnvelope(envelope: PublicProjectionEnvelope) {
+  return text(envelope.contract_revision) === PUBLIC_PROJECTION_CONTRACT_REVISION;
+}
+
+function hasProjectionAnchor(envelope: PublicProjectionEnvelope) {
+  const anchor = envelope.anchor ?? {};
+  return Boolean(text(anchor.message_id) || text(anchor.turn_id) || projectionRunIds(anchor).length);
+}
+
+function hasProjectionPayload(envelope: PublicProjectionEnvelope) {
+  return projectionItems(envelope).length > 0 || Boolean(envelope.task_projection);
 }

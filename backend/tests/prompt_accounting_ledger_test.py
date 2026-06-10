@@ -30,6 +30,11 @@ def _message_content_with_title(packet, title: str) -> str:
     raise AssertionError(f"message title not found: {title}")
 
 
+def _message_payload_with_title(packet, title: str) -> dict[str, object]:
+    content = _message_content_with_title(packet, title)
+    return json.loads(content.split("\n", 1)[1])
+
+
 def _message_content_for_source(packet, source_ref: str) -> str:
     for segment in packet.segment_plan["segments"]:
         if segment["source_ref"] != source_ref:
@@ -241,8 +246,14 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
         {"role": "system", "content": "Task execution stable contract\n{\"schema\":{\"action_type\":\"respond\"}}"},
         {"role": "user", "content": "Task execution current state\n{\"observations\":[]}"},
     ]
-    segment_plan = _segment_plan(
-        "packet:cache-key",
+    first_segment_plan = _segment_plan(
+        "packet:cache-key:first",
+        "task_execution",
+        messages,
+        ("cacheable_prefix", "session_stable", "volatile"),
+    )
+    second_segment_plan = _segment_plan(
+        "packet:cache-key:second",
         "task_execution",
         messages,
         ("cacheable_prefix", "session_stable", "volatile"),
@@ -255,7 +266,7 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
             provider="deepseek",
             model="deepseek-v4-pro",
             messages=messages,
-            segment_plan=segment_plan,
+            segment_plan=first_segment_plan,
         )
     )
     second = PromptCachePlanner().plan(
@@ -265,13 +276,63 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
             provider="deepseek",
             model="deepseek-v4-pro",
             messages=messages,
-            segment_plan=segment_plan,
+            segment_plan=second_segment_plan,
         )
     )
 
     assert first.prefix_hash == second.prefix_hash
     assert first.cache_key == second.cache_key
     assert first.boundary_segment_id != second.boundary_segment_id
+
+    first_model_request = ModelRequestBuilder().build(
+        request_id="modelreq:first",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        messages=messages,
+        segment_plan=first_segment_plan,
+        metadata={"cache_relevant_params": {"response_format": {"type": "json_object"}}},
+    )
+    second_model_request = ModelRequestBuilder().build(
+        request_id="modelreq:second",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        messages=messages,
+        segment_plan=second_segment_plan,
+        metadata={"cache_relevant_params": {"response_format": {"type": "json_object"}}},
+    )
+    first_provider_record = PromptCachePlanner().plan(
+        serializer.build_segment_map(
+            request_id="modelreq:first",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            messages=messages,
+            segment_plan=first_segment_plan,
+            model_request=first_model_request,
+        ),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        model_request=first_model_request,
+    )
+    second_provider_record = PromptCachePlanner().plan(
+        serializer.build_segment_map(
+            request_id="modelreq:second",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            messages=messages,
+            segment_plan=second_segment_plan,
+            model_request=second_model_request,
+        ),
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        model_request=second_model_request,
+    )
+
+    assert first_provider_record.prefix_hash == second_provider_record.prefix_hash
+    assert first_provider_record.cache_key == second_provider_record.cache_key
+    assert first_provider_record.boundary_segment_id != second_provider_record.boundary_segment_id
+    assert first_provider_record.diagnostics["cache_sensitive_params_hash"] == second_provider_record.diagnostics["cache_sensitive_params_hash"]
 
 
 def test_task_execution_packet_places_stable_contract_before_volatile_state() -> None:
@@ -411,7 +472,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "provider_global",
         "session",
         "session",
-        "task",
+        "session",
         "task",
         "task",
         "task",
@@ -425,6 +486,9 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         and dict(segment.metadata or {}).get("cache_impact") == "volatile"
         for segment in segment_map.segments
     )
+    project_segment = next(segment for segment in segment_map.segments if segment.kind == "project_instructions_stable")
+    assert project_segment.prefix_tier == "session"
+    assert dict(project_segment.metadata or {})["cache_impact"] == "project_prefix_stable"
     cache_record = PromptCachePlanner().plan(segment_map)
     model_request = ModelRequestBuilder().build(
         request_id="modelreq:task",
@@ -522,6 +586,55 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert "task_runtime_boundary_stable" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
+
+
+def test_task_execution_replay_prefix_keeps_observations_beyond_current_state_cursor() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:replay-prefix-budget",
+        invocation_index=3,
+        task_run={
+            "task_run_id": "taskrun:replay-prefix-budget",
+            "task_id": "task:replay-prefix-budget",
+            "task_contract_ref": "contract:replay-prefix-budget",
+            "diagnostics": {"executor_status": "running"},
+        },
+        contract={
+            "contract_id": "contract:replay-prefix-budget",
+            "task_run_goal": "验证 replay 前缀不会被 current state cursor 截断",
+            "completion_criteria": ["replay prefix keeps older observations"],
+        },
+        observations=[
+            {
+                "observation_id": f"obs:{index:02d}",
+                "payload": {
+                    "result_envelope": {
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "summary": f"read result {index}",
+                        "text": f"read result {index}",
+                    }
+                },
+            }
+            for index in range(1, 11)
+        ],
+        runtime_assembly={
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    replay_sources = [
+        segment["source_ref"]
+        for segment in result.packet.segment_plan["segments"]
+        if segment["kind"] == "task_state_replay_entry"
+    ]
+    volatile_payload = _message_payload_with_title(result.packet, "Task execution current state")
+    latest_cursor_results = volatile_payload["task_state"]["latest_tool_results"]
+
+    assert replay_sources[0] == "task_state_replay:obs:01"
+    assert replay_sources[-1] == "task_state_replay:obs:10"
+    assert len(replay_sources) == 10
+    assert [item["observation_ref"] for item in latest_cursor_results] == ["obs:09", "obs:10"]
 
 
 def test_task_execution_replay_entries_keep_source_content_stable_when_new_failure_is_projected_first() -> None:

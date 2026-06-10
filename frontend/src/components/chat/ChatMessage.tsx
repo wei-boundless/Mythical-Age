@@ -15,7 +15,7 @@ import {
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { isPublicTimelineControlItem, isTaskProjectionCompanionTimelineItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
+import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/store/publicTimeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -85,14 +85,11 @@ export function ChatMessage({
   const taskProjections = isUser
     ? []
     : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
-  const runtimePublicTimelineForMessage = taskProjections.length
-    ? taskProjectionCompanionTimelineItems(runtimePublicTimelineDraft)
-    : runtimePublicTimelineDraft;
   const basePublicTimelineItems = isUser
     ? []
     : mergedPublicTimelineItems(
       runtimeAttachments,
-      runtimePublicTimelineForMessage,
+      runtimePublicTimelineDraft,
       terminalState,
     );
   const publicTimelineItems = !isUser && baseDisplayContent.trim()
@@ -300,9 +297,7 @@ function mergedPublicTimelineItems(
 ) {
   const persisted = attachments.flatMap((attachment) =>
     Array.isArray(attachment.public_timeline)
-      ? attachment.task_projection
-        ? attachment.public_timeline.filter(isTaskProjectionCompanionTimelineItem)
-        : attachment.public_timeline
+      ? attachment.public_timeline
       : [],
   );
   return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
@@ -312,10 +307,6 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   return attachments.flatMap((attachment) =>
     attachment.task_projection ? [attachment.task_projection] : [],
   );
-}
-
-function taskProjectionCompanionTimelineItems(items: PublicChatTimelineItem[] | undefined) {
-  return (items ?? []).filter(isTaskProjectionCompanionTimelineItem);
 }
 
 function askUserQuestionFromPublicTimelineItems(items: PublicChatTimelineItem[]) {

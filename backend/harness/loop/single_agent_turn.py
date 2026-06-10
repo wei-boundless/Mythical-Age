@@ -2558,25 +2558,47 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
+        public_note = _native_tool_public_note(args)
+        public_action_state = {"completion_status": "waiting_for_tool"}
+        diagnostics: dict[str, Any] = {
+            "origin_kind": "single_agent_turn_native_tool_call",
+            "origin_authority": "harness.loop.single_agent_turn",
+            "packet_ref": packet_ref,
+            "native_tool_call": {
+                "id": call_id,
+                "name": tool_name,
+                "source": str(call.get("source") or ""),
+            },
+        }
+        if public_note:
+            public_action_state["current_judgment"] = public_note
+        else:
+            diagnostics["contract_gaps"] = ["public_progress_note_missing_for_native_tool_call"]
         return ModelActionRequest(
             request_id=f"model-action:{turn_id}:single-agent-tool:{iteration}:{_stable_action_suffix(call_id or tool_name)}",
             turn_id=turn_id,
             action_type="tool_call",
-            public_progress_note="",
-            public_action_state={"completion_status": "waiting_for_tool"},
+            public_progress_note=public_note,
+            public_action_state=public_action_state,
             tool_call={"tool_name": tool_name, "name": tool_name, "id": call_id, "args": args},
-            diagnostics={
-                "origin_kind": "single_agent_turn_native_tool_call",
-                "origin_authority": "harness.loop.single_agent_turn",
-                "packet_ref": packet_ref,
-                "native_tool_call": {
-                    "id": call_id,
-                    "name": tool_name,
-                    "source": str(call.get("source") or ""),
-                },
-            },
+            diagnostics=diagnostics,
         )
     return None
+
+
+def _native_tool_public_note(args: dict[str, Any]) -> str:
+    for key in (
+        "public_progress_note",
+        "public_note",
+        "current_judgment",
+        "reason",
+        "purpose",
+        "user_visible_reason",
+    ):
+        text = public_runtime_progress_summary(args.get(key) or "").strip()
+        if text:
+            return text[:160].rstrip()
+    return ""
 
 
 def _native_tool_public_target(args: dict[str, Any]) -> str:

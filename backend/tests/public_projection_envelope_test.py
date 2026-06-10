@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from api.chat import _attach_public_projection_envelope, _project_public_stream_event
 from harness.runtime.public_projection_envelope import (
+    PUBLIC_PROJECTION_CONTRACT_REVISION,
     PUBLIC_PROJECTION_ENVELOPE_AUTHORITY,
     build_public_projection_envelope,
 )
@@ -41,6 +42,8 @@ def test_handoff_done_envelope_is_control_and_not_visible() -> None:
 
     envelope = data["public_projection_envelope"]
     assert envelope["authority"] == PUBLIC_PROJECTION_ENVELOPE_AUTHORITY
+    assert envelope["contract_revision"] == PUBLIC_PROJECTION_CONTRACT_REVISION
+    assert envelope["projection_mode"] == "authoritative"
     assert envelope["source_authority"] == "runtime"
     assert envelope["surface"] == "task_projection"
     assert envelope["terminal"] == {
@@ -237,6 +240,27 @@ def test_public_anchor_is_honored_by_projection_envelope() -> None:
     assert anchor["turn_id"] == "turn:session-envelope:42"
     assert anchor["task_run_id"] == "taskrun:turn:session-envelope:42:abc"
     assert anchor["turn_run_id"] == "turnrun:turn:session-envelope:42"
+
+
+def test_waiting_safe_boundary_is_projected_as_waiting_lifecycle() -> None:
+    envelope = build_public_projection_envelope(
+        "runtime_status",
+        {
+            "state": "waiting_safe_boundary",
+            "active_turn": {
+                "turn_id": "turn:session-envelope:safe-boundary",
+                "state": "waiting_safe_boundary",
+            },
+        },
+        session_id="session-envelope",
+        sequence=18,
+    )
+
+    assert envelope["lifecycle"] == "waiting"
+    assert envelope["active_turn_update"] == {
+        "turn_id": "turn:session-envelope:safe-boundary",
+        "state": "waiting_safe_boundary",
+    }
 
 
 def test_runtime_monitor_public_delta_carries_projection_envelope() -> None:

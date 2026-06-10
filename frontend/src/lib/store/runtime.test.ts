@@ -1927,8 +1927,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ...getDefaultState(),
       currentSessionId: "session:stream",
       messages: [
-        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
-        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:stream:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:stream:1" },
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
@@ -2057,8 +2057,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ...getDefaultState(),
       currentSessionId: "session:observation",
       messages: [
-        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
-        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:observation:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:observation:1" },
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
@@ -2135,8 +2135,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       ...getDefaultState(),
       currentSessionId: "session:public-delta",
       messages: [
-        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
-        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:public-delta:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:public-delta:1" },
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
@@ -2204,8 +2204,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const taskRunId = "taskrun:turn:session:hydrate:1:abc";
     api.getSessionTimeline.mockResolvedValue({
       messages: [
-        { role: "user", content: "开始长任务" },
-        { role: "assistant", content: "任务已接管。" },
+        { role: "user", content: "开始长任务", turn_id: "turn:session:hydrate:1" },
+        { role: "assistant", content: "任务已接管。", turn_id: "turn:session:hydrate:1" },
       ],
       runtime_attachments: [],
     });
@@ -2220,8 +2220,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         message_count: 2,
       }],
       messages: [
-        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
-        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:hydrate:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:hydrate:1" },
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
@@ -2978,6 +2978,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           toolCalls: [],
           retrievals: [],
           sourceIndex: 0,
+          sourceTurnId: "turn:session:live:1",
         },
         {
           id: "assistant:1",
@@ -2986,6 +2987,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           toolCalls: [],
           retrievals: [],
           sourceIndex: 1,
+          sourceTurnId: "turn:session:live:1",
         },
       ],
     });
@@ -3067,6 +3069,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           toolCalls: [],
           retrievals: [],
           sourceIndex: 0,
+          sourceTurnId: "turn:session:waiting:1",
         },
         {
           id: "assistant:1",
@@ -3088,6 +3091,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             },
           ],
           sourceIndex: 1,
+          sourceTurnId: "turn:session:waiting:1",
         },
       ],
     });
@@ -3154,10 +3158,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         task_run_id: taskRunId,
       },
       messages: [
-        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
-        { id: "assistant:1", role: "assistant", content: "任务已接管", toolCalls: [], retrievals: [], sourceIndex: 1 },
-        { id: "user:2", role: "user", content: "继续", toolCalls: [], retrievals: [], sourceIndex: 2 },
-        { id: "assistant:2", role: "assistant", content: "我会继续处理当前工作。", toolCalls: [], retrievals: [], sourceIndex: 3 },
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:live:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:live:1" },
+        { id: "user:2", role: "user", content: "继续", toolCalls: [], retrievals: [], sourceIndex: 2, sourceTurnId: "turn:session:live:3" },
+        { id: "assistant:2", role: "assistant", content: "我会继续处理当前工作。", toolCalls: [], retrievals: [], sourceIndex: 3, sourceTurnId: "turn:session:live:3" },
       ],
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
@@ -6062,9 +6066,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useRealTimers();
     api.getSessionTimeline.mockResolvedValue({
       messages: [
-        { role: "user", content: "执行任务" },
-        { role: "assistant", content: "任务已接管" },
-        { role: "assistant", content: "任务完成" },
+        { role: "user", content: "执行任务", turn_id: "turn:session:timeline:1" },
+        { role: "assistant", content: "任务已接管", turn_id: "turn:session:timeline:1" },
+        { role: "assistant", content: "任务完成", turn_id: "turn:session:timeline:2" },
       ],
       runtime_attachments: [{
         attachment_id: "runtime-attachment:taskrun:turn:session:timeline:1:abc",

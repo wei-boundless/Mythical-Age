@@ -451,6 +451,17 @@ def wait_task_launch_supervision(
         terminal_reason="task_launch_supervision",
     )
     runtime_host.state_index.upsert_task_run(updated_task)
+    active_registry = getattr(runtime_host, "active_turn_registry", None)
+    if active_registry is not None:
+        try:
+            active_registry.bind_task_run(
+                session_id=updated_task.session_id,
+                turn_id=str(dict(updated_task.diagnostics or {}).get("turn_id") or ""),
+                task_run_id=updated_task.task_run_id,
+                state="waiting_approval",
+            )
+        except Exception:
+            pass
     lifecycle_ref = runtime_host.runtime_objects.put_object(
         "task_lifecycle",
         task_run.task_run_id,

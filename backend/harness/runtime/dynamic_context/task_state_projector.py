@@ -62,7 +62,7 @@ class TaskStateProjector:
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
             "file_state": _file_state_projection(execution_projection.get("file_state")),
-            "latest_tool_results": latest_results[-8:],
+            "latest_tool_results": latest_results,
             "active_failures": _dedupe_failures(
                 [
                     *dict_tuple(execution_projection.get("active_failures")),
@@ -165,7 +165,12 @@ def _task_state_cursor_projection(
     else:
         cursor.pop("file_state", None)
     if latest_results:
-        cursor["latest_tool_results"] = list(latest_results[-result_limit:])
+        latest_cursor_results = list(latest_results[-result_limit:])
+        cursor["latest_tool_results"] = (
+            [_cursor_tool_result_projection(item) for item in latest_cursor_results]
+            if replay_entries
+            else latest_cursor_results
+        )
     else:
         cursor.pop("latest_tool_results", None)
     if active_failures:
@@ -186,6 +191,30 @@ def _task_state_cursor_projection(
             }
         )
     return drop_empty(cursor)
+
+
+def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
+    error = _dict_value(item.get("error")) or _dict_value(item.get("structured_error"))
+    projected = drop_empty(
+        {
+            "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+            "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+            "status": str(item.get("status") or ""),
+            "path": _projection_path(item),
+            "visibility": str(item.get("visibility") or ""),
+            "reason": str(item.get("reason") or error.get("code") or ""),
+            "summary": compact_text(item.get("summary") or error.get("message") or "", limit=160),
+            "error": _replay_safe_value(error),
+            "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
+            "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
+            "content_range": _replay_content_range(dict(item.get("content_range") or {})),
+            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "replacement_ref": str(item.get("replacement_ref") or ""),
+            "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
+            "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
+        }
+    )
+    return projected
 
 
 def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str, Any]:

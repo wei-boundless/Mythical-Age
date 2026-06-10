@@ -52,10 +52,10 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
-import { isTaskProjectionCompanionTimelineItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
+import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "./publicProjectionReducer";
+import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "./publicTimeline";
 import { RunMonitorController } from "../run-monitor/controller";
-import type { ActiveTurnSnapshot, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -74,6 +74,17 @@ const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
 const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
 const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set<string>();
 const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID]);
+const ACTIVE_TURN_STATES = new Set([
+  "starting",
+  "model_turn",
+  "running_task",
+  "waiting_executor",
+  "waiting_user",
+  "waiting_approval",
+  "waiting_safe_boundary",
+  "interrupting",
+  "terminal",
+]);
 
 function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor | null): PublicChatTimelineItem {
   return {
@@ -2353,9 +2364,14 @@ export class WorkspaceRuntime {
       turn_id: turnId,
       turn_run_id: String(payload.turn_run_id ?? "").trim() || undefined,
       task_run_id: String(payload.bound_task_run_id ?? payload.task_run_id ?? "").trim() || undefined,
-      state: String(payload.state ?? "").trim() || undefined,
+      state: this.activeTurnStateFromPayload(payload.state),
       updated_at: Number(payload.updated_at ?? 0) || undefined,
     };
+  }
+
+  private activeTurnStateFromPayload(value: unknown): ActiveTurnState | undefined {
+    const normalized = String(value ?? "").trim();
+    return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
   }
 
   private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
@@ -2408,7 +2424,7 @@ export class WorkspaceRuntime {
       },
     };
     streamState = this.captureSessionActivity(streamState, sessionId);
-    const transitionSession: StreamSession = { assistantId };
+    let transitionSession: StreamSession = { assistantId };
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
@@ -2434,6 +2450,7 @@ export class WorkspaceRuntime {
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
               const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
               const transition = reduceStreamEvent(baseState, transitionSession, event, data);
+              transitionSession = transition.session;
               const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
                 ? this.store.getState().activeStreamSessionIds
                 : [...this.store.getState().activeStreamSessionIds, sessionId];
@@ -2477,6 +2494,7 @@ export class WorkspaceRuntime {
             ? { reason: "user_stopped" }
             : { error: error instanceof Error ? error.message : "unknown error" }
         );
+        transitionSession = transition.session;
         const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
           ? this.store.getState().activeStreamSessionIds
           : [...this.store.getState().activeStreamSessionIds, sessionId];
@@ -4097,7 +4115,7 @@ export class WorkspaceRuntime {
       const stale = Boolean((activeMonitor as Record<string, unknown>).stale ?? activeTaskRun.stale);
       const controlState = this.runtimeControlState(activeMonitor);
       const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
-      const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(liveStatus) && !staleOrDiagnostic;
+      const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "waiting_safe_boundary", "blocked"].includes(liveStatus) && !staleOrDiagnostic;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
@@ -4212,9 +4230,7 @@ export class WorkspaceRuntime {
   private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
     return (runtimeAttachments ?? []).flatMap((attachment) =>
       Array.isArray(attachment.public_timeline)
-        ? attachment.task_projection
-          ? attachment.public_timeline.filter(isTaskProjectionCompanionTimelineItem)
-          : attachment.public_timeline
+        ? attachment.public_timeline
         : [],
     );
   }
@@ -4288,6 +4304,9 @@ export class WorkspaceRuntime {
     } else if (status === "waiting_approval") {
       title = "等待确认";
       detail = "需要确认后继续执行。";
+    } else if (status === "waiting_safe_boundary") {
+      title = "等待安全边界";
+      detail = "暂停或中断请求已记录，当前步骤到达安全边界后会收口。";
     } else if (status === "blocked") {
       title = "已停住";
       detail = "当前处理暂时停住，我会换一种方式继续。";
@@ -4399,6 +4418,29 @@ export class WorkspaceRuntime {
 
   private runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined) {
     return String(attachment?.run_id ?? attachment?.task_run_id ?? "").trim();
+  }
+
+  private messageSourceMatchesRuntimeAnchor(
+    message: Message,
+    anchor: { anchorTurnId?: string; runId?: string; taskRunId?: string; turnRunId?: string },
+  ) {
+    const anchorTurnId = String(anchor.anchorTurnId ?? "").trim();
+    if (anchorTurnId && String(message.sourceTurnId ?? "").trim() === anchorTurnId) {
+      return true;
+    }
+    const runIds = [
+      anchor.runId,
+      anchor.taskRunId,
+      anchor.turnRunId,
+    ].map((item) => String(item ?? "").trim()).filter(Boolean);
+    if (!runIds.length) {
+      return false;
+    }
+    return runIds.some((runId) =>
+      String(message.sourceRunId ?? "").trim() === runId
+      || String(message.sourceTaskRunId ?? "").trim() === runId
+      || String(message.sourceTurnRunId ?? "").trim() === runId
+    );
   }
 
   private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
@@ -4654,7 +4696,11 @@ export class WorkspaceRuntime {
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
     const envelope = publicProjectionEnvelopeFromRecord(runtimeEvent.public_projection_envelope);
     if (envelope) {
-      return applyPublicProjectionEnvelope(state, envelope);
+      const stateWithProjection = applyPublicProjectionEnvelope(state, envelope);
+      if (publicProjectionEnvelopeSuppressesLegacy(envelope)) {
+        return stateWithProjection;
+      }
+      state = stateWithProjection;
     }
     const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
     const taskProjection = this.taskProjectionFromRecord(runtimeEvent);
@@ -4722,7 +4768,6 @@ export class WorkspaceRuntime {
       debug_trace_ref: String(taskProjection?.debug_trace_ref ?? runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
       updated_at: Number(taskProjection?.updated_at ?? runtimeEvent.created_at ?? Date.now() / 1000),
     };
-    const anchorIndex = Number(anchorTurnId.split(":").at(-1));
     return {
       ...state,
       messages: state.messages.map((message) => {
@@ -4730,7 +4775,7 @@ export class WorkspaceRuntime {
           return message;
         }
         const existing = message.runtimeAttachments ?? [];
-        const sourceMatches = Number.isFinite(anchorIndex) && message.sourceIndex === anchorIndex;
+        const sourceMatches = this.messageSourceMatchesRuntimeAnchor(message, { anchorTurnId, runId, taskRunId });
         if (explicitAnchor.startsWith("turn:") && !sourceMatches) {
           const filtered = existing.filter((item) => this.runtimeAttachmentRunId(item) !== runId);
           return filtered.length === existing.length ? message : { ...message, runtimeAttachments: filtered };
@@ -4822,7 +4867,11 @@ export class WorkspaceRuntime {
         }
         const existing = message.runtimeAttachments ?? [];
         const hasAttachment = existing.some((item) => this.runtimeAttachmentRunId(item) === taskRunId);
-        const sourceMatches = attachment.anchor_turn_id && message.sourceIndex === Number(attachment.anchor_turn_id.split(":").at(-1));
+        const sourceMatches = this.messageSourceMatchesRuntimeAnchor(message, {
+          anchorTurnId: attachment.anchor_turn_id,
+          runId: taskRunId,
+          taskRunId,
+        });
         if (!hasAttachment && !sourceMatches) {
           return message;
         }
@@ -5048,9 +5097,9 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "blocked") {
-      const title = projectedTitle || (effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : "运行受阻");
-      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理受阻。");
+    if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "waiting_safe_boundary" || effectiveStatus === "blocked") {
+      const title = projectedTitle || (effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
+      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会收口。" : "当前处理受阻。");
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {

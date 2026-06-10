@@ -1691,11 +1691,12 @@ class HarnessRuntimeFacade:
             if not result.get("ok"):
                 response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
             else:
+                control_state = str(dict(result.get("control") or {}).get("state") or "").strip()
                 self._bind_current_turn_to_task_run(
                     session_id=context.session_id,
                     turn_id=turn_id,
                     task_run_id=context.task_run_id,
-                    state="waiting_executor",
+                    state="waiting_executor" if control_state == "paused" else "waiting_safe_boundary",
                 )
         elif action == "stop_active_work":
             result = stop_task_run(host, context.task_run_id, reason="conversation_stop", requested_by="user")
@@ -1839,7 +1840,7 @@ class HarnessRuntimeFacade:
                 session_id=session_id,
                 turn_id=turn_id,
                 task_run_id=task_run_id,
-                state="running_task" if state == "running_task" else "waiting_executor",
+                state=state if state in {"running_task", "waiting_executor", "waiting_approval", "waiting_safe_boundary"} else "waiting_executor",
             )
         except Exception:
             logger.debug("failed to bind current active turn to task run", exc_info=True)

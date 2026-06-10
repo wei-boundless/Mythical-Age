@@ -14,9 +14,23 @@ ActiveTurnState = Literal[
     "running_task",
     "waiting_executor",
     "waiting_user",
+    "waiting_approval",
+    "waiting_safe_boundary",
     "interrupting",
     "terminal",
 ]
+
+_ACTIVE_TURN_STATES: set[str] = {
+    "starting",
+    "model_turn",
+    "running_task",
+    "waiting_executor",
+    "waiting_user",
+    "waiting_approval",
+    "waiting_safe_boundary",
+    "interrupting",
+    "terminal",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +270,6 @@ def _record_from_payload(payload: dict[str, Any]) -> ActiveTurnRecord | None:
 
 def _state(value: Any) -> ActiveTurnState:
     raw = str(value or "").strip()
-    if raw in {"starting", "model_turn", "running_task", "waiting_executor", "waiting_user", "interrupting", "terminal"}:
+    if raw in _ACTIVE_TURN_STATES:
         return raw  # type: ignore[return-value]
     return "starting"

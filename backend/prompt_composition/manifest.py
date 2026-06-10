@@ -334,7 +334,7 @@ _LAYER_CACHE_POLICY = {
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
     },
     "project_stable": {
-        "allowed_prefix_tiers": {"task"},
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
     "personality_stable": {

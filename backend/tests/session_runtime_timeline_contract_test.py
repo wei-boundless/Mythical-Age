@@ -138,9 +138,14 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["final_answer"] == "Timeline final answer."
     assert attachment["anchor_role"] == "assistant"
     task_projection = dict(attachment.get("task_projection") or {})
-    assert attachment["public_timeline"] == []
     assert task_projection
     assert task_projection["final_answer"] == "Timeline final answer."
+    assert attachment["public_timeline"]
+    assert any(
+        item.get("kind") in {"opening_judgment", "stage_summary", "observation_report"}
+        and "timeline verification" in json.dumps(item, ensure_ascii=False)
+        for item in attachment["public_timeline"]
+    )
     visible_attachment_text = json.dumps(
         {
             "summary": attachment["summary"],
@@ -247,13 +252,18 @@ def test_session_runtime_timeline_uses_task_projection_as_task_attachment_displa
     )
 
     attachment = timeline["runtime_attachments"][0]
-    assert attachment["public_timeline"] == []
     task_projection = dict(attachment.get("task_projection") or {})
     current_action = dict(task_projection.get("current_action") or {})
     assert task_projection["status"] == "running"
     assert current_action["title"] == "Retry image generation with safer parameters."
     assert "detail" not in current_action
     assert not any(item.get("kind") == "blocked" for item in task_projection.get("activities", []))
+    assert attachment["public_timeline"]
+    assert any(item.get("kind") == "work_action" for item in attachment["public_timeline"])
+    assert "The image provider timed out but retry is possible." in json.dumps(
+        attachment["public_timeline"],
+        ensure_ascii=False,
+    )
 
 
 def test_session_runtime_timeline_projects_turn_run_tool_progress() -> None:
@@ -513,6 +523,42 @@ def test_session_runtime_timeline_does_not_move_task_anchor_to_later_continue_tu
     attachment = timeline["runtime_attachments"][0]
     assert attachment["anchor_turn_id"] == "turn:session-anchor-message:1"
     assert attachment["anchor_message_id"] == "message:old-assistant"
+
+
+def test_session_runtime_timeline_leaves_anchor_message_empty_when_original_assistant_is_missing() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:turn:session-missing-anchor:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-missing-anchor",
+            task_id="task:turn:session-missing-anchor:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={"turn_id": "turn:session-missing-anchor:1"},
+        )
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-missing-anchor",
+        history={
+            "messages": [
+                {"role": "user", "content": "start old task", "turn_id": "turn:session-missing-anchor:1"},
+                {"role": "user", "content": "new request", "turn_id": "turn:session-missing-anchor:2"},
+                {"role": "assistant", "content": "new reply", "id": "message:new-assistant", "turn_id": "turn:session-missing-anchor:2"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["anchor_turn_id"] == "turn:session-missing-anchor:1"
+    assert attachment["anchor_message_id"] == ""
 
 
 def test_session_runtime_timeline_ignores_legacy_child_event_as_control_anchor() -> None:

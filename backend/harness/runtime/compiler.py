@@ -1089,12 +1089,12 @@ class RuntimeCompiler:
                         payload=project_instruction_payload,
                         kind="project_instructions_stable",
                         source_ref=project_instruction_bundle.prompt_ref,
-                        cache_scope="task",
+                        cache_scope="session",
                         cache_role="session_stable",
                         compression_role="preserve",
                         metadata={
                             "authority_class": "project_instruction_boundary",
-                            "cache_impact": "task_prefix_stable",
+                            "cache_impact": "project_prefix_stable",
                             "projection_strategy": "scoped_project_instruction_bundle",
                             "content_source": "harness.runtime.project_instructions",
                         },
@@ -3833,10 +3833,19 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
                 "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行；成功、失败、拒绝和审批等待会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
                 "看到拒绝观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
             )
+            lines.append(
+                "- 工具观察返回后，如果还需要继续执行工具，在 public_action_state.current_judgment 写一句基于观察的公开短判断；"
+                "如果完成了一个阶段、改变方向、处理了失败恢复或准备收口，在 public_action_state.current_judgment 写阶段性判断，在 next_action 写下一阶段方向。"
+                "不要写“工具返回成功，正在继续”“处理完成”这类没有判断的信息。"
+            )
         else:
             lines.append(
                 "- 普通工具调用可以在同一轮提出多个；运行时会按工具安全声明、资源冲突和审批状态决定并发或串行，并把成功、失败或拒绝结果作为工具观察返回。"
                 "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把权限拒绝理解为用户已经授权，也不要原样重复同一个未获准动作。"
+            )
+            lines.append(
+                "- 工具观察返回后，如果继续调用工具，公开反馈必须来自你对观察的真实判断；"
+                "如果已经形成阶段结论或下一阶段方向，用一两句自然语言说明判断和下一步，不要使用“开始处理/处理完成/工具返回成功，正在继续”等泛化状态。"
             )
     if projection.get("invocation_kind") == "single_agent_turn":
         control_actions = [

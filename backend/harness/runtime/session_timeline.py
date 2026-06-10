@@ -77,24 +77,22 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         anchor_turn_id=anchor_turn_id,
         anchor_message_id=anchor_message_id,
     )
-    public_timeline = []
-    if not task_projection:
-        public_timeline = project_public_timeline_from_events(
-            events,
-            runtime_host=runtime_host,
-            monitor=monitor,
-            run_id=task_run_id,
-            task_run_id=task_run_id,
-            final_answer=final_answer,
-            status=str(getattr(task_run, "status", "") or ""),
-            assistant_text=assistant_text,
-            limit=max_timeline_items,
-        )
-        public_timeline = _merge_public_timeline(
-            public_timeline,
-            _public_timeline_from_progress_entries(progress_entries),
-            limit=max_timeline_items,
-        )
+    public_timeline = project_public_timeline_from_events(
+        events,
+        runtime_host=runtime_host,
+        monitor=monitor,
+        run_id=task_run_id,
+        task_run_id=task_run_id,
+        final_answer=final_answer,
+        status=str(getattr(task_run, "status", "") or ""),
+        assistant_text=assistant_text,
+        limit=max_timeline_items,
+    )
+    public_timeline = _merge_public_timeline(
+        public_timeline,
+        _public_timeline_from_progress_entries(progress_entries),
+        limit=max_timeline_items,
+    )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -386,11 +384,6 @@ def _anchor_assistant_message(*, anchor_turn_id: str, history_messages: list[Any
             continue
         if _message_turn_id(message) == anchor_turn_id:
             return {**message, "__history_index": index}
-    anchor_index = _turn_index(anchor_turn_id)
-    if anchor_index >= 0:
-        for index, message in enumerate(messages):
-            if str(message.get("role") or "") == "assistant" and index >= anchor_index:
-                return {**message, "__history_index": index}
     return {}
 
 
@@ -414,14 +407,6 @@ def _message_turn_id(message: dict[str, Any]) -> str:
         if turn_id:
             return turn_id
     return ""
-
-
-def _turn_index(turn_id: str) -> int:
-    tail = str(turn_id or "").split(":")[-1]
-    try:
-        return int(tail)
-    except Exception:
-        return -1
 
 
 def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:

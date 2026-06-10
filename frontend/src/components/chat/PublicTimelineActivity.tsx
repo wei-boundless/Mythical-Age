@@ -397,7 +397,7 @@ function taskProjectionToolMeta(
 function readableTaskActivityState(state: string) {
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "已完成";
   if (["running", "working", "partial", ""].includes(state)) return "运行中";
-  if (["waiting", "waiting_user", "waiting_approval", "queued", "paused"].includes(state)) return "等待中";
+  if (["waiting", "waiting_user", "waiting_approval", "waiting_safe_boundary", "queued", "paused"].includes(state)) return "等待中";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "失败";
   if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "已停止";
   return shortText(state, 48);
@@ -515,7 +515,7 @@ function taskProjectionStatusTone(status: unknown): PublicTimelineActivityTone |
   const normalized = cleanPublicTimelineText(status).toLowerCase();
   if (!normalized) return "";
   if (["failed", "error", "blocked", "missing"].includes(normalized)) return "soft_error";
-  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "queued", "paused"].includes(normalized)) return "waiting";
+  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "waiting_safe_boundary", "queued", "paused"].includes(normalized)) return "waiting";
   if (["completed", "complete", "done", "success"].includes(normalized)) return "done";
   if (["stopped", "cancelled", "canceled", "aborted"].includes(normalized)) return "stopped";
   return "running";
@@ -525,6 +525,7 @@ function taskProjectionLifecycleTitle(status: string) {
   if (["stopped", "cancelled", "canceled", "aborted"].includes(status)) return "任务已停止";
   if (status === "paused") return "任务已暂停";
   if (["waiting_user", "waiting_executor"].includes(status)) return "等待继续";
+  if (status === "waiting_safe_boundary") return "等待安全边界";
   if (status === "waiting_approval") return "等待确认";
   if (status === "queued") return "等待执行";
   if (["failed", "error", "blocked", "missing"].includes(status)) return "任务执行失败";

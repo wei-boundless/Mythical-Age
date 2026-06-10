@@ -40,7 +40,7 @@ describe("toUiMessages runtime attachments", () => {
     expect(messages.find((message) => message.content === "这是新的回复")?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("attaches a runtime timeline to the next assistant message after the anchor turn", () => {
+  it("creates a runtime placeholder instead of attaching to a later assistant after the anchor turn", () => {
     const attachment: SessionRuntimeAttachment = {
       attachment_id: "runtime-attachment:taskrun:turn:session-a:3:abc",
       run_id: "taskrun:turn:session-a:8:root:checkout:abc",
@@ -63,17 +63,26 @@ describe("toUiMessages runtime attachments", () => {
 
     const messages = toUiMessages(
       [
-        { role: "user", content: "开始旧任务" },
-        { role: "assistant", content: "任务已接管" },
-        { role: "user", content: "继续旧任务" },
-        { role: "assistant", content: "收到，继续执行。" },
-        { role: "assistant", content: "任务完成。" },
+        { role: "user", content: "开始旧任务", turn_id: "turn:session-a:1" },
+        { role: "assistant", content: "任务已接管", turn_id: "turn:session-a:1" },
+        { role: "user", content: "继续旧任务", turn_id: "turn:session-a:3" },
+        { role: "assistant", content: "收到，继续执行。", turn_id: "turn:session-a:8" },
+        { role: "assistant", content: "任务完成。", turn_id: "turn:session-a:9" },
       ],
       [attachment],
     );
 
     expect(messages.find((message) => message.content === "任务已接管")?.runtimeAttachments ?? []).toEqual([]);
-    expect(messages.find((message) => message.content === "收到，继续执行。")?.runtimeAttachments?.[0]).toMatchObject({
+    expect(messages.find((message) => message.content === "收到，继续执行。")?.runtimeAttachments ?? []).toEqual([]);
+    expect(messages.find((message) => message.content === "任务完成。")?.runtimeAttachments ?? []).toEqual([]);
+    const placeholder = messages.find((message) => message.id === "history-message:turn:session-a:3:assistant");
+    expect(placeholder).toMatchObject({
+      role: "assistant",
+      content: "",
+      sourceIndex: 2.5,
+      sourceTurnId: "turn:session-a:3",
+    });
+    expect(placeholder?.runtimeAttachments?.[0]).toMatchObject({
       run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       task_run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       anchor_turn_id: "turn:session-a:3",

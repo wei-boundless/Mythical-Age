@@ -97,6 +97,10 @@ function historyMessageId(message: SessionHistory["messages"][number], sourceInd
   return `history-message:${sourceIndex}`;
 }
 
+function historyTurnId(message: SessionHistory["messages"][number]) {
+  return String(message.turn_id ?? message.turn_ref ?? message.anchor_turn_id ?? "").trim();
+}
+
 function attachmentTurnIndex(anchorTurnId: string) {
   const parts = String(anchorTurnId || "").split(":");
   const tail = parts.at(-1) || "";
@@ -111,23 +115,19 @@ function runtimeAttachmentsByAssistantMessageId(
   const buckets = new Map<string, SessionRuntimeAttachment[]>();
   const assistantRefs = history
     .map((message, index) => message.role === "assistant"
-      ? { index, id: historyMessageId(message, index) }
+      ? { index, id: historyMessageId(message, index), turnId: historyTurnId(message) }
       : null)
-    .filter((item): item is { index: number; id: string } => Boolean(item));
+    .filter((item): item is { index: number; id: string; turnId: string } => Boolean(item));
 
   for (const attachment of attachments) {
     const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
+    const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
     const assistantRef = explicitMessageId
       ? assistantRefs.find((item) => item.id === explicitMessageId)
-      : null;
-    const fallbackRef = (() => {
-      const anchorIndex = attachmentTurnIndex(attachment.anchor_turn_id);
-      if (anchorIndex > 0) {
-        return assistantRefs.find((item) => item.index >= anchorIndex) ?? null;
-      }
-      return assistantRefs.at(-1) ?? null;
-    })();
-    const targetId = assistantRef?.id ?? (!explicitMessageId ? fallbackRef?.id : "");
+      : anchorTurnId
+        ? assistantRefs.find((item) => item.turnId === anchorTurnId)
+        : null;
+    const targetId = assistantRef?.id ?? "";
     if (!targetId) {
       continue;
     }
@@ -174,6 +174,7 @@ function syntheticAssistantMessagesForRuntimeAttachments(
       toolCalls: [],
       retrievals: [],
       sourceIndex,
+      sourceTurnId: anchorTurnId || undefined,
       runtimeAttachments: existing
         ? [...(existing.runtimeAttachments ?? []), attachment]
         : [attachment],
@@ -212,6 +213,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         toolCalls,
         retrievals: [],
         sourceIndex,
+        sourceTurnId: historyTurnId(message) || undefined,
         answerChannel: message.answer_channel,
         answerSource: message.answer_source,
         answerCanonicalState: message.answer_canonical_state,

@@ -383,8 +383,13 @@ def test_task_model_action_request_does_not_require_public_text_for_tool_call() 
 
     assert action is not None
     assert diagnostics["status"] == "accepted"
+    assert diagnostics["contract_gaps"] == [
+        "public_progress_note_missing_for_tool_call",
+        "public_action_state_missing_for_tool_call",
+    ]
     assert action.public_progress_note == ""
     assert action.public_action_state == {}
+    assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
 
 def test_task_model_action_request_rejects_action_outside_packet_contract() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload

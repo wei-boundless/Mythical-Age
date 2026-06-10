@@ -66,6 +66,11 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     resources = registry.list_resources()
     resource_by_id = {item.resource_id: item for item in resources}
     pack_by_id = {item.pack_id: item for item in registry.list_packs()}
+    required_runtime_control_refs = (
+        "runtime.rule.subagent_delegation",
+        "runtime.rule.subagent_invocation_protocol",
+        "runtime.rule.plan_mode_boundary",
+    )
     migrated_legacy_refs = {
         "runtime.single_agent_turn.v1",
         "runtime.task_execution.v1",
@@ -153,6 +158,15 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id["runtime.rule.file_management.generic"].resource_type == "environment.file_management_rule"
     assert resource_by_id["coding.rule.large_scope_exploration"].resource_type == "environment.coding_rule"
     assert resource_by_id["coding.rule.large_scope_exploration"].cache_scope == "static_environment"
+    for pack_id in ("runtime.pack.single_agent_turn", "runtime.pack.task_execution"):
+        refs = pack_by_id[pack_id].ordered_prompt_refs
+        assert all(prompt_ref in refs for prompt_ref in required_runtime_control_refs)
+    managed_workspace_prompt = resource_by_id["environment.resource.managed_project_workspace.orientation"].content
+    assert "项目相对路径" in managed_workspace_prompt
+    assert "artifact 只用于交付证据" in managed_workspace_prompt
+    sandbox_prompt = resource_by_id["environment.resource.sandbox_overlay.orientation"].content
+    assert "不要求用户重复批准" in sandbox_prompt
+    assert "下一步必须改变参数" in sandbox_prompt
     assert resource_by_id["agent.main_interactive_agent.single_agent_turn.work_role"].allowed_invocation_kinds == ("single_agent_turn",)
     assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].allowed_invocation_kinds == ("task_execution",)
     assert resource_by_id["agent.main_interactive_agent.task_execution.work_role"].source_ref.startswith("prompt_library.agent_prompts")

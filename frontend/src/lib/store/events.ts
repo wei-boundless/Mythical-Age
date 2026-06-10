@@ -12,9 +12,9 @@ import {
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
 import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
-import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord } from "./publicProjectionReducer";
+import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "./publicProjectionReducer";
 
-import type { AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
+import type { ActiveTurnState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
   makeId
 } from "./utils";
@@ -24,6 +24,10 @@ export type StreamSession = {
   assistantId: string;
   userId?: string;
   queueOnly?: boolean;
+  boundTurnId?: string;
+  boundRunId?: string;
+  boundTaskRunId?: string;
+  boundTurnRunId?: string;
 };
 
 type StreamTransition = {
@@ -231,6 +235,23 @@ function textIndicatesContinueActiveWork(value: string) {
 function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
+
+function activeTurnStateValue(value: unknown): ActiveTurnState | undefined {
+  const normalized = stringValue(value);
+  return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
+}
+
+const ACTIVE_TURN_STATES = new Set([
+  "starting",
+  "model_turn",
+  "running_task",
+  "waiting_executor",
+  "waiting_user",
+  "waiting_approval",
+  "waiting_safe_boundary",
+  "interrupting",
+  "terminal",
+]);
 
 function stringArrayValue(value: unknown) {
   if (!Array.isArray(value)) return undefined;
@@ -486,6 +507,101 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function bindStreamSessionAnchor(
+  session: StreamSession,
+  event: string,
+  data: Record<string, unknown>,
+  options: { hasPublicProjectionEnvelope?: boolean } = {},
+): StreamSession {
+  let next = session;
+  const bind = (field: keyof Pick<StreamSession, "boundTurnId" | "boundRunId" | "boundTaskRunId" | "boundTurnRunId">, value: string) => {
+    const normalized = stringValue(value);
+    if (!normalized) {
+      return;
+    }
+    const current = stringValue(next[field]);
+    if (current) {
+      return;
+    }
+    if (next === session) {
+      next = { ...session };
+    }
+    next[field] = normalized;
+  };
+  const bindTurnRun = (turnRunId: string, turnId = "") => {
+    const normalizedTurnRunId = stringValue(turnRunId);
+    if (!normalizedTurnRunId) {
+      return;
+    }
+    bind("boundTurnRunId", normalizedTurnRunId);
+    bind("boundRunId", normalizedTurnRunId);
+    bind("boundTurnId", stringValue(turnId) || turnIdFromRuntimeRunId(normalizedTurnRunId));
+  };
+  if (event === "harness_run_started") {
+    const turnRun = recordValue(data.turn_run);
+    bindTurnRun(stringValue(turnRun.turn_run_id), stringValue(turnRun.turn_id));
+    const taskRun = recordValue(data.task_run);
+    const taskRunId = stringValue(taskRun.task_run_id);
+    if (taskRunId) {
+      bind("boundTaskRunId", taskRunId);
+      bind("boundRunId", taskRunId);
+      bind("boundTurnId", turnIdFromRuntimeRunId(taskRunId));
+    }
+  }
+  if (event === "assistant_text_delta" || event === "assistant_text_final") {
+    bindTurnRun(stringValue(data.turn_run_id), stringValue(data.turn_id));
+  }
+  const rawRunId = stringValue(data.run_id);
+  if (!options.hasPublicProjectionEnvelope && rawRunId.startsWith("turnrun:")) {
+    bindTurnRun(rawRunId, stringValue(data.turn_id));
+  }
+  return next;
+}
+
+function streamAnchorFromSession(session: StreamSession) {
+  const turnId = stringValue(session.boundTurnId);
+  const runId = stringValue(session.boundRunId);
+  const taskRunId = stringValue(session.boundTaskRunId);
+  const turnRunId = stringValue(session.boundTurnRunId);
+  if (!turnId && !runId && !taskRunId && !turnRunId) {
+    return undefined;
+  }
+  return { turnId, runId, taskRunId, turnRunId };
+}
+
+function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): StoreState {
+  const assistantId = stringValue(session.assistantId);
+  if (!assistantId || !streamAnchorFromSession(session)) {
+    return state;
+  }
+  return patchAssistant(state, assistantId, (message) => ({
+    ...message,
+    sourceTurnId: message.sourceTurnId || stringValue(session.boundTurnId) || undefined,
+    sourceRunId: message.sourceRunId || stringValue(session.boundRunId) || undefined,
+    sourceTaskRunId: message.sourceTaskRunId || stringValue(session.boundTaskRunId) || undefined,
+    sourceTurnRunId: message.sourceTurnRunId || stringValue(session.boundTurnRunId) || undefined,
+  }));
+}
+
+function turnIdFromRuntimeRunId(runId: string) {
+  const normalized = stringValue(runId);
+  const candidate = normalized.startsWith("turnrun:")
+    ? normalized.slice("turnrun:".length)
+    : normalized.startsWith("taskrun:")
+      ? normalized.slice("taskrun:".length)
+      : "";
+  if (!candidate.startsWith("turn:")) {
+    return "";
+  }
+  const parts = candidate.split(":");
+  for (let index = parts.length - 1; index >= 2; index -= 1) {
+    if (/^\d+$/.test(parts[index])) {
+      return parts.slice(0, index + 1).join(":");
+    }
+  }
+  return candidate;
 }
 
 function isMachineReference(value: string) {
@@ -830,7 +946,7 @@ function publicStreamEventLabel(event: string) {
     content_delta: "正在生成回答",
     context_management: "上下文已整理",
     debug: "同步状态",
-    done: "处理完成",
+    done: "已收口",
     error: "处理失败",
     harness_loop_event: "处理进展更新",
     memory_context: "已读取相关记忆",
@@ -1331,11 +1447,13 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const publicProjectionEnvelope = publicProjectionEnvelopeFromRecord(data.public_projection_envelope);
+  const suppressLegacyVisibility = publicProjectionEnvelopeSuppressesLegacy(publicProjectionEnvelope);
+  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionEnvelope: suppressLegacyVisibility });
   const allowRawVisibility = isTransportStreamEvent(event);
-  const visibility = !publicProjectionEnvelope && allowRawVisibility ? projectRuntimeStreamEvent(event, data) : {};
+  const visibility = !suppressLegacyVisibility && allowRawVisibility ? projectRuntimeStreamEvent(event, data) : {};
   const terminalTimelineState = publicTimelineTerminalStateFromEvent(event);
   const publicTimelineDelta = undefined as PublicChatTimelineItem[] | undefined;
-  const taskProjectionDelta = publicProjectionEnvelope ? null : taskProjectionFromEventData(data);
+  const taskProjectionDelta = suppressLegacyVisibility ? null : taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -1355,7 +1473,7 @@ export function reduceStreamEvent(
           ?? recordValue(data.task_run).task_run_id
           ?? "",
         ).trim() || undefined,
-        state: String(activeTurn.state ?? "").trim() || (taskRunHandoffId ? "waiting_executor" : undefined),
+        state: activeTurnStateValue(activeTurn.state) || (taskRunHandoffId ? "waiting_executor" : undefined),
         updated_at: Number(activeTurn.updated_at ?? 0) || undefined,
       }
     : null;
@@ -1374,43 +1492,47 @@ export function reduceStreamEvent(
     : event === "done" || event === "error" || event === "stopped"
       ? { ...state, activeTurnSnapshot: null }
       : state;
-  const withOrchestration = updateOrchestrationSnapshot(state.orchestrationSnapshot, event, data);
-  const stateWithOrchestrationBase = withOrchestration === stateWithActiveTurn.orchestrationSnapshot
-    ? stateWithActiveTurn
-    : { ...stateWithActiveTurn, orchestrationSnapshot: withOrchestration };
+  const stateWithStreamAnchor = patchAssistantStreamAnchor(stateWithActiveTurn, boundSession);
+  const withOrchestration = updateOrchestrationSnapshot(stateWithStreamAnchor.orchestrationSnapshot, event, data);
+  const stateWithOrchestrationBase = withOrchestration === stateWithStreamAnchor.orchestrationSnapshot
+    ? stateWithStreamAnchor
+    : { ...stateWithStreamAnchor, orchestrationSnapshot: withOrchestration };
   const stateWithPublicProjection = publicProjectionEnvelope
-    ? applyPublicProjectionEnvelope(stateWithOrchestrationBase, publicProjectionEnvelope, { assistantId: session.assistantId })
+    ? applyPublicProjectionEnvelope(stateWithOrchestrationBase, publicProjectionEnvelope, {
+        assistantId: boundSession.assistantId,
+        streamAnchor: streamAnchorFromSession(boundSession),
+      })
     : stateWithOrchestrationBase;
   const stateWithStage = patchAssistantStage(
     stateWithPublicProjection,
-    session.assistantId,
+    boundSession.assistantId,
     allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
   );
   const stateWithLegacyActivity = allowRawVisibility ? patchSessionActivity(stateWithStage, event, data) : stateWithStage;
   const stateWithVisibilityActivity = allowRawVisibility ? applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility) : stateWithLegacyActivity;
   const stateWithOrchestration = appendAssistantProgress(
     stateWithVisibilityActivity,
-    session.assistantId,
+    boundSession.assistantId,
     visibility.progressEntry,
   );
   const stateWithTaskProjection = patchAssistantTaskProjectionDraft(
     stateWithOrchestration,
-    session.assistantId,
+    boundSession.assistantId,
     taskProjectionDelta,
   );
   const stateWithTimelineDraft = patchAssistantPublicTimelineDraft(
     stateWithTaskProjection,
-    session.assistantId,
+    boundSession.assistantId,
     publicTimelineDelta,
   );
 
   if (event === "retrieval") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
         ...message,
         retrievals: (data.results as RetrievalResult[]) ?? []
       })),
-      session
+      session: boundSession
     };
   }
 
@@ -1418,12 +1540,12 @@ export function reduceStreamEvent(
     if (!shouldKeepStreamAssistantText(event, data)) {
       return {
         state: stateWithTimelineDraft,
-        session
+        session: boundSession
       };
     }
     return {
-      state: mergeAssistantTextDeltaEvent(stateWithTimelineDraft, session.assistantId, data),
-      session
+      state: mergeAssistantTextDeltaEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      session: boundSession
     };
   }
 
@@ -1431,12 +1553,12 @@ export function reduceStreamEvent(
     if (!shouldKeepStreamAssistantText(event, data)) {
       return {
         state: stateWithTimelineDraft,
-        session
+        session: boundSession
       };
     }
     return {
-      state: mergeAssistantStreamRepairEvent(stateWithTimelineDraft, session.assistantId, data),
-      session
+      state: mergeAssistantStreamRepairEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      session: boundSession
     };
   }
 
@@ -1444,19 +1566,19 @@ export function reduceStreamEvent(
     if (!shouldKeepStreamAssistantText(event, data)) {
       return {
         state: stateWithTimelineDraft,
-        session
+        session: boundSession
       };
     }
     return {
-      state: mergeAssistantTextFinalEvent(stateWithTimelineDraft, session.assistantId, data),
-      session
+      state: mergeAssistantTextFinalEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      session: boundSession
     };
   }
 
   if (event === "token" || event === "content_delta") {
     return {
       state: stateWithTimelineDraft,
-      session,
+      session: boundSession,
     };
   }
 
@@ -1464,14 +1586,14 @@ export function reduceStreamEvent(
     if (publicProjectionEnvelope?.terminal?.visible === false) {
       return {
         state: stateWithTimelineDraft,
-        session,
+        session: boundSession,
       };
     }
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const taskSteerAccepted = String(data.completion_state ?? "").trim() === "task_steer_accepted";
     const answerMetadata = answerMetadataFromEvent(data);
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) =>
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) =>
         ({
           ...message,
           ...answerMetadata,
@@ -1484,14 +1606,14 @@ export function reduceStreamEvent(
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
-      session
+      session: boundSession
     };
   }
 
   if (event === "answer_candidate" || event === "assistant_text") {
     return {
       state: stateWithTimelineDraft,
-      session,
+      session: boundSession,
     };
   }
 
@@ -1499,15 +1621,15 @@ export function reduceStreamEvent(
     if (publicProjectionEnvelope) {
       return {
         state: stateWithTimelineDraft,
-        session
+        session: boundSession
       };
     }
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
         ...message,
         stageStatus: activeTaskSteerTitle(data),
       })),
-      session
+      session: boundSession
     };
   }
 
@@ -1515,7 +1637,7 @@ export function reduceStreamEvent(
     const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
     const visibleError = `处理失败\n\n${errorText}`;
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => {
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => {
         const current = message.content.trim();
         if (!current) {
           return {
@@ -1539,13 +1661,13 @@ export function reduceStreamEvent(
           stageStatus: "出错",
         };
       }),
-      session
+      session: boundSession
     };
   }
 
   if (event === "stopped") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, session.assistantId, (message) => ({
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
         ...message,
         content: message.content,
         runtimePublicTimelineDraft: mergePublicTimelineItems(
@@ -1555,9 +1677,9 @@ export function reduceStreamEvent(
         ),
         stageStatus: "已停止"
       })),
-      session
+      session: boundSession
     };
   }
 
-  return { state: stateWithTimelineDraft, session };
+  return { state: stateWithTimelineDraft, session: boundSession };
 }

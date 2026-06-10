@@ -9,7 +9,14 @@ import pytest
 import api.orchestration_harness as orchestration_harness
 from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.runtime import SingleAgentRuntimeHost
-from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract, finish_task_lifecycle, start_task_lifecycle
+from harness.loop.task_executor import request_task_run_pause
+from harness.loop.task_lifecycle import (
+    TaskLifecycleRecord,
+    TaskRunContract,
+    finish_task_lifecycle,
+    start_task_lifecycle,
+    wait_task_launch_supervision,
+)
 from harness.loop.model_action_protocol import ModelActionRequest
 from runtime.shared.models import TaskRun
 
@@ -79,6 +86,76 @@ def test_active_turn_binds_task_without_owning_steer_queue(tmp_path: Path) -> No
     updated = host.state_index.get_task_run(task_run.task_run_id)
     assert updated is not None
     assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) == 0
+
+
+def test_active_turn_pause_request_enters_waiting_safe_boundary(tmp_path: Path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:current",
+        session_id="session:test",
+        task_id="task:current",
+        execution_runtime_kind="single_agent_task",
+        status="running",
+        created_at=1,
+        updated_at=2,
+    )
+    host.state_index.upsert_task_run(task_run)
+    host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
+    host.active_turn_registry.bind_task_run(
+        session_id="session:test",
+        turn_id="turn:session:test:1",
+        task_run_id=task_run.task_run_id,
+        state="running_task",
+    )
+
+    result = request_task_run_pause(host, task_run.task_run_id, reason="test_pause", requested_by="user")
+
+    active = host.active_turn_registry.snapshot("session:test")
+    assert result["ok"] is True
+    assert active is not None
+    assert active.bound_task_run_id == task_run.task_run_id
+    assert active.state == "waiting_safe_boundary"
+
+
+def test_active_turn_launch_supervision_enters_waiting_approval(tmp_path: Path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:approval",
+        session_id="session:test",
+        task_id="task:approval",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        created_at=1,
+        updated_at=2,
+        diagnostics={"turn_id": "turn:session:test:1"},
+    )
+    lifecycle = TaskLifecycleRecord(
+        task_run_id=task_run.task_run_id,
+        contract_ref="rtobj:task_run_contract:approval",
+        status="waiting_executor",
+        created_at=1,
+        updated_at=2,
+    )
+    host.state_index.upsert_task_run(task_run)
+    host.active_turn_registry.start(session_id="session:test", turn_id="turn:session:test:1")
+    host.active_turn_registry.bind_task_run(
+        session_id="session:test",
+        turn_id="turn:session:test:1",
+        task_run_id=task_run.task_run_id,
+        state="waiting_executor",
+    )
+
+    wait_task_launch_supervision(
+        host,
+        task_run=task_run,
+        lifecycle=lifecycle,
+        gate_policy={"enabled": True, "user_prompt": "请确认是否启动。"},
+    )
+
+    active = host.active_turn_registry.snapshot("session:test")
+    assert active is not None
+    assert active.bound_task_run_id == task_run.task_run_id
+    assert active.state == "waiting_approval"
 
 
 def test_active_turn_complete_releases_session(tmp_path: Path) -> None:

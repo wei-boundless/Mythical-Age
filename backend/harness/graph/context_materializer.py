@@ -283,6 +283,7 @@ class GraphContextMaterializer:
         task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
         initial_inputs = dict(state.initial_inputs or {})
+        initial_inputs.update(_revision_request_inputs(node=node, inbound_context=inbound_context))
         initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         environment_refs = _environment_refs(graph_config)
         return {
@@ -693,6 +694,40 @@ def _is_graph_start_node(graph_config: GraphHarnessConfig, node_id: str) -> bool
     return node_id in start_node_ids
 
 
+def _revision_request_inputs(
+    *,
+    node: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+) -> dict[str, Any]:
+    requirements_key = _node_revision_requirements_key(node)
+    if not requirements_key:
+        return {}
+    revision = _first_inbound_revision_request(inbound_context)
+    if not revision:
+        return {}
+    revision_text = _revision_request_text(revision)
+    if not revision_text:
+        return {}
+    payload = {
+        requirements_key: revision_text,
+        "revision_required": True,
+    }
+    artifact_refs = _artifact_ref_values(revision.get("artifact_refs"))
+    if artifact_refs:
+        payload["previous_chapter_review_ref"] = {"artifact_refs": artifact_refs}
+    return payload
+
+
+def _node_revision_requirements_key(node: dict[str, Any]) -> str:
+    retry_policy = dict(node.get("retry") or {})
+    key = str(retry_policy.get("requirements_input_key") or "").strip()
+    if key:
+        return key
+    executor_policy = dict(node.get("executor_policy") or {})
+    replay_policy = dict(executor_policy.get("replay_sanitization_policy") or {})
+    return str(replay_policy.get("requirements_key") or "").strip()
+
+
 def _quality_revision_inputs(
     *,
     node: dict[str, Any],
@@ -777,6 +812,39 @@ def _explicit_round_index(payload: dict[str, Any]) -> int:
     except (TypeError, ValueError):
         value = 0
     return value if value > 0 else 0
+
+
+def _first_inbound_revision_request(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in inbound_context:
+        context = dict(item or {})
+        packet_type = str(context.get("packet_type") or "").strip().lower()
+        target_key = str(context.get("target_context_key") or context.get("target_input_slot") or "").strip()
+        edge_id = str(context.get("edge_id") or "").strip().lower()
+        if "revision" not in packet_type and target_key != "返修交接包" and ".revision." not in edge_id:
+            continue
+        payload = dict(context.get("payload") or {})
+        if not payload:
+            continue
+        return {
+            **payload,
+            "artifact_refs": _artifact_ref_values(context.get("artifact_refs") or payload.get("artifact_refs")),
+            "authority": "harness.graph.context_materializer.revision_request_inputs",
+        }
+    return {}
+
+
+def _revision_request_text(revision: dict[str, Any]) -> str:
+    parts: list[str] = []
+    summary = str(revision.get("handoff_summary") or "").strip()
+    if summary:
+        parts.append(summary)
+    for item in list(revision.get("artifact_payloads") or []):
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or item.get("content") or "").strip()
+        if text:
+            parts.append(text)
+    return "\n\n".join(dict.fromkeys(parts)).strip()
 
 
 def _first_inbound_quality_failure(inbound_context: list[dict[str, Any]]) -> dict[str, Any]:

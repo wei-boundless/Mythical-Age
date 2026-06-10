@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -2200,6 +2201,146 @@ def _loop_state_without_descendant_iteration_results(
     return {**loop_state, "iteration_results": iteration_results}
 
 
+def _loop_state_without_revision_iteration_results(
+    *,
+    loop_state: dict[str, Any],
+    target_node_ids: tuple[str, ...],
+    initial_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    target_set = {str(item) for item in target_node_ids if str(item)}
+    if not target_set:
+        return loop_state
+    frames = {
+        str(frame_id): dict(frame)
+        for frame_id, frame in dict(loop_state.get("frames") or {}).items()
+        if isinstance(frame, dict)
+    }
+    if not frames:
+        return loop_state
+    start = _numeric_value(initial_inputs.get("active_chapter_start_index"), None)
+    if start is None:
+        start = _numeric_value(initial_inputs.get("chapter_index"), None)
+    end = _numeric_value(initial_inputs.get("active_chapter_end_index"), start)
+    if start is None:
+        return loop_state
+    start_int = int(start)
+    end_int = int(end if end is not None else start)
+    if end_int < start_int:
+        start_int, end_int = end_int, start_int
+    batch_start = _numeric_value(initial_inputs.get("batch_start_index"), None)
+    batch_end = _numeric_value(initial_inputs.get("batch_end_index"), batch_start)
+    batch_start_int = int(batch_start) if batch_start is not None else None
+    batch_end_int = int(batch_end) if batch_end is not None else batch_start_int
+    if batch_start_int is not None and batch_end_int is not None and batch_end_int < batch_start_int:
+        batch_start_int, batch_end_int = batch_end_int, batch_start_int
+    iteration_results = {
+        str(raw_frame_id): {
+            str(raw_iteration_id): dict(raw_results)
+            for raw_iteration_id, raw_results in dict(raw_frame_results or {}).items()
+            if isinstance(raw_results, dict)
+        }
+        for raw_frame_id, raw_frame_results in dict(loop_state.get("iteration_results") or {}).items()
+        if isinstance(raw_frame_results, dict)
+    }
+    changed = False
+    for frame_id, frame in frames.items():
+        scope_nodes = {str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)}
+        if not scope_nodes.intersection(target_set):
+            continue
+        frame_results = dict(iteration_results.get(frame_id) or {})
+        if not frame_results:
+            continue
+        template = str(frame.get("iteration_identity_template") or "").strip()
+        removal_ids = _revision_iteration_ids_for_range(template=template, start=start_int, end=end_int)
+        if _revision_overlaps_frame_range(
+            frame=frame,
+            initial_inputs=initial_inputs,
+            affected_start=start_int,
+            affected_end=end_int,
+            batch_start=batch_start_int,
+            batch_end=batch_end_int,
+        ):
+            active_iteration_id = str(frame.get("active_iteration_id") or "").strip()
+            if active_iteration_id:
+                removal_ids.add(active_iteration_id)
+            removal_ids.update(_revision_iteration_ids_for_frame_values(template=template, values=initial_inputs))
+        next_frame_results = {
+            iteration_id: results
+            for iteration_id, results in frame_results.items()
+            if iteration_id not in removal_ids and not _iteration_id_in_range(iteration_id, start_int, end_int)
+        }
+        if len(next_frame_results) == len(frame_results):
+            continue
+        changed = True
+        if next_frame_results:
+            iteration_results[frame_id] = next_frame_results
+        else:
+            iteration_results.pop(frame_id, None)
+    if not changed:
+        return loop_state
+    return {**loop_state, "iteration_results": iteration_results}
+
+
+def _revision_iteration_ids_for_range(*, template: str, start: int, end: int) -> set[str]:
+    if not template:
+        return set()
+    values: set[str] = set()
+    for index in range(start, end + 1):
+        try:
+            values.add(str(template.format_map(_SafeFormatDict({"chapter_index": index, "cursor": index, "iteration_index": index}))))
+        except Exception:
+            continue
+    return values
+
+
+def _revision_iteration_ids_for_frame_values(*, template: str, values: dict[str, Any]) -> set[str]:
+    if not template:
+        return set()
+    candidates: set[str] = set()
+    base_values = dict(values or {})
+    for cursor_key in ("chapter_index", "batch_start_index", "volume_index"):
+        if cursor_key in base_values:
+            base_values.setdefault("cursor", base_values.get(cursor_key))
+            break
+    try:
+        candidates.add(str(template.format_map(_SafeFormatDict(base_values))))
+    except Exception:
+        pass
+    return candidates
+
+
+def _revision_overlaps_frame_range(
+    *,
+    frame: dict[str, Any],
+    initial_inputs: dict[str, Any],
+    affected_start: int,
+    affected_end: int,
+    batch_start: int | None,
+    batch_end: int | None,
+) -> bool:
+    start_key = str(frame.get("start_key") or "").strip()
+    end_key = str(frame.get("end_key") or "").strip()
+    if start_key == "batch_start_index" and end_key == "batch_end_index" and batch_start is not None and batch_end is not None:
+        return affected_start <= batch_end and affected_end >= batch_start
+    frame_start = _numeric_value(initial_inputs.get(start_key), None) if start_key else None
+    frame_end = _numeric_value(initial_inputs.get(end_key), frame_start) if end_key else frame_start
+    if frame_start is None or frame_end is None:
+        return False
+    frame_start_int = int(frame_start)
+    frame_end_int = int(frame_end)
+    if frame_end_int < frame_start_int:
+        frame_start_int, frame_end_int = frame_end_int, frame_start_int
+    return affected_start <= frame_end_int and affected_end >= frame_start_int
+
+
+def _iteration_id_in_range(iteration_id: str, start: int, end: int) -> bool:
+    numbers = [int(match) for match in re.findall(r"\d+", str(iteration_id or ""))]
+    if not numbers:
+        return False
+    value = numbers[-1]
+    return start <= value <= end
+
+
 def _cancel_descendant_loop_nodes_after_parent_exit(
     *,
     graph_config: GraphHarnessConfig,
@@ -2521,6 +2662,117 @@ def _revision_reset_node_ids(
     return tuple(ordered)
 
 
+def _revision_clear_input_keys(
+    *,
+    graph_config: GraphHarnessConfig,
+    target_node_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    target_set = {str(item) for item in target_node_ids if str(item)}
+    keys: list[str] = [
+        "chapter_revision_requirements",
+        "quality_gate_feedback",
+        "previous_chapter_review_ref",
+        "previous_chapter_draft_ref",
+        "revision_required",
+    ]
+    for node_id in target_set:
+        node = _node_by_id(graph_config, node_id) or {}
+        retry_policy = dict(node.get("retry") or {})
+        requirements_key = str(retry_policy.get("requirements_input_key") or "").strip()
+        carry_key = str(retry_policy.get("carry_current_output_as") or "").strip()
+        if requirements_key:
+            keys.append(requirements_key)
+        if carry_key:
+            keys.append(carry_key)
+    for edge in graph_config.edges:
+        if str(edge.get("target_node_id") or "").strip() not in target_set:
+            continue
+        if not _edge_is_revision(dict(edge)):
+            continue
+        metadata = dict(edge.get("metadata") or {})
+        for key in list(metadata.get("clear_input_keys") or []):
+            text = str(key or "").strip()
+            if text:
+                keys.append(text)
+    return tuple(dict.fromkeys(keys))
+
+
+def _revision_cursor_input_patch(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    target_node_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    target_set = {str(item) for item in target_node_ids if str(item)}
+    if not target_set:
+        return {}
+    affected_start: int | None = None
+    affected_end: int | None = None
+    for edge in graph_config.edges:
+        target = str(edge.get("target_node_id") or "").strip()
+        if target not in target_set or not _edge_is_revision(dict(edge)):
+            continue
+        source = str(edge.get("source_node_id") or "").strip()
+        summary = _latest_result_summary(state=state, node_id=source)
+        text = str(summary.get("handoff_summary") or "")
+        start, end = _revision_affected_chapter_range(text)
+        if start is None:
+            continue
+        if "chapter_review" in source and "chapter_draft" in target:
+            batch_end = int(_numeric_value(dict(state.initial_inputs or {}).get("batch_end_index"), end or start) or (end or start))
+            if batch_end >= start:
+                end = batch_end
+        if affected_start is None or start < affected_start:
+            affected_start = start
+            affected_end = end
+    if affected_start is None:
+        return {}
+    patch: dict[str, Any] = {
+        "chapter_index": affected_start,
+        "active_chapter_start_index": affected_start,
+    }
+    if affected_end is not None:
+        patch["active_chapter_end_index"] = affected_end
+        patch["active_chapter_range"] = f"{affected_start:03d}-{affected_end:03d}"
+    else:
+        patch["active_chapter_end_index"] = affected_start
+        patch["active_chapter_range"] = f"{affected_start:03d}-{affected_start:03d}"
+    return patch
+
+
+def _latest_result_summary(*, state: GraphLoopState, node_id: str) -> dict[str, Any]:
+    history = tuple(dict(state.result_history or {}).get(node_id) or ())
+    for raw_summary in reversed(history):
+        if isinstance(raw_summary, dict):
+            return dict(raw_summary)
+    return dict(dict(state.result_index or {}).get(node_id) or {})
+
+
+def _revision_affected_chapter_range(text: str) -> tuple[int | None, int | None]:
+    normalized = str(text or "")
+    if not normalized:
+        return None, None
+    patterns = (
+        r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*[-至到~—－]\s*0*(\d{1,4})\s*章",
+        r"第\s*0*(\d{1,4})\s*[-至到~—－]\s*0*(\d{1,4})\s*章[^。\n]{0,30}?(?:重写|返修|修改|修正)",
+        r"第\s*0*(\d{1,4})\s*[-至到~—－]\s*0*(\d{1,4})\s*章[^。\n]{0,40}?(?:严重重复|重复内容|节奏崩溃|阻塞)",
+        r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*章",
+    )
+    candidates: list[tuple[int, int]] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized):
+            start = int(match.group(1))
+            end = int(match.group(2)) if len(match.groups()) >= 2 and match.group(2) else start
+            if start > end:
+                start, end = end, start
+            candidates.append((start, end))
+    if not candidates:
+        return None, None
+    min_start = min(start for start, _ in candidates)
+    max_end = max(end for start, end in candidates if start == min_start)
+    return min_start, max_end
+
+
 def _state_after_revision_requeue(
     *,
     graph_config: GraphHarnessConfig,
@@ -2532,8 +2784,23 @@ def _state_after_revision_requeue(
     edge_states = {key: dict(value) for key, value in state.edge_states.items()}
     result_index = {key: dict(value) for key, value in state.result_index.items()}
     active_work_orders = dict(state.active_work_orders)
+    initial_inputs = dict(state.initial_inputs or {})
     target_set = set(targets)
     reset_set = set(reset_node_ids)
+    for key in _revision_clear_input_keys(graph_config=graph_config, target_node_ids=targets):
+        initial_inputs.pop(key, None)
+    initial_inputs.update(
+        _revision_cursor_input_patch(
+            graph_config=graph_config,
+            state=state,
+            target_node_ids=targets,
+        )
+    )
+    loop_state = _loop_state_without_revision_iteration_results(
+        loop_state=dict(state.loop_state or {}),
+        target_node_ids=targets,
+        initial_inputs=initial_inputs,
+    )
     preserved_revision_edges = {
         edge_id: dict(edge_state)
         for edge_id, edge_state in edge_states.items()
@@ -2589,6 +2856,8 @@ def _state_after_revision_requeue(
         node_states=node_states,
         edge_states=edge_states,
         result_index=result_index,
+        loop_state=loop_state,
+        initial_inputs=initial_inputs,
         active_work_orders=active_work_orders,
         ready_node_ids=targets,
         running_node_ids=(),

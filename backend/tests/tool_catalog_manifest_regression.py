@@ -5,6 +5,7 @@ from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
+from harness.runtime.tool_plan import build_runtime_tool_plan
 from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME
 from runtime.model_gateway.model_request import ModelRequestBuilder
 
@@ -117,27 +118,33 @@ def test_tool_catalog_manifest_drops_hidden_and_debug_tools() -> None:
 
 def test_single_agent_turn_renders_stable_tool_index_for_provider_cache() -> None:
     tools = _tools()
+    runtime_assembly = {
+        "profile": {
+            "profile_ref": "main_interactive_agent",
+            "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
+        },
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "available_tools": tools,
+    }
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_single_agent_turn_packet(
         session_id="session:tool-catalog-single",
         turn_id="turn:tool-catalog-single",
         agent_invocation_id="aginvoke:tool-catalog-single",
         user_message="Answer briefly.",
         history=[],
-        runtime_assembly={
-            "profile": {
-                "profile_ref": "main_interactive_agent",
-                "prompt_policy": {"tool_guidance_prompt_defaults": _TOOL_GUIDANCE_DEFAULTS},
-            },
-            "task_environment": {"environment_id": "env.general.workspace"},
-            "available_tools": tools,
-        },
+        runtime_assembly=runtime_assembly,
     )
 
     packet = result.packet
     stable_payload = _message_payload_with_title(packet, "Single agent turn stable boundary")
+    tool_plan = build_runtime_tool_plan(
+        runtime_assembly=runtime_assembly,
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name={},
+    )
     expected = build_tool_catalog_manifest(
         invocation_kind="single_agent_turn",
-        tool_payloads=tools,
+        tool_payloads=tool_plan.model_visible_tools,
         source_ref="runtime_assembly.available_tools",
         tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
     ).to_model_visible_payload(include_catalog_hash=True)

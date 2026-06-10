@@ -202,7 +202,10 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
-        replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(task_state)
+        replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(
+            task_state,
+            replay_entry_limit=_task_state_replay_entry_limit(request.projection_policy),
+        )
         payload = {
             "task_state": task_state_cursor,
         }
@@ -344,6 +347,17 @@ def dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any
             path = Path(value)
             return path if path.is_absolute() else Path(base_dir) / path
     return None
+
+
+def _task_state_replay_entry_limit(projection_policy: dict[str, Any] | None) -> int:
+    policy = dict(projection_policy or {})
+    limits = dict(policy.get("projection_limits") or {})
+    value = limits.get("tool_trajectory_limit") or policy.get("tool_trajectory_limit") or 12
+    try:
+        parsed = int(value or 12)
+    except (TypeError, ValueError):
+        parsed = 12
+    return max(1, parsed)
 
 
 def _editor_context_projection(value: Any) -> dict[str, Any]:
