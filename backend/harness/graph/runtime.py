@@ -65,6 +65,7 @@ class GraphRuntime:
             owner_agent_seat_id="graph",
             agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or "agent:0"),
             agent_profile_id=str(dict(graph_config.agents or {}).get("coordinator_agent_profile_id") or "task_graph_coordinator"),
+            execution_runtime_kind="task_graph",
             status="running",
             created_at=now,
             updated_at=now,

@@ -3234,6 +3234,19 @@ export type GraphRunBackgroundSubmitResult = {
   diagnostics?: Record<string, unknown>;
 };
 
+export type GraphRunControlResult = {
+  authority: string;
+  ok: boolean;
+  accepted: boolean;
+  action: "pause" | "resume" | string;
+  reason: string;
+  graph_run_id: string;
+  task_run_id: string;
+  graph_run: Record<string, unknown>;
+  task_run: Record<string, unknown>;
+  control: Record<string, unknown>;
+};
+
 export type OrchestrationCatalogSkill = {
   runtime: {
     name: string;
@@ -4935,6 +4948,40 @@ export async function submitGraphRunUntilIdle(
 ) {
   return request<GraphRunBackgroundSubmitResult>(
     `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle/background`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function pauseGraphRun(
+  graphRunId: string,
+  payload: {
+    graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
+    reason?: string;
+  }
+) {
+  return request<GraphRunControlResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/pause`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function resumeGraphRun(
+  graphRunId: string,
+  payload: {
+    graph_harness_config_id: string;
+    session_scope?: Partial<SessionScope>;
+    reason?: string;
+  }
+) {
+  return request<GraphRunControlResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/resume`,
     {
       method: "POST",
       body: JSON.stringify(payload),

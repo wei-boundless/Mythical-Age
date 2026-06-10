@@ -6,7 +6,7 @@ import type {
 } from "@/lib/api";
 import { mergePublicTimelineItems } from "@/lib/projection/timeline";
 
-import type { ActiveTurnState, SessionActivityState, StoreState } from "@/lib/store/types";
+import type { ActiveTurnState, Message, SessionActivityState, StoreState } from "@/lib/store/types";
 
 type ApplyProjectionOptions = {
   assistantId?: string;
@@ -96,9 +96,10 @@ function patchProjectionMessage(
 ): StoreState {
   const attachment = runtimeAttachmentFromEnvelope(envelope);
   if (!attachment) return state;
-  const index = projectionMessageIndex(state, envelope, options);
-  if (index < 0) return state;
-  const nextMessages = [...state.messages];
+  const stateWithProjectionMessage = ensureProjectionMessage(state, envelope, attachment, options);
+  const index = projectionMessageIndex(stateWithProjectionMessage, envelope, options);
+  if (index < 0) return stateWithProjectionMessage;
+  const nextMessages = [...stateWithProjectionMessage.messages];
   const message = nextMessages[index];
   const existing = message.runtimeAttachments ?? [];
   const runId = runtimeAttachmentRunId(attachment);
@@ -121,7 +122,57 @@ function patchProjectionMessage(
     runtimePublicTimelineDraft: mergePublicTimelineItems(message.runtimePublicTimelineDraft, attachment.public_timeline),
     stageStatus: projectedStageStatus(envelope, attachment.public_timeline ?? []) || message.stageStatus,
   };
-  return { ...state, messages: nextMessages };
+  return { ...stateWithProjectionMessage, messages: nextMessages };
+}
+
+function ensureProjectionMessage(
+  state: StoreState,
+  envelope: PublicProjectionEnvelope,
+  attachment: SessionRuntimeAttachment,
+  options: ApplyProjectionOptions,
+): StoreState {
+  if (!runtimeAttachmentHasUserVisibleProjection(attachment)) {
+    return state;
+  }
+  if (projectionMessageIndex(state, envelope, options) >= 0) {
+    return state;
+  }
+  const anchor = envelope.anchor ?? {};
+  const turnId = text(anchor.turn_id || attachment.anchor_turn_id);
+  if (!turnId) {
+    return state;
+  }
+  const userIndex = state.messages.findIndex((message) =>
+    message.role === "user" && text(message.sourceTurnId) === turnId
+  );
+  if (userIndex < 0) {
+    return state;
+  }
+  const userMessage = state.messages[userIndex];
+  const runId = runtimeAttachmentRunId(attachment);
+  const taskRunId = text(attachment.task_run_id || anchor.task_run_id);
+  const turnRunId = text(attachment.turn_run_id || anchor.turn_run_id);
+  const id = text(anchor.message_id) || `history-message:${turnId}:assistant`;
+  if (state.messages.some((message) => message.id === id)) {
+    return state;
+  }
+  const projectionMessage: Message = {
+    id,
+    role: "assistant",
+    content: "",
+    toolCalls: [],
+    retrievals: [],
+    sourceIndex: typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5,
+    sourceTurnId: turnId,
+    sourceRunId: runId || undefined,
+    sourceTaskRunId: taskRunId || undefined,
+    sourceTurnRunId: turnRunId || undefined,
+    runtimeAttachments: [],
+  };
+  return {
+    ...state,
+    messages: [...state.messages, projectionMessage].sort(compareProjectionMessages),
+  };
 }
 
 function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnvelope, options: ApplyProjectionOptions) {
@@ -202,6 +253,17 @@ function runtimeAttachmentFromEnvelope(envelope: PublicProjectionEnvelope): Sess
   };
 }
 
+function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAttachment) {
+  if (attachment.task_projection) {
+    return true;
+  }
+  return (attachment.public_timeline ?? []).some((item) => {
+    const slot = text(item.slot);
+    const surface = text(item.surface);
+    return slot !== "control" && surface !== "control" && surface !== "diagnostics";
+  });
+}
+
 export function publicTimelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicChatTimelineItem[] {
   if (envelope.terminal?.visible === false) return [];
   return projectionItems(envelope).filter(isValidProjectionItem);
@@ -258,6 +320,14 @@ function hasProjectionPayload(envelope: PublicProjectionEnvelope) {
 
 function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment) {
   return text(attachment.run_id || attachment.task_run_id || attachment.turn_run_id);
+}
+
+function compareProjectionMessages(left: Message, right: Message) {
+  const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+  const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+  if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+  if (left.role !== right.role) return left.role === "user" ? -1 : 1;
+  return left.id.localeCompare(right.id);
 }
 
 function activeTurnState(value: unknown): ActiveTurnState | undefined {

@@ -3831,6 +3831,12 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "如果任务目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。"
         )
         lines.append(
+            "- 选择 request_task_run 时，如果你已经能向用户说明为什么需要进入持续任务或第一阶段要判断什么，"
+            "必须把这句自然语言写入 public_progress_note 或 public_action_state.current_judgment；"
+            "不要把 visible_status、thinking、working、task_executor_scheduled、request_task_run 等机器状态写给用户。"
+            "如果还没有真实公开判断，留空公开反馈，让界面显示占位，不要编造“开始处理”。"
+        )
+        lines.append(
             "- 只有在用户只是询问概念、要求解释、要求状态说明，或明确要求一次性的读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。"
         )
     elif "request_task_run" in allowed_actions:
@@ -3882,6 +3888,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "用户明确要求暂停、先停一下、停止、取消当前任务或不用继续做时，必须选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
             "response 只写本次控制动作的简短语义说明。"
             "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后你再根据结果向用户作出最终回复。"
+            "active_work_control 的 action、resolved_action、控制结果和 runtime 状态不是用户正文；"
+            "控制观察返回后，如果需要继续公开说明，只能用 respond 或 public_action_state.current_judgment 写真实阶段判断。"
             "不要输出要求用户重新提出问题的阻断话术。"
         )
         if "request_task_run" in allowed_actions:
@@ -3909,7 +3917,11 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "不要把 default/runtime 当作真实任务 id。"
         )
     if bool(task_lifecycle.get("requires_completion_evidence") is True):
-        lines.append("- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。")
+        lines.append(
+            "- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。"
+            "如果系统提示收口证据不足，你需要补齐缺口或说明明确阻塞；"
+            "不要重复同一个 respond，也不要把 task_completion_repair_required、waiting_executor 等控制词写给用户。"
+        )
     if bool(task_lifecycle.get("artifact_evidence_required") is True):
         lines.append("- 如果合同要求 artifact，收口前必须确认 artifact 真实存在且路径可复核。")
     if bool(self_review.get("enabled") is True):

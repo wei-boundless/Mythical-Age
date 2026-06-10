@@ -2673,16 +2673,18 @@ def _action_request_from_native_tool_calls(
         if active_work_relationship:
             contract_seed["active_work_relationship"] = active_work_relationship
         public_note = str(args.get("public_progress_note") or "").strip()
+        public_action_state = {
+            "visible_status": "thinking",
+            "completion_status": "working",
+        }
+        if public_note:
+            public_action_state["current_judgment"] = public_note
         return ModelActionRequest(
             request_id=f"model-action:{turn_id}:single-agent-request-task-run",
             turn_id=turn_id,
             action_type="request_task_run",
             public_progress_note=public_note,
-            public_action_state={
-                "visible_status": "thinking",
-                "completion_status": "working",
-                "next_action": public_note,
-            },
+            public_action_state=public_action_state,
             task_contract_seed=contract_seed,
             completion_contract={"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
             diagnostics={

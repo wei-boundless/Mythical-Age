@@ -17,6 +17,12 @@ from .graph.runtime import GraphRuntime, GraphRuntimeStart
 from .graph.supervisor import GraphSupervisor
 from .graph.work_order_executor import GraphNodeWorkOrderExecutor
 
+_GRAPH_RUN_CONTROL_KEY = "runtime_control"
+_GRAPH_RUN_PAUSE_REQUESTED = "pause_requested"
+_GRAPH_RUN_PAUSED = "paused"
+_GRAPH_RUN_RUNNING = "running"
+_GRAPH_RUN_STOP_STATES = {"stop_requested", "stopped"}
+
 
 @dataclass(frozen=True, slots=True)
 class GraphHarnessStart:
@@ -280,6 +286,147 @@ class GraphHarness:
             runtime_overrides=dict(runtime_overrides or {}),
         )
 
+    def request_graph_run_pause(self, graph_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
+        graph_run = self._require_graph_run(graph_run_id)
+        task_run = self._require_graph_root_task_run(graph_run)
+        status = str(getattr(task_run, "status", "") or "")
+        if status in {"completed", "failed", "aborted", "cancelled", "canceled", "stopped"}:
+            return self._graph_run_control_response(
+                graph_run=graph_run,
+                task_run=task_run,
+                action="pause",
+                accepted=False,
+                reason=f"graph_run_terminal:{status}",
+            )
+        current_control = _graph_run_runtime_control(task_run)
+        current_state = str(current_control.get("state") or "")
+        if current_state == _GRAPH_RUN_PAUSED:
+            return self._graph_run_control_response(
+                graph_run=graph_run,
+                task_run=task_run,
+                action="pause",
+                accepted=True,
+                reason="already_paused",
+            )
+        state = self._loop.get_state(graph_run.graph_run_id)
+        next_control_state = _GRAPH_RUN_PAUSE_REQUESTED if _graph_run_has_background_work(self._services, state) else _GRAPH_RUN_PAUSED
+        now = time.time()
+        event = self._services.event_log.append(
+            graph_run.task_run_id,
+            "graph_run_pause_requested",
+            payload={
+                "graph_run_id": graph_run.graph_run_id,
+                "task_run_id": graph_run.task_run_id,
+                "reason": reason,
+                "requested_by": requested_by,
+                "control_state": next_control_state,
+            },
+            refs={"task_run_ref": graph_run.task_run_id, "graph_run_ref": graph_run.graph_run_id},
+        )
+        updated = replace(
+            task_run,
+            status="waiting_executor" if next_control_state == _GRAPH_RUN_PAUSED else status,  # type: ignore[arg-type]
+            updated_at=float(getattr(event, "created_at", 0.0) or now),
+            latest_event_offset=int(getattr(event, "offset", -1) or -1),
+            terminal_reason="waiting_executor" if next_control_state == _GRAPH_RUN_PAUSED else str(getattr(task_run, "terminal_reason", "") or ""),  # type: ignore[arg-type]
+            diagnostics=_graph_run_control_diagnostics(
+                task_run,
+                state=next_control_state,
+                requested_by=requested_by,
+                requested_at=float(getattr(event, "created_at", 0.0) or now),
+                reason=reason,
+                latest_step="graph_run_pause_requested",
+                latest_step_status="waiting_executor" if next_control_state == _GRAPH_RUN_PAUSED else "running",
+                latest_step_summary=(
+                    "图任务已暂停，后续可以从当前图状态续跑。"
+                    if next_control_state == _GRAPH_RUN_PAUSED
+                    else "暂停请求已记录，当前节点收口后图任务会停在可继续状态。"
+                ),
+            ),
+        )
+        self.state_index.upsert_task_run(updated)
+        self._update_graph_run_control_status(
+            graph_run=graph_run,
+            status="paused" if next_control_state == _GRAPH_RUN_PAUSED else str(graph_run.status or "running"),
+            control_state=next_control_state,
+            event_time=float(getattr(event, "created_at", 0.0) or now),
+            reason=reason,
+        )
+        return self._graph_run_control_response(
+            graph_run=self._require_graph_run(graph_run.graph_run_id),
+            task_run=updated,
+            action="pause",
+            accepted=True,
+            reason=next_control_state,
+        )
+
+    def request_graph_run_resume(self, graph_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
+        graph_run = self._require_graph_run(graph_run_id)
+        task_run = self._require_graph_root_task_run(graph_run)
+        status = str(getattr(task_run, "status", "") or "")
+        if status in {"completed", "failed", "aborted", "cancelled", "canceled", "stopped"}:
+            return self._graph_run_control_response(
+                graph_run=graph_run,
+                task_run=task_run,
+                action="resume",
+                accepted=False,
+                reason=f"graph_run_terminal:{status}",
+            )
+        current_control = _graph_run_runtime_control(task_run)
+        current_state = str(current_control.get("state") or "")
+        if current_state in _GRAPH_RUN_STOP_STATES:
+            return self._graph_run_control_response(
+                graph_run=graph_run,
+                task_run=task_run,
+                action="resume",
+                accepted=False,
+                reason=f"graph_run_stopped:{current_state}",
+            )
+        now = time.time()
+        event = self._services.event_log.append(
+            graph_run.task_run_id,
+            "graph_run_resume_requested",
+            payload={
+                "graph_run_id": graph_run.graph_run_id,
+                "task_run_id": graph_run.task_run_id,
+                "reason": reason,
+                "requested_by": requested_by,
+            },
+            refs={"task_run_ref": graph_run.task_run_id, "graph_run_ref": graph_run.graph_run_id},
+        )
+        updated = replace(
+            task_run,
+            status="running",  # type: ignore[arg-type]
+            updated_at=float(getattr(event, "created_at", 0.0) or now),
+            latest_event_offset=int(getattr(event, "offset", -1) or -1),
+            terminal_reason="",  # type: ignore[arg-type]
+            diagnostics=_graph_run_control_diagnostics(
+                task_run,
+                state=_GRAPH_RUN_RUNNING,
+                requested_by=requested_by,
+                requested_at=float(getattr(event, "created_at", 0.0) or now),
+                reason=reason,
+                latest_step="graph_run_resume_requested",
+                latest_step_status="running",
+                latest_step_summary="图任务续跑请求已记录，后台调度可以继续派发节点。",
+            ),
+        )
+        self.state_index.upsert_task_run(updated)
+        self._update_graph_run_control_status(
+            graph_run=graph_run,
+            status="running",
+            control_state=_GRAPH_RUN_RUNNING,
+            event_time=float(getattr(event, "created_at", 0.0) or now),
+            reason=reason,
+        )
+        return self._graph_run_control_response(
+            graph_run=self._require_graph_run(graph_run.graph_run_id),
+            task_run=updated,
+            action="resume",
+            accepted=True,
+            reason=_GRAPH_RUN_RUNNING,
+        )
+
     def _commit_runner_result(self, *, graph_run_id: str, result: GraphRunRunnerResult) -> None:
         graph_run = _graph_run_from_payload(self.get_graph_run(graph_run_id), fallback=None)
         task_run_id = graph_run.task_run_id if graph_run is not None else ""
@@ -331,6 +478,72 @@ class GraphHarness:
                     },
                 },
             )
+
+    def _require_graph_run(self, graph_run_id: str) -> GraphRun:
+        target = str(graph_run_id or "").strip()
+        graph_run = _graph_run_from_payload(self.get_graph_run(target), fallback=None)
+        if graph_run is None:
+            raise ValueError(f"GraphRun not found: {target}")
+        return graph_run
+
+    def _require_graph_root_task_run(self, graph_run: GraphRun) -> Any:
+        task_run = self.get_task_run(graph_run.task_run_id)
+        if task_run is None:
+            raise ValueError(f"GraphRun root TaskRun not found: {graph_run.task_run_id}")
+        return task_run
+
+    def _update_graph_run_control_status(
+        self,
+        *,
+        graph_run: GraphRun,
+        status: str,
+        control_state: str,
+        event_time: float,
+        reason: str,
+    ) -> None:
+        payload = graph_run.to_dict()
+        diagnostics = dict(payload.get("diagnostics") or {})
+        self._services.runtime_objects.put_object(
+            "graph_run",
+            _safe_ref_id(graph_run.graph_run_id),
+            {
+                **payload,
+                "status": status,
+                "updated_at": event_time,
+                "diagnostics": {
+                    **diagnostics,
+                    _GRAPH_RUN_CONTROL_KEY: {
+                        "state": control_state,
+                        "requested_by": "user",
+                        "requested_at": event_time,
+                        "reason": reason,
+                        "authority": "orchestration.graph_run_control",
+                    },
+                },
+            },
+        )
+
+    def _graph_run_control_response(
+        self,
+        *,
+        graph_run: GraphRun,
+        task_run: Any,
+        action: str,
+        accepted: bool,
+        reason: str,
+    ) -> dict[str, Any]:
+        return {
+            "authority": "harness.graph_run_control",
+            "ok": True,
+            "accepted": accepted,
+            "action": action,
+            "reason": reason,
+            "graph_run_id": graph_run.graph_run_id,
+            "task_run_id": graph_run.task_run_id,
+            "graph_run": graph_run.to_dict(),
+            "task_run": task_run.to_dict() if hasattr(task_run, "to_dict") else dict(task_run),
+            "control": _graph_run_runtime_control(task_run),
+        }
 
     def apply_runtime_settings_patch(self, *, graph_run_id: str, runtime_settings_patch: dict[str, Any] | None) -> dict[str, Any]:
         patched = self._loop.patch_runtime_settings_and_checkpoint(
@@ -513,6 +726,66 @@ def _graph_run_from_payload(payload: Any, *, fallback: GraphRun | None) -> Graph
     return fallback
 
 
+def _graph_run_runtime_control(task_run: Any) -> dict[str, Any]:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get(_GRAPH_RUN_CONTROL_KEY)
+    if not isinstance(control, dict):
+        return {}
+    return {
+        "state": str(control.get("state") or "").strip(),
+        "requested_by": str(control.get("requested_by") or ""),
+        "requested_at": float(control.get("requested_at") or 0.0),
+        "reason": str(control.get("reason") or ""),
+        "authority": str(control.get("authority") or "orchestration.graph_run_control"),
+    }
+
+
+def _graph_run_control_diagnostics(
+    task_run: Any,
+    *,
+    state: str,
+    requested_by: str,
+    requested_at: float,
+    reason: str,
+    latest_step: str,
+    latest_step_status: str,
+    latest_step_summary: str,
+) -> dict[str, Any]:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    return {
+        **diagnostics,
+        _GRAPH_RUN_CONTROL_KEY: {
+            "state": state,
+            "requested_by": requested_by or "user",
+            "requested_at": float(requested_at or time.time()),
+            "reason": reason,
+            "authority": "orchestration.graph_run_control",
+        },
+        "executor_status": latest_step_status,
+        "latest_step": latest_step,
+        "latest_step_status": latest_step_status,
+        "latest_step_summary": latest_step_summary,
+    }
+
+
+def _graph_run_has_background_work(services: Any, state: Any | None) -> bool:
+    if state is None:
+        return False
+    runtime_host = getattr(services, "runtime_host", None)
+    if runtime_host is None:
+        return False
+    active = _active_work_orders_from_state(state)
+    tasks_by_name = getattr(runtime_host, "_background_tasks_by_name", {})
+    if not isinstance(tasks_by_name, dict):
+        return False
+    for order in active:
+        task_name = f"graph-work-order:{str(order.get('graph_run_id') or getattr(state, 'graph_run_id', '') or '')}:{str(order.get('work_order_id') or '')}"
+        tasks = tasks_by_name.get(task_name, set())
+        if any(not getattr(task, "done", lambda: True)() for task in list(tasks or [])):
+            return True
+    return False
+
+
 def _task_status_from_runner_result(result: GraphRunRunnerResult) -> str:
     status = str(result.status or "").strip()
     if status == "completed":
@@ -523,12 +796,14 @@ def _task_status_from_runner_result(result: GraphRunRunnerResult) -> str:
         return "aborted"
     if status in {"blocked", "waiting_human_gate"}:
         return "blocked"
+    if status == "paused":
+        return "waiting_executor"
     return "waiting_executor"
 
 
 def _graph_status_from_runner_result(result: GraphRunRunnerResult) -> str:
     status = str(result.status or "").strip()
-    if status in {"completed", "failed", "blocked", "waiting_human_gate", "cancelled", "budget_exhausted", "idle"}:
+    if status in {"completed", "failed", "blocked", "waiting_human_gate", "cancelled", "budget_exhausted", "idle", "paused"}:
         return status
     return "waiting_executor"
 

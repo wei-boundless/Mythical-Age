@@ -4399,6 +4399,76 @@ export class WorkspaceRuntime {
     );
   }
 
+  private ensureRuntimeProjectionMessage(state: StoreState, attachment: SessionRuntimeAttachment): StoreState {
+    if (!this.runtimeAttachmentHasUserVisibleProjection(attachment)) {
+      return state;
+    }
+    const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
+    if (!anchorTurnId) {
+      return state;
+    }
+    const runId = this.runtimeAttachmentRunId(attachment);
+    const taskRunId = String(attachment.task_run_id ?? "").trim();
+    const turnRunId = String(attachment.turn_run_id ?? "").trim();
+    const existingAssistant = state.messages.some((message) =>
+      message.role === "assistant"
+      && this.messageSourceMatchesRuntimeAnchor(message, {
+        anchorTurnId,
+        runId,
+        taskRunId,
+        turnRunId,
+      })
+    );
+    if (existingAssistant) {
+      return state;
+    }
+    const userIndex = state.messages.findIndex((message) =>
+      message.role === "user" && String(message.sourceTurnId ?? "").trim() === anchorTurnId
+    );
+    if (userIndex < 0) {
+      return state;
+    }
+    const userMessage = state.messages[userIndex];
+    const messageId = String(attachment.anchor_message_id ?? "").trim() || `history-message:${anchorTurnId}:assistant`;
+    if (state.messages.some((message) => message.id === messageId)) {
+      return state;
+    }
+    const projectionMessage: Message = {
+      id: messageId,
+      role: "assistant",
+      content: "",
+      toolCalls: [],
+      retrievals: [],
+      sourceIndex: typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5,
+      sourceTurnId: anchorTurnId,
+      sourceRunId: runId || undefined,
+      sourceTaskRunId: taskRunId || undefined,
+      sourceTurnRunId: turnRunId || undefined,
+      runtimeAttachments: [],
+    };
+    return {
+      ...state,
+      messages: [...state.messages, projectionMessage].sort((left, right) => {
+        const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+        if (left.role !== right.role) return left.role === "user" ? -1 : 1;
+        return left.id.localeCompare(right.id);
+      }),
+    };
+  }
+
+  private runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAttachment) {
+    if (attachment.task_projection) {
+      return true;
+    }
+    return (attachment.public_timeline ?? []).some((item) => {
+      const slot = String(item.slot ?? "").trim();
+      const surface = String(item.surface ?? "").trim();
+      return slot !== "control" && surface !== "control" && surface !== "diagnostics";
+    });
+  }
+
   private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
     if (runtimeEvent.event_type !== "step_summary_recorded") {
       return null;
@@ -4793,9 +4863,10 @@ export class WorkspaceRuntime {
       debug_trace_ref: String(taskProjection?.debug_trace_ref ?? runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
       updated_at: Number(taskProjection?.updated_at ?? runtimeEvent.created_at ?? Date.now() / 1000),
     };
+    const stateWithProjectionMessage = this.ensureRuntimeProjectionMessage(state, attachment);
     return {
-      ...state,
-      messages: state.messages.map((message) => {
+      ...stateWithProjectionMessage,
+      messages: stateWithProjectionMessage.messages.map((message) => {
         if (message.role !== "assistant") {
           return message;
         }
@@ -4883,9 +4954,10 @@ export class WorkspaceRuntime {
       debug_trace_ref: String(taskProjection?.debug_trace_ref ?? taskRunId),
       updated_at: Number(taskProjection?.updated_at ?? monitor.updated_at ?? Date.now() / 1000),
     };
+    const stateWithProjectionMessage = this.ensureRuntimeProjectionMessage(state, attachment);
     return {
-      ...state,
-      messages: state.messages.map((message) => {
+      ...stateWithProjectionMessage,
+      messages: stateWithProjectionMessage.messages.map((message) => {
         if (message.role !== "assistant") {
           return message;
         }

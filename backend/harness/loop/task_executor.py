@@ -3451,8 +3451,6 @@ def _verification_gate_required_reasons(
 
 
 def _should_enforce_completion_verification_gate(task_run: Any, *, contract: dict[str, Any]) -> bool:
-    if _origin_kind(task_run) != "graph_node_assigned":
-        return True
     required = [
         dict(item)
         for item in list(contract.get("required_verifications") or [])

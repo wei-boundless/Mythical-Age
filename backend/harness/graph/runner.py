@@ -11,6 +11,9 @@ from .runtime_objects import load_work_order
 
 
 _TERMINAL_STATUSES = {"completed", "failed", "blocked", "waiting_human_gate", "cancelled"}
+_GRAPH_RUN_CONTROL_KEY = "runtime_control"
+_PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
+_STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +121,19 @@ class GraphRunRunner:
 
         for _iteration in range(1, max_loop_iterations + 1):
             state = self._load_locked_state(graph_config=graph_config, graph_run_id=graph_run_id)
+            control_boundary = _root_control_boundary(self._services, state)
+            if control_boundary:
+                return self._finish(
+                    state=state,
+                    status="paused" if str(control_boundary.get("control_state") or "") in _PAUSE_CONTROL_STATES else "cancelled",
+                    terminal_reason=str(control_boundary.get("control_state") or "runtime_control_boundary"),
+                    executed_count=executed_count,
+                    accepted_count=accepted_count,
+                    dispatch_count=dispatch_count,
+                    blocked_reason="runtime_control_boundary",
+                    graph_result=graph_result,
+                    events=events,
+                )
             if state.status in _TERMINAL_STATUSES:
                 return self._finish(
                     state=state,
@@ -208,6 +224,19 @@ class GraphRunRunner:
             progressed = False
             for order in active_orders:
                 state = self._load_locked_state(graph_config=graph_config, graph_run_id=graph_run_id)
+                control_boundary = _root_control_boundary(self._services, state)
+                if control_boundary:
+                    return self._finish(
+                        state=state,
+                        status="paused" if str(control_boundary.get("control_state") or "") in _PAUSE_CONTROL_STATES else "cancelled",
+                        terminal_reason=str(control_boundary.get("control_state") or "runtime_control_boundary"),
+                        executed_count=executed_count,
+                        accepted_count=accepted_count,
+                        dispatch_count=dispatch_count,
+                        blocked_reason="runtime_control_boundary",
+                        graph_result=graph_result,
+                        events=events,
+                    )
                 if state.status in _TERMINAL_STATUSES:
                     return self._finish(
                         state=state,
@@ -446,6 +475,35 @@ def _active_work_orders_from_state(state: GraphLoopState, *, services: Any) -> t
             raise ValueError("GraphNodeWorkOrder node_id does not match active_work_orders")
         orders.append(order)
     return tuple(orders)
+
+
+def _root_control_boundary(services: Any, state: Any | None) -> dict[str, Any]:
+    if state is None:
+        return {}
+    task_run_id = str(getattr(state, "task_run_id", "") or "").strip()
+    if not task_run_id:
+        return {}
+    task_run = services.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return {}
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get(_GRAPH_RUN_CONTROL_KEY)
+    if not isinstance(control, dict):
+        return {}
+    control_state = str(control.get("state") or "").strip()
+    if control_state in _PAUSE_CONTROL_STATES | _STOP_CONTROL_STATES:
+        return {
+            "task_run_id": task_run_id,
+            "control_state": control_state,
+            "control": {
+                "state": control_state,
+                "requested_by": str(control.get("requested_by") or ""),
+                "requested_at": float(control.get("requested_at") or 0.0),
+                "reason": str(control.get("reason") or ""),
+                "authority": str(control.get("authority") or "orchestration.graph_run_control"),
+            },
+        }
+    return {}
 
 
 def _active_work_order_summaries_from_state(state: GraphLoopState) -> tuple[dict[str, Any], ...]:

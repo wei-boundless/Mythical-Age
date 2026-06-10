@@ -11,7 +11,7 @@ import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
+import { cleanPublicTimelineText, isPublicTimelineBodyItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -88,11 +88,21 @@ export function ChatMessage({
       terminalState,
     );
   const publicTimelineItems = basePublicTimelineItems;
-  const compactCompletedTools = Boolean(baseDisplayContent.trim());
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections, { compactCompletedTools });
+  const timelineBodyContent = isUser
+    ? ""
+    : publicTimelineBodyContent(runtimeAttachments, runtimePublicTimelineDraft, baseDisplayContent);
   const messageDisplayContent = isUser
     ? baseDisplayContent
-    : baseDisplayContent;
+    : mergeAssistantDisplayContent(baseDisplayContent, timelineBodyContent);
+  const compactCompletedTools = Boolean(messageDisplayContent.trim());
+  const suppressPublicTimelineActivity = shouldSuppressPublicTimelineAfterFinalAnswer({
+    displayContent: messageDisplayContent,
+    isUser,
+    streamingContent,
+    terminalState,
+  });
+  const hasPublicTimelineActivity = !suppressPublicTimelineActivity
+    && publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections, { compactCompletedTools });
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -303,11 +313,93 @@ function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttach
   );
 }
 
+function publicTimelineBodyContent(
+  attachments: SessionRuntimeAttachment[],
+  runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
+  existingContent: string,
+) {
+  const bodyItems = [
+    ...attachments.flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : []),
+    ...(runtimePublicTimelineDraft ?? []),
+  ].filter(isPublicTimelineBodyItem);
+  const existing = compactContentKey(existingContent);
+  const seen = new Set<string>();
+  const segments: string[] = [];
+  for (const item of bodyItems) {
+    const text = publicTimelineBodyItemText(item);
+    if (!text) {
+      continue;
+    }
+    const key = compactContentKey(text);
+    if (!key || seen.has(key) || (existing && existing.includes(key))) {
+      continue;
+    }
+    seen.add(key);
+    segments.push(text);
+  }
+  return segments.join("\n\n");
+}
+
+function publicTimelineBodyItemText(item: PublicChatTimelineItem) {
+  const kind = cleanPublicTimelineText(item.kind);
+  const candidates = kind === "observation_report"
+    ? [item.detail, item.text, item.public_summary, item.observation]
+    : [item.text, item.detail, item.public_summary, item.observation];
+  for (const candidate of candidates) {
+    const text = cleanPublicTimelineText(candidate);
+    if (!text || looksLikeRawToolOutput(text) || isInternalControlProtocolText(text)) {
+      continue;
+    }
+    return text;
+  }
+  return "";
+}
+
+function mergeAssistantDisplayContent(baseContent: string, timelineContent: string) {
+  const base = String(baseContent || "").trim();
+  const timeline = String(timelineContent || "").trim();
+  if (!base) {
+    return timeline;
+  }
+  if (!timeline || compactContentKey(base).includes(compactContentKey(timeline))) {
+    return baseContent;
+  }
+  return `${baseContent.trim()}\n\n${timeline}`;
+}
+
+function compactContentKey(value: unknown) {
+  return cleanPublicTimelineText(value)
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+function shouldSuppressPublicTimelineAfterFinalAnswer({
+  displayContent,
+  isUser,
+  streamingContent,
+  terminalState,
+}: {
+  displayContent: string;
+  isUser: boolean;
+  streamingContent: boolean;
+  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>;
+}) {
+  return !isUser
+    && !streamingContent
+    && terminalState === "done"
+    && Boolean(displayContent.trim());
+}
+
 function assistantDisplayContent(
   content: string,
   metadata: Parameters<typeof shouldDisplayAssistantContent>[0],
 ) {
   const normalized = String(content || "").trim();
+  const answerChannel = cleanPublicTimelineText(metadata.answerChannel).toLowerCase();
+  const answerSource = cleanPublicTimelineText(metadata.answerSource).toLowerCase();
+  if (answerChannel === "blocked" && answerSource === "harness.single_agent_turn.tool_loop") {
+    return "";
+  }
   if (!shouldDisplayAssistantContent(metadata)) {
     return "";
   }

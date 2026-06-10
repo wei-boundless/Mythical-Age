@@ -84,25 +84,9 @@ def projection_items_for_event(public_event_type: str, data: dict[str, Any]) -> 
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_items(data)
     if event_type == "runtime_status":
-        item = control_item(
-            item_id=_item_id("control", data),
-            kind="control_state",
-            title=data.get("title") or data.get("summary") or "运行状态",
-            detail=data.get("detail"),
-            state=data.get("state") or data.get("status") or "running",
-            trace_refs=_trace_refs(data),
-        )
-        return [item] if item else []
+        return []
     if event_type == "active_task_steer_accepted":
-        item = control_item(
-            item_id=_item_id("steer", data),
-            kind="steer_ack",
-            title="已收到补充要求",
-            detail=data.get("summary"),
-            state="done",
-            trace_refs=_trace_refs(data),
-        )
-        return [item] if item else []
+        return []
     if event_type == "error":
         item = control_item(
             item_id=_item_id("error", data),

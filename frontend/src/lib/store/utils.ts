@@ -166,13 +166,7 @@ function syntheticAssistantMessagesForRuntimeAttachments(
     if (!syntheticId || existingAssistantIds.has(syntheticId)) {
       continue;
     }
-    const hasVisibleRuntime = Boolean(
-      attachment.task_projection
-      || attachment.public_timeline?.length
-      || attachment.progress_entries?.length
-      || String(attachment.summary ?? "").trim()
-      || String(attachment.latest_public_progress_note ?? attachment.latest_step_summary ?? "").trim()
-    );
+    const hasVisibleRuntime = runtimeAttachmentHasUserVisibleProjection(attachment);
     if (!hasVisibleRuntime) {
       continue;
     }
@@ -199,6 +193,17 @@ function syntheticAssistantMessagesForRuntimeAttachments(
     });
   }
   return [...syntheticById.values()];
+}
+
+function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAttachment) {
+  if (attachment.task_projection) {
+    return true;
+  }
+  return (attachment.public_timeline ?? []).some((item) => {
+    const slot = String(item.slot ?? "").trim();
+    const surface = String(item.surface ?? "").trim();
+    return slot !== "control" && surface !== "control" && surface !== "diagnostics";
+  });
 }
 
 export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {

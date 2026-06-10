@@ -162,7 +162,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
-  it("keeps stream recovery feedback visible before task projection tools", () => {
+  it("keeps task projection tools visible without low-signal recovery status", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -219,10 +219,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("同步运行进度");
     expect(html).toContain("正在确认目标 backend");
     expect(html).not.toContain("正在执行操作");
-    expect(html.indexOf("同步运行进度")).toBeLessThan(html.indexOf("正在确认目标 backend"));
+    expect(html).not.toContain("同步运行进度");
+    expect(html).toContain("data-entry-count=\"1\"");
   });
 
   it("shows stage feedback from public timeline when message content is non-public", () => {
@@ -510,10 +510,8 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("读取文件内容");
     expect(html).not.toContain("补齐验收证据");
     expect(html).not.toContain("backend/api/chat.py");
-    expect(html).toContain("观察反馈");
-    expect(html).toContain("已确认任务间观察反馈仍需要显示。");
     expect(html).toContain("正在运行验证 前端测试");
-    expect(html.indexOf("观察反馈")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
+    expect(html).toContain("data-entry-count=\"2\"");
     expect(html).not.toContain("请选择要优先验证的页面。");
   });
 
@@ -654,7 +652,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("正在思考");
   });
 
-  it("keeps completed process feedback readable beside a stable assistant answer", () => {
+  it("lets a stable assistant answer suppress completed process feedback", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -681,7 +679,7 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("写好了");
-    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("artifacts/football.html 已返回");
     expect(html).not.toContain("观察结果");
     expect(html).not.toContain("观察：");
@@ -691,7 +689,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("public-run-activity__spinner");
   });
 
-  it("keeps stable assistant prose as body beside task projection activity", () => {
+  it("lets stable assistant prose suppress completed task projection activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -737,8 +735,8 @@ describe("ChatMessage", () => {
 
     expect(html.match(/修好了。/g)?.length ?? 0).toBe(1);
     expect(html).toContain("复制回复");
-    expect(html).toContain("写入报告");
-    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).not.toContain("写入报告");
+    expect(html).not.toContain("public-run-activity__tool-window");
   });
 
   it("renders final summary as assistant prose instead of leaving only activity feedback", () => {
@@ -992,6 +990,40 @@ describe("ChatMessage", () => {
     expect(html).toContain("这是最终总结");
     expect(html).not.toContain("工具已完成");
     expect(html).not.toContain("public-run-activity");
+  });
+
+  it("lets stable final prose suppress terminal tool activity", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        content: "final-result",
+        id: "message:final-over-failed-tool",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "tool:fetch-failed",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            action_kind: "browse",
+            title: "tool-failed",
+            subject_label: "https://example.test/final",
+            public_summary: "tool-failed",
+            recovery_hint: "fetch failed",
+            state: "error",
+            stream_state: "done",
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("final-result");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("data-activity-kind=\"tool\"");
   });
 
   it("hides raw file listing output instead of rendering assistant prose or noisy activity", () => {

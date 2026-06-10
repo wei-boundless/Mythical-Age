@@ -93,6 +93,12 @@ class GraphRunUntilIdleRequest(BaseModel):
     wait_for_completion: bool = False
 
 
+class GraphRunControlRequest(BaseModel):
+    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    session_scope: dict[str, Any] | None = None
+    reason: str = Field(default="", max_length=1000)
+
+
 class GraphRunDeleteRequest(BaseModel):
     session_scope: dict[str, Any] | None = None
     dry_run: bool = False
@@ -583,6 +589,64 @@ async def submit_graph_run_until_idle(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return submission.to_dict()
+
+
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/pause")
+async def pause_graph_run(
+    graph_run_id: str,
+    payload: GraphRunControlRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_harness_config_id=graph_config.config_id,
+        graph_config=graph_config,
+        session_scope=payload.session_scope,
+    )
+    try:
+        result = runtime.harness_runtime.graph_harness.request_graph_run_pause(
+            graph_run_id,
+            reason=payload.reason,
+            requested_by="user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not bool(result.get("accepted", False)):
+        raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_pause_rejected"))
+    return result
+
+
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/resume")
+async def resume_graph_run(
+    graph_run_id: str,
+    payload: GraphRunControlRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_harness_config_id=graph_config.config_id,
+        graph_config=graph_config,
+        session_scope=payload.session_scope,
+    )
+    try:
+        result = runtime.harness_runtime.graph_harness.request_graph_run_resume(
+            graph_run_id,
+            reason=payload.reason,
+            requested_by="user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not bool(result.get("accepted", False)):
+        raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_resume_rejected"))
+    return result
 
 
 def _validated_session_id(value: str) -> str:

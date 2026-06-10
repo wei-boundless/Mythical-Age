@@ -9,11 +9,13 @@ import {
   GitBranch,
   LayoutDashboard,
   MessageSquare,
+  PauseCircle,
   PencilLine,
   PlayCircle,
   Plus,
   RefreshCw,
   Search,
+  StepForward,
 } from "lucide-react";
 
 import {
@@ -23,8 +25,11 @@ import {
   getWritingGraphInstanceDesk,
   listGraphTaskInstances,
   listGraphTasks,
+  pauseGraphRun,
   readGraphTaskInstanceFile,
+  resumeGraphRun,
   startGraphTaskInstanceRun,
+  submitGraphRunUntilIdle,
   submitGraphTaskInstanceHumanEdgeDecision,
   submitWritingGraphChapterAction,
   writeGraphTaskInstanceFile,
@@ -147,6 +152,87 @@ function statusTone(value: unknown) {
   if (["completed", "done", "success"].includes(status)) return "success";
   if (["paused", "stopped"].includes(status)) return "paused";
   return "idle";
+}
+
+function nestedRecord(value: unknown, key: string): Record<string, unknown> {
+  return recordOf(recordOf(value)[key]);
+}
+
+function graphConfigIdFromMonitor(monitor: GraphTaskInstanceMonitor | null, instance: GraphTaskInstanceSummary | null) {
+  const graphMonitor = monitor?.graph_monitor;
+  const config = recordOf(graphMonitor?.graph_harness_config);
+  const metadata = recordOf(instance?.metadata);
+  return stringValue(
+    config.config_id
+      ?? config.graph_harness_config_id
+      ?? metadata.latest_graph_harness_config_id,
+  );
+}
+
+function graphRunIdFromMonitor(monitor: GraphTaskInstanceMonitor | null, instance: GraphTaskInstanceSummary | null) {
+  return stringValue(monitor?.graph_monitor?.graph_run_id ?? instance?.active_graph_run_id);
+}
+
+function graphTaskRunIdFromMonitor(monitor: GraphTaskInstanceMonitor | null, instance: GraphTaskInstanceSummary | null) {
+  const graphMonitor = monitor?.graph_monitor;
+  const taskRun = recordOf(graphMonitor?.task_run);
+  const taskRunMonitor = recordOf(graphMonitor?.task_run_monitor ?? graphMonitor?.runtime_monitor);
+  const metadata = recordOf(instance?.metadata);
+  return stringValue(
+    taskRun.task_run_id
+      ?? taskRunMonitor.task_run_id
+      ?? metadata.latest_task_run_id,
+  );
+}
+
+function graphRunControlState(monitor: GraphTaskInstanceMonitor | null) {
+  const graphMonitor = monitor?.graph_monitor;
+  const taskRun = recordOf(graphMonitor?.task_run);
+  const taskRunDiagnostics = recordOf(taskRun.diagnostics);
+  const taskRunMonitor = recordOf(graphMonitor?.task_run_monitor ?? graphMonitor?.runtime_monitor);
+  const monitorControl = recordOf(taskRunMonitor.runtime_control);
+  const taskControl = recordOf(taskRunDiagnostics.runtime_control);
+  const graphRunControl = nestedRecord(graphMonitor?.graph_run, "diagnostics");
+  const graphControl = recordOf(graphRunControl.runtime_control);
+  return stringValue(
+    taskRunMonitor.control_state
+      ?? monitorControl.state
+      ?? taskControl.state
+      ?? graphControl.state,
+  ).toLowerCase();
+}
+
+function graphLoopStatus(monitor: GraphTaskInstanceMonitor | null) {
+  return stringValue(recordOf(monitor?.graph_monitor?.graph_loop_state).status);
+}
+
+function graphRunStatus(monitor: GraphTaskInstanceMonitor | null, instance: GraphTaskInstanceSummary | null) {
+  const controlState = graphRunControlState(monitor);
+  if (controlState === "paused" || controlState === "pause_requested") return controlState;
+  const graphRun = recordOf(monitor?.graph_monitor?.graph_run);
+  return stringValue(
+    recordOf(monitor?.graph_monitor?.task_run).status
+      ?? graphRun.status
+      ?? graphLoopStatus(monitor)
+      ?? instance?.status,
+    "idle",
+  ).toLowerCase();
+}
+
+function graphRuntimeStatusLabel(value: string) {
+  if (value === "pause_requested") return "暂停中";
+  if (value === "waiting_executor") return "待续跑";
+  if (value === "budget_exhausted" || value === "idle") return "待续跑";
+  return statusLabel(value);
+}
+
+function graphRuntimeStatusTone(value: string) {
+  if (value === "pause_requested" || value === "paused" || value === "waiting_executor" || value === "idle" || value === "budget_exhausted") return "paused";
+  return statusTone(value);
+}
+
+function graphRunIsTerminal(status: string) {
+  return ["completed", "done", "success", "failed", "error", "cancelled", "canceled", "aborted", "stopped"].includes(status);
 }
 
 function sortInstances(instances: GraphTaskInstanceSummary[]) {
@@ -589,6 +675,29 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   );
   const humanActionCount = humanControls.length;
   const selectedGraphRequiresProjectBrief = Boolean(selectedGraph?.graph_id?.startsWith("graph.writing.modular_novel."));
+  const activeGraphRunId = graphRunIdFromMonitor(monitor, selectedInstance);
+  const activeGraphHarnessConfigId = graphConfigIdFromMonitor(monitor, selectedInstance);
+  const activeGraphTaskRunId = graphTaskRunIdFromMonitor(monitor, selectedInstance);
+  const activeGraphControlState = graphRunControlState(monitor);
+  const activeGraphRuntimeStatus = graphRunStatus(monitor, selectedInstance);
+  const activeGraphRuntimeTone = graphRuntimeStatusTone(activeGraphRuntimeStatus);
+  const activeGraphIsPaused = activeGraphControlState === "paused" || activeGraphRuntimeStatus === "paused";
+  const activeGraphPausePending = activeGraphControlState === "pause_requested" || activeGraphRuntimeStatus === "pause_requested";
+  const activeGraphCanPause = Boolean(
+    selectedInstance
+      && activeGraphRunId
+      && activeGraphHarnessConfigId
+      && !activeGraphIsPaused
+      && !activeGraphPausePending
+      && !graphRunIsTerminal(activeGraphRuntimeStatus),
+  );
+  const activeGraphCanContinue = Boolean(
+    selectedInstance
+      && activeGraphRunId
+      && activeGraphHarnessConfigId
+      && !activeGraphPausePending
+      && !graphRunIsTerminal(activeGraphRuntimeStatus),
+  );
 
   const loadGraphs = useCallback(async () => {
     setLoadingGraphs(true);
@@ -697,6 +806,15 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     }
   }, []);
 
+  const refreshProjectRuntime = useCallback(async (instanceId: string, options: { adoptReader?: boolean } = {}) => {
+    if (!instanceId) return;
+    await Promise.all([
+      refreshInstance(instanceId),
+      loadWritingDesk(instanceId, options),
+      loadProjectFileTree(instanceId),
+    ]);
+  }, [loadProjectFileTree, loadWritingDesk, refreshInstance]);
+
   useEffect(() => {
     void loadGraphs();
   }, [loadGraphs]);
@@ -801,8 +919,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setNewInstanceTitle("");
       setNewInstanceDescription("");
       setNotice("项目实例已创建。");
-      await refreshInstance(payload.instance.graph_task_instance_id);
-      await loadWritingDesk(payload.instance.graph_task_instance_id, { adoptReader: true });
+      await refreshProjectRuntime(payload.instance.graph_task_instance_id, { adoptReader: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建项目实例失败");
     } finally {
@@ -841,8 +958,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setSelectedInstanceId(payload.instance.graph_task_instance_id);
       setConsoleScreen("sessions");
       setNotice("运行已提交后台。");
-      await refreshInstance(payload.instance.graph_task_instance_id);
-      await loadWritingDesk(payload.instance.graph_task_instance_id);
+      await refreshProjectRuntime(payload.instance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "启动图任务运行失败");
     } finally {
@@ -852,6 +968,64 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
 
   async function startRun() {
     await startRunForInstance(selectedInstance);
+  }
+
+  async function pauseCurrentGraphRun() {
+    if (!selectedInstance || !activeGraphRunId || !activeGraphHarnessConfigId) {
+      setError("当前项目没有可暂停的图运行。");
+      return;
+    }
+    setAction("pause-run");
+    setError("");
+    setNotice("");
+    try {
+      await pauseGraphRun(activeGraphRunId, {
+        graph_harness_config_id: activeGraphHarnessConfigId,
+        session_scope: graphTaskScope(selectedInstance.graph_task_instance_id),
+        reason: "graph_task_foreground_pause",
+      });
+      setNotice("暂停请求已提交，当前节点收口后会停在可续跑状态。");
+      await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "暂停图任务运行失败");
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function continueCurrentGraphRun() {
+    if (!selectedInstance) return;
+    if (!activeGraphRunId || !activeGraphHarnessConfigId) {
+      await startRunForInstance(selectedInstance);
+      return;
+    }
+    setAction("continue-run");
+    setError("");
+    setNotice("");
+    try {
+      if (activeGraphIsPaused) {
+        await resumeGraphRun(activeGraphRunId, {
+          graph_harness_config_id: activeGraphHarnessConfigId,
+          session_scope: graphTaskScope(selectedInstance.graph_task_instance_id),
+          reason: "graph_task_foreground_resume",
+        });
+      }
+      const submission = await submitGraphRunUntilIdle(activeGraphRunId, {
+        graph_harness_config_id: activeGraphHarnessConfigId,
+        session_scope: graphTaskScope(selectedInstance.graph_task_instance_id),
+        max_node_executions: 64,
+        max_node_steps: 12,
+        max_dispatch_requests: 1,
+      });
+      const scheduled = Number(submission.scheduled_work_order_count ?? 0);
+      const alreadyRunning = Number(submission.already_running_work_order_count ?? 0);
+      setNotice(scheduled || alreadyRunning ? "续跑已提交后台。" : "续跑请求已提交，当前没有新的可派发节点。");
+      await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "续跑图任务运行失败");
+    } finally {
+      setAction("");
+    }
   }
 
   async function openSession(session: SessionSummary | null) {
@@ -887,8 +1061,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
     try {
       await writeGraphTaskInstanceFile(selectedInstance.graph_task_instance_id, selectedFilePath.trim(), fileContent);
       setNotice(`已保存 ${selectedFilePath.trim()}`);
-      await refreshInstance(selectedInstance.graph_task_instance_id);
-      await loadWritingDesk(selectedInstance.graph_task_instance_id);
+      await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存项目文件失败");
     } finally {
@@ -908,8 +1081,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
       setFileEditorMode("preview");
       setNewFileContent("");
       setNotice(`已写入 ${payload.path}`);
-      await refreshInstance(selectedInstance.graph_task_instance_id);
-      await loadWritingDesk(selectedInstance.graph_task_instance_id);
+      await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "写入项目文件失败");
     } finally {
@@ -996,8 +1168,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         setFileContent(decisionReplaceContent);
         await loadProjectFileTree(selectedInstance.graph_task_instance_id);
       }
-      await refreshInstance(selectedInstance.graph_task_instance_id);
-      await loadWritingDesk(selectedInstance.graph_task_instance_id);
+      await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
       setNotice(`${writingDecisionLabel(decisionKind)}已应用。`);
       setSelectedChapterAction(null);
       setDecisionDrawerOpen(false);
@@ -1010,11 +1181,15 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
 
   const nextAction = !selectedInstance
     ? "先选择或创建项目实例。"
+    : activeGraphPausePending
+      ? "正在暂停，等待当前节点收口。"
+    : activeGraphIsPaused
+      ? "项目已暂停，可以续跑。"
     : humanActionCount
       ? `有 ${humanActionCount} 个边传播动作可处理。`
     : counts.failed || counts.blocked
       ? "优先处理失败或阻塞节点。"
-      : statusTone(selectedInstance.status) === "active"
+      : activeGraphRuntimeTone === "active"
         ? "运行中，观察节点画布和最新输出。"
         : "项目已就绪，可以启动运行。";
   const hasSelectedInstance = Boolean(selectedInstance);
@@ -1048,7 +1223,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
           {selectedInstance ? (
             <button disabled={action === "start-run"} onClick={() => void startRun()} type="button">
               <PlayCircle size={15} />
-              <span>{action === "start-run" ? "提交中" : "启动运行"}</span>
+              <span>{action === "start-run" ? "提交中" : activeGraphRunId ? "启动新运行" : "启动运行"}</span>
             </button>
           ) : null}
         </div>
@@ -1157,7 +1332,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                     <div className="graph-foreground-project-row__actions">
                       <button disabled={action === "start-run"} onClick={() => void startRunForInstance(instance)} type="button">
                         <PlayCircle size={13} />
-                        <span>{statusTone(instance.status) === "active" ? "继续" : "启动"}</span>
+                        <span>启动</span>
                       </button>
                       <button onClick={() => { setConsoleScreen("sessions"); setSelectedInstanceId(instance.graph_task_instance_id); }} type="button">
                         <MessageSquare size={13} />
@@ -1217,7 +1392,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
             <div>
               <span>当前项目</span>
               <strong>{selectedInstance.title || selectedInstance.graph_task_instance_id}</strong>
-              <small>{selectedInstance.graph_task_instance_id}</small>
+              <small>{activeGraphRunId ? `${selectedInstance.graph_task_instance_id} · ${activeGraphRunId}` : selectedInstance.graph_task_instance_id}</small>
             </div>
             <div className="graph-foreground-console-actions">
               <div className="graph-foreground-console-switch" role="tablist" aria-label="项目控制台屏幕">
@@ -1230,13 +1405,27 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
                   图调试
                 </button>
               </div>
-              <em className={`graph-foreground-status graph-foreground-status--${statusTone(selectedInstance.status)}`}>
-                {statusLabel(selectedInstance.status)}
+              <em className={`graph-foreground-status graph-foreground-status--${activeGraphRuntimeTone}`}>
+                {graphRuntimeStatusLabel(activeGraphRuntimeStatus)}
               </em>
-              <button disabled={loadingMonitor || loadingWritingDesk} onClick={() => { void refreshInstance(selectedInstance.graph_task_instance_id); void loadWritingDesk(selectedInstance.graph_task_instance_id); }} type="button">
-                <RefreshCw size={14} />
-                <span>{loadingMonitor || loadingWritingDesk ? "刷新中" : "刷新项目"}</span>
-              </button>
+              <div className="graph-foreground-run-controls" aria-label="项目运行控制">
+                <button disabled={action === "start-run"} onClick={() => void startRun()} type="button">
+                  <PlayCircle size={14} />
+                  <span>{action === "start-run" ? "启动中" : activeGraphRunId ? "新运行" : "启动"}</span>
+                </button>
+                <button disabled={!activeGraphCanPause || action === "pause-run"} onClick={() => void pauseCurrentGraphRun()} type="button">
+                  <PauseCircle size={14} />
+                  <span>{action === "pause-run" ? "暂停中" : "暂停"}</span>
+                </button>
+                <button disabled={!activeGraphCanContinue || action === "continue-run"} onClick={() => void continueCurrentGraphRun()} type="button">
+                  <StepForward size={14} />
+                  <span>{action === "continue-run" ? "提交中" : activeGraphIsPaused ? "续跑" : "继续"}</span>
+                </button>
+                <button disabled={loadingMonitor || loadingWritingDesk} onClick={() => void refreshProjectRuntime(selectedInstance.graph_task_instance_id)} type="button">
+                  <RefreshCw size={14} />
+                  <span>{loadingMonitor || loadingWritingDesk ? "刷新中" : "刷新"}</span>
+                </button>
+              </div>
             </div>
           </section>
 

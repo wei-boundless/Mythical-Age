@@ -2,7 +2,7 @@ import type { Store } from "@/lib/store/core";
 import type { ChatTaskEnvironmentBinding, StoreState, TaskGraphMonitorBinding, WorkspaceView } from "@/lib/store/types";
 import {
   isRequestAbortError,
-  resumeOrchestrationHarnessTaskRun,
+  resumeGraphRun,
   submitGraphRunUntilIdle,
   type GraphRunMonitorView,
   type RunMonitorEventPayload,
@@ -330,13 +330,13 @@ export class RunMonitorController {
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
     try {
-      const taskRunId = graphTaskRunId(state.taskGraphBoundRunMonitor, binding);
       const controlState = graphTaskControlState(state.taskGraphBoundRunMonitor).toLowerCase();
       if (controlState === "paused") {
-        if (!taskRunId) {
-          throw new Error("当前 GraphRun 已暂停，但缺少可恢复的 root TaskRun。");
-        }
-        await resumeOrchestrationHarnessTaskRun(taskRunId, 12, "");
+        await resumeGraphRun(graphRunId, {
+          graph_harness_config_id: graphHarnessConfigId,
+          session_scope: binding?.session_scope,
+          reason: "run_monitor_continue_graph_run",
+        });
       } else if (controlState === "pause_requested" || controlState === "stop_requested") {
         throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
       }
