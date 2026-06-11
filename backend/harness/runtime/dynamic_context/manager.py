@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,7 @@ class DynamicContextManager:
             execution_projection,
             task_run_id=request.task_run_id,
             storage_root=file_state_storage_root,
+            editor_context=request.editor_context,
         )
         history_projection = self.history_projector.project(
             request.history,
@@ -168,19 +170,28 @@ class DynamicContextManager:
         *,
         task_run_id: str,
         storage_root: Path | None,
+        editor_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         projection = dict(execution_projection or {})
-        if projection.get("file_state"):
-            return projection
-        if storage_root is None or not str(task_run_id or "").strip():
-            return projection
-        file_state = FileStateAuthorityStore(storage_root).snapshot(task_run_id, limit=20)
-        if not file_state:
+        file_state = [dict(item) for item in list(projection.get("file_state") or []) if isinstance(item, dict)]
+        if not file_state and storage_root is not None and str(task_run_id or "").strip():
+            file_state = FileStateAuthorityStore(storage_root).snapshot(task_run_id, limit=20)
+            if file_state:
+                projection = {
+                    **projection,
+                    "file_state_source": "runtime.memory.file_state_store",
+                }
+        editor_file_state = _editor_file_state_projection(editor_context)
+        if not file_state and not editor_file_state:
             return projection
         return {
             **projection,
-            "file_state": file_state,
-            "file_state_source": "runtime.memory.file_state_store",
+            "file_state": _merge_file_state_projection(file_state, editor_file_state, limit=20),
+            "file_state_source": _file_state_source(
+                persisted=bool(file_state),
+                editor=bool(editor_file_state),
+                existing=str(projection.get("file_state_source") or ""),
+            ),
         }
 
     def _volatile_state_projection(
@@ -408,11 +419,233 @@ def _editor_context_projection(value: Any) -> dict[str, Any]:
     return result if any(result.get(key) for key in ("workspace_roots", "active_file", "visible_files", "diagnostics")) else {}
 
 
+def _editor_file_state_projection(value: Any) -> list[dict[str, Any]]:
+    editor_context = _editor_context_projection(value)
+    if not editor_context:
+        return []
+    workspace_roots = [str(item or "").strip() for item in list(editor_context.get("workspace_roots") or []) if str(item or "").strip()]
+    active_file = dict(editor_context.get("active_file") or {})
+    states: list[dict[str, Any]] = []
+    active_state = _active_editor_file_state(active_file, workspace_roots=workspace_roots)
+    if active_state:
+        states.append(active_state)
+    active_path = str(active_state.get("path") or "") if active_state else ""
+    for item in list(editor_context.get("visible_files") or [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        path = _workspace_relative_path(str(item.get("path") or ""), workspace_roots=workspace_roots)
+        if not path or path == active_path:
+            continue
+        states.append(
+            drop_empty(
+                {
+                    "path": path,
+                    "status": "editor_dirty" if item.get("dirty") is True else "editor_visible",
+                    "editor_state": {
+                        "source": "vscode.editor_context",
+                        "visible": True,
+                        "dirty": bool(item.get("dirty") is True),
+                        "language_id": str(item.get("language_id") or ""),
+                    },
+                    "authority": "harness.runtime.dynamic_context.editor_file_state",
+                }
+            )
+        )
+    return states[:20]
+
+
+def _active_editor_file_state(active_file: dict[str, Any], *, workspace_roots: list[str]) -> dict[str, Any]:
+    path = _workspace_relative_path(str(active_file.get("path") or ""), workspace_roots=workspace_roots)
+    if not path:
+        return {}
+    preview = dict(active_file.get("content_preview") or {})
+    selection = dict(active_file.get("selection") or {})
+    visible_ranges = [
+        _editor_state_range(item)
+        for item in list(active_file.get("visible_ranges") or [])[:8]
+        if isinstance(item, dict)
+    ]
+    visible_ranges = [item for item in visible_ranges if item]
+    preview_text = str(preview.get("text") or "")
+    preview_range = _preview_read_range(preview_text, truncated=bool(preview.get("truncated") is True))
+    selection_range = _selection_read_range(selection)
+    read_ranges = [item for item in (selection_range, preview_range, *visible_ranges) if item]
+    dirty = bool(active_file.get("dirty") is True)
+    preview_source = str(preview.get("source") or "")
+    state = {
+        "source": "vscode.editor_context",
+        "active": True,
+        "dirty": dirty,
+        "language_id": str(active_file.get("language_id") or ""),
+        "content_preview": drop_empty(
+            {
+                "source": preview_source,
+                "chars": len(preview_text),
+                "truncated": bool(preview.get("truncated") is True),
+                "content_sha256": _text_sha256(preview_text) if preview_text else "",
+            }
+        ),
+        "selection": drop_empty(
+            {
+                "start_line": _position_line(dict(selection.get("start") or {})),
+                "end_line": _position_line(dict(selection.get("end") or {})),
+                "chars": len(str(selection.get("text") or "")),
+                "truncated": bool(selection.get("truncated") is True),
+            }
+        ),
+    }
+    return drop_empty(
+        {
+            "path": path,
+            "status": "editor_dirty" if dirty else "editor_preview",
+            "read_ranges": read_ranges[:24],
+            "content_sha256": _text_sha256(preview_text) if preview_text else "",
+            "has_more": bool(preview.get("truncated") is True),
+            "editor_state": state,
+            "stale_reason": "editor buffer is dirty; disk reads may be stale" if dirty else "",
+            "next_suggested_read": {
+                "start_line": 1,
+                "line_count": 240,
+                "reason": "active editor buffer is dirty; confirm saved source before disk edit",
+            }
+            if dirty
+            else {},
+            "authority": "harness.runtime.dynamic_context.editor_file_state",
+        }
+    )
+
+
+def _merge_file_state_projection(
+    persisted: list[dict[str, Any]],
+    editor: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for item in [*persisted, *editor]:
+        path = str(dict(item).get("path") or "").strip()
+        if not path:
+            continue
+        if path not in merged:
+            order.append(path)
+            merged[path] = dict(item)
+            continue
+        current = dict(merged[path])
+        incoming = dict(item)
+        merged[path] = drop_empty(
+            {
+                **current,
+                "editor_state": incoming.get("editor_state") or current.get("editor_state"),
+                "stale_reason": incoming.get("stale_reason") or current.get("stale_reason"),
+                "status": _merged_file_status(current, incoming),
+                "read_ranges": _merge_read_ranges(current.get("read_ranges"), incoming.get("read_ranges")),
+                "next_suggested_read": incoming.get("next_suggested_read") or current.get("next_suggested_read"),
+                "authority": "harness.runtime.dynamic_context.file_state_projection",
+            }
+        )
+    return [merged[path] for path in order][-max(1, int(limit or 20)):]
+
+
+def _file_state_source(*, persisted: bool, editor: bool, existing: str) -> str:
+    if persisted and editor:
+        return "runtime.memory.file_state_store+editor_context"
+    if editor:
+        return "editor_context"
+    return existing or "runtime.memory.file_state_store"
+
+
+def _merged_file_status(current: dict[str, Any], incoming: dict[str, Any]) -> str:
+    incoming_status = str(incoming.get("status") or "")
+    current_status = str(current.get("status") or "")
+    if incoming_status == "editor_dirty":
+        return "editor_dirty"
+    return current_status or incoming_status
+
+
+def _merge_read_ranges(left: Any, right: Any) -> list[dict[str, Any]]:
+    ranges: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, str]] = set()
+    for raw in [*list(left or []), *list(right or [])]:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        start = _safe_int(item.get("start_line"))
+        end = _safe_int(item.get("end_line"))
+        source = str(item.get("source") or "")
+        key = (start, end, source)
+        if start <= 0 or end <= 0 or key in seen:
+            continue
+        seen.add(key)
+        ranges.append(item)
+    return ranges[-24:]
+
+
+def _preview_read_range(text: str, *, truncated: bool) -> dict[str, Any]:
+    if not text:
+        return {}
+    returned_lines = max(1, len(str(text).splitlines()) or 1)
+    return drop_empty(
+        {
+            "start_line": 1,
+            "end_line": returned_lines,
+            "source": "editor_content_preview",
+            "content_sha256": _text_sha256(text),
+            "stale": False,
+            "truncated": bool(truncated),
+        }
+    )
+
+
+def _selection_read_range(selection: dict[str, Any]) -> dict[str, Any]:
+    start_line = _position_line(dict(selection.get("start") or {}))
+    end_line = _position_line(dict(selection.get("end") or {}))
+    if start_line <= 0 or end_line <= 0:
+        return {}
+    return drop_empty(
+        {
+            "start_line": start_line,
+            "end_line": max(start_line, end_line),
+            "source": "editor_selection",
+            "stale": False,
+            "truncated": bool(selection.get("truncated") is True),
+        }
+    )
+
+
+def _editor_state_range(value: dict[str, Any]) -> dict[str, Any]:
+    start_line = _position_line(dict(dict(value).get("start") or {}))
+    end_line = _position_line(dict(dict(value).get("end") or {}))
+    if start_line <= 0 or end_line <= 0:
+        return {}
+    return {"start_line": start_line, "end_line": max(start_line, end_line), "source": "editor_visible_range", "stale": False}
+
+
+def _position_line(value: dict[str, Any]) -> int:
+    # VS Code positions are zero-based; file_state read ranges are one-based.
+    return _safe_int(value.get("line")) + 1 if "line" in value else 0
+
+
+def _workspace_relative_path(path: str, *, workspace_roots: list[str]) -> str:
+    normalized = str(path or "").replace("\\", "/").strip()
+    if not normalized:
+        return ""
+    for root in workspace_roots:
+        root_text = str(root or "").replace("\\", "/").rstrip("/")
+        if root_text and normalized.lower().startswith((root_text + "/").lower()):
+            return normalized[len(root_text) + 1 :].strip("/")
+    return normalized.strip("/")
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8", errors="replace")).hexdigest()
+
+
 def _editor_active_file(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         return {}
     selection = _editor_selection(value.get("selection"))
-    content_preview = _editor_selection(value.get("content_preview"))
+    content_preview = _editor_content_preview(value.get("content_preview"))
     visible_ranges = [
         _editor_range(item)
         for item in list(value.get("visible_ranges") or [])[:8]
@@ -460,6 +693,22 @@ def _editor_selection(value: Any) -> dict[str, Any]:
             "end": _editor_position(value.get("end")),
             "text": text[:limit],
             "truncated": truncated,
+            "max_chars": limit if truncated else 0,
+        }
+    )
+
+
+def _editor_content_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    text = str(value.get("text") or "")
+    limit = 12000
+    truncated = bool(value.get("truncated") is True or len(text) > limit)
+    return drop_empty(
+        {
+            "text": text[:limit],
+            "truncated": truncated,
+            "source": compact_text(value.get("source") or "", limit=80),
             "max_chars": limit if truncated else 0,
         }
     )

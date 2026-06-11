@@ -32,6 +32,7 @@ from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
+from permissions.operations import build_default_operation_registry
 
 from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -58,6 +59,7 @@ _SUBAGENT_TOOL_NAMES = {
     "list_subagents",
     "close_subagent",
 }
+_OPERATION_REGISTRY = build_default_operation_registry()
 
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
 _GRAPH_AUTHORIZED_INPUT_PAYLOAD_LIMIT = 12000
@@ -2252,7 +2254,7 @@ def _single_agent_turn_output_contract(
                 "enabled": "tool_call" in allowed_actions,
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "boundary": "runtime_visible_tools_only",
+                "boundary": "single_turn_read_only_visible_tools_only",
                 "denied_or_failed_tool_calls_return_observations": True,
             },
             "control_actions": {
@@ -2271,13 +2273,14 @@ def _single_agent_turn_output_contract(
                 "provider_multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "control_actions_exposed_as_native_tools": False,
+                "visible_tool_boundary": "read/search/inspect only; write, edit, shell, browser, git-write, generated-asset, and other side-effect tools require request_task_run",
             },
         },
         "planning_protocol": dict(planning_protocol or {}),
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
-                "boundary": "runtime_visible_tools_only",
+                "boundary": "single_turn_read_only_visible_tools_only",
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "denied_or_failed_calls_return_observations": True,
@@ -2325,7 +2328,44 @@ def _single_agent_turn_tools(
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={},
     )
-    return tuple(dict(item) for item in plan.model_visible_tools)
+    return tuple(
+        dict(item)
+        for item in plan.model_visible_tools
+        if _single_agent_turn_model_visible_tool_allowed(dict(item))
+    )
+
+
+def _single_agent_turn_model_visible_tool_allowed(tool_payload: dict[str, Any]) -> bool:
+    tool_name = str(tool_payload.get("tool_name") or tool_payload.get("name") or "").strip()
+    operation_id = str(tool_payload.get("operation_id") or tool_name).strip()
+    operation = _OPERATION_REGISTRY.get_operation(operation_id)
+    if operation is not None:
+        return bool(operation.read_only) and not bool(operation.destructive)
+    safety_tags = {
+        str(item or "").strip()
+        for item in list(tool_payload.get("safety_tags") or [])
+        if str(item or "").strip()
+    }
+    capability_tags = {
+        str(item or "").strip()
+        for item in list(tool_payload.get("capability_tags") or [])
+        if str(item or "").strip()
+    }
+    blocked_tags = {
+        "write",
+        "local_write",
+        "git_write",
+        "remote_write",
+        "shell",
+        "shell_execution",
+        "python_execution",
+        "destructive",
+        "asset_write",
+        "external_write_possible",
+        "interactive_browser",
+    }
+    tags = safety_tags | capability_tags
+    return "read_only" in tags and not bool(tags & blocked_tags)
 
 
 def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:

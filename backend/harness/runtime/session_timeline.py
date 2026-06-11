@@ -5,7 +5,7 @@ from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
-from harness.runtime.projection.filters import should_hide_public_tool_observation
+from harness.runtime.projection.filters import should_hide_public_tool_call, should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.public_progress import public_runtime_progress_title
 from harness.runtime.projection.timeline_builder import project_public_timeline_from_events
@@ -479,6 +479,8 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
         if event_type in {
             "user_work_instruction_recorded",
             "active_task_steer_recorded",
+            "active_task_steer_included",
+            "active_task_steer_consumed",
             "task_run_resume_requested",
             "task_run_executor_scheduled",
             "step_summary_recorded",
@@ -647,6 +649,23 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             )
             continue
+        if event_type in {"active_task_steer_included", "active_task_steer_consumed"}:
+            transition = dict(payload.get("steer_transition") or {})
+            steer = dict(payload.get("steer") or {})
+            entries.append(
+                _entry(
+                    event,
+                    title=str(transition.get("title") or "补充要求状态更新"),
+                    body=_visible_progress_summary(transition.get("summary") or "") or _visible_progress_summary(steer.get("content") or ""),
+                    kind="stage",
+                    level="info" if event_type == "active_task_steer_included" else "success",
+                    status="running" if event_type == "active_task_steer_included" else "completed",
+                    public_note=_visible_progress_summary(transition.get("summary") or ""),
+                    agent_brief=_visible_progress_summary(steer.get("content") or ""),
+                    evidence_type="user_instruction",
+                )
+            )
+            continue
         if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event", "task_tool_observation_recorded"}:
             observation = dict(payload.get("observation") or {})
             if event_type == "task_tool_observation_recorded":
@@ -773,6 +792,17 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
     tool_call = dict(action_request.get("tool_call") or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or action_request.get("tool_name") or "").strip()
     preview = _tool_call_preview(tool_call)
+    if should_hide_public_tool_call(
+        tool_name=tool_name,
+        values=(
+            preview,
+            dict(tool_call.get("args") or tool_call.get("input") or {}).get("path"),
+            dict(tool_call.get("args") or tool_call.get("input") or {}).get("file_path"),
+            dict(tool_call.get("args") or tool_call.get("input") or {}).get("target"),
+            dict(tool_call.get("args") or tool_call.get("input") or {}).get("replacement_id"),
+        ),
+    ):
+        return {}
     title = _tool_activity_title(tool_name=tool_name, preview=preview, phase="started")
     return _entry(
         event,
@@ -812,9 +842,7 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         or envelope.get("text")
         or ""
     ).strip()
-    if failed and should_hide_public_tool_observation(
-        tool_name,
-        target,
+    if should_hide_public_tool_observation(
         result_text,
         error,
         observation.get("text"),

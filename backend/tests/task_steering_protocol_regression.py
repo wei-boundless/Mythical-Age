@@ -76,3 +76,35 @@ def test_consumed_steer_cannot_be_reopened_by_late_include_transition() -> None:
     assert reopened == []
     assert final_steer["consumption_state"] == "consumed"
     assert list_pending_task_steers(host, task_run_id) == []
+
+
+def test_steer_transition_updates_payload_and_task_summary() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:steer-transition"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-steer-transition",
+            task_id="task:steer-transition",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+        )
+    )
+
+    steer = create_active_task_steer(host, task_run_id, content="先按新的验收条件检查。")["steer"]
+    steer_id = steer["steer_id"]
+
+    included = mark_task_steers_included(host, task_run_id, steer_ids=[steer_id], packet_ref="rtpacket:next")
+    after_included = host.state_index.get_task_run(task_run_id)
+    consumed = mark_task_steers_consumed(host, task_run_id, steer_ids=[steer_id], action_ref="model-action:next")
+    after_consumed = host.state_index.get_task_run(task_run_id)
+
+    assert included[0]["consumption_state"] == "included_in_packet"
+    assert consumed[0]["consumption_state"] == "consumed"
+    assert after_included is not None
+    assert after_consumed is not None
+    assert dict(after_included.diagnostics or {})["latest_step"] == "active_task_steer_included"
+    assert dict(after_included.diagnostics or {})["latest_step_summary"] == "补充要求已进入下一回合处理队列。"
+    assert dict(after_consumed.diagnostics or {})["latest_step"] == "active_task_steer_consumed"
+    assert dict(after_consumed.diagnostics or {})["latest_step_summary"] == "补充要求已在当前处理回合纳入执行。"

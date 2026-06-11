@@ -23,6 +23,15 @@ def test_public_progress_summary_suppresses_raw_line_numbered_tool_output() -> N
     assert public_runtime_progress_summary(raw_output) == ""
 
 
+def test_public_progress_summary_suppresses_internal_replacement_artifact_paths() -> None:
+    raw_output = (
+        "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
+        "vibe-workspace/runtime_state/dynamic_context/replacements/replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
+    )
+
+    assert public_runtime_progress_summary(raw_output) == ""
+
+
 def test_action_progress_note_does_not_fallback_to_action_type() -> None:
     action = TaskExecutionModelActionRequest(
         request_id="model-action:test:no-public-feedback",

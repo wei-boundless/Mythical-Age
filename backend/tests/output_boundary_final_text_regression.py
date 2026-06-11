@@ -125,6 +125,7 @@ def test_task_executor_final_commit_uses_canonical_output_boundary() -> None:
         session_id="session:test",
         task_run_id="taskrun:test",
         task_id="task:test",
+        diagnostics={"turn_id": "turn:session:test:1"},
     )
 
     _commit_task_run_final_message(
@@ -137,3 +138,60 @@ def test_task_executor_final_commit_uses_canonical_output_boundary() -> None:
     assert committed[0]["answer_canonical_state"] == "stable_answer"
     assert committed[0]["answer_persist_policy"] == "persist_canonical"
     assert committed[0]["answer_selected_channel"] == "answer_candidate"
+
+
+def test_task_executor_final_commit_carries_turn_id() -> None:
+    committed: list[dict[str, object]] = []
+    event_log = SimpleNamespace(
+        append=lambda *_args, **_kwargs: SimpleNamespace(offset=1, created_at=1.0, to_dict=lambda: {})
+    )
+    services = SimpleNamespace(
+        assistant_message_committer=lambda payload: committed.append(dict(payload)),
+        runtime_host=SimpleNamespace(event_log=event_log),
+    )
+    task_run = SimpleNamespace(
+        session_id="session:test",
+        task_run_id="taskrun:test",
+        task_id="task:test",
+        diagnostics={"turn_id": "turn:session:test:9"},
+    )
+
+    _commit_task_run_final_message(
+        services,
+        task_run=task_run,
+        final_answer="结论：任务完成。",
+    )
+
+    assert committed[0]["turn_id"] == "turn:session:test:9"
+
+
+def test_replacement_stop_closeout_does_not_commit_session_message() -> None:
+    committed: list[dict[str, object]] = []
+    event_log = SimpleNamespace(
+        append=lambda *_args, **_kwargs: SimpleNamespace(offset=1, created_at=1.0, to_dict=lambda: {})
+    )
+    services = SimpleNamespace(
+        assistant_message_committer=lambda payload: committed.append(dict(payload)),
+        runtime_host=SimpleNamespace(event_log=event_log),
+    )
+    task_run = SimpleNamespace(
+        session_id="session:test",
+        task_run_id="taskrun:test",
+        task_id="task:test",
+        diagnostics={
+            "turn_id": "turn:session:test:old",
+            "runtime_control": {"reason": "replaced_by_new_task_request"},
+        },
+    )
+
+    _commit_task_run_final_message(
+        services,
+        task_run=task_run,
+        final_answer="尚未读取文件。",
+        completion_state="aborted",
+        terminal_reason="user_aborted",
+        answer_source="harness.loop.task_executor.agent_controlled_runtime_boundary",
+        execution_posture="task_run_agent_controlled_runtime_boundary",
+    )
+
+    assert committed == []

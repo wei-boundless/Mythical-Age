@@ -60,6 +60,9 @@ const SUPPRESSED_TEXT = new Set([
   "处理清单已更新",
   "等待结果返回",
   "结果已返回",
+  "工具已返回",
+  "工具结果已返回",
+  "操作已返回",
   "上下文已返回",
   "读取未完成，需要重新确认读取范围后继续。",
   "读取未完成需要重新确认读取范围后继续",
@@ -294,6 +297,8 @@ function looksLikeRawProjectedOutput(value: string) {
   if (/\b(?:Get-Content|Get-ChildItem|Select-Object|Stop-Process|Start-Process|python -m|npm run|npx )\b/i.test(raw)) return true;
   if (/Read persisted tool result failed|persisted tool result read failed/i.test(raw)) return true;
   if (/(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results|tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(raw)) return true;
+  if (/(?:runtime_state)[\\/]+dynamic_context[\\/]+replacements[\\/]+replacement_[a-f0-9]+\.json/i.test(raw)) return true;
+  if (/(?:mythical-agent|storage)[\\/]+sessions[\\/]+session-[^\\/]+[\\/]+environments[\\/]+[^\\/]+[\\/]+[^\\/]+[\\/]+runtime_state[\\/]+dynamic_context[\\/]+replacements/i.test(raw)) return true;
   return false;
 }
 

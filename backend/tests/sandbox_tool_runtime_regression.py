@@ -28,6 +28,25 @@ def test_tool_runtime_executor_does_not_depend_on_taskrun_tool_task_control() ->
     assert "peek_executor_signal" not in source
 
 
+def test_write_file_overwrite_intent_fields_are_model_visible(tmp_path: Path) -> None:
+    runtime = ToolRuntime(tmp_path)
+    definition = runtime.get_definition("write_file")
+    tool = runtime.get_instance("write_file")
+
+    assert definition is not None
+    assert tool is not None
+    assert "allow_overwrite" in definition.contract.optional_inputs
+    assert "expected_previous_sha256" in definition.contract.optional_inputs
+
+    schema = tool.args_schema.model_json_schema()
+    properties = dict(schema.get("properties") or {})
+
+    assert properties["allow_overwrite"]["type"] == "boolean"
+    assert properties["expected_previous_sha256"]["type"] == "string"
+    assert "allow_overwrite" not in set(schema.get("required") or [])
+    assert "expected_previous_sha256" not in set(schema.get("required") or [])
+
+
 def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
@@ -723,6 +742,28 @@ def test_sandbox_terminal_blocks_direct_real_workspace_absolute_path(tmp_path: P
 
     assert "Blocked: command references an absolute path outside the sandbox workspace." in result["observation"].payload["result"]
     assert real_file.read_text(encoding="utf-8") == "APP = True\n"
+
+
+def test_full_access_terminal_uses_real_workspace_for_absolute_workspace_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    real_file = workspace / "backend" / "app.py"
+    real_file.parent.mkdir(parents=True)
+    real_file.write_text("APP = True\n", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": f"Remove-Item -LiteralPath \"{real_file}\""},
+        operation_id="op.shell",
+        sandbox_policy_extra={"permission_mode": "full_access"},
+    )
+
+    assert result["error"] == ""
+    assert result["execution_record"].status == "completed"
+    assert "absolute path outside the sandbox workspace" not in result["observation"].payload["result"]
+    assert not real_file.exists()
 
 
 def test_sandbox_terminal_fails_closed_when_sandbox_context_missing(tmp_path: Path) -> None:

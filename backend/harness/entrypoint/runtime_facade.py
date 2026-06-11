@@ -857,7 +857,12 @@ class HarnessRuntimeFacade:
                 action=steer_action,
             )
             return [branch_event, *control_events]
-        return None
+        append_events = await self._active_turn_append_instruction_events(
+            request=request,
+            turn_id=turn_id,
+            context=active_work_context,
+        )
+        return [branch_event, *append_events]
 
     async def _active_turn_steer_control_events(
         self,
@@ -937,6 +942,70 @@ class HarnessRuntimeFacade:
         )
         return [active_event, *terminal_events]
 
+    async def _active_turn_append_instruction_events(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        context: ActiveWorkContext,
+    ) -> list[dict[str, Any]]:
+        expected_active_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
+        decision = ActiveWorkTurnDecision(
+            authority="harness.loop.active_work_turn_decision",
+            action="append_instruction_to_active_work",
+            relation_to_current_work="current_work",
+            response=default_reply_for_action("append_instruction_to_active_work", context),
+            appended_instruction=str(getattr(request, "message", "") or "").strip(),
+            turn_response_policy="answer_then_active_work",
+            answer_obligation="none",
+        )
+        result = await self._apply_active_work_turn_decision(
+            decision=decision,
+            context=context,
+            turn_id=expected_active_turn_id or turn_id,
+            user_message=str(getattr(request, "message", "") or ""),
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+        )
+        payload = dict(result) if isinstance(result, dict) else {}
+        content = str(payload.get("content") if payload else result or "").strip()
+        blocked = str(payload.get("status") or "").strip().lower() == "blocked"
+        active_turn_payload = self._active_turn_payload_for_context(
+            context=self._active_work_context_from_active_turn(context.session_id) or context,
+            turn_id=expected_active_turn_id,
+        )
+        active_event = {
+            "type": "active_task_steer_accepted",
+            "summary": content,
+            "status": "blocked" if blocked else "queued",
+            "terminal_reason": "append_instruction_to_active_work",
+            "runtime_task_run_id": context.task_run_id,
+            "active_turn_id": expected_active_turn_id,
+            "active_turn": active_turn_payload,
+            "runtime_branch": {
+                "branch_kind": "active_turn_steer",
+                "invocation_kind": "active_turn_input",
+                "reason": "expected_active_turn_matched",
+                "authority": "harness.entrypoint.active_turn_steer_fast_path",
+            },
+            "active_work": {
+                "action": "append_instruction_to_active_work",
+                "relation_to_current_work": "current_work",
+                "continuation_strategy": "steer_current_work",
+                "turn_response_policy": "answer_then_active_work",
+            },
+            "task_run_id": context.task_run_id,
+        }
+        terminal_events = await self._active_turn_steer_terminal_events(
+            request=request,
+            turn_id=turn_id,
+            context=self._active_work_context_from_active_turn(context.session_id) or context,
+            content=content,
+            status="blocked" if blocked else "queued",
+            terminal_reason="append_instruction_to_active_work",
+            completion_state="blocked" if blocked else "queued",
+        )
+        return [active_event, *terminal_events]
+
     async def _active_turn_steer_blocked_events(
         self,
         *,
@@ -987,7 +1056,7 @@ class HarnessRuntimeFacade:
         )
         extra = {
             "completion_state": completion_state,
-            "summary": str(content or "") if completion_state == "task_steer_accepted" else "",
+            "summary": str(content or "") if completion_state in {"task_steer_accepted", "queued"} else "",
             "active_turn_id": expected_active_turn_id,
             "active_turn": active_turn_payload,
             "runtime_branch": {
@@ -2961,6 +3030,8 @@ def _active_turn_steer_status_projection(
         return "已停止当前工作", detail or "停止请求已记录。", "stopped", "work_control"
     if reason == "continue_active_work":
         return "继续当前工作", detail or "当前工作已进入继续处理流程。", "running", "work_control"
+    if normalized_status == "queued" or reason == "append_instruction_to_active_work":
+        return "已加入当前工作队列", detail or "补充要求已排队，当前步骤结束后会在下一回合处理。", "waiting", "active_turn_steer"
     return "已收到补充要求", detail or "补充要求已进入当前工作队列。", "running", "active_turn_steer"
 
 

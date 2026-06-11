@@ -899,6 +899,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: WriteFileTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=["path", "content"],
+                optional_inputs=["allow_overwrite", "expected_previous_sha256"],
                 owner_scope="explicit_path",
                 missing_binding_behavior="deny",
                 context_policy="isolated",

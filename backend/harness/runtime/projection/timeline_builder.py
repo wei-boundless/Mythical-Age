@@ -237,7 +237,7 @@ def _public_event_type(event_type: str, event: dict[str, Any]) -> str:
         return "task_run_lifecycle_event"
     if event_type in {"task_run_lifecycle_started", "task_run_executor_started", "task_run_lifecycle_waiting_executor", "task_run_executor_scheduled", "active_work_control_observed"}:
         return "runtime_status"
-    if event_type in {"active_task_steer_recorded", "active_task_steer_accepted"}:
+    if event_type in {"active_task_steer_recorded", "active_task_steer_accepted", "active_task_steer_included", "active_task_steer_consumed"}:
         return "active_task_steer_accepted"
     if event_type in {"task_run_lifecycle_finished", "agent_turn_terminal"}:
         return _terminal_public_event_type(event)
@@ -282,7 +282,13 @@ def _public_event_data(*, public_event_type: str, event: dict[str, Any], monitor
     if public_event_type in {"done", "error", "stopped"}:
         return {**base, **_terminal_data(event, public_event_type=public_event_type)}
     if public_event_type == "active_task_steer_accepted":
-        return {**base, "summary": _active_task_steer_summary(payload)}
+        return {
+            **base,
+            "summary": _active_task_steer_summary(payload),
+            "title": _active_task_steer_title(payload),
+            "detail": _active_task_steer_detail(payload),
+            "state": _active_task_steer_state(payload),
+        }
     return base
 
 
@@ -409,7 +415,27 @@ def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:
 
 def _active_task_steer_summary(payload: dict[str, Any]) -> str:
     steer = record(payload.get("steer"))
-    return text(steer.get("summary") or steer.get("instruction") or payload.get("summary"))
+    transition = record(payload.get("steer_transition"))
+    return text(transition.get("summary") or steer.get("summary") or steer.get("instruction") or payload.get("summary"))
+
+
+def _active_task_steer_title(payload: dict[str, Any]) -> str:
+    transition = record(payload.get("steer_transition"))
+    return text(transition.get("title") or "已收到补充要求")
+
+
+def _active_task_steer_detail(payload: dict[str, Any]) -> str:
+    transition = record(payload.get("steer_transition"))
+    steer = record(payload.get("steer"))
+    return text(transition.get("summary") or steer.get("content") or payload.get("summary"))
+
+
+def _active_task_steer_state(payload: dict[str, Any]) -> str:
+    transition = record(payload.get("steer_transition"))
+    state = text(transition.get("status"))
+    if state:
+        return state
+    return "running"
 
 
 def _is_internal_turn_terminal(event: dict[str, Any]) -> bool:

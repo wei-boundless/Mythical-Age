@@ -114,6 +114,9 @@ class LocalOverlaySandboxBackend:
         policy = dict(sandbox_policy or {})
         if policy.get("enabled") is not True:
             return None
+        permission_mode = str(policy.get("permission_mode") or "").strip().lower()
+        if permission_mode in {"full_access", "bypass"}:
+            return None
         effective_tool_name = str(tool_name or "").strip()
         if effective_tool_name in FIXED_STORE_TOOL_NAMES:
             return None

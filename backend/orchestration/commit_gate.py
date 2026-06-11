@@ -215,6 +215,7 @@ def build_assistant_session_message_commit_decision(
     session_id: str,
     task_run_id: str,
     task_id: str,
+    turn_id: str = "",
     content: str,
     answer_channel: str = "",
     answer_source: str = "",
@@ -232,9 +233,12 @@ def build_assistant_session_message_commit_decision(
     source: str = "harness.agent_loop",
 ) -> RuntimeCommitGateDecision:
     normalized = str(content or "").strip()
+    normalized_turn_id = str(turn_id or "").strip()
     normalized_channel = str(answer_channel or "").strip()
     normalized_state = str(answer_canonical_state or "").strip()
     normalized_persist_policy = str(answer_persist_policy or "").strip()
+    normalized_terminal_reason = str(terminal_reason or "").strip()
+    replacement_stop = normalized_terminal_reason == "user_aborted" and source == "harness.loop.task_executor.replacement_stop"
     is_missing_fallback = (
         normalized_channel == "fallback_answer"
         or normalized_state == "missing_answer"
@@ -245,12 +249,16 @@ def build_assistant_session_message_commit_decision(
         and normalized_state == "progress_only"
         and normalized_persist_policy == "persist_debug_only"
     )
-    allowed = bool(normalized) and (not is_missing_fallback or is_visible_progress)
+    allowed = bool(normalized) and bool(normalized_turn_id) and (not is_missing_fallback or is_visible_progress) and not replacement_stop
     reason = "assistant_session_message_allowed"
     if not normalized:
         reason = "empty_assistant_message_blocked"
+    elif not normalized_turn_id:
+        reason = "assistant_session_message_missing_turn_id"
     elif is_missing_fallback:
         reason = "missing_answer_not_committable"
+    elif replacement_stop:
+        reason = "replacement_stop_closeout_not_committable"
     candidate = CommitCandidate(
         candidate_id=f"commit-candidate:{task_run_id}:session_message:assistant-final",
         commit_type="session_message",
@@ -258,6 +266,7 @@ def build_assistant_session_message_commit_decision(
             "session_id": str(session_id or ""),
             "task_run_id": str(task_run_id or ""),
             "task_id": str(task_id or ""),
+            "turn_id": normalized_turn_id,
             "role": "assistant",
             "content": normalized,
             "answer_channel": normalized_channel,
@@ -274,7 +283,7 @@ def build_assistant_session_message_commit_decision(
                 if str(flag or "").strip()
             ],
             "completion_state": str(completion_state or ""),
-            "terminal_reason": str(terminal_reason or ""),
+            "terminal_reason": normalized_terminal_reason,
             "timeout_seconds": str(timeout_seconds or ""),
             "partial_delta_count": str(partial_delta_count or ""),
         },
@@ -296,11 +305,13 @@ def build_assistant_session_message_commit_decision(
         diagnostics={
             "session_id": str(session_id or ""),
             "task_run_id": str(task_run_id or ""),
+            "turn_id": normalized_turn_id,
             "assistant_session_write_allowed": allowed,
             "task_run_status_write_allowed": False,
             "memory_write_allowed": False,
             "artifact_write_allowed": False,
             "filesystem_write_allowed": False,
+            "replacement_stop": replacement_stop,
         },
     )
 

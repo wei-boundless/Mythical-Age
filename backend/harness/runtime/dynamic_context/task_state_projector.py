@@ -62,6 +62,7 @@ class TaskStateProjector:
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
             "file_state": _file_state_projection(execution_projection.get("file_state")),
+            "file_state_source": str(execution_projection.get("file_state_source") or ""),
             "latest_tool_results": latest_results,
             "active_failures": _dedupe_failures(
                 [
@@ -787,14 +788,11 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
         if not path:
             continue
         ranges = [
-            {
-                "start_line": segment.get("start_line"),
-                "end_line": segment.get("end_line"),
-                "observation_ref": str(segment.get("observation_ref") or ""),
-            }
+            _file_state_read_range_projection(segment)
             for segment in dict_tuple(item.get("read_ranges"))
             if segment.get("start_line") not in (None, "") and segment.get("end_line") not in (None, "")
         ]
+        editor_state = _editor_file_state_projection(dict(item.get("editor_state") or {}))
         projected = drop_empty(
             {
                 "path": path,
@@ -805,6 +803,8 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                 "last_observation_ref": str(item.get("last_observation_ref") or ""),
                 "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                 "status": str(item.get("status") or ""),
+                "stale_reason": compact_text(item.get("stale_reason") or "", limit=180),
+                "editor_state": editor_state,
                 "search_hit_count": len(dict_tuple(item.get("search_hits"))),
                 "write_event_count": len(dict_tuple(item.get("write_events"))),
                 "next_suggested_read": dict(item.get("next_suggested_read") or {}),
@@ -825,6 +825,52 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
         if projected:
             result.append(projected)
     return result[-10:]
+
+
+def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "start_line": segment.get("start_line"),
+        "end_line": segment.get("end_line"),
+        "observation_ref": str(segment.get("observation_ref") or ""),
+    }
+    source = str(segment.get("source") or "")
+    if source:
+        payload["source"] = source
+    if isinstance(segment.get("truncated"), bool):
+        payload["truncated"] = segment.get("truncated")
+    return payload
+
+
+def _editor_file_state_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    preview = dict(value.get("content_preview") or {})
+    selection = dict(value.get("selection") or {})
+    return drop_empty(
+        {
+            "source": str(value.get("source") or ""),
+            "active": value.get("active") if isinstance(value.get("active"), bool) else None,
+            "visible": value.get("visible") if isinstance(value.get("visible"), bool) else None,
+            "dirty": value.get("dirty") if isinstance(value.get("dirty"), bool) else None,
+            "language_id": str(value.get("language_id") or ""),
+            "content_preview": drop_empty(
+                {
+                    "source": str(preview.get("source") or ""),
+                    "chars": preview.get("chars"),
+                    "truncated": preview.get("truncated") if isinstance(preview.get("truncated"), bool) else None,
+                    "content_sha256": str(preview.get("content_sha256") or ""),
+                }
+            ),
+            "selection": drop_empty(
+                {
+                    "start_line": selection.get("start_line"),
+                    "end_line": selection.get("end_line"),
+                    "chars": selection.get("chars"),
+                    "truncated": selection.get("truncated") if isinstance(selection.get("truncated"), bool) else None,
+                }
+            ),
+        }
+    )
 
 
 def _projection_path(item: dict[str, Any]) -> str:

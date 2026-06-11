@@ -235,12 +235,14 @@ def _transition_task_steers(
             "consumed_action_ref": action_ref or str(steer.get("consumed_action_ref") or ""),
         }
         runtime_host.runtime_objects.put_object("active_task_steer", steer_id, updated)
+        transition = _steer_transition_payload(updated=updated, state=state)
         event = runtime_host.event_log.append(
             task_run_id,
             event_type,
-            payload={"steer": updated},
+            payload={"steer": updated, "steer_transition": transition, "summary": transition["summary"]},
             refs={"task_run_ref": task_run_id, "steer_ref": steer_id, "runtime_invocation_packet_ref": packet_ref, "action_request_ref": action_ref},
         )
+        _append_steer_rollout_item(runtime_host, task_run_id=task_run_id, event_offset=event.offset, transition=transition, steer=updated)
         changed.append(updated)
     _refresh_pending_steer_diagnostics(runtime_host, task_run_id)
     return changed
@@ -251,9 +253,90 @@ def _refresh_pending_steer_diagnostics(runtime_host: Any, task_run_id: str) -> N
     if task_run is None:
         return
     pending_count = len(list_pending_task_steers(runtime_host, task_run_id))
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    latest_transition = _latest_steer_transition(runtime_host, task_run_id)
     runtime_host.state_index.upsert_task_run(
         replace(
             task_run,
-            diagnostics={**dict(getattr(task_run, "diagnostics", {}) or {}), "pending_user_steer_count": pending_count},
+            diagnostics={
+                **diagnostics,
+                "pending_user_steer_count": pending_count,
+                **(
+                    {
+                        "latest_step": str(latest_transition.get("step") or diagnostics.get("latest_step") or ""),
+                        "latest_step_status": str(latest_transition.get("status") or diagnostics.get("latest_step_status") or ""),
+                        "latest_step_summary": str(latest_transition.get("summary") or diagnostics.get("latest_step_summary") or ""),
+                    }
+                    if latest_transition
+                    else {}
+                ),
+            },
         )
     )
+
+
+def _steer_transition_payload(*, updated: dict[str, Any], state: SteerState) -> dict[str, Any]:
+    state_map = {
+        "included_in_packet": {
+            "step": "active_task_steer_included",
+            "title": "正在按补充要求重规划",
+            "summary": "补充要求已进入下一回合处理队列。",
+            "status": "running",
+            "phase": "handling",
+        },
+        "consumed": {
+            "step": "active_task_steer_consumed",
+            "title": "已按补充要求继续处理",
+            "summary": "补充要求已在当前处理回合纳入执行。",
+            "status": "running",
+            "phase": "applied",
+        },
+        "rejected": {
+            "step": "active_task_steer_rejected",
+            "title": "补充要求未被采纳",
+            "summary": "补充要求已被明确拒绝或无法执行。",
+            "status": "blocked",
+            "phase": "rejected",
+        },
+        "superseded": {
+            "step": "active_task_steer_superseded",
+            "title": "补充要求已被后续要求覆盖",
+            "summary": "较新的补充要求已经覆盖这条旧要求。",
+            "status": "running",
+            "phase": "superseded",
+        },
+    }
+    base = dict(state_map.get(state) or {})
+    return {
+        **base,
+        "steer_id": str(updated.get("steer_id") or ""),
+        "content": str(updated.get("content") or ""),
+        "consumption_state": state,
+    }
+
+
+def _append_steer_rollout_item(runtime_host: Any, *, task_run_id: str, event_offset: int, transition: dict[str, Any], steer: dict[str, Any]) -> None:
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return
+    append_work_rollout_item(
+        runtime_host,
+        task_run=task_run,
+        item_type="user_instruction",
+        title=str(transition.get("title") or "补充要求状态更新"),
+        status=str(transition.get("status") or getattr(task_run, "status", "") or "running"),
+        summary=str(transition.get("summary") or ""),
+        agent_brief_output=str(steer.get("content") or ""),
+        event_offset=event_offset,
+        refs={"steer_ref": str(steer.get("steer_id") or "")},
+        payload={"steer": steer, "steer_transition": transition},
+    )
+
+
+def _latest_steer_transition(runtime_host: Any, task_run_id: str) -> dict[str, Any]:
+    for event in reversed(list(runtime_host.event_log.list_events(task_run_id))):
+        payload = dict(getattr(event, "payload", {}) or {})
+        transition = dict(payload.get("steer_transition") or {})
+        if transition:
+            return transition
+    return {}

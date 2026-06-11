@@ -68,6 +68,43 @@ def test_task_projection_keeps_tool_observation_on_tool_surface():
     assert projection["activities"][0]["kind"] == "tool_observation"
 
 
+def test_task_projection_hides_internal_replacement_observation() -> None:
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:replacement",
+                "event_type": "task_tool_observation_recorded",
+                "payload": {
+                    "observation": {
+                        "tool_name": "read_file",
+                        "summary": (
+                            "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
+                            "vibe-workspace/runtime_state/dynamic_context/replacements/"
+                            "replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
+                        ),
+                    }
+                },
+            }
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    assert projection.get("activities", []) == []
+
+
 def test_waiting_executor_projection_does_not_promote_stale_running_step_to_current_action():
     task_run = SimpleNamespace(
         task_run_id="taskrun:turn:test:abc",

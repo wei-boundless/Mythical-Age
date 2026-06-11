@@ -14,6 +14,14 @@ from capability_system.tools.workspace_file_service import WorkspaceFileService
 class WriteFileInput(BaseModel):
     path: str = Field(..., description="Relative path inside the project root. Use the argument name `path`, not `filepath` or `file_path`.")
     content: str = Field(..., description="Complete file content to write. Do not pass placeholders or partial fragments.")
+    allow_overwrite: bool = Field(
+        default=False,
+        description="Set to true only after inspecting the existing file and intentionally replacing the entire file.",
+    )
+    expected_previous_sha256: str = Field(
+        default="",
+        description="Optional SHA-256 of the current file content; use it to prove the overwrite target has not changed since inspection.",
+    )
 
 
 class EditFileInput(BaseModel):
@@ -50,6 +58,8 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
         self,
         path: str,
         content: str,
+        allow_overwrite: bool = False,
+        expected_previous_sha256: str = "",
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
@@ -62,9 +72,11 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
         self,
         path: str,
         content: str,
+        allow_overwrite: bool = False,
+        expected_previous_sha256: str = "",
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, path, content, None)
+        return await asyncio.to_thread(self._run, path, content, allow_overwrite, expected_previous_sha256, None)
 
 
 class EditFileTool(_WorkspacePathMixin, BaseTool):

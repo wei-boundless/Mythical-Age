@@ -34,7 +34,9 @@ function looksLikeRawCommandText(value: string) {
 function looksLikePersistedToolResultFailure(value: string) {
   return /Read persisted tool result failed|persisted tool result read failed/i.test(value)
     || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(value)
-    || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(value);
+    || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(value)
+    || /(?:runtime_state)[\\/]+dynamic_context[\\/]+replacements[\\/]+replacement_[a-f0-9]+\.json/i.test(value)
+    || /(?:mythical-agent|storage)[\\/]+sessions[\\/]+session-[^\\/]+[\\/]+environments[\\/]+[^\\/]+[\\/]+[^\\/]+[\\/]+runtime_state[\\/]+dynamic_context[\\/]+replacements/i.test(value);
 }
 
 function looksLikeRawFileListing(value: string) {

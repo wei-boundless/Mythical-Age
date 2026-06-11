@@ -44,7 +44,21 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     runtime = build_harness_runtime(
         base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
+        tool_runtime=_tool_runtime_for_names(
+            tool_base_dir,
+            {
+                "read_file",
+                "search_text",
+                "stat_path",
+                "path_exists",
+                "write_file",
+                "edit_file",
+                "terminal",
+                "python_repl",
+                "git_status",
+                "git_commit",
+            },
+        ),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -69,7 +83,8 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     native_tool_contract = dict(action_protocol.get("native_tool_calls") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert packet_tools == ["read_file"]
+    assert set(packet_tools) == {"git_status", "path_exists", "read_file", "search_text", "stat_path"}
+    assert {"write_file", "edit_file", "terminal", "python_repl", "git_commit"}.isdisjoint(packet_tools)
     assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
@@ -77,12 +92,14 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     assert effective_capabilities.get("requires_json_action_protocol") is False
     assert ordinary_tool_contract.get("multi_tool_calls_allowed") is True
     assert ordinary_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
+    assert ordinary_tool_contract.get("boundary") == "single_turn_read_only_visible_tools_only"
     assert "parallel_allowed" not in ordinary_tool_contract
     assert native_tool_contract.get("provider_multi_tool_calls_allowed") is True
     assert native_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
+    assert "write, edit, shell" in str(native_tool_contract.get("visible_tool_boundary") or "")
     assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
     assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
-    assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is False
+    assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True
 
 def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers(tmp_path: Path) -> None:
     model = NativeToolCallSequenceModelRuntimeStub(
@@ -392,464 +409,6 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
     assert [dict(item).get("action_type") for item in admitted_actions] == ["tool_call", "tool_call"]
     assert len(list(assistant_tool_message["tool_calls"])) == 2
     assert [item["tool_call_id"] for item in tool_messages] == ["call-read-requirements", "call-path-exists"]
-
-def test_single_agent_turn_side_effect_tool_runs_inside_development_sandbox(tmp_path: Path) -> None:
-    sandbox_path = ".tmp/single_turn_write_tool_ok.txt"
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write",
-                        "name": "write_file",
-                        "args": {"path": sandbox_path, "content": "ok"},
-                    }
-                ]
-            },
-            {"content": "已在开发沙箱内写入文件，真实工作区没有被直接改写。"},
-        ]
-    )
-    tool_base_dir = _project_backend_dir()
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"write_file", "read_file"}),
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session-single-turn-write-tool",
-                message="写一个文件。",
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    admissions = _admission_payloads(events)
-    tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
-    followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
-    tool_message = next(item for item in followup_messages if item.get("role") == "tool")
-    batch_plan_event = next(event for event in events if event.get("type") == "tool_batch_planned")
-    batch_plan = dict(batch_plan_event.get("tool_batch_plan") or {})
-    batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
-
-    assert model.calls == 2
-    assert batch_groups and batch_groups[0]["execution_class"] == "exclusive"
-    assert batch_groups[0]["parallel"] is False
-    assert admissions
-    assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
-    assert tool_observations and tool_observations[0]["status"] == "ok"
-    assert dict(tool_observations[0].get("diagnostics") or {}).get("stage") == "tool_runtime_executor_dispatch"
-    assert tool_message.get("name") == "write_file"
-    assert not (tool_base_dir / sandbox_path).exists()
-    assert not any(
-        event.get("type") == "done" and dict(event).get("terminal_reason") == "tool_denied"
-        for event in events
-    )
-
-def test_single_agent_turn_publishes_environment_artifact_write_before_reporting_success(tmp_path: Path) -> None:
-    session_id = "session-single-turn-artifact-publish"
-    artifact_path = _session_artifact_path(session_id, "coding/vibe-workspace", "single_turn_artifact.html")
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-artifact",
-                        "name": "write_file",
-                        "args": {"path": artifact_path, "content": "<!doctype html><title>published</title>"},
-                    }
-                ]
-            },
-            {"content": "已写入 artifact。"},
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-path-exists-artifact",
-                        "name": "path_exists",
-                        "args": {"path": artifact_path},
-                    }
-                ]
-            },
-            {"content": "artifact 可见。"},
-        ]
-    )
-    runtime_root = _runtime_test_root(tmp_path)
-    runtime = build_harness_runtime(
-        base_dir=runtime_root,
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(runtime_root, {"write_file", "path_exists"}),
-    )
-
-    async def _collect(message: str) -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id=session_id,
-                message=message,
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    write_events = asyncio.run(_collect("写一个 artifact 文件。"))
-    published_file = runtime_root / artifact_path
-    write_observation = next(dict(event.get("tool_observation") or {}) for event in write_events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(write_observation.get("artifact_refs") or [])]
-    envelope_refs = [
-        dict(item)
-        for item in list(dict(write_observation.get("result_envelope") or {}).get("artifact_refs") or [])
-    ]
-
-    assert write_observation["status"] == "ok"
-    assert published_file.exists()
-    assert artifact_refs and artifact_refs[0]["path"] == artifact_path
-    assert artifact_refs[0]["absolute_path"] == str(published_file.resolve())
-    assert artifact_refs[0]["published"] is True
-    assert envelope_refs and envelope_refs[0]["absolute_path"] == str(published_file.resolve())
-    assert dict(write_observation.get("diagnostics") or {}).get("sandbox_artifact_publish", {}).get("status") == "published"
-
-    exists_events = asyncio.run(_collect("确认刚才的 artifact 是否存在。"))
-    exists_observation = next(dict(event.get("tool_observation") or {}) for event in exists_events if event.get("type") == "tool_observation")
-
-    assert model.calls == 4
-    assert exists_observation["status"] == "ok"
-    assert exists_observation["text"] == "true"
-
-def test_vibe_coding_artifact_write_creates_environment_dirs_and_publishes(tmp_path: Path) -> None:
-    session_id = "session-vibe-coding-artifact-publish"
-    artifact_path = _session_artifact_path(session_id, "coding/vibe-workspace", "vibe_index.html")
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-vibe-artifact",
-                        "name": "write_file",
-                        "args": {"path": artifact_path, "content": "<!doctype html><title>vibe</title>"},
-                    }
-                ]
-            },
-            {"content": "vibe artifact 已写入。"},
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-path-exists-vibe-artifact",
-                        "name": "path_exists",
-                        "args": {"path": artifact_path},
-                    }
-                ]
-            },
-            {"content": "vibe artifact 可见。"},
-        ]
-    )
-    runtime_root = _runtime_test_root(tmp_path)
-    runtime = build_harness_runtime(
-        base_dir=runtime_root,
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(runtime_root, {"write_file", "path_exists"}),
-    )
-
-    async def _collect(message: str) -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id=session_id,
-                message=message,
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    write_events = asyncio.run(_collect("写一个 vibe coding artifact。"))
-    storage_root = runtime_root / f"mythical-agent/sessions/{session_id}/environments/coding/vibe-workspace"
-    artifact_root = storage_root / "artifacts"
-    published_file = runtime_root / artifact_path
-    write_observation = next(dict(event.get("tool_observation") or {}) for event in write_events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(write_observation.get("artifact_refs") or [])]
-
-    assert storage_root.exists()
-    assert artifact_root.exists()
-    assert write_observation["status"] == "ok"
-    assert published_file.exists()
-    assert artifact_refs and artifact_refs[0]["published"] is True
-    assert artifact_refs[0]["absolute_path"] == str(published_file.resolve())
-
-    exists_events = asyncio.run(_collect("确认 vibe coding artifact 是否存在。"))
-    exists_observation = next(dict(event.get("tool_observation") or {}) for event in exists_events if event.get("type") == "tool_observation")
-
-    assert model.calls == 4
-    assert exists_observation["status"] == "ok"
-    assert exists_observation["text"] == "true"
-
-def test_vibe_coding_default_mode_writes_project_path_to_sandbox_workspace(tmp_path: Path) -> None:
-    project_root = tmp_path / "project"
-    (project_root / "frontend" / "src").mkdir(parents=True)
-    project_file = project_root / "frontend" / "src" / "vibe_probe.txt"
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-vibe-project",
-                        "name": "write_file",
-                        "args": {"path": "frontend/src/vibe_probe.txt", "content": "sandbox project edit"},
-                    }
-                ]
-            },
-            {"content": "sandbox project edit 已写入。"},
-        ]
-    )
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session-vibe-coding-project-sandbox-write",
-                message="写一个项目文件。",
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
-    sandbox_file = Path(artifact_refs[0]["absolute_path"])
-
-    assert observation["status"] == "ok"
-    assert not project_file.exists()
-    assert sandbox_file.exists()
-    assert "sandbox_path" in artifact_refs[0]
-
-def test_vibe_coding_full_access_writes_project_path_to_real_workspace(tmp_path: Path) -> None:
-    project_root = tmp_path / "project"
-    (project_root / "frontend" / "src").mkdir(parents=True)
-    project_file = project_root / "frontend" / "src" / "vibe_probe.txt"
-    permission = SimpleNamespace(current_mode=lambda: "full_access", supported_modes=lambda: ["default", "full_access"])
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-vibe-project-full-access",
-                        "name": "write_file",
-                        "args": {"path": "frontend/src/vibe_probe.txt", "content": "real project edit"},
-                    }
-                ]
-            },
-            {"content": "real project edit 已写入。"},
-        ]
-    )
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        permission_service=permission,
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session-vibe-coding-project-real-write",
-                message="写一个真实项目文件。",
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
-
-    assert observation["status"] == "ok"
-    assert project_file.exists()
-    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
-    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
-
-def test_vibe_coding_uses_session_bound_full_access_when_request_omits_permission_mode(tmp_path: Path) -> None:
-    project_root = tmp_path / "project"
-    (project_root / "frontend" / "src").mkdir(parents=True)
-    project_file = project_root / "frontend" / "src" / "session_permission_probe.txt"
-    runtime_root = _runtime_test_root(tmp_path)
-    session_manager = SessionManager(runtime_root)
-    session = session_manager.create_session(title="Session permission")
-    session_id = str(session["id"])
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-vibe-session-permission",
-                        "name": "write_file",
-                        "args": {"path": "frontend/src/session_permission_probe.txt", "content": "session full access"},
-                    }
-                ]
-            },
-            {"content": "session full access 已写入。"},
-        ]
-    )
-    runtime = build_harness_runtime(
-        base_dir=runtime_root,
-        session_manager=session_manager,
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id=session_id,
-                message="按当前会话权限写项目文件。",
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
-
-    assert session["conversation_state"]["permission_mode"] == "full_access"
-    assert observation["status"] == "ok"
-    assert project_file.exists()
-    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
-    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
-
-def test_vibe_coding_full_access_project_write_creates_missing_parent_directories(tmp_path: Path) -> None:
-    project_root = tmp_path / "project"
-    project_root.mkdir(parents=True)
-    project_file = project_root / "frontend" / "generated" / "vibe" / "auto_created.txt"
-    permission = SimpleNamespace(current_mode=lambda: "full_access", supported_modes=lambda: ["default", "full_access"])
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-write-vibe-missing-parent",
-                        "name": "write_file",
-                        "args": {
-                            "path": "frontend/generated/vibe/auto_created.txt",
-                            "content": "created through full access gateway",
-                        },
-                    }
-                ]
-            },
-            {"content": "缺失目录已自动创建。"},
-        ]
-    )
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        permission_service=permission,
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(project_root, {"write_file"}),
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session-vibe-coding-missing-parent",
-                message="写入一个父目录不存在的项目文件。",
-                runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    observation = next(dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation")
-    artifact_refs = [dict(item) for item in list(observation.get("artifact_refs") or [])]
-
-    assert observation["status"] == "ok"
-    assert project_file.exists()
-    assert artifact_refs[0]["absolute_path"] == str(project_file.resolve())
-    assert artifact_refs[0]["repository_id"] == "repo.managed_project.project_workspace"
-
-def test_single_agent_turn_converts_unresumable_approval_to_model_visible_denial(tmp_path: Path) -> None:
-    class ApprovalMixControlPlane:
-        async def invoke(self, request, *, tool_plan):
-            tool_name = str(getattr(request, "tool_name", "") or "")
-            status = "needs_approval" if tool_name == "write_file" else "ok"
-            text = "write_file waiting approval" if status == "needs_approval" else "read_file ok"
-            return ToolObservation(
-                observation_id=f"toolobs:{getattr(request, 'invocation_id', 'fake')}:test",
-                invocation_id=str(getattr(request, "invocation_id", "") or ""),
-                caller_kind=str(getattr(request, "caller_kind", "") or "agent_turn"),
-                caller_ref=str(getattr(request, "caller_ref", "") or ""),
-                tool_name=tool_name,
-                operation_id=str(getattr(request, "operation_id", "") or tool_name),
-                status=status,
-                text=text,
-                result_envelope={"status": status, "text": text},
-                operation_gate={"decision": "requires_approval" if status == "needs_approval" else "allow"},
-                diagnostics={"stage": "test_control_plane"},
-            )
-
-    model = NativeToolCallSequenceModelRuntimeStub(
-        [
-            {
-                "tool_calls": [
-                    {"id": "call-read", "name": "read_file", "args": {"path": "requirements.txt"}},
-                    {"id": "call-write", "name": "write_file", "args": {"path": ".tmp/approval.txt", "content": "pending"}},
-                ]
-            },
-            {"content": "写入操作需要进入可恢复任务后执行。"},
-        ]
-    )
-    tool_base_dir = _project_backend_dir()
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file", "write_file"}),
-    )
-    runtime.single_agent_runtime_host.tool_control_plane = ApprovalMixControlPlane()
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-approval-mix", message="先读再写。")):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    stream_types = [str(event.get("type") or "") for event in events]
-    observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
-    api_messages = [dict(item) for item in runtime.session_manager.api_transcript if isinstance(item, dict)]
-    assistant_tool_messages = [item for item in api_messages if item.get("role") == "assistant" and item.get("tool_calls")]
-    tool_messages = [item for item in api_messages if item.get("role") == "tool"]
-    batch_plan = dict(next(event for event in events if event.get("type") == "tool_batch_planned").get("tool_batch_plan") or {})
-    batch_groups = [dict(item) for item in list(batch_plan.get("groups") or [])]
-
-    assert model.calls == 2
-    assert "approval_waiting" not in stream_types
-    assert [item["status"] for item in observations] == ["ok", "denied"]
-    assert [item["tool_name"] for item in observations] == ["read_file", "write_file"]
-    assert dict(observations[1].get("operation_gate") or {}).get("pipeline_stage") == "task_run_required_for_tool_approval"
-    assert dict(observations[1].get("diagnostics") or {}).get("model_visible_recovery_observation") is True
-    assert [group["execution_class"] for group in batch_groups] == ["parallel_read", "exclusive"]
-    assert assistant_tool_messages
-    assert [dict(item).get("id") for item in list(assistant_tool_messages[-1].get("tool_calls") or [])] == ["call-read", "call-write"]
-    assert [item.get("tool_call_id") for item in tool_messages] == ["call-read", "call-write"]
-    assert not any(
-        str(item.get("answer_source") or "") == "harness.single_agent_turn.approval_waiting"
-        for item in runtime.session_manager.messages
-    )
 
 def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_ninth_tool_call(tmp_path: Path) -> None:
     class SynthesizingLoopModel(NativeToolCallSequenceModelRuntimeStub):

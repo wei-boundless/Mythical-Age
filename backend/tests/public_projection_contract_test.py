@@ -87,6 +87,33 @@ def test_chat_public_stream_maps_admitted_tool_to_first_class_started_item():
     assert data["target"] == "README.md"
 
 
+def test_chat_public_stream_hides_internal_rehydration_tool_start() -> None:
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:replacement",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:replacement",
+                        "action_type": "tool_call",
+                        "tool_call": {
+                            "id": "call:replacement",
+                            "tool_name": "read_persisted_tool_result",
+                            "args": {"replacement_id": "replacement:45b2469f6819dff173c8af83"},
+                        },
+                    },
+                    "admission": {"decision": "allow"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert projected is None
+
+
 def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     projected = _project_public_stream_event(
         "turn_tool_observation_recorded",
@@ -120,6 +147,36 @@ def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     assert data["tool_name"] == "read_file"
     assert data["state"] == "done"
     assert data["observation"] == "读取完成。"
+
+
+def test_chat_public_stream_hides_internal_replacement_tool_observation() -> None:
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:observation:replacement",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "caller_ref": "turnrun:turn:test:1",
+                        "result_envelope": {
+                            "tool_name": "read_file",
+                            "tool_call_id": "call:replacement",
+                            "text": (
+                                "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
+                                "vibe-workspace/runtime_state/dynamic_context/replacements/"
+                                "replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
+                            ),
+                        },
+                    },
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert projected is None
 
 
 def test_tool_observation_promotes_real_tool_call_id_for_public_completion():
@@ -247,3 +304,31 @@ def test_runtime_monitor_projection_uses_runtime_status_not_assistant_body():
     assert envelope["items"][0]["slot"] == "status"
     assert envelope["items"][0]["surface"] == "timeline"
     assert envelope["items"][0]["title"] == "工具结果已返回，需要让模型给出阶段判断。"
+
+
+def test_active_task_steer_projection_exposes_queue_transition_as_runtime_control_item():
+    projected = project_runtime_monitor_event_public_delta(
+        {
+            "event_id": "event:steer-included",
+            "event_type": "active_task_steer_included",
+            "run_id": "taskrun:turn:test:abc",
+            "offset": 8,
+            "payload": {
+                "steer": {"steer_id": "steer:test:1", "content": "优先处理新验收要求。"},
+                "steer_transition": {
+                    "title": "正在按补充要求重规划",
+                    "summary": "补充要求已进入下一回合处理队列。",
+                    "status": "running",
+                },
+            },
+            "refs": {"turn_ref": "turn:test", "task_run_ref": "taskrun:turn:test:abc"},
+        },
+        runtime_host=None,
+    )
+
+    envelope = projected["public_projection_envelope"]
+    assert envelope["authority"] == PUBLIC_PROJECTION_AUTHORITY
+    assert envelope["items"][0]["source_authority"] == "runtime"
+    assert envelope["items"][0]["slot"] == "control"
+    assert envelope["items"][0]["title"] == "正在按补充要求重规划"
+    assert envelope["items"][0]["detail"] == "补充要求已进入下一回合处理队列。"

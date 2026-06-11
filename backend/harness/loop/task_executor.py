@@ -4551,6 +4551,13 @@ def _commit_task_run_final_message(
     committer = getattr(services, "assistant_message_committer", None)
     if not callable(committer):
         return
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    turn_id = str(diagnostics.get("turn_id") or "").strip()
+    runtime_control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
+    control_reason = str(runtime_control.get("reason") or "").strip()
+    commit_source = "harness.loop.task_executor"
+    if control_reason == "replaced_by_new_task_request" and terminal_reason == "user_aborted":
+        commit_source = "harness.loop.task_executor.replacement_stop"
     canonical = canonical_output_decision_for_final_text(
         final_answer,
         answer_channel="final_answer",
@@ -4564,6 +4571,7 @@ def _commit_task_run_final_message(
         session_id=str(getattr(task_run, "session_id", "") or ""),
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
         task_id=str(getattr(task_run, "task_id", "") or ""),
+        turn_id=turn_id,
         content=canonical.content,
         answer_channel=canonical.answer_channel,
         answer_source=canonical.answer_source,
@@ -4576,7 +4584,7 @@ def _commit_task_run_final_message(
         answer_leak_flags=canonical.leak_flags,
         completion_state=completion_state,
         terminal_reason=terminal_reason,
-        source="harness.loop.task_executor",
+        source=commit_source,
     )
     runtime_host = services.runtime_host
     runtime_host.event_log.append(

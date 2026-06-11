@@ -2263,7 +2263,10 @@
           "content"
         ],
         "required_bindings": [],
-        "optional_inputs": [],
+        "optional_inputs": [
+          "allow_overwrite",
+          "expected_previous_sha256"
+        ],
         "owner_scope": "explicit_path",
         "allow_catalog_default": false,
         "allow_history_binding": false,
