@@ -16,6 +16,11 @@ from typing import Any
 from permissions.policy import normalize_permission_mode
 from project_layout import ProjectLayout
 
+try:
+    import orjson
+except ModuleNotFoundError:  # pragma: no cover - fallback for minimal environments
+    orjson = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +87,14 @@ class SessionManager:
     def get_session_summary(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
         return self._summary_from_payload(payload)
+
+    def session_storage_signature(self, session_id: str) -> tuple[int, int]:
+        path = self._session_path(session_id)
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            raise ValueError("Unknown session_id") from exc
+        return int(stat.st_mtime_ns), int(stat.st_size)
 
     def create_session(
         self,
@@ -535,13 +548,13 @@ class SessionManager:
         return _clone_summary(summary)
 
     def _summary_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        messages = _public_messages(list(payload.get("messages") or []))
+        message_count = _public_message_count(list(payload.get("messages") or []))
         summary = {
             "id": str(payload.get("id") or ""),
             "title": str(payload.get("title") or "New Session"),
             "created_at": float(payload.get("created_at") or 0),
             "updated_at": float(payload.get("updated_at") or 0),
-            "message_count": len(messages),
+            "message_count": message_count,
             "scope": _normalize_scope(dict(payload.get("scope") or {})),
             "task_binding": _normalize_task_binding(dict(payload.get("task_binding") or {})),
             "conversation_state": _normalize_conversation_state(dict(payload.get("conversation_state") or {})),
@@ -566,8 +579,10 @@ class SessionManager:
         except OSError as exc:
             raise SessionStorageError(f"failed to read session payload: {session_id}") from exc
         try:
-            payload = json.loads(raw)
+            payload = orjson.loads(raw) if orjson is not None else json.loads(raw)
         except json.JSONDecodeError as exc:
+            raise SessionPayloadCorrupt(f"corrupt session payload: {session_id}") from exc
+        except ValueError as exc:
             raise SessionPayloadCorrupt(f"corrupt session payload: {session_id}") from exc
         if not isinstance(payload, dict):
             raise SessionPayloadCorrupt(f"invalid session payload: {session_id}")
@@ -839,6 +854,17 @@ def _public_messages(messages: list[Any]) -> list[dict[str, Any]]:
         message
         for _, message in _public_messages_with_raw_index(messages)
     ])
+
+
+def _public_message_count(messages: list[Any]) -> int:
+    public_messages = [
+        message
+        for item in list(messages or [])
+        if isinstance(item, dict)
+        for message in [_public_message(item)]
+        if message is not None
+    ]
+    return len(_suppress_superseded_stream_failure_boundaries(public_messages))
 
 
 def _public_messages_with_raw_index(messages: list[Any]) -> list[tuple[int, dict[str, Any]]]:

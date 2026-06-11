@@ -123,8 +123,6 @@ def compile_sandbox_execution_scope(
         _dedupe(
             [
                 *_normalize_paths(policy.get("materialized_roots")),
-                *_contract_materialized_roots(canonical.contract),
-                *publish_roots,
             ]
         )
     )

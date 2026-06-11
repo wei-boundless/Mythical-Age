@@ -741,6 +741,18 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
   const argumentsPreview = stringValue(data.arguments_preview);
   const observation = stringValue(data.observation);
   const error = stringValue(data.error);
+  if (isAgentTodoToolName(toolName)) {
+    return agentTodoTimelineItemFromEvent(event, {
+      toolCallId,
+      state: stringValue(data.state),
+      error,
+      traceRefs: [
+        stringValue(data.runtime_event_id),
+        stringValue(data.turn_run_id),
+        stringValue(data.task_run_id),
+      ].filter(Boolean),
+    });
+  }
   const actionKind = actionKindForTool(toolName, `${target} ${argumentsPreview}`);
   const stateValue = stringValue(data.state).toLowerCase();
   const failed = stateValue === "error" || stateValue === "failed";
@@ -803,6 +815,47 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
     item.recovery_hint = error;
   }
   return item;
+}
+
+function isAgentTodoToolName(toolName: string) {
+  return stringValue(toolName).toLowerCase() === "agent_todo";
+}
+
+function agentTodoTimelineItemFromEvent(
+  event: string,
+  {
+    toolCallId,
+    state,
+    error,
+    traceRefs,
+  }: {
+    toolCallId: string;
+    state: string;
+    error: string;
+    traceRefs: string[];
+  },
+): PublicChatTimelineItem {
+  const normalizedState = stringValue(state).toLowerCase();
+  const failed = normalizedState === "error" || normalizedState === "failed";
+  const running = event !== TOOL_ITEM_COMPLETED_EVENT;
+  const title = running
+    ? "任务清单同步中"
+    : failed ? "任务清单同步失败" : "任务清单已同步";
+  return {
+    item_id: toolCallId,
+    kind: "todo_plan",
+    slot: "task",
+    surface: "status",
+    source_authority: "runtime",
+    title,
+    public_summary: title,
+    phase: running ? "running" : "done",
+    state: running ? "running" : failed ? "error" : "done",
+    stream_state: running ? "streaming" : "done",
+    trace_refs: traceRefs,
+    collapse_after_body_feedback: true,
+    recovery_hint: failed && error && !isMachineReference(error) ? error : undefined,
+  };
 }
 
 function actionKindForTool(toolName: string, context: string): NonNullable<PublicChatTimelineItem["action_kind"]> {

@@ -238,8 +238,8 @@
   let mouseDown = false;
   let chargeStart = 0;
   let chargePower = 0;
-  const MAX_POWER = 35;
-  const CHARGE_SPEED = 50; // units per second
+  const MAX_POWER = 20;
+  const CHARGE_SPEED = 28; // units per second
 
   // --- Particles ---
   let particles = [];
@@ -359,7 +359,7 @@
     // Rim collision zone
     if (dist < RIM_RADIUS + BALL_RADIUS && dist > RIM_RADIUS - BALL_RADIUS - RIM_THICKNESS) {
       // Ball near rim - check if going downward (scoring condition)
-      if (ballVY > 2 && Math.abs(dx) < RIM_RADIUS * 0.7 && ballY > HOOP_Y - 8 && ballY < HOOP_Y + 20) {
+      if (ballVY > 0.5 && Math.abs(dx) < RIM_RADIUS * 0.9 && ballY > HOOP_Y - 16 && ballY < HOOP_Y + 30) {
         // SCORE!
         score += 2;
         streak++;

@@ -183,6 +183,23 @@ function Assert-PortAvailableOrOwned {
     }
 }
 
+function Get-SoleProjectListener {
+    param([int]$Port)
+    $listeners = @(Get-ListeningProcesses -Port $Port)
+    if ($listeners.Count -ne 1) { return $null }
+    if (-not $listeners[0].project_owned) { return $null }
+    return $listeners[0]
+}
+
+function Sync-PidFileToListener {
+    param(
+        [string]$PidFile,
+        [object]$Listener
+    )
+    if ($null -eq $Listener -or [int]$Listener.pid -le 0) { return }
+    Set-Content -LiteralPath $PidFile -Value ([int]$Listener.pid)
+}
+
 function Start-Backend {
     Ensure-RuntimeDir
     Clear-LegacyRuntimeLogs
@@ -190,15 +207,11 @@ function Start-Backend {
     if (-not (Test-Path $PythonExe)) { throw "Python executable not found: $PythonExe" }
     Assert-PortAvailableOrOwned -Port $BackendPort -Role "backend"
     $health = Test-HttpOk -Url $BackendHealthUrl
-    $managedProcessId = Read-PidFile -Path $BackendPidFile
-    $listeners = @(Get-ListeningProcesses -Port $BackendPort)
-    $managedHealthy = (
-        $health.ok `
-        -and $managedProcessId -gt 0 `
-        -and $listeners.Count -eq 1 `
-        -and ([int]$listeners[0].pid) -eq $managedProcessId
-    )
-    if ($managedHealthy) { return "already_healthy" }
+    $listener = Get-SoleProjectListener -Port $BackendPort
+    if ($health.ok -and $null -ne $listener) {
+        Sync-PidFileToListener -PidFile $BackendPidFile -Listener $listener
+        return "already_healthy"
+    }
 
     Stop-ManagedProcess -PidFile $BackendPidFile -Port $BackendPort -Role "backend" | Out-Null
     $env:PYTHONPATH = $BackendRoot
@@ -218,6 +231,13 @@ function Start-Frontend {
     Ensure-RuntimeDir
     Clear-LegacyRuntimeLogs
     Assert-PortAvailableOrOwned -Port $FrontendPort -Role "frontend"
+    $health = Test-HttpOk -Url $FrontendUrl
+    $listener = Get-SoleProjectListener -Port $FrontendPort
+    if ($health.ok -and $null -ne $listener) {
+        Sync-PidFileToListener -PidFile $FrontendPidFile -Listener $listener
+        return "already_healthy"
+    }
+
     Stop-ManagedProcess -PidFile $FrontendPidFile -Port $FrontendPort -Role "frontend" | Out-Null
     $env:API_PROXY_TARGET = "http://127.0.0.1:$BackendPort"
     $env:NEXT_PUBLIC_API_BASE = "http://127.0.0.1:$BackendPort/api"
@@ -318,8 +338,10 @@ if ($Action -eq "stop") {
 if ($Action -eq "start") {
     $backendAction = Start-Backend
     Wait-ForUrl -Url $BackendHealthUrl -TimeoutSeconds $StartupTimeoutSeconds -LogPath $BackendErrLog | Out-Null
+    Sync-PidFileToListener -PidFile $BackendPidFile -Listener (Get-SoleProjectListener -Port $BackendPort)
     $frontendAction = Start-Frontend
     Wait-ForUrl -Url $FrontendUrl -TimeoutSeconds $StartupTimeoutSeconds -LogPath $FrontendErrLog | Out-Null
+    Sync-PidFileToListener -PidFile $FrontendPidFile -Listener (Get-SoleProjectListener -Port $FrontendPort)
     [pscustomobject]@{
         authority = "scripts.project_stack"
         action = "start"

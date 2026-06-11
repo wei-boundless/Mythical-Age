@@ -582,6 +582,100 @@ def test_single_agent_parser_rejects_bare_active_work_control_when_not_allowed()
     assert "action_type_not_allowed_for_context:active_work_control" in parsed.error["reason"]
 
 
+def test_active_work_turn_decision_preserves_control_only_reply_contract() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "turn_response_policy": "active_work_only",
+            "answer_obligation": "none",
+            "user_turn_kind": "command",
+            "appended_instruction": "contract update",
+        }
+    )
+
+    assert decision.accepted is True
+    assert decision.action == "append_instruction_to_active_work"
+    assert decision.turn_response_policy == "active_work_only"
+    assert decision.answer_obligation == "none"
+    assert decision.appended_instruction == "contract update"
+
+
+def test_active_work_turn_decision_maps_no_user_reply_to_no_answer_obligation() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "turn_response_policy": "no_user_reply",
+            "user_turn_kind": "command",
+        }
+    )
+
+    assert decision.accepted is True
+    assert decision.action == "continue_active_work"
+    assert decision.turn_response_policy == "no_user_reply"
+    assert decision.answer_obligation == "none"
+
+
+def test_active_work_control_followup_contract_keeps_steer_actions_running() -> None:
+    from harness.loop.single_agent_turn import _active_work_control_requires_followup
+
+    assert (
+        _active_work_control_requires_followup(
+            {
+                "action": "continue_active_work",
+                "turn_response_policy": "active_work_only",
+                "answer_obligation": "none",
+                "user_turn_kind": "command",
+            },
+            status="completed",
+        )
+        is True
+    )
+    assert (
+        _active_work_control_requires_followup(
+            {
+                "action": "append_instruction_to_active_work",
+                "turn_response_policy": "no_user_reply",
+                "answer_obligation": "none",
+                "user_turn_kind": "command",
+            },
+            status="completed",
+        )
+        is True
+    )
+    assert (
+        _active_work_control_requires_followup(
+            {
+                "action": "continue_active_work",
+                "turn_response_policy": "answer_then_active_work",
+                "answer_obligation": "direct_answer_required",
+                "user_turn_kind": "mixed",
+            },
+            status="completed",
+        )
+        is True
+    )
+    assert (
+        _active_work_control_requires_followup(
+            {
+                "action": "continue_active_work",
+                "turn_response_policy": "active_work_only",
+                "answer_obligation": "none",
+                "user_turn_kind": "command",
+            },
+            status="blocked",
+        )
+        is True
+    )
+
+
 def test_model_action_request_rejects_removed_registered_engagement_action() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 

@@ -168,20 +168,25 @@ class RuntimeMonitorProjector:
             resolve_availability=include_runtime_details,
         )
         child_runtime_refs = self._child_runtime_refs(graph_monitor) if include_runtime_details and kind == "task_graph" else []
-        fact_summary = self._fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
-        trace_summary = self._trace_summary(
-            task_run_id=task_run_id,
-            session_id=session_id,
-            graph_run_id=graph_run_id,
-            hydrate=include_runtime_details,
-        )
-        diagnostic_signal_refs = self._diagnostic_signal_refs(
-            task_run_id=task_run_id,
-            session_id=session_id,
-            graph_run_id=graph_run_id,
-            fact_summary=fact_summary,
-            trace_summary=trace_summary,
-        )
+        if include_runtime_details:
+            fact_summary = self._fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+            trace_summary = self._trace_summary(
+                task_run_id=task_run_id,
+                session_id=session_id,
+                graph_run_id=graph_run_id,
+                hydrate=True,
+            )
+            diagnostic_signal_refs = self._diagnostic_signal_refs(
+                task_run_id=task_run_id,
+                session_id=session_id,
+                graph_run_id=graph_run_id,
+                fact_summary=fact_summary,
+                trace_summary=trace_summary,
+            )
+        else:
+            fact_summary = self._deferred_fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+            trace_summary = self._deferred_trace_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+            diagnostic_signal_refs = []
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
             "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
@@ -623,6 +628,20 @@ class RuntimeMonitorProjector:
             "scope_ref": scope_ref,
         }
 
+    def _deferred_fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
+        return {
+            "authority": "runtime_monitor.fact_summary",
+            "available": False,
+            "deferred": True,
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "graph_run_id": graph_run_id,
+            "fact_count": 0,
+            "fact_type_counts": {},
+            "retention_class_counts": {},
+            "scope_ref": _fact_scope_ref(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id),
+        }
+
     def _trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, hydrate: bool) -> dict[str, Any]:
         query = getattr(self.observability_query, "trace_summary", None)
         if callable(query):
@@ -677,6 +696,20 @@ class RuntimeMonitorProjector:
             "event_count": int(raw.get("event_count") or 0),
             "error_span_count": int(raw.get("error_span_count") or 0),
             "latest_span": _compact_trace_span(dict(raw.get("latest_span") or {})),
+        }
+
+    def _deferred_trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
+        return {
+            "authority": "runtime_monitor.trace_summary",
+            "available": False,
+            "deferred": True,
+            "hydrated": False,
+            "trace_id": "",
+            "task_run_id": task_run_id,
+            "session_id": session_id,
+            "graph_run_id": graph_run_id,
+            "source_fact_id": "",
+            "detail_ref": {},
         }
 
     def _diagnostic_signal_refs(

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import threading
+import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
@@ -17,6 +20,9 @@ from runtime.context_management.session_compaction import (
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
+_SESSION_TOKENS_CACHE_TTL_SECONDS = 10.0
+_session_tokens_cache_guard = threading.Lock()
+_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[int, int], float, dict[str, Any]]] = {}
 
 class FileTokensRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
@@ -72,6 +78,21 @@ def _session_tokens_payload(
     task_environment_id: str | None,
     project_id: str | None,
 ) -> dict[str, Any]:
+    cache_key = (
+        session_id,
+        str(workspace_view or ""),
+        str(task_environment_id or ""),
+        str(project_id or ""),
+    )
+    signature = runtime.session_manager.session_storage_signature(session_id)
+    now = time.monotonic()
+    with _session_tokens_cache_guard:
+        cached = _session_tokens_cache.get(cache_key)
+        if cached is not None:
+            cached_signature, cached_at, cached_payload = cached
+            if cached_signature == signature and now - cached_at <= _SESSION_TOKENS_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached_payload)
+
     assert_optional_session_scope(
         runtime.session_manager,
         session_id,
@@ -152,7 +173,7 @@ def _session_tokens_payload(
         "context_recovery_package_fresh": bool(context_recovery_package.get("fresh", False)),
         "context_recovery_package_source": str(context_recovery_package.get("source") or ""),
     }
-    return {
+    payload = {
         "system_tokens": system_tokens,
         "message_tokens": message_tokens,
         "total_tokens": system_tokens + message_tokens,
@@ -178,6 +199,9 @@ def _session_tokens_payload(
         "history_did_full_compact": bool(context_compaction.get("did_full_compact", False)),
         "prompt_accounting": prompt_usage,
     }
+    with _session_tokens_cache_guard:
+        _session_tokens_cache[cache_key] = (signature, time.monotonic(), copy.deepcopy(payload))
+    return payload
 
 
 def _context_recovery_package_status(

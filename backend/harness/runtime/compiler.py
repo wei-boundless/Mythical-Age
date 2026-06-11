@@ -3900,10 +3900,12 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
             "用户明确要求暂停、先停一下、停止、取消当前任务或不用继续做时，必须选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
-            "response 只写本次控制动作的简短语义说明。"
-            "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后你再根据结果向用户作出最终回复。"
+            "纯继续、暂停、停止或补充要求通常不需要用户可见正文，但仍必须选择能推进当前工作的结构化控制动作；不要把无需正文理解成结束任务。"
+            "用户是在问进展、追问原因、指出错误、表达不满，或一边提问一边要求继续时，才需要回答当前工作状态或回答后继续。"
+            "具体字段形状以本轮 action schema 为准，不要把控制字段或机器状态写进用户正文。"
+            "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后基于真实状态决定继续、收口、询问或阻塞。"
             "active_work_control 的 action、resolved_action、控制结果和 runtime 状态不是用户正文；"
-            "控制观察返回后，如果需要继续公开说明，只能用 respond 或 public_action_state.current_judgment 写真实阶段判断。"
+            "控制观察返回后，如果用户语义不要求正文回复，不要补写普通回复；如果确实需要公开说明，只能报告真实阶段判断。"
             "不要输出要求用户重新提出问题的阻断话术。"
         )
         if "request_task_run" in allowed_actions:

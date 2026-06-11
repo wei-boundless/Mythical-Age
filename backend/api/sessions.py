@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,9 @@ from task_system.session_scope import assert_optional_session_scope, normalize_s
 router = APIRouter()
 
 DEFAULT_SESSION_TITLE = "New Session"
+_SESSION_TIMELINE_CACHE_TTL_SECONDS = 10.0
+_session_timeline_cache_guard = threading.Lock()
+_session_timeline_cache: dict[str, tuple[tuple[int, int], float, dict[str, Any]]] = {}
 
 
 class CreateSessionRequest(BaseModel):
@@ -614,12 +620,24 @@ def _get_session_messages_payload(runtime: Any, session_id: str) -> dict[str, An
 
 
 def _build_session_timeline_payload(runtime: Any, session_id: str) -> dict[str, Any]:
+    signature = runtime.session_manager.session_storage_signature(session_id)
+    now = time.monotonic()
+    with _session_timeline_cache_guard:
+        cached = _session_timeline_cache.get(session_id)
+        if cached is not None:
+            cached_signature, cached_at, cached_payload = cached
+            if cached_signature == signature and now - cached_at <= _SESSION_TIMELINE_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached_payload)
+
     history = runtime.session_manager.get_history(session_id)
-    return build_session_runtime_timeline(
+    payload = build_session_runtime_timeline(
         session_id=session_id,
         history=history,
         runtime_host=runtime.harness_runtime.single_agent_runtime_host,
     )
+    with _session_timeline_cache_guard:
+        _session_timeline_cache[session_id] = (signature, time.monotonic(), copy.deepcopy(payload))
+    return payload
 
 
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:

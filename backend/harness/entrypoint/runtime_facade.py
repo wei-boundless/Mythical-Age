@@ -793,6 +793,8 @@ class HarnessRuntimeFacade:
                 content="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
             )
         if active_work_context is None:
+            if self._current_work_context_from_latest_task(request.session_id) is not None:
+                return None
             return await self._active_turn_steer_blocked_events(
                 request=request,
                 turn_id=turn_id,
@@ -855,73 +857,7 @@ class HarnessRuntimeFacade:
                 action=steer_action,
             )
             return [branch_event, *control_events]
-        result = append_user_work_instruction(
-            self.single_agent_runtime_host,
-            active_work_context.task_run_id,
-            content=str(getattr(request, "message", "") or ""),
-            turn_id=turn_id,
-            intent="conversation_steer_while_running",
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-        )
-        if not result.get("ok"):
-            terminal_events = await self._active_turn_steer_terminal_events(
-                request=request,
-                turn_id=turn_id,
-                context=active_work_context,
-                content=active_work_status_reply(
-                    self._active_work_context_from_active_turn(active_work_context.session_id)
-                    or active_work_context
-                ),
-                status="blocked",
-                terminal_reason=str(result.get("error") or "active_turn_steer_rejected"),
-                completion_state="blocked",
-            )
-            return [branch_event, *terminal_events]
-        content = "补充要求已进入当前工作队列。"
-        task_run = dict(result.get("task_run") or {})
-        self._bind_current_turn_to_task_run(
-            session_id=active_work_context.session_id,
-            turn_id=expected_active_turn_id,
-            task_run_id=active_work_context.task_run_id,
-            state="running_task",
-        )
-        active_turn_payload = self._active_turn_payload_for_context(
-            context=active_work_context,
-            turn_id=expected_active_turn_id,
-        )
-        active_event = {
-            "type": "active_task_steer_accepted",
-            "summary": content,
-            "status": "accepted",
-            "terminal_reason": "append_instruction_to_active_work",
-            "runtime_task_run_id": active_work_context.task_run_id,
-            "active_turn_id": expected_active_turn_id,
-            "active_turn": active_turn_payload,
-            "runtime_branch": {
-                "branch_kind": "active_turn_steer",
-                "invocation_kind": "active_turn_input",
-                "reason": "expected_active_turn_matched",
-                "authority": "harness.entrypoint.active_turn_steer_fast_path",
-            },
-            "active_work": {
-                "action": "append_instruction_to_active_work",
-                "relation_to_current_work": "current_work",
-                "continuation_strategy": "already_running",
-                "turn_response_policy": "answer_then_active_work",
-            },
-            "task_run": task_run,
-            "task_run_id": active_work_context.task_run_id,
-        }
-        terminal_events = await self._active_turn_steer_terminal_events(
-            request=request,
-            turn_id=turn_id,
-            context=active_work_context,
-            content=content,
-            status="completed",
-            terminal_reason="append_instruction_to_active_work",
-            completion_state="task_steer_accepted",
-        )
-        return [branch_event, active_event, *terminal_events]
+        return None
 
     async def _active_turn_steer_control_events(
         self,
@@ -938,6 +874,8 @@ class HarnessRuntimeFacade:
                 "action": action,
                 "relation_to_current_work": "current_work",
                 "response": default_reply_for_action(action, context),
+                "turn_response_policy": "active_work_only",
+                "answer_obligation": "none",
             },
             user_message=str(getattr(request, "message", "") or ""),
         )

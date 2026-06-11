@@ -263,10 +263,10 @@ def _normalize_relation_to_current_work(value: Any) -> str:
 
 def _normalize_turn_response_policy(value: Any, *, action: str) -> str:
     policy = str(value or "").strip().lower()
-    if policy in {"answer_only", "answer_then_active_work"}:
+    if policy in {"answer_only", "answer_then_active_work", "active_work_only", "no_user_reply"}:
         return policy
-    if policy == "active_work_only":
-        return "answer_then_active_work"
+    if policy in {"control_only", "status_only"}:
+        return "active_work_only"
     if action == "answer_then_continue_active_work":
         return "answer_then_active_work"
     if action in {"normal_response", "start_new_work"}:
@@ -296,6 +296,8 @@ def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_respon
     if obligation in {"acknowledgement_only", "ack_only", "ack"}:
         return "acknowledgement_only"
     if obligation in {"none", "no_answer_required"}:
+        return "none"
+    if turn_response_policy in {"active_work_only", "no_user_reply"}:
         return "none"
     if user_turn_kind in {"question", "complaint", "mixed"}:
         return "direct_answer_required"

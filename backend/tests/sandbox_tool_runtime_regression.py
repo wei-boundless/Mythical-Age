@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 from capability_system.tools.native_tool_catalog import get_tool_definition_map
 from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
 from capability_system.tools.native_tool_runtime import ToolRuntime
+from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
@@ -492,7 +493,7 @@ def test_image_generate_executor_injects_stable_target_and_does_not_overwrite_by
     assert Path(artifact["absolute_path"]).is_absolute()
 
 
-def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_path: Path) -> None:
+def test_sandbox_search_uses_real_workspace_view_without_overlay_materialization(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     (workspace / "docs" / "experiments" / "roguelike_long_task").mkdir(parents=True)
@@ -519,7 +520,7 @@ def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_p
     assert read_result["error"] == ""
     assert result["error"] == ""
     assert "docs/experiments/roguelike_long_task/index.html" in payload["result"]
-    assert "docs/experiments/roguelike_long_task/assets/test.txt" in payload["result"]
+    assert "docs/experiments/roguelike_long_task/assets/test.txt" not in payload["result"]
 
 
 def test_sandbox_search_text_accepts_paths_and_rejects_files_in_roots(tmp_path: Path) -> None:
@@ -563,7 +564,7 @@ def test_sandbox_search_text_accepts_paths_and_rejects_files_in_roots(tmp_path: 
     assert "paths" in misuse["observation"].payload["result"]
 
 
-def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_path: Path) -> None:
+def test_sandbox_terminal_materializes_explicit_directory_before_command(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"
     asset = workspace / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png"
@@ -582,6 +583,18 @@ def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_pat
     assert result["error"] == ""
     assert result["observation"].payload["result"] == "True"
     assert (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png").exists()
+
+
+def test_sandbox_scope_does_not_materialize_contract_or_publish_roots_by_default() -> None:
+    scope = compile_sandbox_execution_scope(
+        environment_payload={"artifact_policy": {"artifact_root": "environment_scoped_artifacts"}},
+        contract={"required_artifacts": [{"path": "docs/experiments/roguelike_long_task/assets/player.png"}]},
+        safety_envelope={"default_publish_targets": ["docs/experiments/roguelike_long_task"]},
+    )
+
+    assert scope.publish_roots
+    assert scope.canonical_output_paths
+    assert scope.materialized_roots == ()
 
 
 def test_sandbox_terminal_does_not_materialize_full_workspace_by_default(tmp_path: Path) -> None:
@@ -766,14 +779,14 @@ def test_agent_todo_is_bound_to_runtime_task_scope_even_when_model_sends_default
             "operation": "replace",
             "session_id": "default",
             "task_id": "runtime",
-            "items": [{"todo_id": "fix", "content": "Fix task bug", "status": "in_progress"}],
+            "items": [{"content": "Fix task bug", "status": "in_progress"}],
         },
         operation_id="op.agent_todo",
         sandbox_policy_extra={"session_id": "session-real"},
     )
 
     payload = result["observation"].payload["result"]
-    assert result["error"] == ""
+    assert result["execution_record"].status == "completed"
     assert "agent-todo:session-real:taskrun-agent_todo" in payload
     assert "agent-todo:default:runtime" not in payload
     assert (workspace / "storage" / "runtime_state" / "agent_todo" / "session-real__taskrun-agent_todo.json").exists()

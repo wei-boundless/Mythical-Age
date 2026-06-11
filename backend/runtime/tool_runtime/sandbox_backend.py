@@ -33,7 +33,7 @@ DEFAULT_OVERLAY_TOOL_NAMES = {
 FIXED_STORE_TOOL_NAMES = {"image_generate"}
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
-OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl", "glob_paths", "search_files", "search_text", "list_dir"}
+OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl"}
 DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
     ".cache",
     ".git",
@@ -215,10 +215,10 @@ class LocalOverlaySandboxBackend:
         return context.sandbox_root
 
     def tool_workspace_root(self, context: SandboxToolContext) -> Path:
-        if context.mode == "workspace_overlay":
-            return context.sandbox_root
         if context.tool_name in REAL_WORKSPACE_READ_TOOL_NAMES and context.workspace_root is not None:
             return context.workspace_root
+        if context.mode == "workspace_overlay":
+            return context.sandbox_root
         return context.sandbox_root
 
 

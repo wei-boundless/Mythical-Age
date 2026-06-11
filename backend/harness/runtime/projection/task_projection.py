@@ -8,6 +8,9 @@ from .guards import compact, public_state, public_text, record, stable_id, text
 
 SINGLE_AGENT_TASK_PROJECTION_AUTHORITY = "harness.runtime.single_agent_task_projection"
 TERMINAL_STATUSES = {"completed", "failed", "stopped", "aborted", "cancelled", "canceled"}
+WAITING_STATUSES = {"waiting_executor", "waiting_approval", "waiting_user", "paused", "queued"}
+ERROR_STATUSES = {"failed", "error", "blocked"}
+ACTIVE_ACTIVITY_STATES = {"running", "working", "partial", "waiting", "queued", "paused"}
 
 
 def build_single_agent_task_projection(
@@ -29,10 +32,11 @@ def build_single_agent_task_projection(
     monitor_payload = record(monitor)
     status = text(getattr(task_run, "status", "") or monitor_payload.get("status") or "running")
     control = _control_projection(task_run, diagnostics, monitor=monitor_payload)
-    activities = _activities_from_events(event_dicts)
+    raw_activities = _activities_from_events(event_dicts)
+    activities = _settled_activities_for_status(raw_activities, status=status)
     todo = _todo_from_events(event_dicts)
     current_action = _current_action(
-        activities=activities,
+        activities=raw_activities,
         status=status,
         monitor=monitor_payload,
         diagnostics=diagnostics,
@@ -162,7 +166,7 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
                 "kind": "progress",
                 "title": summary,
                 "detail": next_action if next_action != summary else "",
-                "state": "completed" if text(payload.get("status")) == "completed" else "running",
+                "state": _activity_state_from_status(payload.get("status")),
                 "event_ref": event_id,
                 "display_surface": "timeline",
                 "visibility_level": "secondary",
@@ -185,16 +189,19 @@ def _current_action(
 ) -> dict[str, Any]:
     if text(status).lower() in TERMINAL_STATUSES:
         return _terminal_current_action(status=status, monitor=monitor, diagnostics=diagnostics, task_run=task_run)
+    allowed_activity_states = _allowed_current_activity_states(status)
     for activity in reversed(activities):
-        if text(activity.get("state")) in {"running", "waiting"}:
+        if text(activity.get("state")) in allowed_activity_states:
             return activity
-    todo_action = _current_action_from_todo(todo)
+    todo_action = _current_action_from_todo(todo, status=status)
     if todo_action:
         return todo_action
     latest_action_state = record(diagnostics.get("latest_public_action_state") or monitor.get("latest_public_action_state"))
     title = public_text(
         diagnostics.get("latest_current_judgment")
         or latest_action_state.get("current_judgment")
+        or diagnostics.get("latest_public_progress_note")
+        or diagnostics.get("latest_step_summary")
         or monitor.get("current_judgment")
         or monitor.get("latest_current_judgment")
         or monitor.get("latest_public_progress_note")
@@ -214,12 +221,72 @@ def _current_action(
         {
             "title": title,
             "detail": next_action if next_action != title else "",
-            "state": "completed" if status in TERMINAL_STATUSES else "running",
+            "state": _current_action_state_from_status(status),
             "display_surface": "timeline",
             "visibility_level": "secondary",
             "source_kind": "stage_feedback",
         }
     )
+
+
+def _activity_state_from_status(value: Any) -> str:
+    status = text(value).lower()
+    if status in {"completed", "success", "done"}:
+        return "completed"
+    if status in {"waiting_executor", "waiting_approval", "waiting_user", "paused", "queued"}:
+        return "waiting"
+    if status in {"failed", "error", "blocked", "aborted", "cancelled", "canceled", "stopped"}:
+        return "error"
+    return "running"
+
+
+def _current_action_state_from_status(status: str) -> str:
+    normalized = text(status).lower()
+    if normalized in TERMINAL_STATUSES:
+        return "completed"
+    if normalized in WAITING_STATUSES:
+        return "waiting"
+    if normalized in ERROR_STATUSES:
+        return "error"
+    return "running"
+
+
+def _allowed_current_activity_states(status: str) -> set[str]:
+    normalized = text(status).lower()
+    if normalized in WAITING_STATUSES:
+        return {"waiting"}
+    if normalized in ERROR_STATUSES:
+        return {"error"}
+    if normalized in TERMINAL_STATUSES:
+        return set()
+    return {"running", "waiting"}
+
+
+def _settled_activities_for_status(activities: list[dict[str, Any]], *, status: str) -> list[dict[str, Any]]:
+    state = _settled_activity_state_from_status(status)
+    if not state:
+        return activities
+    settled: list[dict[str, Any]] = []
+    for activity in activities:
+        current_state = text(activity.get("state")).lower()
+        if current_state in ACTIVE_ACTIVITY_STATES:
+            settled.append(compact({**activity, "state": state}))
+        else:
+            settled.append(activity)
+    return settled
+
+
+def _settled_activity_state_from_status(status: str) -> str:
+    normalized = text(status).lower()
+    if normalized == "completed":
+        return "completed"
+    if normalized in WAITING_STATUSES:
+        return "waiting"
+    if normalized in {"stopped", "aborted", "cancelled", "canceled"}:
+        return "stopped"
+    if normalized in ERROR_STATUSES:
+        return "error"
+    return ""
 
 
 def _terminal_current_action(
@@ -388,7 +455,7 @@ def _todo_item(item: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _current_action_from_todo(todo: dict[str, Any]) -> dict[str, Any]:
+def _current_action_from_todo(todo: dict[str, Any], *, status: str) -> dict[str, Any]:
     items = [record(item) for item in list(record(todo).get("items") or []) if isinstance(item, dict)]
     if not items:
         return {}
@@ -407,7 +474,7 @@ def _current_action_from_todo(todo: dict[str, Any]) -> dict[str, Any]:
             "kind": "todo",
             "title": title,
             "detail": "；".join(detail_parts),
-            "state": "completed" if total and completed == total else "running",
+            "state": "completed" if total and completed == total else _current_action_state_from_status(status),
             "display_surface": "task_projection",
             "visibility_level": "secondary",
             "source_kind": "todo",

@@ -302,6 +302,88 @@ def test_runtime_protocol_prompts_include_active_work_control_action(tmp_path: P
     assert observation_followup is not None
 
 
+def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    for prompt_id in (
+        "environment.coding.lifecycle.active_work_control",
+        "environment.office.lifecycle.active_work_control",
+        "environment.general.lifecycle.active_work_control",
+    ):
+        resource = registry.get_resource(prompt_id)
+
+        assert resource is not None
+        assert "turn_response_policy=" not in resource.content
+        assert "answer_obligation=" not in resource.content
+
+    coding_capability = registry.get_resource("environment.coding.lifecycle.environment_capability_alignment")
+    assert coding_capability is not None
+    assert "前后端" not in coding_capability.content
+    assert "SSE" not in coding_capability.content
+    assert "Electron" not in coding_capability.content
+    assert "服务进程" in coding_capability.content
+    assert "网络端点" in coding_capability.content
+
+    general_context = registry.get_resource("environment.general.lifecycle.context_intake")
+    general_control = registry.get_resource("environment.general.lifecycle.active_work_control")
+    general_recovery = registry.get_resource("environment.general.lifecycle.tool_observation_recovery")
+    general_subagent = registry.get_resource("environment.general.lifecycle.subagent_result_integration")
+    general_verification = registry.get_resource("environment.general.lifecycle.verification_gate")
+    general_finalization = registry.get_resource("environment.general.lifecycle.finalization")
+    assert general_context is not None
+    assert general_control is not None
+    assert general_recovery is not None
+    assert general_subagent is not None
+    assert general_verification is not None
+    assert general_finalization is not None
+    assert "权威顺序" in general_context.content
+    assert "pause" in general_control.content
+    assert "replan" in general_control.content
+    for failure_class in ("参数", "路径", "权限", "工具", "环境", "合同"):
+        assert failure_class in general_recovery.content
+    assert "行动建议" in general_subagent.content
+    assert "能力限制" in general_verification.content
+    assert "强制暂停" in general_finalization.content
+
+
+def test_environment_action_selection_prompts_define_operational_minimal_action(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    for prompt_id in (
+        "environment.coding.lifecycle.action_selection",
+        "environment.office.lifecycle.action_selection",
+        "environment.general.lifecycle.action_selection",
+    ):
+        resource = registry.get_resource(prompt_id)
+
+        assert resource is not None
+        assert "最小充分动作" in resource.content
+        assert "判断骨架" in resource.content
+        assert "目标" in resource.content
+        assert "事实" in resource.content
+        assert "裁决" in resource.content
+        assert "阻塞" in resource.content
+
+
+def test_environment_prompts_define_chat_vs_task_run_judgment(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    for prompt_id in (
+        "environment.coding.lifecycle.request_judgment",
+        "environment.office.lifecycle.request_judgment",
+        "environment.general.lifecycle.request_judgment",
+        "environment.coding.lifecycle.task_run_handoff",
+        "environment.office.lifecycle.task_run_handoff",
+        "environment.general.lifecycle.task_run_handoff",
+    ):
+        resource = registry.get_resource(prompt_id)
+
+        assert resource is not None
+        assert "聊天" in resource.content
+        assert "开启任务" in resource.content or "开启持续任务" in resource.content
+        assert "不要开启任务" in resource.content or "才开启持续任务" in resource.content
+
+
 def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
     registry.upsert_resource(

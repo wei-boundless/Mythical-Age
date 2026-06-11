@@ -21,12 +21,19 @@ const CONTROL_CHANNELS = new Set([
   "runtime_control",
   "task_control",
 ]);
+const SYSTEM_CONTROL_SOURCES = new Set([
+  "harness.single_agent_turn.protocol_error",
+  "harness.single_agent_turn.tool_loop",
+]);
 
 export function shouldDisplayAssistantContent(
   metadata: AssistantContentMetadata,
   options: VisibilityOptions = {},
 ) {
   const defaultVisible = options.defaultVisible ?? true;
+  if (isSystemControlAssistantContent(metadata)) {
+    return false;
+  }
   if (isCanonicalAssistantContent(metadata) || isImageAssistantContent(metadata)) {
     return true;
   }
@@ -37,6 +44,9 @@ export function shouldDisplayAssistantContent(
 }
 
 export function shouldDisplayAssistantStreamContent(metadata: AssistantContentMetadata) {
+  if (isSystemControlAssistantContent(metadata)) {
+    return false;
+  }
   if (isNonPublicAssistantContent(metadata)) {
     return false;
   }
@@ -64,6 +74,9 @@ export function isNonPublicAssistantContent(metadata: AssistantContentMetadata) 
   const policy = normalized(metadata.answerPersistPolicy);
   const state = normalized(metadata.answerCanonicalState);
   const source = normalized(metadata.answerSource);
+  if (SYSTEM_CONTROL_SOURCES.has(source)) {
+    return true;
+  }
   if (NON_PUBLIC_POLICIES.has(policy) || NON_PUBLIC_STATES.has(state)) {
     return true;
   }
@@ -78,6 +91,11 @@ export function isNonPublicAssistantContent(metadata: AssistantContentMetadata) 
   }
   const leakFlags = normalizedList(metadata.answerLeakFlags);
   return leakFlags.some((flag) => flag.includes("protocol")) && !CANONICAL_TEXT_STATES.has(state);
+}
+
+function isSystemControlAssistantContent(metadata: AssistantContentMetadata) {
+  const source = normalized(metadata.answerSource);
+  return SYSTEM_CONTROL_SOURCES.has(source);
 }
 
 export function normalizedAnswerLeakFlags(value: unknown) {

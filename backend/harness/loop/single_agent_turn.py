@@ -88,6 +88,7 @@ _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _CONTROL_NATIVE_TOOL_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
 _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
+    "single_agent_turn_model_protocol_error",
     "single_agent_turn_multiple_native_actions",
     "single_agent_turn_multiple_action_sources",
     "single_agent_turn_invalid_native_action",
@@ -623,7 +624,6 @@ async def run_single_agent_turn(
             if action_parse.error:
                 async for event in _emit_single_agent_protocol_error(
                     action_parse.error,
-                    commit_assistant_message=commit_assistant_message,
                     runtime_host=runtime_host,
                     turn_run=turn_run,
                     session_id=session_id,
@@ -756,6 +756,34 @@ async def run_single_agent_turn(
                     "created_at": observed_event.get("created_at") if observed_event else None,
                     **active_work_event_refs(),
                 }
+                if not _active_work_control_requires_followup(active_control, status=active_status):
+                    if runtime_host is not None and turn_run is not None:
+                        terminal = _record_turn_terminal(
+                            runtime_host,
+                            turn_run=turn_run,
+                            turn_id=turn_id,
+                            status="completed",
+                            terminal_reason=active_terminal_reason,
+                            payload={
+                                "active_work_control": dict(active_control),
+                                "observation": observation_payload,
+                            },
+                        )
+                        terminal_recorded = True
+                        yield {"type": "agent_turn_terminal", "event": terminal}
+                    yield final_answer_event(
+                        content="",
+                        answer_channel="runtime_control",
+                        answer_source="harness.single_agent_turn.active_work_control",
+                        terminal_reason=active_terminal_reason,
+                        execution_posture="active_work_control",
+                        extra={
+                            "runtime_branch": dict(runtime_branch or {}),
+                            "active_work": dict(active_control),
+                            **active_work_event_refs(),
+                        },
+                    )
+                    return
                 api_protocol_messages.extend(
                     _active_work_control_protocol_messages(
                         response,
@@ -1280,7 +1308,6 @@ async def run_single_agent_turn(
         if action_parse.error:
             async for event in _emit_single_agent_protocol_error(
                 action_parse.error,
-                commit_assistant_message=commit_assistant_message,
                 runtime_host=runtime_host,
                 turn_run=turn_run,
                 session_id=session_id,
@@ -1531,7 +1558,6 @@ async def run_single_agent_turn(
                             "action_request": action_request.to_dict(),
                         },
                     ),
-                    commit_assistant_message=commit_assistant_message,
                     runtime_host=runtime_host,
                     turn_run=turn_run,
                     session_id=session_id,
@@ -1551,7 +1577,6 @@ async def run_single_agent_turn(
                         "action_request": action_request.to_dict(),
                     },
                 ),
-                commit_assistant_message=commit_assistant_message,
                 runtime_host=runtime_host,
                 turn_run=turn_run,
                 session_id=session_id,
@@ -2149,6 +2174,7 @@ def _single_agent_protocol_repair_messages(
             "tool_names": list(diagnostics.get("tool_names") or []),
             "action_types": list(diagnostics.get("action_types") or []),
         },
+        "required_protocol": _single_agent_protocol_repair_contract(allowed_action_types),
     }
     tool_repair_allowed = "tool_call" in set(allowed_action_types or ())
     repair_target_text = "一个合法的控制裁决或一个合法工具调用" if tool_repair_allowed else "一个合法的最终控制裁决"
@@ -2163,8 +2189,11 @@ def _single_agent_protocol_repair_messages(
     repair_instruction = (
         f"{SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT}\n\n"
         f"你只负责把上一轮模型输出修复为{repair_target_text}。\n"
+        "系统没有执行上一轮违规输出；这是一条发给你的协议修复信号，不是给用户的正文。\n"
         "如果需要控制裁决，只能选择一个 action_type。\n"
         f"{tool_repair_instruction}"
+        "必须只输出一个 JSON 对象；不要使用 Markdown 代码块；不要输出 provider-native tool_calls；"
+        "不要在 JSON 前后附加解释文字。\n"
         "修复输入：\n"
         f"{json.dumps(repair_payload, ensure_ascii=False, sort_keys=True)}"
     )
@@ -2176,6 +2205,133 @@ def _single_agent_protocol_repair_messages(
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.protocol_repair",
     )
+
+
+def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]) -> dict[str, Any]:
+    allowed = [str(item) for item in list(allowed_action_types or ()) if str(item)]
+    shapes: list[dict[str, Any]] = []
+    if "tool_call" in allowed:
+        shapes.append(
+            {
+                "action_type": "tool_call",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "tool_call",
+                    "tool_call": {
+                        "tool_name": "read_file",
+                        "args": {"path": "README.md"},
+                    },
+                    "public_progress_note": "准备读取文件确认事实。",
+                    "public_action_state": {
+                        "current_judgment": "需要读取文件确认事实。",
+                        "next_action": "调用 read_file。",
+                    },
+                },
+            }
+        )
+    if "respond" in allowed:
+        shapes.append(
+            {
+                "action_type": "respond",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "respond",
+                    "final_answer": "在这里写给用户的最终回复。",
+                    "public_progress_note": "正在整理最终回复。",
+                    "public_action_state": {
+                        "current_judgment": "当前事实足以回复用户。",
+                        "next_action": "提交最终回复。",
+                    },
+                },
+            }
+        )
+    if "ask_user" in allowed:
+        shapes.append(
+            {
+                "action_type": "ask_user",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "ask_user",
+                    "user_question": "请补充一个继续执行所必需的信息。",
+                    "public_progress_note": "需要用户补充关键信息。",
+                    "public_action_state": {
+                        "current_judgment": "缺少继续执行所必需的信息。",
+                        "next_action": "向用户询问。",
+                    },
+                },
+            }
+        )
+    if "block" in allowed:
+        shapes.append(
+            {
+                "action_type": "block",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "block",
+                    "blocking_reason": "说明当前无法可靠继续的具体原因。",
+                    "public_progress_note": "当前请求无法可靠继续。",
+                    "public_action_state": {
+                        "current_judgment": "继续执行会越过事实或权限边界。",
+                        "next_action": "说明阻塞原因。",
+                    },
+                },
+            }
+        )
+    if "request_task_run" in allowed:
+        shapes.append(
+            {
+                "action_type": "request_task_run",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "request_task_run",
+                    "task_contract_seed": {
+                        "user_visible_goal": "把用户目标写成可见任务目标。",
+                        "task_run_goal": "把任务执行目标写清楚。",
+                        "completion_criteria": ["列出可验证的完成条件。"],
+                    },
+                    "public_progress_note": "准备创建持续任务。",
+                    "public_action_state": {
+                        "current_judgment": "该请求需要持续任务执行。",
+                        "next_action": "请求创建任务运行。",
+                    },
+                },
+            }
+        )
+    if "active_work_control" in allowed:
+        shapes.append(
+            {
+                "action_type": "active_work_control",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "active_work_control",
+                    "active_work_control": {
+                        "action": "continue_active_work",
+                        "relation_to_current_work": "current_work",
+                        "turn_response_policy": "active_work_only",
+                        "answer_obligation": "none",
+                    },
+                    "public_progress_note": "继续当前工作。",
+                    "public_action_state": {
+                        "current_judgment": "用户要求继续当前工作。",
+                        "next_action": "发送当前工作控制信号。",
+                    },
+                },
+            }
+        )
+    return {
+        "authority": "harness.loop.model_action_request",
+        "json_only": True,
+        "single_action_only": True,
+        "allowed_action_types": allowed,
+        "forbidden_output": [
+            "provider_native_tool_calls",
+            "markdown_fence",
+            "text_before_or_after_json",
+            "multiple_json_objects",
+            "multiple_control_actions",
+        ],
+        "allowed_action_shapes": shapes,
+    }
 
 
 def _single_agent_action_request_from_response(
@@ -2485,7 +2641,6 @@ def _single_agent_protocol_error(*, code: str, reason: str, diagnostics: dict[st
 async def _emit_single_agent_protocol_error(
     error: dict[str, Any],
     *,
-    commit_assistant_message: CommitAssistantMessage,
     runtime_host: Any,
     turn_run: TurnRun | None,
     session_id: str,
@@ -2495,44 +2650,7 @@ async def _emit_single_agent_protocol_error(
     code = str(error.get("code") or "single_agent_turn_model_protocol_error")
     reason = str(error.get("reason") or code)
     diagnostics = dict(error.get("diagnostics") or {})
-    content = _single_agent_protocol_error_user_text(code)
-    commit_decision = await _commit_final_message(
-        commit_assistant_message,
-        session_id=session_id,
-        turn_id=turn_id,
-        content=content,
-        answer_channel="blocked",
-        answer_source="harness.single_agent_turn.protocol_error",
-    )
-    yield {
-        "type": "assistant_message_committed",
-        "answer_channel": commit_decision.answer_channel,
-        "answer_source": commit_decision.answer_source,
-        "answer_canonical_state": commit_decision.canonical_state,
-        "answer_persist_policy": commit_decision.persist_policy,
-        "answer_finalization_policy": commit_decision.finalization_policy,
-        "answer_fallback_reason": commit_decision.fallback_reason,
-    }
-    for frame_event in assistant_final_stream_events(
-        None,
-        content=commit_decision.content,
-        answer_channel=commit_decision.answer_channel,
-        answer_source=commit_decision.answer_source,
-        terminal_reason=code,
-        answer_canonical_state=commit_decision.canonical_state,
-        answer_persist_policy=commit_decision.persist_policy,
-        stream_ref=f"single_agent_protocol_error:{turn_id}",
-        message_ref=assistant_message_ref(turn_id=turn_id, stream_ref=f"single_agent_protocol_error:{turn_id}"),
-        turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-        extra={
-            "answer_finalization_policy": commit_decision.finalization_policy,
-            "answer_fallback_reason": commit_decision.fallback_reason,
-            "answer_selected_channel": commit_decision.selected_channel,
-            "answer_selected_source": commit_decision.selected_source,
-            "answer_leak_flags": list(commit_decision.leak_flags),
-        },
-    ):
-        yield frame_event
+    protocol_error = {"code": code, "reason": reason, "diagnostics": diagnostics}
     if runtime_host is not None and turn_run is not None:
         terminal = _record_turn_terminal(
             runtime_host,
@@ -2540,41 +2658,23 @@ async def _emit_single_agent_protocol_error(
             turn_id=turn_id,
             status="blocked",
             terminal_reason=code,
-            payload={"protocol_error": {"code": code, "reason": reason, "diagnostics": diagnostics}},
+            payload={"protocol_error": protocol_error},
         )
         yield {"type": "agent_turn_terminal", "event": terminal}
     yield final_answer_event(
-        content=content,
-        answer_channel="blocked",
+        content="",
+        answer_channel="runtime_control",
         answer_source="harness.single_agent_turn.protocol_error",
         terminal_reason=code,
+        execution_posture="runtime_control",
         extra={
             "runtime_branch": dict(runtime_branch or {}),
-            "protocol_error": {
-                "code": code,
-                "reason": reason,
-                "diagnostics": diagnostics,
-            },
+            "protocol_error": protocol_error,
+            "completion_state": "protocol_error_unrepaired",
+            "answer_visibility": "runtime_control_only",
+            "session_id": session_id,
         },
     )
-
-
-def _single_agent_protocol_error_user_text(code: str) -> str:
-    if code == "single_agent_turn_multiple_native_actions":
-        return "我同时拿到了多个可能动作，当前运行已经停住，避免选错方向。请直接说明这一步优先处理哪个目标。"
-    if code == "single_agent_turn_multiple_action_sources":
-        return "这一步出现了两套互相冲突的执行意图，当前运行已经停住，避免重复执行。请直接补一句最新目标，我会按新的输入重新开始。"
-    if code == "single_agent_turn_json_action_required":
-        return "这一步没有形成可安全执行的动作，当前运行已经停住，避免误执行。请直接补充新的目标或修改要求。"
-    if code == "single_agent_turn_invalid_json_action":
-        return "这一步的执行意图不完整，当前运行已经停住，避免误执行。请直接补充新的目标或修改要求。"
-    if code in {
-        "single_agent_turn_invalid_native_action",
-        "single_agent_turn_model_protocol_error",
-        "single_agent_turn_protocol_repair_failed",
-    }:
-        return "这一步没有整理出可安全执行的动作，当前运行已经停住。请直接补一句新的目标或修改要求，我会按最新输入重新开始。"
-    return "当前运行没有形成可安全推进的下一步，已经停住。请直接补充新的目标或修改要求，我会按最新输入重新开始。"
 
 
 async def _action_feedback_segment_events(
@@ -3825,6 +3925,31 @@ def _active_work_control_status_projection(
     if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
         return "查看当前进展", str(content or "").strip() or "当前工作进展已同步。", "done"
     return "当前工作控制", "当前工作控制状态已更新。", "done"
+
+
+def _active_work_control_requires_followup(active_work_control: dict[str, Any], *, status: str) -> bool:
+    if str(status or "").strip().lower() == "blocked":
+        return True
+    control = dict(active_work_control or {})
+    action = str(control.get("resolved_action") or control.get("action") or "").strip()
+    obligation = str(control.get("answer_obligation") or "").strip().lower()
+    response_policy = str(control.get("turn_response_policy") or "").strip().lower()
+    user_turn_kind = str(control.get("user_turn_kind") or "").strip().lower()
+    if obligation in {"direct_answer_required", "answer_required", "must_answer", "answer_user_first"}:
+        return True
+    if response_policy in {"answer_only", "answer_then_active_work"}:
+        return True
+    if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
+        return True
+    if action in _STEER_ACTIVE_WORK_ACTIONS:
+        return True
+    if user_turn_kind in {"question", "complaint", "mixed"}:
+        return True
+    if obligation in {"none", "no_answer_required", "acknowledgement_only", "ack_only", "ack"}:
+        return False
+    if response_policy in {"active_work_only", "no_user_reply", "control_only", "status_only"}:
+        return False
+    return action not in _STEER_ACTIVE_WORK_ACTIONS
 
 
 def _action_request_with_api_protocol_prefix(

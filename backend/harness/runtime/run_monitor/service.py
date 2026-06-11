@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import threading
 import time
 from typing import Any
 
@@ -13,8 +15,18 @@ from .lifecycle import TERMINAL_TASK_RUN_STATUSES
 
 
 class RuntimeMonitorService:
-    def __init__(self, *, runtime_host: Any, graph_harness: Any | None = None, freshness_seconds: float = 5 * 60.0) -> None:
+    def __init__(
+        self,
+        *,
+        runtime_host: Any,
+        graph_harness: Any | None = None,
+        freshness_seconds: float = 5 * 60.0,
+        global_monitor_cache_seconds: float = 1.0,
+    ) -> None:
         self.runtime_host = runtime_host
+        self.global_monitor_cache_seconds = max(0.0, float(global_monitor_cache_seconds or 0.0))
+        self._global_monitor_cache_lock = threading.RLock()
+        self._global_monitor_cache: dict[tuple[int, tuple[Any, ...]], tuple[float, dict[str, Any]]] = {}
         self.resource_resolver = MonitorResourceResolver(
             runtime_host=runtime_host,
             graph_harness=graph_harness,
@@ -49,13 +61,60 @@ class RuntimeMonitorService:
     def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
+        revision = self._global_monitor_revision()
+        cached = self._read_global_monitor_cache(limit=requested_limit, revision=revision, now=now)
+        if cached is not None:
+            return cached
         items = self._global_live_items(
             requested_limit=requested_limit,
             now=now,
             include_recent_terminal=True,
         )
         envelope = build_runtime_monitor_envelope(items=items, now=now, limit=requested_limit)
-        return self.management_projector.apply_management(envelope, now=now, source_items=items)
+        monitor = self.management_projector.apply_management(envelope, now=now, source_items=items)
+        self._write_global_monitor_cache(limit=requested_limit, revision=revision, now=time.time(), monitor=monitor)
+        return monitor
+
+    def _global_monitor_revision(self) -> tuple[Any, ...]:
+        state_index = getattr(self.runtime_host, "state_index", None)
+        meta_path = getattr(state_index, "meta_path", None)
+        if meta_path is not None:
+            try:
+                stat = meta_path.stat()
+                return ("state_index_meta", int(stat.st_mtime_ns), int(stat.st_size))
+            except Exception:
+                pass
+        return ("ttl_only",)
+
+    def _read_global_monitor_cache(self, *, limit: int, revision: tuple[Any, ...], now: float) -> dict[str, Any] | None:
+        if self.global_monitor_cache_seconds <= 0:
+            return None
+        key = (int(limit), revision)
+        with self._global_monitor_cache_lock:
+            cached = self._global_monitor_cache.get(key)
+            if cached is None:
+                return None
+            cached_at, monitor = cached
+            if now - cached_at > self.global_monitor_cache_seconds:
+                self._global_monitor_cache.pop(key, None)
+                return None
+            return deepcopy(monitor)
+
+    def _write_global_monitor_cache(self, *, limit: int, revision: tuple[Any, ...], now: float, monitor: dict[str, Any]) -> None:
+        if self.global_monitor_cache_seconds <= 0:
+            return
+        key = (int(limit), revision)
+        with self._global_monitor_cache_lock:
+            self._global_monitor_cache = {
+                cache_key: value
+                for cache_key, value in self._global_monitor_cache.items()
+                if now - value[0] <= self.global_monitor_cache_seconds
+            }
+            self._global_monitor_cache[key] = (now, deepcopy(monitor))
+
+    def invalidate_global_monitor_cache(self) -> None:
+        with self._global_monitor_cache_lock:
+            self._global_monitor_cache.clear()
 
     def _global_live_items(self, *, requested_limit: int, now: float, include_recent_terminal: bool = False) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))

@@ -87,6 +87,10 @@ class RuntimeMonitorActionService:
                 "receipt": _receipt(action=action, accepted=False, mode="execute", reason="unsupported_action"),
             }
         accepted = not bool(effects.get("error"))
+        if accepted:
+            invalidator = getattr(self.monitor_service, "invalidate_global_monitor_cache", None)
+            if callable(invalidator):
+                invalidator()
         return {
             "authority": self.authority,
             "mode": "execute",

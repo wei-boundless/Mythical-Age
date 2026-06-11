@@ -153,15 +153,25 @@ def test_runtime_monitor_global_signal_reuses_compact_projection_summary(tmp_pat
     monitor = host.runtime_monitor_service.collect_global_runtime_monitor(limit=10)
     signal = next(item for item in monitor["signals"] if item["task_run_id"] == task_run_id)
 
-    assert signal["fact_summary"]["available"] is True
-    assert signal["fact_summary"]["fact_type_counts"]["trace_run"] == 1
-    assert signal["fact_summary"]["fact_type_counts"]["runtime_event"] == 1
-    assert signal["trace_summary"]["available"] is True
+    assert signal["fact_summary"]["available"] is False
+    assert signal["fact_summary"]["deferred"] is True
+    assert signal["fact_summary"]["fact_type_counts"] == {}
+    assert signal["trace_summary"]["available"] is False
+    assert signal["trace_summary"]["deferred"] is True
     assert signal["trace_summary"]["hydrated"] is False
-    assert signal["trace_summary"]["trace_id"] == trace.trace_id
+    assert signal["trace_summary"]["trace_id"] == ""
     assert "run" not in signal["trace_summary"]
     assert "latest_span" not in signal["trace_summary"]
-    assert any(item["kind"] == "trace" and item["trace_id"] == trace.trace_id for item in signal["diagnostic_signal_refs"])
+    assert signal["diagnostic_signal_refs"] == []
+
+    detail = host.runtime_monitor_service.get_task_run_live_monitor(task_run_id)
+    assert detail is not None
+    assert detail["fact_summary"]["available"] is True
+    assert detail["fact_summary"]["fact_type_counts"]["trace_run"] == 1
+    assert detail["fact_summary"]["fact_type_counts"]["runtime_event"] == 1
+    assert detail["trace_summary"]["available"] is True
+    assert detail["trace_summary"]["trace_id"] == trace.trace_id
+    assert any(item["kind"] == "trace" and item["trace_id"] == trace.trace_id for item in detail["diagnostic_signal_refs"])
 
 
 def test_runtime_monitor_summarizes_graph_run_scoped_facts(tmp_path) -> None:
