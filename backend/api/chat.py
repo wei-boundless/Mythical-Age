@@ -21,7 +21,6 @@ from runtime.output_boundary import (
     contains_internal_protocol,
     sanitize_visible_assistant_content,
 )
-from harness.runtime.projection.filters import should_hide_public_tool_call, should_hide_public_tool_observation
 from runtime.output_stream.public_contract import (
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
@@ -788,20 +787,6 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         return {}
     args = _record(tool.get("args") or tool.get("arguments") or request.get("tool_args"))
     target = _safe_public_tool_target(args)
-    arguments_preview = _tool_arguments_preview(args)
-    if should_hide_public_tool_call(
-        tool_name=tool_name,
-        values=(
-            target,
-            arguments_preview,
-            args.get("path"),
-            args.get("file"),
-            args.get("file_path"),
-            args.get("target"),
-            args.get("replacement_id"),
-        ),
-    ):
-        return {}
     title = _safe_public_action_text(
         _record(request.get("public_action_state")).get("next_action")
         or request.get("public_progress_note")
@@ -815,7 +800,7 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "tool_name": tool_name,
         "title": title,
         "target": target,
-        "arguments_preview": arguments_preview,
+        "arguments_preview": _tool_arguments_preview(args),
         "state": "running",
     }
     event_id = str(raw_event.get("event_id") or "").strip()
@@ -848,17 +833,6 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         or execution_receipt.get("error")
     )
     observation_text = _safe_tool_observation_text(observation, result_envelope=result_envelope)
-    if should_hide_public_tool_observation(
-        observation_text,
-        error,
-        observation.get("text"),
-        result_envelope.get("text"),
-        result_envelope.get("summary"),
-        result_envelope.get("result"),
-        _record(result_envelope.get("structured_payload")).get("summary"),
-        _record(result_envelope.get("structured_payload")).get("message"),
-    ):
-        return {}
     data: dict[str, Any] = {
         "item_id": tool_call_id,
         "tool_call_id": tool_call_id,

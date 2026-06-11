@@ -764,8 +764,20 @@ def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = N
         "optional_inputs": list(getattr(contract, "optional_inputs", []) or []),
         "owner_scope": str(getattr(contract, "owner_scope", "") or "none"),
         "read_only": bool(getattr(definition, "is_read_only", False)),
+        "concurrency_safe": bool(getattr(definition, "is_concurrency_safe", False)),
         "prompt_exposure_policy": str(getattr(definition, "prompt_exposure_policy", "") or "schema_only"),
     }
+    output_contract = getattr(definition, "output_contract", None)
+    if output_contract is not None and hasattr(output_contract, "to_dict"):
+        payload["output_contract"] = output_contract.to_dict()
+    resolution_contract = getattr(definition, "resolution_contract", None)
+    path_field = str(getattr(resolution_contract, "path_field", "") or "").strip()
+    path_kind = str(getattr(resolution_contract, "path_kind", "") or "").strip()
+    if path_field or path_kind:
+        payload["path_policy"] = {
+            "path_field": path_field,
+            "path_kind": path_kind,
+        }
     description = str(getattr(tool_instance, "description", "") or "").strip()
     if description:
         payload["description"] = description
@@ -827,6 +839,18 @@ def _contract_field_schema(field_name: str) -> dict[str, Any]:
         return {"type": "integer"}
     if name in {"allow_overwrite", "dry_run"}:
         return {"type": "boolean"}
+    if name == "read_intent":
+        return {
+            "type": "string",
+            "enum": [
+                "edit_target",
+                "verify_behavior",
+                "understand_api",
+                "locate_symbol",
+                "inspect_dependency",
+                "recover_failure",
+            ],
+        }
     if name in {"roots", "paths", "items", "context_refs", "expected_outputs"}:
         return {"type": "array"}
     if name in {"args", "diagnostics", "metadata"}:

@@ -96,8 +96,13 @@ class WorkspaceFileService:
             return content
         return content[: max(0, int(limit))]
 
-    def write_text(self, path: str, content: str) -> Path:
+    def write_text(self, path: str, content: str, *, allow_overwrite: bool = False, expected_previous_sha256: str = "") -> Path:
         file_path = self.resolve(path, require_path=True)
+        if file_path.exists() and not bool(allow_overwrite):
+            raise FileExistsError("file already exists; pass allow_overwrite=true to replace it")
+        expected_hash = str(expected_previous_sha256 or "").strip().lower()
+        if file_path.exists() and expected_hash and _file_sha256(file_path) != expected_hash:
+            raise ValueError("expected_previous_sha256 does not match current file")
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(str(content or ""), encoding="utf-8")
         return file_path
@@ -269,6 +274,12 @@ def _glob_matches(relative_path: str, pattern: str) -> bool:
     if "/**/" in pattern:
         variants.add(pattern.replace("/**/", "/"))
     return any(fnmatch.fnmatch(relative_path, variant) for variant in variants)
+
+
+def _file_sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _fixed_glob_prefix(pattern: str) -> str:

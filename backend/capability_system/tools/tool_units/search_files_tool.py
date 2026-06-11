@@ -39,6 +39,11 @@ class SearchTextInput(BaseModel):
     )
     glob: str = Field(default="", description="可选 glob，例如 **/*.md 或 backend/**/*.py")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
+    output_mode: str = Field(default="content", description="输出模式：content、files_with_matches 或 count")
+    context: int = Field(default=0, ge=0, le=20, description="推荐读取窗口时每个命中行前后包含的上下文行数")
+    case_sensitive: bool = Field(default=False, description="是否区分大小写搜索")
+    head_limit: int = Field(default=0, ge=0, le=100, description="分页返回条数；0 表示使用 max_results")
+    offset: int = Field(default=0, ge=0, description="分页偏移，跳过前 N 条匹配")
 
 
 def _run_rg(args: list[str], *, cwd: Path, timeout: float = 8.0) -> subprocess.CompletedProcess[str] | None:
@@ -170,27 +175,37 @@ class SearchTextTool(BaseTool):
         paths: list[str] | None = None,
         glob: str = "",
         max_results: int = 20,
+        output_mode: str = "content",
+        context: int = 0,
+        case_sensitive: bool = False,
+        head_limit: int = 0,
+        offset: int = 0,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         _ = run_manager
         normalized_query = str(query or "").strip()
         if not normalized_query:
             return "Search failed: query is required."
-        limit = max(1, min(int(max_results or 20), 100))
+        limit = _search_limit(max_results=max_results, head_limit=head_limit)
+        scan_limit = min(100, limit + max(0, int(offset or 0)) + 1)
+        mode = _normalize_output_mode(output_mode)
         requested_paths = _nonempty_path_args(paths)
         if requested_paths:
             target_paths, path_error = _resolve_search_paths(self._files, requested_paths)
             if path_error:
                 return f"Search failed: {path_error}"
-            return _format_search_matches(
-                _search_specific_paths(
+            matches = _search_specific_paths(
                     self._files,
                     normalized_query,
                     target_paths,
                     glob=str(glob or ""),
-                    limit=limit,
-                ),
+                    limit=scan_limit,
+                    case_sensitive=case_sensitive,
+                )
+            return _format_search_matches(
+                _slice_matches(matches, offset=offset, limit=limit),
                 query=normalized_query,
+                output_mode=mode,
             )
         roots_error = _roots_file_misuse_error(self._files, roots)
         if roots_error:
@@ -203,11 +218,12 @@ class SearchTextTool(BaseTool):
         args = [
             "--line-number",
             "--column",
-            "--ignore-case",
             "--hidden",
             "--max-count",
-            str(limit),
+            str(scan_limit),
         ]
+        if not bool(case_sensitive):
+            args.append("--ignore-case")
         for excluded in DEFAULT_EXCLUDED_DIRS:
             args.extend(["--glob", f"!**/{excluded}/**"])
         args.extend(_default_search_exclude_args(using_default_roots))
@@ -223,8 +239,9 @@ class SearchTextTool(BaseTool):
                 normalized_query,
                 safe_roots,
                 glob=str(glob or ""),
-                limit=limit,
+                limit=scan_limit,
                 using_default_roots=using_default_roots,
+                case_sensitive=case_sensitive,
             )
         if completed.returncode not in {0, 1}:
             error = (completed.stderr or "").strip()
@@ -232,7 +249,11 @@ class SearchTextTool(BaseTool):
         lines = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
         if not lines:
             return _format_no_results(normalized_query)
-        return "\n".join(lines[:limit])
+        return _format_search_matches(
+            _slice_raw_match_lines(lines, offset=offset, limit=limit),
+            query=normalized_query,
+            output_mode=mode,
+        )
 
     def _fallback_search(
         self,
@@ -242,9 +263,11 @@ class SearchTextTool(BaseTool):
         glob: str,
         limit: int,
         using_default_roots: bool,
+        case_sensitive: bool,
     ) -> str:
         matches: list[str] = []
         pattern = glob.strip() or "*"
+        query_cmp = query if case_sensitive else query.lower()
         for root in roots:
             for path in root.rglob(pattern):
                 if len(matches) >= limit:
@@ -259,7 +282,8 @@ class SearchTextTool(BaseTool):
                 except OSError:
                     continue
                 for line_number, line in enumerate(text.splitlines(), start=1):
-                    if query.lower() not in line.lower():
+                    line_cmp = line if case_sensitive else line.lower()
+                    if query_cmp not in line_cmp:
                         continue
                     rel = self._files.relative_path(path)
                     matches.append(f"{rel}:{line_number}:1:{line[:240]}")
@@ -275,9 +299,27 @@ class SearchTextTool(BaseTool):
         paths: list[str] | None = None,
         glob: str = "",
         max_results: int = 20,
+        output_mode: str = "content",
+        context: int = 0,
+        case_sensitive: bool = False,
+        head_limit: int = 0,
+        offset: int = 0,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, query, roots, paths, glob, max_results, None)
+        return await asyncio.to_thread(
+            self._run,
+            query,
+            roots,
+            paths,
+            glob,
+            max_results,
+            output_mode,
+            context,
+            case_sensitive,
+            head_limit,
+            offset,
+            None,
+        )
 
 
 def _nonempty_path_args(paths: list[str] | str | None) -> list[str]:
@@ -322,9 +364,11 @@ def _search_specific_paths(
     *,
     glob: str,
     limit: int,
+    case_sensitive: bool,
 ) -> list[str]:
     matches: list[str] = []
     pattern = str(glob or "").strip()
+    query_cmp = query if case_sensitive else query.lower()
     for path in paths:
         if len(matches) >= limit:
             break
@@ -336,7 +380,8 @@ def _search_specific_paths(
         except OSError:
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
-            column = line.lower().find(query.lower()) + 1
+            line_cmp = line if case_sensitive else line.lower()
+            column = line_cmp.find(query_cmp) + 1
             if column <= 0:
                 continue
             matches.append(f"{rel}:{line_number}:{column}:{line[:240]}")
@@ -345,8 +390,39 @@ def _search_specific_paths(
     return matches[:limit]
 
 
-def _format_search_matches(matches: list[str], *, query: str) -> str:
-    return "\n".join(matches) if matches else _format_no_results(query)
+def _format_search_matches(matches: list[str], *, query: str, output_mode: str = "content") -> str:
+    if not matches:
+        return _format_no_results(query)
+    if output_mode == "files_with_matches":
+        paths = [line.split(":", 1)[0] for line in matches if ":" in line]
+        return "\n".join(dict.fromkeys(paths)) or _format_no_results(query)
+    if output_mode == "count":
+        counts: dict[str, int] = {}
+        for line in matches:
+            path = line.split(":", 1)[0] if ":" in line else ""
+            if path:
+                counts[path] = counts.get(path, 0) + 1
+        return "\n".join(f"{path}:{count}" for path, count in counts.items()) or _format_no_results(query)
+    return "\n".join(matches)
+
+
+def _search_limit(*, max_results: int, head_limit: int = 0) -> int:
+    selected = int(head_limit or 0) or int(max_results or 20)
+    return max(1, min(selected, 100))
+
+
+def _normalize_output_mode(value: str) -> str:
+    mode = str(value or "content").strip()
+    return mode if mode in {"content", "files_with_matches", "count"} else "content"
+
+
+def _slice_matches(matches: list[str], *, offset: int, limit: int) -> list[str]:
+    start = max(0, int(offset or 0))
+    return list(matches)[start : start + max(1, int(limit or 1))]
+
+
+def _slice_raw_match_lines(lines: list[str], *, offset: int, limit: int) -> list[str]:
+    return _slice_matches(lines, offset=offset, limit=limit)
 
 
 def _default_search_exclude_args(enabled: bool) -> list[str]:

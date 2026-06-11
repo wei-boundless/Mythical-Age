@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .filters import should_hide_public_tool_observation
 from .guards import compact, public_state, public_text, record, stable_id, text
 
 
@@ -131,16 +130,6 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
         observation = record(payload.get("observation") or payload)
         tool_name = text(observation.get("tool_name") or payload.get("tool_name") or "工具")
         if tool_name == "agent_todo" or text(observation.get("source")) in {"system:agent_todo", "tool:agent_todo"}:
-            return {}
-        if should_hide_public_tool_observation(
-            observation.get("summary"),
-            observation.get("result"),
-            observation.get("text"),
-            payload.get("summary"),
-            record(observation.get("result_envelope")).get("text"),
-            record(observation.get("result_envelope")).get("summary"),
-            record(observation.get("result_envelope")).get("result"),
-        ):
             return {}
         summary = public_text(observation.get("summary") or observation.get("result") or payload.get("summary"), limit=180)
         return compact(

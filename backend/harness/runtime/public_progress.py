@@ -68,11 +68,6 @@ _PUBLIC_ERROR_REWRITES = {
     "repeated_admission_denial": "重复未获准动作",
 }
 
-_PRIVATE_RUNTIME_TOOL_NAMES = {
-    "read_persisted_tool_result",
-}
-
-
 def public_action_progress_summary(action_type: Any) -> str:
     return ""
 
@@ -93,28 +88,6 @@ def public_runtime_progress_summary(summary: Any) -> str:
     if _is_generic_public_progress(normalized):
         return ""
     return _public_role_label(normalized)
-
-
-def is_private_runtime_tool_name(tool_name: Any) -> bool:
-    normalized = str(tool_name or "").strip().removeprefix("tool:").strip().lower()
-    return normalized in _PRIVATE_RUNTIME_TOOL_NAMES
-
-
-def looks_like_internal_runtime_artifact(value: Any) -> bool:
-    raw = str(value or "").strip()
-    if not raw:
-        return False
-    if re.search(r"(?:runtime_state)[\\/]+dynamic_context[\\/]+replacements[\\/]+replacement_[a-f0-9]+\.json", raw, flags=re.IGNORECASE):
-        return True
-    if re.search(
-        r"(?:mythical-agent|storage)[\\/]+sessions[\\/]+session-[^\\/]+[\\/]+environments[\\/]+[^\\/]+[\\/]+[^\\/]+[\\/]+runtime_state[\\/]+dynamic_context[\\/]+replacements",
-        raw,
-        flags=re.IGNORECASE,
-    ):
-        return True
-    if re.search(r"\breplacement:[a-f0-9]{16,}\b", raw, flags=re.IGNORECASE):
-        return True
-    return False
 
 
 def _is_generic_public_progress(text: str) -> bool:
@@ -210,8 +183,6 @@ def _looks_like_raw_tool_output(text: str) -> bool:
     raw = str(text or "").strip()
     if not raw:
         return False
-    if looks_like_internal_runtime_artifact(raw):
-        return True
     if re.search(r"(?m)^\s*\d{1,6}\s*\|\s+", raw):
         return True
     if re.search(r"\b(?:Exit code|Wall time|Output):", raw, flags=re.IGNORECASE):

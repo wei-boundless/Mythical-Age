@@ -63,7 +63,12 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = self._files.write_text(path, content)
+            file_path = self._files.write_text(
+                path,
+                content,
+                allow_overwrite=allow_overwrite,
+                expected_previous_sha256=expected_previous_sha256,
+            )
         except Exception as exc:
             return f"Write failed: {exc}"
         return f"Write succeeded: {self._display_path(file_path)}"

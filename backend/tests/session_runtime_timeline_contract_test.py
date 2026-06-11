@@ -258,80 +258,8 @@ def test_session_runtime_timeline_uses_task_projection_as_task_attachment_displa
     assert current_action.get("source_kind") == "stage_feedback"
     assert not any(item.get("kind") == "blocked" for item in task_projection.get("activities", []))
     assert attachment["public_timeline"]
-
-
-def test_session_runtime_timeline_hides_internal_replacement_tool_activity() -> None:
-    runtime = build_harness_runtime()
-    host = runtime.single_agent_runtime_host
-    task_run_id = "taskrun:turn:session-replacement:1:abc"
-    host.state_index.upsert_task_run(
-        TaskRun(
-            task_run_id=task_run_id,
-            session_id="session-replacement",
-            task_id="task:turn:session-replacement:1",
-            execution_runtime_kind="single_agent_task",
-            status="running",
-            created_at=1.0,
-            updated_at=2.0,
-            diagnostics={"turn_id": "turn:session-replacement:1"},
-        )
-    )
-    host.event_log.append(
-        task_run_id,
-        "model_action_request_received",
-        payload={
-            "model_action_request": {
-                "request_id": "model-action:replacement",
-                "turn_id": "turn:session-replacement:1",
-                "action_type": "tool_call",
-                "tool_call": {
-                    "name": "read_persisted_tool_result",
-                    "args": {"replacement_id": "replacement:45b2469f6819dff173c8af83"},
-                },
-            },
-        },
-        refs={"turn_ref": "turn:session-replacement:1", "action_request_ref": "model-action:replacement"},
-    )
-    host.event_log.append(
-        task_run_id,
-        "task_tool_observation_recorded",
-        payload={
-            "observation": {
-                "observation_id": "rtobs:session-replacement:1",
-                "source": "tool:read_file",
-                "tool_name": "read_file",
-                "summary": (
-                    "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
-                    "vibe-workspace/runtime_state/dynamic_context/replacements/"
-                    "replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
-                ),
-                "payload": {
-                    "tool_name": "read_file",
-                    "result": (
-                        "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
-                        "vibe-workspace/runtime_state/dynamic_context/replacements/"
-                        "replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
-                    ),
-                },
-            }
-        },
-        refs={"turn_ref": "turn:session-replacement:1", "observation_ref": "rtobs:session-replacement:1"},
-    )
-
-    timeline = build_session_runtime_timeline(
-        session_id="session-replacement",
-        history={"messages": []},
-        runtime_host=host,
-    )
-
-    attachment = timeline["runtime_attachments"][0]
-    public_timeline_text = json.dumps(attachment.get("public_timeline") or [], ensure_ascii=False)
-    task_projection_text = json.dumps(attachment.get("task_projection") or {}, ensure_ascii=False)
-
-    assert "replacement_" not in public_timeline_text
-    assert "replacement_" not in task_projection_text
-    assert attachment.get("public_timeline", []) == []
-    assert dict(attachment.get("task_projection") or {}).get("activities", []) == []
+    assert any(item.get("kind") == "tool_observation" for item in task_projection.get("activities", []))
+    assert any(item.get("kind") in {"status_update", "error_notice"} for item in attachment["public_timeline"])
 
 
 def test_session_runtime_timeline_does_not_synthesize_generic_success_feedback() -> None:

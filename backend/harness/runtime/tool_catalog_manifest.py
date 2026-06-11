@@ -108,6 +108,7 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
     if prompt_exposure_policy not in _MODEL_VISIBLE_PROMPT_POLICIES:
         return {}
     required_inputs = [str(value) for value in list(tool.get("required_inputs") or []) if str(value)]
+    optional_inputs = [str(value) for value in list(tool.get("optional_inputs") or []) if str(value)]
     payload: dict[str, Any] = {
         "tool_name": name,
         "operation_id": str(tool.get("operation_id") or ""),
@@ -116,11 +117,36 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
         payload["prompt_exposure_policy"] = prompt_exposure_policy
     if required_inputs:
         payload["required_inputs"] = required_inputs
+    if optional_inputs:
+        payload["optional_inputs"] = optional_inputs
     owner_scope = str(tool.get("owner_scope") or "")
     if owner_scope and owner_scope != "none":
         payload["owner_scope"] = owner_scope
-    if bool(tool.get("read_only") is True):
-        payload["read_only"] = True
+    if "read_only" in tool:
+        payload["read_only"] = bool(tool.get("read_only") is True)
+    if "concurrency_safe" in tool:
+        payload["concurrency_safe"] = bool(tool.get("concurrency_safe") is True)
+    path_policy = dict(tool.get("path_policy") or {}) if isinstance(tool.get("path_policy"), dict) else {}
+    if path_policy:
+        payload["path_policy"] = {
+            key: value
+            for key, value in {
+                "path_field": str(path_policy.get("path_field") or ""),
+                "path_kind": str(path_policy.get("path_kind") or ""),
+            }.items()
+            if value
+        }
+    output_contract = dict(tool.get("output_contract") or {}) if isinstance(tool.get("output_contract"), dict) else {}
+    if output_contract:
+        payload["output_contract"] = {
+            key: value
+            for key, value in {
+                "display_mode": str(output_contract.get("display_mode") or ""),
+                "finalization_policy": str(output_contract.get("finalization_policy") or ""),
+                "persistence_policy": str(output_contract.get("persistence_policy") or ""),
+            }.items()
+            if value
+        }
     input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
     if input_schema:
         payload["input_schema_summary"] = _input_schema_summary(input_schema)
@@ -156,6 +182,11 @@ def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
     required = [str(item) for item in list(schema.get("required") or []) if str(item)]
     if required:
         summary["required"] = required
+    optional = [str(name) for name in summarized_properties if str(name) not in set(required)]
+    if optional:
+        summary["optional"] = optional
+    if "additionalProperties" in schema:
+        summary["additionalProperties"] = bool(schema.get("additionalProperties") is True)
     return summary
 
 

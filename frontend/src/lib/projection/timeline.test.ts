@@ -89,22 +89,4 @@ describe("publicTimeline", () => {
     ])).toEqual([]);
   });
 
-  it("suppresses internal dynamic-context replacement paths from timeline items", () => {
-    const internalPath = "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_473bccdc1a67338ea50b5c0e.json:1:1157";
-
-    expect(sanitizePublicTimelineText(internalPath)).toBe("");
-    expect(mergePublicTimelineItems([], [
-      {
-        item_id: "tool:internal-replacement",
-        kind: "work_action",
-        slot: "tool",
-        surface: "tool_window",
-        source_authority: "tool",
-        title: "工具已返回",
-        subject_label: internalPath,
-        public_summary: `工具已返回 ${internalPath}`,
-        state: "done",
-      },
-    ])).toEqual([]);
-  });
 });

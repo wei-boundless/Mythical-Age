@@ -12,6 +12,8 @@ class FileReadRange:
     end_line: int
     observation_ref: str = ""
     content_sha256: str = ""
+    read_intent: str = ""
+    file_unchanged: bool = False
     stale: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -197,6 +199,8 @@ def _apply_file_event(
                 end_line=end,
                 observation_ref=observation_ref,
                 content_sha256=str(event.get("content_sha256") or ""),
+                read_intent=str(event.get("read_intent") or ""),
+                file_unchanged=bool(event.get("file_unchanged") is True),
                 stale=False,
             )
             if not any(item.start_line == candidate.start_line and item.end_line == candidate.end_line and item.stale is False for item in ranges):
@@ -310,6 +314,8 @@ def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
         end_line=end_line,
         observation_ref=str(payload.get("observation_ref") or ""),
         content_sha256=str(payload.get("content_sha256") or ""),
+        read_intent=str(payload.get("read_intent") or ""),
+        file_unchanged=bool(payload.get("file_unchanged") is True),
         stale=bool(payload.get("stale") is True),
     )
 

@@ -23,6 +23,7 @@ def test_file_state_authority_tracks_read_windows_and_next_read() -> None:
                     "next_start_line": 3,
                     "has_more": True,
                     "content_sha256": "sha256:before",
+                    "read_intent": "edit_target",
                 },
             },
         },
@@ -41,6 +42,7 @@ def test_file_state_authority_tracks_read_windows_and_next_read() -> None:
     assert projection[0]["path"] == "backend/app.py"
     assert projection[0]["status"] == "partial"
     assert projection[0]["coverage"] == {"start_line": 1, "end_line": 2, "range_count": 1}
+    assert projection[0]["read_ranges"][0]["read_intent"] == "edit_target"
     assert projection[0]["next_suggested_read"]["start_line"] == 3
     assert projection[0]["last_tool_call_id"] == "call:read"
 

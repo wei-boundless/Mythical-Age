@@ -236,6 +236,7 @@
   let mouseDown = false;
   let chargeStart = 0;
   let chargePower = 0;
+  let mouseX = W / 2;       // 当前鼠标X（用于自由瞄准）
   let mouseY = H / 2;       // 当前鼠标Y（用于直接控制投篮角度）
   const MAX_POWER = 16;
   const CHARGE_SPEED = 18; // units per second
@@ -657,11 +658,12 @@
   }
 
   function getAimAngle() {
-    // 直接根据鼠标Y位置映射投篮角度：鼠标越往上角度越大（高抛），越往下角度越小（平投）
-    const minAngle = 10;
-    const maxAngle = 80;
-    const ratio = (H - mouseY) / H; // mouseY=0（顶部）时 ratio=1（最大角度），mouseY=H（底部）时 ratio=0（最小角度）
-    return minAngle + ratio * (maxAngle - minAngle);
+    // 完全自由的瞄准：鼠标相对于球的位置直接决定投篮方向
+    // 鼠标在球左边 → 往左投；鼠标在球右边 → 往右投
+    // 鼠标在球上方 → 高抛弧线；鼠标在球下方 → 平投
+    const dx = mouseX - ballX;
+    const dy = ballY - mouseY;
+    return Math.atan2(-dy, dx) * 180 / Math.PI;
   }
 
   function render() {
@@ -680,10 +682,14 @@
     const rect = canvas.getBoundingClientRect();
     const scaleX = W / rect.width;
     const scaleY = H / rect.height;
-    ballX = (e.clientX - rect.left) * scaleX;
-    ballX = Math.max(40, Math.min(W - 40, ballX));
+    mouseX = (e.clientX - rect.left) * scaleX;
     mouseY = (e.clientY - rect.top) * scaleY;
-    ballY = H - 100; // 球员固定站位
+    // 未蓄力时：球员位置跟随鼠标（模拟人移动站位 + 高度调节）
+    if (!mouseDown) {
+      ballX = Math.max(40, Math.min(W - 40, mouseX));
+      ballY = Math.max(H - 180, Math.min(H - 50, mouseY));
+    }
+    // 蓄力时：球员位置锁定，鼠标自由移动来瞄准
   });
 
   canvas.addEventListener('mousedown', (e) => {

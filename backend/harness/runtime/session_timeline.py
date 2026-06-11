@@ -5,7 +5,7 @@ from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
 from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
-from harness.runtime.projection.filters import should_hide_public_tool_call, should_hide_public_tool_observation
+from harness.runtime.projection.filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.public_progress import public_runtime_progress_title
 from harness.runtime.projection.timeline_builder import project_public_timeline_from_events
@@ -792,17 +792,6 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
     tool_call = dict(action_request.get("tool_call") or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or action_request.get("tool_name") or "").strip()
     preview = _tool_call_preview(tool_call)
-    if should_hide_public_tool_call(
-        tool_name=tool_name,
-        values=(
-            preview,
-            dict(tool_call.get("args") or tool_call.get("input") or {}).get("path"),
-            dict(tool_call.get("args") or tool_call.get("input") or {}).get("file_path"),
-            dict(tool_call.get("args") or tool_call.get("input") or {}).get("target"),
-            dict(tool_call.get("args") or tool_call.get("input") or {}).get("replacement_id"),
-        ),
-    ):
-        return {}
     title = _tool_activity_title(tool_name=tool_name, preview=preview, phase="started")
     return _entry(
         event,
@@ -842,7 +831,9 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         or envelope.get("text")
         or ""
     ).strip()
-    if should_hide_public_tool_observation(
+    if failed and should_hide_public_tool_observation(
+        tool_name,
+        target,
         result_text,
         error,
         observation.get("text"),

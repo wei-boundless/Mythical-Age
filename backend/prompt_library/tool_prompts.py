@@ -7,47 +7,12 @@ from typing import Any
 
 from .models import PromptResource
 from .rules import rule_metadata
-
-
-TOOL_READ_FILE_GUIDANCE = """
-使用 read_file 时，你是在读取工作区文件的当前真实内容。
-已知路径时直接读取具体文件；不知道位置时先用搜索、目录或路径工具定位。
-读取结果可能只是文件窗口。根据 start_line、end_line、next_start_line、line_count、total_lines、has_more、truncated 或 content_range 判断是否需要继续。
-不要重复读取相同行窗口；如果只是定位线索，应改用搜索、更小行范围或下一个窗口。
-修改、逐行引用、错误定位和验收判断前，必须读取目标区域当前精确行窗口。
-如果写入、编辑、命令或外部动作可能改变文件，旧读取结果会过期；继续判断前先重新读取相关区域。
-""".strip()
-
-
-TOOL_EDIT_FILE_GUIDANCE = """
-使用 edit_file 时，你是在对当前文件内容做一次精确局部替换。
-调用前必须已经读取过目标文件当前内容；old_text 必须来自这次读取结果，并且在文件中足够唯一。
-old_text 和 new_text 要保持原有缩进、换行、局部结构和必要上下文；不要让替换意图依赖模型猜测。
-优先做最小必要修改，不要用 edit_file 承担整文件重写。
-如果编辑失败、old_text not found、路径不存在或文件已变化，先重新读取目标局部或确认路径，再修正 old_text；不要原样重复失败编辑。
-编辑成功后，之前关于该文件的读取事实可能已经过期；需要按风险继续读取、运行检查或执行验证。
-""".strip()
-
-
-TOOL_WRITE_FILE_GUIDANCE = """
-使用 write_file 时，你是在写入一个完整文件。
-它适合新文件、明确要求完整重写的文件，或 edit_file 无法可靠表达的整体生成。
-修改既有文件时优先使用 edit_file；除非用户或任务合同要求，不要主动创建 README、计划文档或说明文件。
-写入前确认路径、覆盖意图、文件归属和当前任务范围，避免覆盖用户已有改动或无关产物。
-写入内容必须完整可用，不要写半截 JSON、半截脚本、半截页面或需要模型后续补全才能运行的文件。
-写入后按任务风险读取关键片段、运行检查或验证产物存在。
-""".strip()
-
-
-TOOL_TERMINAL_POWERSHELL_GUIDANCE = """
-使用 terminal 时，你是在请求系统执行本地命令；它适合脚本、构建、测试、服务进程、运行检查和系统级验证。
-能用专用搜索、读取、写入、浏览器或 git 工具完成的事，优先用专用工具；不要用 shell 绕过更清晰的工具边界。
-本地命令按 Windows PowerShell 兼容语义编写；不要使用 Bash 专属语法。
-每个命令都要有明确工作目录、目标和预期观察；路径含空格或非 ASCII 时要正确引用。
-不要启动无法收口的交互式命令。长时间进程必须有验证目标、超时、停止方式和后续观察方式。
-如果环境或项目指令给出端口、节点、工作目录或启动顺序约束，按这些约束执行；异常时先诊断占用、配置和日志，不要随机换目标。
-命令失败、退出码异常、输出截断或超时都是事实观察；下一步应修正命令、工作目录、环境、参数或阻塞条件。
-""".strip()
+from .io_capability_prompts import (
+    TOOL_EDIT_FILE_GUIDANCE,
+    TOOL_READ_FILE_GUIDANCE,
+    TOOL_TERMINAL_POWERSHELL_GUIDANCE,
+    TOOL_WRITE_FILE_GUIDANCE,
+)
 
 
 TOOL_GIT_READ_GUIDANCE = """
@@ -72,7 +37,7 @@ TOOL_TODO_GUIDANCE = """
 使用 agent_todo 时，你只是在维护多步骤工作的执行状态。
 todo 不是事实来源，不能替代工具观察、文件读取、任务合同、用户当前请求或最终答复。
 todo 只记录计划中、正在做、已完成或受阻的执行步骤；不要用它声明工具已完成、任务已完成、事实已成立或最终总结已生成。
-一次只保留真实正在执行的 active 项；完成项必须基于已经发生的工作、工具观察或验证证据，不能因为你准备收口就提前标成完成。
+一次只保留真实正在执行的 in_progress 项；完成项必须基于已经发生的工作、工具观察或验证证据，不能因为你准备收口就提前标成完成。
 持续任务中 agent_todo 绑定当前 session/task；除非运行上下文明确提供其它 id，不要手写 default/runtime。
 当你真正开始某个阶段时用 start；阶段有真实完成证据后用 complete；发现新阶段或范围变化时用 replace/append/update_status。
 简单问答、单步观察或无需持续跟踪的工作不要创建 todo。

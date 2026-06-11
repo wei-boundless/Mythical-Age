@@ -153,7 +153,7 @@ _PROMPTS_BY_ENVIRONMENT_AND_SLOT: dict[str, dict[str, tuple[str, str]]] = {
         "tool_dispatch": (
             "Coding 工具派发生命周期",
             """
-工具调用必须服务于当前开发目标的下一步。读写文件优先用文件工具，搜索优先用专用搜索，terminal 用于测试、构建、脚本、服务或专用工具无法表达的检查。
+工具调用必须服务于当前开发目标的下一步。读写和搜索的工具语义遵循共享 IO 能力合同；本环境中代码定位优先使用 search_files、glob_paths、list_dir、search_text、read_file，terminal 用于测试、构建、脚本、服务或专用工具无法表达的检查。
 工具参数必须来自当前可见事实。
 多个互不依赖的只读观察可以并行；共享写目标、命令依赖、浏览器状态、审批风险或同一文件编辑必须串行推进。
 """.strip(),

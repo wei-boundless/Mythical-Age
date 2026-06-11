@@ -4,7 +4,6 @@ import json
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, artifact_refs_from_tool_result_payload
-from harness.runtime.projection.filters import should_hide_public_tool_call, should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 
@@ -360,17 +359,6 @@ def _apply_tool_action(unit: dict[str, Any], action: dict[str, Any], payload: di
     tool_name = _tool_name(tool_call.get("tool_name") or tool_call.get("name") or payload.get("tool_name"))
     tool_args = _record(tool_call.get("args") or tool_call.get("tool_args"))
     target = _tool_target_preview(tool_args)
-    if should_hide_public_tool_call(
-        tool_name=tool_name,
-        values=(
-            target,
-            tool_args.get("path"),
-            tool_args.get("file_path"),
-            tool_args.get("target"),
-            tool_args.get("replacement_id"),
-        ),
-    ):
-        return
     if tool_name:
         unit["tool_name"] = tool_name
         unit["tool_target"] = target
@@ -393,15 +381,6 @@ def _apply_tool_observation(unit: dict[str, Any], observation: dict[str, Any], e
     tool_name = _tool_name(payload.get("tool_name") or source)
     tool_args = _record(payload.get("tool_args"))
     target = _tool_target_preview(tool_args)
-    if should_hide_public_tool_observation(
-        observation.get("text"),
-        payload.get("result"),
-        payload.get("error"),
-        _record(payload.get("result_envelope")).get("text"),
-        _record(payload.get("result_envelope")).get("summary"),
-        _record(payload.get("result_envelope")).get("result"),
-    ):
-        return
     evidence = _tool_evidence(tool_name=tool_name, tool_args=tool_args, observation=observation)
     unit["tool_name"] = tool_name
     unit["tool_target"] = target

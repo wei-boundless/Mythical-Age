@@ -87,33 +87,6 @@ def test_chat_public_stream_maps_admitted_tool_to_first_class_started_item():
     assert data["target"] == "README.md"
 
 
-def test_chat_public_stream_hides_internal_rehydration_tool_start() -> None:
-    projected = _project_public_stream_event(
-        "model_action_admission",
-        {
-            "event": {
-                "event_id": "event:admission:replacement",
-                "payload": {
-                    "turn_id": "turn:test",
-                    "model_action_request": {
-                        "request_id": "request:replacement",
-                        "action_type": "tool_call",
-                        "tool_call": {
-                            "id": "call:replacement",
-                            "tool_name": "read_persisted_tool_result",
-                            "args": {"replacement_id": "replacement:45b2469f6819dff173c8af83"},
-                        },
-                    },
-                    "admission": {"decision": "allow"},
-                },
-                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
-            },
-        },
-    )
-
-    assert projected is None
-
-
 def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     projected = _project_public_stream_event(
         "turn_tool_observation_recorded",
@@ -147,36 +120,6 @@ def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     assert data["tool_name"] == "read_file"
     assert data["state"] == "done"
     assert data["observation"] == "读取完成。"
-
-
-def test_chat_public_stream_hides_internal_replacement_tool_observation() -> None:
-    projected = _project_public_stream_event(
-        "turn_tool_observation_recorded",
-        {
-            "event": {
-                "event_id": "event:observation:replacement",
-                "payload": {
-                    "tool_observation": {
-                        "tool_name": "read_file",
-                        "status": "ok",
-                        "caller_ref": "turnrun:turn:test:1",
-                        "result_envelope": {
-                            "tool_name": "read_file",
-                            "tool_call_id": "call:replacement",
-                            "text": (
-                                "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/"
-                                "vibe-workspace/runtime_state/dynamic_context/replacements/"
-                                "replacement_473bccdc1a67338ea50b5c0e.json:1:1157"
-                            ),
-                        },
-                    },
-                },
-                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
-            },
-        },
-    )
-
-    assert projected is None
 
 
 def test_tool_observation_promotes_real_tool_call_id_for_public_completion():

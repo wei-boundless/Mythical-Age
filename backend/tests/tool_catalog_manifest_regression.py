@@ -6,7 +6,8 @@ from pathlib import Path
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
 from harness.runtime.tool_plan import build_runtime_tool_plan
-from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME
+from prompt_library.environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
+from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME, list_builtin_tool_prompt_resources
 from runtime.model_gateway.model_request import ModelRequestBuilder
 
 _TOOL_GUIDANCE_DEFAULTS = {key: key for refs in _TOOL_GUIDANCE_REFS_BY_NAME.values() for key in refs}
@@ -86,6 +87,57 @@ def test_tool_catalog_manifest_renders_legacy_model_visible_payload() -> None:
     assert tool["input_schema_summary"]["properties"]["encoding"] == 'string default="utf-8"'
     assert tool["input_schema_summary"]["required"] == ["path"]
     assert manifest.to_model_visible_payload(include_catalog_hash=False).get("tool_catalog_hash") is None
+
+
+def test_tool_catalog_manifest_projects_optional_and_concurrency_contract() -> None:
+    manifest = build_tool_catalog_manifest(
+        invocation_kind="task_execution",
+        tool_payloads=[
+            {
+                "tool_name": "write_file",
+                "operation_id": "op.write_file",
+                "prompt_exposure_policy": "schema_plus_guidance",
+                "required_inputs": ["path", "content"],
+                "optional_inputs": ["allow_overwrite", "expected_previous_sha256"],
+                "read_only": False,
+                "concurrency_safe": False,
+                "input_schema": {
+                    "type": "object",
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "allow_overwrite": {"type": "boolean", "default": False},
+                        "expected_previous_sha256": {"type": "string", "default": ""},
+                    },
+                },
+            }
+        ],
+        source_ref="task_execution.available_tools",
+        tool_guidance_prompt_defaults=_TOOL_GUIDANCE_DEFAULTS,
+    )
+
+    tool = manifest.to_model_visible_payload(include_catalog_hash=True)["available_tools"][0]
+    summary = dict(tool["input_schema_summary"])
+
+    assert tool["optional_inputs"] == ["allow_overwrite", "expected_previous_sha256"]
+    assert tool["read_only"] is False
+    assert tool["concurrency_safe"] is False
+    assert summary["required"] == ["path", "content"]
+    assert summary["optional"] == ["allow_overwrite", "expected_previous_sha256"]
+    assert summary["properties"]["allow_overwrite"] == "boolean default=false"
+    assert summary["additionalProperties"] is False
+
+
+def test_prompt_library_does_not_reference_nonexistent_list_files_tool() -> None:
+    contents = [
+        *(resource.content for resource in list_builtin_tool_prompt_resources()),
+        *(resource.content for resource in list_builtin_environment_lifecycle_prompt_resources()),
+    ]
+
+    assert "list_files" not in "\n".join(contents)
+    assert "active 项" not in "\n".join(contents)
 
 
 def test_tool_catalog_manifest_drops_hidden_and_debug_tools() -> None:

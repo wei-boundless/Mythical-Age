@@ -58,8 +58,16 @@ def test_read_file_is_native_only_but_model_visible_with_schema() -> None:
     assert "read_file" in tools
     assert schema["required"] == ["path"]
     assert schema["additionalProperties"] is False
-    assert set(properties) == {"path", "start_line", "line_count"}
+    assert set(properties) == {"path", "start_line", "line_count", "read_intent"}
     assert properties["start_line"]["type"] == "integer"
+    assert properties["read_intent"]["enum"] == [
+        "edit_target",
+        "verify_behavior",
+        "understand_api",
+        "locate_symbol",
+        "inspect_dependency",
+        "recover_failure",
+    ]
     assert ToolRuntime(BACKEND_DIR).get_instance("read_file") is None
     assert ToolRuntime(BACKEND_DIR).get_definition("read_file") is not None
 
@@ -105,6 +113,60 @@ def test_native_read_file_agent_turn_returns_structured_window_and_events(tmp_pa
     assert event["content_sha256"] == tool_result["content_sha256"]
 
 
+def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("alpha\nbeta\ngamma", encoding="utf-8")
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    task_run_id = "taskrun:read-file-unchanged"
+    context = ToolUseContext(
+        workspace_root=workspace,
+        task_run_id=task_run_id,
+        tool_call_id="call:read-1",
+        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+    )
+
+    first = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2, "read_intent": "edit_target"},
+            context,
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events(
+        task_run_id,
+        first.file_state_events,
+        observation_ref="obs:first-read",
+        tool_call_id="call:read-1",
+    )
+
+    second = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read-2",
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    tool_result = second.structured_payload["tool_result"]
+    event = second.file_state_events[0]
+
+    assert first.text == "1 | alpha\n2 | beta"
+    assert tool_result["file_unchanged"] is True
+    assert tool_result["content_omitted"] is True
+    assert tool_result["previous_observation_ref"] == "obs:first-read"
+    assert "alpha" not in second.text
+    assert tool_result["read_intent"] == "edit_target"
+    assert event["read_intent"] == "edit_target"
+    assert event["file_unchanged"] is True
+
+
 def test_task_run_read_file_commits_file_state_and_dynamic_context_reads_store(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -147,10 +209,15 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_reads_store(t
         )
     )
     file_state = projection.volatile_state_projection["task_state"]["file_state"]
+    read_resource_state = projection.volatile_state_projection["task_state"]["read_resource_state"]
 
     assert file_state[0]["path"] == "src/app.py"
     assert file_state[0]["status"] == "partial"
     assert file_state[0]["next_suggested_read"]["start_line"] == 3
+    assert read_resource_state["authority_boundary"] == "resource_state_only"
+    assert read_resource_state["status"] == "available"
+    assert read_resource_state["available_range_count"] == 1
+    assert "recommended_next_actions" not in read_resource_state
 
     store = FileStateAuthorityStore(execution_store.root_dir)
     stale = store.apply_events(

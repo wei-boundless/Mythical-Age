@@ -713,33 +713,6 @@ describe("PublicTimelineActivity", () => {
     expect(html).toBe("");
   });
 
-  it("does not render internal dynamic-context replacement tool activity", () => {
-    const internalPath = "backend/mythical-agent/sessions/session-d041d4fd4efb41b5/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_0a34237c48b6ce30f985e996.json:1:1432";
-
-    const html = renderToStaticMarkup(
-      React.createElement(PublicTimelineActivity, {
-        items: [
-          {
-            item_id: "tool:replacement",
-            kind: "work_action",
-            slot: "tool",
-            surface: "tool_window",
-            source_authority: "tool",
-            title: "工具已返回",
-            subject_label: internalPath,
-            public_summary: `工具已返回 ${internalPath}`,
-            observation: internalPath,
-            state: "done",
-          },
-        ],
-      }),
-    );
-
-    expect(html).toBe("");
-    expect(html).not.toContain("replacement_0a34237c48b6ce30f985e996.json");
-    expect(html).not.toContain("工具已返回");
-  });
-
   it("leaves markdown model body timeline text for the chat message body renderer", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

@@ -263,7 +263,7 @@ class NativeReadFileTool(_NativeToolBase):
         if not base.allowed:
             return base
         payload = dict(args or {})
-        allowed = {"path", "start_line", "line_count"}
+        allowed = {"path", "start_line", "line_count", "read_intent"}
         unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
         if unexpected:
             return ToolValidationResult(
@@ -313,6 +313,7 @@ class NativeReadFileTool(_NativeToolBase):
                 "path": str(payload.get("path") or "").strip(),
                 "start_line": start_line,
                 "line_count": line_count,
+                "read_intent": _normalize_read_intent(payload.get("read_intent")),
             },
         )
 
@@ -323,6 +324,7 @@ class NativeReadFileTool(_NativeToolBase):
         path = str(args.get("path") or "").strip()
         start_line = int(args.get("start_line") or 1)
         line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
+        read_intent = _normalize_read_intent(args.get("read_intent"))
         gateway = self._file_gateway(context)
         if gateway is not None:
             return self._call_gateway_read(args=args, context=context, gateway=gateway, path=path)
@@ -341,6 +343,25 @@ class NativeReadFileTool(_NativeToolBase):
                 start_line=start_line,
                 line_count=line_count,
             )
+            tool_result = window.to_dict(include_text=False)
+            if read_intent:
+                tool_result["read_intent"] = read_intent
+            unchanged = _unchanged_previous_read_window(
+                context=context,
+                path=rel,
+                start_line=window.start_line,
+                end_line=window.end_line,
+                content_sha256=window.content_sha256,
+            )
+            text = window.text
+            if unchanged:
+                tool_result.update(unchanged)
+                text = _file_unchanged_read_stub(
+                    path=rel,
+                    start_line=window.start_line,
+                    end_line=window.end_line,
+                    previous_observation_ref=str(unchanged.get("previous_observation_ref") or ""),
+                )
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
@@ -352,8 +373,8 @@ class NativeReadFileTool(_NativeToolBase):
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=window.text,
-            structured_payload={"tool_result": window.to_dict(include_text=False)},
+            text=text,
+            structured_payload={"tool_result": tool_result},
             observed_paths=(rel,),
             execution_receipt=context.execution_receipt,
         )
@@ -368,6 +389,7 @@ class NativeReadFileTool(_NativeToolBase):
     ) -> ToolResultEnvelope:
         start_line = int(args.get("start_line") or 1)
         line_count = int(args.get("line_count") or READ_FILE_DEFAULT_LINE_COUNT)
+        read_intent = _normalize_read_intent(args.get("read_intent"))
         repository_id = _repository_for_action(context, "read")
         try:
             result = gateway.read_text(
@@ -384,6 +406,25 @@ class NativeReadFileTool(_NativeToolBase):
                 start_line=start_line,
                 line_count=line_count,
             )
+            tool_result = window.to_dict(include_text=False)
+            if read_intent:
+                tool_result["read_intent"] = read_intent
+            unchanged = _unchanged_previous_read_window(
+                context=context,
+                path=result.logical_path,
+                start_line=window.start_line,
+                end_line=window.end_line,
+                content_sha256=window.content_sha256,
+            )
+            text = window.text
+            if unchanged:
+                tool_result.update(unchanged)
+                text = _file_unchanged_read_stub(
+                    path=result.logical_path,
+                    start_line=window.start_line,
+                    end_line=window.end_line,
+                    previous_observation_ref=str(unchanged.get("previous_observation_ref") or ""),
+                )
         except Exception as exc:
             return self._envelope(
                 tool_args=args,
@@ -401,9 +442,9 @@ class NativeReadFileTool(_NativeToolBase):
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=window.text,
+            text=text,
             structured_payload={
-                "tool_result": window.to_dict(include_text=False),
+                "tool_result": tool_result,
                 "file_gateway": {
                     "access_decision": result.access_decision,
                     "root_binding": result.metadata.get("root_binding"),
@@ -519,6 +560,70 @@ def _coerce_read_window_int(
     return number, ""
 
 
+_READ_INTENT_VALUES = {
+    "edit_target",
+    "verify_behavior",
+    "understand_api",
+    "locate_symbol",
+    "inspect_dependency",
+    "recover_failure",
+}
+
+
+def _normalize_read_intent(value: Any) -> str:
+    intent = str(value or "").strip()
+    return intent if intent in _READ_INTENT_VALUES else ""
+
+
+def _unchanged_previous_read_window(
+    *,
+    context: ToolUseContext,
+    path: str,
+    start_line: int,
+    end_line: int,
+    content_sha256: str,
+) -> dict[str, Any]:
+    task_run_id = str(getattr(context, "task_run_id", "") or "").strip()
+    if not task_run_id or not content_sha256:
+        return {}
+    try:
+        from runtime.memory.file_state_store import FileStateAuthorityStore
+
+        for root in _runtime_context_storage_roots(context):
+            state = FileStateAuthorityStore(root).load(task_run_id)
+            for file_state in state.files:
+                if str(file_state.path or "").replace("\\", "/").strip().strip("/") != str(path or "").replace("\\", "/").strip().strip("/"):
+                    continue
+                if str(file_state.content_sha256 or "") != str(content_sha256 or ""):
+                    continue
+                for segment in file_state.read_ranges:
+                    if segment.stale:
+                        continue
+                    if int(segment.start_line) != int(start_line) or int(segment.end_line) != int(end_line):
+                        continue
+                    if str(segment.content_sha256 or "") != str(content_sha256 or ""):
+                        continue
+                    return {
+                        "file_unchanged": True,
+                        "content_omitted": True,
+                        "previous_observation_ref": str(segment.observation_ref or ""),
+                    }
+    except Exception:
+        return {}
+    return {}
+
+
+def _file_unchanged_read_stub(
+    *,
+    path: str,
+    start_line: int,
+    end_line: int,
+    previous_observation_ref: str,
+) -> str:
+    ref = f" Previous observation: {previous_observation_ref}." if previous_observation_ref else ""
+    return f"File unchanged for {path}:{start_line}-{end_line}; content omitted. Use the earlier read result for this exact window.{ref}"
+
+
 class NativeWriteFileTool(_NativeToolBase):
     def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
         gateway = self._file_gateway(context)
@@ -571,7 +676,12 @@ class NativeWriteFileTool(_NativeToolBase):
             files = self._files(context)
             target_path = files.resolve(path, require_path=True)
             before_content = files.read_text(target_path) if target_path.exists() and target_path.is_file() else None
-            file_path = files.write_text(path, content)
+            file_path = files.write_text(
+                path,
+                content,
+                allow_overwrite=bool(args.get("allow_overwrite") is True),
+                expected_previous_sha256=str(args.get("expected_previous_sha256") or ""),
+            )
             rel = files.relative_path(file_path)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
@@ -1101,8 +1211,13 @@ class NativeSearchTextTool(_NativeToolBase):
         if not query:
             return self._envelope(tool_args=args, status="error", text="Search failed: query is required.", execution_receipt=context.execution_receipt)
         files = self._files(context)
-        limit = max(1, min(int(args.get("max_results") or 20), 100))
+        limit = _search_result_limit(args)
+        offset = max(0, int(args.get("offset") or 0))
+        scan_limit = min(100, limit + offset + 1)
         glob = str(args.get("glob") or "").strip()
+        output_mode = _normalize_search_output_mode(args.get("output_mode"))
+        context_lines = max(0, min(int(args.get("context") or 0), 20))
+        case_sensitive = bool(args.get("case_sensitive") is True)
         requested_paths = _nonempty_path_args(args.get("paths"))
         if requested_paths:
             target_paths, path_error = _resolve_search_paths(files, requested_paths)
@@ -1114,17 +1229,27 @@ class NativeSearchTextTool(_NativeToolBase):
                     structured_payload={"tool_result": {"kind": "text_search", "status": "error", "error": path_error}},
                     execution_receipt=context.execution_receipt,
                 )
-            matches = _search_text_in_paths(files, query=query, paths=target_paths, glob=glob, limit=limit)
+            matches = _search_text_in_paths(files, query=query, paths=target_paths, glob=glob, limit=scan_limit, case_sensitive=case_sensitive)
+            total_matches = len(matches)
+            matches = _slice_search_matches(matches, offset=offset, limit=limit)
             matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
-            text = "\n".join(
-                f"{item['path']}:{item['line']}:{item['column']}:{item['text']}"
-                for item in matches
-            ) or f"没有找到匹配项：{query}"
+            text = _format_text_search_output(matches, query=query, output_mode=output_mode)
             return self._envelope(
                 tool_args=args,
                 status="ok",
                 text=text,
-                structured_payload={"tool_result": {"kind": "text_search", "query": query, "paths": requested_paths, "matches": matches}},
+                structured_payload={
+                    "tool_result": _text_search_tool_result(
+                        query=query,
+                        matches=matches,
+                        requested_paths=requested_paths,
+                        output_mode=output_mode,
+                        limit=limit,
+                        offset=offset,
+                        total_matches=total_matches,
+                        context_lines=context_lines,
+                    )
+                },
                 matched_paths=matched_paths,
                 execution_receipt=context.execution_receipt,
             )
@@ -1141,17 +1266,35 @@ class NativeSearchTextTool(_NativeToolBase):
         safe_roots = files.safe_roots(args.get("roots"))
         if not safe_roots:
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
-        matches = _search_text(files, query=query, safe_roots=safe_roots, glob=glob, limit=limit, using_default_roots=using_default_roots)
+        matches = _search_text(
+            files,
+            query=query,
+            safe_roots=safe_roots,
+            glob=glob,
+            limit=scan_limit,
+            using_default_roots=using_default_roots,
+            case_sensitive=case_sensitive,
+        )
+        total_matches = len(matches)
+        matches = _slice_search_matches(matches, offset=offset, limit=limit)
         matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
-        text = "\n".join(
-            f"{item['path']}:{item['line']}:{item['column']}:{item['text']}"
-            for item in matches
-        ) or f"没有找到匹配项：{query}"
+        text = _format_text_search_output(matches, query=query, output_mode=output_mode)
         return self._envelope(
             tool_args=args,
             status="ok",
             text=text,
-            structured_payload={"tool_result": {"kind": "text_search", "query": query, "matches": matches}},
+            structured_payload={
+                "tool_result": _text_search_tool_result(
+                    query=query,
+                    matches=matches,
+                    requested_paths=(),
+                    output_mode=output_mode,
+                    limit=limit,
+                    offset=offset,
+                    total_matches=total_matches,
+                    context_lines=context_lines,
+                )
+            },
             matched_paths=matched_paths,
             execution_receipt=context.execution_receipt,
         )
@@ -2017,15 +2160,17 @@ def _search_text(
     glob: str,
     limit: int,
     using_default_roots: bool,
+    case_sensitive: bool = False,
 ) -> list[dict[str, Any]]:
     args = [
         "--line-number",
         "--column",
-        "--ignore-case",
         "--hidden",
         "--max-count",
         str(limit),
     ]
+    if not bool(case_sensitive):
+        args.append("--ignore-case")
     for excluded in DEFAULT_EXCLUDED_DIRS:
         args.extend(["--glob", f"!**/{excluded}/**"])
     if using_default_roots:
@@ -2059,6 +2204,7 @@ def _search_text(
             glob=glob,
             limit=limit,
             using_default_roots=using_default_roots,
+            case_sensitive=case_sensitive,
         )
     if completed.returncode not in {0, 1}:
         return []
@@ -2079,9 +2225,11 @@ def _search_text_in_paths(
     paths: list[Path],
     glob: str,
     limit: int,
+    case_sensitive: bool = False,
 ) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     pattern = str(glob or "").strip()
+    query_cmp = query if case_sensitive else query.lower()
     for path in paths:
         if len(matches) >= limit:
             return matches
@@ -2093,7 +2241,8 @@ def _search_text_in_paths(
         except OSError:
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
-            column = line.lower().find(query.lower()) + 1
+            line_cmp = line if case_sensitive else line.lower()
+            column = line_cmp.find(query_cmp) + 1
             if column <= 0:
                 continue
             matches.append({"path": rel, "line": line_number, "column": column, "text": line[:240]})
@@ -2123,9 +2272,11 @@ def _fallback_search_text(
     glob: str,
     limit: int,
     using_default_roots: bool,
+    case_sensitive: bool = False,
 ) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     pattern = glob.strip() or "*"
+    query_cmp = query if case_sensitive else query.lower()
     for root in safe_roots:
         for path in root.rglob(pattern):
             if len(matches) >= limit:
@@ -2137,12 +2288,99 @@ def _fallback_search_text(
             except OSError:
                 continue
             for line_number, line in enumerate(text.splitlines(), start=1):
-                column = line.lower().find(query.lower()) + 1
+                line_cmp = line if case_sensitive else line.lower()
+                column = line_cmp.find(query_cmp) + 1
                 if column <= 0:
                     continue
                 matches.append({"path": files.relative_path(path), "line": line_number, "column": column, "text": line[:240]})
                 break
     return matches
+
+
+def _search_result_limit(args: dict[str, Any]) -> int:
+    head_limit = int(args.get("head_limit") or 0)
+    selected = head_limit if head_limit > 0 else int(args.get("max_results") or 20)
+    return max(1, min(selected, 100))
+
+
+def _normalize_search_output_mode(value: Any) -> str:
+    mode = str(value or "content").strip()
+    return mode if mode in {"content", "files_with_matches", "count"} else "content"
+
+
+def _slice_search_matches(matches: list[dict[str, Any]], *, offset: int, limit: int) -> list[dict[str, Any]]:
+    start = max(0, int(offset or 0))
+    return list(matches)[start : start + max(1, int(limit or 1))]
+
+
+def _format_text_search_output(matches: list[dict[str, Any]], *, query: str, output_mode: str) -> str:
+    if not matches:
+        return f"没有找到匹配项：{query}"
+    if output_mode == "files_with_matches":
+        paths = [str(item.get("path") or "") for item in matches if str(item.get("path") or "")]
+        return "\n".join(dict.fromkeys(paths)) or f"没有找到匹配项：{query}"
+    if output_mode == "count":
+        counts: dict[str, int] = {}
+        for item in matches:
+            path = str(item.get("path") or "")
+            if path:
+                counts[path] = counts.get(path, 0) + 1
+        return "\n".join(f"{path}:{count}" for path, count in counts.items()) or f"没有找到匹配项：{query}"
+    return "\n".join(f"{item['path']}:{item['line']}:{item['column']}:{item['text']}" for item in matches)
+
+
+def _text_search_tool_result(
+    *,
+    query: str,
+    matches: list[dict[str, Any]],
+    requested_paths: Any,
+    output_mode: str,
+    limit: int,
+    offset: int,
+    total_matches: int,
+    context_lines: int,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kind": "text_search",
+        "query": query,
+        "matches": matches,
+        "output_mode": output_mode,
+        "recommended_read_windows": _recommended_read_windows(matches, context_lines=context_lines),
+    }
+    paths = [str(item) for item in list(requested_paths or []) if str(item)]
+    if paths:
+        payload["paths"] = paths
+    if offset > 0:
+        payload["applied_offset"] = offset
+    if total_matches > len(matches) + offset:
+        payload["applied_limit"] = limit
+    return payload
+
+
+def _recommended_read_windows(matches: list[dict[str, Any]], *, context_lines: int) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    padding = int(context_lines) if int(context_lines or 0) > 0 else 2
+    for item in matches:
+        path = str(item.get("path") or "").strip()
+        line = int(item.get("line") or 0)
+        if not path or line <= 0:
+            continue
+        start_line = max(1, line - padding)
+        line_count = max(1, padding * 2 + 1)
+        key = (path, start_line, line_count)
+        if key in seen:
+            continue
+        seen.add(key)
+        windows.append(
+            {
+                "path": path,
+                "start_line": start_line,
+                "line_count": line_count,
+                "reason": f"match near line {line}",
+            }
+        )
+    return windows
 
 
 def _resolve_existing_file(files: WorkspaceFileService, path: str) -> Path | None:

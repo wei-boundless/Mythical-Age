@@ -7,7 +7,6 @@ export function looksLikeRawToolOutput(value: unknown) {
   return looksLikeLineNumberedFilePreview(raw)
     || looksLikeToolPlaceholder(text)
     || looksLikeRawCommandText(text)
-    || looksLikePersistedToolResultFailure(text)
     || looksLikeRawFileListing(text)
     || looksLikeCopiedOutput(text)
     || looksLikeJsonDiagnostics(text)
@@ -29,14 +28,6 @@ function looksLikeRawCommandText(value: string) {
   return /\b(?:Exit code|Wall time|Output):/i.test(value)
     || /\b(?:Get-Content|Get-ChildItem|Select-Object|Stop-Process|Start-Process|python -m|npm run|npx )\b/i.test(value)
     || /\b(?:not allowlisted read-only|read-only validator|unsupported read-only)\b/i.test(value);
-}
-
-function looksLikePersistedToolResultFailure(value: string) {
-  return /Read persisted tool result failed|persisted tool result read failed/i.test(value)
-    || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(value)
-    || /tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(value)
-    || /(?:runtime_state)[\\/]+dynamic_context[\\/]+replacements[\\/]+replacement_[a-f0-9]+\.json/i.test(value)
-    || /(?:mythical-agent|storage)[\\/]+sessions[\\/]+session-[^\\/]+[\\/]+environments[\\/]+[^\\/]+[\\/]+[^\\/]+[\\/]+runtime_state[\\/]+dynamic_context[\\/]+replacements/i.test(value);
 }
 
 function looksLikeRawFileListing(value: string) {

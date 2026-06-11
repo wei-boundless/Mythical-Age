@@ -303,6 +303,8 @@ def infer_file_state_events(
                         "next_start_line": _int_or_none(tool_result.get("next_start_line")),
                         "has_more": tool_result.get("has_more") if isinstance(tool_result.get("has_more"), bool) else None,
                         "content_sha256": str(tool_result.get("content_sha256") or tool_result.get("sha256") or "").strip(),
+                        "read_intent": str(tool_result.get("read_intent") or args.get("read_intent") or "").strip(),
+                        "file_unchanged": tool_result.get("file_unchanged") if isinstance(tool_result.get("file_unchanged"), bool) else None,
                         "authority": "runtime.tool_result_envelope.file_state_event",
                     }
                 )

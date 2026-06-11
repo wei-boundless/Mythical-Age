@@ -57,11 +57,13 @@ class TaskStateProjector:
         positive_paths = _positive_paths(current_facts, latest_results, artifact_evidence)
         current_facts = _drop_superseded_missing_path_probes(current_facts, positive_paths=positive_paths)
         latest_results = _drop_superseded_missing_path_probes(latest_results, positive_paths=positive_paths)
+        file_state = _file_state_projection(execution_projection.get("file_state"))
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
-            "file_state": _file_state_projection(execution_projection.get("file_state")),
+            "file_state": file_state,
+            "read_resource_state": _read_resource_state_projection(file_state),
             "file_state_source": str(execution_projection.get("file_state_source") or ""),
             "latest_tool_results": latest_results,
             "active_failures": _dedupe_failures(
@@ -833,12 +835,74 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
         "end_line": segment.get("end_line"),
         "observation_ref": str(segment.get("observation_ref") or ""),
     }
+    read_intent = str(segment.get("read_intent") or "")
+    if read_intent:
+        payload["read_intent"] = read_intent
+    if isinstance(segment.get("file_unchanged"), bool):
+        payload["file_unchanged"] = segment.get("file_unchanged")
     source = str(segment.get("source") or "")
     if source:
         payload["source"] = source
     if isinstance(segment.get("truncated"), bool):
         payload["truncated"] = segment.get("truncated")
     return payload
+
+
+def _read_resource_state_projection(file_state: list[dict[str, Any]]) -> dict[str, Any]:
+    active_files = [
+        item
+        for item in list(file_state or [])
+        if dict_tuple(item.get("read_ranges")) and str(item.get("status") or "") not in {"stale", "missing"}
+    ]
+    stale_files = [item for item in list(file_state or []) if str(item.get("status") or "") == "stale"]
+    if not active_files and not stale_files:
+        return {}
+    latest = active_files[-1] if active_files else stale_files[-1]
+    path = str(latest.get("path") or "")
+    if stale_files and not active_files:
+        return drop_empty(
+            {
+                "kind": "read_resource_state",
+                "authority_boundary": "resource_state_only",
+                "status": "stale",
+                "path": path,
+                "stale": True,
+                "stale_range_count": sum(len(dict_tuple(item.get("read_ranges"))) for item in stale_files),
+                "available_evidence_refs": _read_resource_evidence_refs(stale_files),
+                "reliability_note": "Previously read ranges are stale after a write or edit event; use them only as history, not as current file content.",
+                "authority": "harness.runtime.dynamic_context.read_resource_state",
+            }
+        )
+    active_ranges = [segment for item in active_files for segment in dict_tuple(item.get("read_ranges"))]
+    return drop_empty(
+        {
+            "kind": "read_resource_state",
+            "authority_boundary": "resource_state_only",
+            "status": "available",
+            "path": path,
+            "available_range_count": len(active_ranges),
+            "available_evidence_refs": _read_resource_evidence_refs(active_files),
+            "coverage": dict(latest.get("coverage") or {}),
+            "has_more": latest.get("has_more") if isinstance(latest.get("has_more"), bool) else None,
+            "content_sha256": str(latest.get("content_sha256") or ""),
+            "reliability_note": "These are resource facts about previously returned read windows. The model remains responsible for deciding whether more context is needed.",
+            "authority": "harness.runtime.dynamic_context.read_resource_state",
+        }
+    )
+
+
+def _read_resource_evidence_refs(file_state: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for item in list(file_state or []):
+        for ref in list(item.get("evidence_refs") or []):
+            text = str(ref or "").strip()
+            if text and text not in refs:
+                refs.append(text)
+        for segment in dict_tuple(item.get("read_ranges")):
+            text = str(segment.get("observation_ref") or "").strip()
+            if text and text not in refs:
+                refs.append(text)
+    return refs[-6:]
 
 
 def _editor_file_state_projection(value: dict[str, Any]) -> dict[str, Any]:

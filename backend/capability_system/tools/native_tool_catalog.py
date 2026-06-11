@@ -395,7 +395,17 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: SearchTextTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=["query"],
-                optional_inputs=["roots", "paths", "glob", "max_results"],
+                optional_inputs=[
+                    "roots",
+                    "paths",
+                    "glob",
+                    "max_results",
+                    "output_mode",
+                    "context",
+                    "case_sensitive",
+                    "head_limit",
+                    "offset",
+                ],
                 owner_scope="none",
                 missing_binding_behavior="clarify",
                 context_policy="inline",
@@ -419,7 +429,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=None,
             contract=ToolExecutionContract(
                 required_inputs=["path"],
-                optional_inputs=["start_line", "line_count"],
+                optional_inputs=["start_line", "line_count", "read_intent"],
                 owner_scope="explicit_path",
                 missing_binding_behavior="clarify",
                 context_policy="inline",
