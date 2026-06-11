@@ -184,6 +184,7 @@ presentation 层只在兜底场景净化文本，不删除整条活动。
 | `INTERNAL_PROTOCOL_SIGNAL` | 内部协议或机器状态 | raw JSON、DSML、plan_id/items、machine status | 不给用户 | projection 层净化或丢弃文本 |
 | `SESSION_CANONICAL_MESSAGE` | 正式 assistant 正文 | 最终回答、明确阻塞说明 | session messages | 必须有 turn_id，经过 commit gate |
 | `BACKGROUND_TASK_PROJECTION` | 后台任务投影 | task projection、progress entries、public timeline | UI 工具/任务窗口 | 保留，不写成普通正文 |
+| `RUN_MONITOR_RECORD` | 运行监控历史记录 | `management.lanes.recent`、`management.lanes.hidden`、completed task record | 运行管理台 records/cleanup | 保留记录，但不进入右侧常驻任务 lane，不自动选中 |
 | `DEBUG_TRACE_SIGNAL` | 调试轨迹 | raw event id、step_summary_recorded、runtime packet | monitor/debug only | 不进入主聊天正文 |
 
 ### 4.1 信号边界规则
@@ -247,7 +248,7 @@ replacement_id + task_run_id + trusted path
 
 本章的 timeline 是广义公开显示时序，不等同于当前代码里的 `runtimeAttachments[].public_timeline` 数组。当前实现中，`assistant_body` 和 `tool_window` 有独立过滤/渲染路径；如果实施时不先统一通道权威，就会出现正文、工具窗口、runtime attachment 三套重复解释。
 
-本系统的公开显示时序不应是一条混杂文本流，而应拆成 5 个显示面：
+本系统的公开显示时序不应是一条混杂文本流，而应拆成 7 个显示面：
 
 | 显示面 | 对应字段 | 允许内容 | 禁止内容 |
 | --- | --- | --- | --- |
@@ -255,6 +256,8 @@ replacement_id + task_run_id + trusted path
 | 工具窗口 | `ToolActivityLifecycle`；语义上可对应 `slot=tool` + `surface=tool_window` | 工具生命周期运行、完成、失败、安全目标摘要 | runtime 私有路径、raw protocol、整项隐藏、重复 start/return 行 |
 | 任务/状态 timeline | `slot=status/task/timeline` + `surface=timeline/status_bar` | 任务接管、等待、排队、阶段性公开进展 | 空泛机器状态刷屏 |
 | 控制面 | `slot=control` + `surface=control` | pause/stop/continue/steer ack、safe boundary wait | 正文回答、工具结果 |
+| 常驻运行监视台 | `RunMonitorPanel` + `selectRunMonitorTaskLane()` | 当前运行、等待、需关注、项目级 active/attention 信号 | `recent`、`hidden`、completed/stopped 历史记录、默认选中旧记录 |
+| 运行管理台 | `RunManagementWorkbench` + `management.lanes.recent/hidden` | 最近完成、已清出、可清理的运行记录 | 把历史记录伪装成当前运行、抢占常驻任务窗口 |
 | Debug/Monitor | raw runtime event / technical trace | event id、payload、step、diagnostics | 进入主聊天正文 |
 
 当前代码对照：
@@ -309,6 +312,7 @@ runtime attachment public_timeline = 状态、任务、控制、可合并的 com
 | `INTERNAL_PROTOCOL_SIGNAL` | none | none | none | 否 | projection 层净化或丢弃 |
 | `SESSION_CANONICAL_MESSAGE` | `final_summary` 或 assistant message content | `body` | `assistant_body` | 是 | 必须经过 commit gate |
 | `BACKGROUND_TASK_PROJECTION` | task projection / `status_update` | `task` / `timeline` | task panel / timeline | 否 | 用于任务窗口和 runtime attachment |
+| `RUN_MONITOR_RECORD` | monitor record row | management records | run management workbench | 否 | 只在 records/cleanup 或显式打开详情时出现，不参与右侧任务 lane 自动选择 |
 | `DEBUG_TRACE_SIGNAL` | none | none | debug only | 否 | 仅 monitor/debug |
 
 ### 5.3 边界场景显示规则
@@ -442,6 +446,23 @@ session timeline / runtime attachment hydrate
 -> 不重复显示旧工具项
 ```
 
+#### 5.3.10 全局运行监控 recent 记录
+
+```text
+GET /api/orchestration/runtime-monitor
+-> management.lanes.current / projects / attention 进入右侧常驻任务 lane
+-> management.lanes.recent / hidden 只进入运行管理台 records/cleanup
+-> reducer 默认 auto-select 只允许 live task lane 候选
+-> 用户显式打开历史记录时，才允许用 signal_id 选中 recent/hidden 详情
+```
+
+固定约束：
+
+- 后端可以返回 recent/hidden，因为管理台需要历史、清理和诊断能力。
+- 右侧常驻 `RunMonitorPanel` 只能展示当前运行、等待、需关注和项目级 active/attention 信号。
+- completed/stopped/recent/hidden 不能因为 SSE 重连、刷新、空态 fallback 或默认选择逻辑跳回常驻任务窗口。
+- 显式选择历史记录是用户动作，不能被 reducer 的默认 selection 当作“最新任务”推断。
+
 ### 5.4 当前源码对照点
 
 当前已有的 timeline 类型和路由位置：
@@ -458,10 +479,11 @@ session timeline / runtime attachment hydrate
 2. `runtime_status` 当前可能不产生 item，但 task projection 会随 envelope 附加；任务接管类状态应避免正文刷屏。
 3. `active_task_steer_accepted` 应该是 control surface / session activity / task projection 状态，不应进入 assistant body，也不要求进入工具活动列表。
 4. `work_action` 的 `subject_label` 必须经过 runtime-private path boundary 后再生成。
-5. 前端 `normalizePublicTimelineItems()` 当前会过滤 body/status_bar/todo_plan，只合并 companion timeline；这决定了正文和活动窗口必须分路输入。
-6. 工具开始和工具返回必须合并为同一个 `ToolActivityLifecycle`；不能把 event list 直接渲染成两条 UI 记录。
-7. `PublicProjectionFrame` 当前会过滤 `tool_window` 和 `assistant_body`，所以如果目标是用 projection envelope 承载这两类 item，必须先改 projection authority 和前端 reducer；否则应保持它们分别走 assistant/session 和 ToolActivityLifecycle 通道。
-8. `PublicTimelineActivity` 当前会过滤 control item；control 类信号主要体现在 session activity、stage status 或 task projection，不应要求它出现在工具/活动列表里。
+5. `frontend/src/components/layout/RunMonitorPanel.tsx` 必须只消费 `selectRunMonitorTaskLane()`；`frontend/src/lib/run-monitor/reducer.ts` 默认 selection 必须只从 live task lane 自动选择，不能从 `allRunMonitorSignals()` 里的 recent/hidden 兜底。
+6. 前端 `normalizePublicTimelineItems()` 当前会过滤 body/status_bar/todo_plan，只合并 companion timeline；这决定了正文和活动窗口必须分路输入。
+7. 工具开始和工具返回必须合并为同一个 `ToolActivityLifecycle`；不能把 event list 直接渲染成两条 UI 记录。
+8. `PublicProjectionFrame` 当前会过滤 `tool_window` 和 `assistant_body`，所以如果目标是用 projection envelope 承载这两类 item，必须先改 projection authority 和前端 reducer；否则应保持它们分别走 assistant/session 和 ToolActivityLifecycle 通道。
+9. `PublicTimelineActivity` 当前会过滤 control item；control 类信号主要体现在 session activity、stage status 或 task projection，不应要求它出现在工具/活动列表里。
 
 ## 6. 目标架构边界
 
@@ -611,6 +633,10 @@ storage/sessions/**
 storage/session_environments/**
 storage/runtime_context/**
 storage/runtime_state/**
+runtime_context/tool_results/**
+runtime_state/dynamic_context/replacements/**
+runtime_state/tool_results/**
+dynamic_context/replacements/replacement_*.json
 backend/storage/session_environments/**
 backend/storage/runtime_context/**
 backend/storage/runtime_state/**

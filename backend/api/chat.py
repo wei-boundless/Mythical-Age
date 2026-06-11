@@ -173,6 +173,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     },
     TOOL_ITEM_STARTED_EVENT: {
         "item_id",
+        "tool_lifecycle_id",
         "tool_call_id",
         "turn_run_id",
         "task_run_id",
@@ -185,6 +186,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     },
     TOOL_ITEM_COMPLETED_EVENT: {
         "item_id",
+        "tool_lifecycle_id",
         "tool_call_id",
         "turn_run_id",
         "task_run_id",
@@ -785,6 +787,7 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = str(tool.get("id") or request.get("tool_call_id") or request.get("request_id") or "").strip()
     if not tool_name or not tool_call_id:
         return {}
+    tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
     args = _record(tool.get("args") or tool.get("arguments") or request.get("tool_args"))
     target = _safe_public_tool_target(args)
     title = _safe_public_action_text(
@@ -793,7 +796,8 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         or f"运行工具 {tool_name}"
     ) or f"运行工具 {tool_name}"
     data: dict[str, Any] = {
-        "item_id": tool_call_id,
+        "item_id": tool_lifecycle_id,
+        "tool_lifecycle_id": tool_lifecycle_id,
         "tool_call_id": tool_call_id,
         "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
@@ -822,6 +826,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = _tool_call_id_from_observation(observation)
     if not tool_name or not tool_call_id:
         return {}
+    tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
     status = str(observation.get("status") or "").strip().lower()
     state = "error" if status and status not in {"ok", "done", "completed", "success"} else "done"
     result_envelope = _record(observation.get("result_envelope"))
@@ -834,7 +839,8 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     )
     observation_text = _safe_tool_observation_text(observation, result_envelope=result_envelope)
     data: dict[str, Any] = {
-        "item_id": tool_call_id,
+        "item_id": tool_lifecycle_id,
+        "tool_lifecycle_id": tool_lifecycle_id,
         "tool_call_id": tool_call_id,
         "turn_run_id": str(observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
@@ -883,6 +889,14 @@ def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
     ).strip()
 
 
+def _tool_lifecycle_id(*, tool_call_id: str, tool_name: str) -> str:
+    normalized_call_id = str(tool_call_id or "").strip()
+    if normalized_call_id:
+        return normalized_call_id
+    normalized_tool = str(tool_name or "tool").strip() or "tool"
+    return f"tool:{normalized_tool}"
+
+
 def _safe_tool_observation_text(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
     for value in (
         result_envelope.get("text"),
@@ -909,9 +923,9 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
         value = args.get(key)
         if isinstance(value, (dict, list, tuple)):
             continue
-        text = sanitize_visible_assistant_content(str(value or "")).strip()
+        text = _safe_public_action_text(f"{key}={value}")
         if text:
-            parts.append(f"{key}={text[:80]}")
+            parts.append(text[:80])
         if len(parts) >= 3:
             break
     return ", ".join(parts)[:240]
@@ -919,9 +933,9 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
 
 def _safe_public_tool_target(args: dict[str, Any]) -> str:
     for key in ("path", "file", "file_path", "target", "url", "query"):
-        value = str(args.get(key) or "").strip()
+        value = _safe_public_action_text(args.get(key))
         if value:
-            return sanitize_visible_assistant_content(value)[:180]
+            return value[:180]
     return ""
 
 

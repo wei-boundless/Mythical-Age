@@ -1,5 +1,6 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
+import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 
 export type PublicTimelineTerminalState = "done" | "error" | "stopped" | "";
 
@@ -288,6 +289,7 @@ function looksLikeMachineStatusText(value: string) {
 
 function looksLikeRawProjectedOutput(value: string) {
   const raw = String(value ?? "").replace(/\r\n?/g, "\n");
+  if (looksLikeRuntimePrivateArtifactText(raw)) return true;
   if (/(?:^|\n)\s*\d{1,6}\s*\|\s+/.test(raw)) return true;
   if (/^\d{1,6}\s*\|\s+/.test(cleanPublicTimelineText(raw))) return true;
   if (/\b(?:Exit code|Wall time|Output):/i.test(raw)) return true;

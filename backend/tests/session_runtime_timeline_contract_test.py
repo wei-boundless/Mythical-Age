@@ -11,7 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from harness.runtime.session_timeline import build_session_runtime_timeline
+from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
+from harness.runtime.session_timeline import build_session_runtime_timeline, _progress_entries
 from runtime.shared.models import TaskRun, TurnRun
 from tests.support.runtime_stubs import build_harness_runtime
 
@@ -53,6 +54,61 @@ def _action_request(
         "active_work_control": {},
         "diagnostics": {"test_action_request": True},
     }
+
+
+def test_session_runtime_timeline_reconciles_tool_start_and_completion_lifecycle() -> None:
+    events = [
+        {
+            "event_id": "event:start",
+            "event_type": "model_action_admission_checked",
+            "run_id": "turnrun:turn:test:1",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "model_action_request": {
+                    "request_id": "request:read",
+                    "action_type": "tool_call",
+                    "tool_call": {
+                        "id": "call:read",
+                        "tool_name": "read_file",
+                        "args": {"path": "backend/harness/runtime/session_timeline.py"},
+                    },
+                }
+            },
+            "refs": {"action_request_ref": "request:read", "turn_run_ref": "turnrun:turn:test:1"},
+        },
+        {
+            "event_id": "event:done",
+            "event_type": "turn_tool_observation_recorded",
+            "run_id": "turnrun:turn:test:1",
+            "offset": 2,
+            "created_at": 2.0,
+            "payload": {
+                "tool_observation": {
+                    "tool_name": "read_file",
+                    "status": "ok",
+                    "tool_call_id": "call:read",
+                    "result_envelope": {
+                        "tool_name": "read_file",
+                        "tool_call_id": "call:read",
+                        "tool_args": {"path": "backend/harness/runtime/session_timeline.py"},
+                    },
+                }
+            },
+            "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+        },
+    ]
+
+    entries = _progress_entries(events)
+    items = build_public_chat_timeline_from_progress_entries(entries)
+
+    tool_items = [item for item in items if item.get("slot") == "tool"]
+    assert len(tool_items) == 1
+    assert tool_items[0]["item_id"] == "call:read"
+    assert tool_items[0]["tool_lifecycle_id"] == "call:read"
+    assert tool_items[0]["tool_call_id"] == "call:read"
+    assert tool_items[0]["state"] == "done"
+    assert tool_items[0]["subject_label"] == "backend/harness/runtime/session_timeline.py"
 
 
 class _TaskExecutorSequenceModelRuntime:

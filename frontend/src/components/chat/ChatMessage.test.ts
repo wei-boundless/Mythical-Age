@@ -131,6 +131,46 @@ describe("ChatMessage", () => {
     expect(html).toContain("public-run-activity");
   });
 
+  it("does not render runtime-private paths from tool window metadata", () => {
+    const privatePath = "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json";
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:private-tool-window",
+        retrievals: [],
+        role: "assistant",
+        runtimePublicTimelineDraft: [
+          {
+            item_id: "tool:private",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            action_kind: "read",
+            title: "正在读取上下文",
+            subject_label: privatePath,
+            public_summary: "正在读取上下文",
+            observation: privatePath,
+            state: "running",
+            tool_window: {
+              tool_label: "read_file",
+              status: "运行中",
+              target: privatePath,
+              sections: [{ label: "结果", text: privatePath }],
+            },
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("正在读取上下文");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("replacement_e21050df8baca858bdde6a4d");
+    expect(html).not.toContain("runtime_state");
+    expect(html).not.toContain("mythical-agent");
+  });
+
   it("keeps live streamed prose visible beside runtime activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {

@@ -663,7 +663,9 @@
     // 鼠标在球上方 → 高抛弧线；鼠标在球下方 → 平投
     const dx = mouseX - ballX;
     const dy = ballY - mouseY;
-    return Math.atan2(-dy, dx) * 180 / Math.PI;
+    // dy 直接作为 Y 分量：鼠标越高 → dy 越大 → 角度越接近 90° → 球越往上飞
+    // 注：shoot() 中对 sin 分量做了 *(-1) 以适配屏幕坐标系（Y轴向下）
+    return Math.atan2(dy, dx) * 180 / Math.PI;
   }
 
   function render() {
@@ -731,10 +733,14 @@
     const rect = canvas.getBoundingClientRect();
     const scaleX = W / rect.width;
     const scaleY = H / rect.height;
-    ballX = (e.touches[0].clientX - rect.left) * scaleX;
-    ballX = Math.max(40, Math.min(W - 40, ballX));
-    const rawY = (e.touches[0].clientY - rect.top) * scaleY;
-    ballY = Math.max(H - 140, Math.min(H - 55, rawY));
+    mouseX = (e.touches[0].clientX - rect.left) * scaleX;
+    mouseY = (e.touches[0].clientY - rect.top) * scaleY;
+    // 未蓄力时：球员位置跟随手指（模拟人移动站位 + 高度调节）
+    if (!mouseDown) {
+      ballX = Math.max(40, Math.min(W - 40, mouseX));
+      ballY = Math.max(H - 180, Math.min(H - 50, mouseY));
+    }
+    // 蓄力时：球员位置锁定，手指自由移动来瞄准
   }, { passive: false });
 
   canvas.addEventListener('touchstart', (e) => {
@@ -743,10 +749,10 @@
     const rect = canvas.getBoundingClientRect();
     const scaleX = W / rect.width;
     const scaleY = H / rect.height;
-    ballX = (e.touches[0].clientX - rect.left) * scaleX;
-    ballX = Math.max(40, Math.min(W - 40, ballX));
-    const rawY = (e.touches[0].clientY - rect.top) * scaleY;
-    ballY = Math.max(H - 140, Math.min(H - 55, rawY));
+    mouseX = (e.touches[0].clientX - rect.left) * scaleX;
+    mouseY = (e.touches[0].clientY - rect.top) * scaleY;
+    ballX = Math.max(40, Math.min(W - 40, mouseX));
+    ballY = Math.max(H - 180, Math.min(H - 50, mouseY));
     mouseDown = true;
     chargeStart = performance.now();
     chargePower = 0;

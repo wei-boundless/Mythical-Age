@@ -3513,6 +3513,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.content).toBe("最终回答。");
   });
 
+  it("does not write active-work control action names from assistant_text_final into assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      content: "好，用户说“继续”，指向当前活跃工作（修复篮球游戏2D瞄准）。用 answer_then_continue_active_work 简短确认后继续推进。",
+      content_sha256: "sha256:internal-control",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "好，用户说“继续”，指向当前活跃工作（修复篮球游戏2D瞄准）。用 answer_then_continue_active_work 简短确认后继续推进。",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not write tool-budget internal closeout text from assistant_text_final into assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      content: "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
+      content_sha256: "sha256:tool-budget-internal",
+      answer_channel: "blocked",
+      answer_source: "harness.single_agent_turn.tool_limit_closeout",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
+      answer_channel: "blocked",
+      answer_source: "harness.single_agent_turn.tool_limit_closeout",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerSource).toBe("harness.single_agent_turn.tool_limit_closeout");
+  });
+
   it("does not use done summary as assistant prose when final content is absent", () => {
     let transition = startStreamingTurn(getDefaultState(), "修一下页面反馈");
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
@@ -3577,6 +3625,21 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续吧");
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "Read persisted tool result failed: D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\storage\\runtime_context\\tool-results\\session-fad8ee446.txt",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+      answer_persist_policy: "persist_canonical",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toBe("");
+    expect(assistant?.answerCanonicalState).toBe("stable_answer");
+  });
+
+  it("does not use runtime replacement artifact paths as done assistant prose", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续吧");
+    transition = reduceStreamEvent(transition.state, transition.session, "done", {
+      content: "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json",
       answer_channel: "conversation",
       answer_canonical_state: "stable_answer",
       answer_persist_policy: "persist_canonical",
@@ -6317,6 +6380,39 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       public_summary: "工具已完成",
       state: "done",
       stream_state: "done",
+    });
+  });
+
+  it("uses tool_lifecycle_id as the stable key for started and completed tool events", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续检查");
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
+      item_id: "legacy:start",
+      tool_lifecycle_id: "lifecycle:read",
+      tool_call_id: "call:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:stable",
+      tool_name: "read_file",
+      title: "正在读取文件",
+      target: "README.md",
+      state: "running",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_completed", {
+      item_id: "legacy:completed",
+      tool_lifecycle_id: "lifecycle:read",
+      turn_run_id: "turnrun:turn:runtime:tool-read:stable",
+      tool_name: "read_file",
+      state: "done",
+      observation: "读取完成",
+    });
+
+    const timeline = transition.state.messages.at(-1)?.runtimePublicTimelineDraft ?? [];
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      item_id: "lifecycle:read",
+      tool_lifecycle_id: "lifecycle:read",
+      tool_call_id: "call:read",
+      state: "done",
+      stream_state: "done",
+      observation: "读取完成",
     });
   });
 

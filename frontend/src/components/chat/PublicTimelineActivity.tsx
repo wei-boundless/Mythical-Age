@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, SingleAgentTaskProjection } from "@/lib/api";
-import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems } from "@/lib/projection/timeline";
+import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems, sanitizePublicTimelineText } from "@/lib/projection/timeline";
 
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
@@ -142,7 +142,7 @@ function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[])
       pushEntry(entry);
     }
     for (const artifact of projection.artifact_refs ?? []) {
-      const label = cleanPublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
+      const label = sanitizePublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
       if (!label) continue;
       pushEntry({
         id: `${projectionId}:artifact:${label}`,
@@ -169,8 +169,8 @@ function taskProjectionLifecycleEntry(
   const currentRecord = current && typeof current === "object" && !Array.isArray(current)
     ? current
     : {};
-  const currentTitle = cleanPublicTimelineText(currentRecord.title ?? currentRecord.phase);
-  const currentDetail = cleanPublicTimelineText(currentRecord.detail);
+  const currentTitle = sanitizePublicTimelineText(currentRecord.title ?? currentRecord.phase);
+  const currentDetail = sanitizePublicTimelineText(currentRecord.detail);
   const currentState = cleanPublicTimelineText(currentRecord.state).toLowerCase();
   const title = currentTitle
     && !isActiveTaskProjectionActivityState(currentState)
@@ -194,8 +194,8 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
   if (!current || typeof current !== "object" || Array.isArray(current)) {
     return null;
   }
-  const title = cleanPublicTimelineText(current.title ?? current.phase);
-  const detail = cleanPublicTimelineText(current.detail);
+  const title = sanitizePublicTimelineText(current.title ?? current.phase);
+  const detail = sanitizePublicTimelineText(current.detail);
   if (!title && !detail) {
     return null;
   }
@@ -257,8 +257,8 @@ function taskProjectionActivityEntry(
   if (isStaleTaskProjectionActivityForProjectionTone(activity, projectionTone)) {
     return null;
   }
-  const title = cleanPublicTimelineText(activity.title);
-  const detail = cleanPublicTimelineText(activity.detail);
+  const title = sanitizePublicTimelineText(activity.title);
+  const detail = sanitizePublicTimelineText(activity.detail);
   if (!title && !detail) {
     return null;
   }
@@ -280,7 +280,7 @@ function taskProjectionActivityEntry(
   const observationDetail = [title, detail].filter(Boolean).join("\n");
   const sourceKind = cleanPublicTimelineText(activity.source_kind);
   const toolName = cleanPublicTimelineText(activity.tool_name);
-  const toolTarget = cleanPublicTimelineText(activity.tool_target);
+  const toolTarget = sanitizePublicTimelineText(activity.tool_target);
   return {
     collapsed: entryKind === "tool" ? true : undefined,
     eventRefs: eventRefsFromUnknown(activity.event_ref),
@@ -411,7 +411,7 @@ function mergeToolWindowProjection(
   const seen = new Set<string>();
   for (const section of [...(left?.sections ?? []), ...(right?.sections ?? [])]) {
     const label = shortText(cleanPublicTimelineText(section.label), 36);
-    const text = shortText(cleanPublicTimelineText(section.text), 260);
+    const text = shortText(sanitizePublicTimelineText(section.text), 260);
     if (!label || !text) {
       continue;
     }
@@ -654,7 +654,7 @@ function isEmptyGenericToolWindowActivity(
   if (displaySurface !== "tool_window") {
     return false;
   }
-  if (cleanPublicTimelineText(detail) || cleanPublicTimelineText(activity.tool_target)) {
+  if (sanitizePublicTimelineText(detail) || sanitizePublicTimelineText(activity.tool_target)) {
     return false;
   }
   const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
@@ -751,7 +751,7 @@ function taskProjectionToolMeta(
   activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
   state: string,
 ) {
-  const target = shortText(cleanPublicTimelineText(activity.tool_target), 90);
+  const target = shortText(sanitizePublicTimelineText(activity.tool_target), 90);
   const toolName = shortText(cleanPublicTimelineText(activity.tool_name), 48);
   return [
     target,
@@ -809,10 +809,10 @@ function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelin
 }
 
 function publicTimelineToolTarget(item: PublicChatTimelineItem) {
-  return cleanPublicTimelineText(item.tool_window?.target)
-    || cleanPublicTimelineText(item.subject_label)
-    || cleanPublicTimelineText(item.path)
-    || cleanPublicTimelineText(item.href);
+  return sanitizePublicTimelineText(item.tool_window?.target)
+    || sanitizePublicTimelineText(item.subject_label)
+    || sanitizePublicTimelineText(item.path)
+    || sanitizePublicTimelineText(item.href);
 }
 
 function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] | "" {
@@ -984,7 +984,7 @@ function publicText(item: PublicChatTimelineItem) {
     item.href,
   ];
   for (const candidate of candidates) {
-    const text = cleanPublicTimelineText(candidate);
+    const text = sanitizePublicTimelineText(candidate);
     if (text && !looksLikeRawToolOutput(text)) {
       return text;
     }
@@ -995,7 +995,7 @@ function publicText(item: PublicChatTimelineItem) {
 function toolDetailText(item: PublicChatTimelineItem, summary: string) {
   const candidates = [item.observation, item.detail, item.recovery_hint, item.path, item.href];
   for (const candidate of candidates) {
-    const text = cleanPublicTimelineText(candidate);
+    const text = sanitizePublicTimelineText(candidate);
     if (text && text !== summary && !looksLikeRawToolOutput(text)) {
       return shortText(text, 260);
     }
@@ -1006,7 +1006,7 @@ function toolDetailText(item: PublicChatTimelineItem, summary: string) {
 function statusDetailText(item: PublicChatTimelineItem, summary: string) {
   const candidates = [item.detail, item.observation, item.public_summary, item.text];
   for (const candidate of candidates) {
-    const text = cleanPublicTimelineText(candidate);
+    const text = sanitizePublicTimelineText(candidate);
     if (text && text !== summary && !looksLikeRawToolOutput(text)) {
       return text;
     }
@@ -1020,7 +1020,7 @@ function toolWindowProjection(item: PublicChatTimelineItem, fallbackDetail: stri
   const sections = rawSections
     .map((section) => ({
       label: shortText(cleanPublicTimelineText(section?.label), 36),
-      text: shortText(cleanPublicTimelineText(section?.text), 260),
+      text: shortText(sanitizePublicTimelineText(section?.text), 260),
     }))
     .filter((section) => section.label && section.text)
     .slice(0, 4);
@@ -1031,7 +1031,7 @@ function toolWindowProjection(item: PublicChatTimelineItem, fallbackDetail: stri
     raw?.tool_label,
     raw?.status,
     raw?.target,
-  ].map((value) => shortText(cleanPublicTimelineText(value), 90)).filter(Boolean).slice(0, 3);
+  ].map((value) => shortText(sanitizePublicTimelineText(value), 90)).filter(Boolean).slice(0, 3);
   if (!sections.length && !meta.length) {
     return undefined;
   }

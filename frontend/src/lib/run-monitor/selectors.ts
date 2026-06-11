@@ -13,15 +13,17 @@ export function selectRunMonitorTaskLane(monitor: RunMonitorEnvelope | null | un
       ...(Array.isArray(management.current) ? management.current : []),
       ...(Array.isArray(management.projects) ? management.projects : []),
       ...(Array.isArray(management.attention) ? management.attention : []),
-      ...(Array.isArray(management.recent) ? management.recent : []),
     ].filter(shouldShowTaskSignal));
   }
   const primary = Array.isArray(monitor.primary) ? monitor.primary : [];
   const attention = Array.isArray(monitor.attention) ? monitor.attention : [];
-  const recent = Array.isArray(monitor.recent) ? monitor.recent : [];
   const projects = Array.isArray(monitor.projects) ? monitor.projects : [];
-  const merged = [...primary, ...projects, ...attention, ...recent].filter(shouldShowTaskSignal);
+  const merged = [...primary, ...projects, ...attention].filter(shouldShowTaskSignal);
   return uniqueSignals(merged);
+}
+
+export function autoSelectableRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {
+  return selectRunMonitorTaskLane(monitor);
 }
 
 export function visibleRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefined): RunMonitorSignal[] {

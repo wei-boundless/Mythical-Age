@@ -94,6 +94,7 @@ _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
     "single_agent_turn_invalid_native_action",
     "single_agent_turn_invalid_json_action",
     "single_agent_turn_json_action_required",
+    "single_agent_turn_internal_protocol_final_text",
 }
 _INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
 
@@ -109,8 +110,52 @@ def _meaningful_visible_answer(content: str) -> bool:
     return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in visible)
 
 
-def _tool_limit_protocol_blocked_text() -> str:
-    return "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。"
+@dataclass(frozen=True, slots=True)
+class _ToolLimitCloseoutDecision:
+    content: str
+    terminal_status: str
+    answer_channel: str
+    completion_state: str
+    unsafe: bool = False
+
+
+def _tool_limit_closeout_decision(action_request: ModelActionRequest) -> _ToolLimitCloseoutDecision:
+    action_type = str(action_request.action_type or "").strip()
+    if action_type == "respond":
+        content = str(action_request.final_answer or "").strip()
+        if _unsafe_user_visible_closeout_text(content):
+            return _ToolLimitCloseoutDecision("", "blocked", "runtime_control", "tool_limit_closeout_unsafe_content", True)
+        completed = _meaningful_visible_answer(content)
+        return _ToolLimitCloseoutDecision(
+            content if completed else "",
+            "completed" if completed else "blocked",
+            "conversation" if completed else "runtime_control",
+            "tool_limit_agent_responded" if completed else "tool_limit_missing_answer",
+        )
+    if action_type == "ask_user":
+        content = str(action_request.user_question or "").strip()
+        if _unsafe_user_visible_closeout_text(content):
+            return _ToolLimitCloseoutDecision("", "blocked", "runtime_control", "tool_limit_closeout_unsafe_content", True)
+        completed = _meaningful_visible_answer(content)
+        return _ToolLimitCloseoutDecision(
+            content if completed else "",
+            "completed" if completed else "blocked",
+            "ask_user" if completed else "runtime_control",
+            "tool_limit_agent_asked_user" if completed else "tool_limit_missing_answer",
+        )
+    if action_type == "block":
+        content = str(action_request.blocking_reason or "").strip()
+        if _unsafe_user_visible_closeout_text(content):
+            return _ToolLimitCloseoutDecision("", "blocked", "runtime_control", "tool_limit_closeout_unsafe_content", True)
+        if not _meaningful_visible_answer(content):
+            return _ToolLimitCloseoutDecision("", "blocked", "runtime_control", "tool_limit_missing_answer")
+        return _ToolLimitCloseoutDecision(content, "blocked", "blocked", "tool_limit_agent_blocked")
+    return _ToolLimitCloseoutDecision("", "blocked", "runtime_control", "tool_limit_closeout_protocol_failed", True)
+
+
+def _unsafe_user_visible_closeout_text(content: str) -> bool:
+    text = str(content or "").strip()
+    return bool(text) and (contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text))
 
 
 def _tool_limit_closeout_control_signal(
@@ -441,9 +486,9 @@ async def run_single_agent_turn(
             answer_source = _TOOL_LIMIT_CLOSEOUT_SOURCE
             if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
                 yield closeout_response
-                content = "本轮工具预算已经耗尽，但收口动作生成失败。已停止继续调用工具。"
+                content = ""
                 terminal_status = "blocked"
-                answer_channel = "blocked"
+                answer_channel = "runtime_control"
                 completion_state = "tool_limit_closeout_failed"
             else:
                 closeout_parse = _single_agent_action_request_from_response(
@@ -492,41 +537,67 @@ async def run_single_agent_turn(
                     or action_request is None
                     or action_request.action_type not in set(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES)
                 ):
-                    content = _tool_limit_protocol_blocked_text()
+                    content = ""
                     terminal_status = "blocked"
-                    answer_channel = "blocked"
+                    answer_channel = "runtime_control"
                     completion_state = "tool_limit_closeout_protocol_failed"
-                elif action_request.action_type == "respond":
-                    content = str(action_request.final_answer or "").strip()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = _tool_limit_protocol_blocked_text()
-                        terminal_status = "blocked"
-                        answer_channel = "blocked"
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
-                        answer_channel = "conversation" if terminal_status == "completed" else "blocked"
-                        completion_state = "tool_limit_agent_responded" if terminal_status == "completed" else "tool_limit_missing_answer"
-                elif action_request.action_type == "ask_user":
-                    content = str(action_request.user_question or "").strip()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = _tool_limit_protocol_blocked_text()
-                        terminal_status = "blocked"
-                        answer_channel = "blocked"
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        terminal_status = "completed" if _meaningful_visible_answer(content) else "blocked"
-                        answer_channel = "ask_user" if terminal_status == "completed" else "blocked"
-                        completion_state = "tool_limit_agent_asked_user" if terminal_status == "completed" else "tool_limit_missing_answer"
                 else:
-                    content = str(action_request.blocking_reason or "").strip() or _tool_limit_protocol_blocked_text()
-                    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
-                        content = _tool_limit_protocol_blocked_text()
-                        completion_state = "tool_limit_closeout_unsafe_content"
-                    else:
-                        completion_state = "tool_limit_agent_blocked"
-                    terminal_status = "blocked"
-                    answer_channel = "blocked"
+                    closeout_decision = _tool_limit_closeout_decision(action_request)
+                    if closeout_decision.unsafe:
+                        unsafe_parse = SingleAgentActionParse(
+                            action_request=None,
+                            native_tool_calls=[],
+                            error=_single_agent_protocol_error(
+                                code="single_agent_turn_internal_protocol_final_text",
+                                reason="model_final_text_contains_internal_protocol",
+                                diagnostics={
+                                    "phase": "tool_limit_closeout",
+                                    "action_request": action_request.to_dict(),
+                                },
+                            ),
+                        )
+                        repaired_parse = await _repair_single_agent_action_parse(
+                            unsafe_parse,
+                            response=closeout_response,
+                            model_runtime=model_runtime,
+                            model_messages=closeout_messages,
+                            model_selection=dict(model_selection or {}),
+                            accounting_context={
+                                "request_id": f"modelreq:{current_packet_ref}:tool-limit-closeout-content-repair",
+                                "session_id": session_id,
+                                "run_id": turn_run.turn_run_id if turn_run is not None else "",
+                                "turn_id": turn_id,
+                                "packet_ref": current_packet_ref,
+                                "source": "harness.single_agent_turn.tool_limit_closeout.content_repair",
+                                "segment_plan": closeout_segment_plan,
+                                "prompt_manifest": {
+                                    **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                                    "invocation_kind": "single_agent_turn_tool_limit_closeout_content_repair",
+                                    "closeout_required": True,
+                                    "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+                                },
+                            },
+                            request_id=f"model-response:{current_packet_ref}:tool-limit-closeout:content-repair",
+                            turn_id=turn_id,
+                            packet_ref=current_packet_ref,
+                            iteration=tool_iteration + 1,
+                            allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
+                            phase="tool_limit_closeout_content",
+                        )
+                        repaired_action = repaired_parse.action_request
+                        if (
+                            not repaired_parse.error
+                            and not repaired_parse.tool_actions
+                            and repaired_action is not None
+                            and repaired_action.action_type in set(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES)
+                        ):
+                            repaired_decision = _tool_limit_closeout_decision(repaired_action)
+                            if not repaired_decision.unsafe:
+                                closeout_decision = repaired_decision
+                    content = closeout_decision.content
+                    terminal_status = closeout_decision.terminal_status
+                    answer_channel = closeout_decision.answer_channel
+                    completion_state = closeout_decision.completion_state
             protocol_final = _assistant_protocol_message_from_content(content, turn_id=turn_id)
             commit_decision = await _commit_final_message(
                 commit_assistant_message,

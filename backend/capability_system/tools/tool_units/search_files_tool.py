@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from capability_system.tools.workspace_file_service import (
     DEFAULT_EXCLUDED_DIRS,
+    DEFAULT_RUNTIME_PRIVATE_PATHS,
     DEFAULT_SEARCH_EXCLUDED_PATHS,
     WorkspaceFileService,
 )
@@ -122,7 +123,7 @@ class SearchFilesTool(BaseTool):
         if self._files.search_root_args_are_workspace_relative(safe_roots):
             root_args = [self._files.relative_path(root) for root in safe_roots]
             completed = _run_rg(
-                ["--files", *_default_search_exclude_args(using_default_roots), *root_args],
+                ["--files", *_runtime_private_exclude_args(), *_default_search_exclude_args(using_default_roots), *root_args],
                 cwd=self._files.workspace_root,
             )
         paths: list[str] = []
@@ -226,6 +227,7 @@ class SearchTextTool(BaseTool):
             args.append("--ignore-case")
         for excluded in DEFAULT_EXCLUDED_DIRS:
             args.extend(["--glob", f"!**/{excluded}/**"])
+        args.extend(_runtime_private_exclude_args())
         args.extend(_default_search_exclude_args(using_default_roots))
         if str(glob or "").strip():
             args.extend(["--glob", str(glob).strip()])
@@ -431,6 +433,13 @@ def _default_search_exclude_args(enabled: bool) -> list[str]:
     args: list[str] = []
     for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
         args.extend(["--glob", f"!{excluded}/**"])
+    return args
+
+
+def _runtime_private_exclude_args() -> list[str]:
+    args: list[str] = []
+    for excluded in DEFAULT_RUNTIME_PRIVATE_PATHS:
+        args.extend(["--glob", f"!{excluded}"])
     return args
 
 

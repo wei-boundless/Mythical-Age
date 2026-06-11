@@ -17,6 +17,7 @@ import yaml
 from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
 from capability_system.tools.workspace_file_service import (
     DEFAULT_EXCLUDED_DIRS,
+    DEFAULT_RUNTIME_PRIVATE_PATHS,
     DEFAULT_SEARCH_EXCLUDED_PATHS,
     WorkspaceFileService,
 )
@@ -2173,6 +2174,8 @@ def _search_text(
         args.append("--ignore-case")
     for excluded in DEFAULT_EXCLUDED_DIRS:
         args.extend(["--glob", f"!**/{excluded}/**"])
+    for excluded in DEFAULT_RUNTIME_PRIVATE_PATHS:
+        args.extend(["--glob", f"!{excluded}"])
     if using_default_roots:
         for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
             args.extend(["--glob", f"!{excluded}/**"])

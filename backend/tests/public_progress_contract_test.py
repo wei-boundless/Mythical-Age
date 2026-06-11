@@ -23,6 +23,21 @@ def test_public_progress_summary_suppresses_raw_line_numbered_tool_output() -> N
     assert public_runtime_progress_summary(raw_output) == ""
 
 
+def test_public_progress_summary_suppresses_runtime_private_artifact_paths() -> None:
+    private_texts = (
+        r"D:\AI应用\langchain-agent\backend\storage\task_environments\general\workspace\runtime_state\dynamic_context\replacements\replacement_4ce5ea91846e3d4e34ff823e.json",
+        "storage/runtime_context/tool_results/session-fad8ee446.txt",
+        "runtime_context/tool-results/session-fad8ee446.txt",
+        "runtime_state/tool_results/session/content-secret.txt",
+        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json",
+        "replacement_e21050df8baca858bdde6a4d.json",
+        "replacement:e21050df8baca858bdde6a4d",
+    )
+
+    for text in private_texts:
+        assert public_runtime_progress_summary(text) == ""
+
+
 def test_action_progress_note_does_not_fallback_to_action_type() -> None:
     action = TaskExecutionModelActionRequest(
         request_id="model-action:test:no-public-feedback",

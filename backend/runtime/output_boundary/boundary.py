@@ -78,6 +78,12 @@ _ACTIVE_WORK_CONTROL_KEY_RE = re.compile(
     r'"(?:active_work_control|relation_to_current_work|continuation_strategy|turn_response_policy|answer_obligation|appended_instruction|user_turn_kind)"\s*:',
     re.IGNORECASE,
 )
+_ACTIVE_WORK_CONTROL_TERM_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(action) for action in sorted(_ACTIVE_WORK_CONTROL_ACTIONS))
+    + r"|active_work_control(?:\.action)?|control_action)\b",
+    re.IGNORECASE,
+)
 
 _DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call\b[^>]*>[\s\S]*?(?:</tool_call>|\Z)", re.IGNORECASE)
@@ -153,6 +159,12 @@ _TRAILING_PROCEDURAL_TAIL_RE = re.compile(
     re.IGNORECASE,
 )
 _TRAILING_SEPARATOR_RE = re.compile(r"(?:\n\s*---\s*)+\Z", re.DOTALL)
+_RUNTIME_CONTROL_CLOSEOUT_TEXT_RE = re.compile(
+    r"(?:本轮(?:已经)?达到工具预算上限|本轮工具预算已经耗尽)"
+    r"[\s\S]{0,120}?"
+    r"(?:内部工具协议|动作残片|收口裁决)",
+    re.IGNORECASE,
+)
 
 
 def contains_internal_protocol(text: str) -> bool:
@@ -161,6 +173,7 @@ def contains_internal_protocol(text: str) -> bool:
     return (
         any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
         or _looks_like_active_work_control_protocol(normalized)
+        or bool(_RUNTIME_CONTROL_CLOSEOUT_TEXT_RE.search(normalized))
         or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
         or bool(_SEARCH_PROTOCOL_BLOCK_RE.search(normalized))
         or bool(_TOOL_ARG_JSON_OBJECT_RE.search(normalized))
@@ -178,6 +191,8 @@ def _looks_like_active_work_control_protocol(text: str) -> bool:
     lowered = normalized.lower()
     if "active_work_control" not in lowered and not any(action in lowered for action in _ACTIVE_WORK_CONTROL_ACTIONS):
         return False
+    if _ACTIVE_WORK_CONTROL_TERM_RE.search(normalized):
+        return True
     parsed = _parse_json_like(normalized)
     if _payload_contains_active_work_control(parsed):
         return True
@@ -459,7 +474,7 @@ def canonical_output_decision_for_final_text(
     normalized_source = str(answer_source or "").strip() or "runtime.output_boundary.final_text"
     if leak_flags and not _meaningful_visible_final_text(visible_text):
         return CanonicalFinalTextDecision(
-            content="当前输出包含内部工具协议，已阻止作为最终答案。",
+            content="当前输出未形成可展示回答。",
             answer_channel=normalized_channel,
             answer_source=normalized_source,
             selected_channel="fallback_answer",

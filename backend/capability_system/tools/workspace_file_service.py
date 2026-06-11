@@ -23,6 +23,26 @@ DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "storage/runtime_cache",
     "storage/runtime_state/sandboxes",
 )
+DEFAULT_RUNTIME_PRIVATE_PATHS: tuple[str, ...] = (
+    "mythical-agent/sessions/**",
+    "backend/mythical-agent/sessions/**",
+    "storage/sessions/**",
+    "storage/session_environments/**",
+    "storage/runtime_context/**",
+    "storage/runtime_state/**",
+    "runtime_context/tool_results/**",
+    "runtime_state/dynamic_context/replacements/**",
+    "runtime_state/tool_results/**",
+    "dynamic_context/replacements/replacement_*.json",
+    "backend/storage/session_environments/**",
+    "backend/storage/runtime_context/**",
+    "backend/storage/runtime_state/**",
+    "**/runtime_state/dynamic_context/replacements/**",
+    "**/runtime_state/tool_results/**",
+    "**/runtime_context/tool_results/**",
+    "**/dynamic_context/replacements/replacement_*.json",
+)
+RUNTIME_PRIVATE_PATH_ERROR = "Runtime private path is not accessible through workspace file tools."
 TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "utf-8-sig", "gb18030", "gbk")
 
 
@@ -68,6 +88,7 @@ class WorkspaceFileService:
         )
         if not self._is_inside_allowed_root(resolved):
             raise ValueError("Path traversal detected.")
+        self.assert_public_workspace_path(resolved)
         return resolved
 
     def relative_path(self, path: str | Path) -> str:
@@ -84,6 +105,7 @@ class WorkspaceFileService:
 
     def read_text(self, path: str | Path, *, limit: int | None = None) -> str:
         file_path = self.resolve(str(path), require_path=True) if not isinstance(path, Path) else path.resolve()
+        self.assert_public_workspace_path(file_path)
         for encoding in TEXT_ENCODINGS:
             try:
                 content = file_path.read_text(encoding=encoding)
@@ -128,7 +150,10 @@ class WorkspaceFileService:
             raise FileNotFoundError("directory does not exist")
         if not directory.is_dir():
             raise NotADirectoryError("path is not a directory")
-        return sorted(directory.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
+        return sorted(
+            (item for item in directory.iterdir() if not self.is_runtime_private_path(item)),
+            key=lambda item: (not item.is_dir(), item.name.lower()),
+        )
 
     def path_info(self, path: str) -> WorkspacePathInfo:
         target = self.resolve(path, require_path=True)
@@ -229,7 +254,7 @@ class WorkspaceFileService:
     def iter_files(self, root: Path) -> list[Path]:
         found: list[Path] = []
         for path in root.rglob("*"):
-            if path.is_file():
+            if path.is_file() and not self.is_excluded(path, include_default_search_excludes=True):
                 found.append(path)
         return found
 
@@ -241,6 +266,8 @@ class WorkspaceFileService:
         return not any(self.is_external_root(root) for root in roots)
 
     def is_excluded(self, path: Path, *, include_default_search_excludes: bool = False) -> bool:
+        if self.is_runtime_private_path(path):
+            return True
         parts = {part.lower() for part in path.parts}
         if any(excluded.lower() in parts for excluded in DEFAULT_EXCLUDED_DIRS):
             return True
@@ -250,6 +277,19 @@ class WorkspaceFileService:
                 if relative == excluded or relative.startswith(f"{excluded}/"):
                     return True
         return False
+
+    def is_runtime_private_path(self, path: str | Path) -> bool:
+        relative = self.relative_path(path).replace("\\", "/").strip("/").lower()
+        if not relative:
+            return False
+        for pattern in DEFAULT_RUNTIME_PRIVATE_PATHS:
+            if _runtime_private_pattern_matches(relative, pattern):
+                return True
+        return False
+
+    def assert_public_workspace_path(self, path: str | Path) -> None:
+        if self.is_runtime_private_path(path):
+            raise ValueError(RUNTIME_PRIVATE_PATH_ERROR)
 
     def _resolve_logical_root(self, normalized_path: str) -> Path | None:
         normalized = normalized_path.replace("\\", "/").strip("/")
@@ -274,6 +314,16 @@ def _glob_matches(relative_path: str, pattern: str) -> bool:
     if "/**/" in pattern:
         variants.add(pattern.replace("/**/", "/"))
     return any(fnmatch.fnmatch(relative_path, variant) for variant in variants)
+
+
+def _runtime_private_pattern_matches(relative_path: str, pattern: str) -> bool:
+    normalized = str(pattern or "").replace("\\", "/").strip("/").lower()
+    if not normalized:
+        return False
+    if normalized.endswith("/**") and "*" not in normalized[:-3] and "?" not in normalized[:-3] and "[" not in normalized[:-3]:
+        prefix = normalized[:-3].rstrip("/")
+        return relative_path == prefix or relative_path.startswith(f"{prefix}/")
+    return fnmatch.fnmatch(relative_path, normalized)
 
 
 def _file_sha256(path: Path) -> str:

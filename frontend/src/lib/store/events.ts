@@ -10,6 +10,7 @@ import {
   type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
+import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 import { projectRuntimeTransportEvent, type RuntimeTransportProjection } from "@/lib/projection/runtimeTransportProjection";
 import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 import {
@@ -730,12 +731,14 @@ function mergeAssistantStreamRepairEvent(
 }
 
 function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>): PublicChatTimelineItem | null {
-  const toolCallId = event === TOOL_ITEM_COMPLETED_EVENT
-    ? stringValue(data.tool_call_id)
-    : stringValue(data.tool_call_id) || stringValue(data.item_id);
-  if (!toolCallId) {
+  const rawToolCallId = stringValue(data.tool_call_id);
+  const toolLifecycleId = event === TOOL_ITEM_COMPLETED_EVENT
+    ? stringValue(data.tool_lifecycle_id) || rawToolCallId
+    : stringValue(data.tool_lifecycle_id) || rawToolCallId || stringValue(data.item_id);
+  if (!toolLifecycleId) {
     return null;
   }
+  const toolCallId = rawToolCallId || toolLifecycleId;
   const toolName = stringValue(data.tool_name) || "tool";
   const target = stringValue(data.target);
   const argumentsPreview = stringValue(data.arguments_preview);
@@ -782,11 +785,12 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
     stringValue(data.task_run_id),
   ].filter(Boolean);
   const item: PublicChatTimelineItem = {
-    item_id: toolCallId,
+    item_id: toolLifecycleId,
     kind: "work_action",
     slot: "tool",
     surface: "tool_window",
     source_authority: "tool",
+    tool_lifecycle_id: toolLifecycleId,
     tool_name: toolName,
     action_kind: actionKind,
     title,
@@ -807,6 +811,9 @@ function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>)
     if (item.tool_window) {
       item.tool_window.target = target;
     }
+  }
+  if (rawToolCallId) {
+    item.tool_call_id = rawToolCallId;
   }
   if (observation) {
     item.observation = observation;
@@ -847,6 +854,7 @@ function agentTodoTimelineItemFromEvent(
     slot: "task",
     surface: "status",
     source_authority: "runtime",
+    tool_lifecycle_id: toolCallId,
     title,
     public_summary: title,
     phase: running ? "running" : "done",
@@ -1023,7 +1031,8 @@ function isMachineReference(value: string) {
 function isRawToolOutputText(value: string) {
   const text = stringValue(value);
   if (!text) return false;
-  return /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
+  return looksLikeRuntimePrivateArtifactText(text)
+    || /\bfile\s+[^\s]+\s+\d+\s+bytes\b/i.test(text)
     || /\bCopied:\s+\S+/i.test(text)
     || /Read persisted tool result failed|persisted tool result read failed/i.test(text)
     || /(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results/i.test(text)

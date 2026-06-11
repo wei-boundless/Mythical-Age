@@ -89,4 +89,28 @@ describe("publicTimeline", () => {
     ])).toEqual([]);
   });
 
+  it("suppresses runtime-private artifact paths before timeline rendering", () => {
+    const privatePaths = [
+      "D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\dynamic_context\\replacements\\replacement_4ce5ea91846e3d4e34ff823e.json",
+      "storage/runtime_context/tool_results/session-fad8ee446.txt",
+      "runtime_context/tool-results/session-fad8ee446.txt",
+      "runtime_state/tool_results/session/content-secret.txt",
+      "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json",
+      "replacement_e21050df8baca858bdde6a4d.json",
+      "replacement:e21050df8baca858bdde6a4d",
+    ];
+
+    for (const privatePath of privatePaths) {
+      expect(sanitizePublicTimelineText(privatePath)).toBe("");
+    }
+    expect(mergePublicTimelineItems([], [
+      {
+        item_id: "private:path",
+        kind: "status_update",
+        title: privatePaths[0],
+        state: "running",
+      },
+    ])).toEqual([]);
+  });
+
 });

@@ -1,4 +1,5 @@
 import type { RunMonitorEnvelope, RunMonitorEvent, RunMonitorSignal, RunMonitorState } from "./types";
+import { autoSelectableRunMonitorSignals } from "./selectors";
 
 export function createRunMonitorState(): RunMonitorState {
   return {
@@ -75,7 +76,10 @@ export function applyRunMonitorSnapshot(
   if (isStaleRunMonitorRevision(nextRevision, state.revision)) return state;
   const requested = findRunMonitorSignal(monitor, options.selectedSignalId || "");
   const current = findRunMonitorSignal(monitor, state.selectedSignalId);
-  const selected = requested ?? current ?? allRunMonitorSignals(monitor)[0] ?? null;
+  const autoSignals = autoSelectableRunMonitorSignals(monitor);
+  const autoSignalIds = new Set(autoSignals.map(signalKey).filter(Boolean));
+  const currentIsAutoSelectable = current ? autoSignalIds.has(signalKey(current)) : false;
+  const selected = requested ?? (currentIsAutoSelectable ? current : null) ?? autoSignals[0] ?? null;
   return {
     ...state,
     monitor,
@@ -103,4 +107,8 @@ export function selectRunMonitorSignal(state: RunMonitorState, signalId: string)
 export function signalDetailTaskRunId(signal: RunMonitorSignal | null | undefined) {
   const detail = signal?.detail_ref;
   return String(detail?.task_run_id || signal?.task_run_id || "").trim();
+}
+
+function signalKey(signal: RunMonitorSignal | null | undefined) {
+  return signal?.signal_id || signal?.task_instance_id || signal?.task_run_id || signal?.graph_run_id || "";
 }

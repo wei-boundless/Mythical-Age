@@ -782,7 +782,12 @@
           "roots",
           "paths",
           "glob",
-          "max_results"
+          "max_results",
+          "output_mode",
+          "context",
+          "case_sensitive",
+          "head_limit",
+          "offset"
         ],
         "owner_scope": "none",
         "allow_catalog_default": false,
@@ -851,7 +856,8 @@
         "required_bindings": [],
         "optional_inputs": [
           "start_line",
-          "line_count"
+          "line_count",
+          "read_intent"
         ],
         "owner_scope": "explicit_path",
         "allow_catalog_default": false,

@@ -791,6 +791,7 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
         )
     tool_call = dict(action_request.get("tool_call") or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or action_request.get("tool_name") or "").strip()
+    tool_call_id = str(tool_call.get("id") or action_request.get("tool_call_id") or action_request.get("request_id") or "").strip()
     preview = _tool_call_preview(tool_call)
     title = _tool_activity_title(tool_name=tool_name, preview=preview, phase="started")
     return _entry(
@@ -801,6 +802,9 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
         level="running",
         status=_tool_activity_status(tool_name=tool_name, phase="started"),
         tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        tool_lifecycle_id=tool_call_id,
+        target=preview,
         public_note=public_note or preview,
         evidence_type="tool_request",
         meta=_compact_meta(
@@ -820,6 +824,12 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
     envelope = dict(observation.get("result_envelope") or {})
     receipt = dict(observation.get("execution_receipt") or {})
     tool_name = str(observation.get("tool_name") or envelope.get("tool_name") or receipt.get("tool_name") or "").strip()
+    tool_call_id = str(
+        observation.get("tool_call_id")
+        or envelope.get("tool_call_id")
+        or receipt.get("tool_call_id")
+        or ""
+    ).strip()
     tool_args = dict(observation.get("tool_args") or envelope.get("tool_args") or {})
     target = _tool_args_preview(tool_args)
     status = str(observation.get("status") or receipt.get("status") or "").strip()
@@ -851,6 +861,9 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
         level="error" if failed else "success",
         status=_tool_activity_status(tool_name=tool_name, phase="failed" if failed else "completed"),
         tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        tool_lifecycle_id=tool_call_id,
+        target=target,
         public_note=result_text,
         agent_brief=result_text,
         evidence_type="tool_observation",
@@ -993,6 +1006,9 @@ def _entry(
     level: str = "running",
     status: str = "",
     tool_name: str = "",
+    tool_call_id: str = "",
+    tool_lifecycle_id: str = "",
+    target: str = "",
     public_note: str = "",
     agent_brief: str = "",
     evidence_type: str = "",
@@ -1010,6 +1026,9 @@ def _entry(
         "level": level,
         "statusText": status,
         "toolName": tool_name,
+        "toolCallId": tool_call_id,
+        "toolLifecycleId": tool_lifecycle_id or tool_call_id,
+        "target": target,
         "createdAt": float(event.get("created_at") or 0.0),
     }
     if public_note:

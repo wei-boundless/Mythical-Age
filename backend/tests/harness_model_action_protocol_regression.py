@@ -66,9 +66,11 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
                     for index in range(1, 10)
                 ]
             )
+            self.plain_invocations = 0
 
         async def invoke_messages(self, messages, **_kwargs):
             del messages
+            self.plain_invocations += 1
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(
@@ -97,13 +99,17 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
     assert model.calls == 9
+    assert model.plain_invocations == 2
     assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
-    assert done["answer_channel"] == "blocked"
+    assert done["answer_channel"] == "runtime_control"
+    assert done["answer_canonical_state"] == "progress_only"
+    assert done["answer_persist_policy"] == "persist_debug_only"
     assert done["completion_state"] == "tool_limit_closeout_unsafe_content"
-    assert "工具协议" in str(done.get("content") or "")
+    assert str(done.get("content") or "") == ""
     assert assistant_messages
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
     assert "search_text" not in str(assistant_messages[-1].get("content") or "")
+    assert "工具协议" not in str(assistant_messages[-1].get("content") or "")
 
 
 def test_single_agent_parser_rejects_native_tool_call_when_json_action_required() -> None:

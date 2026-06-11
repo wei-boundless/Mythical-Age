@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from api.chat import _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
+from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import project_public_projection_event
 from harness.runtime.projection.timeline_builder import project_runtime_monitor_event_public_delta
 from runtime.tool_runtime import ToolObservation
@@ -80,11 +81,48 @@ def test_chat_public_stream_maps_admitted_tool_to_first_class_started_item():
     event_type, data = projected
     assert event_type == "tool_item_started"
     assert data["item_id"] == "call:read"
+    assert data["tool_lifecycle_id"] == "call:read"
     assert data["tool_call_id"] == "call:read"
     assert data["turn_run_id"] == "turnrun:turn:test:1"
     assert data["tool_name"] == "read_file"
     assert data["state"] == "running"
     assert data["target"] == "README.md"
+
+
+def test_chat_public_stream_drops_runtime_private_path_from_started_tool_target():
+    private_path = (
+        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
+        "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
+    )
+    projected = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:private-path",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:read-private",
+                        "action_type": "tool_call",
+                        "tool_call": {
+                            "id": "call:read-private",
+                            "tool_name": "read_file",
+                            "args": {"path": private_path},
+                        },
+                    },
+                    "admission": {"decision": "allow"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:private"},
+            },
+        },
+    )
+
+    assert projected is not None
+    event_type, data = projected
+    assert event_type == "tool_item_started"
+    assert "target" not in data
+    assert "arguments_preview" not in data
+    assert "replacement_e21050df8baca858bdde6a4d" not in str(data)
 
 
 def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
@@ -115,11 +153,46 @@ def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
     event_type, data = projected
     assert event_type == "tool_item_completed"
     assert data["item_id"] == "call:read"
+    assert data["tool_lifecycle_id"] == "call:read"
     assert data["tool_call_id"] == "call:read"
     assert data["turn_run_id"] == "turnrun:turn:test:1"
     assert data["tool_name"] == "read_file"
     assert data["state"] == "done"
     assert data["observation"] == "读取完成。"
+
+
+def test_chat_public_stream_drops_runtime_private_path_from_completed_tool_observation():
+    private_path = (
+        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
+        "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
+    )
+    projected = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:observation:private-path",
+                "payload": {
+                    "tool_observation": {
+                        "tool_name": "read_file",
+                        "status": "ok",
+                        "caller_ref": "turnrun:turn:test:private",
+                        "result_envelope": {
+                            "tool_name": "read_file",
+                            "tool_call_id": "call:read-private",
+                            "text": private_path,
+                        },
+                    },
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:private"},
+            },
+        },
+    )
+
+    assert projected is not None
+    event_type, data = projected
+    assert event_type == "tool_item_completed"
+    assert "observation" not in data
+    assert "replacement_e21050df8baca858bdde6a4d" not in str(data)
 
 
 def test_tool_observation_promotes_real_tool_call_id_for_public_completion():
@@ -222,6 +295,36 @@ def test_tool_line_numbered_observation_is_not_promoted_to_projection_body():
         item.get("slot") == "body"
         for item in projected["public_projection_envelope"].get("items", [])
     )
+
+
+def test_runtime_private_artifact_paths_do_not_project_as_public_text():
+    private_path = (
+        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
+        "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
+    )
+
+    assert public_text(private_path) == ""
+
+    projected = project_runtime_monitor_event_public_delta(
+        {
+            "event_id": "event:private-path",
+            "event_type": "step_summary_recorded",
+            "run_id": "taskrun:turn:test:abc",
+            "offset": 5,
+            "payload": {
+                "step": "tool_result_store",
+                "status": "running",
+                "summary": private_path,
+                "current_judgment": private_path,
+            },
+            "refs": {"turn_ref": "turn:test", "task_run_ref": "taskrun:turn:test:abc"},
+        },
+        runtime_host=None,
+    )
+
+    visible = str(projected["public_projection_envelope"])
+    assert "replacement_e21050df8baca858bdde6a4d" not in visible
+    assert projected.get("public_projection_skip_reason") == "empty_public_delta"
 
 
 def test_runtime_monitor_projection_uses_runtime_status_not_assistant_body():

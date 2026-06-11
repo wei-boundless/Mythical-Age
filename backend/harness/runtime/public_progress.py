@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
+
 
 _GENERIC_PUBLIC_PROGRESS = {
     "",
@@ -183,6 +185,8 @@ def _looks_like_raw_tool_output(text: str) -> bool:
     raw = str(text or "").strip()
     if not raw:
         return False
+    if looks_like_runtime_private_artifact_text(raw):
+        return True
     if re.search(r"(?m)^\s*\d{1,6}\s*\|\s+", raw):
         return True
     if re.search(r"\b(?:Exit code|Wall time|Output):", raw, flags=re.IGNORECASE):

@@ -6,6 +6,7 @@ from hashlib import sha1
 from typing import Any
 
 from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 
 
 SUPPRESSED_PUBLIC_TEXT = {
@@ -131,6 +132,8 @@ def looks_internal_text(value: Any) -> bool:
     text = str(value or "").strip().lower()
     if not text:
         return False
+    if looks_like_runtime_private_artifact_text(text):
+        return True
     if text in INTERNAL_TOKENS:
         return True
     if re.search(r"\b(taskrun|turnrun|agrun|toolinv|promptpkt):", text):

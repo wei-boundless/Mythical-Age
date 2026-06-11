@@ -189,10 +189,15 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
         refs = [text(payload.get("id"))] if text(payload.get("id")) else []
         body = public_text(payload.get("body") or payload.get("agentBrief") or payload.get("publicNote") or payload.get("title"), limit=260)
         if kind == "tool":
+            tool_call_id = text(payload.get("toolCallId") or payload.get("tool_call_id"))
+            tool_lifecycle_id = text(payload.get("toolLifecycleId") or payload.get("tool_lifecycle_id") or tool_call_id)
+            target = text(payload.get("target") or payload.get("toolTarget") or payload.get("tool_target"))
             item = work_action_item(
-                item_id=stable_id("progress-tool", payload.get("id"), payload.get("toolName")),
+                item_id=tool_lifecycle_id or stable_id("progress-tool", payload.get("id"), payload.get("toolName")),
                 tool_name=payload.get("toolName"),
-                raw_target=payload.get("target") or payload.get("title"),
+                tool_lifecycle_id=tool_lifecycle_id,
+                tool_call_id=tool_call_id,
+                raw_target=target or payload.get("title"),
                 summary=payload.get("title"),
                 observation=body,
                 state=state,

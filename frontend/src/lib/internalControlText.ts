@@ -52,14 +52,7 @@ export function isInternalActiveWorkControlText(value: unknown) {
   if (INTERNAL_ACTIVE_WORK_CONTROL_TERMS.has(normalized)) {
     return true;
   }
-  if (!INTERNAL_ACTIVE_WORK_CONTROL_RE.test(normalized)) {
-    return false;
-  }
-  const remainder = normalized
-    .replace(INTERNAL_ACTIVE_WORK_CONTROL_RE, "")
-    .replace(/\b(?:action|intent|response|control)\b/gi, "")
-    .replace(/[`'"=:.。,:：;；()[\]{}\s_-]+/g, "");
-  return !remainder;
+  return INTERNAL_ACTIVE_WORK_CONTROL_RE.test(normalized);
 }
 
 export function hideInternalActiveWorkControlText(value: unknown) {
@@ -79,6 +72,9 @@ export function isInternalControlProtocolText(value: unknown) {
     return true;
   }
   const normalized = text.toLowerCase();
+  if (/(?:本轮(?:已经)?达到工具预算上限|本轮工具预算已经耗尽)[\s\S]{0,120}?(?:内部工具协议|动作残片|收口裁决)/i.test(text)) {
+    return true;
+  }
   return /"authority"\s*:\s*"harness\.loop\.model_action_request"/i.test(normalized)
     || /"model_action_request"\s*:/i.test(normalized)
     || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"/i.test(normalized)

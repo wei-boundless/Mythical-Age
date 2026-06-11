@@ -1,10 +1,12 @@
 import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
+import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 
 export function looksLikeRawToolOutput(value: unknown) {
   const raw = String(value ?? "");
   const text = cleanRunText(raw);
   if (!text) return false;
-  return looksLikeLineNumberedFilePreview(raw)
+  return looksLikeRuntimePrivateArtifactText(text)
+    || looksLikeLineNumberedFilePreview(raw)
     || looksLikeToolPlaceholder(text)
     || looksLikeRawCommandText(text)
     || looksLikeRawFileListing(text)
