@@ -33,10 +33,19 @@ presentation 层只做净化，不承担主要安全边界。
 
 参考资料：
 
-- OpenAI Codex CLI：`https://developers.openai.com/codex/cli`
-- OpenAI Codex agent approvals and security：`https://developers.openai.com/codex/agent-approvals-security`
-- Claude Code overview：`https://code.claude.com/docs/en/overview`
-- Claude Code settings / permissions：`https://code.claude.com/docs/en/settings`
+- OpenAI Codex CLI：[https://developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
+- OpenAI Codex sandboxing：[https://developers.openai.com/codex/concepts/sandboxing](https://developers.openai.com/codex/concepts/sandboxing)
+- OpenAI Codex agent approvals and security：[https://developers.openai.com/codex/agent-approvals-security](https://developers.openai.com/codex/agent-approvals-security)
+- Claude Code overview：[https://docs.anthropic.com/en/docs/claude-code/overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+- Claude Code settings / permissions：[https://docs.anthropic.com/en/docs/claude-code/settings](https://docs.anthropic.com/en/docs/claude-code/settings)
+- Claude Code permission modes：[https://code.claude.com/docs/en/permission-modes](https://code.claude.com/docs/en/permission-modes)
+- Claude Code permissions：[https://code.claude.com/docs/en/permissions](https://code.claude.com/docs/en/permissions)
+
+本轮核对结论：
+
+- Codex 公开资料强调 coding agent 会读写代码、运行命令、在 sandbox / approval / workspace 边界下工作；这支持“工具活动可见，但工具访问受边界约束”。
+- Claude Code 公开资料强调 permissions、settings、hooks 等控制面；这支持“通过权限和路径边界治理工具能力”，而不是 UI 层隐藏工具生命周期。
+- 两者都不是把内部 runtime 状态当成普通项目文件让 agent 搜索、读取、再靠前端擦掉。
 
 可借鉴标准：
 
@@ -109,16 +118,21 @@ runtime_context/tool_results/...
 - `search_files`
 - `glob_paths`
 - `read_file`
+- `list_dir`
+- `stat_path` / `path_exists` / `path_info` 类路径探测
+- `write_file` / `edit_file`
 - native tool runtime fallback search
 
-这些普通 workspace 工具把 runtime 私有存储当作项目文件扫描或读取。
+这些普通 workspace 工具把 runtime 私有存储当作项目文件扫描、读取、探测或修改。
 
-这不是前端展示问题，而是 workspace file boundary 缺少 runtime-private 排除契约。
+这不是前端展示问题，也不只是 `DEFAULT_SEARCH_EXCLUDED_PATHS` 太短，而是 workspace file boundary 缺少 runtime-private 硬边界。默认搜索排除只影响部分默认搜索路径；显式 `paths=[...]`、显式 root、`glob_paths()`、`list_dir()`、`stat_path()`、`path_exists()`、`read_file()`、`write_file()`、`edit_file()` 和 native fallback 仍可能绕过。
 
 相关代码：
 
 - `backend/capability_system/tools/workspace_file_service.py`
 - `backend/capability_system/tools/tool_units/search_files_tool.py`
+- `backend/capability_system/tools/tool_units/file_system_tools.py`
+- `backend/capability_system/tools/tool_units/write_file_tool.py`
 - `backend/runtime/tool_runtime/native_tools.py`
 - `backend/capability_system/tools/tool_units/persisted_tool_result_tool.py`
 
@@ -165,7 +179,7 @@ presentation 层只在兜底场景净化文本，不删除整条活动。
 | `MODEL_DECISION_SIGNAL` | 模型动作裁决 | respond、tool_call、request_task_run、ask_user、block | runtime 内部，必要摘要可见 | 记录为 runtime decision，不直接当正文展示 |
 | `TOOL_CALL_SIGNAL` | 工具调用请求 | `search_text`、`read_file`、`apply_patch` | 工具窗口可见 | 显示工具名和安全目标摘要 |
 | `TOOL_OBSERVATION_SIGNAL` | 工具返回 | 搜索结果、文件读取、命令输出 | 工具窗口可见 | 显示安全结果摘要和普通结果 |
-| `RUNTIME_PRIVATE_ARTIFACT` | runtime 私有产物 | replacement json、tool result store、dynamic context fragment | runtime 专用 | 普通 search/read/glob 默认禁止 |
+| `RUNTIME_PRIVATE_ARTIFACT` | runtime 私有产物 | replacement json、tool result store、dynamic context fragment | runtime 专用 | 普通 search/read/list/stat/write/edit 默认禁止 |
 | `REHYDRATION_REF` | 专用恢复引用 | `replacement_id`、trusted path、task_run_id | 模型可见为引用，不可猜路径 | 只允许专用 persisted result 工具读取 |
 | `INTERNAL_PROTOCOL_SIGNAL` | 内部协议或机器状态 | raw JSON、DSML、plan_id/items、machine status | 不给用户 | projection 层净化或丢弃文本 |
 | `SESSION_CANONICAL_MESSAGE` | 正式 assistant 正文 | 最终回答、明确阻塞说明 | session messages | 必须有 turn_id，经过 commit gate |
@@ -231,15 +245,33 @@ replacement_id + task_run_id + trusted path
 
 信号分类只解决“这是什么”。timeline 对照要解决“它什么时候出现、显示在哪、边界时怎么收口”。
 
-本系统的 public timeline 不应是一条混杂文本流，而应拆成 5 个显示面：
+本章的 timeline 是广义公开显示时序，不等同于当前代码里的 `runtimeAttachments[].public_timeline` 数组。当前实现中，`assistant_body` 和 `tool_window` 有独立过滤/渲染路径；如果实施时不先统一通道权威，就会出现正文、工具窗口、runtime attachment 三套重复解释。
+
+本系统的公开显示时序不应是一条混杂文本流，而应拆成 5 个显示面：
 
 | 显示面 | 对应字段 | 允许内容 | 禁止内容 |
 | --- | --- | --- | --- |
-| Assistant 正文 | `slot=body` + `surface=assistant_body` | 正式回答、开局判断、阻塞说明、可公开阶段总结 | 工具 raw output、runtime path、控制回执、debug event |
-| 工具窗口 | `slot=tool` + `surface=tool_window` | 工具开始、工具完成、工具失败、安全目标摘要 | runtime 私有路径、raw protocol、整项隐藏 |
+| Assistant 正文 | session assistant message / assistant stream；语义上可对应 `slot=body` + `surface=assistant_body` | 正式回答、开局判断、阻塞说明、可公开阶段总结 | 工具 raw output、runtime path、控制回执、debug event |
+| 工具窗口 | `ToolActivityLifecycle`；语义上可对应 `slot=tool` + `surface=tool_window` | 工具生命周期运行、完成、失败、安全目标摘要 | runtime 私有路径、raw protocol、整项隐藏、重复 start/return 行 |
 | 任务/状态 timeline | `slot=status/task/timeline` + `surface=timeline/status_bar` | 任务接管、等待、排队、阶段性公开进展 | 空泛机器状态刷屏 |
 | 控制面 | `slot=control` + `surface=control` | pause/stop/continue/steer ack、safe boundary wait | 正文回答、工具结果 |
 | Debug/Monitor | raw runtime event / technical trace | event id、payload、step、diagnostics | 进入主聊天正文 |
+
+当前代码对照：
+
+- `backend/harness/runtime/projection/authority.py` 会过滤 `slot=body`、`surface=assistant_body` 和 `surface=tool_window`。
+- `frontend/src/lib/projection/reducer.ts` 的 `isValidProjectionItem()` 也会过滤 body 和 tool window item。
+- `frontend/src/lib/store/events.ts` 另有 `tool_item_started` / `tool_item_completed` 路径生成 `work_action`。
+
+因此实施时必须先做一个明确裁决：
+
+```text
+Assistant 正文权威 = session message / assistant text stream / commit gate
+工具生命周期权威 = ToolActivityLifecycle 公共事件合同
+runtime attachment public_timeline = 状态、任务、控制、可合并的 companion timeline
+```
+
+除非同步扩展 `PublicProjectionFrame` 合同，否则不能把 `tool_window` 或 `assistant_body` item 塞进 runtime projection envelope 后期待前端显示。
 
 ### 5.1 Timeline 阶段表
 
@@ -249,7 +281,7 @@ replacement_id + task_run_id + trusted path
 | T1 active steer 接收 | `USER_STEER_SIGNAL` | `active_task_steer_recorded` / `active_task_steer_accepted` | `active_task_steer` 或 `status_update` | 控制面或任务 timeline | 不生成新 assistant 正文，不创建 replacement TaskRun |
 | T2 active control 接收 | `CONTROL_SIGNAL` | pause/stop/continue API event、`active_work_control_observed` | `control_state` / `safe_boundary_wait` | 控制面 | 控制回执可见，但不占主正文 |
 | T3 TaskRun 启动/接管 | `BACKGROUND_TASK_PROJECTION` | `task_run_lifecycle_started` / `task_run_executor_started` / `task_run_executor_scheduled` | task projection + `status_update` | 任务窗口、状态 timeline | 可见任务已接管；避免空泛“正在处理”刷屏 |
-| T4 模型作出动作裁决 | `MODEL_DECISION_SIGNAL` | `model_action_request_received` / `model_action_admission_checked` | 有公开判断时为 `opening_judgment`；工具动作另投 `work_action` | 正文或工具窗口 | 模型 JSON/action 本体不显示；只显示公开字段 |
+| T4 模型作出动作裁决 | `MODEL_DECISION_SIGNAL` | `model_action_request_received` / `model_action_admission_checked` | 若需要正文，走 assistant stream / session message；若只是进展，走 `status_update`；工具动作进入 `ToolActivityLifecycle` | 正文、状态 timeline 或工具窗口 | 模型 JSON/action 本体不显示；只显示公开字段；不要把 body/tool item 塞进当前 projection envelope |
 | T5 工具生命周期开始 | `TOOL_CALL_SIGNAL` | `model_action_admission` / `tool_item_started` | 创建或更新同一 `work_action(state=running)` | 工具窗口 | 以 `tool_call_id/action_ref` 作为生命周期键；不显示成独立“开始记录” |
 | T6 工具生命周期完成 | `TOOL_OBSERVATION_SIGNAL` | `turn_tool_observation_recorded` / `task_tool_observation_recorded` / `tool_item_completed` | 用返回结果 terminalize 同一 `work_action(state=done/error)`，必要时补 `observation_report` | 同一个工具窗口项；模型总结后可进入正文 | 工具项保留并更新；raw output 不直接变正文；不新增重复返回项 |
 | T7 runtime 私有产物生成 | `RUNTIME_PRIVATE_ARTIFACT` | dynamic context replacement / tool result store write | 无 public timeline item | runtime 内部 | 不进入工具窗口，不进入搜索结果，不进入正文 |
@@ -269,7 +301,7 @@ replacement_id + task_run_id + trusted path
 | `PUBLIC_RESULT_SUMMARY` | `observation_report` / `stage_summary` / `final_summary` | `body` 或 `timeline` | `assistant_body` 或 `timeline` | 有条件 | 只有经过 output boundary 和 public text 净化后可进正文 |
 | `USER_STEER_SIGNAL` | `active_task_steer` / `status_update` | `control` 或 `task` | `control` 或 `timeline` | 否 | 表示补充要求已接入当前任务 |
 | `CONTROL_SIGNAL` | `control_state` / `safe_boundary_wait` | `control` | `control` | 否 | 控制回执，不是 assistant 回答 |
-| `MODEL_DECISION_SIGNAL` | `opening_judgment` / none | `body` 或 none | `assistant_body` 或 none | 有条件 | 只能投影公开判断字段；action JSON 本身不显示 |
+| `MODEL_DECISION_SIGNAL` | `opening_judgment` / `status_update` / none | `body`、`timeline` 或 none | `assistant_body`、`timeline` 或 none | 有条件 | 正文走 assistant/session 通道；runtime attachment 只承载 companion timeline |
 | `TOOL_CALL_SIGNAL` | `work_action` | `tool` | `tool_window` | 否 | 创建或推进工具生命周期，不单独生成“开始”展示行 |
 | `TOOL_OBSERVATION_SIGNAL` | `work_action` / `observation_report` | `tool` 或 `body` | `tool_window` 或 `assistant_body` | 有条件 | 先 terminalize 同一工具生命周期；模型解释后的含义才可正文 |
 | `RUNTIME_PRIVATE_ARTIFACT` | none | none | none | 否 | 不进入 public timeline |
@@ -286,7 +318,7 @@ replacement_id + task_run_id + trusted path
 ```text
 用户补充
 -> active_task_steer_accepted
--> control/task timeline 显示“已收到补充要求”
+-> control surface / session activity 显示“已收到补充要求”
 -> TaskRun activity 显示“纳入补充要求”
 -> 不生成 assistant 正文
 -> 不创建新 TaskRun
@@ -296,7 +328,7 @@ replacement_id + task_run_id + trusted path
 
 ```text
 expected_active_turn_id 缺失或不匹配
--> control item 显示 blocked receipt
+-> control surface / session activity 显示 blocked receipt
 -> 不 append 到任何任务
 -> 不默认改成新任务
 ```
@@ -306,7 +338,7 @@ expected_active_turn_id 缺失或不匹配
 ```text
 stop_task_run()
 -> task control state=stop_requested
--> control surface 显示“停止请求已记录/等待安全边界”
+-> control surface / session activity 显示“停止请求已记录/等待安全边界”
 -> task projection 仍显示 stopping/running until terminal
 -> 不写最终 assistant 正文
 ```
@@ -321,13 +353,13 @@ new task request replaces old task
 -> new task lifecycle 挂到新 turn
 ```
 
-#### 5.3.5 普通 search/read 命中 runtime-private
+#### 5.3.5 普通 workspace 文件操作命中 runtime-private
 
 ```text
-search/read/glob 请求 runtime private path
+search_files/search_text/read_file/glob_paths/list_dir/stat_path/path_exists/write_file/edit_file 请求 runtime private path
 -> Workspace File Boundary 拒绝或默认排除
 -> 工具窗口可显示安全错误摘要
--> 不显示真实内部路径
+-> 不显示真实内部绝对路径或 replacement JSON 路径
 -> 不把结果写进 assistant 正文
 ```
 
@@ -355,11 +387,11 @@ TOOL_OBSERVATION_SIGNAL
 
 ```text
 tool_item_started / model_action_admission
--> create ToolActivityLifecycle(id=tool_call_id or action_ref)
+-> backend creates ToolActivityLifecycle(id=tool_lifecycle_id)
 -> render work_action(state=running)
 
 tool_item_completed / task_tool_observation_recorded
--> resolve same lifecycle id
+-> backend emits same tool_lifecycle_id
 -> update work_action(state=done/error, observation=...)
 -> do not append a second visible row
 
@@ -374,9 +406,32 @@ missing completed event
 固定约束：
 
 - 工具窗口显示的是生命周期对象，不是 event list。
-- start 和 observation 可以来自不同 stream，但必须通过 `tool_call_id`、`action_request_ref`、`observation_ref` 或 semantic key 合并。
+- start 和 observation 可以来自不同 stream，但必须通过后端提供的 `tool_lifecycle_id` 合并；`tool_call_id`、`action_request_ref`、`observation_ref` 是生成 lifecycle id 的候选输入。
 - 同一工具生命周期最多显示一行；状态从 `running` 变为 `done/error/stopped`。
 - `publicTimelineSemanticKey()` 的工具合并规则只能作为兜底，首选后端提供稳定 lifecycle id。
+- `tool_item_started/completed` 与 runtime monitor projection 不能各自生成不同 id；否则刷新或 SSE 重连后会重复显示。
+
+`ToolActivityLifecycle` 最小合同：
+
+```text
+tool_lifecycle_id: 稳定、同一工具调用全程不变
+anchor_turn_id: 归属 turn，缺失时只允许 debug/monitor
+task_run_id: 归属 TaskRun，可为空但不能伪造
+tool_call_id / action_request_ref / observation_ref: 追踪引用
+tool_name: 工具名
+state: running | done | error | stopped
+started_at / completed_at: 可选时间戳
+public_target: 已净化目标摘要，不能是 runtime-private path
+public_observation: 已净化结果摘要，不能是 raw protocol
+raw_observation_ref: 内部引用，只给 debug/rehydration，不给普通 UI
+```
+
+切换规则：
+
+- 后端必须先能对 started/completed 产生同一个 `tool_lifecycle_id`，前端再改合并策略。
+- 前端显示层只认 lifecycle identity，不根据标题文本猜同一工具。
+- 如果缺少 started，只允许 observation 恢复成一条 `state=done/error` 的 lifecycle item。
+- 如果缺少 completed，TaskRun terminal event 负责把运行中的 lifecycle item 收口为 `stopped/error`。
 
 #### 5.3.9 hydrate/reconnect
 
@@ -401,10 +456,12 @@ session timeline / runtime attachment hydrate
 
 1. `model_action_admission` 当前如果被视为 legacy live tool event，可能不会产生 public timeline item；工具开始是否改由 `tool_item_started` 路径承担，需要在实现时明确。
 2. `runtime_status` 当前可能不产生 item，但 task projection 会随 envelope 附加；任务接管类状态应避免正文刷屏。
-3. `active_task_steer_accepted` 应该是 control/task timeline item，不应进入 assistant body。
+3. `active_task_steer_accepted` 应该是 control surface / session activity / task projection 状态，不应进入 assistant body，也不要求进入工具活动列表。
 4. `work_action` 的 `subject_label` 必须经过 runtime-private path boundary 后再生成。
 5. 前端 `normalizePublicTimelineItems()` 当前会过滤 body/status_bar/todo_plan，只合并 companion timeline；这决定了正文和活动窗口必须分路输入。
 6. 工具开始和工具返回必须合并为同一个 `ToolActivityLifecycle`；不能把 event list 直接渲染成两条 UI 记录。
+7. `PublicProjectionFrame` 当前会过滤 `tool_window` 和 `assistant_body`，所以如果目标是用 projection envelope 承载这两类 item，必须先改 projection authority 和前端 reducer；否则应保持它们分别走 assistant/session 和 ToolActivityLifecycle 通道。
+8. `PublicTimelineActivity` 当前会过滤 control item；control 类信号主要体现在 session activity、stage status 或 task projection，不应要求它出现在工具/活动列表里。
 
 ## 6. 目标架构边界
 
@@ -434,7 +491,7 @@ User message during active task
 runtime writes replacement/tool_results
 -> marked RUNTIME_PRIVATE_ARTIFACT
 -> WorkspaceFileService default excludes
--> search_files/search_text/glob/read_file cannot expose by default
+-> search_files/search_text/glob_paths/list_dir/read_file/stat_path/path_exists/write_file/edit_file cannot expose by default
 -> rehydration tool can read via trusted REHYDRATION_REF
 ```
 
@@ -443,6 +500,8 @@ runtime writes replacement/tool_results
 - runtime 私有目录不属于普通 workspace 搜索面。
 - 如果用户明确要求排查 runtime 内部存储，应该通过开发者工具或专用 debug 路径，而不是 agent 普通文件工具。
 - 公开 projection 不应该收到这些路径；收到时只作为兜底净化。
+- runtime-private 判断必须是无条件硬边界；不能只挂在 `include_default_search_excludes=True` 的默认搜索分支上。
+- 显式 path/root/glob 命中 runtime-private 时，应拒绝或返回安全错误，而不是临时放开排除。
 
 ### 6.3 工具/任务公开投影目标流
 
@@ -461,6 +520,25 @@ Runtime event
 
 ## 7. 实施计划
 
+### 7.0 执行顺序与切换规则
+
+实施必须按以下顺序推进，避免在旧链路上继续堆补丁：
+
+1. 先确认错误屏蔽方案已经撤干净，保证工具窗口和任务窗口不被整体隐藏。
+2. 先补 active steer、runtime-private、tool lifecycle 的行为测试，让目标行为变成测试约束。
+3. 再落 runtime-private hard boundary，覆盖默认搜索、显式路径、glob、read_file、list_dir、stat_path、path_exists、write_file、edit_file、native fallback。
+4. 保留并校验专用 rehydration 通道，确认上下文恢复不依赖普通 workspace read/search。
+5. 落 `ToolActivityLifecycle` 稳定 id 合同，让工具开始/返回合并为同一个可见生命周期项。
+6. 最后清理 projection/presentation 文本净化，确保只净化文本，不删除工具活动。
+7. 收口 Session commit gate，确保 replacement stop closeout 不成为无 turn_id 主正文。
+
+切换规则：
+
+- 不保留两套长期并行工具显示链路；如果 lifecycle 合同切换失败，回退整个阶段修改，而不是加兼容分支。
+- 不把 runtime-private hard boundary 降级成 UI scrub；presentation scrub 只作为最后防线。
+- 不扩展 `PublicProjectionFrame` 承载 body/tool，除非同一阶段同步修改后端 authority、前端 reducer、store events 和测试。
+- 每阶段结束必须能说明旧决策权是否已删除、转移或仍被保留；不能留下“旧链路也许还会生效”的隐性分支。
+
 ### 阶段 0：确认回滚边界
 
 目标：确认之前错误的“屏蔽工具窗口”方案已经从工作树中退出，不再作为后续设计基础。
@@ -478,7 +556,7 @@ Runtime event
 完成标准：
 
 - 不存在 `should_hide_public_tool_call` 这类隐藏整个工具调用的主路径。
-- 工具开始和工具完成仍能形成 public activity。
+- 工具生命周期仍能形成 public activity，并且 start/return 合并为同一显示项。
 - 任务 projection 仍能生成 `activities`。
 
 ### 阶段 1：固化 active steer append 行为
@@ -514,6 +592,8 @@ Runtime event
 
 - `backend/capability_system/tools/workspace_file_service.py`
 - `backend/capability_system/tools/tool_units/search_files_tool.py`
+- `backend/capability_system/tools/tool_units/file_system_tools.py`
+- `backend/capability_system/tools/tool_units/write_file_tool.py`
 - `backend/runtime/tool_runtime/native_tools.py`
 
 建议新增统一判断：
@@ -525,8 +605,15 @@ is_runtime_private_path(path) -> bool
 默认私有模式包括：
 
 ```text
+mythical-agent/sessions/**
 backend/mythical-agent/sessions/**
+storage/sessions/**
+storage/session_environments/**
+storage/runtime_context/**
+storage/runtime_state/**
 backend/storage/session_environments/**
+backend/storage/runtime_context/**
+backend/storage/runtime_state/**
 **/runtime_state/dynamic_context/replacements/**
 **/runtime_context/tool_results/**
 **/dynamic_context/replacements/replacement_*.json
@@ -536,16 +623,21 @@ backend/storage/session_environments/**
 
 1. `rg --files` 路径加入默认排除。
 2. `search_text` 的 `rg` 路径加入默认排除。
-3. fallback `rglob` 路径使用同一套 `is_excluded(..., include_default_search_excludes=True)`。
+3. fallback `rglob` 路径无条件调用 runtime-private 判断；默认搜索排除仍可继续使用 `include_default_search_excludes=True`。
 4. `glob_paths` 默认排除 runtime-private。
 5. 精确 `paths=[...]` 搜索也要拒绝 runtime-private，除非走专用 rehydration 工具。
 6. `read_file` / native read 路径不能直接读取 runtime-private。
+7. `list_dir`、`stat_path`、`path_exists` / native path_info 类路径探测不能枚举 runtime-private。
+8. `write_file`、`edit_file`、`write_text`、`edit_text` 这类普通文件写入入口不能修改 runtime-private。
+9. `_targets_default_excluded_path()` 不能导致 runtime-private 被“显式命中后放行”；runtime-private 与默认搜索排除要分成两套判断。
 
 完成标准：
 
 - 普通搜索不返回 replacement JSON。
 - 普通 read 不读取 runtime private 文件。
 - 普通 glob 不枚举 runtime private 文件。
+- 普通 list/stat/exists 不揭示 runtime private 目录结构。
+- 普通 write_file/edit_file 无法写入 runtime private。
 
 ### 阶段 3：保留专用 rehydration 通道
 
@@ -589,9 +681,11 @@ backend/storage/session_environments/**
 
 - `TOOL_CALL_SIGNAL` 要显示为工具活动。
 - `TOOL_OBSERVATION_SIGNAL` 要显示为工具完成或失败。
+- `tool_item_started` 和 `tool_item_completed` 不能分别渲染成两行，必须共享 `tool_lifecycle_id`。
 - `INTERNAL_PROTOCOL_SIGNAL` 可以被净化为空。
 - `RUNTIME_PRIVATE_ARTIFACT` 路径如果兜底进入 projection，应替换为通用说明或清空文本，但不能删除整个工具项。
 - 泛化文本如“工具已返回”不能作为主正文摘要，但可以作为工具窗口状态。
+- `assistant_body` 不通过 runtime attachment companion timeline 兜底生成；正式正文仍由 assistant stream / session commit gate 负责。
 
 完成标准：
 
@@ -601,6 +695,7 @@ backend/storage/session_environments/**
 - 主聊天不被空泛工具回执刷屏。
 - 内部路径不再出现在普通用户可见文本中。
 - 每类信号都能按第 5 章映射到正确 `kind/slot/surface`，或明确留在 debug。
+- 如果选择扩展 `PublicProjectionFrame` 承载 tool/body，必须同步修改后端 authority、前端 reducer 和对应测试；否则不得把这两类 item 塞进 projection envelope。
 
 ### 阶段 5：Session commit gate 校验旧任务收口
 
@@ -633,6 +728,7 @@ replacement stop closeout
 
 ```powershell
 pytest backend/tests/workspace_file_tools_regression.py backend/tests/read_file_authority_chain_regression.py -q
+pytest backend/tests/workspace_runtime_private_boundary_regression.py -q
 pytest backend/tests/public_projection_contract_test.py backend/tests/session_task_projection_test.py backend/tests/session_runtime_timeline_contract_test.py backend/tests/public_progress_contract_test.py -q
 pytest backend/tests/output_boundary_final_text_regression.py -q
 ```
@@ -665,6 +761,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/project_stack.ps1 -A
 4. 确认工具/任务窗口仍显示。
 5. 用搜索请求触发 `search_text` / `search_files`，确认不返回 replacement/tool_results 私有路径。
 6. 刷新会话，确认 runtime attachment 和 task projection 仍可见。
+7. 触发一次工具调用，确认 started 和 completed 合并为同一工具生命周期项。
+8. SSE 重连或刷新后，确认同一个工具生命周期不重复显示。
 
 ## 8. 文件级执行清单
 
@@ -674,13 +772,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/project_stack.ps1 -A
 | `backend/harness/loop/active_work.py` | active work context 和控制动作 | 明确 `USER_STEER_SIGNAL` / `CONTROL_SIGNAL` 标记 |
 | `backend/capability_system/tools/workspace_file_service.py` | workspace 文件解析、默认搜索根和排除 | 增加 runtime-private path boundary |
 | `backend/capability_system/tools/tool_units/search_files_tool.py` | LangChain search_files/search_text 工具 | rg 与 fallback 统一排除 runtime-private |
-| `backend/runtime/tool_runtime/native_tools.py` | native search/read/glob 工具 | native 路径统一使用 runtime-private boundary |
+| `backend/capability_system/tools/tool_units/file_system_tools.py` | LangChain list_dir/stat_path/path_exists/glob_paths 工具 | 普通路径探测统一受 runtime-private boundary 约束 |
+| `backend/capability_system/tools/tool_units/write_file_tool.py` | LangChain write_file/edit_file 工具 | 普通写入/编辑禁止命中 runtime-private |
+| `backend/runtime/tool_runtime/native_tools.py` | native search/read/glob/list/stat/exists/write/edit 工具 | native 路径统一使用 runtime-private boundary；专用 rehydration 例外 |
 | `backend/capability_system/tools/tool_units/persisted_tool_result_tool.py` | 专用 persisted result 读取 | 保留 trusted rehydration ref，不走普通 workspace read |
 | `backend/harness/runtime/progress_presenter.py` | progress presentation | 保留工具活动，净化文本，不隐藏整项 |
 | `backend/harness/runtime/projection/task_projection.py` | TaskRun projection | 保留 activity，避免 raw internal text |
+| `backend/harness/runtime/projection/authority.py` | public projection envelope 授权 | 明确是否继续过滤 body/tool window；若扩展合同必须同步改前端 |
 | `backend/harness/runtime/session_timeline.py` | session runtime attachment/timeline | 保留 task projection 和工具 timeline |
 | `backend/api/chat.py` | public stream projection | 只做 public 数据净化，不作为私有路径主防线 |
+| `frontend/src/lib/store/events.ts` | stream event reducer、tool_item 生命周期现有入口 | 若保留该入口，必须接收后端稳定 `tool_lifecycle_id` 并与 hydrate 合并 |
+| `frontend/src/lib/projection/reducer.ts` | PublicProjectionEnvelope 消费 | 避免和 `events.ts` 对 tool/body 形成双权威；若扩展合同需改过滤规则 |
 | `frontend/src/lib/projection/timeline.ts` | public timeline 前端净化和合并 | 不隐藏工具项，只处理 raw output 防御 |
+| `frontend/src/components/chat/PublicTimelineActivity.tsx` | 活动窗口渲染 | 明确过滤 control item，工具 lifecycle 只显示一行 |
 | `frontend/src/components/chat/agentRunProjection.ts` | agent run projection 展示 | 保留工具窗口和任务轨迹 |
 
 ## 9. 验收矩阵
@@ -691,13 +795,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/project_stack.ps1 -A
 | active task 中发 stop | 记录 `CONTROL_SIGNAL`，停止当前任务 | 进入普通模型回复 |
 | 默认 search_text 搜 replacement | 无结果或只返回普通项目文件 | 返回 `runtime_state/dynamic_context/replacements` |
 | 默认 search_files 搜 tool_results | 无 runtime 私有路径 | 返回 `runtime_context/tool_results` |
+| 显式 paths 搜 replacement JSON | 返回安全拒绝 | 绕过默认排除并返回 replacement 内容 |
+| glob/list/stat/exists 指向 runtime_state | 返回安全拒绝或无公开结果 | 枚举 runtime 私有目录结构 |
+| 普通 write_file/edit_file 指向 runtime 私有目录 | 拒绝 | 写入 runtime 私有文件 |
 | 专用 rehydration 读 trusted ref | 成功读取必要内容 | 要求用普通 read_file 读内部路径 |
 | 工具失败 | 工具窗口显示失败活动和安全错误摘要 | 整条工具记录消失 |
 | 工具成功但结果泛化 | 工具窗口显示完成，主正文不被“工具已返回”覆盖 | 主聊天反复刷空泛工具回执 |
 | replacement stop 旧任务 | 旧任务 projection 显示 stopped，不写主正文 | 无 turn_id assistant message 盖住新任务 |
-| active steer accepted timeline | `active_task_steer` 进入 control/task timeline | 作为 assistant 正文显示 |
+| active steer accepted display | `active_task_steer` 进入 control surface / session activity，TaskRun activity 显示补充已纳入 | 作为 assistant 正文显示，或要求出现在工具活动列表 |
 | tool lifecycle started | `work_action(state=running)` 进入 tool window，带稳定 lifecycle id | 工具开始不可见或缺少 id |
 | tool lifecycle completed | 同一 lifecycle item terminalize 为 done/error | 新增重复工具项或整项消失 |
+| projection envelope body/tool filtering | body 走 assistant/session，tool 走 lifecycle；或显式扩展合同后一致显示 | 文档要求显示但 envelope/reducer 实际过滤 |
 | runtime private artifact timeline | 不生成 public timeline item | replacement JSON 路径显示在正文或工具窗口 |
 | hydrate/reconnect timeline | 按 key 合并旧 public timeline | 刷新后重复显示同一工具项 |
 
@@ -753,16 +861,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/project_stack.ps1 -A
 - 普通 workspace 工具和 rehydration 专用工具分权。
 - 专用工具用 trusted roots 和 replacement refs，不依赖普通 workspace file service 的默认搜索面。
 
-## 12. 审阅点
+## 12. 本轮审查发现与修正
+
+本计划对照当前 timeline/projection 源码后，确认以下遗漏和冲突已经纳入计划：
+
+| 发现 | 源码证据 | 风险 | 计划修正 |
+| --- | --- | --- | --- |
+| `assistant_body` 和 `tool_window` 当前会被 `PublicProjectionFrame` 授权层过滤 | `backend/harness/runtime/projection/authority.py` | 文档若要求 projection envelope 显示 body/tool，会落空 | 明确 body 走 assistant/session，tool 走 `ToolActivityLifecycle`；除非同步扩展合同 |
+| 前端 `applyPublicProjectionEnvelope()` 也过滤 body/tool item | `frontend/src/lib/projection/reducer.ts` | 后端即使发了 body/tool item，前端也不显示 | 文件清单加入 reducer；扩展合同时必须同步改 |
+| 工具 lifecycle 当前实际由 `tool_item_started/completed` 分支生成 | `frontend/src/lib/store/events.ts` | runtime monitor projection 和 chat stream 可能双路生成工具项 | 要求后端提供稳定 `tool_lifecycle_id`，两路必须合并 |
+| control item 不进入活动窗口列表 | `frontend/src/components/chat/PublicTimelineActivity.tsx` | 文档若要求 control 在活动列表显示，会与现状冲突 | 改为 control surface/session activity/stage status 显示 |
+| runtime private 排除范围原来只写 backend 路径 | 当前 workspace 同时存在顶层 `mythical-agent`、`storage` 和 `backend/storage` | 默认 root 或显式 root 搜索仍可能扫到私有目录 | 扩展默认私有模式，覆盖顶层和 backend 内部 runtime storage |
+| 工具生命周期缺少显式后端 id 合同 | 当前主要靠 `tool_call_id` 或 semantic key | 刷新、hydrate、不同 stream 来源下容易重复 | 新增 `tool_lifecycle_id` 作为计划要求，semantic key 只做兜底 |
+| `glob_paths()` 对命中默认排除路径会放宽 exclude | `backend/capability_system/tools/workspace_file_service.py` | 用户显式 glob runtime_state 时可能绕开默认排除 | runtime-private 独立为硬边界，不受 `_targets_default_excluded_path()` 放宽逻辑影响 |
+| `read_file` / `list_dir` / `stat_path` / `path_exists` / `write_file` / `edit_file` 不是搜索，但同样会泄露路径、内容或修改 runtime 状态 | `backend/runtime/tool_runtime/native_tools.py`、`backend/capability_system/tools/tool_units/file_system_tools.py`、`backend/capability_system/tools/tool_units/write_file_tool.py`、`WorkspaceFileService` | 只修 search 会留下旁路 | 所有普通 workspace 文件能力统一调用 runtime-private boundary |
+
+仍需实施时二选一的设计点：
+
+1. 保持当前通道分工：assistant 正文走 assistant/session，工具窗口走 `tool_item_*` / `ToolActivityLifecycle`，runtime attachment 只承载 companion timeline。
+   这是当前计划的推荐方向，改动小，符合现有代码分层。
+2. 扩展 `PublicProjectionFrame`：允许 body/tool_window item 进入 envelope。
+   如果选择这个方向，必须同步修改后端 authority、前端 reducer、store events 旧分支和测试，避免双权威。
+
+推荐采用第 1 种，不扩展 projection envelope 承载 body/tool，先把工具生命周期和 runtime-private 边界修稳。
+
+## 13. 审阅点
 
 实施前建议确认：
 
-1. 是否接受 `backend/mythical-agent/sessions/**` 和 `backend/storage/session_environments/**` 默认不属于普通 agent workspace search 面。
+1. 是否接受 `mythical-agent/sessions/**`、`backend/mythical-agent/sessions/**`、`storage/sessions/**`、`storage/session_environments/**`、`storage/runtime_context/**`、`storage/runtime_state/**`、`backend/storage/session_environments/**`、`backend/storage/runtime_context/**` 和 `backend/storage/runtime_state/**` 默认不属于普通 agent workspace 文件面，包括 search/read_file/glob_paths/list_dir/stat_path/path_exists/write_file/edit_file。
 2. 是否需要额外提供一个开发者 debug 工具查看 runtime 私有存储。
 3. active steer 的用户补充是否一律以当前任务为目标，除非前端明确走普通消息入口。
 4. replacement stop closeout 是否只允许进入 task projection，不允许成为主 assistant 正文。
+5. 是否采用推荐方向：不扩展 `PublicProjectionFrame` 承载 body/tool，而是把 body、tool lifecycle、companion timeline 三条通道的权威固定下来。
 
-## 13. 最终目标
+## 14. 最终目标
 
 完成后，系统行为应稳定为：
 
