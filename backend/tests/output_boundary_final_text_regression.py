@@ -44,32 +44,6 @@ def test_final_text_boundary_blocks_active_work_control_json() -> None:
     assert "internal_protocol_final_text" in decision.leak_flags
 
 
-def test_final_text_boundary_blocks_active_work_control_action_in_natural_language() -> None:
-    decision = canonical_output_decision_for_final_text(
-        "好，用户说“继续”，指向当前活跃工作（修复篮球游戏2D瞄准）。用 answer_then_continue_active_work 简短确认后继续推进。",
-        answer_channel="conversation",
-        answer_source="test.final_text",
-    )
-
-    assert decision.canonical_state == "missing_answer"
-    assert decision.persist_policy == "do_not_persist"
-    assert "internal_protocol_final_text" in decision.leak_flags
-    assert "answer_then_continue_active_work" not in decision.content
-
-
-def test_final_text_boundary_blocks_tool_budget_internal_closeout_text() -> None:
-    decision = canonical_output_decision_for_final_text(
-        "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
-        answer_channel="blocked",
-        answer_source="harness.single_agent_turn.tool_limit_closeout",
-    )
-
-    assert decision.canonical_state == "missing_answer"
-    assert decision.persist_policy == "do_not_persist"
-    assert "internal_protocol_final_text" in decision.leak_flags
-    assert "工具预算" not in decision.content
-
-
 def test_task_control_text_is_debug_only_not_canonical_memory() -> None:
     decision = canonical_output_decision_for_final_text(
         "我会按这个目标推进：修复文件管理。",

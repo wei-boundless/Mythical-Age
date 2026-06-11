@@ -7765,6 +7765,7 @@ def _public_tool_action_label(tool_name: str) -> str:
         "edit_file": "编辑文件",
         "apply_patch": "应用补丁",
         "read_file": "读取文件",
+        "read_persisted_tool_result": "读取工具输出缓存",
         "read_path": "读取文件",
         "stat_path": "检查路径信息",
         "list_dir": "读取目录",
@@ -7795,6 +7796,7 @@ def _public_tool_display_name(tool_name: str) -> str:
         "write_file": "文件写入工具",
         "edit_file": "文件编辑工具",
         "read_file": "文件读取工具",
+        "read_persisted_tool_result": "工具输出缓存读取工具",
         "terminal": "命令工具",
         "shell": "命令工具",
     }

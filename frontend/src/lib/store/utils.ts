@@ -199,11 +199,29 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (attachment.task_projection) {
     return true;
   }
-  return (attachment.public_timeline ?? []).some((item) => {
+  const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
     const slot = String(item.slot ?? "").trim();
     const surface = String(item.surface ?? "").trim();
     return slot !== "control" && surface !== "control" && surface !== "diagnostics";
   });
+  if (hasPublicTimeline) {
+    return true;
+  }
+  return (attachment.progress_entries ?? []).some(runtimeProgressEntryHasUserVisibleProjection);
+}
+
+function runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
+  const kind = String(entry.kind ?? "").trim().toLowerCase();
+  const surface = String(entry.surface ?? "").trim().toLowerCase();
+  if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
+    return false;
+  }
+  return Boolean(
+    String(entry.title ?? "").trim()
+    || String(entry.body ?? "").trim()
+    || String(entry.publicNote ?? entry.public_note ?? "").trim()
+    || String(entry.agentBrief ?? entry.agent_brief_output ?? "").trim()
+  );
 }
 
 export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {

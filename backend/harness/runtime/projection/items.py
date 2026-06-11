@@ -106,7 +106,7 @@ def work_action_item(
     normalized_state = public_state(state)
     subject = subject_label(tool_name=tool_name, raw_target=raw_target, action_kind=action_kind)
     title = action_title(action_kind=action_kind, state=normalized_state)
-    summary_text = public_text(summary, limit=220) or (f"{title}：{subject}" if subject else title)
+    summary_text = f"{title}：{subject}" if subject else title
     observation_text = observation_text_for_tool(
         tool_name=tool_name,
         action_kind=action_kind,
@@ -197,6 +197,8 @@ def status_item(
 def action_kind_for_tool(tool_name: str, raw_target: Any = "") -> str:
     normalized = text(tool_name).lower()
     target = text(raw_target).lower()
+    if normalized == "read_persisted_tool_result":
+        return "runtime_read"
     if normalized == "memory_search":
         return "memory"
     if normalized in {"path_exists", "stat_path", "list_dir"}:
@@ -226,6 +228,8 @@ def subject_label(*, tool_name: str, raw_target: Any, action_kind: str) -> str:
         return raw
     if action_kind == "memory":
         return "相关记忆"
+    if action_kind == "runtime_read":
+        return "工具输出缓存"
     if action_kind == "verify":
         return "验证结果"
     if action_kind == "subagent":
@@ -242,6 +246,7 @@ def action_title(*, action_kind: str, state: str) -> str:
         "run": ("正在运行命令", "命令已返回", "命令未完成"),
         "verify": ("正在运行验证", "验证已返回", "验证未完成"),
         "memory": ("正在检索相关记忆", "记忆检索已返回", "记忆检索未完成"),
+        "runtime_read": ("正在读取工具输出", "工具输出已返回", "工具输出读取失败"),
         "subagent": ("正在等待子任务", "子任务已返回", "子任务未完成"),
         "work": ("正在调用工具", "工具结果已返回", "步骤未完成"),
     }

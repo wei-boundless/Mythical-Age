@@ -257,11 +257,29 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (attachment.task_projection) {
     return true;
   }
-  return (attachment.public_timeline ?? []).some((item) => {
+  const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
     const slot = text(item.slot);
     const surface = text(item.surface);
     return slot !== "control" && surface !== "control" && surface !== "diagnostics";
   });
+  if (hasPublicTimeline) {
+    return true;
+  }
+  return (attachment.progress_entries ?? []).some(runtimeProgressEntryHasUserVisibleProjection);
+}
+
+function runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
+  const kind = text(entry.kind).toLowerCase();
+  const surface = text(entry.surface).toLowerCase();
+  if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
+    return false;
+  }
+  return Boolean(
+    text(entry.title)
+    || text(entry.body)
+    || text(entry.publicNote || entry.public_note)
+    || text(entry.agentBrief || entry.agent_brief_output)
+  );
 }
 
 export function publicTimelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicChatTimelineItem[] {

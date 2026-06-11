@@ -159,11 +159,17 @@ class NativeToolCallSequenceModelRuntimeStub(SingleMessageModelRuntimeStub):
         self.seen_tool_call_options: list[object] = []
 
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        return self._next_response(messages, tools, _kwargs)
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return self._next_response(messages, [], _kwargs)
+
+    def _next_response(self, messages, tools, kwargs):
         self.calls += 1
         self.seen_tools.append(list(tools or []))
         self.seen_messages.append(list(messages or []))
-        self.seen_accounting_contexts.append(dict(_kwargs.get("accounting_context") or {}))
-        self.seen_tool_call_options.append(_kwargs.get("tool_call_options"))
+        self.seen_accounting_contexts.append(dict(kwargs.get("accounting_context") or {}))
+        self.seen_tool_call_options.append(kwargs.get("tool_call_options"))
         response = self.responses[min(self.calls - 1, max(0, len(self.responses) - 1))] if self.responses else {}
         return SimpleNamespace(
             content=str(response.get("content") or ""),

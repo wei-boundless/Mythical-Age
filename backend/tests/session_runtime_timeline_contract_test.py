@@ -405,6 +405,46 @@ def test_session_runtime_timeline_does_not_synthesize_generic_success_feedback()
     assert "已开始处理" not in visible
 
 
+def test_session_runtime_timeline_does_not_project_system_tool_step_summaries() -> None:
+    events = [
+        {
+            "event_id": "event:batch",
+            "event_type": "step_summary_recorded",
+            "run_id": "taskrun:turn:session-tool-system:1:abc",
+            "offset": 1,
+            "created_at": 1.0,
+            "payload": {
+                "task_run_id": "taskrun:turn:session-tool-system:1:abc",
+                "step": "task_tool_batch_started:3",
+                "status": "running",
+                "summary": "执行 7 个工具调用：读取文件 backend/harness/runtime/compiler.py 等。",
+                "presentation_source": "system.tool_call_status",
+            },
+        },
+        {
+            "event_id": "event:repair",
+            "event_type": "step_summary_recorded",
+            "run_id": "taskrun:turn:session-tool-system:1:abc",
+            "offset": 2,
+            "created_at": 2.0,
+            "payload": {
+                "task_run_id": "taskrun:turn:session-tool-system:1:abc",
+                "step": "task_tool_repair_required:3",
+                "status": "running",
+                "summary": "工具调用失败，正在根据失败原因调整处理路径。",
+            },
+        },
+    ]
+
+    entries = _progress_entries(events)
+    items = build_public_chat_timeline_from_progress_entries(entries)
+
+    visible = json.dumps({"entries": entries, "items": items}, ensure_ascii=False)
+    assert "执行 7 个工具调用" not in visible
+    assert "工具调用失败" not in visible
+    assert items == []
+
+
 def test_session_runtime_timeline_does_not_expose_line_numbered_tool_output() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host

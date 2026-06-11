@@ -2173,6 +2173,63 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(attachment?.public_timeline ?? []).toEqual([]);
   });
 
+  it("does not project system tool step summaries from the legacy monitor stream", () => {
+    const taskRunId = "taskrun:turn:session:tool-system:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:tool-system",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:tool-system:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:tool-system:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    for (const payload of [
+      {
+        step: "task_tool_batch_started:4",
+        status: "running",
+        summary: "执行 7 个工具调用：读取文件 backend/harness/runtime/compiler.py 等。",
+        presentation_source: "system.tool_call_status",
+      },
+      {
+        step: "task_tool_repair_required:4",
+        status: "running",
+        summary: "工具调用失败，正在根据失败原因调整处理路径。",
+      },
+    ]) {
+      runtime.applyRunMonitorStreamPayload({
+        source: "runtime_event_log",
+        monitor: monitorForTest([
+          itemForMonitor({
+            task_run_id: taskRunId,
+            session_id: "session:tool-system",
+            task_id: "task:turn:session:tool-system:1",
+            latest_event_type: "step_summary_recorded",
+            route: { kind: "agent_runtime_run", session_id: "session:tool-system", task_run_id: taskRunId },
+          }),
+        ]),
+        runtime_event: {
+          event_id: `rtevt:${payload.step}`,
+          run_id: taskRunId,
+          event_type: "step_summary_recorded",
+          offset: 14,
+          created_at: 14,
+          payload: {
+            task_run_id: taskRunId,
+            ...payload,
+          },
+          refs: { task_run_ref: taskRunId, turn_ref: "turn:session:tool-system:1" },
+          authority: "orchestration.runtime_event",
+        },
+      });
+    }
+
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+  });
+
   it("does not synthesize generic successful tool observation feedback", () => {
     const taskRunId = "taskrun:turn:session:generic-observation:1:abc";
     const store = createStore<StoreState>({
@@ -3513,7 +3570,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.content).toBe("最终回答。");
   });
 
-  it("does not write active-work control action names from assistant_text_final into assistant prose", () => {
+  it("keeps active-work control terms when they arrive as canonical assistant prose", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
       sequence: 1,
@@ -3532,11 +3589,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.role).toBe("assistant");
-    expect(assistant?.content).toBe("");
+    expect(assistant?.content).toContain("answer_then_continue_active_work");
     expect(assistant?.answerCanonicalState).toBe("stable_answer");
   });
 
-  it("does not write tool-budget internal closeout text from assistant_text_final into assistant prose", () => {
+  it("does not keep tool-budget system fallback text as assistant prose", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
       sequence: 1,
@@ -5575,7 +5632,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(lastMessage?.role).toBe("assistant");
     expect(lastMessage?.content).toBe("");
     expect(lastMessage?.runtimePublicTimelineDraft?.[0]).toMatchObject({
-      title: "处理失败",
+      title: "运行中断",
       detail: "Image API failed with status 400",
       state: "error",
     });
@@ -6171,19 +6228,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
     expect(assistant?.runtimePublicTimelineDraft?.[0]).toMatchObject({
-      title: "处理失败",
+      title: "运行中断",
       detail: "当前环境的写入权限不足，且创建文件的工具不可见。",
       state: "error",
     });
     expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
-      title: "处理失败",
+      title: "运行中断",
       body: "当前环境的写入权限不足，且创建文件的工具不可见。",
       kind: "terminal",
       level: "error",
     });
     expect(transition.state.sessionActivity).toMatchObject({
       level: "error",
-      title: "处理失败",
+      title: "运行中断",
       detail: "详情已写入会话。",
     });
   });

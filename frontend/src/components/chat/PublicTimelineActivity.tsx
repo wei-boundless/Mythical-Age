@@ -782,7 +782,7 @@ function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelin
     if (!kind) {
       continue;
     }
-    const text = publicText(item);
+    const text = kind === "tool" ? toolSummaryText(item) : publicText(item);
     if (!text) {
       continue;
     }
@@ -842,27 +842,42 @@ function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem, options:
   if (rawOutputSuppressed && ["读取完成", "已读取完成", "读取已完成", "工具已完成", "操作已返回", "结果已返回"].map(compactActivityText).includes(normalizedTitle)) {
     return true;
   }
-  const hasMeaningfulPayload = hasMeaningfulCompletedToolPayload(item);
+  const inspectOrSearch = ["inspect", "search"].includes(actionKind)
+    || title.startsWith("已确认目标")
+    || title.startsWith("已搜索引用");
+  const hasMeaningfulPayload = hasMeaningfulCompletedToolPayload(item, { resultOnly: inspectOrSearch });
   if (!hasMeaningfulPayload && isGenericCompletedToolText(title) && isGenericCompletedToolText(item.public_summary)) {
     return true;
   }
   if (options.compactCompletedTools && !hasMeaningfulPayload) {
     return true;
   }
-  return ["inspect", "search"].includes(actionKind)
-    || title.startsWith("已确认目标")
-    || title.startsWith("已搜索引用");
+  return inspectOrSearch && !hasMeaningfulPayload;
 }
 
-function hasMeaningfulCompletedToolPayload(item: PublicChatTimelineItem) {
-  for (const candidate of [item.public_summary, item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text, item.path, item.href]) {
+function hasMeaningfulCompletedToolPayload(item: PublicChatTimelineItem, options: { resultOnly?: boolean } = {}) {
+  const candidates = options.resultOnly
+    ? [item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text]
+    : [item.public_summary, item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text, item.path, item.href];
+  for (const candidate of candidates) {
     const text = cleanPublicTimelineText(candidate);
-    if (!text || looksLikeRawToolOutput(text) || isGenericCompletedToolText(text)) {
+    if (!text || looksLikeRawToolOutput(text) || isGenericCompletedToolText(text) || isLowSignalCompletedToolPayloadText(text)) {
       continue;
     }
     return true;
   }
   return false;
+}
+
+function isLowSignalCompletedToolPayloadText(value: unknown) {
+  const normalized = compactActivityText(cleanPublicTimelineText(value)).replace(/[。.!！?？,，;；:：]$/g, "");
+  return new Set([
+    "nopathsmatched",
+    "nomatches",
+    "nomatchesfound",
+    "未匹配到路径",
+    "没有匹配结果",
+  ]).has(normalized);
 }
 
 function isGenericCompletedToolText(value: unknown) {
@@ -992,8 +1007,24 @@ function publicText(item: PublicChatTimelineItem) {
   return "";
 }
 
+function toolSummaryText(item: PublicChatTimelineItem) {
+  const title = sanitizePublicTimelineText(item.title);
+  const target = publicTimelineToolTarget(item);
+  if (title) {
+    return target && !title.includes(target) ? `${title} ${target}` : title;
+  }
+  const candidates = [item.subject_label, item.text, item.public_summary, item.path, item.href];
+  for (const candidate of candidates) {
+    const text = sanitizePublicTimelineText(candidate);
+    if (text && !looksLikeRawToolOutput(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
 function toolDetailText(item: PublicChatTimelineItem, summary: string) {
-  const candidates = [item.observation, item.detail, item.recovery_hint, item.path, item.href];
+  const candidates = [item.observation, item.detail, item.public_summary, item.recovery_hint, item.path, item.href];
   for (const candidate of candidates) {
     const text = sanitizePublicTimelineText(candidate);
     if (text && text !== summary && !looksLikeRawToolOutput(text)) {

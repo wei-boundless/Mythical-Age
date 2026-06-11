@@ -99,7 +99,7 @@ def projection_items_for_event(public_event_type: str, data: dict[str, Any]) -> 
         item = control_item(
             item_id=_item_id("error", data),
             kind="error_notice",
-            title=data.get("error") or data.get("message") or "处理失败",
+            title=data.get("error") or data.get("message") or "运行中断",
             detail=data.get("terminal_reason") or data.get("reason"),
             state="error",
             trace_refs=_trace_refs(data),

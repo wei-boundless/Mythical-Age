@@ -2297,12 +2297,11 @@ def _single_agent_turn_output_contract(
                 "required_fields": ["action", "relation_to_current_work"],
                 "payload_schema": {
                     "action": "one of allowed_controls; use this exact field name for the control decision",
-                    "response": "本次控制动作的简短语义说明；系统会把它连同执行结果作为观察返回，它不是最终用户回复；不要在这里或任何用户可见文本中写出 action 枚举名",
+                    "response": "本次控制动作的简短语义说明；系统会把它连同执行结果作为观察返回，它不是最终用户回复",
                     "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
                     "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
                     "continuation_strategy": "same_run_resume, already_running, defer, or none",
                 },
-                "public_text_boundary": "User-visible feedback must be natural language only. Never expose allowed_controls values such as continue_active_work, answer_then_continue_active_work, or active_work_control in final_answer, public_progress_note, current_judgment, next_action, or response prose.",
                 "allowed_controls": [
                     "continue_active_work",
                     "pause_active_work",

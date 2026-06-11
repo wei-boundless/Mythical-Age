@@ -72,24 +72,13 @@ describe("publicTimeline", () => {
     })).toBe("error");
   });
 
-  it("suppresses line-numbered tool output before timeline items reach chat rendering", () => {
+  it("keeps line-numbered text as ordinary timeline text", () => {
     const rawFilePreview = "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是一段工具读取的文件原文";
 
-    expect(sanitizePublicTimelineText(rawFilePreview)).toBe("");
-    expect(mergePublicTimelineItems([], [
-      {
-        item_id: "body:raw-file",
-        kind: "final_summary",
-        slot: "body",
-        surface: "assistant_body",
-        source_authority: "model",
-        text: rawFilePreview,
-        state: "done",
-      },
-    ])).toEqual([]);
+    expect(sanitizePublicTimelineText(rawFilePreview)).toBe(rawFilePreview.trim().replace(/[ \t\f\v]+/g, " "));
   });
 
-  it("suppresses runtime-private artifact paths before timeline rendering", () => {
+  it("keeps artifact paths as ordinary timeline text", () => {
     const privatePaths = [
       "D:\\AI应用\\langchain-agent\\backend\\storage\\task_environments\\general\\workspace\\runtime_state\\dynamic_context\\replacements\\replacement_4ce5ea91846e3d4e34ff823e.json",
       "storage/runtime_context/tool_results/session-fad8ee446.txt",
@@ -101,7 +90,7 @@ describe("publicTimeline", () => {
     ];
 
     for (const privatePath of privatePaths) {
-      expect(sanitizePublicTimelineText(privatePath)).toBe("");
+      expect(sanitizePublicTimelineText(privatePath)).toBe(privatePath);
     }
     expect(mergePublicTimelineItems([], [
       {
@@ -110,7 +99,12 @@ describe("publicTimeline", () => {
         title: privatePaths[0],
         state: "running",
       },
-    ])).toEqual([]);
+    ])).toEqual([
+      expect.objectContaining({
+        item_id: "private:path",
+        title: privatePaths[0],
+      }),
+    ]);
   });
 
 });

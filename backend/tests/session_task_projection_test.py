@@ -68,6 +68,94 @@ def test_task_projection_keeps_tool_observation_on_tool_surface():
     assert projection["activities"][0]["kind"] == "tool_observation"
 
 
+def test_task_projection_routes_tool_error_code_to_tool_detail_not_title():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:tool-error",
+                "event_type": "task_tool_observation_recorded",
+                "payload": {
+                    "observation": {
+                        "source": "tool:read_persisted_tool_result",
+                        "payload": {
+                            "tool_name": "read_persisted_tool_result",
+                            "result": '{"ok": false, "error": "missing_required_tool_inputs"}',
+                        },
+                        "error": "missing_required_tool_inputs",
+                    }
+                },
+            }
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    activity = projection["activities"][0]
+    assert activity["display_surface"] == "tool_window"
+    assert activity["kind"] == "tool_observation"
+    assert activity["tool_name"] == "read_persisted_tool_result"
+    assert activity["title"] != "missing_required_tool_inputs"
+    assert activity["detail"] == "missing_required_tool_inputs"
+
+
+def test_task_projection_ignores_system_tool_step_summaries():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:batch",
+                "event_type": "step_summary_recorded",
+                "payload": {
+                    "step": "task_tool_batch_started:2",
+                    "status": "running",
+                    "summary": "执行 2 个工具调用：读取目录 backend/、搜索文本 invocation_kind。",
+                    "presentation_source": "system.tool_call_status",
+                },
+            },
+            {
+                "event_id": "event:repair",
+                "event_type": "step_summary_recorded",
+                "payload": {
+                    "step": "task_tool_repair_required:2",
+                    "status": "running",
+                    "summary": "工具调用失败，正在根据失败原因调整处理路径。",
+                },
+            },
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    visible = str(projection)
+    assert projection.get("activities", []) == []
+    assert projection.get("current_action", {}) == {}
+    assert "执行 2 个工具调用" not in visible
+    assert "工具调用失败" not in visible
+
+
 def test_waiting_executor_projection_does_not_promote_stale_running_step_to_current_action():
     task_run = SimpleNamespace(
         task_run_id="taskrun:turn:test:abc",

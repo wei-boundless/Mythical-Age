@@ -127,7 +127,7 @@ def error_event(
     reason: str = "",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    public_content = sanitize_visible_assistant_content(str(content or "")).strip() or "处理失败"
+    public_content = sanitize_visible_assistant_content(str(content or "")).strip() or "运行中断"
     return {
         "type": "error",
         "error": public_content,

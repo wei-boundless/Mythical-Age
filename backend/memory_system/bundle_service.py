@@ -501,12 +501,13 @@ class MemoryBundleService:
         return self.durable_memory.describe_maintenance_runtime()
 
     def _context_budget(self) -> dict[str, Any]:
+        default_budget = get_context_budget_preset("deepseek_1m").to_dict()
         if self._context_budget_provider is not None:
             payload = dict(self._context_budget_provider())
             if not payload:
                 raise ValueError("context budget provider returned an empty payload")
-            return payload
-        return get_context_budget_preset("deepseek_1m").to_dict()
+            return {**default_budget, **payload}
+        return default_budget
 
 def _long_term_context_candidates_from_recall_result(
     recall_result: Any,

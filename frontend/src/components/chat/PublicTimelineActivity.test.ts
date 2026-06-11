@@ -9,6 +9,29 @@ function attributeValues(html: string, name: string) {
 }
 
 describe("PublicTimelineActivity", () => {
+  it("keeps tool error codes inside the tool window instead of using them as the activity title", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "tool:rehydrate:error",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            source_authority: "tool",
+            action_kind: "runtime_read",
+            title: "工具输出读取失败",
+            public_summary: "missing_required_tool_inputs",
+            state: "error",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("<summary>工具输出读取失败</summary>");
+    expect(html).toContain("<dd>missing_required_tool_inputs</dd>");
+  });
+
   it("renders task projection current action and activities without exposing todo", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {

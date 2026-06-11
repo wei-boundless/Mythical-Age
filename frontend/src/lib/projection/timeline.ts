@@ -1,6 +1,5 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
-import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
-import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
+import { isInternalControlProtocolText } from "@/lib/internalControlText";
 
 export type PublicTimelineTerminalState = "done" | "error" | "stopped" | "";
 
@@ -91,9 +90,7 @@ export function sanitizePublicTimelineText(value: unknown) {
   const compact = text.replace(/[。.!！?？,，;；:：]/g, "").toLowerCase();
   if (SUPPRESSED_TEXT.has(text) || SUPPRESSED_TEXT.has(compact)) return "";
   if (looksLikeMachineStatusText(text)) return "";
-  if (isInternalActiveWorkControlText(text)) return "";
-  if (looksLikeRawProjectedOutput(text)) return "";
-  if (looksLikeProtocolText(text)) return "";
+  if (isInternalControlProtocolText(text)) return "";
   return text;
 }
 
@@ -183,7 +180,7 @@ export function normalizePublicTimelineItems(
   for (const [index, rawItem] of (items ?? []).entries()) {
     if (cleanPublicTimelineText(rawItem.kind) === "todo_plan") continue;
     if (isPublicTimelineBodyItem(rawItem)) continue;
-    if (isPublicTimelineStatusBarItem(rawItem)) continue;
+    if (isPublicTimelineStatusBarItem(rawItem) && !shouldKeepStatusTimelineItem(rawItem, options.terminalState)) continue;
     const item = options.terminalState
       ? finalizePublicTimelineItem(sanitizePublicTimelineItem(rawItem), options.terminalState)
       : sanitizePublicTimelineItem(rawItem);
@@ -202,6 +199,20 @@ export function normalizePublicTimelineItems(
     result.push(item);
   }
   return trimPublicTimelineItems(result, options.limit);
+}
+
+function shouldKeepStatusTimelineItem(item: PublicChatTimelineItem, terminalState: PublicTimelineTerminalState | undefined) {
+  if (terminalState) {
+    return true;
+  }
+  const kind = cleanPublicTimelineText(item.kind).toLowerCase();
+  const state = cleanPublicTimelineText(item.state).toLowerCase();
+  const phase = cleanPublicTimelineText(item.phase).toLowerCase();
+  if (kind !== "status_update") {
+    return false;
+  }
+  return ["error", "failed", "stopped", "stale", "waiting", "blocked"].includes(state)
+    || ["error", "failed", "stopped", "stale", "waiting", "blocked"].includes(phase);
 }
 
 export function publicTimelineTerminalStateFromAnswer({
@@ -227,16 +238,8 @@ export function publicTimelineTerminalStateFromEvent(event: string): PublicTimel
 
 function sanitizePublicTimelineItem(item: PublicChatTimelineItem) {
   const next: Record<string, unknown> = { ...item };
-  let rawOutputSuppressed = false;
   for (const field of TEXT_FIELDS) {
-    const rawText = cleanPublicTimelineText(next[field]);
-    if (rawText && looksLikeRawProjectedOutput(rawText)) {
-      rawOutputSuppressed = true;
-    }
     next[field] = sanitizePublicTimelineText(next[field]);
-  }
-  if (rawOutputSuppressed) {
-    next.raw_output_suppressed = true;
   }
   return next as PublicChatTimelineItem;
 }
@@ -269,12 +272,6 @@ function publicTimelineStateRank(item: PublicChatTimelineItem) {
   return 0;
 }
 
-function looksLikeProtocolText(value: string) {
-  if (!value) return false;
-  if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) return true;
-  return /(action_type|tool_call|task_control|terminal_reason|model_action_request|public_action_state|runtime_invocation_packet)/i.test(value);
-}
-
 function looksLikeMachineStatusText(value: string) {
   const lowered = cleanPublicTimelineText(value).toLowerCase();
   if (!lowered) return false;
@@ -285,17 +282,6 @@ function looksLikeMachineStatusText(value: string) {
   }
   const compact = lowered.replace(/[\s。.!！?？,，;；:：_-]+/g, "");
   return states.some((item) => item.replace(/_/g, "") === compact);
-}
-
-function looksLikeRawProjectedOutput(value: string) {
-  const raw = String(value ?? "").replace(/\r\n?/g, "\n");
-  if (looksLikeRuntimePrivateArtifactText(raw)) return true;
-  if (/(?:^|\n)\s*\d{1,6}\s*\|\s+/.test(raw)) return true;
-  if (/^\d{1,6}\s*\|\s+/.test(cleanPublicTimelineText(raw))) return true;
-  if (/\b(?:Exit code|Wall time|Output):/i.test(raw)) return true;
-  if (/\b(?:Get-Content|Get-ChildItem|Select-Object|Stop-Process|Start-Process|python -m|npm run|npx )\b/i.test(raw)) return true;
-  if (/(?:runtime_context|runtime[-_ ]context)[\\/]+tool-results|tool-results[\\/]+session[-_A-Za-z0-9]+/i.test(raw)) return true;
-  return false;
 }
 
 function normalizedToolTarget(value: unknown) {

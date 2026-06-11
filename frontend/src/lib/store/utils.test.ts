@@ -178,6 +178,57 @@ describe("toUiMessages runtime attachments", () => {
     });
   });
 
+  it("keeps canonical assistant prose that explains active work control terms", () => {
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "审查控制系统", turn_id: "turn:session-a:3" },
+        {
+          role: "assistant",
+          content: "收口结论：active_work_control、ask_user 和 continue_active_work 是控制周期的一部分，需要按信号边界解释。",
+          turn_id: "turn:session-a:3",
+          answer_channel: "conversation",
+          answer_canonical_state: "stable_answer",
+          answer_persist_policy: "persist_canonical",
+        },
+      ],
+      [
+        {
+          attachment_id: "runtime-attachment:turnrun:turn:session-a:3",
+          run_id: "turnrun:turn:session-a:3",
+          anchor_turn_id: "turn:session-a:3",
+          anchor_message_id: "history-message:turn:session-a:3:assistant",
+          anchor_role: "assistant",
+          status: "completed",
+          public_timeline: [
+            {
+              item_id: "tool:read",
+              kind: "work_action",
+              slot: "tool",
+              surface: "tool_window",
+              source_authority: "tool",
+              title: "读取完成 backend/harness/loop/single_agent_turn.py",
+              subject_label: "backend/harness/loop/single_agent_turn.py",
+              state: "done",
+            },
+          ],
+        },
+      ],
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({
+      id: "history-message:turn:session-a:3:assistant",
+      role: "assistant",
+      content: "收口结论：active_work_control、ask_user 和 continue_active_work 是控制周期的一部分，需要按信号边界解释。",
+      answerCanonicalState: "stable_answer",
+      answerPersistPolicy: "persist_canonical",
+    });
+    expect(messages[1].runtimeAttachments?.[0]).toMatchObject({
+      attachment_id: "runtime-attachment:turnrun:turn:session-a:3",
+      status: "completed",
+    });
+  });
+
   it("preserves assistant answer channel and does not merge task receipts with answers", () => {
     const messages = toUiMessages(
       [

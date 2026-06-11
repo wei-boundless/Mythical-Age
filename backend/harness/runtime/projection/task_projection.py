@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .guards import compact, public_state, public_text, record, stable_id, text
+from .items import action_kind_for_tool, action_title
 
 
 SINGLE_AGENT_TASK_PROJECTION_AUTHORITY = "harness.runtime.single_agent_task_projection"
@@ -11,6 +12,9 @@ TERMINAL_STATUSES = {"completed", "failed", "stopped", "aborted", "cancelled", "
 WAITING_STATUSES = {"waiting_executor", "waiting_approval", "waiting_user", "paused", "queued"}
 ERROR_STATUSES = {"failed", "error", "blocked"}
 ACTIVE_ACTIVITY_STATES = {"running", "working", "partial", "waiting", "queued", "paused"}
+INTERNAL_RUNTIME_TOOL_NAMES = {
+    "agent_todo",
+}
 
 
 def build_single_agent_task_projection(
@@ -128,25 +132,54 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
     event_id = text(event.get("event_id"))
     if event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded"}:
         observation = record(payload.get("observation") or payload)
-        tool_name = text(observation.get("tool_name") or payload.get("tool_name") or "工具")
-        if tool_name == "agent_todo" or text(observation.get("source")) in {"system:agent_todo", "tool:agent_todo"}:
+        source = text(observation.get("source"))
+        observation_payload = record(observation.get("payload"))
+        envelope = record(observation_payload.get("result_envelope") or observation.get("result_envelope"))
+        structured = record(observation_payload.get("structured_payload") or envelope.get("structured_payload"))
+        tool_name = text(
+            observation.get("tool_name")
+            or observation_payload.get("tool_name")
+            or envelope.get("tool_name")
+            or structured.get("tool_name")
+            or payload.get("tool_name")
+            or source.removeprefix("tool:")
+            or "工具"
+        )
+        normalized_tool_name = tool_name.lower()
+        if normalized_tool_name in INTERNAL_RUNTIME_TOOL_NAMES or source in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
             return {}
-        summary = public_text(observation.get("summary") or observation.get("result") or payload.get("summary"), limit=180)
+        tool_args = record(observation_payload.get("tool_args") or observation_payload.get("args") or envelope.get("args") or structured.get("args"))
+        tool_target = _tool_target_label(
+            observation.get("target")
+            or payload.get("target")
+            or observation_payload.get("target")
+            or envelope.get("target")
+            or tool_args,
+        )
+        raw_status = observation.get("status") or payload.get("status")
+        state = "error" if observation.get("error") or payload.get("error") else (_activity_state_from_status(raw_status) if text(raw_status) else "completed")
+        action_kind = action_kind_for_tool(tool_name, tool_target or tool_args)
+        detail = _tool_observation_detail(observation, observation_payload=observation_payload, envelope=envelope)
         return compact(
             {
                 "activity_id": stable_id("activity", event_id, tool_name),
                 "kind": "tool_observation",
-                "title": f"{tool_name} 已返回" if tool_name != "工具" else "工具已返回",
-                "detail": summary,
-                "state": "error" if observation.get("error") or payload.get("error") else "completed",
+                "title": action_title(action_kind=action_kind, state="error" if state == "error" else "done"),
+                "detail": detail,
+                "tool_name": tool_name,
+                "tool_target": tool_target,
+                "state": state,
                 "event_ref": event_id,
                 "display_surface": "tool_window",
                 "visibility_level": "secondary",
+                "source_kind": action_kind,
             }
         )
     if event_type == "step_summary_recorded":
         step = text(payload.get("step"))
         if step in {"task_lifecycle_started", "task_executor_scheduled"}:
+            return {}
+        if _is_system_tool_step_summary(step, presentation_source=text(payload.get("presentation_source"))):
             return {}
         action_state = record(payload.get("public_action_state"))
         summary = public_text(
@@ -238,6 +271,67 @@ def _activity_state_from_status(value: Any) -> str:
     if status in {"failed", "error", "blocked", "aborted", "cancelled", "canceled", "stopped"}:
         return "error"
     return "running"
+
+
+def _is_system_tool_step_summary(step: str, *, presentation_source: str) -> bool:
+    if text(presentation_source) == "system.tool_call_status":
+        return True
+    return step.startswith(("task_tool_batch_started", "task_tool_repair_required"))
+
+
+def _tool_target_label(value: Any) -> str:
+    structured = record(value)
+    if structured:
+        for key in ("path", "file_path", "relative_path", "target_path", "query", "pattern", "command", "url"):
+            visible = public_text(structured.get(key), limit=160)
+            if visible:
+                return visible
+    return public_text(value, limit=160)
+
+
+def _tool_observation_detail(
+    observation: dict[str, Any],
+    *,
+    observation_payload: dict[str, Any],
+    envelope: dict[str, Any],
+) -> str:
+    for candidate in (
+        observation.get("summary"),
+        observation.get("result"),
+        observation_payload.get("result"),
+        envelope.get("text"),
+        envelope.get("summary"),
+        observation.get("error"),
+        observation_payload.get("error"),
+        envelope.get("error"),
+    ):
+        visible = _visible_tool_result_text(candidate)
+        if visible:
+            return visible
+    return ""
+
+
+def _visible_tool_result_text(value: Any) -> str:
+    direct = public_text(value, limit=260)
+    if direct:
+        return direct
+    raw = text(value)
+    if not raw:
+        return ""
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return ""
+    structured = record(parsed)
+    if not structured:
+        return ""
+    error = structured.get("error") or structured.get("message")
+    structured_error = record(structured.get("structured_error"))
+    error = error or structured_error.get("message") or structured_error.get("error")
+    if error:
+        return public_text(error, limit=260)
+    result = structured.get("result") or structured.get("summary") or structured.get("output") or structured.get("text")
+    return public_text(result, limit=260)
 
 
 def _current_action_state_from_status(status: str) -> str:

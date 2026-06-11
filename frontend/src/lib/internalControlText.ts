@@ -1,62 +1,45 @@
-const INTERNAL_ACTIVE_WORK_CONTROL_TERMS = new Set([
-  "continue_active_work",
-  "pause_active_work",
-  "stop_active_work",
-  "append_instruction_to_active_work",
-  "answer_about_active_work",
+const MODEL_ACTION_TYPES = new Set([
+  "respond",
   "ask_user",
-  "answer_then_continue_active_work",
+  "tool_call",
+  "request_task_run",
   "active_work_control",
-  "active_work_control.action",
-  "control_action",
+  "block",
 ]);
 
-const INTERNAL_ACTIVE_WORK_CONTROL_KEYS = new Set([
-  "action",
-  "intent",
-  "resolved_action",
-  "active_work_control",
-  "relation_to_current_work",
-  "relation",
-  "response",
-  "appended_instruction",
-  "continuation_strategy",
-  "turn_response_policy",
-  "user_turn_kind",
-  "answer_obligation",
-]);
+const INTERNAL_CONTRACT_OPENERS = [
+  "系统运行控制观察如下",
+  "你现在是本轮收口负责人",
+  "当你需要让系统执行动作时",
+  "请根据用户当前请求、运行边界和允许动作",
+  "你只能输出一个 JSON action",
+];
 
-const INTERNAL_ACTIVE_WORK_CONTROL_RE = new RegExp(
-  `\\b(?:${Array.from(INTERNAL_ACTIVE_WORK_CONTROL_TERMS)
-    .sort((left, right) => right.length - left.length)
-    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|")})\\b`,
-  "i",
-);
+const INTERNAL_CONTRACT_MARKERS = [
+  "harness.loop.model_action_request",
+  "action_type",
+  "allowed_action_types",
+  "active_work_context",
+  "active_work_control",
+  "public_action_state",
+  "final_answer",
+  "tool_calls",
+  "authority 必须",
+  "只输出一个合法 JSON",
+  "不能在 JSON 外输出正文",
+];
+
+const INTERNAL_RUNTIME_FALLBACK_TEXT = new Set([
+  "本轮已经达到工具预算上限，且收口裁决仍不可安全展示。已停止继续调用工具，避免把内部工具协议或动作残片当作回答。",
+  "本轮工具预算已经耗尽，但收口动作生成失败。已停止继续调用工具。",
+]);
 
 export function isInternalActiveWorkControlText(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return false;
-  }
-  if (containsInternalActiveWorkControlObject(parseJsonLike(text))) {
-    return true;
-  }
-  const normalized = text.toLowerCase().replace(/^[`'"([\s]+|[`'".。,:：;；)\]\s]+$/g, "");
-  if (
-    /"(?:action|intent|resolved_action)"\s*:\s*"[^"]*active_work/i.test(normalized)
-    && /"(?:active_work_control|relation_to_current_work|continuation_strategy|turn_response_policy|answer_obligation|appended_instruction|user_turn_kind)"\s*:/i.test(normalized)
-  ) {
-    return true;
-  }
-  if (INTERNAL_ACTIVE_WORK_CONTROL_TERMS.has(normalized)) {
-    return true;
-  }
-  return INTERNAL_ACTIVE_WORK_CONTROL_RE.test(normalized);
+  return isInternalControlProtocolText(value);
 }
 
 export function hideInternalActiveWorkControlText(value: unknown) {
-  return isInternalActiveWorkControlText(value) ? "" : String(value ?? "").trim();
+  return isInternalControlProtocolText(value) ? "" : String(value ?? "").trim();
 }
 
 export function isInternalControlProtocolText(value: unknown) {
@@ -64,21 +47,13 @@ export function isInternalControlProtocolText(value: unknown) {
   if (!text) {
     return false;
   }
-  if (isInternalActiveWorkControlText(text)) {
+  if (INTERNAL_RUNTIME_FALLBACK_TEXT.has(text)) {
     return true;
   }
-  const parsed = parseJsonLike(text);
-  if (containsInternalControlProtocolObject(parsed)) {
+  if (containsInternalControlProtocolObject(parseJsonLike(text))) {
     return true;
   }
-  const normalized = text.toLowerCase();
-  if (/(?:本轮(?:已经)?达到工具预算上限|本轮工具预算已经耗尽)[\s\S]{0,120}?(?:内部工具协议|动作残片|收口裁决)/i.test(text)) {
-    return true;
-  }
-  return /"authority"\s*:\s*"harness\.loop\.model_action_request"/i.test(normalized)
-    || /"model_action_request"\s*:/i.test(normalized)
-    || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"/i.test(normalized)
-    || /\bmodel_action_(?:request|admission)\b/i.test(normalized);
+  return looksLikeWholeInternalContractPrompt(text);
 }
 
 function parseJsonLike(value: string): unknown {
@@ -96,28 +71,6 @@ function parseJsonLike(value: string): unknown {
   }
 }
 
-function containsInternalActiveWorkControlObject(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.some((item) => containsInternalActiveWorkControlObject(item));
-  }
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const actionType = String(record.action_type ?? "").trim().toLowerCase();
-  if (actionType === "active_work_control") {
-    return true;
-  }
-  if (containsInternalActiveWorkControlObject(record.active_work_control)) {
-    return true;
-  }
-  const action = String(record.resolved_action ?? record.action ?? record.intent ?? "").trim().toLowerCase();
-  if (!INTERNAL_ACTIVE_WORK_CONTROL_TERMS.has(action)) {
-    return false;
-  }
-  return Object.keys(record).some((key) => INTERNAL_ACTIVE_WORK_CONTROL_KEYS.has(key));
-}
-
 function containsInternalControlProtocolObject(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.some((item) => containsInternalControlProtocolObject(item));
@@ -130,12 +83,35 @@ function containsInternalControlProtocolObject(value: unknown): boolean {
   if (authority === "harness.loop.model_action_request") {
     return true;
   }
-  if (record.model_action_request || record.model_action_admission || record.admission) {
+  if (containsInternalControlProtocolObject(record.model_action_request)) {
     return true;
   }
   const actionType = String(record.action_type ?? "").trim();
-  if (/^(respond|ask_user|tool_call|request_task_run|active_work_control|block)$/.test(actionType)) {
-    return true;
+  if (!MODEL_ACTION_TYPES.has(actionType)) {
+    return false;
   }
-  return containsInternalActiveWorkControlObject(record);
+  return Boolean(
+    authority
+    || record.final_answer
+    || record.user_question
+    || record.blocking_reason
+    || record.tool_calls
+    || record.task_contract_seed
+    || record.active_work_control
+  );
+}
+
+function looksLikeWholeInternalContractPrompt(value: string) {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length < 120) {
+    return false;
+  }
+  if (!INTERNAL_CONTRACT_OPENERS.some((opener) => text.startsWith(opener))) {
+    return false;
+  }
+  const markerCount = INTERNAL_CONTRACT_MARKERS.reduce(
+    (count, marker) => count + (text.includes(marker) ? 1 : 0),
+    0,
+  );
+  return markerCount >= 2;
 }

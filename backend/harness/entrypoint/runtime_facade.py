@@ -2538,7 +2538,7 @@ class HarnessRuntimeFacade:
     def _user_visible_error(exc: Exception) -> str:
         if isinstance(exc, ModelRuntimeError):
             return str(exc)
-        return "请求处理失败，运行时已按 fail-closed 策略停止。"
+        return "请求运行中断，运行时已按 fail-closed 策略停止。"
 
 
 def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:

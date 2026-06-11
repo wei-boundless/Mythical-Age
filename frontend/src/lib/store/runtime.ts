@@ -4266,18 +4266,21 @@ export class WorkspaceRuntime {
       ?? "",
     );
     const stepName = String(latestStep.step ?? monitor.latest_step_name ?? "");
+    if (this.runtimeShouldSkipLegacyProgressStep(stepName, latestStep.presentation_source)) {
+      return null;
+    }
     const kind = this.runtimeProgressKindFromStep(stepName);
     const meta = this.runtimeProgressMetaFromPayload(latestStep);
     const actionBody = kind === "model" && meta.length
       ? meta.map((item) => `${item.label}：${item.value}`).join("；")
       : "";
-    const body = actionBody || publicNote || latestSummary;
+    const body = actionBody || publicNote || latestSummary || this.runtimeMonitorProgressFallbackText(latestStep, monitor);
     if (!body) {
       return null;
     }
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: kind === "model" ? "模型反馈" : latestSummary || publicNote,
+      title: kind === "model" ? "模型反馈" : latestSummary || publicNote || body,
       body,
       publicNote,
       agentBrief,
@@ -4291,6 +4294,14 @@ export class WorkspaceRuntime {
       createdAt: Number(latestStep.created_at ?? 0) || undefined,
       meta: meta.length ? meta : undefined,
     };
+  }
+
+  private runtimeMonitorProgressFallbackText(latestStep: Record<string, unknown>, monitor: HarnessSessionMonitor) {
+    const step = String(latestStep.step ?? monitor.latest_step_name ?? "").trim();
+    if (step === "task_executor_scheduled") {
+      return "已开始继续处理。";
+    }
+    return "";
   }
 
   private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
@@ -4522,11 +4533,29 @@ export class WorkspaceRuntime {
     if (attachment.task_projection) {
       return true;
     }
-    return (attachment.public_timeline ?? []).some((item) => {
+    const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
       const slot = String(item.slot ?? "").trim();
       const surface = String(item.surface ?? "").trim();
       return slot !== "control" && surface !== "control" && surface !== "diagnostics";
     });
+    if (hasPublicTimeline) {
+      return true;
+    }
+    return (attachment.progress_entries ?? []).some((entry) => this.runtimeProgressEntryHasUserVisibleProjection(entry));
+  }
+
+  private runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
+    const kind = String(entry.kind ?? "").trim().toLowerCase();
+    const surface = String(entry.surface ?? "").trim().toLowerCase();
+    if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
+      return false;
+    }
+    return Boolean(
+      String(entry.title ?? "").trim()
+      || String(entry.body ?? "").trim()
+      || String(entry.publicNote ?? entry.public_note ?? "").trim()
+      || String(entry.agentBrief ?? entry.agent_brief_output ?? "").trim()
+    );
   }
 
   private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
@@ -4547,7 +4576,7 @@ export class WorkspaceRuntime {
       return null;
     }
     const step = String(payload.step ?? "").trim();
-    if (step.startsWith("task_duplicate_tool_call_guarded")) {
+    if (this.runtimeShouldSkipLegacyProgressStep(step, payload.presentation_source)) {
       return null;
     }
     const status = String(payload.status ?? "").trim();
@@ -4605,6 +4634,17 @@ export class WorkspaceRuntime {
       { label: "模型说明", value: currentJudgment },
       { label: "计划动作", value: nextAction },
     ].filter((item) => item.value);
+  }
+
+  private runtimeShouldSkipLegacyProgressStep(step: string, presentationSource: unknown) {
+    const normalizedStep = String(step ?? "").trim().toLowerCase();
+    const source = String(presentationSource ?? "").trim();
+    if (source === "system.tool_call_status") {
+      return true;
+    }
+    return normalizedStep.startsWith("task_tool_batch_started")
+      || normalizedStep.startsWith("task_tool_repair_required")
+      || normalizedStep.startsWith("task_duplicate_tool_call_guarded");
   }
 
   private runtimeValidatedNextAction(payload: Record<string, unknown>, actionState: Record<string, unknown>) {
@@ -4985,9 +5025,10 @@ export class WorkspaceRuntime {
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const taskProjection = this.taskProjectionFromRecord(monitor);
     const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
+    const monitorStatusItem = this.runtimeMonitorStatusTimelineItem(monitor, taskRunId);
     const publicTimelineItems = mergePublicTimelineItems(
       monitorPublicTimeline,
-      undefined,
+      monitorStatusItem ? [monitorStatusItem] : undefined,
       { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
     );
     const attachment: SessionRuntimeAttachment = {
@@ -5043,6 +5084,46 @@ export class WorkspaceRuntime {
         };
       }),
     };
+  }
+
+  private runtimeMonitorStatusTimelineItem(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
+    const record = monitor as Record<string, unknown>;
+    const status = String(monitor.status ?? record.status ?? "").trim().toLowerCase();
+    const lifecycle = String(record.lifecycle ?? "").trim().toLowerCase();
+    const bucket = String(record.bucket ?? "").trim().toLowerCase();
+    const stale = record.stale === true || lifecycle === "stale" || bucket === "diagnostics";
+    if (stale) {
+      return {
+        item_id: `live:${taskRunId}:monitor-status`,
+        kind: "status_update",
+        slot: "status",
+        surface: "status_bar",
+        source_authority: "system",
+        title: "等待检查",
+        detail: "运行已经停滞，需要在监控中检查或关闭运行。",
+        text: "运行已经停滞，需要在监控中检查或关闭运行。",
+        state: "stale",
+        phase: "stale",
+        stream_state: "done",
+      };
+    }
+    if (["failed", "error", "blocked"].includes(status)) {
+      const detail = this.runtimeVisibleProgressText(monitor.latest_step_summary) || "运行遇到阻塞，需要检查详情。";
+      return {
+        item_id: `live:${taskRunId}:monitor-status`,
+        kind: "status_update",
+        slot: "status",
+        surface: "status_bar",
+        source_authority: "system",
+        title: "处理受阻",
+        detail,
+        text: detail,
+        state: "error",
+        phase: "done",
+        stream_state: "done",
+      };
+    }
+    return null;
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {
@@ -5335,7 +5416,7 @@ export class WorkspaceRuntime {
       return;
     }
     if (["failed", "error"].includes(effectiveStatus)) {
-      const title = projectedTitle || "处理失败";
+      const title = projectedTitle || "运行中断";
       const detail = projectedDetail || "当前处理返回失败状态，请查看运行监控。";
       this.store.setState((prev) => ({
         ...prev,

@@ -396,7 +396,7 @@ def _terminal_data(event: dict[str, Any], *, public_event_type: str) -> dict[str
     raw_reason = text(payload.get("terminal_reason") or task_run.get("terminal_reason") or payload.get("status") or task_run.get("status"))
     summary = payload.get("receipt_summary") or payload.get("summary") or payload.get("final_answer") or record(task_run.get("diagnostics")).get("final_answer")
     if public_event_type == "error":
-        return {"error": payload.get("error") or payload.get("message") or summary or "处理失败", "terminal_reason": raw_reason}
+        return {"error": payload.get("error") or payload.get("message") or summary or "运行中断", "terminal_reason": raw_reason}
     if public_event_type == "stopped":
         return {"reason": payload.get("reason") or summary or raw_reason or "当前处理已停止", "terminal_reason": raw_reason}
     return {

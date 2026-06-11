@@ -71,6 +71,8 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
         async def invoke_messages(self, messages, **_kwargs):
             del messages
             self.plain_invocations += 1
+            if self.plain_invocations >= 2:
+                return SimpleNamespace(content="我已经达到本轮工具边界。下一步应缩小搜索范围，或把这次检查升级为项目级任务继续。")
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(
@@ -100,16 +102,13 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
 
     assert model.calls == 9
     assert model.plain_invocations == 2
-    assert done["answer_source"] == "harness.single_agent_turn.tool_limit_closeout"
-    assert done["answer_channel"] == "runtime_control"
-    assert done["answer_canonical_state"] == "progress_only"
-    assert done["answer_persist_policy"] == "persist_debug_only"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["answer_channel"] == "conversation"
     assert done["completion_state"] == "tool_limit_closeout_unsafe_content"
-    assert str(done.get("content") or "") == ""
+    assert "升级为项目级任务" in str(done.get("content") or "")
     assert assistant_messages
+    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
-    assert "search_text" not in str(assistant_messages[-1].get("content") or "")
-    assert "工具协议" not in str(assistant_messages[-1].get("content") or "")
 
 
 def test_single_agent_parser_rejects_native_tool_call_when_json_action_required() -> None:
@@ -138,8 +137,19 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
     assert parsed.error["code"] == "single_agent_turn_model_protocol_error"
     assert "native_tool_calls_not_allowed" in parsed.error["reason"]
 
-def test_malformed_agent_action_request_fails_closed() -> None:
-    runtime = build_harness_runtime(model_runtime=_MalformedModelRuntime())
+def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
+    class MalformedThenCloseoutRuntime:
+        def __init__(self) -> None:
+            self.invocations = 0
+
+        async def invoke_messages(self, _messages, **_kwargs):
+            self.invocations += 1
+            if self.invocations >= 3:
+                return SimpleNamespace(content="我没有继续执行工具；这一步需要重新确认输入后再推进。")
+            return SimpleNamespace(content=json.dumps({"authority": "bad"}))
+
+    model = MalformedThenCloseoutRuntime()
+    runtime = build_harness_runtime(model_runtime=model)
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -148,19 +158,20 @@ def test_malformed_agent_action_request_fails_closed() -> None:
         return events
 
     events = asyncio.run(_collect())
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
-    assert "已经停住" in done_text
-    assert "模型" not in done_text
-    assert "JSON" not in done_text
-    assert "系统动作" not in done_text
-    assert "协议" not in done_text
+    assert "重新确认输入" in done_text
     assert any(
         event.get("type") == "done"
         and dict(event).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"
-        and dict(event).get("answer_channel") == "blocked"
+        and dict(event).get("answer_source") == "harness.single_agent_turn.agent_closeout"
+        and dict(event).get("answer_channel") == "conversation"
         for event in events
     )
+    assert assistant_messages
+    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert "重新确认输入" in str(assistant_messages[-1].get("content") or "")
     assert not any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
 
@@ -299,9 +310,16 @@ def test_single_agent_turn_multiple_native_control_actions_do_not_execute_origin
     assert not any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
     assert any(
         event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"
+        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_protocol_repair_failed:agent_closeout_not_returned"
         for event in events
     )
+    assert any(
+        event.get("type") == "error"
+        and dict(event).get("code") == "single_agent_turn_agent_closeout_not_returned"
+        for event in events
+    )
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+    assert assistant_messages == []
 
 def test_single_agent_turn_json_ask_user_goes_through_admission() -> None:
     model = _TurnActionSequenceModelRuntime(

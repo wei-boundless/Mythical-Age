@@ -593,7 +593,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         event,
                         title=_observation_title(source or (f"tool:{tool_name}" if tool_name else ""), observation=observation),
                         body=observation_body,
-                        kind="observation",
+                        kind="tool",
                         level="error" if failed else _level_from_status(status),
                         status="failed" if failed else (status or "completed"),
                         tool_name=tool_name,
@@ -603,6 +603,8 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         meta=meta,
                     )
                 )
+                continue
+            if _is_system_tool_step_summary(step, presentation_source=str(payload.get("presentation_source") or "")):
                 continue
             if _is_internal_step_only(step, summary=summary, public_note=public_note, action_brief=action_brief):
                 continue
@@ -686,7 +688,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         event,
                         title=_observation_title(source, observation=observation),
                         body=observation_body,
-                        kind="observation",
+                        kind="tool",
                         level="error" if failed else "success",
                         status="failed" if failed else "completed",
                         tool_name=source.removeprefix("tool:"),
@@ -1196,6 +1198,8 @@ def _match_public_text(value: Any) -> str:
 def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_brief: str) -> bool:
     if action_brief:
         return False
+    if _is_system_tool_step_summary(step, presentation_source=""):
+        return True
     if step.startswith("task_lifecycle_started"):
         return True
     if step.startswith(("task_model_action_invocation_started", "task_model_action_waiting")):
@@ -1203,6 +1207,12 @@ def _is_internal_step_only(step: str, *, summary: str, public_note: str, action_
     if step.startswith("task_execution_packet_compiled") and (summary == "已同步最新进展。" or public_note == "已同步最新进展。"):
         return True
     return False
+
+
+def _is_system_tool_step_summary(step: str, *, presentation_source: str) -> bool:
+    if str(presentation_source or "").strip() == "system.tool_call_status":
+        return True
+    return step.startswith(("task_tool_batch_started", "task_tool_repair_required"))
 
 
 def _looks_like_raw_json(value: str) -> bool:

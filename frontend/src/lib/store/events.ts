@@ -119,14 +119,14 @@ function terminalPublicTimelineItemFromTurnCompleted(data: Record<string, unknow
   if (status !== "failed") {
     return null;
   }
-  const detail = stringValue(data.error_summary) || "本轮运行失败，详情已写入会话。";
+  const detail = stringValue(data.error_summary) || "本轮运行中断，详情已写入会话。";
   return {
     item_id: "stream:failed",
     kind: "status_update",
     slot: "status",
     surface: "status_bar",
     source_authority: "system",
-    title: "处理失败",
+    title: "运行中断",
     detail,
     text: detail,
     state: "error",
@@ -409,12 +409,20 @@ function assistantStreamContentForEvent(event: string, data: Record<string, unkn
   return "";
 }
 
-function assistantBodySegmentId(data: Record<string, unknown>) {
-  return stringValue(data.body_segment_id)
+function assistantBodySegmentId(
+  data: Record<string, unknown>,
+  current?: AssistantTextStreamState,
+  segments?: Record<string, AssistantTextSegmentState>,
+) {
+  const explicit = stringValue(data.body_segment_id)
     || stringValue(data.segment_id)
     || stringValue(data.stream_ref)
-    || stringValue(data.message_ref)
-    || "assistant-body";
+    || stringValue(data.message_ref);
+  if (explicit) {
+    return explicit;
+  }
+  const segmentIds = Object.keys(segments ?? assistantTextSegments(current));
+  return segmentIds.length === 1 ? segmentIds[0] : "assistant-body";
 }
 
 function assistantBodySegmentRole(data: Record<string, unknown>) {
@@ -569,8 +577,8 @@ function mergeAssistantTextDeltaEvent(
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segmentId = assistantBodySegmentId(data);
   const segments = assistantTextSegments(current);
+  const segmentId = assistantBodySegmentId(data, current, segments);
   const currentSegment = segments[segmentId];
   if (currentSegment && sequence <= currentSegment.latestSequence) {
     return state;
@@ -663,8 +671,8 @@ function mergeAssistantTextFinalEvent(
   const content = rawStringValue(data.content);
   const sequence = numberValue(data.sequence);
   const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segmentId = assistantBodySegmentId(data);
   const segments = assistantTextSegments(current);
+  const segmentId = assistantBodySegmentId(data, current, segments);
   const currentSegment = segments[segmentId];
   const segmentState: AssistantTextSegmentState = {
     segmentId,
@@ -701,8 +709,8 @@ function mergeAssistantStreamRepairEvent(
     return state;
   }
   const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segmentId = assistantBodySegmentId(data);
   const segments = assistantTextSegments(current);
+  const segmentId = assistantBodySegmentId(data, current, segments);
   const currentSegment = segments[segmentId];
   const repairSequence = numberValue(data.repair_sequence);
   const segmentState: AssistantTextSegmentState = {
@@ -1097,7 +1105,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     if (status === "failed") {
       return {
         level: "error",
-        title: "处理失败",
+        title: "运行中断",
         body: stringValue(data.error_summary) || "详情已写入会话。",
         debug: { event },
       };
@@ -1120,7 +1128,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
   if (event === "error") {
     return {
       level: "error",
-      title: "处理失败",
+      title: "运行中断",
       body: "详情已写入会话。",
       debug: { event },
     };
@@ -1402,7 +1410,7 @@ function publicStreamEventLabel(event: string) {
     context_management: "上下文已整理",
     debug: "同步状态",
     done: "已收口",
-    error: "处理失败",
+    error: "运行中断",
     [TURN_COMPLETED_EVENT]: "已收口",
     [TOOL_ITEM_STARTED_EVENT]: "正在调用工具",
     [TOOL_ITEM_COMPLETED_EVENT]: "工具结果已返回",
@@ -1715,12 +1723,12 @@ function terminalProgressEntryForEvent(event: string, data: Record<string, unkno
     return undefined;
   }
   const body = failedTurnCompleted
-    ? stringValue(data.error_summary) || "请求执行失败"
-    : stringValue(data.content ?? data.error) || "请求执行失败";
+    ? stringValue(data.error_summary) || "运行中断"
+    : stringValue(data.content ?? data.error) || "运行中断";
   return {
     id: `terminal:${event}`,
     level: "error",
-    title: "处理失败",
+    title: "运行中断",
     body,
     eventType: event,
     kind: "terminal",
@@ -2135,7 +2143,7 @@ export function reduceStreamEvent(
   }
 
   if (event === "error") {
-    const errorText = String(data.content ?? data.error ?? "请求执行失败").trim() || "请求执行失败";
+    const errorText = String(data.content ?? data.error ?? "运行中断").trim() || "运行中断";
     const item = terminalPublicTimelineItemFromTurnCompleted({ status: "failed", error_summary: errorText });
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => {

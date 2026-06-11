@@ -131,7 +131,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("public-run-activity");
   });
 
-  it("does not render runtime-private paths from tool window metadata", () => {
+  it("renders tool window metadata without keyword or path filtering", () => {
     const privatePath = "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json";
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
@@ -166,9 +166,9 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("正在读取上下文");
     expect(html).toContain("public-run-activity");
-    expect(html).not.toContain("replacement_e21050df8baca858bdde6a4d");
-    expect(html).not.toContain("runtime_state");
-    expect(html).not.toContain("mythical-agent");
+    expect(html).toContain("replacement_e21050df8baca858bdde6a4d");
+    expect(html).toContain("runtime_state");
+    expect(html).toContain("mythical-agent");
   });
 
   it("keeps live streamed prose visible beside runtime activity", () => {
@@ -867,6 +867,250 @@ describe("ChatMessage", () => {
     expect(html).toContain("你现在有什么需要我帮忙的吗");
   });
 
+  it("renders canonical closeout prose that mentions control terms instead of completed tool cards", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content: "收口结论：active_work_control、ask_user 和 continue_active_work 是控制周期的一部分，需要按信号边界解释。",
+        id: "message:control-closeout",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:control-closeout",
+            run_id: "turnrun:control-closeout",
+            anchor_turn_id: "turn:session-control:3",
+            status: "completed",
+            public_timeline: [
+              {
+                item_id: "tool:read",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "tool",
+                action_kind: "read",
+                title: "读取完成 backend/harness/loop/single_agent_turn.py",
+                subject_label: "backend/harness/loop/single_agent_turn.py",
+                state: "done",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("active_work_control");
+    expect(html).toContain("continue_active_work");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("读取完成 backend/harness/loop/single_agent_turn.py");
+  });
+
+  it("keeps canonical prose when it discusses protocol keywords from search results", () => {
+    const content = "审查结论：搜索结果里出现 answer_source、terminal_reason、task_control 和 Get-Content，只是被分析的正文关键词，不是运行时协议泄露。";
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        content,
+        id: "message:protocol-keyword-prose",
+        retrievals: [],
+        role: "assistant",
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("answer_source");
+    expect(html).toContain("terminal_reason");
+    expect(html).toContain("task_control");
+    expect(html).toContain("Get-Content");
+    expect(html).toContain("不是运行时协议泄露");
+  });
+
+  it("suppresses tool activity for a completed closeout turn even when answer metadata is missing", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "收口总结：已经完成检查，结论以这段正文为准。",
+        id: "message:completed-runtime-closeout",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:completed-closeout",
+            run_id: "turnrun:completed-closeout",
+            anchor_turn_id: "turn:session-completed:7",
+            status: "completed",
+            public_timeline: [
+              {
+                item_id: "tool:read-completed",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "tool",
+                action_kind: "read",
+                title: "读取完成 backend/harness/runtime/compiler.py",
+                subject_label: "backend/harness/runtime/compiler.py",
+                state: "done",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("收口总结");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("读取完成 backend/harness/runtime/compiler.py");
+  });
+
+  it("keeps executor handoff activity visible because it is not a closeout turn", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerChannel: "task_control",
+        answerCanonicalState: "progress_only",
+        answerPersistPolicy: "persist_debug_only",
+        content: "",
+        id: "message:executor-handoff",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:handoff",
+            run_id: "taskrun:handoff",
+            anchor_turn_id: "turn:session-handoff:9",
+            task_run_id: "taskrun:handoff",
+            status: "completed",
+            terminal_reason: "task_executor_scheduled",
+            public_timeline: [
+              {
+                item_id: "tool:handoff",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "runtime",
+                action_kind: "run",
+                title: "任务执行器已接管",
+                subject_label: "继续处理当前任务",
+                state: "running",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("public-run-activity");
+    expect(html).toContain("继续处理当前任务");
+  });
+
+  it("renders agent-authored closeout prose instead of leaving terminal tool cards as the message", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "conversation",
+        answerPersistPolicy: "persist_canonical",
+        answerSource: "harness.single_agent_turn.agent_closeout",
+        content: "我已经达到本轮工具边界。下一步应缩小搜索范围，或把这次检查升级为项目级任务继续。",
+        id: "message:blocked-closeout",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:blocked-closeout",
+            run_id: "turnrun:blocked-closeout",
+            anchor_turn_id: "turn:session-blocked:5",
+            status: "blocked",
+            public_timeline: [
+              {
+                item_id: "tool:search",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "tool",
+                action_kind: "search",
+                title: "搜索完成 backend/harness/loop/single_agent_turn.py",
+                subject_label: "backend/harness/loop/single_agent_turn.py",
+                state: "done",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("升级为项目级任务");
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("搜索完成 backend/harness/loop/single_agent_turn.py");
+  });
+
+  it("does not synthesize failed prose or show tool windows when terminal closeout has no body", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        content: "",
+        id: "message:terminal-no-closeout",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:no-closeout",
+            run_id: "turnrun:no-closeout",
+            anchor_turn_id: "turn:session-blocked:5",
+            status: "blocked",
+            terminal_reason: "single_agent_turn_protocol_error:agent_closeout_not_returned",
+            public_timeline: [
+              {
+                item_id: "control:error",
+                kind: "error_notice",
+                slot: "control",
+                surface: "control",
+                source_authority: "system",
+                title: "运行中断",
+                detail: "agent 没有回传收口正文。",
+                state: "error",
+              },
+              {
+                item_id: "tool:search",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "tool",
+                action_kind: "search",
+                title: "搜索失败 def admission",
+                subject_label: "backend/harness/loop",
+                state: "error",
+              },
+              {
+                item_id: "tool:read",
+                kind: "work_action",
+                slot: "tool",
+                surface: "tool_window",
+                source_authority: "tool",
+                action_kind: "read",
+                title: "读取完成 backend/harness/runtime/compiler.py",
+                subject_label: "backend/harness/runtime/compiler.py",
+                state: "done",
+              },
+            ],
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("运行中断");
+    expect(html).toContain("agent 没有回传收口正文");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("搜索失败 def admission");
+    expect(html).not.toContain("读取完成 backend/harness/runtime/compiler.py");
+    expect(html).not.toContain("public-run-activity__tool-window");
+  });
+
   it("renders runtime attachment activity even before assistant prose is persisted", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
@@ -1066,7 +1310,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("data-activity-kind=\"tool\"");
   });
 
-  it("hides raw file listing output instead of rendering assistant prose or noisy activity", () => {
+  it("keeps raw file listing output in activity instead of assistant prose while the turn is not terminal", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -1092,11 +1336,12 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("已确认目标");
-    expect(html).not.toContain("2938 bytes");
-    expect(html).not.toContain("assets.ts");
-    expect(html).not.toContain("file frontend");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).toContain("已确认目标");
+    expect(html).toContain("2938 bytes");
+    expect(html).toContain("assets.ts");
+    expect(html).toContain("file frontend");
+    expect(html).not.toContain("<p>file frontend");
   });
 
   it("renders copied shell output as a folded activity panel instead of assistant prose", () => {
@@ -1128,9 +1373,9 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("已复制 2 个素材文件");
     expect(html).toContain("public-run-activity__tool-window");
     expect(html).toContain("复制素材");
-    expect(html).not.toContain("Copied: game-boss-demon-king.png");
+    expect(html).toContain("Copied: game-boss-demon-king.png");
     expect(html).not.toContain("<p>Copied:");
-    expect(html).not.toContain("观察结果");
+    expect(html).toContain("结果");
     expect(html).not.toContain("观察：");
   });
 
@@ -1186,7 +1431,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("观察报告");
   });
 
-  it("does not render copied shell output when it is stored as assistant content", () => {
+  it("renders copied shell text when it is stored as assistant content", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -1199,9 +1444,9 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("Copied: game-boss-demon-king.png");
-    expect(html).not.toContain("Copied: game-map-castle.png");
-    expect(html).not.toContain("正在思考");
+    expect(html).toContain("Copied: game-boss-demon-king.png");
+    expect(html).toContain("Copied: game-map-castle.png");
+    expect(html).toContain("复制回复");
   });
 
   it("keeps stable review prose visible when it contains a markdown table", () => {
@@ -1233,7 +1478,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
-  it("drops stored read-only shell validator failures without synthesizing activity feedback", () => {
+  it("renders stored read-only shell validator text as assistant content", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -1246,15 +1491,13 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("命令被只读权限拦截");
     expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("allowlisted");
-    expect(html).not.toContain("read-only");
-    expect(html).not.toContain("正在思考");
-    expect(html).not.toContain("复制回复");
+    expect(html).toContain("allowlisted");
+    expect(html).toContain("read-only");
+    expect(html).toContain("复制回复");
   });
 
-  it("drops stored persisted tool result failures without synthesizing activity feedback", () => {
+  it("renders stored persisted tool result text as assistant content", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -1267,12 +1510,11 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).not.toContain("上一段执行结果没有成功读回");
     expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("Read persisted tool result failed");
-    expect(html).not.toContain("runtime_state");
-    expect(html).not.toContain("tool-results");
-    expect(html).not.toContain("复制回复");
+    expect(html).toContain("Read persisted tool result failed");
+    expect(html).toContain("runtime_state");
+    expect(html).toContain("tool-results");
+    expect(html).toContain("复制回复");
   });
 
   it("hides stored internal model action protocol content", () => {
