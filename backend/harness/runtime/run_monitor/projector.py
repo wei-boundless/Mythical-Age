@@ -61,6 +61,7 @@ class RuntimeMonitorProjector:
         session_id = str(getattr(task_run, "session_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         events = self._recent_events(task_run_id, limit=240) if include_runtime_details else []
+        session_output_commit = _session_output_commit_state(events, diagnostics=diagnostics, task_run=task_run)
         latest_event = _public_runtime_event(events[-1]) if events else {}
         latest_step = self._latest_step_summary(events) if include_runtime_details else self._latest_step_from_diagnostics(diagnostics)
         latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=diagnostics) if include_runtime_details else str(diagnostics.get("latest_interaction_turn_id") or diagnostics.get("turn_id") or "")
@@ -258,6 +259,7 @@ class RuntimeMonitorProjector:
             "latest_progress": latest_progress,
             "public_timeline": public_timeline,
             "task_projection": task_projection,
+            **({"session_output_commit": session_output_commit} if session_output_commit else {}),
             "public_projection_status": projection_status,
             "latest_event_type": str(latest_event.get("event_type") or ""),
             "latest_event_at": latest_event_at,
@@ -1430,6 +1432,63 @@ def _short_text(value: Any, *, limit: int) -> str:
 
 def _record(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _session_output_commit_state(events: list[Any], *, diagnostics: dict[str, Any], task_run: Any) -> dict[str, Any]:
+    latest: dict[str, Any] = {}
+    for event in list(events or []):
+        event_type = str(getattr(event, "event_type", "") or "").strip()
+        if event_type not in {
+            "session_output_commit_checked",
+            "session_output_commit_ack",
+            "session_output_commit_failed",
+            "session_output_commit_skipped",
+        }:
+            continue
+        payload = dict(getattr(event, "payload", {}) or {})
+        state = str(payload.get("state") or payload.get("status") or "").strip()
+        if event_type == "session_output_commit_checked" and not state:
+            state = "checked"
+        elif event_type == "session_output_commit_ack":
+            state = "committed"
+        elif event_type == "session_output_commit_failed":
+            state = "failed"
+        elif event_type == "session_output_commit_skipped":
+            state = "skipped"
+        latest = {
+            "authority": "runtime_monitor.session_output_commit",
+            "state": state,
+            "session_id": str(payload.get("session_id") or getattr(task_run, "session_id", "") or ""),
+            "turn_id": str(payload.get("turn_id") or dict(diagnostics or {}).get("turn_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+            "task_id": str(payload.get("task_id") or getattr(task_run, "task_id", "") or ""),
+            "anchor_message_id": str(payload.get("anchor_message_id") or ""),
+            "content_sha256": str(payload.get("content_sha256") or ""),
+            "reason": str(payload.get("reason") or ""),
+            "commit_event_offset": int(getattr(event, "offset", -1) or -1),
+            "checked_event_offset": int(payload.get("checked_event_offset") or -1),
+            "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+        }
+    if latest:
+        return {key: value for key, value in latest.items() if value not in ("", None)}
+    diagnostic_commit = dict(diagnostics.get("output_commit") or {})
+    if not diagnostic_commit:
+        return {}
+    state = str(diagnostic_commit.get("state") or diagnostic_commit.get("status") or diagnostics.get("output_commit_status") or "").strip()
+    if not state:
+        return {}
+    return {
+        "authority": "runtime_monitor.session_output_commit",
+        "state": state,
+        "session_id": str(diagnostic_commit.get("session_id") or getattr(task_run, "session_id", "") or ""),
+        "turn_id": str(diagnostic_commit.get("turn_id") or diagnostics.get("turn_id") or ""),
+        "task_run_id": str(diagnostic_commit.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
+        "task_id": str(diagnostic_commit.get("task_id") or getattr(task_run, "task_id", "") or ""),
+        "anchor_message_id": str(diagnostic_commit.get("anchor_message_id") or ""),
+        "content_sha256": str(diagnostic_commit.get("content_sha256") or ""),
+        "reason": str(diagnostic_commit.get("reason") or ""),
+        "commit_event_offset": int(diagnostic_commit.get("event_offset") or -1),
+    }
 
 
 def _public_runtime_event(event: Any) -> dict[str, Any]:

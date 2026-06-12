@@ -65,7 +65,7 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
     raise AssertionError(f"missing model message title: {title}")
 
 
-def test_tool_catalog_manifest_renders_legacy_model_visible_payload() -> None:
+def test_tool_catalog_manifest_renders_model_visible_tool_index_payload() -> None:
     manifest = build_tool_catalog_manifest(
         invocation_kind="task_execution",
         tool_payloads=_tools(),

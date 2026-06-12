@@ -25,7 +25,7 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
     raise AssertionError(f"missing model message title: {title}")
 
 
-def test_action_schema_manifest_renders_legacy_task_execution_payload() -> None:
+def test_action_schema_manifest_renders_task_execution_model_visible_payload() -> None:
     schema = task_execution_action_schema()
     manifest = build_action_schema_manifest(
         invocation_kind="task_execution",

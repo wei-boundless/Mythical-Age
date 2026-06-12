@@ -1239,6 +1239,78 @@ def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state
     assert "已完成 admission 分类" not in stable_text
 
 
+def test_observation_followup_prompt_matrix_keeps_tool_observations_volatile() -> None:
+    runtime_assembly = {
+        "profile": {
+            "profile_ref": "main_interactive_agent",
+            "task_lifecycle_policy": {"request_task_run": True},
+            "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+        },
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "available_tools": [
+            {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+            {"tool_name": "write_file", "operation_id": "op.write_file", "owner_scope": "none"},
+        ],
+        "operation_authorization": {"allowed_operations": ["op.model_response", "op.read_file", "op.write_file"]},
+        "control_capabilities": {"may_call_tools": True, "may_request_task_run": True},
+    }
+    first = RuntimeCompiler().compile_observation_followup_packet(
+        session_id="session:observation-followup-matrix",
+        turn_id="turn:observation-followup-matrix:1",
+        agent_invocation_id="aginvoke:observation-followup-matrix:1",
+        user_message="继续分析工具结果。",
+        history=[{"role": "user", "content": "先读文件。"}],
+        observations=[
+            {
+                "observation_id": "obs:followup:read",
+                "tool_name": "read_file",
+                "status": "ok",
+                "content": "第一轮读取结果：prompt A。",
+            }
+        ],
+        runtime_assembly=runtime_assembly,
+    )
+    second = RuntimeCompiler().compile_observation_followup_packet(
+        session_id="session:observation-followup-matrix",
+        turn_id="turn:observation-followup-matrix:1",
+        agent_invocation_id="aginvoke:observation-followup-matrix:2",
+        user_message="继续分析工具结果。",
+        history=[{"role": "user", "content": "先读文件。"}],
+        observations=[
+            {
+                "observation_id": "obs:followup:search",
+                "tool_name": "search_text",
+                "status": "ok",
+                "content": "第二轮搜索结果：prompt cache B。",
+            }
+        ],
+        runtime_assembly=runtime_assembly,
+    )
+
+    dynamic_payload = _payload_after_title(
+        _message_content_with_title(first.packet, "Observation followup dynamic runtime"),
+        "Observation followup dynamic runtime",
+    )
+    current_request_payload = _payload_after_title(
+        _message_content_with_title(first.packet, "Observation followup current request"),
+        "Observation followup current request",
+    )
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
+    first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:observation-followup-matrix:1")
+    second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:observation-followup-matrix:2")
+    stable_text = _stable_prompt_text(first.packet) + "\n" + _stable_prompt_text(second.packet)
+
+    assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
+    assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
+    assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
+    assert _segment_by_source(first.packet, "agent_visible_runtime_projection")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "observation_followup_current_request")["cache_scope"] == "none"
+    assert current_request_payload["observations"]["latest_observations"][0]["observation_id"] == "obs:followup:read"
+    assert "第一轮读取结果" not in stable_text
+    assert "第二轮搜索结果" not in stable_text
+    assert first_cache.prefix_hash == second_cache.prefix_hash
+
+
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:conversation-projection",

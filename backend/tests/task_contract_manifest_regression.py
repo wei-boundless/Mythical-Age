@@ -41,7 +41,7 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
     raise AssertionError(f"missing model message title: {title}")
 
 
-def test_task_contract_manifest_renders_legacy_model_visible_payload() -> None:
+def test_task_contract_manifest_renders_task_execution_model_visible_payload() -> None:
     model_visible_contract = {
         "task_run_goal": "Validate task contract manifest",
         "completion_criteria": ["manifest attached"],

@@ -457,7 +457,13 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     assert done["content"] == "agent closeout final"
     assert any(event.get("type") == "turn_runtime_control_signal_observed" for event in events)
     assert model.closeout_accounting["source"] == "harness.single_agent_turn.tool_limit_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_tool_limit_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["allowed_action_types"] == ["respond", "ask_user", "block"]
     assert model.closeout_messages[-1]["role"] == "system"
-    assert "runtime_control_signal" in str(model.closeout_messages[-1].get("content") or "")
-    assert '"tool_calls_allowed_after_signal": false' in str(model.closeout_messages[-1].get("content") or "")
-    assert not any("本轮工具观察次数已达到上限" in str(item.get("content") or "") for item in runtime.session_manager.messages)
+    closeout_content = str(model.closeout_messages[-1].get("content") or "")
+    assert "runtime_control_signal" in closeout_content
+    assert '"allowed_action_types": ["respond", "ask_user", "block"]' in closeout_content
+    assert '"tool_call_allowed": false' in closeout_content
+    assert '"tool_calls_allowed_after_signal": false' in closeout_content
+    assert "你现在是本轮收口负责人" in closeout_content
+    assert not any("single_turn_tool_budget_exhausted" in str(item.get("content") or "") for item in runtime.session_manager.messages)

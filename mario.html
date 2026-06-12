@@ -166,6 +166,7 @@ for (let c = 180; c < 185; c++) setBlock(c, stairRow, 5);
 // ======================== GAME STATE ========================
 let score = 0;
 let coins = 0;
+let lives = 3;
 let timeLeft = 400; // seconds * 60? we'll decrement per frame at roughly 60fps, so 400 frames ~ 6.7s, too short. Use decimal.
 let timeElapsed = 0;
 let levelComplete = false;
@@ -173,6 +174,7 @@ let gameOver = false;
 let mario;
 let enemies = [];
 let dynamicItems = []; // coins popped up, mushrooms, etc.
+let blockBounce = {}; // { "col,row": {timer, offset} } for question block bounce animation
 let cameraX = 0;
 
 // ======================== ENTITY CLASSES ========================
@@ -209,11 +211,16 @@ class Mario {
   update() {
     if (this.dead) {
       this.deathTimer++;
-      this.vy = -5; // jump up on death then fall
-      if (this.deathTimer > 90) {
-        gameOver = true;
-      }
+      this.vy += GRAVITY;
       this.y += this.vy;
+      if (this.deathTimer > 50 && this.y > LOGICAL_HEIGHT + 40) {
+        if (lives > 0) {
+          lives--;
+          respawnMario();
+        } else {
+          gameOver = true;
+        }
+      }
       return;
     }
 
@@ -304,9 +311,6 @@ class Mario {
     if (collisionX) this.vx = 0;
     this.x = newX;
 
-    // Don't go left of camera
-    if (this.x < 0) this.x = 0;
-
     // Vertical movement
     let newY = this.y + this.vy;
     this.onGround = false;
@@ -378,6 +382,7 @@ class Enemy {
     this.dead = false;
     this.deathTimer = 0;
     this.animTimer = 0;
+    this.onGround = false;
   }
 
   update() {

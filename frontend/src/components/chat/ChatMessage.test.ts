@@ -74,21 +74,22 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
-  it("does not render blocked tool-loop guard metadata as assistant prose", () => {
+  it("does not render blocked tool-loop control metadata as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "blocked",
         answerSource: "harness.single_agent_turn.tool_loop",
-        content: "本轮工具观察次数已达到上限，我需要先停止并请你确认下一步。",
-        id: "message:legacy-tool-loop",
+        content: '{"authority":"harness.loop.single_agent_turn.runtime_control_signal","signal_kind":"tool_budget_exhausted","agent_closeout_required":true}',
+        id: "message:tool-loop-control",
         retrievals: [],
         role: "assistant",
         toolCalls: [],
       }),
     );
 
-    expect(html).not.toContain("本轮工具观察次数已达到上限");
-    expect(html).not.toContain("基于已有事实收口说明");
+    expect(html).not.toContain("harness.loop.single_agent_turn.runtime_control_signal");
+    expect(html).not.toContain("tool_budget_exhausted");
+    expect(html).not.toContain("agent_closeout_required");
     expect(html).not.toContain("public-run-activity");
   });
 

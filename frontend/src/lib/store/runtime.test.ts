@@ -285,6 +285,7 @@ function monitorSignalForTest(item: Record<string, unknown>) {
       is_interruptible: isInterruptible,
       control_reason: text(item.control_reason),
     },
+    session_output_commit: recordValue(item.session_output_commit),
     session_id: sessionId,
     task_run_id: taskRunId,
     task_instance_id: text(item.task_instance_id) || taskRunId,
@@ -2080,7 +2081,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("does not hydrate the current session from monitor snapshots before formal closeout", async () => {
+  it("does not hydrate the current session from monitor snapshots before output commit ack", async () => {
     const taskRunId = "taskrun:turn:session:stream-running:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2119,7 +2120,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
   });
 
-  it("hydrates the current session from monitor snapshots after formal closeout", async () => {
+  it("does not hydrate the current session from terminal closeout without output commit ack", async () => {
     const taskRunId = "taskrun:turn:session:stream-closeout:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2157,8 +2158,109 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(store.getState().runMonitorRevision).toBe("rtmon:10:closeout");
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    await Promise.resolve();
+  });
+
+  it("hydrates the current session from monitor snapshots after output commit ack", async () => {
+    const taskRunId = "taskrun:turn:session:stream-commit:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stream-commit",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:stream-commit:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:stream-commit:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+    api.getSessionTimeline.mockClear();
+
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:stream-commit",
+          task_id: "task:turn:session:stream-commit:1",
+          status: "completed",
+          lifecycle: "completed",
+          activity_state: "completed",
+          is_live: false,
+          is_running: false,
+          session_output_commit: {
+            state: "committed",
+            session_id: "session:stream-commit",
+            turn_id: "turn:session:stream-commit:1",
+            task_run_id: taskRunId,
+            commit_event_offset: 12,
+            content_sha256: "sha256:test",
+          },
+          task_projection: {
+            current_action: {
+              kind: "closeout",
+              title: "结果收口",
+              state: "completed",
+            },
+          },
+        }),
+      ], { revision: "rtmon:10:commit" }),
+    });
+
+    expect(store.getState().runMonitorRevision).toBe("rtmon:10:commit");
     expect(api.getSessionTimeline).toHaveBeenCalledTimes(1);
     await Promise.resolve();
+  });
+
+  it("hydrates the current session once per output commit ack key", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const taskRunId = "taskrun:turn:session:stream-commit-once:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stream-commit-once",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:stream-commit-once:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:stream-commit-once:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+    const commitItem = (offset: number, hash: string) => itemForMonitor({
+      task_run_id: taskRunId,
+      session_id: "session:stream-commit-once",
+      task_id: "task:turn:session:stream-commit-once:1",
+      status: "completed",
+      lifecycle: "completed",
+      activity_state: "completed",
+      is_live: false,
+      is_running: false,
+      session_output_commit: {
+        state: "committed",
+        session_id: "session:stream-commit-once",
+        turn_id: "turn:session:stream-commit-once:1",
+        task_run_id: taskRunId,
+        commit_event_offset: offset,
+        content_sha256: hash,
+      },
+    });
+    api.getSessionTimeline.mockClear();
+
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([commitItem(12, "sha256:first")], { revision: "rtmon:commit-once:1" }),
+    });
+    vi.advanceTimersByTime(4_000);
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([commitItem(12, "sha256:first")], { revision: "rtmon:commit-once:2" }),
+    });
+    vi.advanceTimersByTime(4_000);
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([commitItem(13, "sha256:second")], { revision: "rtmon:commit-once:3" }),
+    });
+
+    expect(api.getSessionTimeline).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it("does not project runtime events from a stale run monitor snapshot", () => {

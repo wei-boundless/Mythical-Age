@@ -54,7 +54,7 @@ def model_response_protocol_from_response(
     if require_json_action and bool(parse_diagnostics.get("parsed_with_trailing_repair") is True):
         errors.append("json_action_must_not_use_trailing_text")
     if native_tool_calls and not allow_native_tool_calls:
-        errors.append("native_tool_calls_not_allowed")
+        errors.append("native_tool_call_transport_not_available")
     digest = _response_digest(
         content=content,
         native_tool_calls=native_tool_calls,

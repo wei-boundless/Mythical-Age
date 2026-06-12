@@ -1257,6 +1257,103 @@ def test_project_task_run_exposes_backend_public_timeline():
     assert public_timeline[0]["title"] == "我先确认当前反馈链路，再收敛到单一页面投影。"
 
 
+def test_project_task_run_exposes_session_output_commit_ack_from_event_log():
+    events = [
+        EventStub(
+            event_type="session_output_commit_checked",
+            created_at=128.0,
+            offset=8,
+            payload={
+                "session_id": "session-a",
+                "turn_id": "turn:session-a:1",
+                "task_run_id": "taskrun:turn:session-a:1:abc",
+                "task_id": "task:turn:session-a:1",
+                "commit_allowed": True,
+                "reason": "allowed",
+            },
+        ),
+        EventStub(
+            event_type="session_output_commit_ack",
+            created_at=129.0,
+            offset=9,
+            payload={
+                "session_id": "session-a",
+                "turn_id": "turn:session-a:1",
+                "task_run_id": "taskrun:turn:session-a:1:abc",
+                "task_id": "task:turn:session-a:1",
+                "state": "committed",
+                "reason": "committed",
+                "anchor_message_id": "history-message:turn:session-a:1:assistant",
+                "content_sha256": "sha256:final-answer",
+                "checked_event_offset": 8,
+            },
+        ),
+    ]
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
+
+    item = projector.project_task_run(task_run(status="completed", updated_at=130.0), now=150.0)
+
+    assert item["session_output_commit"] == {
+        "authority": "runtime_monitor.session_output_commit",
+        "state": "committed",
+        "session_id": "session-a",
+        "turn_id": "turn:session-a:1",
+        "task_run_id": "taskrun:turn:session-a:1:abc",
+        "task_id": "task:turn:session-a:1",
+        "anchor_message_id": "history-message:turn:session-a:1:assistant",
+        "content_sha256": "sha256:final-answer",
+        "reason": "committed",
+        "commit_event_offset": 9,
+        "checked_event_offset": 8,
+        "created_at": 129.0,
+    }
+
+
+def test_project_task_run_exposes_session_output_commit_from_diagnostics_without_detail_fetch():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    run = task_run(
+        status="completed",
+        updated_at=130.0,
+        diagnostics={
+            "turn_id": "turn:session-a:1",
+            "output_commit": {
+                "state": "committed",
+                "session_id": "session-a",
+                "turn_id": "turn:session-a:1",
+                "task_run_id": "taskrun:turn:session-a:1:abc",
+                "task_id": "task:turn:session-a:1",
+                "anchor_message_id": "history-message:turn:session-a:1:assistant",
+                "content_sha256": "sha256:from-diagnostics",
+                "reason": "committed",
+                "event_offset": 12,
+            },
+        },
+    )
+
+    item = projector.project_task_run(run, now=150.0, include_runtime_details=False)
+
+    assert item["session_output_commit"]["state"] == "committed"
+    assert item["session_output_commit"]["content_sha256"] == "sha256:from-diagnostics"
+    assert item["session_output_commit"]["commit_event_offset"] == 12
+    assert projector.event_log.list_recent_event_calls == []
+
+
+def test_project_task_run_does_not_infer_session_output_commit_from_completed_final_answer():
+    projector = RuntimeMonitorProjector(EventLogStub())
+    run = task_run(
+        status="completed",
+        updated_at=130.0,
+        diagnostics={
+            "turn_id": "turn:session-a:1",
+            "final_answer": "This text exists on the task run, but it is not a commit receipt.",
+        },
+    )
+
+    item = projector.project_task_run(run, now=150.0)
+
+    assert "session_output_commit" not in item
+
+
 def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heartbeat():
     events = [
         EventStub(

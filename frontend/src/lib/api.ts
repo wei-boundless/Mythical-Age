@@ -372,6 +372,7 @@ export type SessionRuntimeAttachment = {
   public_since_offset?: number;
   publicSinceOffset?: number;
   task_projection?: SingleAgentTaskProjection;
+  session_output_commit?: RuntimeMonitorSignal["session_output_commit"];
   artifact_refs?: Array<Record<string, unknown>>;
   trace_available?: boolean;
   debug_trace_ref?: string;
@@ -2555,6 +2556,21 @@ export type RuntimeMonitorSignal = {
   tone?: "active" | "neutral" | "attention" | "done" | string;
   activity?: Record<string, unknown>;
   control_capability?: Record<string, unknown>;
+  session_output_commit?: {
+    authority?: string;
+    state?: "none" | "checked" | "committed" | "failed" | "skipped" | string;
+    status?: string;
+    session_id?: string;
+    turn_id?: string;
+    task_run_id?: string;
+    task_id?: string;
+    anchor_message_id?: string;
+    content_sha256?: string;
+    reason?: string;
+    commit_event_offset?: number;
+    checked_event_offset?: number;
+    created_at?: number;
+  };
   session_id: string;
   task_run_id: string;
   task_instance_id: string;

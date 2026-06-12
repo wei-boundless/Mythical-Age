@@ -1175,6 +1175,100 @@ def test_session_runtime_timeline_anchors_to_original_assistant_turn_message() -
     assert attachment["anchor_role"] == "assistant"
 
 
+def test_session_runtime_timeline_projects_session_output_commit_ack() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:turn:session-output-commit:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-output-commit",
+            task_id="task:turn:session-output-commit:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=3.0,
+            diagnostics={"turn_id": "turn:session-output-commit:1"},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "session_output_commit_ack",
+        payload={
+            "session_id": "session-output-commit",
+            "turn_id": "turn:session-output-commit:1",
+            "task_run_id": task_run_id,
+            "task_id": "task:turn:session-output-commit:1",
+            "state": "committed",
+            "reason": "committed",
+            "anchor_message_id": "message:assistant-output",
+            "content_sha256": "sha256:timeline-final-answer",
+            "checked_event_offset": 4,
+        },
+        refs={"task_run_ref": task_run_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-output-commit",
+        history={
+            "messages": [
+                {"role": "user", "content": "start task", "turn_id": "turn:session-output-commit:1"},
+                {
+                    "role": "assistant",
+                    "content": "task accepted",
+                    "id": "message:assistant-output",
+                    "turn_id": "turn:session-output-commit:1",
+                },
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["session_output_commit"]["state"] == "committed"
+    assert attachment["session_output_commit"]["anchor_message_id"] == "message:assistant-output"
+    assert attachment["session_output_commit"]["content_sha256"] == "sha256:timeline-final-answer"
+    assert attachment["anchor_message_id"] == "message:assistant-output"
+
+
+def test_session_runtime_timeline_does_not_infer_output_commit_from_completed_final_answer() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:turn:session-output-uncommitted:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session-output-uncommitted",
+            task_id="task:turn:session-output-uncommitted:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=3.0,
+            diagnostics={
+                "turn_id": "turn:session-output-uncommitted:1",
+                "final_answer": "A final answer diagnostic is not a commit receipt.",
+            },
+        )
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-output-uncommitted",
+        history={
+            "messages": [
+                {"role": "user", "content": "start task", "turn_id": "turn:session-output-uncommitted:1"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert "session_output_commit" not in attachment
+
+
 def test_session_runtime_timeline_anchors_visible_segment_to_latest_interaction_turn() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host

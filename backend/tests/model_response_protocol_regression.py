@@ -42,3 +42,22 @@ def test_model_response_protocol_reports_json_requirement_without_parsing_in_har
     assert protocol.json_payload == {}
     assert "json_action_required" in protocol.protocol_errors
     assert protocol.parse_diagnostics["parse_error"]
+
+
+def test_model_response_protocol_reports_unmounted_native_tool_transport_as_service_boundary() -> None:
+    response = SimpleNamespace(
+        content="",
+        tool_calls=[
+            {"id": "call:read", "name": "read_file", "args": {"path": "README.md"}},
+        ],
+    )
+
+    protocol = model_response_protocol_from_response(
+        response,
+        request_id="modelreq:native-tool-transport",
+        turn_id="turn:native-tool-transport",
+        require_json_action=True,
+        allow_native_tool_calls=False,
+    )
+
+    assert protocol.protocol_errors == ("native_tool_call_transport_not_available",)

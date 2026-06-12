@@ -58,6 +58,7 @@ export class RunMonitorController {
   private graphAutoAdvanceInFlight = false;
   private lastStreamSessionHydrateAt = 0;
   private lastStreamSessionHydrateId = "";
+  private lastStreamSessionHydrateCommitKey = "";
 
   constructor(
     private readonly store: Store<StoreState>,
@@ -404,13 +405,18 @@ export class RunMonitorController {
     const sessionId = String(state.currentSessionId || "").trim();
     if (!sessionId) return;
     if (this.currentSessionHasVisibleActiveStream(state, sessionId)) return;
-    if (state.messages.length > 0 && !this.currentSessionHasFormalCloseout(state, sessionId)) return;
+    const commitKey = this.currentSessionOutputCommitAckKey(state, sessionId);
+    if (state.messages.length > 0 && !commitKey) return;
+    if (commitKey && this.lastStreamSessionHydrateCommitKey === commitKey) return;
     const now = Date.now();
     if (this.lastStreamSessionHydrateId === sessionId && now - this.lastStreamSessionHydrateAt < 3000) {
       return;
     }
     this.lastStreamSessionHydrateId = sessionId;
     this.lastStreamSessionHydrateAt = now;
+    if (commitKey) {
+      this.lastStreamSessionHydrateCommitKey = commitKey;
+    }
     void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
   }
 
@@ -418,8 +424,8 @@ export class RunMonitorController {
     return state.activeStreamSessionIds.includes(sessionId) && state.messages.length > 0;
   }
 
-  private currentSessionHasFormalCloseout(state: StoreState, sessionId: string) {
-    return allRunMonitorSignals(state.runMonitor).some((signal) => {
+  private currentSessionOutputCommitAckKey(state: StoreState, sessionId: string) {
+    for (const signal of allRunMonitorSignals(state.runMonitor)) {
       const rawSignal = signal as unknown as Record<string, unknown>;
       const route = rawSignal.route && typeof rawSignal.route === "object" && !Array.isArray(rawSignal.route)
         ? rawSignal.route as Record<string, unknown>
@@ -427,24 +433,22 @@ export class RunMonitorController {
       const navigation = rawSignal.navigation_target && typeof rawSignal.navigation_target === "object" && !Array.isArray(rawSignal.navigation_target)
         ? rawSignal.navigation_target as Record<string, unknown>
         : {};
-      const signalSessionId = String(rawSignal.session_id || route.session_id || navigation.session_id || "").trim();
-      if (signalSessionId !== sessionId) return false;
-      const projection = rawSignal.task_projection && typeof rawSignal.task_projection === "object" && !Array.isArray(rawSignal.task_projection)
-        ? rawSignal.task_projection as Record<string, unknown>
+      const outputCommit = rawSignal.session_output_commit && typeof rawSignal.session_output_commit === "object" && !Array.isArray(rawSignal.session_output_commit)
+        ? rawSignal.session_output_commit as Record<string, unknown>
         : {};
-      const currentAction = projection.current_action && typeof projection.current_action === "object" && !Array.isArray(projection.current_action)
-        ? projection.current_action as Record<string, unknown>
-        : {};
-      if (String(currentAction.kind || "").trim() === "closeout") return true;
-      return [
-        rawSignal.status,
-        rawSignal.lifecycle,
-        rawSignal.activity_state,
-        rawSignal.state,
-      ]
-        .map((value) => String(value || "").trim().toLowerCase())
-        .some((value) => ["completed", "complete", "success", "succeeded", "stopped", "failed", "error", "aborted", "cancelled", "canceled"].includes(value));
-    });
+      const signalSessionId = String(
+        outputCommit.session_id || rawSignal.session_id || route.session_id || navigation.session_id || "",
+      ).trim();
+      if (signalSessionId !== sessionId) continue;
+      const stateValue = String(outputCommit.state || outputCommit.status || "").trim().toLowerCase();
+      if (stateValue !== "committed") continue;
+      const turnId = String(outputCommit.turn_id || rawSignal.turn_id || "").trim();
+      const taskRunId = String(outputCommit.task_run_id || rawSignal.task_run_id || rawSignal.task_instance_id || "").trim();
+      const eventOffset = String(outputCommit.commit_event_offset ?? outputCommit.event_offset ?? "").trim();
+      const contentHash = String(outputCommit.content_sha256 || "").trim();
+      return [signalSessionId, turnId, taskRunId, eventOffset, contentHash].join("|");
+    }
+    return "";
   }
 
   private scheduleReconnect() {

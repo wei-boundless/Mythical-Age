@@ -47,7 +47,7 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
     raise AssertionError(f"missing model message title: {title}")
 
 
-def test_artifact_scope_manifest_renders_legacy_model_visible_payload() -> None:
+def test_artifact_scope_manifest_renders_task_execution_model_visible_payload() -> None:
     scope = compile_sandbox_execution_scope(
         environment_payload=_environment(),
         contract=_contract(),

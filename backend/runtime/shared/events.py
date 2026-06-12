@@ -107,6 +107,10 @@ RuntimeEventType = Literal[
     "task_contract_revision_decided",
     "task_run_executor_claimed",
     "task_run_executor_scheduled",
+    "session_output_commit_checked",
+    "session_output_commit_ack",
+    "session_output_commit_failed",
+    "session_output_commit_skipped",
     "chat_stream_event",
 ]
 

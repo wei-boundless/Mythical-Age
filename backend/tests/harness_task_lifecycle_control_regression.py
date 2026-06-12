@@ -31,6 +31,103 @@ def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields()
     assert messages[0]["answer_channel"] == "final_answer"
 
 
+def test_task_run_success_commits_session_output_before_completed_lifecycle() -> None:
+    final_answer = "Executor final answer."
+    runtime = build_harness_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            content=json.dumps(
+                _action_request(
+                    action_type="respond",
+                    final_answer=final_answer,
+                    public_progress_note="Ready to complete.",
+                ),
+                ensure_ascii=False,
+            )
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-output-order:1:abc",
+        session_id="session-output-order",
+        status="running",
+    )
+    seeded = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            seeded,
+            diagnostics={
+                **dict(seeded.diagnostics or {}),
+                "turn_id": "turn:session-output-order:1",
+            },
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
+    events = host.event_log.list_events(task_run_id)
+    event_types = [str(event.event_type) for event in events]
+    ack_event = next(event for event in events if event.event_type == "session_output_commit_ack")
+    completed_event = next(
+        event
+        for event in events
+        if event.event_type == "task_run_lifecycle_finished"
+        and dict(dict(event.payload or {}).get("lifecycle") or {}).get("status") == "completed"
+    )
+    messages = runtime.session_manager.load_session("session-output-order")
+    finished_task = host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is True
+    assert finished_task.status == "completed"
+    assert event_types.index("session_output_commit_checked") < event_types.index("session_output_commit_ack")
+    assert int(ack_event.offset) < int(completed_event.offset)
+    assert dict(result["output_commit"])["state"] == "committed"
+    assert dict(finished_task.diagnostics)["output_commit_status"] == "committed"
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["content"] == final_answer
+    assert messages[-1]["turn_id"] == "turn:session-output-order:1"
+
+
+def test_task_run_final_output_without_commit_ack_fails_lifecycle_instead_of_completed() -> None:
+    runtime = build_harness_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            content=json.dumps(
+                _action_request(
+                    action_type="respond",
+                    final_answer="This answer cannot be committed without a turn id.",
+                    public_progress_note="Ready to complete.",
+                ),
+                ensure_ascii=False,
+            )
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-output-missing-turn:1:abc",
+        session_id="session-output-missing-turn",
+        status="running",
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
+    events = host.event_log.list_events(task_run_id)
+    skipped_event = next(event for event in events if event.event_type == "session_output_commit_skipped")
+    lifecycle_event = next(event for event in events if event.event_type == "task_run_lifecycle_finished")
+    skipped_payload = dict(skipped_event.payload or {})
+    lifecycle_payload = dict(dict(lifecycle_event.payload or {}).get("lifecycle") or {})
+    finished_task = host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is False
+    assert result["error"] == "session_output_commit_not_committed"
+    assert finished_task.status == "failed"
+    assert finished_task.terminal_reason == "session_output_commit_not_committed"
+    assert lifecycle_payload["status"] == "failed"
+    assert int(skipped_event.offset) < int(lifecycle_event.offset)
+    assert skipped_payload["reason"] == "assistant_session_message_missing_turn_id"
+    assert dict(finished_task.diagnostics)["execution_result_status"] == "completed"
+    assert dict(finished_task.diagnostics)["output_commit_status"] == "skipped"
+    assert runtime.session_manager.load_session("session-output-missing-turn") == []
+
+
 def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     from harness.loop.task_executor import stop_task_run
 

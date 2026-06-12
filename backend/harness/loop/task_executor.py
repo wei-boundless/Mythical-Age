@@ -9,7 +9,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from artifact_system.artifact_authority import (
     artifact_ref_value,
@@ -4216,19 +4216,49 @@ def _finish_specialist_runtime_execution(
         )
     )
     terminal_reason = "completed" if completed else _specialist_terminal_reason(execution=execution, limitations=limitations)
+    task_candidate = replace(
+        task_run,
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "artifact_refs": artifact_refs,
+            "final_answer": summary,
+            "specialist_runtime": task_runtime_diagnostics,
+            "specialist_result_ref": result_ref,
+            "execution_result_status": closeout_status,
+        },
+    )
+    output_commit: dict[str, Any] = {}
+    if completed:
+        if str(getattr(task_candidate, "execution_runtime_kind", "") or "") == "subagent_task":
+            output_commit = _record_session_output_commit_skipped(
+                runtime_host,
+                task_run=task_candidate,
+                final_answer=summary,
+                reason="not_main_session_visible",
+            )
+        else:
+            output_commit = _commit_task_run_final_message(services, task_run=task_candidate, final_answer=summary)
+            if not _commit_receipt_committed(output_commit):
+                return _finish_executor_output_commit_failure(
+                    runtime_host,
+                    task_run=task_candidate,
+                    observations=[],
+                    final_answer=summary,
+                    artifact_refs=artifact_refs,
+                    commit_receipt=output_commit,
+                )
+        task_candidate = replace(
+            task_candidate,
+            diagnostics={
+                **dict(task_candidate.diagnostics or {}),
+                "output_commit": dict(output_commit),
+                "output_commit_status": _commit_receipt_status(output_commit),
+            },
+        )
     lifecycle = _load_lifecycle(runtime_host, task_run)
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
-        task_run=replace(
-            task_run,
-            diagnostics={
-                **dict(task_run.diagnostics or {}),
-                "artifact_refs": artifact_refs,
-                "final_answer": summary,
-                "specialist_runtime": task_runtime_diagnostics,
-                "specialist_result_ref": result_ref,
-            },
-        ),
+        task_run=task_candidate,
         lifecycle=lifecycle,
         status=closeout_status,  # type: ignore[arg-type]
         terminal_reason=terminal_reason,
@@ -4253,10 +4283,8 @@ def _finish_specialist_runtime_execution(
         agent_brief_output=summary,
         event_offset=_event_offset(event),
         refs={"task_run_ref": finished_task.task_run_id, "agent_run_result_ref": result_ref},
-        payload={"artifact_refs": artifact_refs, "evidence_refs": evidence_refs, "limitations": limitations},
+        payload={"artifact_refs": artifact_refs, "evidence_refs": evidence_refs, "limitations": limitations, "output_commit": dict(output_commit)},
     )
-    if completed and str(getattr(finished_task, "execution_runtime_kind", "") or "") != "subagent_task":
-        _commit_task_run_final_message(services, task_run=finished_task, final_answer=summary)
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {
         "ok": completed,
@@ -4266,6 +4294,7 @@ def _finish_specialist_runtime_execution(
         "final_answer": summary,
         "artifact_refs": artifact_refs,
         "result_ref": result_ref,
+        "output_commit": output_commit,
         **({"error": terminal_reason} if not completed else {}),
     }
 
@@ -4307,16 +4336,39 @@ def _finish_executor_success(
             diagnostics={"artifact_refs": artifact_refs},
         )
     )
+    success_task = replace(
+        task_run,
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "artifact_refs": artifact_refs,
+            "final_answer": final_answer,
+            "final_action_diagnostics": dict(final_action_diagnostics or {}),
+            "execution_result_status": "completed",
+        },
+    )
+    commit_receipt = _commit_task_run_final_message(
+        services,
+        task_run=success_task,
+        final_answer=final_answer,
+    )
+    if not _commit_receipt_committed(commit_receipt):
+        return _finish_executor_output_commit_failure(
+            runtime_host,
+            task_run=success_task,
+            observations=observations,
+            final_answer=final_answer,
+            artifact_refs=artifact_refs,
+            commit_receipt=commit_receipt,
+        )
     lifecycle = _load_lifecycle(runtime_host, task_run)
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
         task_run=replace(
-            task_run,
+            success_task,
             diagnostics={
-                **dict(task_run.diagnostics or {}),
-                "artifact_refs": artifact_refs,
-                "final_answer": final_answer,
-                "final_action_diagnostics": dict(final_action_diagnostics or {}),
+                **dict(success_task.diagnostics or {}),
+                "output_commit": dict(commit_receipt),
+                "output_commit_status": "committed",
             },
         ),
         lifecycle=lifecycle,
@@ -4341,12 +4393,7 @@ def _finish_executor_success(
         agent_brief_output=final_answer,
         event_offset=_event_offset(event),
         refs={"task_run_ref": finished_task.task_run_id},
-        payload={"artifact_refs": artifact_refs, "final_answer": final_answer},
-    )
-    _commit_task_run_final_message(
-        services,
-        task_run=finished_task,
-        final_answer=final_answer,
+        payload={"artifact_refs": artifact_refs, "final_answer": final_answer, "output_commit": dict(commit_receipt)},
     )
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {
@@ -4356,6 +4403,7 @@ def _finish_executor_success(
         "event": event,
         "final_answer": final_answer,
         "artifact_refs": artifact_refs,
+        "output_commit": commit_receipt,
     }
 
 
@@ -4547,10 +4595,26 @@ def _commit_task_run_final_message(
     terminal_reason: str = "completed",
     answer_source: str = "harness.loop.task_executor.completed",
     execution_posture: str = "task_run_completed",
-) -> None:
+) -> dict[str, Any]:
     committer = getattr(services, "assistant_message_committer", None)
+    runtime_host = services.runtime_host
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    session_id = str(getattr(task_run, "session_id", "") or "")
+    task_id = str(getattr(task_run, "task_id", "") or "")
     if not callable(committer):
-        return
+        return _record_session_output_commit_terminal(
+            runtime_host,
+            task_run_id=task_run_id,
+            event_type="session_output_commit_skipped",
+            status="skipped",
+            session_id=session_id,
+            turn_id="",
+            task_id=task_id,
+            content="",
+            commit_allowed=False,
+            reason="assistant_message_committer_missing",
+            commit_gate={},
+        )
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     turn_id = str(diagnostics.get("turn_id") or "").strip()
     runtime_control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
@@ -4567,12 +4631,13 @@ def _commit_task_run_final_message(
         terminal_reason=terminal_reason,
         completion_state=completion_state,
     )
+    commit_content = canonical.content
     decision = build_assistant_session_message_commit_decision(
-        session_id=str(getattr(task_run, "session_id", "") or ""),
-        task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
-        task_id=str(getattr(task_run, "task_id", "") or ""),
+        session_id=session_id,
+        task_run_id=task_run_id,
+        task_id=task_id,
         turn_id=turn_id,
-        content=canonical.content,
+        content=commit_content,
         answer_channel=canonical.answer_channel,
         answer_source=canonical.answer_source,
         answer_canonical_state=canonical.canonical_state,
@@ -4586,32 +4651,280 @@ def _commit_task_run_final_message(
         terminal_reason=terminal_reason,
         source=commit_source,
     )
-    runtime_host = services.runtime_host
-    runtime_host.event_log.append(
-        str(getattr(task_run, "task_run_id", "") or ""),
-        "task_run_final_message_commit_checked",
-        payload={"commit_gate": decision.to_dict()},
-        refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+    commit_gate = decision.to_dict()
+    checked_event = runtime_host.event_log.append(
+        task_run_id,
+        "session_output_commit_checked",
+        payload={
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "task_run_id": task_run_id,
+            "task_id": task_id,
+            "commit_allowed": bool(decision.commit_allowed),
+            "reason": str(decision.reason or ""),
+            "answer_channel": canonical.answer_channel,
+            "answer_source": canonical.answer_source,
+            "answer_canonical_state": canonical.canonical_state,
+            "answer_persist_policy": canonical.persist_policy,
+            "answer_finalization_policy": canonical.finalization_policy,
+            "content_sha256": _text_sha256(commit_content),
+            "commit_gate": commit_gate,
+            "authority": "harness.session_output_commit",
+        },
+        refs={"task_run_ref": task_run_id},
     )
     if not decision.commit_allowed:
-        return
+        return _record_session_output_commit_terminal(
+            runtime_host,
+            task_run_id=task_run_id,
+            event_type="session_output_commit_skipped",
+            status="skipped",
+            session_id=session_id,
+            turn_id=turn_id,
+            task_id=task_id,
+            content=commit_content,
+            commit_allowed=False,
+            reason=str(decision.reason or "commit_gate_blocked"),
+            commit_gate=commit_gate,
+            checked_event_offset=_event_offset(checked_event),
+        )
     try:
         result = committer(dict(decision.commit_candidate.payload))
-        if hasattr(result, "__await__"):
-            runtime_host.event_log.append(
-                str(getattr(task_run, "task_run_id", "") or ""),
-                "task_run_final_message_commit_failed",
-                payload={"error": "async_committer_not_supported", "authority": "harness.loop.task_executor"},
-                refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+        if inspect.isawaitable(result):
+            close = getattr(result, "close", None)
+            if callable(close):
+                close()
+            return _record_session_output_commit_terminal(
+                runtime_host,
+                task_run_id=task_run_id,
+                event_type="session_output_commit_failed",
+                status="failed",
+                session_id=session_id,
+                turn_id=turn_id,
+                task_id=task_id,
+                content=commit_content,
+                commit_allowed=True,
+                reason="async_committer_not_supported",
+                commit_gate=commit_gate,
+                checked_event_offset=_event_offset(checked_event),
             )
-            return
     except Exception as exc:
-        runtime_host.event_log.append(
-            str(getattr(task_run, "task_run_id", "") or ""),
-            "task_run_final_message_commit_failed",
-            payload={"error": str(exc), "authority": "harness.loop.task_executor"},
-            refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+        return _record_session_output_commit_terminal(
+            runtime_host,
+            task_run_id=task_run_id,
+            event_type="session_output_commit_failed",
+            status="failed",
+            session_id=session_id,
+            turn_id=turn_id,
+            task_id=task_id,
+            content=commit_content,
+            commit_allowed=True,
+            reason=str(exc),
+            commit_gate=commit_gate,
+            checked_event_offset=_event_offset(checked_event),
         )
+    return _record_session_output_commit_terminal(
+        runtime_host,
+        task_run_id=task_run_id,
+        event_type="session_output_commit_ack",
+        status="committed",
+        session_id=session_id,
+        turn_id=turn_id,
+        task_id=task_id,
+        content=commit_content,
+        commit_allowed=True,
+        reason="committed",
+        commit_gate=commit_gate,
+        checked_event_offset=_event_offset(checked_event),
+        committer_result=result,
+    )
+
+
+def _record_session_output_commit_skipped(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    final_answer: str,
+    reason: str,
+) -> dict[str, Any]:
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    session_id = str(getattr(task_run, "session_id", "") or "")
+    task_id = str(getattr(task_run, "task_id", "") or "")
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    turn_id = str(diagnostics.get("turn_id") or "").strip()
+    return _record_session_output_commit_terminal(
+        runtime_host,
+        task_run_id=task_run_id,
+        event_type="session_output_commit_skipped",
+        status="skipped",
+        session_id=session_id,
+        turn_id=turn_id,
+        task_id=task_id,
+        content=final_answer,
+        commit_allowed=False,
+        reason=reason,
+        commit_gate={},
+    )
+
+
+def _record_session_output_commit_terminal(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    event_type: Literal[
+        "session_output_commit_ack",
+        "session_output_commit_failed",
+        "session_output_commit_skipped",
+    ],
+    status: str,
+    session_id: str,
+    turn_id: str,
+    task_id: str,
+    content: str,
+    commit_allowed: bool,
+    reason: str,
+    commit_gate: dict[str, Any],
+    checked_event_offset: int = -1,
+    committer_result: Any = None,
+) -> dict[str, Any]:
+    normalized_status = str(status or "").strip() or "failed"
+    normalized_reason = str(reason or normalized_status).strip()
+    content_hash = _text_sha256(content)
+    anchor_message_id = _assistant_anchor_message_id(
+        turn_id=turn_id,
+        committer_result=committer_result,
+    )
+    payload = {
+        "session_id": str(session_id or ""),
+        "turn_id": str(turn_id or ""),
+        "task_run_id": str(task_run_id or ""),
+        "task_id": str(task_id or ""),
+        "state": normalized_status,
+        "status": normalized_status,
+        "commit_allowed": bool(commit_allowed),
+        "reason": normalized_reason,
+        "content_sha256": content_hash,
+        "anchor_message_id": anchor_message_id,
+        "checked_event_offset": checked_event_offset,
+        "committer_result": _public_committer_result(committer_result),
+        "commit_gate": commit_gate,
+        "authority": "harness.session_output_commit",
+    }
+    event = runtime_host.event_log.append(
+        task_run_id or "session-output-commit",
+        event_type,
+        payload=payload,
+        refs={"task_run_ref": task_run_id},
+    )
+    return {
+        **payload,
+        "event_type": event_type,
+        "event_id": str(getattr(event, "event_id", "") or ""),
+        "event_offset": _event_offset(event),
+        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+    }
+
+
+def _assistant_anchor_message_id(*, turn_id: str, committer_result: Any = None) -> str:
+    result = dict(committer_result or {}) if isinstance(committer_result, dict) else {}
+    appended = list(result.get("appended_messages") or [])
+    for item in reversed(appended):
+        if not isinstance(item, dict):
+            continue
+        explicit = str(item.get("id") or item.get("message_id") or "").strip()
+        if explicit:
+            return explicit
+    normalized_turn_id = str(turn_id or "").strip()
+    return f"history-message:{normalized_turn_id}:assistant" if normalized_turn_id else ""
+
+
+def _public_committer_result(committer_result: Any) -> dict[str, Any]:
+    if not isinstance(committer_result, dict):
+        return {}
+    appended = list(committer_result.get("appended_messages") or [])
+    return {
+        "appended_message_count": len(appended),
+        "file_work_context_writeback": bool(committer_result.get("file_work_context_writeback")),
+    }
+
+
+def _text_sha256(value: str) -> str:
+    return "sha256:" + hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _commit_receipt_status(receipt: dict[str, Any]) -> str:
+    return str((receipt or {}).get("state") or (receipt or {}).get("status") or "").strip().lower()
+
+
+def _commit_receipt_committed(receipt: dict[str, Any]) -> bool:
+    return _commit_receipt_status(receipt) == "committed"
+
+
+def _finish_executor_output_commit_failure(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    observations: list[dict[str, Any]],
+    final_answer: str,
+    artifact_refs: list[dict[str, Any]],
+    commit_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    reason = str(commit_receipt.get("reason") or "session_output_commit_failed").strip()
+    status = _commit_receipt_status(commit_receipt) or "failed"
+    terminal_reason = "session_output_commit_failed" if status == "failed" else "session_output_commit_not_committed"
+    lifecycle = _load_lifecycle(runtime_host, task_run)
+    failed_task, failed_lifecycle, event = finish_task_lifecycle(
+        runtime_host,
+        task_run=replace(
+            task_run,
+            diagnostics={
+                **dict(getattr(task_run, "diagnostics", {}) or {}),
+                "final_answer": final_answer,
+                "artifact_refs": artifact_refs,
+                "execution_result_status": "completed",
+                "output_commit": dict(commit_receipt),
+                "output_commit_status": status,
+                "output_commit_failure_reason": reason,
+            },
+        ),
+        lifecycle=lifecycle,
+        status="failed",
+        terminal_reason=terminal_reason,
+        observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
+    )
+    summary = "任务执行已完成，但最终回答写入会话失败。"
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=failed_task.task_run_id,
+        step="session_output_commit_failed",
+        status="failed",
+        summary=summary,
+        agent_brief_output=final_answer,
+        refs={"task_run_ref": failed_task.task_run_id},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=failed_task,
+        item_type="interrupted_boundary",
+        title="输出写入失败",
+        status="failed",
+        summary=summary,
+        agent_brief_output=final_answer,
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": failed_task.task_run_id},
+        payload={"terminal_reason": terminal_reason, "output_commit": dict(commit_receipt)},
+    )
+    _sync_engagement_closeout(runtime_host, failed_task.task_run_id)
+    return {
+        "ok": False,
+        "task_run": failed_task.to_dict(),
+        "lifecycle": failed_lifecycle.to_dict(),
+        "event": event,
+        "error": terminal_reason,
+        "final_answer": final_answer,
+        "artifact_refs": artifact_refs,
+        "output_commit": commit_receipt,
+    }
 
 
 def _finish_executor_failure(runtime_host: Any, *, task_run: Any, agent_run: Any, terminal_reason: str, payload: dict[str, Any]) -> dict[str, Any]:
