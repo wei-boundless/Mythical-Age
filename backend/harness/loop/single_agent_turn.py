@@ -99,6 +99,12 @@ _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
 _INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
 
 
+@dataclass(frozen=True, slots=True)
+class NativeActionRequestParse:
+    actions: tuple[ModelActionRequest, ...] = ()
+    errors: tuple[dict[str, Any], ...] = ()
+
+
 def _meaningful_visible_answer(content: str) -> bool:
     visible = sanitize_visible_assistant_content(str(content or "")).strip()
     if not visible:
@@ -2654,12 +2660,33 @@ def _single_agent_action_request_from_response(
                 ),
             )
         return SingleAgentActionParse(action_request=None, native_tool_calls=[])
-    native_actions = _action_requests_from_native_tool_calls(
+    native_parse = _action_requests_from_native_tool_calls_with_diagnostics(
         native_tool_calls,
         turn_id=turn_id,
         packet_ref=packet_ref,
         iteration=iteration,
     )
+    native_actions = list(native_parse.actions)
+    if native_parse.errors:
+        error_reasons = [
+            str(error.get("reason") or error.get("code") or "").strip()
+            for error in native_parse.errors
+            if str(error.get("reason") or error.get("code") or "").strip()
+        ]
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_invalid_native_action",
+                reason=";".join(error_reasons) or "single_agent_turn_invalid_native_action",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "native_action_errors": [dict(item) for item in native_parse.errors],
+                    "phase": phase,
+                },
+            ),
+        )
     tool_actions = tuple(item for item in native_actions if item.action_type == "tool_call")
     control_actions = tuple(item for item in native_actions if item.action_type != "tool_call")
     if tool_actions and control_actions:
@@ -2811,10 +2838,37 @@ def _action_requests_from_native_tool_calls(
     packet_ref: str,
     iteration: int,
 ) -> list[ModelActionRequest]:
+    return list(
+        _action_requests_from_native_tool_calls_with_diagnostics(
+            tool_calls,
+            turn_id=turn_id,
+            packet_ref=packet_ref,
+            iteration=iteration,
+        ).actions
+    )
+
+
+def _action_requests_from_native_tool_calls_with_diagnostics(
+    tool_calls: list[dict[str, Any]],
+    *,
+    turn_id: str,
+    packet_ref: str,
+    iteration: int,
+) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
+    errors: list[dict[str, Any]] = []
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
         if not tool_name:
+            errors.append(
+                {
+                    "authority": "harness.loop.single_agent_turn.native_action_parser",
+                    "code": "native_tool_name_missing",
+                    "reason": "native_tool_name_missing",
+                    "native_tool_call": _native_tool_call_diagnostics(call),
+                    "repairable": True,
+                }
+            )
             continue
         if tool_name not in _CONTROL_NATIVE_TOOL_NAMES:
             action = _tool_action_request_from_native_tool_calls(
@@ -2823,21 +2877,162 @@ def _action_requests_from_native_tool_calls(
                 packet_ref=packet_ref,
                 iteration=iteration,
             )
+            error = None
         elif tool_name == "active_work_control":
             action = _active_work_action_request_from_native_tool_calls(
                 [call],
                 turn_id=turn_id,
                 packet_ref=packet_ref,
             )
+            error = None
         else:
-            action = _action_request_from_native_tool_calls(
-                [call],
+            action, error = _control_action_request_from_native_tool_call(
+                call,
                 turn_id=turn_id,
                 packet_ref=packet_ref,
             )
-        if action is not None:
-            actions.append(action)
-    return actions
+        if error is not None:
+            errors.append(error)
+            continue
+        if action is None:
+            errors.append(
+                {
+                    "authority": "harness.loop.single_agent_turn.native_action_parser",
+                    "code": "native_action_request_missing",
+                    "reason": "native_action_request_missing",
+                    "native_tool_call": _native_tool_call_diagnostics(call),
+                    "repairable": True,
+                }
+            )
+            continue
+        actions.append(action)
+    return NativeActionRequestParse(actions=tuple(actions), errors=tuple(errors))
+
+
+def _native_tool_call_diagnostics(call: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(call or {})
+    args = payload.get("args")
+    return {
+        "id": str(payload.get("id") or ""),
+        "name": str(payload.get("name") or ""),
+        "source": str(payload.get("source") or ""),
+        "args": dict(args or {}) if isinstance(args, dict) else {},
+    }
+
+
+def _control_action_request_from_native_tool_call(
+    call: dict[str, Any],
+    *,
+    turn_id: str,
+    packet_ref: str,
+) -> tuple[ModelActionRequest | None, dict[str, Any] | None]:
+    action = _action_request_from_native_tool_calls(
+        [call],
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+    )
+    if action is not None:
+        return action, None
+    diagnostics = _request_task_run_native_validation_error(
+        call,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+    )
+    if diagnostics:
+        return None, diagnostics
+    return None, {
+        "authority": "harness.loop.single_agent_turn.native_action_parser",
+        "code": "native_control_action_unrecognized",
+        "reason": "native_control_action_unrecognized",
+        "native_tool_call": _native_tool_call_diagnostics(call),
+        "repairable": True,
+    }
+
+
+def _request_task_run_native_validation_error(
+    call: dict[str, Any],
+    *,
+    turn_id: str,
+    packet_ref: str,
+) -> dict[str, Any]:
+    tool_name = str(dict(call or {}).get("name") or "").strip()
+    if tool_name != "request_task_run":
+        return {}
+    args = dict(dict(call or {}).get("args") or {})
+    payload = _native_request_task_run_payload(
+        call,
+        turn_id=turn_id,
+        packet_ref=packet_ref,
+    )
+    _action, diagnostics = model_action_request_from_payload(payload, turn_id=turn_id)
+    validation_errors = [str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or []) if str(item)]
+    reason = ";".join(validation_errors) or "native_request_task_run_contract_invalid"
+    return {
+        "authority": "harness.loop.single_agent_turn.native_action_parser",
+        "code": "native_request_task_run_contract_invalid",
+        "reason": reason,
+        "validation_errors": validation_errors,
+        "model_action_diagnostics": dict(diagnostics or {}),
+        "native_tool_call": _native_tool_call_diagnostics(call),
+        "repairable": True,
+        "repair_contract": {
+            "missing_or_invalid_fields": validation_errors,
+            "must_return_action_type": "request_task_run",
+            "required_seed_fields": [
+                "working_scope",
+                "capability_intent",
+                "skill_intent",
+                "observation_contract",
+            ],
+        },
+        "native_args": args,
+    }
+
+
+def _native_request_task_run_payload(
+    call: dict[str, Any],
+    *,
+    turn_id: str,
+    packet_ref: str,
+) -> dict[str, Any]:
+    args = dict(dict(call or {}).get("args") or {})
+    contract_seed = {
+        "user_visible_goal": str(args.get("user_visible_goal") or "").strip(),
+        "task_run_goal": str(args.get("task_run_goal") or "").strip(),
+        "working_scope": dict(args.get("working_scope") or {}) if isinstance(args.get("working_scope"), dict) else {},
+        "required_artifacts": contract_dict_list(args.get("required_artifacts")),
+        "required_verifications": contract_dict_list(args.get("required_verifications")),
+        "completion_criteria": contract_string_list(args.get("completion_criteria")),
+        "capability_intent": dict(args.get("capability_intent") or {}) if isinstance(args.get("capability_intent"), dict) else {},
+        "skill_intent": dict(args.get("skill_intent") or {}) if isinstance(args.get("skill_intent"), dict) else {},
+        "observation_contract": dict(args.get("observation_contract") or {}) if isinstance(args.get("observation_contract"), dict) else {},
+    }
+    active_work_relationship = str(args.get("active_work_relationship") or "").strip()
+    if active_work_relationship:
+        contract_seed["active_work_relationship"] = active_work_relationship
+    public_note = str(args.get("public_progress_note") or "").strip()
+    public_action_state = {
+        "visible_status": "thinking",
+        "completion_status": "working",
+        "next_action": "",
+    }
+    if public_note:
+        public_action_state["current_judgment"] = public_note
+    return {
+        "request_id": f"model-action:{turn_id}:single-agent-request-task-run",
+        "turn_id": turn_id,
+        "action_type": "request_task_run",
+        "public_progress_note": public_note,
+        "public_action_state": public_action_state,
+        "task_contract_seed": contract_seed,
+        "completion_contract": {"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
+        "diagnostics": {
+            "origin_kind": "single_agent_turn_native_action",
+            "origin_authority": "harness.loop.single_agent_turn",
+            "packet_ref": packet_ref,
+            "native_tool_call": _native_tool_call_diagnostics(call),
+        },
+    }
 
 
 def _single_agent_protocol_error(*, code: str, reason: str, diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -3050,48 +3245,8 @@ def _action_request_from_native_tool_calls(
             )
         if tool_name != "request_task_run":
             continue
-        contract_seed = {
-            "user_visible_goal": str(args.get("user_visible_goal") or "").strip(),
-            "task_run_goal": str(args.get("task_run_goal") or "").strip(),
-            "working_scope": dict(args.get("working_scope") or {}) if isinstance(args.get("working_scope"), dict) else {},
-            "required_artifacts": contract_dict_list(args.get("required_artifacts")),
-            "required_verifications": contract_dict_list(args.get("required_verifications")),
-            "completion_criteria": contract_string_list(args.get("completion_criteria")),
-            "capability_intent": dict(args.get("capability_intent") or {}) if isinstance(args.get("capability_intent"), dict) else {},
-            "skill_intent": dict(args.get("skill_intent") or {}) if isinstance(args.get("skill_intent"), dict) else {},
-            "observation_contract": dict(args.get("observation_contract") or {}) if isinstance(args.get("observation_contract"), dict) else {},
-        }
-        active_work_relationship = str(args.get("active_work_relationship") or "").strip()
-        if active_work_relationship:
-            contract_seed["active_work_relationship"] = active_work_relationship
-        public_note = str(args.get("public_progress_note") or "").strip()
-        public_action_state = {
-            "visible_status": "thinking",
-            "completion_status": "working",
-            "next_action": "",
-        }
-        if public_note:
-            public_action_state["current_judgment"] = public_note
         action, _diagnostics = model_action_request_from_payload(
-            {
-                "request_id": f"model-action:{turn_id}:single-agent-request-task-run",
-                "turn_id": turn_id,
-                "action_type": "request_task_run",
-                "public_progress_note": public_note,
-                "public_action_state": public_action_state,
-                "task_contract_seed": contract_seed,
-                "completion_contract": {"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
-                "diagnostics": {
-                "origin_kind": "single_agent_turn_native_action",
-                "origin_authority": "harness.loop.single_agent_turn",
-                "packet_ref": packet_ref,
-                "native_tool_call": {
-                    "id": str(call.get("id") or ""),
-                    "name": str(call.get("name") or ""),
-                    "source": str(call.get("source") or ""),
-                },
-                },
-            },
+            _native_request_task_run_payload(call, turn_id=turn_id, packet_ref=packet_ref),
             turn_id=turn_id,
         )
         return action

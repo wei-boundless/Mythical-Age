@@ -5,7 +5,16 @@ from typing import Any
 
 COMPLETED_STATUSES = {"completed", "success", "done", "succeeded"}
 FAILED_STATUSES = {"failed", "error"}
-STOPPED_STATUSES = {"aborted", "cancelled", "canceled", "stopped", "user_aborted"}
+STOPPED_STATUSES = {
+    "aborted",
+    "cancelled",
+    "canceled",
+    "stopped",
+    "user_aborted",
+    "blocked_expired",
+    "runtime_retention_expired",
+    "approval_expired",
+}
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
 RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}

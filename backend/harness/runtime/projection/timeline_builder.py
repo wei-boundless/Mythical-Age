@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .guards import compact, public_text, record, stable_id, text
-from .items import (
-    control_item,
-    status_item,
-    work_action_item,
-)
+from .guards import compact, record, stable_id, text
 from .projector import project_public_projection_event
 from .task_projection import build_single_agent_task_projection_for_event
 
@@ -29,9 +24,6 @@ INTERNAL_TURN_TERMINAL_REASONS = {
     "stream_cancelled",
     "turn_stream_closed",
     "harness.entrypoint_error",
-}
-STRUCTURED_PLAN_TOOL_NAMES = {
-    "agent_todo",
 }
 PUBLIC_TIMELINE_ORDER_FIELDS = (
     "sequence",
@@ -127,132 +119,6 @@ def project_public_timeline_from_events(
     return _trim_public_timeline_items(items, limit)
 
 
-def build_public_chat_timeline(
-    *,
-    progress_presentation: dict[str, Any] | None,
-    final_answer: str = "",
-    artifact_refs: list[Any] | None = None,
-    status: str = "",
-    terminal_reason: str = "",
-) -> list[dict[str, Any]]:
-    presentation = record(progress_presentation)
-    units = [record(item) for item in list(presentation.get("work_units") or []) if isinstance(item, dict)]
-    items: list[dict[str, Any]] = []
-    index_by_key: dict[str, int] = {}
-    for unit in units:
-        unit_state = unit.get("status") or unit.get("state") or "running"
-        feedback = public_text(
-            unit.get("agent_brief_output")
-            or unit.get("current_judgment")
-            or unit.get("judgment")
-            or unit.get("summary")
-            or unit.get("agent_feedback"),
-            limit=260,
-        )
-        if feedback:
-            item = status_item(
-                item_id=stable_id("status", unit.get("unit_id"), feedback),
-                title=feedback,
-                state=unit_state,
-                trace_refs=_trace_refs(unit),
-            )
-            _append_or_replace_public_item(items, index_by_key, item)
-        if _is_tool_like(unit):
-            item = work_action_item(
-                item_id=stable_id("work", unit.get("unit_id"), unit.get("tool_name"), unit.get("title")),
-                tool_name=unit.get("tool_name") or unit.get("kind"),
-                raw_target=unit.get("target") or unit.get("title"),
-                summary=unit.get("summary") or unit.get("action"),
-                observation=_first_evidence_summary(unit),
-                state=unit_state,
-                trace_refs=_trace_refs(unit),
-            )
-            _append_or_replace_public_item(items, index_by_key, item)
-        report_text = public_text(unit.get("observation") or unit.get("implication"), limit=260)
-        if report_text:
-            _append_or_replace_public_item(
-                items,
-                index_by_key,
-                status_item(
-                    item_id=stable_id("report", unit.get("unit_id"), report_text),
-                    title=report_text,
-                    state=unit_state,
-                    trace_refs=_trace_refs(unit),
-                ),
-            )
-    for artifact in list(artifact_refs or []):
-        item = status_item(
-            item_id=stable_id("artifact", artifact),
-            title="产物已生成",
-            detail=record(artifact).get("label") or record(artifact).get("path") or artifact,
-            state="done",
-        )
-        _append_or_replace_public_item(items, index_by_key, item)
-    if status in {"failed", "error", "blocked"} or terminal_reason:
-        item = control_item(
-            item_id=stable_id("blocked", status, terminal_reason),
-            kind="error_notice",
-            title=terminal_reason or "处理遇到阻塞",
-            state="error",
-        )
-        _append_or_replace_public_item(items, index_by_key, item)
-    return items
-
-
-def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    index_by_key: dict[str, int] = {}
-    for entry in list(entries or []):
-        payload = record(entry)
-        kind = text(payload.get("kind"))
-        level = text(payload.get("level"))
-        state = "error" if level == "error" else "done" if level == "success" else "waiting" if level == "waiting" else "running"
-        refs = [text(payload.get("id"))] if text(payload.get("id")) else []
-        body = public_text(payload.get("body") or payload.get("agentBrief") or payload.get("publicNote") or payload.get("title"), limit=260)
-        if kind == "tool":
-            tool_call_id = text(payload.get("toolCallId") or payload.get("tool_call_id"))
-            tool_lifecycle_id = text(payload.get("toolLifecycleId") or payload.get("tool_lifecycle_id") or tool_call_id)
-            tool_name = text(payload.get("toolName"))
-            if _is_structured_plan_tool(tool_name):
-                continue
-            target = text(payload.get("target") or payload.get("toolTarget") or payload.get("tool_target"))
-            item = work_action_item(
-                item_id=tool_lifecycle_id or stable_id("progress-tool", payload.get("id"), payload.get("toolName")),
-                tool_name=tool_name,
-                tool_lifecycle_id=tool_lifecycle_id,
-                tool_call_id=tool_call_id,
-                raw_target=target or payload.get("title"),
-                summary=payload.get("title"),
-                observation=body,
-                state=state,
-                trace_refs=refs,
-            )
-        elif kind == "model":
-            item = status_item(
-                item_id=stable_id("progress-model", payload.get("id"), body),
-                title=body,
-                state=state,
-                trace_refs=refs,
-            )
-        elif state == "error":
-            item = control_item(
-                item_id=stable_id("progress-error", payload.get("id"), body),
-                kind="error_notice",
-                title=body,
-                state="error",
-                trace_refs=refs,
-            )
-        else:
-            item = status_item(
-                item_id=stable_id("progress-status", payload.get("id"), body),
-                title=body,
-                state=state,
-                trace_refs=refs,
-            )
-        _append_or_replace_public_item(items, index_by_key, _with_progress_entry_order(item, payload))
-    return items
-
-
 def _public_event_type(event_type: str, event: dict[str, Any]) -> str:
     if event_type == "agent_turn_terminal" and _is_internal_turn_terminal(event):
         return ""
@@ -313,6 +179,8 @@ def _public_event_data(*, public_event_type: str, event: dict[str, Any], monitor
             "public_action_state": payload.get("public_action_state"),
             "tool_name": payload.get("tool_name"),
         }
+    if public_event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded", "tool_observation"}:
+        return {**base, **_tool_observation_data(payload)}
     if public_event_type == "runtime_status":
         return {**base, **_runtime_status_data(event, monitor=monitor)}
     if public_event_type in {"done", "error", "stopped"}:
@@ -464,6 +332,63 @@ def _runtime_status_data(event: dict[str, Any], *, monitor: dict[str, Any] | Non
     return {"state": payload.get("status") or "running", "summary": payload.get("summary")}
 
 
+def _tool_observation_data(payload: dict[str, Any]) -> dict[str, Any]:
+    preview = record(payload.get("preview"))
+    observation = record(payload.get("observation") or payload.get("tool_observation") or preview.get("tool_observation") or payload)
+    observation_payload = record(observation.get("payload"))
+    envelope = record(observation_payload.get("result_envelope") or observation.get("result_envelope"))
+    receipt = record(observation.get("execution_receipt"))
+    structured = record(observation_payload.get("structured_payload") or envelope.get("structured_payload"))
+    tool_name = text(
+        observation.get("tool_name")
+        or observation_payload.get("tool_name")
+        or envelope.get("tool_name")
+        or receipt.get("tool_name")
+        or structured.get("tool_name")
+        or text(observation.get("source")).removeprefix("tool:")
+    )
+    tool_args = record(
+        observation.get("tool_args")
+        or observation_payload.get("tool_args")
+        or observation_payload.get("args")
+        or envelope.get("tool_args")
+        or envelope.get("args")
+        or structured.get("args")
+    )
+    status = _tool_observation_status(observation.get("status") or receipt.get("status") or payload.get("status"))
+    error = text(observation.get("error") or observation_payload.get("error") or envelope.get("error") or receipt.get("error"))
+    return compact(
+        {
+            "tool_name": tool_name,
+            "tool_call_id": text(observation.get("tool_call_id") or envelope.get("tool_call_id") or receipt.get("tool_call_id")),
+            "tool_lifecycle_id": text(observation.get("tool_lifecycle_id") or observation.get("tool_call_id") or envelope.get("tool_call_id")),
+            "tool_target": _tool_target(tool_args or observation.get("target") or envelope.get("target")),
+            "summary": observation.get("summary") or observation_payload.get("summary") or envelope.get("summary"),
+            "observation": error or observation.get("text") or observation_payload.get("result") or envelope.get("text"),
+            "status": "failed" if error else status,
+        }
+    )
+
+
+def _tool_observation_status(value: Any) -> str:
+    normalized = text(value).lower()
+    if normalized in {"", "ok", "completed", "complete", "success", "succeeded", "done"}:
+        return "completed"
+    if normalized in {"failed", "error", "blocked"}:
+        return "failed"
+    return normalized
+
+
+def _tool_target(value: Any) -> str:
+    payload = record(value)
+    if payload:
+        for key in ("path", "file_path", "relative_path", "target_path", "query", "pattern", "command", "url"):
+            visible = text(payload.get(key))
+            if visible:
+                return visible
+    return text(value)
+
+
 def _active_task_steer_summary(payload: dict[str, Any]) -> str:
     steer = record(payload.get("steer"))
     transition = record(payload.get("steer_transition"))
@@ -572,29 +497,6 @@ def _with_event_order(item: dict[str, Any], event: dict[str, Any]) -> dict[str, 
     return {**payload, **_event_order_fields(event)}
 
 
-def _with_progress_entry_order(item: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
-    payload = record(item)
-    if not payload:
-        return {}
-    event_offset = _int_value(entry.get("eventOffset"))
-    if event_offset is None:
-        event_offset = _int_value(entry.get("event_offset"))
-    event_id = text(entry.get("sourceEventId") or entry.get("source_event_id") or entry.get("id"))
-    run_id = text(entry.get("sourceRunId") or entry.get("source_run_id") or entry.get("runId") or entry.get("run_id"))
-    created_at = _float_value(entry.get("createdAt") or entry.get("created_at"))
-    return {
-        **payload,
-        **_progress_entry_scope_fields(entry),
-        **_compact_order_fields(
-            sequence=event_offset,
-            event_offset=event_offset,
-            created_at=created_at,
-            source_run_id=run_id,
-            source_event_id=event_id,
-        ),
-    }
-
-
 def _with_projection_scope(
     item: dict[str, Any],
     *,
@@ -617,20 +519,6 @@ def _with_projection_scope(
             "run_id": text(anchor.get("run_id") or payload.get("source_run_id") or fallback_run_id),
             "task_run_id": text(anchor.get("task_run_id") or fallback_task_run_id),
             "turn_run_id": text(anchor.get("turn_run_id") or fallback_turn_run_id),
-        }
-    )
-
-
-def _progress_entry_scope_fields(entry: dict[str, Any]) -> dict[str, Any]:
-    turn_id = text(entry.get("anchorTurnId") or entry.get("anchor_turn_id") or entry.get("turnId") or entry.get("turn_id"))
-    return compact(
-        {
-            "anchor_turn_id": turn_id,
-            "turn_id": turn_id,
-            "run_id": text(entry.get("runId") or entry.get("run_id") or entry.get("sourceRunId") or entry.get("source_run_id")),
-            "task_run_id": text(entry.get("taskRunId") or entry.get("task_run_id")),
-            "turn_run_id": text(entry.get("turnRunId") or entry.get("turn_run_id")),
-            "session_id": text(entry.get("sessionId") or entry.get("session_id")),
         }
     )
 
@@ -715,29 +603,6 @@ def _float_value(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _is_structured_plan_tool(tool_name: str) -> bool:
-    return text(tool_name).lower() in STRUCTURED_PLAN_TOOL_NAMES
-
-
-def _first_evidence_summary(unit: dict[str, Any]) -> str:
-    for item in list(unit.get("evidence") or []):
-        if isinstance(item, dict):
-            visible = public_text(item.get("summary") or item.get("detail") or item.get("text"), limit=220)
-            if visible:
-                return visible
-    return ""
-
-
-def _is_tool_like(unit: dict[str, Any]) -> bool:
-    kind = text(unit.get("kind")).lower()
-    return kind in {"tool", "work_action", "observation"} or bool(text(unit.get("tool_name")))
-
-
-def _trace_refs(value: dict[str, Any]) -> list[str]:
-    refs = value.get("trace_refs") or value.get("technical_trace_refs") or []
-    return [text(item) for item in refs if text(item)] if isinstance(refs, list) else []
 
 
 def _debug_trace_ref(event: dict[str, Any], *, anchor: dict[str, Any]) -> str:

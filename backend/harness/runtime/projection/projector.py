@@ -4,7 +4,7 @@ from typing import Any
 
 from .authority import build_public_projection_frame
 from .guards import record, stable_id, text
-from .items import control_item, status_item
+from .items import control_item, status_item, work_action_item
 from runtime.output_stream.public_contract import LOSSLESS_PUBLIC_EVENTS, TURN_COMPLETED_EVENT
 
 
@@ -16,9 +16,6 @@ TYPED_ASSISTANT_STREAM_EVENTS = {
 DEPRECATED_NON_CONTRACT_EVENTS = {"assistant_text", "answer_candidate", "done"}
 LIVE_TOOL_LEGACY_EVENTS = {
     "model_action_admission",
-    "turn_tool_observation_recorded",
-    "task_tool_observation_recorded",
-    "tool_observation",
     "tool_item_started",
     "tool_item_completed",
 }
@@ -83,6 +80,8 @@ def projection_items_for_event(public_event_type: str, data: dict[str, Any]) -> 
         return []
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_items(data)
+    if event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded", "tool_observation"}:
+        return _tool_observation_items(data)
     if event_type == "runtime_status":
         if not data.get("runtime_status_visible"):
             return []
@@ -155,6 +154,24 @@ def _runtime_step_summary_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         title=summary,
         state=data.get("status") or "running",
         trace_refs=trace_refs,
+    )
+    return [item] if item else []
+
+
+def _tool_observation_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    tool_name = text(data.get("tool_name"))
+    if not tool_name:
+        return []
+    item = work_action_item(
+        item_id=text(data.get("tool_lifecycle_id") or data.get("tool_call_id") or data.get("runtime_event_id")),
+        tool_name=tool_name,
+        tool_lifecycle_id=text(data.get("tool_lifecycle_id") or data.get("tool_call_id")),
+        tool_call_id=text(data.get("tool_call_id")),
+        raw_target=data.get("tool_target"),
+        summary=data.get("summary"),
+        observation=data.get("observation"),
+        state=data.get("status") or "completed",
+        trace_refs=_trace_refs(data),
     )
     return [item] if item else []
 

@@ -217,21 +217,7 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (hasPublicTimeline) {
     return true;
   }
-  return (attachment.progress_entries ?? []).some(runtimeProgressEntryHasUserVisibleProjection);
-}
-
-function runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
-  const kind = String(entry.kind ?? "").trim().toLowerCase();
-  const surface = String(entry.surface ?? "").trim().toLowerCase();
-  if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
-    return false;
-  }
-  return Boolean(
-    String(entry.title ?? "").trim()
-    || String(entry.body ?? "").trim()
-    || String(entry.publicNote ?? entry.public_note ?? "").trim()
-    || String(entry.agentBrief ?? entry.agent_brief_output ?? "").trim()
-  );
+  return false;
 }
 
 export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {

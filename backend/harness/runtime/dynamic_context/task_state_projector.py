@@ -58,6 +58,8 @@ class TaskStateProjector:
         current_facts = _drop_superseded_missing_path_probes(current_facts, positive_paths=positive_paths)
         latest_results = _drop_superseded_missing_path_probes(latest_results, positive_paths=positive_paths)
         file_state = _file_state_projection(execution_projection.get("file_state"))
+        evidence_confidence = _evidence_confidence_projection(latest_results)
+        material_progress = _material_progress_projection(latest_results)
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
@@ -66,6 +68,8 @@ class TaskStateProjector:
             "read_resource_state": _read_resource_state_projection(file_state),
             "file_state_source": str(execution_projection.get("file_state_source") or ""),
             "latest_tool_results": latest_results,
+            "evidence_confidence": evidence_confidence,
+            "material_progress": material_progress,
             "active_failures": _dedupe_failures(
                 [
                     *dict_tuple(execution_projection.get("active_failures")),
@@ -212,6 +216,7 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "replacement_ref": str(item.get("replacement_ref") or ""),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
@@ -239,6 +244,7 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "preview": _replay_preview(item),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
@@ -399,7 +405,39 @@ def _replay_evidence_policy(value: dict[str, Any]) -> dict[str, Any]:
             "must_read_source_before_edit": value.get("must_read_source_before_edit")
             if isinstance(value.get("must_read_source_before_edit"), bool)
             else None,
+            "candidate_only": value.get("candidate_only") if isinstance(value.get("candidate_only"), bool) else None,
+            "fresh_read_conditions": [str(item) for item in list(value.get("fresh_read_conditions") or []) if str(item).strip()],
+            "usable_as_evidence_for": [str(item) for item in list(value.get("usable_as_evidence_for") or []) if str(item).strip()],
+            "rehydration_preference": str(value.get("rehydration_preference") or ""),
             "instruction": compact_text(value.get("instruction") or "", limit=160),
+        }
+    )
+
+
+def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
+    files = []
+    for item in dict_tuple(value.get("files"))[:8]:
+        files.append(
+            drop_empty(
+                {
+                    "path": _projection_path(item),
+                    "start_line": item.get("start_line"),
+                    "end_line": item.get("end_line"),
+                    "content_sha256": str(item.get("content_sha256") or ""),
+                    "fresh_read_conditions": [str(entry) for entry in list(item.get("fresh_read_conditions") or []) if str(entry).strip()],
+                    "usable_as_evidence_for": [str(entry) for entry in list(item.get("usable_as_evidence_for") or []) if str(entry).strip()],
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "authority": str(value.get("authority") or "harness.runtime.dynamic_context.evidence_confidence"),
+            "source_kind": str(value.get("source_kind") or ""),
+            "tool_name": _tool_name(str(value.get("tool_name") or "")),
+            "confidence": str(value.get("confidence") or ""),
+            "fresh_read_conditions": [str(item) for item in list(value.get("fresh_read_conditions") or []) if str(item).strip()],
+            "usable_as_evidence_for": [str(item) for item in list(value.get("usable_as_evidence_for") or []) if str(item).strip()],
+            "files": [item for item in files if item],
         }
     )
 
@@ -440,7 +478,9 @@ def _replay_rehydration_plan(value: dict[str, Any]) -> dict[str, Any]:
 def _rehydration_args_ref(value: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
+            "replacement_id": _tool_result_replacement_id(value.get("replacement_id")),
             "path": _projection_path(value),
+            "task_run_id": str(value.get("task_run_id") or ""),
             "start_line": value.get("start_line"),
             "line_count": value.get("line_count"),
         }
@@ -454,6 +494,123 @@ def _rehydration_next_request(value: dict[str, Any]) -> dict[str, Any]:
             "args": _rehydration_args_ref(dict(value.get("args") or {})),
         }
     )
+
+
+def _tool_result_replacement_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate.startswith("tool_result:") else ""
+
+
+def _evidence_confidence_projection(latest_results: list[dict[str, Any]]) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    locator_count = 0
+    for item in latest_results:
+        confidence = _replay_evidence_confidence(dict(item.get("evidence_confidence") or {}))
+        if not confidence:
+            continue
+        if str(confidence.get("source_kind") or "") == "code_locator":
+            locator_count += 1
+        files.extend(dict_tuple(confidence.get("files")))
+    deduped_files = _dedupe_evidence_files(files)
+    if not deduped_files and not locator_count:
+        return {}
+    return drop_empty(
+        {
+            "authority": "harness.runtime.dynamic_context.evidence_confidence",
+            "files": deduped_files,
+            "locator_result_count": locator_count,
+        }
+    )
+
+
+def _dedupe_evidence_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for item in files:
+        path = _projection_path(item)
+        if not path:
+            continue
+        key = "|".join(
+            [
+                path,
+                str(item.get("start_line") or ""),
+                str(item.get("end_line") or ""),
+                str(item.get("content_sha256") or ""),
+            ]
+        )
+        by_key[key] = dict(item)
+    return list(by_key.values())[-12:]
+
+
+def _material_progress_projection(latest_results: list[dict[str, Any]]) -> dict[str, Any]:
+    material_actions: list[dict[str, Any]] = []
+    context_streak = 0
+    material_since_context = False
+    for item in latest_results:
+        tool_name = _tool_name(str(item.get("tool_name") or ""))
+        if not tool_name:
+            continue
+        if _is_material_progress_tool(tool_name) and _result_succeeded(item):
+            material_since_context = True
+            context_streak = 0
+            material_actions.append(
+                drop_empty(
+                    {
+                        "tool_name": tool_name,
+                        "path": _projection_path(item),
+                        "summary": compact_text(item.get("summary") or "", limit=180),
+                        "event_offset": item.get("event_offset"),
+                        "created_at": item.get("created_at"),
+                    }
+                )
+            )
+            continue
+        if _is_context_only_tool(tool_name):
+            context_streak += 1
+    return drop_empty(
+        {
+            "authority": "harness.runtime.dynamic_context.material_progress",
+            "material_event_count": len(material_actions),
+            "material_actions": material_actions[-8:],
+            "context_action_streak": context_streak,
+            "material_progress_since_last_context_action": material_since_context and context_streak == 0,
+        }
+    )
+
+
+def _is_material_progress_tool(tool_name: str) -> bool:
+    return tool_name in {
+        "write_file",
+        "edit_file",
+        "apply_patch",
+        "terminal",
+        "shell_command",
+        "run_command",
+        "execute_command",
+        "save_file",
+        "create_file",
+        "delete_file",
+        "move_file",
+    }
+
+
+def _is_context_only_tool(tool_name: str) -> bool:
+    return tool_name in {
+        "read_file",
+        "read_resource_state",
+        "read_persisted_tool_result",
+        "search_text",
+        "search_files",
+        "codebase_search",
+        "stat_path",
+        "agent_todo",
+    }
+
+
+def _result_succeeded(item: dict[str, Any]) -> bool:
+    status = str(item.get("status") or "").strip().lower()
+    if status in {"failed", "error", "blocked", "timeout", "denied", "canceled", "cancelled", "aborted"}:
+        return False
+    return not bool(item.get("error") or item.get("structured_error"))
 
 
 def _current_fact_projection(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -532,9 +689,10 @@ def _latest_results(
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
                     "code_structure": dict(item.get("code_structure") or {}),
-                    "content_range": dict(item.get("content_range") or {}),
-                    "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
-                    "preview": _code_evidence_preview(item),
+            "content_range": dict(item.get("content_range") or {}),
+            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
+            "preview": _code_evidence_preview(item),
                     "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
                     "event_offset": item.get("event_offset"),
                     "observation_event_offset": item.get("observation_event_offset"),
@@ -569,6 +727,7 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {})),
+            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or tool_result.get("evidence_confidence") or {})),
             "preview": _code_evidence_preview(tool_result),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {})),
             "event_offset": item.get("event_offset") or tool_result.get("event_offset"),

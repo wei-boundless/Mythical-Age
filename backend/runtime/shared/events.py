@@ -23,6 +23,7 @@ RuntimeEventType = Literal[
     "task_run_lifecycle_started",
     "task_run_lifecycle_waiting_executor",
     "task_run_lifecycle_finished",
+    "task_run_lifecycle_retention_stopped",
     "agent_todo_initialized",
     "turn_signals_built",
     "runtime_context_built",

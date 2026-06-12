@@ -12,6 +12,7 @@ from .retention_store import RuntimeMonitorRetentionStore
 from .resource_resolver import MonitorResourceResolver
 from .signals import build_runtime_monitor_envelope
 from .lifecycle import TERMINAL_TASK_RUN_STATUSES
+from ..task_run_retention import TaskRunLifecycleRetention
 
 
 class RuntimeMonitorService:
@@ -48,6 +49,7 @@ class RuntimeMonitorService:
         self.management_projector = RuntimeMonitorManagementProjector(
             retention_store=self.retention_store,
         )
+        self.lifecycle_retention = TaskRunLifecycleRetention(runtime_host=runtime_host)
 
     def attach_graph_harness(self, graph_harness: Any | None) -> None:
         self.resource_resolver.graph_harness = graph_harness
@@ -55,12 +57,14 @@ class RuntimeMonitorService:
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 20), 100))
         now = time.time()
+        self._sweep_expired_task_runs(now=now, limit=max(requested_limit * 4, 80))
         items = self._global_live_items(requested_limit=requested_limit, now=now)
         return build_envelope(scope="global", items=items, now=now, limit=requested_limit)
 
     def collect_global_runtime_monitor(self, limit: int = 30) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit or 30), 100))
         now = time.time()
+        self._sweep_expired_task_runs(now=now, limit=max(requested_limit * 4, 80))
         revision = self._global_monitor_revision()
         cached = self._read_global_monitor_cache(limit=requested_limit, revision=revision, now=now)
         if cached is not None:
@@ -115,6 +119,12 @@ class RuntimeMonitorService:
     def invalidate_global_monitor_cache(self) -> None:
         with self._global_monitor_cache_lock:
             self._global_monitor_cache.clear()
+
+    def _sweep_expired_task_runs(self, *, now: float, limit: int) -> dict[str, Any]:
+        sweep = self.lifecycle_retention.sweep_expired_task_runs(now=now, limit=limit)
+        if int(sweep.get("terminal_update_count") or 0) or int(sweep.get("stop_request_count") or 0):
+            self.invalidate_global_monitor_cache()
+        return sweep
 
     def _global_live_items(self, *, requested_limit: int, now: float, include_recent_terminal: bool = False) -> list[dict[str, Any]]:
         task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
@@ -183,6 +193,7 @@ class RuntimeMonitorService:
         return recent
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
+        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
             self.runtime_host.state_index.list_session_task_runs(session_id),
             key=lambda item: item.updated_at,
@@ -221,6 +232,7 @@ class RuntimeMonitorService:
         }
 
     def get_session_task_summary(self, session_id: str) -> dict[str, Any]:
+        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
             [
                 item
@@ -291,6 +303,7 @@ class RuntimeMonitorService:
         }
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
+        self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_run = self.runtime_host.state_index.get_task_run(task_run_id)
         now = time.time()
         if task_run is not None:

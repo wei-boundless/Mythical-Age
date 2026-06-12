@@ -7,7 +7,7 @@ from .guards import compact, record, stable_id, text
 
 PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
 PUBLIC_PROJECTION_CONTRACT_REVISION = "20260610-replacement"
-VALID_SURFACES = {"control", "timeline", "diagnostics"}
+VALID_SURFACES = {"control", "timeline", "tool_window", "diagnostics"}
 VALID_SOURCES = {"model", "tool", "runtime", "system", "user"}
 
 
@@ -97,7 +97,7 @@ def _authorize_item(item: dict[str, Any]) -> dict[str, Any]:
     slot = text(payload.get("slot"))
     if surface not in VALID_SURFACES or source not in VALID_SOURCES:
         return {}
-    if slot == "body" or surface == "assistant_body" or surface == "tool_window":
+    if slot == "body" or surface == "assistant_body":
         return {}
     return compact({**payload, "surface": surface, "source_authority": source})
 

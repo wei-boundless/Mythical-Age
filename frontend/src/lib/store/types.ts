@@ -22,11 +22,6 @@ import type {
 } from "@/lib/api";
 
 export type {
-  RuntimeProgressEvidence,
-  RuntimeProgressMission,
-  RuntimeProgressPresentation,
-  RuntimeProgressTechnicalTrace,
-  RuntimeProgressWorkUnit,
   PublicChatTimelineItem,
   PublicProjectionEnvelope,
   PublicProjectionItem,

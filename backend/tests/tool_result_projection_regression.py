@@ -166,9 +166,13 @@ def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code
     assert projection["content_replacements"]
     assert policy["source_kind"] == "code_evidence"
     assert policy["visible_content_authority"] == "preview_of_line_window"
-    assert policy["must_read_current_source_before_edit"] is True
+    assert policy["fresh_read_conditions"] == ["visible_content_is_preview_truncated", "target_line_outside_visible_range"]
+    assert "must_read_current_source_before_edit" not in policy
+    assert projection["evidence_confidence"]["files"][0]["fresh_read_conditions"] == policy["fresh_read_conditions"]
     assert plan["prompt_status"] == "preview_and_file_window_only"
     assert capabilities["read_persisted_tool_result"]["tool_name"] == "read_persisted_tool_result"
+    assert capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("tool_result:")
+    assert not capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("replacement:")
     assert capabilities["read_file_range"]["next_request"] == {
         "tool_name": "read_file",
         "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},

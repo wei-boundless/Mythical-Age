@@ -159,9 +159,9 @@ def test_task_observation_large_tool_result_exposes_rehydration_address(tmp_path
         ],
         runtime_assembly={
             "profile": {"mode": "professional"},
+            "runtime_storage_ref": {"runtime_state_root": str(storage_root)},
             "task_environment": {
                 "environment_id": "env.general.workspace",
-                "storage_space": {"runtime_state_root": str(storage_root)},
             },
         },
     )
@@ -1672,9 +1672,9 @@ def test_single_agent_turn_projects_large_provider_tool_output_to_persisted_prev
         },
         runtime_assembly={
             "profile": {"mode": "conversation"},
+            "runtime_storage_ref": {"runtime_state_root": str(storage_root)},
             "task_environment": {
                 "environment_id": "env.general.workspace",
-                "storage_space": {"runtime_state_root": str(storage_root)},
             },
         },
     )
@@ -1705,10 +1705,8 @@ def test_single_agent_turn_projects_large_provider_tool_output_to_persisted_prev
 def test_provider_protocol_projection_preserves_stable_prefix_hashes(tmp_path: Path) -> None:
     runtime_assembly = {
         "profile": {"mode": "conversation"},
-        "task_environment": {
-            "environment_id": "env.general.workspace",
-            "storage_space": {"runtime_state_root": str(tmp_path / "runtime-state")},
-        },
+        "runtime_storage_ref": {"runtime_state_root": str(tmp_path / "runtime-state")},
+        "task_environment": {"environment_id": "env.general.workspace"},
     }
     hot_protocol_tail = [
         {"role": "user", "content": "查最后一个文件。"},
@@ -1877,10 +1875,7 @@ def test_dynamic_context_manager_rebinds_to_runtime_assembly_backend_dir(tmp_pat
         runtime_assembly={
             "backend_dir": str(new_backend),
             "profile": {"mode": "professional"},
-            "task_environment": {
-                "environment_id": "env.test",
-                "storage_space": {"runtime_state_root": "runtime_state"},
-            },
+            "task_environment": {"environment_id": "env.test"},
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
     )

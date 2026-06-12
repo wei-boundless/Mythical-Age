@@ -28,7 +28,18 @@ class RuntimeActivityControlContext:
 
 
 STOPPED_STATUSES = {"cancelled", "canceled", "stopped", "user_aborted"}
-STOPPED_REASONS = {"cancelled", "canceled", "stopped", "user_aborted", "user_cancelled", "user_canceled", "user_stopped"}
+STOPPED_REASONS = {
+    "cancelled",
+    "canceled",
+    "stopped",
+    "user_aborted",
+    "user_cancelled",
+    "user_canceled",
+    "user_stopped",
+    "blocked_expired",
+    "runtime_retention_expired",
+    "approval_expired",
+}
 FAILED_STATUSES = {"failed", "error"}
 COMPLETED_STATUSES = {"completed", "success", "done", "succeeded"}
 WAITING_STATUSES = {"waiting_executor", "waiting_approval", "waiting_user", "blocked"}

@@ -226,8 +226,9 @@ def test_waiting_executor_projection_does_not_promote_stale_running_step_to_curr
     assert projection["status"] == "waiting"
     assert projection["phase"] == "waiting_executor"
     assert projection["current_action"]["state"] == "waiting"
+    assert projection["current_action"]["title"] == "等待执行器接管"
     assert projection["current_action"].get("event_ref") != "event:stale-running-step"
-    assert {item.get("state") for item in projection.get("activities", [])} == {"waiting"}
+    assert projection.get("activities", []) == []
 
 
 def test_waiting_executor_runtime_restart_uses_recovery_action_not_stale_judgment():
@@ -276,7 +277,7 @@ def test_waiting_executor_runtime_restart_uses_recovery_action_not_stale_judgmen
     assert projection["status"] == "waiting"
     assert projection["phase"] == "waiting_executor"
     assert projection["current_action"]["kind"] == "lifecycle"
-    assert projection["current_action"]["title"] == "后端运行时已重启，当前任务可继续。"
+    assert projection["current_action"]["title"] == "后端运行时已重启，任务可以继续续跑。"
     assert projection["current_action"]["state"] == "waiting"
     assert "掉线前" not in projection["current_action"]["title"]
 
@@ -313,6 +314,76 @@ def test_waiting_executor_todo_current_action_uses_waiting_state():
         anchor_message_id="assistant:test",
     )
 
-    assert projection["current_action"]["kind"] == "todo"
+    assert projection["current_action"]["kind"] == "lifecycle"
+    assert projection["current_action"]["title"] == "等待执行器接管"
     assert projection["current_action"]["state"] == "waiting"
     assert projection["todo"]["active_item_id"] == "todo:one"
+
+
+def test_task_projection_material_progress_counts_writes_not_context_reads():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:material",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:read",
+                "event_type": "task_tool_observation_recorded",
+                "offset": 1,
+                "payload": {
+                    "observation": {
+                        "source": "tool:read_file",
+                        "payload": {"tool_name": "read_file", "result": "读取完成。"},
+                    }
+                },
+            },
+            {
+                "event_id": "event:write",
+                "event_type": "task_tool_observation_recorded",
+                "offset": 2,
+                "created_at": 2.0,
+                "payload": {
+                    "observation": {
+                        "source": "tool:write_file",
+                        "target": "backend/app.py",
+                        "payload": {"tool_name": "write_file", "result": "写入完成。"},
+                        "artifact_refs": [{"path": "backend/app.py", "kind": "file"}],
+                    }
+                },
+            },
+            {
+                "event_id": "event:verify",
+                "event_type": "task_tool_observation_recorded",
+                "offset": 3,
+                "created_at": 3.0,
+                "payload": {
+                    "observation": {
+                        "source": "tool:terminal",
+                        "target": "python -m pytest backend/tests/session_task_projection_test.py -q",
+                        "payload": {"tool_name": "terminal", "result": "1 passed"},
+                    }
+                },
+            },
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    material = projection["material_progress"]
+    assert material["material_event_count"] == 2
+    assert material["write_event_count"] == 1
+    assert material["verification_event_count"] == 1
+    assert material["terminal_event_count"] == 1
+    assert material["artifact_count"] == 1
+    assert material["last_material_progress_at"] == 3.0
+    assert material["material_actions"][0]["tool_name"] == "write_file"
+    assert material["material_progress_since_last_context_action"] is True

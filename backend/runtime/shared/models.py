@@ -44,6 +44,9 @@ RuntimeTerminalReason = Literal[
     "tool_loop_budget_exceeded",
     "commit_failed",
     "user_aborted",
+    "blocked_expired",
+    "runtime_retention_expired",
+    "approval_expired",
     "internal_error",
 ]
 

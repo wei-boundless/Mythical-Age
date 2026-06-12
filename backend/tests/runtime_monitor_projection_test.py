@@ -395,6 +395,7 @@ def test_user_aborted_projects_as_stopped_not_failed():
     assert monitor["summary"]["failed"] == 0
     assert monitor["summary"]["recent"] == 1
     assert monitor["recent"][0]["activity_state"] == "stopped"
+    assert monitor["recent"][0]["terminal_reason"] == "user_aborted"
     assert monitor["recent"][0]["tone"] == "neutral"
 
 
@@ -1219,7 +1220,7 @@ def test_internal_titles_are_not_exposed_and_route_is_authoritative():
     assert item["route"]["graph_run_id"] == "grun:main"
 
 
-def test_latest_step_summary_is_exposed_from_event_log():
+def test_monitor_does_not_promote_legacy_step_summary_without_projection():
     event = EventStub(
         event_type="step_summary_recorded",
         created_at=125.0,
@@ -1229,7 +1230,8 @@ def test_latest_step_summary_is_exposed_from_event_log():
 
     item = projector.project_task_run(task_run(), now=150.0)
 
-    assert item["latest_step_summary"] == "已读取文件。"
+    assert item["latest_step_summary"] == "progress_projection_missing"
+    assert item["public_projection_status"]["diagnostic"] == "progress_projection_missing"
     assert item["latest_step_name"] == "tool_result"
 
 
@@ -1284,11 +1286,12 @@ def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heart
 
     item = projector.project_task_run(task_run(updated_at=140.0), now=150.0)
 
-    assert item["latest_step_summary"] == "已确认产物存在，下一步做最终验收。"
-    assert item["latest_progress"]["observation"] == "HTML 产物文件存在。"
+    assert item["latest_step_summary"] == "主要交付物已满足合同。"
+    assert item["task_projection"]["current_action"]["title"] == "主要交付物已满足合同。"
+    assert item["latest_progress"]["observation"] == ""
     assert item["latest_progress"]["current_judgment"] == "主要交付物已满足合同。"
     assert item["latest_progress"]["next_action"] == "执行最终验收并给出 artifact 路径。"
-    assert item["latest_progress"]["completion_status"] == "verifying"
+    assert item["latest_progress"]["completion_status"] == "running"
 
 
 def test_stale_model_wait_reports_diagnostic_cause_not_generic_waiting():
@@ -1604,12 +1607,41 @@ def test_global_monitor_uses_summary_projection_without_event_or_child_detail_fe
     monitor = projector.build_global_monitor([run], now=150.0, limit=20)
     item = monitor["task_runs"][0]
 
-    assert item["latest_step_summary"] == "静态任务摘要"
+    assert item["latest_step_summary"] == "progress_projection_missing"
+    assert item["public_projection_status"]["diagnostic"] == "progress_projection_missing"
     assert item["child_runtime_refs"] == []
     assert item["graph_status"]["active_node_id"] == ""
     assert event_log.list_recent_event_calls == []
     assert event_log.event_count_calls == []
     assert resolver.graph_monitor_calls == []
+
+
+def test_task_monitor_detail_keeps_technical_trace_deferred_by_default():
+    event_log = EventLogStub({
+        "taskrun:turn:session-a:1:abc": [
+            EventStub(
+                event_type="step_summary_recorded",
+                created_at=121.0,
+                payload={
+                    "step": "model_action_received:1",
+                    "status": "running",
+                    "summary": "正在整理公开投影。",
+                    "provider_protocol_messages": [{"role": "system", "content": "large prompt"}],
+                    "prompt_slots": [{"slot": "debug"}],
+                },
+            )
+        ]
+    })
+    projector = RuntimeMonitorProjector(event_log, freshness_seconds=60.0)
+
+    detail = projector.build_task_monitor(task_run(), now=130.0)
+    visible = str(detail)
+
+    assert detail["scope"] == "task_run"
+    assert detail["trace_summary"]["authority"] == "runtime_monitor.trace_summary"
+    assert "events" not in detail
+    assert "provider_protocol_messages" not in visible
+    assert "prompt_slots" not in visible
 
 
 def test_project_task_run_marks_stale_graph_root_without_fetching_graph_detail():

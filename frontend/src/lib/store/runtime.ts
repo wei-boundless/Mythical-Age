@@ -1441,12 +1441,6 @@ export class WorkspaceRuntime {
         add((item as Record<string, unknown>).anchor_turn_id);
         add((item as Record<string, unknown>).turn_id);
       }
-      for (const entry of attachment.progress_entries ?? []) {
-        add(entry.anchorTurnId);
-        add(entry.anchor_turn_id);
-        add(entry.turnId);
-        add(entry.turn_id);
-      }
     }
     return values;
   }
@@ -1470,16 +1464,6 @@ export class WorkspaceRuntime {
         add(item.sourceRunId);
         add((item as Record<string, unknown>).task_run_id);
         add((item as Record<string, unknown>).turn_run_id);
-      }
-      for (const entry of attachment.progress_entries ?? []) {
-        add(entry.runId);
-        add(entry.run_id);
-        add(entry.sourceRunId);
-        add(entry.source_run_id);
-        add(entry.taskRunId);
-        add(entry.task_run_id);
-        add(entry.turnRunId);
-        add(entry.turn_run_id);
       }
     }
     return values;
@@ -4373,66 +4357,6 @@ export class WorkspaceRuntime {
     return "";
   }
 
-  private runtimeProgressEntryFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string) {
-    const latestStep = monitor.latest_step && typeof monitor.latest_step === "object" && !Array.isArray(monitor.latest_step)
-      ? monitor.latest_step as Record<string, unknown>
-      : {};
-    if (!Object.keys(latestStep).length) {
-      return null;
-    }
-    const eventId = String(latestStep.event_id ?? "").trim();
-    const eventCount = Number(monitor.event_count ?? 0);
-    const latestSummary = this.runtimeVisibleProgressText(monitor.latest_step_summary);
-    const publicNote = this.runtimeVisibleProgressText(
-      latestStep.public_progress_note
-      ?? (monitor as Record<string, unknown>).latest_public_progress_note
-      ?? monitor.latest_step_summary
-      ?? "",
-    );
-    const agentBrief = String(
-      latestStep.agent_brief_output
-      ?? (monitor as Record<string, unknown>).agent_brief_output
-      ?? "",
-    );
-    const stepName = String(latestStep.step ?? monitor.latest_step_name ?? "");
-    if (this.runtimeShouldSkipLegacyProgressStep(stepName, latestStep.presentation_source)) {
-      return null;
-    }
-    const kind = this.runtimeProgressKindFromStep(stepName);
-    const meta = this.runtimeProgressMetaFromPayload(latestStep);
-    const actionBody = kind === "model" && meta.length
-      ? meta.map((item) => `${item.label}：${item.value}`).join("；")
-      : "";
-    const body = actionBody || publicNote || latestSummary || this.runtimeMonitorProgressFallbackText(latestStep, monitor);
-    if (!body) {
-      return null;
-    }
-    return {
-      id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: kind === "model" ? "模型反馈" : latestSummary || publicNote || body,
-      body,
-      publicNote,
-      agentBrief,
-      evidenceType: this.runtimeEvidenceTypeFromStep(stepName),
-      eventType: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? "runtime_live_monitor"),
-      kind,
-      level: this.runtimeProgressLevelFromStatus(String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? "")),
-      statusText: String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? ""),
-      runId: taskRunId,
-      taskRunId,
-      createdAt: Number(latestStep.created_at ?? 0) || undefined,
-      meta: meta.length ? meta : undefined,
-    };
-  }
-
-  private runtimeMonitorProgressFallbackText(latestStep: Record<string, unknown>, monitor: HarnessSessionMonitor) {
-    const step = String(latestStep.step ?? monitor.latest_step_name ?? "").trim();
-    if (step === "task_executor_scheduled") {
-      return "已开始继续处理。";
-    }
-    return "";
-  }
-
   private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
     return (runtimeAttachments ?? []).flatMap((attachment) =>
       Array.isArray(attachment.public_timeline)
@@ -4450,6 +4374,37 @@ export class WorkspaceRuntime {
       return null;
     }
     return projection as SingleAgentTaskProjection;
+  }
+
+  private taskProjectionVisibleSummary(projection: SingleAgentTaskProjection | null) {
+    if (!projection) {
+      return "";
+    }
+    const currentAction = projection.current_action && typeof projection.current_action === "object" && !Array.isArray(projection.current_action)
+      ? projection.current_action as Record<string, unknown>
+      : {};
+    return this.runtimeVisibleProgressText(
+      currentAction.title
+      ?? (projection as unknown as Record<string, unknown>).summary
+      ?? projection.title
+      ?? "",
+    );
+  }
+
+  private publicProjectionStatusFromRecord(value: unknown) {
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const status = record.public_projection_status && typeof record.public_projection_status === "object" && !Array.isArray(record.public_projection_status)
+      ? record.public_projection_status as Record<string, unknown>
+      : {};
+    const source = String(status.source ?? "").trim();
+    const diagnostic = String(status.diagnostic ?? "").trim();
+    return {
+      source,
+      diagnostic,
+      missing: status.missing === true || source === "progress_projection_missing" || diagnostic === "progress_projection_missing",
+    };
   }
 
   private publicTimelineItemsFromRecord(value: unknown): PublicChatTimelineItem[] {
@@ -4479,60 +4434,6 @@ export class WorkspaceRuntime {
     return "";
   }
 
-  private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "observation" | "terminal" {
-    const normalized = step.toLowerCase();
-    if (normalized.includes("observation")) return "observation";
-    if (normalized.includes("tool")) return "tool";
-    if (normalized.includes("repair") || normalized.includes("verification") || normalized.includes("closeout")) return "verification";
-    if (normalized.includes("model") || normalized.includes("agent")) return "model";
-    if (normalized.includes("completed") || normalized.includes("terminal")) return "terminal";
-    return "stage";
-  }
-
-  private runtimeEvidenceTypeFromStep(step: string) {
-    const normalized = step.toLowerCase();
-    if (normalized.includes("observation")) return "tool_observation";
-    if (normalized.includes("tool")) return "tool_observation";
-    if (normalized.includes("model_action")) return "model_action";
-    if (normalized.includes("repair") || normalized.includes("verification")) return "verification";
-    if (normalized.includes("completed") || normalized.includes("terminal")) return "terminal";
-    return "runtime_step";
-  }
-
-  private runtimeProgressLevelFromStatus(status: string): "running" | "waiting" | "success" | "error" {
-    const normalized = status.trim().toLowerCase();
-    if (["completed", "success"].includes(normalized)) return "success";
-    if (["failed", "error", "blocked", "aborted", "cancelled"].includes(normalized)) return "error";
-    if (normalized.startsWith("wait") || normalized === "paused" || normalized === "queued") return "waiting";
-    return "running";
-  }
-
-  private mergeRuntimeProgressEntries(existing: Array<Record<string, unknown>> | undefined, latest: Record<string, unknown> | null) {
-    const entries = Array.isArray(existing) ? [...existing] : [];
-    if (!latest) {
-      return entries.slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
-    }
-    const latestId = String(latest.id ?? "").trim();
-    const existingIndex = latestId
-      ? entries.findIndex((item) => String(item.id ?? "").trim() === latestId)
-      : -1;
-    if (existingIndex >= 0) {
-      entries[existingIndex] = { ...entries[existingIndex], ...latest };
-    } else {
-      entries.push(latest);
-    }
-    return entries
-      .sort((left, right) => {
-        const leftTime = Number(left.createdAt ?? left.created_at ?? 0) || 0;
-        const rightTime = Number(right.createdAt ?? right.created_at ?? 0) || 0;
-        if (leftTime && rightTime && leftTime !== rightTime) {
-          return leftTime - rightTime;
-        }
-        return 0;
-      })
-      .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
-  }
-
   private mergeRuntimeAttachments(
     persisted: SessionRuntimeAttachment[] | undefined,
     volatile: SessionRuntimeAttachment[],
@@ -4558,13 +4459,10 @@ export class WorkspaceRuntime {
       this.runtimeAttachmentPublicSinceOffset(existing),
       this.runtimeAttachmentPublicSinceOffset(attachment),
     );
-    const existingProgressEntries = this.progressEntriesSinceOffset(existing?.progress_entries, publicSinceOffset);
-    const incomingProgressEntries = this.progressEntriesSinceOffset(attachment.progress_entries, publicSinceOffset);
     return {
       ...existing,
       ...attachment,
       ...(publicSinceOffset > 0 ? { public_since_offset: publicSinceOffset } : {}),
-      progress_entries: this.mergeRuntimeProgressEntries(existingProgressEntries, incomingProgressEntries[0] ?? null),
       public_timeline: mergePublicTimelineItems(
         this.publicTimelineItemsSinceOffset(existing?.public_timeline, publicSinceOffset),
         this.publicTimelineItemsSinceOffset(attachment.public_timeline, publicSinceOffset),
@@ -4613,25 +4511,6 @@ export class WorkspaceRuntime {
     const slot = String(item.slot ?? "").trim().toLowerCase();
     const surface = String(item.surface ?? "").trim().toLowerCase();
     return slot === "status" || slot === "control" || surface === "status_bar" || surface === "control";
-  }
-
-  private progressEntriesSinceOffset(entries: Array<Record<string, unknown>> | undefined, publicSinceOffset: number) {
-    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
-    const source = Array.isArray(entries) ? entries : [];
-    if (boundary <= 0) {
-      return source;
-    }
-    return source.filter((entry) => {
-      const offset = this.progressEntryOffset(entry);
-      return offset !== undefined && offset >= boundary;
-    });
-  }
-
-  private progressEntryOffset(entry: Record<string, unknown>) {
-    return this.numericRuntimeOffset(entry.eventOffset)
-      ?? this.numericRuntimeOffset(entry.event_offset)
-      ?? this.numericRuntimeOffset(entry.offset)
-      ?? this.numericRuntimeOffset((entry.latest_step as Record<string, unknown> | undefined)?.offset);
   }
 
   private numericRuntimeOffset(value: unknown) {
@@ -4739,135 +4618,7 @@ export class WorkspaceRuntime {
     if (hasPublicTimeline) {
       return true;
     }
-    return (attachment.progress_entries ?? []).some((entry) => this.runtimeProgressEntryHasUserVisibleProjection(entry));
-  }
-
-  private runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
-    const kind = String(entry.kind ?? "").trim().toLowerCase();
-    const surface = String(entry.surface ?? "").trim().toLowerCase();
-    if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
-      return false;
-    }
-    return Boolean(
-      String(entry.title ?? "").trim()
-      || String(entry.body ?? "").trim()
-      || String(entry.publicNote ?? entry.public_note ?? "").trim()
-      || String(entry.agentBrief ?? entry.agent_brief_output ?? "").trim()
-    );
-  }
-
-  private runtimeProgressMetaFromPayload(payload: Record<string, unknown>) {
-    const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
-      ? payload.public_action_state as Record<string, unknown>
-      : {};
-    const currentJudgment = String(payload.current_judgment ?? actionState.current_judgment ?? "").trim();
-    const nextAction = this.runtimeValidatedNextAction(payload, actionState);
-    return [
-      { label: "模型说明", value: currentJudgment },
-      { label: "计划动作", value: nextAction },
-    ].filter((item) => item.value);
-  }
-
-  private runtimeShouldSkipLegacyProgressStep(step: string, presentationSource: unknown) {
-    const normalizedStep = String(step ?? "").trim().toLowerCase();
-    const source = String(presentationSource ?? "").trim();
-    if (source === "system.tool_call_status") {
-      return true;
-    }
-    return normalizedStep.startsWith("task_tool_batch_started")
-      || normalizedStep.startsWith("task_tool_repair_required")
-      || normalizedStep.startsWith("task_duplicate_tool_call_guarded");
-  }
-
-  private runtimeValidatedNextAction(payload: Record<string, unknown>, actionState: Record<string, unknown>) {
-    const candidate = String(payload.next_action ?? actionState.next_action ?? "").trim();
-    if (!candidate) {
-      return "";
-    }
-    const actionType = String(payload.action_type ?? actionState.action_type ?? "").trim().toLowerCase();
-    if (!actionType) {
-      return candidate;
-    }
-    if (actionType === "tool_call") {
-      const toolFragments = this.runtimeToolCallFragments(payload, actionState);
-      return this.runtimeTextContainsAny(candidate, toolFragments) ? candidate : "";
-    }
-    const keywords: Record<string, string[]> = {
-      respond: ["回复", "回答", "整理", "总结", "收口", "说明", "respond"],
-      ask_user: ["询问", "提问", "确认", "补充", "请你", "需要你", "ask"],
-      request_task_run: ["任务", "运行", "持续", "后台", "建立", "启动", "处理流程"],
-      block: ["阻塞", "受阻", "说明", "无法", "等待", "确认"],
-    };
-    return this.runtimeTextContainsAny(candidate, keywords[actionType] ?? []) ? candidate : "";
-  }
-
-  private runtimeTargetBasename(value: string) {
-    const normalized = String(value ?? "").trim().replace(/\\/g, "/");
-    return normalized ? normalized.split("/").pop() ?? "" : "";
-  }
-
-  private runtimeToolCallFragments(payload: Record<string, unknown>, actionState: Record<string, unknown>) {
-    const calls = this.runtimeToolCallsFromPayload(payload);
-    if (!calls.length) {
-      const fallbackName = String(payload.tool_name ?? actionState.tool_name ?? "").trim();
-      const fallbackTarget = String(payload.tool_target ?? actionState.tool_target ?? "").trim();
-      calls.push({ tool_name: fallbackName, args: { path: fallbackTarget } });
-    }
-    const fragments: string[] = [];
-    for (const call of calls) {
-      const toolName = String(call.tool_name ?? call.name ?? "").trim();
-      const args = call.args && typeof call.args === "object" && !Array.isArray(call.args)
-        ? call.args as Record<string, unknown>
-        : {};
-      const toolTarget = String(
-        args.path ?? args.file_path ?? args.target_path ?? args.query ?? args.pattern ?? args.command ?? payload.tool_target ?? actionState.tool_target ?? ""
-      ).trim();
-      fragments.push(
-        toolName,
-        toolName.replace(/[_-]+/g, " "),
-        toolTarget,
-        this.runtimeTargetBasename(toolTarget),
-        ...this.runtimeToolActionKeywords(toolName),
-      );
-    }
-    return fragments;
-  }
-
-  private runtimeToolCallsFromPayload(payload: Record<string, unknown>) {
-    const raw = Array.isArray(payload.tool_calls) ? payload.tool_calls : [];
-    const calls = raw
-      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-      .map((item) => ({ ...item }));
-    if (calls.length) return calls;
-    const single = payload.tool_call;
-    if (single && typeof single === "object" && !Array.isArray(single)) {
-      return [{ ...(single as Record<string, unknown>) }];
-    }
-    return [];
-  }
-
-  private runtimeToolActionKeywords(toolName: string) {
-    const normalized = String(toolName ?? "").trim().toLowerCase();
-    if (["image_generate", "image_generation", "generate_image"].includes(normalized)) return ["图像", "图片", "生图", "美术", "资源", "生成", "image"];
-    if (normalized === "path_exists") return ["路径", "存在", "检查", "确认", "artifact", "path"];
-    if (["stat_path", "list_dir"].includes(normalized)) return ["路径", "目录", "检查", "读取", "列表", "path", "dir"];
-    if (["read_file", "read_path"].includes(normalized)) return ["读取", "查看", "文件", "内容", "read"];
-    if (["write_file", "edit_file", "apply_patch"].includes(normalized)) return ["写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch"];
-    if (["search_text", "search_files", "glob_paths"].includes(normalized)) return ["搜索", "查找", "检索", "匹配", "search", "grep"];
-    if (["terminal", "shell", "run_command", "powershell"].includes(normalized)) return ["命令", "终端", "运行", "执行", "shell", "powershell"];
-    return normalized.split(/[_-]+/).filter(Boolean);
-  }
-
-  private runtimeTextContainsAny(value: string, fragments: string[]) {
-    const haystack = this.runtimeMatchText(value);
-    return fragments.some((fragment) => {
-      const needle = this.runtimeMatchText(fragment);
-      return needle.length >= 2 && haystack.includes(needle);
-    });
-  }
-
-  private runtimeMatchText(value: string) {
-    return String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " ");
+    return false;
   }
 
   private runtimeIsInternalToolObservation(value: string) {
@@ -5010,8 +4761,8 @@ export class WorkspaceRuntime {
     if (!anchorTurnId) {
       return state;
     }
-    const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const taskProjection = this.taskProjectionFromRecord(monitor);
+    const projectionSummary = this.taskProjectionVisibleSummary(taskProjection) || this.publicProjectionStatusFromRecord(monitor).diagnostic || "progress_projection_missing";
     const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
     const monitorStatusItem = this.runtimeMonitorStatusTimelineItem(monitor, taskRunId);
     const publicTimelineItems = mergePublicTimelineItems(
@@ -5030,12 +4781,9 @@ export class WorkspaceRuntime {
       terminal_reason: String(monitor.terminal_reason ?? taskRun.terminal_reason ?? ""),
       lifecycle: String(taskProjection?.status ?? (monitor as Record<string, unknown>).lifecycle ?? ""),
       title: String((monitor as Record<string, unknown>).title ?? "处理进展"),
-      summary: String(monitor.latest_step_summary ?? ""),
-      latest_step: monitor.latest_step ?? {},
-      latest_step_summary: String(monitor.latest_step_summary ?? ""),
+      summary: projectionSummary,
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
-      progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
       public_timeline: publicTimelineItems,
       task_projection: taskProjection ?? undefined,
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
@@ -5096,7 +4844,7 @@ export class WorkspaceRuntime {
       };
     }
     if (["failed", "error", "blocked"].includes(status)) {
-      const detail = this.runtimeVisibleProgressText(monitor.latest_step_summary) || "运行遇到阻塞，需要检查详情。";
+      const detail = this.taskProjectionVisibleSummary(this.taskProjectionFromRecord(monitor)) || "运行遇到阻塞，需要检查详情。";
       return {
         item_id: `live:${taskRunId}:monitor-status`,
         kind: "status_update",
@@ -5242,12 +4990,8 @@ export class WorkspaceRuntime {
       : String(monitorRecord.activity_state || activityRecord.activity_state || "").trim();
     const effectiveStatus = projectedActivityState === "waiting" ? "waiting_executor" : projectedActivityState || normalizedStatus;
     const projectedTitle = this.runtimeVisibleProgressText(monitorRecord.activity_label || activityRecord.activity_label);
-    const projectedDetail = this.runtimeVisibleProgressText(
-      monitorRecord.latest_public_progress_note
-      || monitorRecord.latest_step_summary
-      || monitorRecord.summary
-      || "",
-    );
+    const projectedDetail = this.taskProjectionVisibleSummary(this.taskProjectionFromRecord(monitorRecord))
+      || this.publicProjectionStatusFromRecord(monitorRecord).diagnostic;
     if (effectiveStatus === "stale") {
       this.store.setState((prev) => ({
         ...prev,

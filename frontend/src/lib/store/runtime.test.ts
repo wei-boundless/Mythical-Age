@@ -161,6 +161,35 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function taskProjectionForTest(taskRunId: string, patch: Record<string, unknown> = {}) {
+  const updatedAt = Number(patch.updated_at ?? 1) || 1;
+  const currentAction = recordValue(patch.current_action);
+  return {
+    authority: "harness.runtime.single_agent_task_projection.v1",
+    projection_id: text(patch.projection_id) || `projection:${taskRunId}:${updatedAt}`,
+    task_run_id: taskRunId,
+    task_id: text(patch.task_id) || "task:turn:session:test:1",
+    status: text(patch.status) || "running",
+    phase: text(patch.phase) || "executing",
+    title: text(patch.title) || "处理进展",
+    ...patch,
+    current_action: {
+      title: text(currentAction.title) || text(patch.summary) || "正在处理当前请求。",
+      detail: text(currentAction.detail) || text(patch.detail),
+      state: text(currentAction.state) || text(patch.status) || "running",
+      source_kind: text(currentAction.source_kind) || "task_projection",
+      ...currentAction,
+    },
+    updated_at: updatedAt,
+  };
+}
+
+function taskProjectionLineForTest(item: Record<string, unknown>) {
+  const projection = recordValue(item.task_projection);
+  const action = recordValue(projection.current_action);
+  return text(action.title) || text(action.detail) || text(projection.summary) || text(projection.title);
+}
+
 function signalLaneState(item: Record<string, unknown>) {
   const activityState = activityStateForTest(item);
   if (activityState === "running") return "active";
@@ -229,7 +258,7 @@ function monitorSignalForTest(item: Record<string, unknown>) {
     state,
     priority: state === "active" ? 100 : state === "waiting" ? 80 : state === "failed" ? 60 : 20,
     title: text(item.project_title) || text(item.title) || "持续处理",
-    line: text(item.latest_public_progress_note) || text(item.latest_step_summary) || text(item.summary) || "正在处理当前请求。",
+    line: taskProjectionLineForTest(item) || text(item.summary) || "正在处理当前请求。",
     detail: "运行 1s",
     status: text(item.status),
     lifecycle: text(item.lifecycle),
@@ -2440,7 +2469,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
-    expect(attachment?.progress_entries ?? []).toEqual([]);
+    const visibleState = JSON.stringify({
+      runtimeAttachments: store.getState().messages[1]?.runtimeAttachments ?? [],
+      runtimePublicTimelineDraft: store.getState().messages[1]?.runtimePublicTimelineDraft ?? [],
+    });
+    expect(visibleState).not.toContain("agent-todo:test");
+    expect(JSON.stringify(attachment ?? {})).not.toContain("progress_entries");
   });
 
   it("does not start TaskGraph detail polling while a chat stream is active", async () => {
@@ -3055,7 +3089,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("accumulates live TaskRun progress entries instead of replacing them with the latest step", async () => {
+  it("accumulates live TaskRun progress entries from canonical task projections", async () => {
     const taskRunId = "taskrun:turn:session:live:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -3096,14 +3130,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           session_id: "session:live",
           status: "running",
           event_count: 1,
-          latest_step: {
-            event_id: "step:packet",
-            step: "task_execution_packet_compiled:1",
-            status: "running",
-            created_at: 1,
-          },
-          latest_step_summary: "正在整理上下文，准备继续处理。",
-          latest_event: { event_type: "step_summary_recorded" },
+          task_projection: taskProjectionForTest(taskRunId, {
+            task_id: "task:turn:session:live:1",
+            updated_at: 1,
+            current_action: {
+              title: "正在整理上下文，准备继续处理。",
+              detail: "运行包已建立，正在交给模型继续判断。",
+              state: "running",
+              source_kind: "runtime_packet",
+            },
+          }),
+          public_projection_status: { authority: "runtime_monitor.public_projection_status", source: "task_projection", missing: false },
+          latest_event: { event_type: "task_projection_updated" },
           updated_at: 1,
           task_run: {
             task_run_id: taskRunId,
@@ -3120,14 +3158,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           session_id: "session:live",
           status: "running",
           event_count: 2,
-          latest_step: {
-            event_id: "step:model",
-            step: "task_model_action_invocation_started:1",
-            status: "running",
-            created_at: 2,
-          },
-          latest_step_summary: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
-          latest_event: { event_type: "step_summary_recorded" },
+          task_projection: taskProjectionForTest(taskRunId, {
+            task_id: "task:turn:session:live:1",
+            updated_at: 2,
+            current_action: {
+              title: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+              detail: "模型正在基于当前上下文选择下一步。",
+              state: "running",
+              source_kind: "model_turn",
+            },
+          }),
+          public_projection_status: { authority: "runtime_monitor.public_projection_status", source: "task_projection", missing: false },
+          latest_event: { event_type: "task_projection_updated" },
           updated_at: 2,
           task_run: {
             task_run_id: taskRunId,
@@ -3143,7 +3185,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
     expect(attachment?.anchor_turn_id).toBe("turn:session:live:1");
-    expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["step:packet", "step:model"]);
+    expect(attachment?.task_projection?.current_action).toMatchObject({
+      title: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+      source_kind: "model_turn",
+    });
+    expect(JSON.stringify(attachment ?? {})).not.toContain("progress_entries");
   });
 
   it("projects stale waiting monitor status into the assistant public timeline", async () => {
@@ -3269,14 +3315,18 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         status: "running",
         event_count: 3,
         latest_interaction_turn_id: "turn:session:live:3",
-        latest_step: {
-          event_id: "step:resume",
-          step: "task_executor_scheduled",
-          status: "running",
-          created_at: 3,
-        },
-        latest_step_summary: "已开始继续处理；接下来会持续汇报正在推进的步骤。",
-        latest_event: { event_type: "step_summary_recorded" },
+        task_projection: taskProjectionForTest(taskRunId, {
+          task_id: "task:turn:session:live:1",
+          updated_at: 3,
+          current_action: {
+            title: "恢复后的任务已重新绑定到最新交互回合。",
+            detail: "恢复后的运行已重新绑定到最新交互回合。",
+            state: "running",
+            source_kind: "resume",
+          },
+        }),
+        public_projection_status: { authority: "runtime_monitor.public_projection_status", source: "task_projection", missing: false },
+        latest_event: { event_type: "task_projection_updated" },
         updated_at: 3,
         task_run: {
           task_run_id: taskRunId,
@@ -3291,7 +3341,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toHaveLength(0);
     expect(store.getState().messages[3]?.runtimeAttachments?.[0]?.anchor_turn_id).toBe("turn:session:live:3");
-    expect(store.getState().messages[3]?.runtimeAttachments?.[0]?.progress_entries?.[0]?.id).toBe("step:resume");
+    expect(store.getState().messages[3]?.runtimeAttachments?.[0]?.task_projection?.current_action).toMatchObject({
+      title: "恢复后的任务已重新绑定到最新交互回合。",
+      source_kind: "resume",
+    });
+    expect(JSON.stringify(store.getState().messages[3]?.runtimeAttachments?.[0] ?? {})).not.toContain("progress_entries");
   });
 
   it("controls the active session task run from chat actions", async () => {
@@ -4675,14 +4729,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
               task_run_id: taskRunId,
               status: "running",
               public_timeline: [oldToolItem],
-              progress_entries: [
-                {
-                  id: "step:old-read",
-                  eventOffset: 3,
-                  title: "读取完成 backend/old_context.py",
-                  kind: "tool",
-                },
-              ],
             },
           ],
           runtimePublicTimelineDraft: [oldToolItem],
@@ -4703,7 +4749,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(visiblePayload).toContain("继续后正在重新判断");
     expect(visiblePayload).not.toContain("backend/old_context.py");
     expect(refreshedAssistant?.runtimeAttachments?.[0]?.public_since_offset).toBe(8);
-    expect(refreshedAssistant?.runtimeAttachments?.[0]?.progress_entries ?? []).toHaveLength(0);
+    expect(JSON.stringify(refreshedAssistant?.runtimeAttachments?.[0] ?? {})).not.toContain("progress_entries");
   });
 
   it("does not carry a volatile attachment to a refreshed message with the same source index but a different turn", async () => {
@@ -6530,14 +6576,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         status: "completed",
         lifecycle: "completed",
         title: "Agent 运行",
-        latest_step_summary: "任务合同已满足。",
-        progress_entries: [{
-          id: "step:1",
+        public_timeline: [{
+          item_id: "task:completed",
+          kind: "status_update",
+          slot: "timeline",
+          surface: "timeline",
           title: "任务已完成",
-          body: "任务合同已满足。",
-          kind: "terminal",
-          level: "success",
-          eventType: "step_summary_recorded",
+          text: "任务合同已满足。",
+          state: "done",
         }],
         artifact_refs: [{ path: "storage/task.txt" }],
       }],

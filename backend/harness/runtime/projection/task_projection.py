@@ -15,6 +15,33 @@ ACTIVE_ACTIVITY_STATES = {"running", "working", "partial", "waiting", "queued", 
 STRUCTURED_PLAN_TOOL_NAMES = {
     "agent_todo",
 }
+WRITE_PROGRESS_TOOL_NAMES = {
+    "write_file",
+    "edit_file",
+    "apply_patch",
+    "save_file",
+    "create_file",
+    "delete_file",
+    "move_file",
+}
+TERMINAL_PROGRESS_TOOL_NAMES = {
+    "terminal",
+    "shell_command",
+    "run_command",
+    "execute_command",
+}
+CONTEXT_ONLY_TOOL_NAMES = {
+    "read_file",
+    "read_resource_state",
+    "read_persisted_tool_result",
+    "search_text",
+    "search_files",
+    "codebase_search",
+    "stat_path",
+    "agent_todo",
+}
+MATERIAL_PROGRESS_TOOL_NAMES = WRITE_PROGRESS_TOOL_NAMES | TERMINAL_PROGRESS_TOOL_NAMES
+MATERIAL_PROGRESS_ACTION_KINDS = {"write", "edit", "verify", "run"}
 
 
 def build_single_agent_task_projection(
@@ -36,9 +63,11 @@ def build_single_agent_task_projection(
     monitor_payload = record(monitor)
     status = text(getattr(task_run, "status", "") or monitor_payload.get("status") or "running")
     control = _control_projection(task_run, diagnostics, monitor=monitor_payload)
+    artifact_refs = list(diagnostics.get("artifact_refs") or monitor_payload.get("artifact_refs") or [])
     raw_activities = _activities_from_events(event_dicts)
     activities = _settled_activities_for_status(raw_activities, status=status)
     todo = _todo_from_events(event_dicts)
+    material_progress = _material_progress_from_activities(raw_activities, artifact_refs=artifact_refs)
     current_action = _current_action(
         activities=raw_activities,
         status=status,
@@ -66,8 +95,9 @@ def build_single_agent_task_projection(
             "current_action": current_action,
             "todo": todo,
             "activities": activities[-20:],
+            "material_progress": material_progress,
             "control": control,
-            "artifact_refs": list(diagnostics.get("artifact_refs") or monitor_payload.get("artifact_refs") or []),
+            "artifact_refs": artifact_refs,
             "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
             "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
         }
@@ -135,7 +165,7 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
     refs = record(event.get("refs"))
     event_id = text(event.get("event_id"))
     if event_type in {"turn_tool_observation_recorded", "task_tool_observation_recorded"}:
-        observation = record(payload.get("observation") or payload)
+        observation = record(payload.get("observation") or payload.get("tool_observation") or payload)
         source = text(observation.get("source"))
         observation_payload = record(observation.get("payload"))
         envelope = record(observation_payload.get("result_envelope") or observation.get("result_envelope"))
@@ -153,16 +183,17 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
         if normalized_tool_name in STRUCTURED_PLAN_TOOL_NAMES or source in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
             return {}
         tool_args = record(observation_payload.get("tool_args") or observation_payload.get("args") or envelope.get("args") or structured.get("args"))
-        tool_target = _tool_target_label(
+        raw_tool_target = (
             observation.get("target")
             or payload.get("target")
             or observation_payload.get("target")
             or envelope.get("target")
-            or tool_args,
+            or tool_args
         )
+        tool_target = _tool_target_label(raw_tool_target)
         raw_status = observation.get("status") or payload.get("status")
         state = "error" if observation.get("error") or payload.get("error") else (_activity_state_from_status(raw_status) if text(raw_status) else "completed")
-        action_kind = action_kind_for_tool(tool_name, tool_target or tool_args)
+        action_kind = action_kind_for_tool(tool_name, raw_tool_target or tool_target or tool_args)
         detail = _tool_observation_detail(observation, observation_payload=observation_payload, envelope=envelope)
         return compact(
             {
@@ -177,6 +208,11 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
                 "display_surface": "tool_window",
                 "visibility_level": "secondary",
                 "source_kind": action_kind,
+                "source_event_id": event_id,
+                "event_offset": int(event.get("offset") or 0),
+                "sequence": int(event.get("offset") or 0),
+                "created_at": float(event.get("created_at") or 0.0),
+                "artifact_refs": _artifact_refs_from_observation(observation, observation_payload=observation_payload),
             }
         )
     if event_type == "step_summary_recorded":
@@ -210,6 +246,10 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
                 "display_surface": "timeline",
                 "visibility_level": "secondary",
                 "source_kind": "stage_feedback",
+                "source_event_id": event_id,
+                "event_offset": int(event.get("offset") or 0),
+                "sequence": int(event.get("offset") or 0),
+                "created_at": float(event.get("created_at") or 0.0),
             }
         )
     if event_type == "agent_todo_initialized":
@@ -231,6 +271,16 @@ def _current_action(
     recovery_action = _waiting_executor_recovery_action(status=status, monitor=monitor, diagnostics=diagnostics)
     if recovery_action:
         return recovery_action
+    if text(status).lower() == "waiting_executor":
+        return {
+            "kind": "lifecycle",
+            "title": "等待执行器接管",
+            "detail": "当前任务处于可恢复等待状态。",
+            "state": "waiting",
+            "display_surface": "timeline",
+            "visibility_level": "primary",
+            "source_kind": "executor_wait",
+        }
     allowed_activity_states = _allowed_current_activity_states(status)
     for activity in reversed(activities):
         if text(activity.get("state")) in allowed_activity_states:
@@ -240,37 +290,7 @@ def _current_action(
         return todo_action
     if _latest_step_is_system_tool_status(monitor=monitor, diagnostics=diagnostics):
         return {}
-    latest_action_state = record(diagnostics.get("latest_public_action_state") or monitor.get("latest_public_action_state"))
-    title = public_text(
-        diagnostics.get("latest_current_judgment")
-        or latest_action_state.get("current_judgment")
-        or diagnostics.get("latest_public_progress_note")
-        or diagnostics.get("latest_step_summary")
-        or monitor.get("current_judgment")
-        or monitor.get("latest_current_judgment")
-        or monitor.get("latest_public_progress_note")
-        or monitor.get("latest_step_summary"),
-        limit=120,
-    )
-    if not title:
-        return {}
-    next_action = public_text(
-        diagnostics.get("latest_next_action")
-        or latest_action_state.get("next_action")
-        or monitor.get("next_action")
-        or monitor.get("latest_next_action"),
-        limit=180,
-    )
-    return compact(
-        {
-            "title": title,
-            "detail": next_action if next_action != title else "",
-            "state": _current_action_state_from_status(status),
-            "display_surface": "timeline",
-            "visibility_level": "secondary",
-            "source_kind": "stage_feedback",
-        }
-    )
+    return {}
 
 
 def _waiting_executor_recovery_action(*, status: str, monitor: dict[str, Any], diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -291,14 +311,7 @@ def _waiting_executor_recovery_action(*, status: str, monitor: dict[str, Any], d
     )
     if not is_runtime_restart:
         return {}
-    title = public_text(
-        diagnostics.get("latest_public_progress_note")
-        or diagnostics.get("latest_step_summary")
-        or monitor.get("latest_public_progress_note")
-        or monitor.get("latest_step_summary")
-        or recoverable.get("user_message"),
-        limit=160,
-    ) or "后端运行时已重启，当前任务可继续。"
+    title = public_text(recoverable.get("user_message"), limit=160) or "后端运行时已重启，当前任务可继续。"
     detail = public_text(recoverable.get("user_message"), limit=180)
     return compact(
         {
@@ -327,7 +340,7 @@ def _activity_state_from_status(value: Any) -> str:
 def _is_system_tool_step_summary(step: str, *, presentation_source: str) -> bool:
     if text(presentation_source) == "system.tool_call_status":
         return True
-    return step.startswith(("task_tool_batch_started", "task_tool_repair_required"))
+    return step.startswith(("task_tool_batch_started", "task_tool_batch_group_started", "task_tool_repair_required"))
 
 
 def _latest_step_is_system_tool_status(*, monitor: dict[str, Any], diagnostics: dict[str, Any]) -> bool:
@@ -645,6 +658,115 @@ def _current_action_from_todo(todo: dict[str, Any], *, status: str) -> dict[str,
             "event_ref": ",".join(_trace_refs(todo)),
         }
     )
+
+
+def _material_progress_from_activities(activities: list[dict[str, Any]], *, artifact_refs: list[Any]) -> dict[str, Any]:
+    material_actions: list[dict[str, Any]] = []
+    context_streak = 0
+    material_since_context = False
+    write_event_count = 0
+    verification_event_count = 0
+    terminal_event_count = 0
+    latest_material_at = 0.0
+    observed_artifact_refs = [_safe_artifact_ref(item) for item in artifact_refs]
+    for activity in activities:
+        tool_name = text(activity.get("tool_name")).removeprefix("tool:")
+        source_kind = text(activity.get("source_kind"))
+        is_material = tool_name in MATERIAL_PROGRESS_TOOL_NAMES or source_kind in MATERIAL_PROGRESS_ACTION_KINDS
+        if is_material:
+            state = text(activity.get("state")).lower()
+            if state not in {"failed", "error", "blocked", "stopped"}:
+                material_since_context = True
+                context_streak = 0
+                created_at = _float_value(activity.get("created_at"))
+                if created_at:
+                    latest_material_at = max(latest_material_at, created_at)
+                if tool_name in WRITE_PROGRESS_TOOL_NAMES or source_kind in {"write", "edit"}:
+                    write_event_count += 1
+                if tool_name in TERMINAL_PROGRESS_TOOL_NAMES:
+                    terminal_event_count += 1
+                if source_kind == "verify":
+                    verification_event_count += 1
+                for artifact_ref in list(activity.get("artifact_refs") or []):
+                    observed_artifact_refs.append(_safe_artifact_ref(artifact_ref))
+                material_actions.append(
+                    compact(
+                        {
+                            "tool_name": tool_name or source_kind,
+                            "action_kind": source_kind,
+                            "target": public_text(activity.get("tool_target"), limit=160),
+                            "summary": public_text(activity.get("detail") or activity.get("title"), limit=180),
+                            "event_ref": text(activity.get("event_ref") or activity.get("source_event_id")),
+                            "event_offset": activity.get("event_offset"),
+                            "created_at": created_at,
+                        }
+                    )
+                )
+            continue
+        if tool_name in CONTEXT_ONLY_TOOL_NAMES or source_kind in CONTEXT_ONLY_TOOL_NAMES:
+            context_streak += 1
+    artifact_count = len(_dedupe_artifact_refs(observed_artifact_refs))
+    return compact(
+        {
+            "authority": "harness.runtime.single_agent_task_projection.material_progress",
+            "material_event_count": len(material_actions),
+            "write_event_count": write_event_count,
+            "verification_event_count": verification_event_count,
+            "terminal_event_count": terminal_event_count,
+            "artifact_count": artifact_count,
+            "last_material_progress_at": latest_material_at,
+            "material_actions": material_actions[-8:],
+            "context_action_streak": context_streak,
+            "material_progress_since_last_context_action": material_since_context and context_streak == 0,
+        }
+    )
+
+
+def _artifact_refs_from_observation(observation: dict[str, Any], *, observation_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for source in (
+        observation.get("artifact_refs"),
+        observation_payload.get("artifact_refs"),
+        record(observation_payload.get("result_envelope")).get("artifact_refs"),
+    ):
+        if isinstance(source, list):
+            refs.extend(_safe_artifact_ref(item) for item in source)
+    return _dedupe_artifact_refs(refs)
+
+
+def _safe_artifact_ref(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return compact(
+            {
+                "path": text(value.get("path")),
+                "kind": text(value.get("kind")),
+                "label": public_text(value.get("label") or value.get("title"), limit=120),
+            }
+        )
+    candidate = public_text(value, limit=180)
+    return {"path": candidate} if candidate else {}
+
+
+def _dedupe_artifact_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in refs:
+        payload = record(ref)
+        if not payload:
+            continue
+        key = text(payload.get("path") or payload.get("label") or payload)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
+
+
+def _float_value(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _trace_refs(value: dict[str, Any]) -> list[str]:

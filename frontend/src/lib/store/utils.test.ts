@@ -48,15 +48,15 @@ describe("toUiMessages runtime attachments", () => {
       task_run_id: "taskrun:turn:session-a:8:root:checkout:abc",
       status: "completed",
       lifecycle: "completed",
-      latest_step_summary: "已完成收口并记录交付证据。",
-      progress_entries: [
+      public_timeline: [
         {
-          id: "step:done",
-          eventType: "step_summary_recorded",
+          item_id: "task:done",
+          kind: "status_update",
+          slot: "timeline",
+          surface: "timeline",
           title: "处理已完成",
-          body: "已完成收口并记录交付证据。",
-          kind: "terminal",
-          level: "success",
+          text: "已完成收口并记录交付证据。",
+          state: "done",
         },
       ],
     };
@@ -88,6 +88,34 @@ describe("toUiMessages runtime attachments", () => {
       anchor_turn_id: "turn:session-a:3",
       status: "completed",
     });
+  });
+
+  it("does not create a runtime placeholder from legacy progress entries alone", () => {
+    const attachment = {
+      attachment_id: "runtime-attachment:taskrun:legacy-progress",
+      run_id: "taskrun:legacy-progress",
+      anchor_turn_id: "turn:session-a:3",
+      task_run_id: "taskrun:legacy-progress",
+      status: "completed",
+      progress_entries: [
+        {
+          id: "legacy:step",
+          title: "旧 progress entry",
+          body: "这不应成为可见投影。",
+          kind: "terminal",
+        },
+      ],
+    } as unknown as SessionRuntimeAttachment;
+
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "继续旧任务", turn_id: "turn:session-a:3" },
+      ],
+      [attachment],
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "user", content: "继续旧任务" });
   });
 
   it("does not let task_run_id override the explicit turn/message anchor", () => {

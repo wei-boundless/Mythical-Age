@@ -4,8 +4,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_events, dedupe_artifact_refs
 from harness.task_run_state_view import task_run_state_view
-from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.projection.timeline_builder import build_public_chat_timeline
+from harness.runtime.projection.task_projection import build_single_agent_task_projection
 from harness.runtime.public_progress import public_runtime_progress_summary
 
 from .activity import RuntimeActivityControlContext, activity_is_monitor_visible, activity_sort_rank, with_runtime_activity
@@ -62,7 +61,7 @@ class RuntimeMonitorProjector:
         session_id = str(getattr(task_run, "session_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         events = self._recent_events(task_run_id, limit=240) if include_runtime_details else []
-        latest_event = events[-1].to_dict() if events else {}
+        latest_event = _public_runtime_event(events[-1]) if events else {}
         latest_step = self._latest_step_summary(events) if include_runtime_details else self._latest_step_from_diagnostics(diagnostics)
         latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=diagnostics) if include_runtime_details else str(diagnostics.get("latest_interaction_turn_id") or diagnostics.get("turn_id") or "")
         event_count = self._event_count(task_run_id, events=events) if include_runtime_details else int(diagnostics.get("event_count") or 0)
@@ -115,23 +114,11 @@ class RuntimeMonitorProjector:
         duration_end_at = current_time if resource_class == "dynamic" else ended
         duration_seconds = max(0.0, duration_end_at - created_at) if created_at and duration_end_at else 0.0
         title = self._display_title(task_run, diagnostics, lifecycle=lifecycle)
-        summary = public_runtime_progress_summary(
-            latest_step.get("public_progress_note")
-            or latest_step.get("summary")
-            or diagnostics.get("public_progress_note")
-            or diagnostics.get("latest_public_progress_note")
-            or diagnostics.get("latest_step_summary")
-            or diagnostics.get("summary")
-            or ""
-        )
         diagnostic_summary = self._diagnostic_summary(
             diagnostic_reasons=diagnostic_reasons,
             latest_step=latest_step,
             last_activity_age_seconds=last_activity_age_seconds,
         )
-        if diagnostic_summary:
-            summary = diagnostic_summary
-        latest_public_progress_note = summary if diagnostic_summary else public_runtime_progress_summary(latest_step.get("public_progress_note") or summary)
         agent_brief = public_runtime_progress_summary(latest_step.get("agent_brief_output") or diagnostics.get("agent_brief_output") or "")
         artifact_refs = dedupe_artifact_refs(
             [
@@ -140,24 +127,28 @@ class RuntimeMonitorProjector:
             ]
         )
         event_records = [item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in events] if include_runtime_details else []
-        progress_presentation = build_progress_presentation(
+        task_projection = build_single_agent_task_projection(
+            self.runtime_host,
+            task_run,
             events=event_records,
-            task_run=task_run,
             monitor={
                 "latest_step": latest_step,
-                "latest_step_summary": summary,
-                "latest_public_progress_note": latest_public_progress_note,
                 "agent_brief_output": agent_brief,
-                "summary": summary,
+                "artifact_refs": artifact_refs,
             },
-        ) if include_runtime_details else {}
-        public_timeline = build_public_chat_timeline(
-            progress_presentation=progress_presentation,
-            final_answer=str(diagnostics.get("final_answer") or ""),
-            artifact_refs=artifact_refs,
-            status=status,
-            terminal_reason=str(getattr(task_run, "terminal_reason", "") or ""),
-        ) if progress_presentation else []
+        )
+        projection_current_action = _record(task_projection.get("current_action")) if task_projection else {}
+        projection_summary = _task_projection_summary(task_projection)
+        projection_missing = not bool(task_projection) or not bool(diagnostic_summary or projection_summary)
+        summary = diagnostic_summary or projection_summary or "progress_projection_missing"
+        latest_public_progress_note = summary
+        projection_status = {
+            "authority": "runtime_monitor.public_projection_status",
+            "source": "runtime_diagnostic" if diagnostic_summary else ("task_projection" if projection_summary else "progress_projection_missing"),
+            "missing": projection_missing,
+            **({"diagnostic": "progress_projection_missing"} if projection_missing and not diagnostic_summary else {}),
+        }
+        public_timeline = _public_timeline_from_task_projection(task_projection) if not projection_missing else []
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
@@ -189,14 +180,19 @@ class RuntimeMonitorProjector:
             diagnostic_signal_refs = []
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
-            "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
-            "current_judgment": public_runtime_progress_summary(latest_step.get("current_judgment") or diagnostics.get("latest_current_judgment") or ""),
-            "next_action": public_runtime_progress_summary(latest_step.get("next_action") or diagnostics.get("latest_next_action") or ""),
-            "completion_status": str(latest_step.get("completion_status") or diagnostics.get("latest_completion_status") or ""),
-            "open_risks": list(latest_step.get("open_risks") or dict(diagnostics.get("latest_public_action_state") or {}).get("open_risks") or []),
-            "evidence_refs": list(latest_step.get("evidence_refs") or dict(diagnostics.get("latest_public_action_state") or {}).get("evidence_refs") or []),
+            "observation": "",
+            "current_judgment": public_runtime_progress_summary(
+                "" if diagnostic_summary else projection_current_action.get("title") or ""
+            ),
+            "next_action": public_runtime_progress_summary(
+                "" if diagnostic_summary else projection_current_action.get("detail") or ""
+            ),
+            "completion_status": str(projection_current_action.get("state") or ""),
+            "open_risks": [],
+            "evidence_refs": [],
             "summary": summary,
             "agent_brief": agent_brief,
+            "source": str(projection_status.get("source") or ""),
         }
         navigation_target = build_navigation_target(
             kind=kind,
@@ -260,8 +256,9 @@ class RuntimeMonitorProjector:
             "is_live": resource_class == "dynamic",
             "summary": summary,
             "latest_progress": latest_progress,
-            "progress_presentation": progress_presentation,
             "public_timeline": public_timeline,
+            "task_projection": task_projection,
+            "public_projection_status": projection_status,
             "latest_event_type": str(latest_event.get("event_type") or ""),
             "latest_event_at": latest_event_at,
             "latest_event": latest_event,
@@ -1413,6 +1410,160 @@ def _short_text(value: Any, *, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _record(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _public_runtime_event(event: Any) -> dict[str, Any]:
+    payload = dict(getattr(event, "payload", {}) or {})
+    public_payload = _public_event_payload(payload)
+    return {
+        "event_id": str(getattr(event, "event_id", "") or ""),
+        "event_type": str(getattr(event, "event_type", "") or ""),
+        "offset": int(getattr(event, "offset", -1) or -1),
+        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+        **({"payload": public_payload} if public_payload else {}),
+    }
+
+
+def _public_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "task_run_id",
+        "status",
+        "step",
+        "summary",
+        "public_progress_note",
+        "current_judgment",
+        "next_action",
+        "completion_status",
+        "tool_name",
+        "tool_target",
+        "artifact_refs",
+    }
+    result: dict[str, Any] = {}
+    for key in allowed:
+        value = payload.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if key == "artifact_refs" and isinstance(value, list):
+            result[key] = [dict(item) for item in value[:8] if isinstance(item, dict)]
+        elif isinstance(value, (str, int, float, bool)):
+            result[key] = value
+    return result
+
+
+def _task_projection_summary(projection: dict[str, Any]) -> str:
+    if not isinstance(projection, dict) or not projection:
+        return ""
+    current_action = _record(projection.get("current_action"))
+    return public_runtime_progress_summary(
+        current_action.get("title")
+        or projection.get("summary")
+        or ""
+    )
+
+
+def _public_timeline_from_task_projection(projection: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(projection, dict) or not projection:
+        return []
+    items: list[dict[str, Any]] = []
+    current_action = _record(projection.get("current_action"))
+    for index, activity in enumerate(list(projection.get("activities") or [])):
+        item = _projection_activity_timeline_item(_record(activity), fallback_index=index)
+        if item:
+            items.append(item)
+    current_item = _projection_activity_timeline_item(
+        current_action,
+        fallback_index=len(items),
+        fallback_item_id=f"task-projection:current:{projection.get('task_run_id') or ''}:{_projection_revision(projection)}",
+        primary=True,
+    )
+    if current_item:
+        items.append(current_item)
+    return items[-24:]
+
+
+def _projection_activity_timeline_item(
+    activity: dict[str, Any],
+    *,
+    fallback_index: int,
+    fallback_item_id: str = "",
+    primary: bool = False,
+) -> dict[str, Any]:
+    if not activity:
+        return {}
+    title = public_runtime_progress_summary(activity.get("title") or activity.get("summary") or "")
+    detail = public_runtime_progress_summary(activity.get("detail") or "")
+    if not title and detail:
+        title, detail = detail, ""
+    if not title:
+        return {}
+    event_ref = str(activity.get("event_ref") or activity.get("source_event_id") or "").strip()
+    state = _projection_timeline_state(activity.get("state"))
+    kind = str(activity.get("kind") or "").strip()
+    surface = str(activity.get("display_surface") or "").strip()
+    source_kind = str(activity.get("source_kind") or kind or "").strip()
+    event_offset = _int_value(activity.get("event_offset") or activity.get("sequence"), fallback=fallback_index)
+    base = {
+        "item_id": event_ref or fallback_item_id or f"task-projection:activity:{fallback_index}",
+        "kind": "status_update",
+        "slot": "status" if primary else "timeline",
+        "surface": "status_bar" if primary and surface == "status" else "timeline",
+        "source_authority": "runtime",
+        "title": title,
+        "detail": detail,
+        "text": detail or title,
+        "state": state,
+        "phase": "done" if state in {"done", "stopped", "error"} else "running",
+        "stream_state": "done" if state in {"done", "stopped", "error"} else "streaming",
+        "event_offset": event_offset,
+        "sequence": event_offset,
+        "source_event_id": event_ref,
+    }
+    if surface == "tool_window" or "tool" in kind or activity.get("tool_name"):
+        return {
+            **base,
+            "kind": "work_action",
+            "slot": "tool",
+            "surface": "tool_window",
+            "source_authority": "tool",
+            "action_kind": source_kind or "tool",
+            "tool_name": str(activity.get("tool_name") or ""),
+            "subject_label": str(activity.get("tool_target") or ""),
+            "public_summary": detail or title,
+        }
+    return base
+
+
+def _projection_revision(projection: dict[str, Any]) -> str:
+    value = projection.get("updated_at") or projection.get("created_at") or "current"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value or "current").strip() or "current"
+    return str(int(numeric)) if numeric.is_integer() else str(numeric)
+
+
+def _projection_timeline_state(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"completed", "success"}:
+        return "done"
+    if normalized in {"failed", "error", "blocked"}:
+        return "error"
+    if normalized in {"stopped", "aborted", "cancelled", "canceled"}:
+        return "stopped"
+    if normalized.startswith("wait") or normalized in {"paused", "queued"}:
+        return "waiting"
+    return normalized or "running"
+
+
+def _int_value(value: Any, *, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _dedupe_signal_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:

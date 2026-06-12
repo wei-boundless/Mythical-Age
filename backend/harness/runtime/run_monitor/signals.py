@@ -63,6 +63,7 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         "line": _public_line(view_item, state=state),
         "detail": _signal_detail(view_item, elapsed_seconds=elapsed_seconds, last_activity_at=last_activity_at),
         "status": str(item.get("status") or ""),
+        "terminal_reason": str(item.get("terminal_reason") or ""),
         "lifecycle": str(item.get("lifecycle") or ""),
         "bucket": str(item.get("bucket") or ""),
         "activity_state": str(activity.get("activity_state") or ""),
@@ -222,13 +223,15 @@ def _public_title(item: dict[str, Any], *, work_kind: str, state: str) -> str:
 def _public_line(item: dict[str, Any], *, state: str) -> str:
     latest_progress = dict(item.get("latest_progress") or {})
     graph_status = dict(item.get("graph_status") or {})
+    projection_summary = _task_projection_summary(dict(item.get("task_projection") or {}))
+    projection_status = dict(item.get("public_projection_status") or {})
     candidates = [
+        projection_summary,
+        projection_status.get("diagnostic"),
         latest_progress.get("tool_status"),
         latest_progress.get("observation"),
-        latest_progress.get("summary"),
-        item.get("latest_public_progress_note"),
-        item.get("latest_step_summary"),
-        item.get("summary"),
+        latest_progress.get("summary") if str(latest_progress.get("source") or "") in {"task_projection", "runtime_diagnostic"} else "",
+        item.get("summary") if projection_summary or str(projection_status.get("source") or "") == "runtime_diagnostic" else "",
         latest_progress.get("current_judgment"),
         latest_progress.get("next_action"),
         graph_status.get("current_stage_summary"),
@@ -251,6 +254,22 @@ def _public_line(item: dict[str, Any], *, state: str) -> str:
             return "运行已停止。"
         return "运行已完成。"
     return "运行状态已同步。"
+
+
+def _task_projection_summary(projection: dict[str, Any]) -> str:
+    if not projection:
+        return ""
+    current_action = dict(projection.get("current_action") or {})
+    for value in (
+        current_action.get("title"),
+        current_action.get("detail"),
+        projection.get("summary"),
+        projection.get("title"),
+    ):
+        text = _public_text(value)
+        if text:
+            return text
+    return ""
 
 
 def _signal_detail(item: dict[str, Any], *, elapsed_seconds: float, last_activity_at: float) -> str:

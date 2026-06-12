@@ -96,6 +96,48 @@ def test_request_task_run_rejects_legacy_handoff_without_capability_intent() -> 
     assert "observation_contract.evidence_policy_required" in errors
 
 
+def test_native_request_task_run_contract_gap_preserves_repair_diagnostics() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call:task-gap",
+                    "name": "request_task_run",
+                    "args": {
+                        "user_visible_goal": "修复运行监控。",
+                        "task_run_goal": "修复运行监控和日志分离。",
+                        "working_scope": {"target_objects": ["runtime monitor"]},
+                        "completion_criteria": ["监控只读 canonical projection"],
+                    },
+                }
+            ],
+        ),
+        request_id="model-response:test:native-task-gap",
+        turn_id="turn:test:native-task-gap",
+        packet_ref="packet:test:native-task-gap",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
+    diagnostics = parsed.error["diagnostics"]
+    native_errors = diagnostics["native_action_errors"]
+    assert native_errors[0]["code"] == "native_request_task_run_contract_invalid"
+    assert native_errors[0]["native_tool_call"]["id"] == "call:task-gap"
+    assert native_errors[0]["native_tool_call"]["args"]["task_run_goal"] == "修复运行监控和日志分离。"
+    assert "capability_intent_required_for_request_task_run" in native_errors[0]["validation_errors"]
+    assert "observation_contract.evidence_policy_required" in native_errors[0]["validation_errors"]
+    assert native_errors[0]["repairable"] is True
+
+
 def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_path: Path) -> None:
     class ProtocolRespondLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:

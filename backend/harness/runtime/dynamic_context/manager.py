@@ -337,14 +337,29 @@ class DynamicContextManager:
             return MemoryReplacementStore(), self.base_dir
 
 def dynamic_context_storage_root(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path | None:
-    environment = dict(runtime_assembly.get("task_environment") or {})
-    storage = dict(environment.get("storage_space") or {})
-    for key in ("runtime_state_root", "cache_root", "environment_storage_root"):
+    assembly = dict(runtime_assembly or {})
+    storage = _runtime_storage_ref(assembly)
+    for key in ("runtime_state_root", "dynamic_context_root"):
         value = str(storage.get(key) or "").strip()
         if value:
             path = Path(value)
-            return path if path.is_absolute() else Path(base_dir) / path
-    return None
+            return path if path.is_absolute() else _runtime_base_dir(base_dir, assembly) / path
+    return _runtime_base_dir(base_dir, assembly) / "runtime_state"
+
+
+def _runtime_storage_ref(runtime_assembly: dict[str, Any]) -> dict[str, Any]:
+    for key in ("runtime_storage_ref", "runtime_storage"):
+        value = runtime_assembly.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def _runtime_base_dir(base_dir: Path, runtime_assembly: dict[str, Any]) -> Path:
+    backend_dir = str(runtime_assembly.get("backend_dir") or "").strip()
+    if backend_dir:
+        return Path(backend_dir)
+    return Path(base_dir)
 
 
 def _task_state_replay_entry_limit(projection_policy: dict[str, Any] | None) -> int:

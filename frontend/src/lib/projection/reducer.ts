@@ -300,21 +300,7 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (hasPublicTimeline) {
     return true;
   }
-  return (attachment.progress_entries ?? []).some(runtimeProgressEntryHasUserVisibleProjection);
-}
-
-function runtimeProgressEntryHasUserVisibleProjection(entry: Record<string, unknown>) {
-  const kind = text(entry.kind).toLowerCase();
-  const surface = text(entry.surface).toLowerCase();
-  if (kind === "control" || kind === "diagnostics" || kind === "debug" || surface === "control" || surface === "diagnostics") {
-    return false;
-  }
-  return Boolean(
-    text(entry.title)
-    || text(entry.body)
-    || text(entry.publicNote || entry.public_note)
-    || text(entry.agentBrief || entry.agent_brief_output)
-  );
+  return false;
 }
 
 export function publicTimelineItemsFromEnvelope(envelope: PublicProjectionEnvelope): PublicChatTimelineItem[] {

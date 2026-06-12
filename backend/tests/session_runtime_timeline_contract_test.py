@@ -11,8 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
-from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
-from harness.runtime.session_timeline import build_session_runtime_timeline, _progress_entries
+from harness.runtime.projection.timeline_builder import project_public_timeline_from_events
+from harness.runtime.session_timeline import build_session_runtime_timeline
 from runtime.shared.models import TaskRun, TurnRun
 from tests.support.runtime_stubs import build_harness_runtime
 
@@ -99,8 +99,7 @@ def test_session_runtime_timeline_reconciles_tool_start_and_completion_lifecycle
         },
     ]
 
-    entries = _progress_entries(events)
-    items = build_public_chat_timeline_from_progress_entries(entries)
+    items = project_public_timeline_from_events(events, run_id="turnrun:turn:test:1", turn_run_id="turnrun:turn:test:1")
 
     tool_items = [item for item in items if item.get("slot") == "tool"]
     assert len(tool_items) == 1
@@ -200,7 +199,6 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     visible_attachment_text = json.dumps(
         {
             "summary": attachment["summary"],
-            "latest_step_summary": attachment["latest_step_summary"],
             "task_projection": {
                 "current_action": task_projection.get("current_action"),
                 "todo": task_projection.get("todo"),
@@ -390,12 +388,9 @@ def test_session_runtime_timeline_does_not_synthesize_generic_success_feedback()
     attachment = timeline["runtime_attachments"][0]
     visible = json.dumps(
         {
-            "progress_entries": attachment.get("progress_entries"),
             "public_timeline": attachment.get("public_timeline"),
             "task_projection": attachment.get("task_projection"),
             "summary": attachment.get("summary"),
-            "latest_step_summary": attachment.get("latest_step_summary"),
-            "latest_public_progress_note": attachment.get("latest_public_progress_note"),
         },
         ensure_ascii=False,
     )
@@ -436,10 +431,9 @@ def test_session_runtime_timeline_does_not_project_system_tool_step_summaries() 
         },
     ]
 
-    entries = _progress_entries(events)
-    items = build_public_chat_timeline_from_progress_entries(entries)
+    items = project_public_timeline_from_events(events, run_id="taskrun:turn:session-tool-system:1:abc", task_run_id="taskrun:turn:session-tool-system:1:abc")
 
-    visible = json.dumps({"entries": entries, "items": items}, ensure_ascii=False)
+    visible = json.dumps({"items": items}, ensure_ascii=False)
     assert "执行 7 个工具调用" not in visible
     assert "工具调用失败" not in visible
     assert items == []
@@ -587,7 +581,6 @@ def test_session_runtime_timeline_keeps_runtime_rehydration_tool_on_public_surfa
     attachment = timeline["runtime_attachments"][0]
     visible = json.dumps(
         {
-            "progress_entries": attachment.get("progress_entries"),
             "public_timeline": attachment.get("public_timeline"),
             "task_projection": attachment.get("task_projection"),
         },
@@ -658,7 +651,6 @@ def test_session_runtime_timeline_uses_resume_boundary_for_running_public_segmen
     attachment = timeline["runtime_attachments"][0]
     visible = json.dumps(
         {
-            "progress_entries": attachment.get("progress_entries"),
             "public_timeline": attachment.get("public_timeline"),
             "task_projection": attachment.get("task_projection"),
         },
@@ -745,7 +737,6 @@ def test_session_runtime_timeline_uses_latest_user_interaction_as_public_lifecyc
     attachment = timeline["runtime_attachments"][0]
     visible = json.dumps(
         {
-            "progress_entries": attachment.get("progress_entries"),
             "public_timeline": attachment.get("public_timeline"),
             "task_projection": attachment.get("task_projection"),
         },
@@ -825,7 +816,6 @@ def test_session_runtime_timeline_keeps_resume_boundary_after_task_completes() -
     attachment = timeline["runtime_attachments"][0]
     visible = json.dumps(
         {
-            "progress_entries": attachment.get("progress_entries"),
             "public_timeline": attachment.get("public_timeline"),
             "task_projection": attachment.get("task_projection"),
         },
@@ -911,11 +901,6 @@ def test_session_runtime_timeline_preserves_process_after_runtime_restart_recove
     attachment = timeline["runtime_attachments"][0]
     task_projection = dict(attachment.get("task_projection") or {})
     current_action = dict(task_projection.get("current_action") or {})
-    runtime_status_items = [
-        dict(item)
-        for item in list(attachment.get("public_timeline") or [])
-        if str(item.get("item_id") or "").startswith("runtime-status:")
-    ]
     visible = json.dumps(
         {
             "public_timeline": attachment.get("public_timeline"),
@@ -926,7 +911,9 @@ def test_session_runtime_timeline_preserves_process_after_runtime_restart_recove
     assert attachment["public_since_offset"] == 0
     assert "backend/harness/runtime/session_timeline.py" in visible
     assert "后端运行时已重启" in visible
-    assert runtime_status_items[-1]["detail"] == "后端运行时已重启，当前任务可继续。"
+    assert "后端运行时已重启，任务可以继续续跑" in visible
+    assert "正在读取掉线前的旧文件" not in visible
+    assert "继续掉线前的旧步骤" not in visible
     assert current_action["kind"] == "lifecycle"
     assert current_action["state"] == "waiting"
     assert "后端运行时已重启" in current_action["title"]

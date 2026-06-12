@@ -181,51 +181,6 @@ export type SessionHistory = {
   }>;
 };
 
-export type RuntimeProgressMission = {
-  goal?: string;
-  phase?: string;
-  state?: "running" | "waiting" | "completed" | "blocked" | "failed" | string;
-  current_action?: string;
-  next_action?: string;
-  progress_label?: string;
-  closeout_summary?: string;
-};
-
-export type RuntimeProgressEvidence = {
-  label?: string;
-  summary?: string;
-  status?: "success" | "error" | "warning" | "negative_evidence" | "positive_evidence" | string;
-};
-
-export type RuntimeProgressWorkUnit = {
-  unit_id: string;
-  kind?: "inspect_path" | "write_file" | "search_text" | "terminal" | "model_judgment" | "verification" | "tool_action" | "stage" | string;
-  title?: string;
-  state?: "running" | "completed" | "waiting" | "error" | string;
-  judgment?: string;
-  action?: string;
-  evidence?: RuntimeProgressEvidence[];
-  next_action?: string;
-  risk?: string;
-  technical_trace_refs?: string[];
-};
-
-export type RuntimeProgressTechnicalTrace = {
-  event_id?: string;
-  event_type?: string;
-  created_at?: number;
-  tool_name?: string;
-  target?: string;
-  raw_preview?: string;
-};
-
-export type RuntimeProgressPresentation = {
-  mission?: RuntimeProgressMission;
-  work_units?: RuntimeProgressWorkUnit[];
-  technical_trace?: RuntimeProgressTechnicalTrace[];
-  authority?: string;
-};
-
 export type PublicTodoItem = {
   todo_id?: string;
   content: string;
@@ -411,14 +366,8 @@ export type SessionRuntimeAttachment = {
   bucket?: string;
   title?: string;
   summary?: string;
-  latest_step?: Record<string, unknown>;
-  latest_step_summary?: string;
-  latest_public_progress_note?: string;
-  agent_brief_output?: string;
   latest_event_type?: string;
   event_count?: number;
-  progress_presentation?: RuntimeProgressPresentation;
-  progress_entries?: Array<Record<string, unknown>>;
   public_timeline?: PublicChatTimelineItem[];
   public_since_offset?: number;
   publicSinceOffset?: number;
@@ -2775,7 +2724,6 @@ export type HarnessTaskRunLiveMonitor = {
   latest_event?: Record<string, unknown>;
   latest_step?: Record<string, unknown>;
   latest_progress?: Record<string, unknown>;
-  progress_presentation?: Record<string, unknown>;
   public_timeline?: PublicChatTimelineItem[];
   task_projection?: SingleAgentTaskProjection;
   latest_step_summary?: string;

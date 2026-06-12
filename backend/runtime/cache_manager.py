@@ -71,6 +71,36 @@ class RuntimeCacheManager:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
+    def delete_cache_entry(
+        self,
+        *,
+        namespace: str,
+        cache_key: str,
+        reason: str = "",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        clean_namespace = safe_cache_namespace(namespace)
+        clean_key = safe_cache_namespace(cache_key)
+        path = (self.namespace_root(clean_namespace) / clean_key).resolve()
+        _assert_inside(path, self.cache_root)
+        exists = path.exists()
+        size_bytes = _tree_size(path) if exists else 0
+        if exists and not dry_run:
+            shutil.rmtree(path)
+        return {
+            "authority": "runtime.cache_manager.delete_cache_entry",
+            "mode": "dry_run" if dry_run else "execute",
+            "namespace": clean_namespace,
+            "cache_key": clean_key,
+            "path": str(path),
+            "existed": exists,
+            "deleted": bool(exists and not dry_run),
+            "size_bytes": size_bytes,
+            "size_mb": round(size_bytes / 1024 / 1024, 2),
+            "reason": str(reason or "runtime_cache_entry_deleted"),
+            "updated_at": time.time(),
+        }
+
     def write_manifest(
         self,
         cache_path: str | Path,

@@ -68,6 +68,7 @@ class ToolResultProjector:
         projection, record = self.replacement_store.get_or_put(
             source_kind="tool_result",
             source_id=source_id,
+            task_run_id=task_run_id,
             content=normalized,
             projection_policy=policy,
             projector_version=PROJECTOR_VERSION,
@@ -101,6 +102,11 @@ class ToolResultProjector:
             if content_replacements and not result_ref:
                 result_ref = str(content_replacements[0].get("path") or content_replacements[0].get("replacement_id") or "")
         evidence_policy = _evidence_policy(normalized, content_replacements=content_replacements)
+        evidence_confidence = _evidence_confidence(
+            normalized,
+            evidence_policy=evidence_policy,
+            content_replacements=content_replacements,
+        )
         structured_error = dict(normalized.get("structured_error") or {})
         error = str(normalized.get("error") or structured_error.get("message") or structured_error.get("detail") or "")
         rehydration_plan = _build_rehydration_plan(
@@ -125,6 +131,7 @@ class ToolResultProjector:
                 "code_structure": _compact_code_structure(normalized.get("code_structure")),
                 "content_range": dict(normalized.get("content_range") or {}),
                 "evidence_policy": evidence_policy,
+                "evidence_confidence": evidence_confidence,
                 "content_replacements": content_replacements,
                 "rehydration_plan": rehydration_plan,
                 "authority": "harness.runtime.dynamic_context.tool_result_projection",
@@ -380,17 +387,23 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
     content_range = dict(normalized.get("content_range") or {})
     if tool_name == "read_file" and content_range:
+        fresh_read_conditions = _fresh_read_conditions_for_read_file(
+            content_range=content_range,
+            content_replacements=content_replacements,
+        )
         return drop_empty(
             {
                 "source_kind": "code_evidence",
                 "source_authority": "read_file_line_window",
                 "visible_content_authority": "preview_of_line_window" if content_replacements else "exact_visible_line_window",
-                "candidate_only": False,
-                "must_read_current_source_before_edit": True,
+                "candidate_only": bool(content_replacements),
+                "usable_as_evidence_for": _read_file_usable_as_evidence_for(fresh_read_conditions),
+                "fresh_read_conditions": fresh_read_conditions,
                 "rehydration_preference": "read_file_range_for_code_edits",
                 "instruction": (
-                    "Only the visible preview lines are in prompt. Before editing, read the exact current target "
-                    "line window with read_file; use persisted output only to recover omitted original tool output."
+                    "This describes the exact read_file line window represented in the prompt. "
+                    "Use fresh_read_conditions to decide whether another read_file call is needed; "
+                    "persisted output only restores omitted bytes from the prior tool result."
                 ),
             }
         )
@@ -408,7 +421,72 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             "source_kind": "tool_output_preview",
             "source_authority": "preview_only",
             "rehydration_preference": "read_persisted_tool_result",
+            "usable_as_evidence_for": ["omitted_tool_output_recovery"],
             "instruction": "Use the preview for orientation only; call read_persisted_tool_result before relying on omitted exact output.",
+        }
+    return {}
+
+
+def _fresh_read_conditions_for_read_file(
+    *,
+    content_range: dict[str, Any],
+    content_replacements: list[dict[str, Any]],
+) -> list[str]:
+    conditions: list[str] = []
+    if content_replacements:
+        conditions.append("visible_content_is_preview_truncated")
+    if bool(content_range.get("has_more") or content_range.get("truncated")):
+        conditions.append("target_line_outside_visible_range")
+    if not str(content_range.get("content_sha256") or "").strip():
+        conditions.append("content_hash_missing")
+    return conditions
+
+
+def _read_file_usable_as_evidence_for(fresh_read_conditions: list[str]) -> list[str]:
+    base = ["line_reference", "architecture_planning", "symbol_location"]
+    if not fresh_read_conditions:
+        return [*base, "edit_planning"]
+    return base
+
+
+def _evidence_confidence(
+    normalized: dict[str, Any],
+    *,
+    evidence_policy: dict[str, Any],
+    content_replacements: list[dict[str, Any]],
+) -> dict[str, Any]:
+    tool_name = _normalized_tool_name(normalized.get("tool_name"))
+    content_range = dict(normalized.get("content_range") or {})
+    if tool_name == "read_file" and content_range:
+        return drop_empty(
+            {
+                "authority": "harness.runtime.dynamic_context.evidence_confidence",
+                "source_kind": "read_file_line_window",
+                "tool_name": tool_name,
+                "confidence": "preview_truncated" if content_replacements else "current_line_window",
+                "files": [
+                    drop_empty(
+                        {
+                            "path": str(content_range.get("path") or ""),
+                            "start_line": content_range.get("start_line"),
+                            "end_line": content_range.get("end_line"),
+                            "line_count": content_range.get("line_count"),
+                            "content_sha256": str(content_range.get("content_sha256") or ""),
+                            "fresh_read_conditions": list(evidence_policy.get("fresh_read_conditions") or []),
+                            "usable_as_evidence_for": list(evidence_policy.get("usable_as_evidence_for") or []),
+                        }
+                    )
+                ],
+            }
+        )
+    if tool_name in _CODE_LOCATOR_TOOL_NAMES or normalized.get("code_structure"):
+        return {
+            "authority": "harness.runtime.dynamic_context.evidence_confidence",
+            "source_kind": "code_locator",
+            "tool_name": tool_name,
+            "confidence": "locator_only",
+            "fresh_read_conditions": ["read_file_required_before_edit"],
+            "usable_as_evidence_for": ["path_selection", "symbol_location"],
         }
     return {}
 
@@ -430,9 +508,10 @@ def _persisted_tool_result_request(content_replacements: list[dict[str, Any]], *
     if not content_replacements:
         return {}
     first = dict(content_replacements[0] or {})
+    replacement_id = _tool_result_replacement_id(first.get("replacement_id"))
     args = drop_empty(
         {
-            "replacement_id": str(first.get("replacement_id") or ""),
+            "replacement_id": replacement_id,
             "path": str(first.get("path") or ""),
             "task_run_id": str(task_run_id or ""),
         }
@@ -445,7 +524,7 @@ def _persisted_tool_result_request(content_replacements: list[dict[str, Any]], *
 def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
-            "replacement_id": str(item.get("replacement_id") or ""),
+            "replacement_id": _tool_result_replacement_id(item.get("replacement_id")),
             "path": str(item.get("path") or ""),
             "json_path": str(item.get("json_path") or ""),
             "original_size_bytes": item.get("original_size_bytes"),
@@ -453,6 +532,11 @@ def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
         }
     )
+
+
+def _tool_result_replacement_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate.startswith("tool_result:") else ""
 
 
 def _next_read_file_request(content_range: dict[str, Any]) -> dict[str, Any]:

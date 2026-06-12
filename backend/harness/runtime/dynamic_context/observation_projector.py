@@ -125,6 +125,7 @@ class ObservationProjector:
         projection, replacement = self.replacement_store.get_or_put(
             source_kind="observation",
             source_id=observation_id or "observation:" + str(len(str(projection))),
+            task_run_id=task_run_id,
             content=source,
             projection_policy=projection_policy,
             projector_version=PROJECTOR_VERSION,
@@ -193,6 +194,7 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "code_structure": dict(tool_projection.get("code_structure") or {}),
             "content_range": dict(tool_projection.get("content_range") or {}),
             "evidence_policy": dict(tool_projection.get("evidence_policy") or {}),
+            "evidence_confidence": dict(tool_projection.get("evidence_confidence") or {}),
             "rehydration_plan": dict(tool_projection.get("rehydration_plan") or {}),
         }
     )
