@@ -2379,7 +2379,7 @@ def _single_agent_protocol_repair_messages(
     tool_repair_instruction = (
         "如果需要普通工具，只能输出一个 action_type=tool_call 的动作；不要混入 ask_user、block、request_task_run 或 active_work_control。\n"
         if tool_repair_allowed
-        else f"当前修复阶段不允许普通工具调用；如需更多执行能力，只能在允许动作内选择{'、'.join(non_tool_alternatives)}。\n"
+        else f"当前是协议修复或收口阶段，普通工具服务面未开放；这不是执行安全结论。如需更多执行能力，只能在允许动作内选择{'、'.join(non_tool_alternatives)}。\n"
     )
     repair_instruction = (
         f"{SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT}\n\n"
@@ -2589,6 +2589,11 @@ def _single_agent_action_request_from_response(
                 diagnostics={
                     "protocol_errors": list(protocol.protocol_errors),
                     "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code=str(protocol.protocol_errors[0] if protocol.protocol_errors else "model_protocol_error"),
+                        repair_instruction="请只输出符合本轮模型决策合同的 JSON action，不要使用 Markdown 包裹或混入额外文本。",
+                    ),
                     "phase": phase,
                 },
             ),
@@ -2603,6 +2608,12 @@ def _single_agent_action_request_from_response(
                 diagnostics={
                     "native_tool_call_count": len(native_tool_calls),
                     "json_action_type": str(json_payload.get("action_type") or ""),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="multiple_action_sources",
+                        requested_action_type=str(json_payload.get("action_type") or ""),
+                        repair_instruction="请在 JSON action 和 provider-native tool call 之间二选一；控制裁决必须使用 JSON action。",
+                    ),
                     "phase": phase,
                 },
             ),
@@ -2624,6 +2635,12 @@ def _single_agent_action_request_from_response(
                     diagnostics={
                         "model_action_diagnostics": dict(diagnostics or {}),
                         "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                        "action_issue": _protocol_action_issue(
+                            category="protocol_violation",
+                            code="invalid_json_action",
+                            requested_action_type=str(json_payload.get("action_type") or ""),
+                            repair_instruction="请按本轮 model_decision_contract 和 action schema 重新提交一个合法 JSON action。",
+                        ),
                         "phase": phase,
                     },
                 ),
@@ -2655,6 +2672,11 @@ def _single_agent_action_request_from_response(
                     reason="json_action_required",
                     diagnostics={
                         "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                        "action_issue": _protocol_action_issue(
+                            category="protocol_violation",
+                            code="json_action_required",
+                            repair_instruction="本轮控制动作必须通过 JSON action 提交；不要使用普通正文或 provider-native tool call。",
+                        ),
                         "phase": phase,
                     },
                 ),
@@ -2666,12 +2688,20 @@ def _single_agent_action_request_from_response(
         for call in native_tool_calls:
             tool_name = str(dict(call or {}).get("name") or "").strip()
             if tool_name in _CONTROL_ACTION_NAMES:
+                action_issue = _protocol_action_issue(
+                    category="protocol_violation",
+                    code="control_action_requires_json_action",
+                    requested_action_type=tool_name,
+                    requested_tool_name=tool_name,
+                    repair_instruction="控制裁决必须输出 JSON action；请保留原控制意图并改用 JSON action 重新提交。",
+                )
                 native_errors.append(
                     {
                         "authority": "harness.loop.single_agent_turn.native_action_parser",
                         "code": "native_control_action_requires_json_action",
                         "reason": "native_control_action_requires_json_action",
                         "native_tool_call": _native_tool_call_diagnostics(dict(call or {})),
+                        "action_issue": action_issue,
                         "repairable": True,
                         "repair_contract": {
                             "required_transport": "json_action",
@@ -2680,12 +2710,19 @@ def _single_agent_action_request_from_response(
                     }
                 )
             else:
+                action_issue = _protocol_action_issue(
+                    category="service_unavailable",
+                    code="native_tool_call_transport_not_available",
+                    requested_tool_name=tool_name,
+                    repair_instruction="当前阶段没有开放普通 native 工具调用；请按本轮允许动作选择 JSON action 或等待进入正确服务面。",
+                )
                 native_errors.append(
                     {
                         "authority": "harness.loop.single_agent_turn.native_action_parser",
-                        "code": "native_tool_calls_not_allowed",
-                        "reason": "native_tool_calls_not_allowed",
+                        "code": "native_tool_call_transport_not_available",
+                        "reason": "native_tool_call_transport_not_available",
                         "native_tool_call": _native_tool_call_diagnostics(dict(call or {})),
+                        "action_issue": action_issue,
                         "repairable": True,
                         "repair_contract": {
                             "allowed_action_types": list(allowed_action_types or ()),
@@ -2702,11 +2739,12 @@ def _single_agent_action_request_from_response(
             native_tool_calls=native_tool_calls,
             error=_single_agent_protocol_error(
                 code="single_agent_turn_invalid_native_action",
-                reason=";".join(reasons) or "native_tool_calls_not_allowed",
+                reason=";".join(reasons) or "native_tool_call_transport_not_available",
                 diagnostics={
                     "native_tool_call_count": len(native_tool_calls),
                     "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
                     "native_action_errors": native_errors,
+                    "action_issue": dict(native_errors[0].get("action_issue") or {}) if native_errors else {},
                     "phase": phase,
                 },
             ),
@@ -2734,6 +2772,7 @@ def _single_agent_action_request_from_response(
                     "native_tool_call_count": len(native_tool_calls),
                     "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
                     "native_action_errors": [dict(item) for item in native_parse.errors],
+                    "action_issue": dict(native_parse.errors[0].get("action_issue") or {}) if native_parse.errors else {},
                     "phase": phase,
                 },
             ),
@@ -2741,6 +2780,13 @@ def _single_agent_action_request_from_response(
     tool_actions = tuple(item for item in native_actions if item.action_type == "tool_call")
     if tool_actions:
         if "tool_call" not in set(allowed_action_types or ()):
+            action_issue = _protocol_action_issue(
+                category="service_unavailable",
+                code="tool_call_transport_not_available",
+                requested_action_type="tool_call",
+                requested_tool_name=str(dict(tool_actions[0].tool_call or {}).get("tool_name") or dict(tool_actions[0].tool_call or {}).get("name") or ""),
+                repair_instruction="当前阶段没有开放普通工具调用服务面；请按本轮允许动作选择控制裁决、回答、询问或阻塞。",
+            )
             return SingleAgentActionParse(
                 action_request=None,
                 native_tool_calls=native_tool_calls,
@@ -2751,6 +2797,7 @@ def _single_agent_action_request_from_response(
                         "native_tool_call_count": len(native_tool_calls),
                         "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
                         "allowed_action_types": list(allowed_action_types or ()),
+                        "action_issue": action_issue,
                         "phase": phase,
                     },
                 ),
@@ -2848,6 +2895,11 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                     "code": "native_tool_name_missing",
                     "reason": "native_tool_name_missing",
                     "native_tool_call": _native_tool_call_diagnostics(call),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="native_tool_name_missing",
+                        repair_instruction="请提交带有工具名的合法 tool_call，或改用符合本轮合同的 JSON action。",
+                    ),
                     "repairable": True,
                 }
             )
@@ -2859,6 +2911,13 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                     "code": "native_control_action_requires_json_action",
                     "reason": "native_control_action_requires_json_action",
                     "native_tool_call": _native_tool_call_diagnostics(call),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="control_action_requires_json_action",
+                        requested_action_type=tool_name,
+                        requested_tool_name=tool_name,
+                        repair_instruction="控制裁决必须输出 JSON action；请保留原控制意图并改用 JSON action 重新提交。",
+                    ),
                     "repairable": True,
                     "repair_contract": {
                         "required_transport": "json_action",
@@ -2885,6 +2944,12 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                     "code": "native_action_request_missing",
                     "reason": "native_action_request_missing",
                     "native_tool_call": _native_tool_call_diagnostics(call),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="native_action_request_missing",
+                        requested_tool_name=tool_name,
+                        repair_instruction="请重新提交一个可解析的工具调用或 JSON action。",
+                    ),
                     "repairable": True,
                 }
             )
@@ -2901,6 +2966,25 @@ def _native_tool_call_diagnostics(call: dict[str, Any]) -> dict[str, Any]:
         "name": str(payload.get("name") or ""),
         "source": str(payload.get("source") or ""),
         "args": dict(args or {}) if isinstance(args, dict) else {},
+    }
+
+
+def _protocol_action_issue(
+    *,
+    category: str,
+    code: str,
+    repair_instruction: str,
+    requested_action_type: str = "",
+    requested_tool_name: str = "",
+) -> dict[str, Any]:
+    return {
+        "authority": "harness.loop.action_issue",
+        "category": str(category or ""),
+        "code": str(code or ""),
+        "model_intent_preserved": True,
+        "requested_action_type": str(requested_action_type or ""),
+        "requested_tool_name": str(requested_tool_name or ""),
+        "repair_instruction": str(repair_instruction or ""),
     }
 
 
@@ -3195,14 +3279,16 @@ def _tool_observation_from_admission(
     status = _tool_observation_status_from_admission(admission)
     system_reason = str(admission.system_reason or admission.decision or status)
     user_reason = str(admission.user_visible_reason or system_reason)
+    action_issue = dict(getattr(admission, "action_issue", {}) or {})
+    issue_category = str(action_issue.get("category") or getattr(admission, "issue_category", "") or "runtime_boundary")
     if status == "needs_approval":
         text = (
-            f"工具调用等待运行时人工确认。准入裁决：{admission.decision}；原因：{system_reason}。"
+            f"工具调用等待运行时人工确认。问题分类：{issue_category}；准入裁决：{admission.decision}；原因：{system_reason}。"
             f"边界说明：{user_reason}。这属于 control-plane 审批状态，不应作为模型恢复观察进入下一轮。"
         )
     else:
         text = (
-            f"工具调用未执行。准入裁决：{admission.decision}；原因：{system_reason}。"
+            f"工具调用未执行。问题分类：{issue_category}；准入裁决：{admission.decision}；原因：{system_reason}。"
             f"边界说明：{user_reason}。请基于这条观察继续：改用本轮已开放工具、请求必要信息、请求持续任务，或直接说明无法执行的边界。"
         )
     return ToolObservation(
@@ -3219,6 +3305,7 @@ def _tool_observation_from_admission(
             "error": system_reason,
             "error_code": system_reason,
             "admission_decision": admission.decision,
+            "action_issue": action_issue,
             "retryable": True,
         },
         operation_gate={
@@ -3230,6 +3317,7 @@ def _tool_observation_from_admission(
             "stage": "model_action_admission",
             "packet_ref": packet_ref,
             "action_request": action_request.to_dict(),
+            "action_issue": action_issue,
             "model_visible_recovery_observation": status != "needs_approval",
         },
     )

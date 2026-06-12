@@ -43,6 +43,44 @@ def _message_content_for_source(packet, source_ref: str) -> str:
     raise AssertionError(f"segment source not found: {source_ref}")
 
 
+def _segment_by_source(packet, source_ref: str) -> dict[str, object]:
+    for segment in packet.segment_plan["segments"]:
+        if segment["source_ref"] == source_ref:
+            return dict(segment)
+    raise AssertionError(f"segment source not found: {source_ref}")
+
+
+def _segment_by_kind(packet, kind: str) -> dict[str, object]:
+    for segment in packet.segment_plan["segments"]:
+        if segment["kind"] == kind:
+            return dict(segment)
+    raise AssertionError(f"segment kind not found: {kind}")
+
+
+def _stable_prompt_text(packet) -> str:
+    stable_indexes = {
+        int(segment["model_message_index"])
+        for segment in packet.segment_plan["segments"]
+        if segment.get("cache_role") in {"cacheable_prefix", "session_stable"}
+    }
+    return "\n\n".join(
+        str(message.get("content") or "")
+        for index, message in enumerate(packet.model_messages)
+        if index in stable_indexes
+    )
+
+
+def _cache_record_for_packet(packet, *, request_id: str = "modelreq:prompt-matrix"):
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id=request_id,
+        messages=packet.model_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=packet.segment_plan,
+    )
+    return PromptCachePlanner().plan(segment_map)
+
+
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
     messages = [
@@ -849,6 +887,12 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
+    assert projection["model_decision_contract"]["authority"] == "harness.runtime.model_decision_contract"
+    assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
+    assert projection["model_decision_contract"]["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
+    assert projection["execution_boundary"]["authority"] == "harness.runtime.execution_boundary"
+    assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
     assert projection["task_lifecycle"]["request_task_run_allowed"] is True
     assert projection["task_lifecycle"]["artifact_evidence_required"] is True
     assert projection["planning"]["todo_required_when_task_run"] is True
@@ -891,6 +935,10 @@ def test_single_turn_task_scoped_tool_routes_are_dynamic_not_tool_index() -> Non
     )
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
     routes = projection["tool_boundary"]["task_scoped_tool_routes"]
+    unmounted = {
+        item["tool_name"]: item
+        for item in projection["service_surface"]["unmounted_services"]
+    }
     tool_names = [item["tool_name"] for item in tool_index["available_tools"]]
     stable_boundary = _message_content_with_title(result.packet, "Single agent turn stable boundary")
 
@@ -910,10 +958,285 @@ def test_single_turn_task_scoped_tool_routes_are_dynamic_not_tool_index() -> Non
         }
     ]
     assert "agent_todo" not in json.dumps(tool_index, ensure_ascii=False)
+    assert unmounted["agent_todo"]["category"] == "requires_task_run"
+    assert unmounted["agent_todo"]["required_action"] == "request_task_run"
+    assert unmounted["memory_search"]["category"] == "requires_task_run"
     assert "agent_todo" not in stable_boundary
     assert "agent_todo" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
     assert "memory_search" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
     assert "request_task_run" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
+
+
+def test_real_task_prompt_assembly_keeps_prompt_service_and_safety_boundaries_separate() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:real-task-control-chain",
+        turn_id="turn:real-task-control-chain",
+        agent_invocation_id="aginvoke:real-task-control-chain",
+        user_message="开始执行 110 计划书，优化 prompts 装配和控制链路，确保控制精准、运行顺畅、覆盖全面。",
+        history=[
+            {
+                "role": "assistant",
+                "content": "已完成计划书，下一步可以按计划实施。",
+            }
+        ],
+        runtime_assembly={
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "task_lifecycle_policy": {
+                    "request_task_run": True,
+                    "requires_completion_evidence": True,
+                },
+                "planning_policy": {"todo_required_when_task_run": True},
+                "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "available_tools": [
+                {"tool_name": "agent_todo", "operation_id": "op.agent_todo", "owner_scope": "state"},
+                {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+                {"tool_name": "write_file", "operation_id": "op.write_file", "owner_scope": "none"},
+            ],
+            "operation_authorization": {
+                "allowed_operations": ["op.model_response", "op.agent_todo", "op.read_file", "op.write_file"],
+            },
+            "control_capabilities": {
+                "may_call_tools": True,
+                "may_request_task_run": True,
+                "may_control_active_work": False,
+            },
+        },
+    )
+
+    model_input = _model_input_text(result.packet)
+    dynamic_payload = _payload_after_title(
+        _message_content_with_title(result.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
+    )
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
+    decision_contract = projection["model_decision_contract"]
+    service_surface = projection["service_surface"]
+    execution_boundary = projection["execution_boundary"]
+
+    assert decision_contract["prompt_authority"] == "developer_prompt_contract"
+    assert "request_task_run" in decision_contract["semantic_actions"]
+    assert decision_contract["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    assert service_surface["unmounted_services"][0]["category"] == "requires_task_run"
+    assert service_surface["unmounted_services"][0]["required_action"] == "request_task_run"
+    assert execution_boundary["safety_authority"] == "runtime.tooling.supervisor"
+    assert "模型决策合同来自开发者 prompt 权威" in model_input
+    assert "服务面挂载边界，不是权限安全裁决" in model_input
+    assert "真实安全边界只在执行许可和 tool control plane 中裁决" in model_input
+    assert ("Prompt " + "不能强制") not in model_input
+    assert "latest resumable executor checkpoint" not in model_input
+
+
+def test_single_turn_prompt_cache_keeps_current_request_out_of_stable_prefix() -> None:
+    runtime_assembly = {
+        "profile": {
+            "profile_ref": "main_interactive_agent",
+            "task_lifecycle_policy": {"request_task_run": True},
+            "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+        },
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "available_tools": [
+            {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+        ],
+        "operation_authorization": {"allowed_operations": ["op.model_response", "op.read_file"]},
+        "control_capabilities": {"may_call_tools": True, "may_request_task_run": True},
+    }
+    first = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-current-request",
+        turn_id="turn:cache-current-request:1",
+        agent_invocation_id="aginvoke:cache-current-request:1",
+        user_message="开始执行 110 计划书。",
+        history=[],
+        runtime_assembly=runtime_assembly,
+    )
+    second = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-current-request",
+        turn_id="turn:cache-current-request:2",
+        agent_invocation_id="aginvoke:cache-current-request:2",
+        user_message="启动同一个优化计划，但先检查 prompt cache。",
+        history=[],
+        runtime_assembly=runtime_assembly,
+    )
+
+    first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-current-request:1")
+    second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-current-request:2")
+
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert _segment_by_source(first.packet, "single_agent_turn_current_request")["cache_scope"] == "none"
+    assert "开始执行 110 计划书" not in _stable_prompt_text(first.packet)
+    assert "启动同一个优化计划" not in _stable_prompt_text(second.packet)
+    assert first_cache.prefix_hash == second_cache.prefix_hash
+
+
+def test_active_work_prompt_cache_keeps_current_work_state_volatile() -> None:
+    runtime_assembly = {
+        "profile": {
+            "profile_ref": "main_interactive_agent",
+            "task_lifecycle_policy": {"request_task_run": True},
+            "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+        },
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+    }
+    base_active_work = {
+        "status": "running",
+        "control_state": "running",
+        "user_visible_goal": "修复 prompt 控制链路。",
+        "resumable": True,
+        "running": True,
+        "continuation_kind": "same_run_resume",
+    }
+    first = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-active-work",
+        turn_id="turn:cache-active-work:1",
+        agent_invocation_id="aginvoke:cache-active-work:1",
+        user_message="继续。",
+        history=[],
+        active_work_context={**base_active_work, "latest_progress": "已完成第一段 prompt 审查。"},
+        runtime_assembly=runtime_assembly,
+    )
+    second = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-active-work",
+        turn_id="turn:cache-active-work:2",
+        agent_invocation_id="aginvoke:cache-active-work:2",
+        user_message="继续。",
+        history=[],
+        active_work_context={**base_active_work, "latest_progress": "已完成第二段 cache 审查。"},
+        runtime_assembly=runtime_assembly,
+    )
+
+    first_dynamic = _payload_after_title(
+        _message_content_with_title(first.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
+    )
+    first_cache = _cache_record_for_packet(first.packet, request_id="modelreq:cache-active-work:1")
+    second_cache = _cache_record_for_packet(second.packet, request_id="modelreq:cache-active-work:2")
+
+    assert first_dynamic["active_work_context"]["latest_progress"] == "已完成第一段 prompt 审查。"
+    assert _segment_by_source(first.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+    assert "已完成第一段 prompt 审查" not in _stable_prompt_text(first.packet)
+    assert "已完成第二段 cache 审查" not in _stable_prompt_text(second.packet)
+    assert first_cache.prefix_hash == second_cache.prefix_hash
+    assert "active_work_control" in first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
+
+
+def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:
+    base_assembly = {
+        "profile": {
+            "profile_ref": "main_interactive_agent",
+            "task_lifecycle_policy": {"request_task_run": True},
+            "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+        },
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "available_tools": [
+            {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+            {"tool_name": "write_file", "operation_id": "op.write_file", "owner_scope": "none"},
+        ],
+        "operation_authorization": {"allowed_operations": ["op.model_response", "op.read_file", "op.write_file"]},
+        "control_capabilities": {"may_call_tools": True, "may_request_task_run": True},
+    }
+    default_packet = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-plan-mode",
+        turn_id="turn:cache-plan-mode:default",
+        agent_invocation_id="aginvoke:cache-plan-mode:default",
+        user_message="检查方案并开始改。",
+        history=[],
+        runtime_assembly={**base_assembly, "permission_mode": "default"},
+    )
+    plan_packet = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:cache-plan-mode",
+        turn_id="turn:cache-plan-mode:plan",
+        agent_invocation_id="aginvoke:cache-plan-mode:plan",
+        user_message="检查方案并开始改。",
+        history=[],
+        runtime_assembly={**base_assembly, "permission_mode": "plan"},
+    )
+
+    default_cache = _cache_record_for_packet(default_packet.packet, request_id="modelreq:cache-plan-mode:default")
+    plan_cache = _cache_record_for_packet(plan_packet.packet, request_id="modelreq:cache-plan-mode:plan")
+    plan_input = _model_input_text(plan_packet.packet)
+    plan_projection = _payload_after_title(
+        _message_content_with_title(plan_packet.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
+    )["runtime_context"]["agent_visible_runtime_projection"]
+
+    assert default_cache.prefix_hash != plan_cache.prefix_hash
+    assert "当前处于 plan mode" in plan_input
+    assert plan_projection["planning"]["plan_mode_active"] is True
+    assert plan_projection["execution_boundary"]["permission_mode"] == "plan"
+    assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
+
+
+def test_task_execution_prompt_matrix_has_no_task_entry_conflict_and_keeps_state_volatile() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:task-exec-matrix",
+        task_run={
+            "task_run_id": "taskrun:prompt-matrix",
+            "title": "执行 110 控制链路优化",
+            "diagnostics": {"executor_epoch": 1, "executor_status": "running"},
+        },
+        contract={
+            "task_run_goal": "执行 110 控制链路优化",
+            "completion_criteria": ["prompt 装配矩阵通过", "cache 分区正确"],
+            "working_scope": {"target_objects": ["backend/harness/runtime/compiler.py"]},
+        },
+        observations=[
+            {"observation_id": "obs:prompt-matrix:1", "content": "已完成 admission 分类。"},
+        ],
+        execution_state={
+            "runtime_status": "running",
+            "system_projection": {
+                "pending_user_steers": [
+                    {
+                        "steer_id": "steer:cache",
+                        "task_run_id": "taskrun:prompt-matrix",
+                        "content": "把 prompt cache 也纳入检查。",
+                    }
+                ]
+            },
+        },
+        available_tools=[
+            {"tool_name": "agent_todo", "operation_id": "op.agent_todo", "owner_scope": "state"},
+            {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+            {"tool_name": "write_file", "operation_id": "op.write_file", "owner_scope": "none"},
+        ],
+        runtime_assembly={
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "task_lifecycle_policy": {"requires_completion_evidence": True},
+                "permission_policy": {"permission_scope": "task_run_execution"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {
+                "allowed_operations": ["op.model_response", "op.agent_todo", "op.read_file", "op.write_file"],
+            },
+        },
+    )
+
+    runtime_payload = _payload_after_title(
+        _message_content_with_title(result.packet, "Task execution runtime boundary"),
+        "Task execution runtime boundary",
+    )
+    projection = runtime_payload["runtime_context"]
+    decision_contract = projection["model_decision_contract"]
+    mounted_tool_names = {item["tool_name"] for item in projection["service_surface"]["mounted_tools"]}
+    stable_text = _stable_prompt_text(result.packet)
+
+    assert decision_contract["semantic_actions"] == ["respond", "ask_user", "tool_call", "block"]
+    assert "request_task_run" not in decision_contract["semantic_actions"]
+    assert "agent_todo" in mounted_tool_names
+    assert not any(
+        item["tool_name"] == "agent_todo" and item["category"] == "requires_task_run"
+        for item in projection["service_surface"]["unmounted_services"]
+    )
+    assert _segment_by_kind(result.packet, "task_runtime_boundary_dynamic")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "volatile_task_state")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "user_steering_updates")["cache_scope"] == "none"
+    assert _segment_by_kind(result.packet, "task_contract_stable")["cache_scope"] == "task"
+    assert "把 prompt cache 也纳入检查" not in stable_text
+    assert "已完成 admission 分类" not in stable_text
 
 
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:

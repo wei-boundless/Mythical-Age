@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 球体</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            cursor: grab;
+        }
+
+        body:active {
+            cursor: grabbing;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .info {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            letter-spacing: 2px;
+            pointer-events: none;
+            z-index: 10;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">拖拽旋转 &nbsp;|&nbsp; 滚轮缩放</div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ───────── 场景、相机、渲染器 ─────────
+        const scene = new THREE.Scene();
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0.5, 8);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        document.body.appendChild(renderer.domElement);
+
+        // ───────── 轨道控制器 ─────────
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.minDistance = 3.5;
+        controls.maxDistance = 15;
+        controls.maxPolarAngle = Math.PI * 0.85;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.6;
+        controls.target.set(0, 0, 0);
+
+        // ───────── 灯光 ─────────
+        // 环境光
+        const ambientLight = new THREE.AmbientLight('#3a3a5c', 1.2);
+        scene.add(ambientLight);
+
+        // 半球光 —— 模拟天空和地面
+        const hemiLight = new THREE.HemisphereLight('#aaccff', '#1a0a2e', 0.8);
+        scene.add(hemiLight);
+
+        // 主方向光（带阴影）
+        const keyLight = new THREE.DirectionalLight('#ffffff', 4);
+        keyLight.position.set(5, 8, 5);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.width = 1024;
+        keyLight.shadow.mapSize.height = 1024;
+        keyLight.shadow.camera.near = 0.5;
+        keyLight.shadow.camera.far = 50;
+        keyLight.shadow.camera.left = -10;
+        keyLight.shadow.camera.right = 10;
+        keyLight.shadow.camera.top = 10;
+        keyLight.shadow.camera.bottom = -10;
+        keyLight.shadow.bias = -0.0001;
+        keyLight.shadow.normalBias = 0.02;
+        scene.add(keyLight);
+
+        // 补光（暖色）
+        const fillLight = new THREE.DirectionalLight('#ff9966', 1.5);
+        fillLight.position.set(-3, -1, -3);
+        scene.add(fillLight);
+
+        // 边缘光（冷色）
+        const rimLight = new THREE.DirectionalLight('#66aaff', 2.5);
+        rimLight.position.set(0, -1, 4);
+        scene.add(rimLight);
+
+        // ───────── 核心球体 ─────────
+        const sphereRadius = 1.5;
+        const sphereSegments = 128;
+
+        // 使用标准材质，带一些金属感和粗糙度变化
+        const sphereMaterial = new THREE.MeshStandardMaterial({
+            color: '#4a90d9',
+            metalness: 0.15,
+            roughness: 0.35,
+        });
+
+        const sphereGeometry = new THREE.SphereGeometry(sphereRadius, sphereSegments, sphereSegments);
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        sphere.castShadow = true;
+        sphere.receiveShadow = true;
+        scene.add(sphere);
+
+        // ───────── 线框环 ─────────
+        // 水平环
+        function createRing(radius, color, y, rotationX = 0) {
+            const ringGeo = new THREE.TorusGeometry(radius, 0.015, 16, 200);
+            const ringMat = new THREE.MeshStandardMaterial({
+                color,
+                emissive: color,
+                emissiveIntensity: 0.6,
+                metalness: 0.5,
+                roughness: 0.3,
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.y = y;
+            ring.rotation.x = rotationX;
+            ring.castShadow = true;
+            return ring;
+        }
+
+        const ring1 = createRing(sphereRadius + 0.35, '#ff9944', 0, Math.PI / 2);
+        const ring2 = createRing(sphereRadius + 0.25, '#44aaff', 0.6, Math.PI / 3);
+        const ring3 = createRing(sphereRadius + 0.25, '#ff6688', -0.6, -Math.PI / 3);
+        const ring4 = createRing(sphereRadius + 0.45, '#88ccff', 0, 0);
+
+        scene.add(ring1);
+        scene.add(ring2);
+        scene.add(ring3);
+        scene.add(ring4);
+
+        // ───────── 粒子星空 ─────────
+        const starsCount = 800;
+        const starsGeometry = new THREE.BufferGeometry();
+        const starsPositions = new Float32Array(starsCount * 3);
+        const starsSizes = new Float32Array(starsCount);
+
+        for (let i = 0; i < starsCount; i++) {
+            // 球形分布
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const radius = 12 + Math.random() * 25;
+
+            starsPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+            starsPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+            starsPositions[i * 3 + 2] = radius * Math.cos(phi);
+            starsSizes[i] = Math.random() * 2.5 + 0.5;
+        }
+
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(starsPositions, 3));
+        starsGeometry.setAttribute('size', new THREE.BufferAttribute(starsSizes, 1));
+
+        const starsMaterial = new THREE.PointsMaterial({
+            color: '#ffffff',
+            size: 0.04,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.8,
+        });
+
+        const stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // ───────── 地面（接收阴影） ─────────
+        const groundGeometry = new THREE.PlaneGeometry(30, 30);
+        const groundMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -3.5;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // ───────── 动画循环 ─────────
+        const clock = new THREE.Clock();
+
+        function animate() {
+            const elapsed = clock.getElapsedTime();
+
+            // 环缓慢自转
+            ring1.rotation.z += 0.003;
+            ring2.rotation.z -= 0.004;
+            ring3.rotation.z += 0.0035;
+            ring4.rotation.z -= 0.0025;
+
+            // 环绕球摆动
+            ring2.position.y = 0.5 + Math.sin(elapsed * 0.7) * 0.4;
+            ring3.position.y = -0.5 - Math.cos(elapsed * 0.6) * 0.4;
+            ring4.rotation.x = Math.sin(elapsed * 0.3) * 0.3;
+
+            // 星空缓慢旋转
+            stars.rotation.y += 0.0003;
+            stars.rotation.x += 0.0001;
+
+            // 球体轻微呼吸效果（材质的 emissive 可以微调）
+            const breathe = 1 + Math.sin(elapsed * 1.2) * 0.03;
+            sphereMaterial.emissive = new THREE.Color('#112244');
+            sphereMaterial.emissiveIntensity = breathe * 0.5;
+
+            controls.update();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        // ───────── 响应窗口大小 ─────────
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

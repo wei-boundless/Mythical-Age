@@ -44,6 +44,7 @@ def test_action_admission_emits_permit_for_allowed_tool_call() -> None:
     assert payload["operation_id"] == "op.read_file"
     assert payload["read_only"] is True
     assert payload["allowed_tool_names"] == ["read_file"]
+    assert payload["action_issue"] == {}
 
 
 def test_action_admission_routes_task_memory_tool_to_task_run() -> None:
@@ -72,6 +73,9 @@ def test_action_admission_routes_task_memory_tool_to_task_run() -> None:
 
     assert admission.decision == "needs_task_run"
     assert admission.system_reason == "task_scoped_tool_requires_task_run"
+    assert admission.issue_category == "requires_task_run"
+    assert admission.action_issue["category"] == "requires_task_run"
+    assert admission.action_issue["code"] == "task_scoped_tool_requires_task_run"
     assert admission.permission_delta["required_action"] == "request_task_run"
 
 
@@ -101,6 +105,8 @@ def test_action_admission_routes_agent_todo_to_task_run() -> None:
 
     assert admission.decision == "needs_task_run"
     assert admission.system_reason == "task_scoped_tool_requires_task_run"
+    assert admission.issue_category == "requires_task_run"
+    assert admission.action_issue["category"] == "requires_task_run"
     assert admission.permission_delta["operation_id"] == "op.agent_todo"
     assert admission.permission_delta["required_action"] == "request_task_run"
 

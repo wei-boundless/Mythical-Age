@@ -21,6 +21,9 @@ class ActionPermit:
     allowed_action_types: tuple[str, ...] = ()
     allowed_tool_names: tuple[str, ...] = ()
     denied_reason: str = ""
+    issue_category: str = ""
+    issue_code: str = ""
+    action_issue: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.action_permit"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -42,6 +45,7 @@ class ActionPermit:
         payload = asdict(self)
         payload["allowed_action_types"] = list(self.allowed_action_types)
         payload["allowed_tool_names"] = list(self.allowed_tool_names)
+        payload["action_issue"] = dict(self.action_issue or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -57,6 +61,7 @@ def action_permit_from_admission(
     side_effect_policy: str = "",
 ) -> ActionPermit:
     permission_delta = dict(getattr(admission, "permission_delta", {}) or {})
+    action_issue = dict(getattr(admission, "action_issue", {}) or {})
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     decision = str(getattr(admission, "decision", "") or "")
     denied_reason = "" if decision == "allow" else str(getattr(admission, "system_reason", "") or decision)
@@ -77,10 +82,14 @@ def action_permit_from_admission(
         allowed_action_types=tuple(str(item) for item in packet_allowed_action_types if str(item)),
         allowed_tool_names=allowed_tools,
         denied_reason=denied_reason,
+        issue_category=str(getattr(admission, "issue_category", "") or action_issue.get("category") or ""),
+        issue_code=str(getattr(admission, "issue_code", "") or action_issue.get("code") or ""),
+        action_issue=action_issue,
         diagnostics={
             "admission_ref": str(getattr(admission, "admission_id", "") or ""),
             "admission_authority": str(getattr(admission, "authority", "") or ""),
             "permission_delta": permission_delta,
+            "action_issue": action_issue,
         },
     )
 

@@ -3781,6 +3781,12 @@ def _agent_visible_runtime_projection(
         if str(item.get("tool_name") or item.get("name") or "")
     ]
     task_scoped_tool_routes = _task_scoped_tool_routes_from_tool_plan(tool_plan)
+    service_surface = _service_surface_payload(
+        invocation_kind=invocation_kind,
+        allowed_action_types=allowed_action_types,
+        available_tools=available_tools,
+        tool_plan=tool_plan,
+    )
     visible_tool_name_set = {name for name in tool_names if name}
     subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
         visible_tool_name_set.intersection(
@@ -3794,9 +3800,22 @@ def _agent_visible_runtime_projection(
         )
     )
     task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
+    model_decision_contract = _model_decision_contract_payload(
+        invocation_kind=invocation_kind,
+        allowed_action_types=allowed_action_types,
+        task_run_allowed=task_run_allowed,
+    )
+    execution_boundary = _execution_boundary_payload(
+        profile_payload=profile_payload,
+        operation_authorization=operation_authorization,
+        permission_mode=permission_mode,
+    )
     payload = {
         "authority": "harness.runtime.agent_visible_runtime_projection",
         "invocation_kind": str(invocation_kind or ""),
+        "model_decision_contract": model_decision_contract,
+        "service_surface": service_surface,
+        "execution_boundary": execution_boundary,
         "allowed_action_types": list(allowed_action_types),
         "task_lifecycle": {
             "request_task_run_allowed": task_run_allowed,
@@ -3844,11 +3863,118 @@ def _agent_visible_runtime_projection(
     return payload
 
 
-def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[str, str]]:
+def _model_decision_contract_payload(
+    *,
+    invocation_kind: str,
+    allowed_action_types: tuple[str, ...],
+    task_run_allowed: bool,
+) -> dict[str, Any]:
+    semantic_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
+    control_actions = [
+        item
+        for item in ("ask_user", "block", "request_task_run", "active_work_control")
+        if item in semantic_actions
+    ]
+    return {
+        "authority": "harness.runtime.model_decision_contract",
+        "prompt_authority": "developer_prompt_contract",
+        "invocation_kind": str(invocation_kind or ""),
+        "semantic_actions": semantic_actions,
+        "control_actions": control_actions,
+        "required_transport": "json_action" if control_actions else "assistant_message_or_tool_call",
+        "task_entry_rule": {
+            "request_task_run_allowed": bool(task_run_allowed),
+            "must_choose_request_task_run_when_task_entry_conditions_hold": bool(task_run_allowed),
+            "ask_user_when_contract_gaps_exist": True,
+        },
+        "feedback_obligation": {
+            "agent_must_give_user_feedback": True,
+            "pure_control_feedback_is_carried_by_control_payload_and_projection": True,
+            "do_not_emit_detached_assistant_body_for_pure_control": True,
+        },
+    }
+
+
+def _service_surface_payload(
+    *,
+    invocation_kind: str,
+    allowed_action_types: tuple[str, ...],
+    available_tools: tuple[dict[str, Any], ...],
+    tool_plan: Any | None,
+) -> dict[str, Any]:
+    mounted_tools: list[dict[str, str]] = []
+    for tool in available_tools:
+        payload = dict(tool or {})
+        tool_name = str(payload.get("tool_name") or payload.get("name") or "").strip()
+        if not tool_name:
+            continue
+        mounted_tools.append(
+            {
+                "tool_name": tool_name,
+                "operation_id": str(payload.get("operation_id") or tool_name),
+                "owner_scope": str(payload.get("owner_scope") or "none"),
+            }
+        )
+    return {
+        "authority": "harness.runtime.service_surface",
+        "invocation_kind": str(invocation_kind or ""),
+        "tool_call_transport_available": "tool_call" in set(allowed_action_types or ()),
+        "mounted_tools": mounted_tools,
+        "unmounted_services": [
+            {
+                "service": str(issue.get("tool_name") or issue.get("operation_id") or ""),
+                "tool_name": str(issue.get("tool_name") or ""),
+                "operation_id": str(issue.get("operation_id") or ""),
+                "category": _tool_filter_issue_category(issue),
+                "reason": str(issue.get("reason") or ""),
+                "source": str(issue.get("source") or ""),
+                "required_action": str(dict(issue.get("metadata") or {}).get("required_action") or ""),
+            }
+            for issue in _tool_filter_issues_from_tool_plan(tool_plan)
+            if str(issue.get("tool_name") or issue.get("operation_id") or "").strip()
+        ],
+    }
+
+
+def _execution_boundary_payload(
+    *,
+    profile_payload: dict[str, Any],
+    operation_authorization: dict[str, Any],
+    permission_mode: str,
+) -> dict[str, Any]:
+    permission = dict(profile_payload.get("permission_policy") or {})
+    return {
+        "authority": "harness.runtime.execution_boundary",
+        "safety_authority": "runtime.tooling.supervisor",
+        "permission_mode": str(permission_mode or "default"),
+        "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
+        "allowed_operation_count": len(list(operation_authorization.get("allowed_operations") or [])),
+        "approval_required_operation_count": len(list(operation_authorization.get("requires_approval_operations") or [])),
+        "operation_gate_stage": "deferred_to_tool_supervisor_for_real_execution_risk",
+    }
+
+
+def _tool_filter_issues_from_tool_plan(tool_plan: Any | None) -> list[dict[str, Any]]:
     plan = tool_plan.to_dict() if hasattr(tool_plan, "to_dict") else dict(tool_plan or {})
     capability_table = dict(plan.get("capability_table") or {})
+    return [dict(item or {}) for item in list(capability_table.get("filtered") or []) if isinstance(item, dict)]
+
+
+def _tool_filter_issue_category(issue: dict[str, Any]) -> str:
+    reason = str(dict(issue or {}).get("reason") or "")
+    source = str(dict(issue or {}).get("source") or "")
+    if reason == "task_scoped_tool_requires_task_run":
+        return "requires_task_run"
+    if "approval" in reason:
+        return "approval_required"
+    if "denied" in reason or source == "operation_authorization":
+        return "permission_denied"
+    return "service_unavailable"
+
+
+def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[str, str]]:
     routes: list[dict[str, str]] = []
-    for item in list(capability_table.get("filtered") or []):
+    for item in _tool_filter_issues_from_tool_plan(tool_plan):
         issue = dict(item or {})
         if str(issue.get("reason") or "") != "task_scoped_tool_requires_task_run":
             continue
@@ -3867,9 +3993,12 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
 def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if not projection:
         return ""
+    model_decision_contract = dict(projection.get("model_decision_contract") or {})
+    service_surface = dict(projection.get("service_surface") or {})
+    execution_boundary = dict(projection.get("execution_boundary") or {})
     allowed_actions = {
         str(item)
-        for item in list(projection.get("allowed_action_types") or [])
+        for item in list(model_decision_contract.get("semantic_actions") or projection.get("allowed_action_types") or [])
         if str(item)
     }
     task_lifecycle = dict(projection.get("task_lifecycle") or {})
@@ -3879,6 +4008,32 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     tool_boundary = dict(projection.get("tool_boundary") or {})
     permission_boundary = dict(projection.get("permission_boundary") or {})
     lines = ["本次运行边界："]
+    if model_decision_contract:
+        lines.append(
+            "- 模型决策合同来自开发者 prompt 权威；当合同要求 JSON action、request_task_run 或 active_work_control 时必须遵守。"
+            "这些是协议和角色强约束，用于保证控制精准和投影顺畅，不代表执行层已经完成真实权限审批。"
+        )
+    if service_surface:
+        unmounted_services = [
+            dict(item)
+            for item in list(service_surface.get("unmounted_services") or [])
+            if isinstance(item, dict)
+        ]
+        if unmounted_services:
+            category_counts: dict[str, int] = {}
+            for issue in unmounted_services:
+                category = str(issue.get("category") or "service_unavailable")
+                category_counts[category] = category_counts.get(category, 0) + 1
+            category_summary = "、".join(f"{key}:{value}" for key, value in sorted(category_counts.items()))
+            lines.append(
+                f"- 服务面提示：当前存在未挂载或延迟服务（{category_summary}）。"
+                "按服务面的 required_action 或原因修复；不要把服务未挂载、任务态未进入或协议通道错误说成真实安全拒绝。"
+            )
+    if execution_boundary:
+        lines.append(
+            "- 真实安全边界只在执行许可和 tool control plane 中裁决，包括权限模式、审批、沙箱、文件策略和资源冲突。"
+            "如果只是协议格式错误或服务未挂载，应按协议/服务观察处理，不要伪装成权限结论。"
+        )
     action_notes: list[str] = []
     if "respond" in allowed_actions:
         action_notes.append("直接回答")
@@ -3948,7 +4103,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         route_names = "、".join(str(item.get("tool_name") or "") for item in task_scoped_routes)
         lines.append(
             f"- 以下工具属于任务态能力，当前未进入任务运行，不能直接用普通 tool_call 调用：{route_names}。"
-            "如果本轮需要这些能力，必须选择 request_task_run 进入持续任务；如果任务目标、范围或验收标准不足，先 ask_user。"
+            "这是服务面挂载边界，不是权限安全裁决。如果本轮需要这些能力，必须选择 request_task_run 进入持续任务；如果任务目标、范围或验收标准不足，先 ask_user。"
         )
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)

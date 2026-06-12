@@ -112,6 +112,9 @@ def _task_execution_runtime_context_projection(
     environment = dict(assembly_payload.get("task_environment") or {})
     tool_boundary = dict(agent_visible_runtime_projection.get("tool_boundary") or {})
     permission_boundary = dict(agent_visible_runtime_projection.get("permission_boundary") or {})
+    model_decision_contract = dict(agent_visible_runtime_projection.get("model_decision_contract") or {})
+    service_surface = dict(agent_visible_runtime_projection.get("service_surface") or {})
+    execution_boundary = dict(agent_visible_runtime_projection.get("execution_boundary") or {})
     show_environment = _prompt_policy_visible(
         dict(prompt_policy or {}),
         "runtime_environment_boundary_visibility",
@@ -120,6 +123,9 @@ def _task_execution_runtime_context_projection(
     return drop_empty(
         {
             **({"task_environment_id": str(environment.get("environment_id") or "")} if show_environment else {}),
+            "model_decision_contract": model_decision_contract,
+            "service_surface": service_surface,
+            "execution_boundary": execution_boundary,
             "permission_scope": str(permission_boundary.get("permission_scope") or ""),
             "tool_boundary": drop_empty(
                 {

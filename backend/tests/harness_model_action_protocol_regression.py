@@ -129,6 +129,9 @@ def test_native_request_task_run_requires_json_action_transport() -> None:
     assert native_errors[0]["native_tool_call"]["args"]["task_run_goal"] == "修复运行监控和日志分离。"
     assert native_errors[0]["repair_contract"]["required_transport"] == "json_action"
     assert native_errors[0]["repair_contract"]["action_type"] == "request_task_run"
+    assert native_errors[0]["action_issue"]["category"] == "protocol_violation"
+    assert native_errors[0]["action_issue"]["code"] == "control_action_requires_json_action"
+    assert native_errors[0]["action_issue"]["requested_action_type"] == "request_task_run"
     assert native_errors[0]["repairable"] is True
 
 
@@ -248,7 +251,9 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
     assert parsed.action_request is None
     assert parsed.error is not None
     assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
-    assert parsed.error["reason"] == "native_tool_calls_not_allowed"
+    assert parsed.error["reason"] == "native_tool_call_transport_not_available"
+    assert parsed.error["diagnostics"]["action_issue"]["category"] == "service_unavailable"
+    assert parsed.error["diagnostics"]["action_issue"]["code"] == "native_tool_call_transport_not_available"
 
 def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
     class MalformedThenCloseoutRuntime:
