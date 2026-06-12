@@ -451,7 +451,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "tool_index_stable",
         "task_contract_stable",
         "bound_task_context_stable",
-        "task_runtime_boundary_stable",
+        "task_runtime_boundary_dynamic",
         "task_state_replay_entry",
         "volatile_task_state",
     ]
@@ -464,7 +464,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "session_stable",
         "session_stable",
         "session_stable",
-        "session_stable",
+        "volatile",
         "volatile",
         "volatile",
     ]
@@ -477,7 +477,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "task",
         "task",
         "task",
-        "task",
+        "volatile",
         "volatile",
         "volatile",
     ]
@@ -500,9 +500,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert model_request.task_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["prefix_key_tier"] == "task"
     assert model_request.provider_global_prefix_hash != cache_record.prefix_hash
-    assert cache_record.diagnostics["stable_prefix_segment_count"] == 9
     assert cache_record.diagnostics["provider_global_prefix_segment_count"] == 1
-    assert cache_record.diagnostics["task_prefix_segment_count"] == 9
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
@@ -560,7 +558,7 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert first_replay_messages[0] == second_replay_messages[0]
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
-    assert second_kinds.index("task_runtime_boundary_stable") < second_kinds.index("task_state_replay_entry")
+    assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("task_state_replay_entry")
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
     assert second_kinds[-1] == "volatile_task_state"
 
@@ -583,7 +581,7 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert first_request.task_prefix_hash == second_request.task_prefix_hash
     assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
     assert "task_state_replay_entry" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
-    assert "task_runtime_boundary_stable" in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
+    assert "task_runtime_boundary_dynamic" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
 

@@ -15,8 +15,18 @@ def test_native_request_task_run_normalizes_string_completion_criteria_without_c
                 "args": {
                     "user_visible_goal": "审查项目。",
                     "task_run_goal": "逐模块审查项目。",
+                    "working_scope": {
+                        "target_objects": ["后端核心模块", "前端核心模块"],
+                        "known_constraints": ["输出书面审查报告"],
+                    },
                     "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
                     "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
+                    "capability_intent": {
+                        "needed_capability_groups": ["file_work"],
+                        "reason": "需要读取项目文件并形成审查证据。",
+                    },
+                    "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+                    "observation_contract": {"evidence_policy": "observation_required"},
                 },
             }
         ],
@@ -26,10 +36,11 @@ def test_native_request_task_run_normalizes_string_completion_criteria_without_c
 
     assert action is not None
     assert action.public_progress_note == ""
-    assert action.public_action_state.get("next_action") == ""
+    assert "next_action" not in action.public_action_state
     seed = action.task_contract_seed
     assert seed["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
     assert seed["required_artifacts"] == [{"artifact_kind": "markdown_document", "user_visible_name": "审查报告"}]
+    assert seed["capability_intent"]["needed_capability_groups"] == ["file_work"]
     assert action.completion_contract["completion_criteria"] == seed["completion_criteria"]
 
 
@@ -42,7 +53,17 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
             task_contract_seed={
                 "user_visible_goal": "审查交互投影。",
                 "task_run_goal": "验证 todo 投影和工具活动展示。",
+                "working_scope": {
+                    "target_objects": ["todo 投影", "工具活动展示"],
+                    "known_constraints": ["只依据真实投影和工具观察判断"],
+                },
                 "completion_criteria": "1. todo 投影显示有效任务 2. 工具活动不展示低层噪声",
+                "capability_intent": {
+                    "needed_capability_groups": ["runtime_inspection"],
+                    "reason": "需要检查运行时投影事实。",
+                },
+                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+                "observation_contract": {"evidence_policy": "observation_required"},
             },
         ),
         packet_ref="rtpacket:json-task-string-criteria",
@@ -51,6 +72,28 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert errors == []
     assert contract is not None
     assert contract.completion_criteria == ("todo 投影显示有效任务", "工具活动不展示低层噪声")
+    assert contract.capability_intent["needed_capability_groups"] == ["runtime_inspection"]
+
+
+def test_request_task_run_rejects_legacy_handoff_without_capability_intent() -> None:
+    contract, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:legacy-task",
+            turn_id="turn:legacy-task",
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "旧任务。",
+                "task_run_goal": "旧任务。",
+                "completion_criteria": ["完成"],
+            },
+        ),
+        packet_ref="rtpacket:legacy-task",
+    )
+
+    assert contract is None
+    assert "working_scope_required_for_request_task_run" in errors
+    assert "capability_intent_required_for_request_task_run" in errors
+    assert "observation_contract.evidence_policy_required" in errors
 
 
 def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_path: Path) -> None:

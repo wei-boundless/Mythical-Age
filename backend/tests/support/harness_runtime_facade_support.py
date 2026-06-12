@@ -128,6 +128,59 @@ def _action_request(
     }
 
 
+def _canonical_task_contract_seed(
+    seed: dict[str, object] | None = None,
+    *,
+    target_objects: list[object] | None = None,
+    known_constraints: list[str] | None = None,
+    capability_groups: list[str] | None = None,
+    tool_namespaces: list[str] | None = None,
+    selected_skill_ids: list[str] | None = None,
+    candidate_skill_ids: list[str] | None = None,
+    capability_reason: str = "测试任务需要系统提供对应能力服务。",
+    evidence_policy: str = "observation_required",
+) -> dict[str, object]:
+    payload = dict(seed or {})
+    if "working_scope" not in payload:
+        payload["working_scope"] = {
+            "target_objects": list(
+                target_objects
+                or [
+                    str(
+                        payload.get("task_run_goal")
+                        or payload.get("user_visible_goal")
+                        or "测试任务对象"
+                    )
+                ]
+            ),
+            "workspace_refs": [],
+            "source_refs": [],
+            "excluded_scope": [],
+            "known_constraints": list(known_constraints or []),
+        }
+    if "capability_intent" not in payload:
+        payload["capability_intent"] = {
+            "needed_capability_groups": list(capability_groups or ["file_work"]),
+            "preferred_tool_namespaces": list(tool_namespaces or []),
+            "requires_deferred_tool_loading": True,
+            "reason": capability_reason,
+        }
+    if "skill_intent" not in payload:
+        payload["skill_intent"] = {
+            "selected_skill_ids": list(selected_skill_ids or []),
+            "candidate_skill_ids": list(candidate_skill_ids or []),
+            "required_capability_tags": [],
+            "reason": "",
+        }
+    if "observation_contract" not in payload:
+        payload["observation_contract"] = {
+            "evidence_policy": evidence_policy,
+            "progress_granularity": "step",
+            "finalization_requires_evidence": True,
+        }
+    return payload
+
+
 def _project_backend_dir() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -358,7 +411,11 @@ class _ProtocolRepairPromptProbeModelRuntime:
                 content=json.dumps(
                     _action_request(
                         action_type="request_task_run",
-                        task_contract_seed={"user_visible_goal": "协议恢复。", "task_run_goal": "协议恢复。", "completion_criteria": ["完成"]},
+                        task_contract_seed=_canonical_task_contract_seed({
+                            "user_visible_goal": "协议恢复。",
+                            "task_run_goal": "协议恢复。",
+                            "completion_criteria": ["完成"],
+                        }),
                     ),
                     ensure_ascii=False,
                 )

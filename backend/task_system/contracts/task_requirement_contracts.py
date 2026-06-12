@@ -521,12 +521,18 @@ def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, An
     if profile is not None:
         return profile.task_domain
     seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
-    resource_contract = dict(seed.get("resource_contract") or {})
+    working_scope = dict(seed.get("working_scope") or {})
+    capability_intent = dict(seed.get("capability_intent") or {})
+    capability_groups = {
+        str(item).strip()
+        for item in list(capability_intent.get("needed_capability_groups") or [])
+        if str(item).strip()
+    }
     if str(seed.get("task_goal_type") or "").strip() == "external_research":
         return "external_web"
-    if list(resource_contract.get("required_write_files") or []) or list(resource_contract.get("required_write_dirs") or []):
+    if list(seed.get("required_artifacts") or []) or "artifact_generation" in capability_groups:
         return "development"
-    if list(resource_contract.get("required_read_files") or []) or list(resource_contract.get("required_read_dirs") or []):
+    if list(working_scope.get("target_objects") or []) or "file_work" in capability_groups:
         return "workspace"
     return "general"
 

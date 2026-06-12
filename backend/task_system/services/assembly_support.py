@@ -246,13 +246,12 @@ def _obligation_requires_real_work(obligation: dict[str, Any], *, contract: dict
     ):
         return True
     seed = dict(understanding.get("task_contract_seed") or {})
-    resource_contract = dict(seed.get("resource_contract") or {})
+    working_scope = dict(seed.get("working_scope") or {})
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     return bool(
         task_goal_type
-        or list(resource_contract.get("required_write_files") or [])
-        or list(resource_contract.get("required_write_dirs") or [])
-        or list(seed.get("deliverables") or [])
+        or list(seed.get("required_artifacts") or [])
+        or list(working_scope.get("target_objects") or [])
     )
 
 
@@ -474,9 +473,11 @@ def _build_task_spec(
         for item in list(skill_runtime_views or [])
         if str((item.to_dict() if hasattr(item, "to_dict") else dict(item)).get("skill_id") or "").strip()
     }
+    action_seed = dict(dict(current_turn_context.get("agent_turn_action_request") or {}).get("task_contract_seed") or {})
+    action_skill_intent = dict(action_seed.get("skill_intent") or {})
     action_selected_skill_ids = [
         str(item).strip()
-        for item in list(dict(current_turn_context.get("agent_turn_action_request") or {}).get("selected_skill_ids") or [])
+        for item in list(action_skill_intent.get("selected_skill_ids") or [])
         if str(item).strip()
     ]
     selected_skill_ids = _dedupe(

@@ -701,7 +701,7 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
     assert manifest["task_files"][0]["next_suggested_read"]["start_line"] == 31
     assert manifest["rehydration_refs"][0]["source"] == "file_state"
     assert "task_run_id" not in json.dumps(payload, ensure_ascii=False)
-    assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("task_runtime_boundary_stable")
+    assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("task_runtime_boundary_dynamic")
     assert manifest["context_hash"] == bound["context_hash"]
     bound_segment = next(item for item in result.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable")
     assert bound_segment["cache_scope"] == "task"

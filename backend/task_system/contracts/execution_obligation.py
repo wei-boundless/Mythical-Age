@@ -98,8 +98,8 @@ def build_execution_obligation(
         **dict(explicit_inputs or {}),
         **dict(current_turn.get("explicit_inputs") or {}),
     }
-    resource_contract = _resource_contract_from_current_turn(current_turn)
-    contract_reads = _collect_required_reads_from_resource_contract(resource_contract)
+    canonical_scope = _canonical_scope_from_current_turn(current_turn)
+    contract_reads = _collect_required_reads_from_canonical_scope(canonical_scope)
     reads = contract_reads
     if not reads:
         reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
@@ -108,11 +108,11 @@ def build_execution_obligation(
         task_goal_spec=goal_frame,
         current_turn=current_turn,
     )
-    contract_writes = _collect_required_writes_from_resource_contract(resource_contract)
+    contract_writes = _collect_required_writes_from_canonical_scope(canonical_scope)
     scoped_write_constraints = _scoped_write_constraints(
         text=text,
         current_turn=current_turn,
-        resource_contract=resource_contract,
+        canonical_scope=canonical_scope,
     )
     natural_language_write_forbid_signal = _natural_language_write_forbid_signal(
         lowered=lowered,
@@ -175,18 +175,18 @@ def build_execution_obligation(
         "structured_write_forbidden": forbid_write,
         "scoped_write_constraints": scoped_write_constraints,
         "profile_obligation": profile_obligation["evidence"],
-        "resource_contract_used": bool(resource_contract),
+        "canonical_handoff_scope_used": bool(canonical_scope),
         "agent_intent_classification_used": False,
         "natural_language_action_inference_removed": True,
         "read_paths_compiled_from": (
-            "resource_contract"
+            "canonical_working_scope"
             if contract_reads
             else "explicit_inputs_or_structural_paths"
             if reads
             else ""
         ),
         "execution_actions_compiled_from": [
-            *(("resource_contract",) if contract_writes else ()),
+            *(("canonical_required_artifacts",) if contract_writes else ()),
             *(
                 ("task_goal_profile",)
                 if (
@@ -221,21 +221,59 @@ def build_execution_obligation(
     )
 
 
-def _resource_contract_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
-    contracts: list[dict[str, Any]] = []
-    for value in (
-        current_turn.get("resource_contract"),
-        dict(current_turn.get("task_contract_seed") or {}).get("resource_contract"),
-        dict(current_turn.get("task_requirement_contract") or {}).get("resource_contract"),
-        dict(current_turn.get("model_turn_decision") or {}).get("resource_contract"),
-        dict(dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed") or {}).get("resource_contract"),
+def _canonical_scope_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
+    scopes: list[dict[str, Any]] = []
+    for seed in (
+        current_turn,
+        dict(current_turn.get("task_contract_seed") or {}),
+        dict(dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed") or {}),
     ):
-        if isinstance(value, dict) and value:
-            contracts.append(dict(value))
-    return _merge_resource_contracts(contracts)
+        if not isinstance(seed, dict) or not seed:
+            continue
+        working_scope = dict(seed.get("working_scope") or {})
+        required_artifacts = [dict(item) for item in list(seed.get("required_artifacts") or []) if isinstance(item, dict)]
+        scope: dict[str, Any] = {}
+        target_objects = _canonical_scope_paths(working_scope.get("target_objects"))
+        source_refs = _canonical_scope_paths(working_scope.get("source_refs"))
+        workspace_refs = _canonical_scope_paths(working_scope.get("workspace_refs"))
+        artifact_paths = _artifact_paths(required_artifacts)
+        if target_objects or source_refs or workspace_refs:
+            scope["required_read_files"] = [*target_objects, *source_refs, *workspace_refs]
+        if artifact_paths:
+            scope["required_write_files"] = artifact_paths
+        if scope:
+            scopes.append(scope)
+    return _merge_canonical_scopes(scopes)
 
 
-def _merge_resource_contracts(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+def _canonical_scope_paths(value: Any) -> list[str]:
+    result: list[str] = []
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    for raw in raw_values:
+        if isinstance(raw, dict):
+            raw = raw.get("path") or raw.get("ref") or raw.get("uri") or raw.get("name")
+        text = str(raw or "").strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _artifact_paths(values: list[dict[str, Any]]) -> list[str]:
+    result: list[str] = []
+    for item in values:
+        path = str(
+            item.get("path")
+            or item.get("artifact_path")
+            or item.get("target_path")
+            or item.get("output_path")
+            or ""
+        ).strip()
+        if path:
+            result.append(path)
+    return result
+
+
+def _merge_canonical_scopes(contracts: list[dict[str, Any]]) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for contract in contracts:
         for key, value in dict(contract or {}).items():
@@ -270,8 +308,8 @@ def _dedupe_resource_values(values: list[Any]) -> list[Any]:
     return result
 
 
-def _collect_required_reads_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
-    contract = dict(resource_contract or {})
+def _collect_required_reads_from_canonical_scope(canonical_scope: dict[str, Any]) -> list[dict[str, Any]]:
+    contract = dict(canonical_scope or {})
     source_projects = _project_paths(contract.get("source_projects"))
     read_files = _relative_paths(contract.get("required_read_files"))
     read_dirs = _relative_paths(contract.get("required_read_dirs"))
@@ -284,7 +322,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": _kind_from_path(path),
                     "role": "source_file" if _is_material_mount_path(path) else "material",
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_working_scope",
                 }
             )
         for path in read_dirs:
@@ -294,7 +332,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": "asset_dir" if _is_asset_dir(path) else "directory",
                     "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_working_scope",
                 }
             )
         return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
@@ -306,7 +344,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": _kind_from_path(path),
                     "role": "source_file",
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_working_scope",
                 }
             )
         for path in read_dirs:
@@ -316,14 +354,14 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": "asset_dir" if _is_asset_dir(path) else "directory",
                     "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_working_scope",
                 }
             )
     return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
 
 
-def _collect_required_writes_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
-    contract = dict(resource_contract or {})
+def _collect_required_writes_from_canonical_scope(canonical_scope: dict[str, Any]) -> list[dict[str, Any]]:
+    contract = dict(canonical_scope or {})
     target_projects = _project_paths(contract.get("target_projects"))
     write_files = _relative_paths(contract.get("required_write_files"))
     write_dirs = _relative_paths(contract.get("required_write_dirs"))
@@ -335,7 +373,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "file_write",
                     "path": path,
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_required_artifacts",
                 }
             )
         for path in write_dirs:
@@ -344,7 +382,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
                     "path": path,
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_required_artifacts",
                 }
             )
         return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
@@ -355,7 +393,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "file_write",
                     "path": _join_path(target_root, path),
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_required_artifacts",
                 }
             )
         for path in write_dirs:
@@ -364,7 +402,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
                     "path": _join_path(target_root, path),
                     "required": True,
-                    "source": "resource_contract",
+                    "source": "canonical_required_artifacts",
                 }
             )
     return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
@@ -458,7 +496,7 @@ def _scoped_write_constraints(
     *,
     text: str,
     current_turn: dict[str, Any],
-    resource_contract: dict[str, Any],
+    canonical_scope: dict[str, Any],
 ) -> list[dict[str, Any]]:
     normalized = str(text or "").lower()
     model_decision = dict(current_turn.get("model_turn_decision") or {})
@@ -479,7 +517,7 @@ def _scoped_write_constraints(
     joined_constraints = "\n".join(raw_constraints).lower()
     if not (_has_any(normalized, _SCOPED_SOURCE_WRITE_FORBID_MARKERS) or _has_any(joined_constraints, _SCOPED_SOURCE_WRITE_FORBID_MARKERS)):
         return []
-    source_paths = _project_paths(dict(resource_contract or {}).get("source_projects"))
+    source_paths = _project_paths(dict(canonical_scope or {}).get("source_projects"))
     if not source_paths:
         source_paths = [".materials/source_projects"]
     return [

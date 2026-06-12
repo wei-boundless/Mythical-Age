@@ -39,7 +39,6 @@ class ModelActionRequest:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["selected_skill_ids"] = list(self.selected_skill_ids)
         payload["task_contract_seed"] = dict(self.task_contract_seed or {})
         payload["tool_call"] = dict(self.tool_call or {})
         payload["public_action_state"] = dict(self.public_action_state or {})
@@ -104,7 +103,7 @@ def model_action_request_from_payload(
     if raw_turn_id != str(turn_id or "").strip():
         errors.append("turn_id_mismatch")
     tool_call = raw.get("tool_call") or {}
-    selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
+    raw_selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
     task_contract_seed = raw.get("task_contract_seed") or {}
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
@@ -124,12 +123,22 @@ def model_action_request_from_payload(
     if not isinstance(active_work_control, dict):
         errors.append("active_work_control_must_be_object")
         active_work_control = {}
+    selected_skill_ids = raw_selected_skill_ids
+    if action_type == "request_task_run" and isinstance(task_contract_seed, dict):
+        normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_contract_seed)
+        if raw_selected_skill_ids:
+            seed_errors.append("selected_skill_ids_must_be_inside_skill_intent")
+        task_contract_seed = normalized_seed
+        selected_skill_ids = canonical_selected_skill_ids
+        errors.extend(seed_errors)
+        contract_gaps: list[str] = list(seed_gaps)
+    else:
+        contract_gaps = []
     final_answer = str(raw.get("final_answer") or "").strip()
     user_question = str(raw.get("user_question") or "").strip()
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
-    contract_gaps: list[str] = []
     if require_public_progress_note and not public_progress_note:
         if action_type == "tool_call":
             contract_gaps.append("public_progress_note_missing_for_tool_call")
@@ -297,6 +306,118 @@ def _public_progress_note(value: Any) -> str:
         return ""
     text = " ".join(text.split())
     return text[:160].rstrip()
+
+
+_CANONICAL_HANDOFF_REQUIRED_OBJECTS = (
+    "working_scope",
+    "capability_intent",
+    "skill_intent",
+    "observation_contract",
+)
+
+
+def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
+    payload = dict(seed or {})
+    errors: list[str] = []
+    gaps: list[str] = []
+    for legacy_key in ("resource_contract", "resource_requirements", "selected_skill_ids"):
+        if _has_non_empty_value(payload.get(legacy_key)):
+            errors.append(f"legacy_task_contract_field_not_allowed:{legacy_key}")
+        payload.pop(legacy_key, None)
+    for key in _CANONICAL_HANDOFF_REQUIRED_OBJECTS:
+        if key not in payload:
+            errors.append(f"{key}_required_for_request_task_run")
+            payload[key] = {}
+        elif not isinstance(payload.get(key), dict):
+            errors.append(f"{key}_must_be_object")
+            payload[key] = {}
+    working_scope = _normalize_working_scope(dict(payload.get("working_scope") or {}))
+    capability_intent = _normalize_capability_intent(dict(payload.get("capability_intent") or {}))
+    skill_intent = _normalize_skill_intent(dict(payload.get("skill_intent") or {}))
+    observation_contract = _normalize_observation_contract(dict(payload.get("observation_contract") or {}))
+    if not _has_capability_intent(capability_intent):
+        errors.append("capability_intent_required_for_request_task_run")
+    if not observation_contract.get("evidence_policy"):
+        errors.append("observation_contract.evidence_policy_required")
+    payload["working_scope"] = working_scope
+    payload["capability_intent"] = capability_intent
+    payload["skill_intent"] = skill_intent
+    payload["observation_contract"] = observation_contract
+    return payload, errors, gaps, tuple(skill_intent.get("selected_skill_ids") or ())
+
+
+def _normalize_working_scope(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "target_objects": list(_dict_or_string_items(value.get("target_objects"))),
+        "workspace_refs": list(_string_tuple(value.get("workspace_refs"))),
+        "source_refs": list(_string_tuple(value.get("source_refs"))),
+        "excluded_scope": list(_string_tuple(value.get("excluded_scope"))),
+        "known_constraints": list(_string_tuple(value.get("known_constraints"))),
+    }
+
+
+def _normalize_capability_intent(value: dict[str, Any]) -> dict[str, Any]:
+    result = {
+        "needed_capability_groups": list(_string_tuple(value.get("needed_capability_groups") or value.get("capability_groups"))),
+        "preferred_tool_namespaces": list(_string_tuple(value.get("preferred_tool_namespaces") or value.get("tool_namespaces"))),
+        "requires_deferred_tool_loading": bool(value.get("requires_deferred_tool_loading") is True),
+        "reason": _public_progress_note(value.get("reason")),
+    }
+    return result
+
+
+def _normalize_skill_intent(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "selected_skill_ids": list(_normalize_skill_ids(value.get("selected_skill_ids"))),
+        "candidate_skill_ids": list(_normalize_skill_ids(value.get("candidate_skill_ids"))),
+        "required_capability_tags": list(_string_tuple(value.get("required_capability_tags"))),
+        "reason": _public_progress_note(value.get("reason")),
+    }
+
+
+def _normalize_observation_contract(value: dict[str, Any]) -> dict[str, Any]:
+    evidence_policy = str(value.get("evidence_policy") or "").strip()
+    progress_granularity = str(value.get("progress_granularity") or "step").strip() or "step"
+    return {
+        "evidence_policy": evidence_policy,
+        "progress_granularity": progress_granularity,
+        "finalization_requires_evidence": bool(value.get("finalization_requires_evidence") is not False),
+    }
+
+
+def _has_capability_intent(value: dict[str, Any]) -> bool:
+    return bool(
+        value.get("needed_capability_groups")
+        or value.get("preferred_tool_namespaces")
+        or str(value.get("reason") or "").strip()
+    )
+
+
+def _normalize_skill_ids(value: Any) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in _string_tuple(value):
+        normalized = item if item.startswith("skill.") else f"skill.{item}"
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return tuple(result)
+
+
+def _dict_or_string_items(value: Any) -> tuple[Any, ...]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    result: list[Any] = []
+    for item in raw_values:
+        if isinstance(item, dict):
+            cleaned = {str(key): val for key, val in item.items() if str(key).strip() and val not in (None, "", [], {})}
+            if cleaned:
+                result.append(cleaned)
+            continue
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return tuple(result)
 
 
 _PUBLIC_ACTION_COMPLETION_STATUSES = {"working", "waiting_for_tool", "verifying", "ready_to_finish", "blocked"}

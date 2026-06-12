@@ -243,11 +243,10 @@ def _explicit_task_runtime(current_turn: dict[str, Any]) -> bool:
 def _source_kind_from_contract(*, task_contract_seed: dict[str, Any], semantic_contract: dict[str, Any]) -> str:
     domain = str(semantic_contract.get("domain") or semantic_contract.get("task_domain") or "").strip()
     task_goal_type = str(task_contract_seed.get("task_goal_type") or semantic_contract.get("task_goal_type") or "").strip()
-    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
+    working_scope = dict(task_contract_seed.get("working_scope") or {})
     targets = [
         str(item or "").strip().lower()
-        for key in ("required_read_files", "required_read_dirs", "required_write_files", "required_write_dirs")
-        for item in list(resource_contract.get(key) or [])
+        for item in list(working_scope.get("target_objects") or [])
         if str(item or "").strip()
     ]
     if task_goal_type == "external_research":

@@ -15,6 +15,12 @@ class SkillRuntimeView:
     use_when: str = ""
     not_for: tuple[str, ...] = ()
     required_operations: tuple[str, ...] = ()
+    capability_tags: tuple[str, ...] = ()
+    preferred_capability_group: str = ""
+    activation_mode: str = "candidate"
+    selection_hint: str = ""
+    supported_task_kinds: tuple[str, ...] = ()
+    supported_source_kinds: tuple[str, ...] = ()
     canonical_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,6 +65,16 @@ def skill_runtime_views_from_registry(
 def skill_runtime_view_from_skill_definition(skill: SkillDefinition) -> SkillRuntimeView:
     use_when = str(skill.prompt_view.use_when or "").strip()
     capability = str(skill.prompt_view.capability or skill.description or "").strip()
+    capability_tags = tuple(
+        str(item).strip()
+        for item in list(getattr(skill.runtime, "capability_tags", ()) or [])
+        if str(item).strip()
+    )
+    required_operations = tuple(
+        str(item).strip()
+        for item in list(skill.requires_operations or [])
+        if str(item).strip()
+    )
     return SkillRuntimeView(
         skill_id=f"skill.{skill.name}",
         title=str(skill.title or skill.name).strip(),
@@ -69,9 +85,23 @@ def skill_runtime_view_from_skill_definition(skill: SkillDefinition) -> SkillRun
             for item in list(getattr(skill, "not_for", ()) or [])
             if str(item).strip()
         ),
-        required_operations=tuple(
+        required_operations=required_operations,
+        capability_tags=capability_tags,
+        preferred_capability_group=_preferred_capability_group(
+            capability_tags=capability_tags,
+            required_operations=required_operations,
+            preferred_route=str(getattr(skill.runtime, "preferred_route", "") or ""),
+        ),
+        activation_mode="candidate",
+        selection_hint="选择后运行时才会展开完整 skill 说明。",
+        supported_task_kinds=tuple(
             str(item).strip()
-            for item in list(skill.requires_operations or [])
+            for item in list(getattr(skill.runtime, "supported_task_kinds", ()) or [])
+            if str(item).strip()
+        ),
+        supported_source_kinds=tuple(
+            str(item).strip()
+            for item in list(getattr(skill.runtime, "supported_source_kinds", ()) or [])
             if str(item).strip()
         ),
         canonical_path=str(skill.path or "").strip(),
@@ -109,6 +139,19 @@ def render_skill_candidate_cards(skill_runtime_views: list[dict[str, Any]] | tup
         ]
         if operations:
             lines.append(f"  requires_operations: {', '.join(operations)}")
+        group = str(data.get("preferred_capability_group") or "").strip()
+        if group:
+            lines.append(f"  capability_group: {group}")
+        tags = [
+            str(value).strip()
+            for value in list(data.get("capability_tags") or [])
+            if str(value).strip()
+        ]
+        if tags:
+            lines.append(f"  capability_tags: {', '.join(tags)}")
+        selection_hint = str(data.get("selection_hint") or "").strip()
+        if selection_hint:
+            lines.append(f"  selection_hint: {selection_hint}")
         cards.append("\n".join(lines))
     if not cards:
         return ""
@@ -199,6 +242,30 @@ def _dedupe_skill_ids(values: list[str] | tuple[str, ...]) -> list[str]:
         seen.add(normalized)
         result.append(normalized)
     return result
+
+
+def _preferred_capability_group(
+    *,
+    capability_tags: tuple[str, ...],
+    required_operations: tuple[str, ...],
+    preferred_route: str,
+) -> str:
+    tokens = {
+        *(item.lower() for item in capability_tags),
+        *(item.lower() for item in required_operations),
+        str(preferred_route or "").strip().lower(),
+    }
+    if {"browser", "browser_control", "web_automation", "op.browser_control"}.intersection(tokens):
+        return "browser_use"
+    if {"web_research", "deep_search", "source_verification", "op.web_search", "op.fetch_url"}.intersection(tokens):
+        return "web_research"
+    if {"image_generation", "visual_prompt", "op.image_generate"}.intersection(tokens):
+        return "artifact_generation"
+    if {"subagent", "subagent_delegation", "op.subagent_spawn"}.intersection(tokens):
+        return "subagent_delegation"
+    if {"file_work", "code", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"}.intersection(tokens):
+        return "file_work"
+    return "general_task"
 
 
 def _model_visible_skill_body(text: str) -> str:

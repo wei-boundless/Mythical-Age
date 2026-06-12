@@ -85,6 +85,91 @@ _PROMPT_ORCHESTRATION_TEMPLATE_POLICIES: dict[str, dict[str, Any]] = {
     "prompt_template.general.agent_runtime": _GENERAL_AGENT_PROMPT_TEMPLATE_POLICY,
 }
 
+_CAPABILITY_GROUP_CATALOG: dict[str, dict[str, str]] = {
+    "general_task": {
+        "title": "通用任务判断",
+        "use_when": "用于理解用户目标、决定是否回答、询问、启动持续任务或阻塞。",
+    },
+    "file_work": {
+        "title": "文件与代码工作",
+        "use_when": "用于列目录、查找路径、搜索文本、读取文件、分析代码和编辑文件。",
+    },
+    "web_research": {
+        "title": "网络研究",
+        "use_when": "用于搜索网络、读取网页、交叉验证来源和整理引用证据。",
+    },
+    "browser_use": {
+        "title": "浏览器操作",
+        "use_when": "用于打开页面、点击、输入、截图、检查本地前端或网页交互。",
+    },
+    "shell_execution": {
+        "title": "命令执行",
+        "use_when": "用于运行命令、脚本、测试、构建或解释终端输出。",
+    },
+    "artifact_generation": {
+        "title": "产物生成",
+        "use_when": "用于创建或修改文件、生成图片、写入交付物并保留证据。",
+    },
+    "source_control": {
+        "title": "版本控制",
+        "use_when": "用于查看 diff、日志、分支、暂存、提交和推送。",
+    },
+    "memory": {
+        "title": "记忆检索",
+        "use_when": "用于读取任务记忆、历史事实和可复用上下文。",
+    },
+    "subagent_delegation": {
+        "title": "子 Agent 委派",
+        "use_when": "用于把清晰子目标交给子 agent 并收回结构化结果。",
+    },
+    "task_planning": {
+        "title": "任务计划与待办",
+        "use_when": "用于维护执行待办、阶段状态和验收进度。",
+    },
+}
+
+_TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
+    "op.agent_todo": "task_planning",
+    "op.subagent_spawn": "subagent_delegation",
+    "op.subagent_message": "subagent_delegation",
+    "op.subagent_wait": "subagent_delegation",
+    "op.subagent_list": "subagent_delegation",
+    "op.subagent_close": "subagent_delegation",
+    "op.web_search": "web_research",
+    "op.fetch_url": "web_research",
+    "op.browser_control": "browser_use",
+    "op.list_dir": "file_work",
+    "op.stat_path": "file_work",
+    "op.path_exists": "file_work",
+    "op.glob_paths": "file_work",
+    "op.search_files": "file_work",
+    "op.search_text": "file_work",
+    "op.read_file": "file_work",
+    "op.read_persisted_tool_result": "file_work",
+    "op.read_structured_file": "file_work",
+    "op.python_code_outline": "file_work",
+    "op.python_parse_check": "file_work",
+    "op.python_symbol_search": "file_work",
+    "op.text_metric": "file_work",
+    "op.write_file": "artifact_generation",
+    "op.edit_file": "artifact_generation",
+    "op.image_generate": "artifact_generation",
+    "op.shell": "shell_execution",
+    "op.python_repl": "shell_execution",
+    "op.memory_read": "memory",
+    "op.git_status": "source_control",
+    "op.git_diff": "source_control",
+    "op.git_log": "source_control",
+    "op.git_show": "source_control",
+    "op.git_branch_list": "source_control",
+    "op.git_branch_create": "source_control",
+    "op.git_stage": "source_control",
+    "op.git_unstage": "source_control",
+    "op.git_commit": "source_control",
+    "op.git_restore": "source_control",
+    "op.git_push": "source_control",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAssemblyProfile:
@@ -142,8 +227,9 @@ class RuntimeAssembly:
     personality_prompt_selection: dict[str, Any] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
     prompt_mount_plan: dict[str, Any] = field(default_factory=dict)
+    capability_directory: dict[str, Any] = field(default_factory=dict)
     skill_runtime_views: tuple[dict[str, Any], ...] = ()
-    selected_skill_ids: tuple[str, ...] = ()
+    skill_activation: dict[str, Any] = field(default_factory=dict)
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
@@ -172,8 +258,9 @@ class RuntimeAssembly:
         payload["personality_prompt_selection"] = dict(self.personality_prompt_selection)
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
         payload["prompt_mount_plan"] = dict(self.prompt_mount_plan)
+        payload["capability_directory"] = dict(self.capability_directory)
         payload["skill_runtime_views"] = [dict(item) for item in self.skill_runtime_views]
-        payload["selected_skill_ids"] = list(self.selected_skill_ids)
+        payload["skill_activation"] = dict(self.skill_activation)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
 
@@ -266,9 +353,21 @@ def assemble_runtime(
         backend_dir=backend_dir,
         allowed_operations=tuple(sorted(allowed_operations)),
     )
-    selected_skill_ids = _visible_selected_skill_ids(
-        runtime_contract_payload.get("selected_skill_ids"),
+    skill_activation = _visible_skill_activation(
+        runtime_contract_payload.get("skill_activation"),
         visible_skill_ids=tuple(str(item.get("skill_id") or "") for item in skill_runtime_views),
+    )
+    capability_directory = _capability_directory_view(
+        runtime_contract=runtime_contract_payload,
+        available_tools=available_tools,
+        skill_runtime_views=skill_runtime_views,
+        filtered_tools=tuple(
+            [
+                *_operation_filtered_tools(operation_projection.to_dict(), definitions_by_name=definitions_by_name),
+                *_drop_generic_operation_denials(tool_set.filtered_out),
+                *visibility_filtered,
+            ]
+        ),
     )
     return RuntimeAssembly(
         assembly_id=f"rtasm:{turn_id}:{profile.profile_ref or 'agent_profile'}",
@@ -291,8 +390,9 @@ def assemble_runtime(
         personality_prompt_selection=personality_selection.to_dict(),
         environment_prompt_refs=prompt_mount_plan.environment_prompt_refs,
         prompt_mount_plan=prompt_mount_plan.to_dict(),
+        capability_directory=capability_directory,
         skill_runtime_views=skill_runtime_views,
-        selected_skill_ids=selected_skill_ids,
+        skill_activation=skill_activation,
         available_tools=available_tools,
         tool_names=visible_tool_names,
         filtered_tools=tuple(
@@ -321,7 +421,7 @@ def assemble_runtime(
             "control_capabilities": dict(control_capabilities),
             "skill_runtime": {
                 "candidate_count": len(skill_runtime_views),
-                "selected_skill_ids": list(selected_skill_ids),
+                "skill_activation": dict(skill_activation),
             },
         },
     )
@@ -492,21 +592,136 @@ def _skill_runtime_views_for_profile(
     return tuple(view.to_dict() for view in views)
 
 
-def _visible_selected_skill_ids(value: Any, *, visible_skill_ids: tuple[str, ...]) -> tuple[str, ...]:
+def _visible_skill_activation(value: Any, *, visible_skill_ids: tuple[str, ...]) -> dict[str, Any]:
+    raw = dict(value or {}) if isinstance(value, dict) else {}
     visible = {str(item or "").strip() for item in visible_skill_ids if str(item or "").strip()}
     selected: list[str] = []
+    rejected: list[str] = []
     seen: set[str] = set()
-    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
-    for raw in raw_values:
-        item = str(raw or "").strip()
+    raw_values = raw.get("selected_skill_ids")
+    raw_values = raw_values if isinstance(raw_values, (list, tuple)) else ([raw_values] if raw_values else [])
+    for raw_item in raw_values:
+        item = str(raw_item or "").strip()
         if not item:
             continue
         normalized = item if item.startswith("skill.") else f"skill.{item}"
-        if normalized not in visible or normalized in seen:
+        if normalized in seen:
             continue
         seen.add(normalized)
+        if normalized not in visible:
+            rejected.append(normalized)
+            continue
         selected.append(normalized)
-    return tuple(selected)
+    return {
+        "selected_skill_ids": selected,
+        "selection_source": str(raw.get("selection_source") or "").strip(),
+        "selection_reason": str(raw.get("selection_reason") or "").strip(),
+        "expanded_skill_refs": list(_string_tuple(raw.get("expanded_skill_refs"))),
+        "rejected_skill_ids": [*list(_string_tuple(raw.get("rejected_skill_ids"))), *rejected],
+        "authority": str(raw.get("authority") or "harness.runtime.skill_activation"),
+    }
+
+
+def _capability_directory_view(
+    *,
+    runtime_contract: dict[str, Any],
+    available_tools: tuple[dict[str, Any], ...],
+    skill_runtime_views: tuple[dict[str, Any], ...],
+    filtered_tools: tuple[dict[str, str], ...],
+) -> dict[str, Any]:
+    capability_intent = dict(runtime_contract.get("capability_intent") or {})
+    requested_groups = set(_string_tuple(capability_intent.get("needed_capability_groups") or capability_intent.get("capability_groups")))
+    preferred_namespaces = set(_string_tuple(capability_intent.get("preferred_tool_namespaces") or capability_intent.get("tool_namespaces")))
+    tools_by_group: dict[str, list[dict[str, Any]]] = {}
+    for tool in available_tools:
+        payload = dict(tool or {})
+        group_id = _capability_group_for_tool(payload)
+        tools_by_group.setdefault(group_id, []).append(
+            {
+                "tool_name": str(payload.get("tool_name") or "").strip(),
+                "operation_id": str(payload.get("operation_id") or "").strip(),
+                "read_only": bool(payload.get("read_only") is True),
+            }
+        )
+    skills_by_group: dict[str, list[dict[str, str]]] = {}
+    for skill in skill_runtime_views:
+        payload = dict(skill or {})
+        group_id = str(payload.get("preferred_capability_group") or "").strip() or "general_task"
+        skill_id = str(payload.get("skill_id") or "").strip()
+        if not skill_id:
+            continue
+        skills_by_group.setdefault(group_id, []).append(
+            {
+                "skill_id": skill_id,
+                "title": str(payload.get("title") or skill_id).strip(),
+            }
+        )
+    group_ids = _dedupe_strings(
+        [
+            "general_task",
+            *sorted(requested_groups),
+            *sorted(tools_by_group.keys()),
+            *sorted(skills_by_group.keys()),
+        ]
+    )
+    groups: list[dict[str, Any]] = []
+    for group_id in group_ids:
+        meta = dict(_CAPABILITY_GROUP_CATALOG.get(group_id) or {})
+        candidate_tools = tuple(dict(item) for item in tools_by_group.get(group_id, []))
+        candidate_skills = tuple(dict(item) for item in skills_by_group.get(group_id, []))
+        loading_mode = "visible" if candidate_tools else "deferred"
+        if group_id in {"web_research", "browser_use"} and not candidate_tools:
+            loading_mode = "search"
+        groups.append(
+            {
+                "group_id": group_id,
+                "title": str(meta.get("title") or group_id).strip(),
+                "use_when": str(meta.get("use_when") or "").strip(),
+                "tool_namespaces": list(_dedupe_strings([group_id, *([group_id] if group_id in preferred_namespaces else [])])),
+                "candidate_tools": list(candidate_tools),
+                "candidate_skills": list(candidate_skills),
+                "loading_mode": loading_mode,
+                "contract_requested": group_id in requested_groups,
+            }
+        )
+    return {
+        "capability_groups": groups,
+        "requested_capability_groups": [group for group in group_ids if group in requested_groups],
+        "preferred_tool_namespaces": sorted(preferred_namespaces),
+        "tool_search_available": bool(filtered_tools or preferred_namespaces),
+        "skill_selection_available": bool(skill_runtime_views),
+        "authority": "harness.runtime.capability_directory",
+    }
+
+
+def _capability_group_for_tool(tool: dict[str, Any]) -> str:
+    operation_id = str(tool.get("operation_id") or "").strip()
+    if operation_id in _TOOL_CAPABILITY_GROUP_BY_OPERATION:
+        return _TOOL_CAPABILITY_GROUP_BY_OPERATION[operation_id]
+    tool_name = str(tool.get("tool_name") or "").strip()
+    if "browser" in tool_name:
+        return "browser_use"
+    if "web" in tool_name or "fetch" in tool_name:
+        return "web_research"
+    if "git" in tool_name:
+        return "source_control"
+    if "write" in tool_name or "image" in tool_name:
+        return "artifact_generation"
+    if "shell" in tool_name or "python_repl" in tool_name:
+        return "shell_execution"
+    return "general_task"
+
+
+def _dedupe_strings(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return tuple(result)
 
 
 def _resolved_runtime_policy(

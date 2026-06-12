@@ -168,23 +168,22 @@ def select_runtime_task_definitions(
     if action_type and action_type != "request_task_run":
         return [definitions["task.final_response"]]
 
-    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
-    has_write_contract = bool(
-        list(resource_contract.get("required_write_files") or [])
-        or list(resource_contract.get("required_write_dirs") or [])
-    )
-    has_read_contract = bool(
-        list(resource_contract.get("required_read_files") or [])
-        or list(resource_contract.get("required_read_dirs") or [])
-    )
-    deliverables = {str(item).strip() for item in list(task_contract_seed.get("deliverables") or []) if str(item).strip()}
+    working_scope = dict(task_contract_seed.get("working_scope") or {})
+    capability_intent = dict(task_contract_seed.get("capability_intent") or {})
+    capability_groups = {
+        str(item).strip()
+        for item in list(capability_intent.get("needed_capability_groups") or [])
+        if str(item).strip()
+    }
+    has_write_contract = bool(list(task_contract_seed.get("required_artifacts") or []))
+    has_read_contract = bool(list(working_scope.get("target_objects") or []) or list(working_scope.get("source_refs") or []))
 
     if task_goal_type in {"external_research"}:
         return [definitions["task.capability_execution"], definitions["task.information_search"]]
     if (
         task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification"}
         or has_write_contract
-        or deliverables
+        or capability_groups.intersection({"artifact_generation", "file_work", "shell_execution"})
     ):
         return [
             definitions["task.task_execution"],

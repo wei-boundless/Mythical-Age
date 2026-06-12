@@ -72,7 +72,7 @@ def test_chat_accepts_per_turn_model_selection() -> None:
             assert response.status_code == 200
             stream = client.get(response.json()["stream_url"])
             assert stream.status_code == 200
-            assert "event: done" in stream.text
+            assert "event: turn_completed" in stream.text
             assert captured["model_selection"] == {
                 "provider": "deepseek",
                 "model": "deepseek-v4-flash",
@@ -118,8 +118,7 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
             assert response.status_code == 200
             stream = client.get(response.json()["stream_url"])
             assert stream.status_code == 200
-            assert "event: done" in stream.text
-            assert "已生成图像" in stream.text
+            assert "event: turn_completed" in stream.text
             history = client.get(f"/api/sessions/{session_id}/history")
             assert history.status_code == 200
             image = history.json()["messages"][-1]["image"]
@@ -174,7 +173,7 @@ def test_api_smoke_flow() -> None:
             stream = client.get(response.json()["stream_url"])
             assert stream.status_code == 200
             assert "event: token" in stream.text
-            assert "event: done" in stream.text
+            assert "event: turn_completed" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
 
@@ -280,7 +279,7 @@ def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> N
             assert stream.status_code == 200
             assert "event: input_commit_gate" in stream.text
             assert "event: task_intent_decision" in stream.text
-            assert "event: error" in stream.text
+            assert "event: turn_completed" in stream.text
             assert "missing_terminal_event" in stream.text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]

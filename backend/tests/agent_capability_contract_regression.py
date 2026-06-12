@@ -48,7 +48,7 @@ def _main_profile_with_alias_subagents():
     )
 
 
-def _assembled_runtime_with_real_tools() -> dict[str, object]:
+def _assembled_runtime_with_real_tools(runtime_contract: dict[str, object] | None = None) -> dict[str, object]:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     return assemble_runtime(
@@ -56,7 +56,7 @@ def _assembled_runtime_with_real_tools() -> dict[str, object]:
         session_id="session:agent-capability-contract",
         turn_id="turn:agent-capability-contract",
         agent_invocation_id="aginvoke:agent-capability-contract",
-        runtime_contract={"task_environment_id": "env.coding.vibe_workspace"},
+        runtime_contract={"task_environment_id": "env.coding.vibe_workspace", **dict(runtime_contract or {})},
         model_selection={},
         agent_runtime_profile=_main_profile_with_alias_subagents(),
         tool_instances=build_tool_instances(BACKEND_DIR),
@@ -76,12 +76,76 @@ def test_task_runtime_boundary_projects_canonical_allowed_subagent_ids() -> None
         available_tools=assembly["available_tools"],
         runtime_assembly=assembly,
     ).packet
-    boundary = _message_payload_for_segment_kind(packet, "task_runtime_boundary_stable")
+    boundary = _message_payload_for_segment_kind(packet, "task_runtime_boundary_dynamic")
+    boundary_segment = next(
+        item
+        for item in list(packet.segment_plan.get("segments") or [])
+        if dict(item).get("kind") == "task_runtime_boundary_dynamic"
+    )
     tool_boundary = boundary["runtime_context"]["tool_boundary"]
 
+    assert boundary_segment["cache_scope"] == "none"
+    assert boundary_segment["cache_role"] == "volatile"
     assert allowed_ids == ["agent:codebase_searcher", "agent:verifier"]
     assert tool_boundary["allowed_subagent_ids"] == ["agent:codebase_searcher", "agent:verifier"]
     assert "codebase_searcher" not in tool_boundary["allowed_subagent_ids"]
+
+
+def test_capability_directory_projects_contract_requested_groups_and_candidate_skills() -> None:
+    assembly = _assembled_runtime_with_real_tools(
+        {
+            "capability_intent": {
+                "needed_capability_groups": ["file_work"],
+                "preferred_tool_namespaces": ["file_work"],
+                "reason": "需要读取项目文件。",
+            }
+        }
+    )
+    directory = dict(assembly["capability_directory"])
+    groups = {
+        str(item.get("group_id") or ""): dict(item)
+        for item in list(directory.get("capability_groups") or [])
+    }
+    file_work = groups["file_work"]
+    tools = {str(item.get("tool_name") or "") for item in list(file_work.get("candidate_tools") or [])}
+    skills = {str(item.get("skill_id") or "") for item in list(file_work.get("candidate_skills") or [])}
+
+    assert "file_work" in directory["requested_capability_groups"]
+    assert file_work["contract_requested"] is True
+    assert "read_file" in tools
+    assert "skill.skill-creator" in skills
+    assert directory["skill_selection_available"] is True
+
+
+def test_active_skill_body_is_dynamic_and_excluded_from_task_cache_prefix() -> None:
+    assembly = _assembled_runtime_with_real_tools(
+        {
+            "capability_intent": {
+                "needed_capability_groups": ["general_task"],
+                "reason": "需要读取 PDF skill 的完整说明。",
+            },
+            "skill_activation": {
+                "selected_skill_ids": ["skill.pdf-analysis"],
+                "selection_source": "model_action",
+                "selection_reason": "测试激活 skill。",
+            },
+        }
+    )
+    packet = RuntimeCompiler(base_dir=BACKEND_DIR).compile_task_execution_packet(
+        session_id="session:agent-capability-contract",
+        task_run={"task_run_id": "taskrun:agent-capability-contract", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "Verify active skill cache boundary", "completion_criteria": ["skill body dynamic"]},
+        observations=[],
+        available_tools=assembly["available_tools"],
+        runtime_assembly=assembly,
+    ).packet
+    active_segment = next(
+        item
+        for item in list(packet.segment_plan.get("segments") or [])
+        if dict(item).get("kind") == "active_skills"
+    )
+    assert active_segment["cache_scope"] == "none"
+    assert active_segment["cache_role"] == "volatile"
 
 
 def test_tool_catalog_exposes_todo_subagent_and_io_schema_contracts() -> None:

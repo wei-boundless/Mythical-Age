@@ -53,6 +53,7 @@ from harness.loop.task_executor_controller import TaskExecutorController
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
+    contract_from_action_request,
     current_session_task_run,
     start_task_lifecycle_from_action_request,
     start_task_lifecycle_from_contract,
@@ -2765,6 +2766,7 @@ def _explicit_contract_action_request(
 ) -> ModelActionRequest:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     source = _explicit_contract_source_payload(assembly_payload)
+    runtime_contract = dict(assembly_payload.get("runtime_contract") or {})
     return ModelActionRequest(
         request_id=f"system-explicit-contract:{turn_id}:{uuid.uuid4().hex[:8]}",
         turn_id=turn_id,
@@ -2775,33 +2777,77 @@ def _explicit_contract_action_request(
             "next_action": "直接建立任务生命周期。",
             "completion_status": "working",
         },
-        task_contract_seed={
-            "user_visible_goal": _first_contract_text(
-                source.get("user_visible_goal"),
-                source.get("user_goal"),
-                source.get("objective"),
-                source.get("title"),
-                request.message,
-            ),
-            "task_run_goal": _first_contract_text(
-                source.get("task_run_goal"),
-                source.get("objective"),
-                source.get("user_visible_goal"),
-                source.get("user_goal"),
-                request.message,
-            ),
-            "completion_criteria": contract_string_tuple(
-                source.get("completion_criteria")
-                or dict(source.get("output_contract") or {}).get("completion_criteria")
-                or dict(source.get("acceptance_policy") or {}).get("completion_criteria")
-            ),
-        },
+        task_contract_seed=_explicit_contract_task_seed(
+            request=request,
+            source=source,
+            runtime_contract=runtime_contract,
+        ),
         diagnostics={
             "origin_kind": "explicit_contract",
             "origin_authority": "harness.explicit_contract_task",
             "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or ""),
         },
     )
+
+
+def _explicit_contract_task_seed(
+    *,
+    request: HarnessRuntimeRequest,
+    source: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any]:
+    output_contract = dict(source.get("output_contract") or {})
+    acceptance_policy = dict(source.get("acceptance_policy") or {})
+    runtime_profile = dict(source.get("runtime_profile") or {})
+    if not runtime_profile:
+        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
+    allowed_operations = _explicit_allowed_operations_for_contract(runtime_contract=runtime_contract, source=source)
+    return {
+        "user_visible_goal": _first_contract_text(
+            source.get("user_visible_goal"),
+            source.get("user_goal"),
+            source.get("objective"),
+            source.get("title"),
+            request.message,
+        ),
+        "task_run_goal": _first_contract_text(
+            source.get("task_run_goal"),
+            source.get("objective"),
+            source.get("user_visible_goal"),
+            source.get("user_goal"),
+            request.message,
+        ),
+        "required_artifacts": contract_dict_tuple(
+            source.get("required_artifacts")
+            or output_contract.get("required_artifacts")
+            or output_contract.get("artifact_requirements")
+            or acceptance_policy.get("required_artifacts")
+        ),
+        "required_verifications": contract_dict_tuple(
+            source.get("required_verifications")
+            or output_contract.get("required_verifications")
+            or output_contract.get("verification_requirements")
+            or acceptance_policy.get("required_verifications")
+        ),
+        "completion_criteria": contract_string_tuple(
+            source.get("completion_criteria")
+            or output_contract.get("completion_criteria")
+            or acceptance_policy.get("completion_criteria")
+        ),
+        "working_scope": dict(source.get("working_scope") or {}),
+        "capability_intent": dict(source.get("capability_intent") or {}),
+        "skill_intent": dict(source.get("skill_intent") or {}),
+        "observation_contract": dict(source.get("observation_contract") or {}),
+        "acceptance_policy": acceptance_policy,
+        "recovery_policy": dict(source.get("recovery_policy") or {}),
+        "runtime_profile": runtime_profile,
+        "permission_requirements": dict(source.get("permission_requirements") or source.get("tool_scope") or {}),
+        "allowed_operations": list(allowed_operations or ()),
+        "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or "").strip(),
+        "external_plan_ref": str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
+        "prompt_contract": dict(source.get("prompt_contract") or {}),
+        "graph_slot": dict(source.get("graph_slot") or source.get("graph_contract") or {}),
+    }
 
 
 def _task_run_contract_from_explicit_contract(
@@ -2813,48 +2859,6 @@ def _task_run_contract_from_explicit_contract(
 ) -> tuple[TaskRunContract | None, list[str]]:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     source = _explicit_contract_source_payload(assembly_payload)
-    errors: list[str] = []
-    user_visible_goal = _first_contract_text(
-        source.get("user_visible_goal"),
-        source.get("user_goal"),
-        source.get("objective"),
-        source.get("title"),
-        request.message,
-    )
-    task_run_goal = _first_contract_text(
-        source.get("task_run_goal"),
-        source.get("objective"),
-        source.get("user_visible_goal"),
-        source.get("user_goal"),
-        request.message,
-    )
-    if not user_visible_goal:
-        errors.append("task_goal_required")
-    if not task_run_goal:
-        errors.append("task_run_goal_required")
-    output_contract = dict(source.get("output_contract") or {})
-    acceptance_policy = dict(source.get("acceptance_policy") or {})
-    required_artifacts = contract_dict_tuple(
-        source.get("required_artifacts")
-        or output_contract.get("required_artifacts")
-        or output_contract.get("artifact_requirements")
-        or acceptance_policy.get("required_artifacts")
-    )
-    required_verifications = contract_dict_tuple(
-        source.get("required_verifications")
-        or output_contract.get("required_verifications")
-        or output_contract.get("verification_requirements")
-        or acceptance_policy.get("required_verifications")
-    )
-    completion_criteria = contract_string_tuple(
-        source.get("completion_criteria")
-        or output_contract.get("completion_criteria")
-        or acceptance_policy.get("completion_criteria")
-    )
-    if not completion_criteria and not required_artifacts and not required_verifications:
-        errors.append("completion_evidence_required")
-    if errors:
-        return None, errors
     runtime_contract = dict(assembly_payload.get("runtime_contract") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
     task_environment_id = str(
@@ -2864,37 +2868,18 @@ def _task_run_contract_from_explicit_contract(
         or environment.get("environment_id")
         or ""
     ).strip()
-    runtime_profile = dict(source.get("runtime_profile") or {})
-    if not runtime_profile:
-        runtime_profile = dict(dict(source.get("runtime_assembly_plan") or {}).get("runtime_profile") or {})
-    runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
-        runtime_profile,
-        allowed_operations=_explicit_allowed_operations_for_contract(runtime_contract=runtime_contract, source=source),
+    contract, errors = contract_from_action_request(
+        action_request,
+        packet_ref=action_request.request_id,
+        task_environment_id=task_environment_id,
     )
-    contract = TaskRunContract(
-        contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
+    if contract is None:
+        return None, errors
+    contract = replace(
+        contract,
         contract_source="explicit_contract",
-        user_visible_goal=user_visible_goal,
-        task_run_goal=task_run_goal,
-        required_artifacts=required_artifacts,
-        required_verifications=required_verifications,
-        completion_criteria=completion_criteria,
-        resource_requirements=dict(
-            source.get("resource_requirements")
-            or source.get("runtime_requirements")
-            or source.get("resource_scope")
-            or {}
-        ),
-        permission_requirements=dict(source.get("permission_requirements") or source.get("tool_scope") or {}),
-        acceptance_policy=acceptance_policy,
-        recovery_policy=dict(source.get("recovery_policy") or {}),
-        created_from_packet_ref=action_request.request_id,
         source_contract_ref=str(source.get("contract_id") or source.get("source_ref") or "").strip(),
         external_plan_ref=str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
-        task_environment_id=task_environment_id,
-        runtime_profile=runtime_profile,
-        prompt_contract=dict(source.get("prompt_contract") or {}),
-        graph_slot=dict(source.get("graph_slot") or source.get("graph_contract") or {}),
         origin={
             "origin_kind": "explicit_contract",
             "origin_authority": "harness.explicit_contract_task",

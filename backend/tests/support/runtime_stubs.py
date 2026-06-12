@@ -207,18 +207,42 @@ def agent_turn_context(
     resolved_task_goal_type = str(task_goal_type or "").strip()
     if not resolved_task_goal_type:
         raise ValueError("agent_turn_context requires task_goal_type")
+    artifact_requirements = [
+        {"artifact_kind": "deliverable", "user_visible_name": str(item)}
+        for item in list(deliverables or [])
+        if str(item).strip()
+    ]
     task_contract_seed = {
-        "goal": desired_outcome,
-        "task_goal_type": resolved_task_goal_type,
-        "deliverables": list(deliverables or []),
-        "constraints": list(constraints or []),
-        "forbidden_actions": list(forbidden_actions or []),
+        "user_visible_goal": desired_outcome,
+        "task_run_goal": desired_outcome,
+        "working_scope": {
+            "target_objects": list(target_objects or [desired_outcome]),
+            "workspace_refs": [],
+            "source_refs": [],
+            "excluded_scope": list(forbidden_actions or []),
+            "known_constraints": list(constraints or []),
+        },
+        "required_artifacts": artifact_requirements,
+        "required_verifications": [],
         "completion_criteria": list(completion_criteria or []),
+        "capability_intent": {
+            "needed_capability_groups": ["file_work"] if target_objects else ["general_task"],
+            "preferred_tool_namespaces": [],
+            "requires_deferred_tool_loading": True,
+            "reason": "测试桩按任务上下文声明需要的能力服务。",
+        },
+        "skill_intent": {
+            "selected_skill_ids": list(selected_skill_ids or []),
+            "candidate_skill_ids": [],
+            "required_capability_tags": [],
+            "reason": "",
+        },
+        "observation_contract": {
+            "evidence_policy": "observation_required",
+            "progress_granularity": "step",
+            "finalization_requires_evidence": True,
+        },
     }
-    if target_objects:
-        task_contract_seed["resource_contract"] = {"required_read_files": list(target_objects)}
-    if selected_skill_ids:
-        task_contract_seed["selected_skill_ids"] = list(selected_skill_ids)
     action_request = {
         "authority": "agent_runtime.agent_turn_action_request",
         "request_id": "agent-turn-action:test",

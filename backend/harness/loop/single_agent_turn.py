@@ -2476,7 +2476,31 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                     "task_contract_seed": {
                         "user_visible_goal": "把用户目标写成可见任务目标。",
                         "task_run_goal": "把任务执行目标写清楚。",
+                        "working_scope": {
+                            "target_objects": ["列出任务对象、文件、材料或目标。"],
+                            "workspace_refs": [],
+                            "source_refs": [],
+                            "excluded_scope": [],
+                            "known_constraints": ["列出用户明确约束。"],
+                        },
                         "completion_criteria": ["列出可验证的完成条件。"],
+                        "capability_intent": {
+                            "needed_capability_groups": ["file_work"],
+                            "preferred_tool_namespaces": [],
+                            "requires_deferred_tool_loading": True,
+                            "reason": "说明需要这些系统服务的原因。",
+                        },
+                        "skill_intent": {
+                            "selected_skill_ids": [],
+                            "candidate_skill_ids": [],
+                            "required_capability_tags": [],
+                            "reason": "",
+                        },
+                        "observation_contract": {
+                            "evidence_policy": "observation_required",
+                            "progress_granularity": "step",
+                            "finalization_requires_evidence": True,
+                        },
                     },
                     "public_progress_note": "准备创建持续任务。",
                     "public_action_state": {
@@ -3029,9 +3053,13 @@ def _action_request_from_native_tool_calls(
         contract_seed = {
             "user_visible_goal": str(args.get("user_visible_goal") or "").strip(),
             "task_run_goal": str(args.get("task_run_goal") or "").strip(),
+            "working_scope": dict(args.get("working_scope") or {}) if isinstance(args.get("working_scope"), dict) else {},
             "required_artifacts": contract_dict_list(args.get("required_artifacts")),
             "required_verifications": contract_dict_list(args.get("required_verifications")),
             "completion_criteria": contract_string_list(args.get("completion_criteria")),
+            "capability_intent": dict(args.get("capability_intent") or {}) if isinstance(args.get("capability_intent"), dict) else {},
+            "skill_intent": dict(args.get("skill_intent") or {}) if isinstance(args.get("skill_intent"), dict) else {},
+            "observation_contract": dict(args.get("observation_contract") or {}) if isinstance(args.get("observation_contract"), dict) else {},
         }
         active_work_relationship = str(args.get("active_work_relationship") or "").strip()
         if active_work_relationship:
@@ -3044,15 +3072,16 @@ def _action_request_from_native_tool_calls(
         }
         if public_note:
             public_action_state["current_judgment"] = public_note
-        return ModelActionRequest(
-            request_id=f"model-action:{turn_id}:single-agent-request-task-run",
-            turn_id=turn_id,
-            action_type="request_task_run",
-            public_progress_note=public_note,
-            public_action_state=public_action_state,
-            task_contract_seed=contract_seed,
-            completion_contract={"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
-            diagnostics={
+        action, _diagnostics = model_action_request_from_payload(
+            {
+                "request_id": f"model-action:{turn_id}:single-agent-request-task-run",
+                "turn_id": turn_id,
+                "action_type": "request_task_run",
+                "public_progress_note": public_note,
+                "public_action_state": public_action_state,
+                "task_contract_seed": contract_seed,
+                "completion_contract": {"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
+                "diagnostics": {
                 "origin_kind": "single_agent_turn_native_action",
                 "origin_authority": "harness.loop.single_agent_turn",
                 "packet_ref": packet_ref,
@@ -3061,8 +3090,11 @@ def _action_request_from_native_tool_calls(
                     "name": str(call.get("name") or ""),
                     "source": str(call.get("source") or ""),
                 },
+                },
             },
+            turn_id=turn_id,
         )
+        return action
     return None
 
 

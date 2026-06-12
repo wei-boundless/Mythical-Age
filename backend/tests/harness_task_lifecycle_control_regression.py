@@ -125,8 +125,32 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                         "contract_id": "contract:explicit:test",
                         "user_visible_goal": "交付显式合同任务。",
                         "task_run_goal": "根据显式合同创建并执行任务。",
+                        "working_scope": {
+                            "target_objects": ["显式合同任务"],
+                            "workspace_refs": [],
+                            "source_refs": [],
+                            "excluded_scope": [],
+                            "known_constraints": ["任务生命周期必须由系统直接启动"],
+                        },
                         "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
                         "completion_criteria": ["任务生命周期必须由系统直接启动"],
+                        "capability_intent": {
+                            "needed_capability_groups": ["file_work", "artifact_generation"],
+                            "preferred_tool_namespaces": [],
+                            "requires_deferred_tool_loading": True,
+                            "reason": "显式合同要求交付可运行页面并保留执行证据。",
+                        },
+                        "skill_intent": {
+                            "selected_skill_ids": [],
+                            "candidate_skill_ids": [],
+                            "required_capability_tags": [],
+                            "reason": "",
+                        },
+                        "observation_contract": {
+                            "evidence_policy": "observation_required",
+                            "progress_granularity": "step",
+                            "finalization_requires_evidence": True,
+                        },
                     },
                 },
             )
@@ -216,13 +240,13 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
             content="",
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={
+                task_contract_seed=_canonical_task_contract_seed({
                     "user_visible_goal": "交付一个真实可验证产物。",
                     "task_run_goal": "交付一个真实可验证产物。",
                     "required_artifacts": [{"artifact_kind": "test_artifact", "user_visible_name": "测试交付物"}],
                     "required_verifications": [{"verification_kind": "test_verification"}],
                     "completion_criteria": ["交付物和验证证据都已记录"],
-                },
+                }),
             )
         )
     )
@@ -333,11 +357,11 @@ def test_task_lifecycle_start_does_not_rewrite_request_to_current_session_handof
             turn_id="turn:lifecycle-no-current-handoff",
             action_type="request_task_run",
             public_progress_note="我会开始处理新的持续任务。",
-            task_contract_seed={
+            task_contract_seed=_canonical_task_contract_seed({
                 "user_visible_goal": "启动一个新的持续任务。",
                 "task_run_goal": "验证 lifecycle 层不把模型请求改写成 current-session handoff。",
                 "completion_criteria": ["必须创建新的 TaskRun"],
-            },
+            }),
         )
         async for event in start_task_lifecycle_from_action_request(
             runtime_host=host,
@@ -407,17 +431,17 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
             request_id="model-action:contract-fields:valid",
             turn_id="turn-contract-fields",
             action_type="request_task_run",
-            task_contract_seed={
-                "user_visible_goal": "交付可运行示例",
-                "task_run_goal": "创建并验证可运行示例",
-                "completion_criteria": ["示例可以被验证"],
-                "task_environment_id": "env.coding.vibe_workspace",
-                "runtime_profile": {"runtime_policy": {"planning_policy": {"plan_mode": "available"}}},
-                "source_contract_ref": "contract.demo",
-                "external_plan_ref": "plan.demo",
-                "prompt_contract": {"role_prompt": "你是执行者。"},
-            },
-        ),
+                task_contract_seed=_canonical_task_contract_seed({
+                    "user_visible_goal": "交付可运行示例",
+                    "task_run_goal": "创建并验证可运行示例",
+                    "completion_criteria": ["示例可以被验证"],
+                    "task_environment_id": "env.coding.vibe_workspace",
+                    "runtime_profile": {"runtime_policy": {"planning_policy": {"plan_mode": "available"}}},
+                    "source_contract_ref": "contract.demo",
+                    "external_plan_ref": "plan.demo",
+                    "prompt_contract": {"role_prompt": "你是执行者。"},
+                }),
+            ),
         packet_ref="rtpacket:contract-fields",
         task_environment_id="env.office.file_search",
     )
@@ -437,13 +461,13 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
             content="",
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={
+                task_contract_seed=_canonical_task_contract_seed({
                     "user_visible_goal": "交付开发环境产物。",
                     "task_run_goal": "在用户选择的开发环境中交付产物。",
                     "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
                     "completion_criteria": ["产物位于所选任务环境的 artifact 区域"],
                     "task_environment_id": "env.general.workspace",
-                },
+                }),
             )
         )
     )
@@ -514,9 +538,33 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
                 "args": {
                     "user_visible_goal": "交付一个真实页面。",
                     "task_run_goal": "创建并验证一个真实 HTML 页面。",
+                    "working_scope": {
+                        "target_objects": ["真实 HTML 页面"],
+                        "workspace_refs": [],
+                        "source_refs": [],
+                        "excluded_scope": [],
+                        "known_constraints": ["页面文件必须真实存在"],
+                    },
                     "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
                     "required_verifications": [{"verification_kind": "file_exists"}],
                     "completion_criteria": ["页面文件真实存在"],
+                    "capability_intent": {
+                        "needed_capability_groups": ["file_work", "artifact_generation"],
+                        "preferred_tool_namespaces": [],
+                        "requires_deferred_tool_loading": True,
+                        "reason": "需要创建页面文件并记录验证证据。",
+                    },
+                    "skill_intent": {
+                        "selected_skill_ids": [],
+                        "candidate_skill_ids": [],
+                        "required_capability_tags": [],
+                        "reason": "",
+                    },
+                    "observation_contract": {
+                        "evidence_policy": "observation_required",
+                        "progress_granularity": "step",
+                        "finalization_requires_evidence": True,
+                    },
                     "public_progress_note": "我先把页面目标转成可执行任务，然后推进实现和文件验证。",
                 },
             }
@@ -568,13 +616,13 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
                 _action_request(
                     action_type="request_task_run",
                     public_progress_note="我先把 JSON 页面目标转成持续任务，然后推进实现和验证。",
-                    task_contract_seed={
+                    task_contract_seed=_canonical_task_contract_seed({
                         "user_visible_goal": "交付一个 JSON 协议页面。",
                         "task_run_goal": "通过 JSON action 创建页面任务。",
                         "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
                         "required_verifications": [{"verification_kind": "file_exists"}],
                         "completion_criteria": ["页面文件真实存在"],
-                    },
+                    }, capability_groups=["file_work", "artifact_generation"]),
                 )
             ]
         )

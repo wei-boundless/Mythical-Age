@@ -593,12 +593,12 @@ def _memory_request_profile_payload(
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
     needs = capability_needs(query_understanding)
     task_contract_seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
-    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
-    has_resource_contract = bool(
-        list(resource_contract.get("required_read_files") or [])
-        or list(resource_contract.get("required_read_dirs") or [])
-        or list(resource_contract.get("required_write_files") or [])
-        or list(resource_contract.get("required_write_dirs") or [])
+    working_scope = dict(task_contract_seed.get("working_scope") or {})
+    has_canonical_work_scope = bool(
+        list(working_scope.get("target_objects") or [])
+        or list(working_scope.get("workspace_refs") or [])
+        or list(working_scope.get("source_refs") or [])
+        or list(task_contract_seed.get("required_artifacts") or [])
     )
     if (
         not payload
@@ -626,7 +626,7 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"capability_execution", "knowledge_retrieval"}
-            or has_resource_contract
+            or has_canonical_work_scope
             or bool(needs & {"dataset_analysis", "document_analysis", "workspace_material"})
         )
     ):

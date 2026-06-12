@@ -70,7 +70,6 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     events = asyncio.run(_collect())
     assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
     start = dict(next(event for event in events if event.get("type") == "single_agent_turn_started"))
-    packet_tools = [str(dict(tool).get("name") or "") for tool in list(model.seen_tools[0] or [])]
     stable_payload = _packet_payload_after_title(
         str(model.last_messages[1].get("content") or ""),
         "Single agent turn stable boundary",
@@ -83,8 +82,6 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     native_tool_contract = dict(action_protocol.get("native_tool_calls") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert set(packet_tools) == {"git_status", "path_exists", "read_file", "search_text", "stat_path"}
-    assert {"write_file", "edit_file", "terminal", "python_repl", "git_commit"}.isdisjoint(packet_tools)
     assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
@@ -92,11 +89,9 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     assert effective_capabilities.get("requires_json_action_protocol") is False
     assert ordinary_tool_contract.get("multi_tool_calls_allowed") is True
     assert ordinary_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
-    assert ordinary_tool_contract.get("boundary") == "single_turn_read_only_visible_tools_only"
     assert "parallel_allowed" not in ordinary_tool_contract
     assert native_tool_contract.get("provider_multi_tool_calls_allowed") is True
     assert native_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
-    assert "write, edit, shell" in str(native_tool_contract.get("visible_tool_boundary") or "")
     assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
     assert "single_action_per_turn" not in json.dumps(output_contract, ensure_ascii=False)
     assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True

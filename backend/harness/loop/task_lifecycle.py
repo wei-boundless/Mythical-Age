@@ -41,6 +41,10 @@ class TaskRunContract:
     required_artifacts: tuple[dict[str, Any], ...] = ()
     required_verifications: tuple[dict[str, Any], ...] = ()
     completion_criteria: tuple[str, ...] = ()
+    working_scope: dict[str, Any] = field(default_factory=dict)
+    capability_intent: dict[str, Any] = field(default_factory=dict)
+    skill_intent: dict[str, Any] = field(default_factory=dict)
+    observation_contract: dict[str, Any] = field(default_factory=dict)
     resource_requirements: dict[str, Any] = field(default_factory=dict)
     permission_requirements: dict[str, Any] = field(default_factory=dict)
     acceptance_policy: dict[str, Any] = field(default_factory=dict)
@@ -122,6 +126,8 @@ def contract_from_action_request(
     )
     if not criteria and not required_artifacts and not required_verifications:
         errors.append("completion_evidence_required")
+    working_scope, capability_intent, skill_intent, observation_contract, canonical_errors = _canonical_handoff_fields(seed)
+    errors.extend(canonical_errors)
     if errors:
         return None, errors
     runtime_profile = _runtime_profile_with_execution_permit_allowed_operations(
@@ -136,7 +142,11 @@ def contract_from_action_request(
         required_artifacts=required_artifacts,
         required_verifications=required_verifications,
         completion_criteria=criteria,
-        resource_requirements=dict(seed.get("resource_requirements") or seed.get("resource_contract") or {}),
+        working_scope=working_scope,
+        capability_intent=capability_intent,
+        skill_intent=skill_intent,
+        observation_contract=observation_contract,
+        resource_requirements={},
         permission_requirements=dict(
             seed.get("permission_requirements") or action_request.permission_request or {}
         ),
@@ -151,6 +161,103 @@ def contract_from_action_request(
         graph_slot=dict(seed.get("graph_slot") or {}),
     )
     return contract, []
+
+
+def _canonical_handoff_fields(seed: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
+    errors: list[str] = []
+    for legacy_key in ("resource_contract", "resource_requirements", "selected_skill_ids"):
+        if _has_value(seed.get(legacy_key)):
+            errors.append(f"legacy_task_contract_field_not_allowed:{legacy_key}")
+    raw_working_scope = seed.get("working_scope")
+    raw_capability_intent = seed.get("capability_intent")
+    raw_skill_intent = seed.get("skill_intent")
+    raw_observation_contract = seed.get("observation_contract")
+    if not isinstance(raw_working_scope, dict):
+        errors.append("working_scope_required_for_request_task_run")
+        raw_working_scope = {}
+    if not isinstance(raw_capability_intent, dict):
+        errors.append("capability_intent_required_for_request_task_run")
+        raw_capability_intent = {}
+    if not isinstance(raw_skill_intent, dict):
+        errors.append("skill_intent_required_for_request_task_run")
+        raw_skill_intent = {}
+    if not isinstance(raw_observation_contract, dict):
+        errors.append("observation_contract_required_for_request_task_run")
+        raw_observation_contract = {}
+    working_scope = {
+        "target_objects": list(_object_ref_list(raw_working_scope.get("target_objects"))),
+        "workspace_refs": list(_string_tuple(raw_working_scope.get("workspace_refs"))),
+        "source_refs": list(_string_tuple(raw_working_scope.get("source_refs"))),
+        "excluded_scope": list(_string_tuple(raw_working_scope.get("excluded_scope"))),
+        "known_constraints": list(_string_tuple(raw_working_scope.get("known_constraints"))),
+    }
+    capability_intent = {
+        "needed_capability_groups": list(_string_tuple(raw_capability_intent.get("needed_capability_groups") or raw_capability_intent.get("capability_groups"))),
+        "preferred_tool_namespaces": list(_string_tuple(raw_capability_intent.get("preferred_tool_namespaces") or raw_capability_intent.get("tool_namespaces"))),
+        "requires_deferred_tool_loading": bool(raw_capability_intent.get("requires_deferred_tool_loading") is True),
+        "reason": _first_text(raw_capability_intent.get("reason")),
+    }
+    if not (
+        capability_intent["needed_capability_groups"]
+        or capability_intent["preferred_tool_namespaces"]
+        or capability_intent["reason"]
+    ):
+        errors.append("capability_intent_required_for_request_task_run")
+    skill_intent = {
+        "selected_skill_ids": list(_normalize_skill_ids(raw_skill_intent.get("selected_skill_ids"))),
+        "candidate_skill_ids": list(_normalize_skill_ids(raw_skill_intent.get("candidate_skill_ids"))),
+        "required_capability_tags": list(_string_tuple(raw_skill_intent.get("required_capability_tags"))),
+        "reason": _first_text(raw_skill_intent.get("reason")),
+    }
+    observation_contract = {
+        "evidence_policy": str(raw_observation_contract.get("evidence_policy") or "").strip(),
+        "progress_granularity": str(raw_observation_contract.get("progress_granularity") or "step").strip() or "step",
+        "finalization_requires_evidence": bool(raw_observation_contract.get("finalization_requires_evidence") is not False),
+    }
+    if not observation_contract["evidence_policy"]:
+        errors.append("observation_contract.evidence_policy_required")
+    return working_scope, capability_intent, skill_intent, observation_contract, errors
+
+
+def _selected_skill_ids_from_contract(contract: TaskRunContract) -> tuple[str, ...]:
+    return _normalize_skill_ids(dict(contract.skill_intent or {}).get("selected_skill_ids"))
+
+
+def _normalize_skill_ids(value: Any) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in _string_tuple(value):
+        normalized = item if item.startswith("skill.") else f"skill.{item}"
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return tuple(result)
+
+
+def _object_ref_list(value: Any) -> tuple[Any, ...]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    result: list[Any] = []
+    for item in raw_values:
+        if isinstance(item, dict):
+            cleaned = {str(key): val for key, val in item.items() if str(key).strip() and val not in (None, "", [], {})}
+            if cleaned:
+                result.append(cleaned)
+            continue
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return tuple(result)
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return bool(value)
 
 
 def current_session_task_run(runtime_host: Any, *, session_id: str) -> Any | None:
@@ -256,9 +363,15 @@ def start_task_lifecycle(
             "contract": contract.to_dict(),
             "runtime_contract": _runtime_contract_from_task_run_contract(
                 contract,
-                selected_skill_ids=action_request.selected_skill_ids,
             ),
-            "selected_skill_ids": list(action_request.selected_skill_ids),
+            "skill_activation": {
+                "selected_skill_ids": list(_selected_skill_ids_from_contract(contract)),
+                "selection_source": "model_action",
+                "selection_reason": str(dict(contract.skill_intent or {}).get("reason") or "").strip(),
+                "expanded_skill_refs": [],
+                "rejected_skill_ids": [],
+                "authority": "harness.loop.task_run_runtime_contract.skill_activation",
+            },
             "model_selection": model_selection_snapshot,
             "runtime_permission_mode": runtime_permission_mode,
             **(
@@ -908,23 +1021,30 @@ def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _runtime_contract_from_task_run_contract(
-    contract: TaskRunContract,
-    *,
-    selected_skill_ids: tuple[str, ...] = (),
-) -> dict[str, Any]:
+def _runtime_contract_from_task_run_contract(contract: TaskRunContract) -> dict[str, Any]:
     runtime_profile = dict(contract.runtime_profile or {})
     allowed_operations = _explicit_allowed_operations_from_contract(contract)
     runtime_contract = {
         "runtime_profile": runtime_profile,
+        "working_scope": dict(contract.working_scope or {}),
+        "capability_intent": dict(contract.capability_intent or {}),
+        "skill_intent": dict(contract.skill_intent or {}),
+        "observation_contract": dict(contract.observation_contract or {}),
         "authority": "harness.loop.task_run_runtime_contract",
     }
     if allowed_operations is not None:
         runtime_contract["allowed_operations"] = list(allowed_operations)
     if contract.task_environment_id:
         runtime_contract["task_environment_id"] = contract.task_environment_id
-    if selected_skill_ids:
-        runtime_contract["selected_skill_ids"] = list(selected_skill_ids)
+    selected_skill_ids = _selected_skill_ids_from_contract(contract)
+    runtime_contract["skill_activation"] = {
+        "selected_skill_ids": list(selected_skill_ids),
+        "selection_source": "model_action",
+        "selection_reason": str(dict(contract.skill_intent or {}).get("reason") or "").strip(),
+        "expanded_skill_refs": [],
+        "rejected_skill_ids": [],
+        "authority": "harness.loop.task_run_runtime_contract.skill_activation",
+    }
     if contract.external_plan_ref:
         runtime_contract["engagement_plan_ref"] = contract.external_plan_ref
     if contract.source_contract_ref:

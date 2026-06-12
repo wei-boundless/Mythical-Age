@@ -33,7 +33,6 @@ from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
-from permissions.operations import build_default_operation_registry
 
 from .context_budget_policy import build_model_aware_context_budget_policy
 from .artifact_scope import runtime_artifact_scope_from_environment
@@ -60,8 +59,6 @@ _SUBAGENT_TOOL_NAMES = {
     "list_subagents",
     "close_subagent",
 }
-_OPERATION_REGISTRY = build_default_operation_registry()
-
 _GRAPH_AUTHORIZED_INPUT_CONTENT_LIMIT = 16000
 _GRAPH_AUTHORIZED_INPUT_PAYLOAD_LIMIT = 12000
 _GRAPH_ARTIFACT_PAYLOAD_LIMIT = 2
@@ -487,6 +484,7 @@ class RuntimeCompiler:
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             ),
+            "capability_directory": _capability_directory_model_visible_payload(assembly_payload),
             "output_contract": output_contract,
             **_project_instruction_model_payload(project_instruction_bundle),
         }
@@ -986,6 +984,9 @@ class RuntimeCompiler:
                 environment_payload,
                 prompt_mount_plan=prompt_mount_plan.to_dict(),
             )
+        capability_directory_payload = _capability_directory_model_visible_payload(assembly_payload)
+        if capability_directory_payload:
+            environment_stable_payload["capability_directory"] = capability_directory_payload
         project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
@@ -1178,10 +1179,17 @@ class RuntimeCompiler:
                     content=active_skill_instruction,
                     kind="active_skills",
                     source_ref=",".join(active_skill_meta.get("source_refs") or ()),
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
-                ),
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if active_skill_instruction.strip()
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution task contract",
@@ -1241,16 +1249,17 @@ class RuntimeCompiler:
                     title="Task execution runtime boundary",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
-                    kind="task_runtime_boundary_stable",
+                    kind="task_runtime_boundary_dynamic",
                     source_ref="agent_visible_runtime_projection",
-                    cache_scope="task",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
                     metadata={
                         "authority_class": "runtime_boundary",
-                        "cache_impact": "task_prefix_stable",
+                        "cache_impact": "volatile_suffix_only",
                         "projection_strategy": "agent_visible_runtime_boundary",
                         "content_source": "runtime.dynamic_context.runtime_delta_projection",
+                        "volatility_reason": "runtime dynamic projection may include active state and must not mutate the cacheable task prefix",
                     },
                 ),
                 *task_state_replay_specs,
@@ -1318,6 +1327,7 @@ class RuntimeCompiler:
         task_dynamic_refs = (
             "agent_visible_runtime_projection",
             "operation_authorization",
+            "active_skills",
         )
         task_volatile_refs = (
             "runtime_envelope",
@@ -2070,10 +2080,16 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
-        "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
         "task_contract_seed": {
             "user_visible_goal": "用户可理解的任务目标，必填",
             "task_run_goal": "给执行生命周期使用的任务目标，必填",
+            "working_scope": {
+                "target_objects": ["任务要处理的文件、材料、对象或目标；可以是路径、引用或结构化对象"],
+                "workspace_refs": ["可选；明确要使用的工作区或项目引用"],
+                "source_refs": ["可选；用户给出的资料、链接、消息或 observation 引用"],
+                "excluded_scope": ["可选；明确不处理的范围"],
+                "known_constraints": ["可选；用户明确约束、质量要求、时间或输出限制"]
+            },
             "completion_criteria": [
                 "可验收的完成标准；至少一条，除非 required_artifacts 或 required_verifications 已提供"
             ],
@@ -2090,6 +2106,25 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "description": "验收或验证要求"
                 }
             ],
+            "capability_intent": {
+                "needed_capability_groups": [
+                    "需要的能力组，例如 file_work, web_research, browser_use, shell_execution, artifact_generation, subagent_delegation；表达服务类别，不列完整 operation 清单"
+                ],
+                "preferred_tool_namespaces": ["可选；希望加载的工具命名空间或能力目录节点"],
+                "requires_deferred_tool_loading": True,
+                "reason": "为什么该任务需要这些能力组"
+            },
+            "skill_intent": {
+                "selected_skill_ids": ["可选；从候选 Skills 中选择需要激活的 skill_id，例如 skill.deep-web-research"],
+                "candidate_skill_ids": ["可选；认为可能相关但尚未激活的 skill_id"],
+                "required_capability_tags": ["可选；需要系统提供的 skill 能力标签"],
+                "reason": "为什么选择或请求这些 skill"
+            },
+            "observation_contract": {
+                "evidence_policy": "observation_required",
+                "progress_granularity": "step",
+                "finalization_requires_evidence": True
+            },
             "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
             "active_work_relationship": "可选；当本轮已有 active_work_context 且你仍选择 request_task_run 时填写。restart_current_work/replace_current_work 表示用新任务接管旧任务；new_work 表示用户要求开启新的持续任务。",
             "plan_requirements": {
@@ -2103,8 +2138,6 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "approved": False,
                 "deviation_policy": "ask_user_or_block_before_changing_approved_plan"
             },
-            "resource_requirements": {},
-            "permission_requirements": {},
             "acceptance_policy": {},
             "recovery_policy": {}
         },
@@ -2255,7 +2288,7 @@ def _single_agent_turn_output_contract(
                 "enabled": "tool_call" in allowed_actions,
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
-                "boundary": "single_turn_read_only_visible_tools_only",
+                "boundary": "runtime_visible_tools_only",
                 "denied_or_failed_tool_calls_return_observations": True,
             },
             "control_actions": {
@@ -2274,14 +2307,14 @@ def _single_agent_turn_output_contract(
                 "provider_multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "control_actions_exposed_as_native_tools": False,
-                "visible_tool_boundary": "read/search/inspect only; write, edit, shell, browser, git-write, generated-asset, and other side-effect tools require request_task_run",
+                "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
             },
         },
         "planning_protocol": dict(planning_protocol or {}),
         "native_actions": {
             "tool_call": {
                 "enabled": "tool_call" in allowed_actions,
-                "boundary": "single_turn_read_only_visible_tools_only",
+                "boundary": "runtime_visible_tools_only",
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "denied_or_failed_calls_return_observations": True,
@@ -2329,44 +2362,7 @@ def _single_agent_turn_tools(
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={},
     )
-    return tuple(
-        dict(item)
-        for item in plan.model_visible_tools
-        if _single_agent_turn_model_visible_tool_allowed(dict(item))
-    )
-
-
-def _single_agent_turn_model_visible_tool_allowed(tool_payload: dict[str, Any]) -> bool:
-    tool_name = str(tool_payload.get("tool_name") or tool_payload.get("name") or "").strip()
-    operation_id = str(tool_payload.get("operation_id") or tool_name).strip()
-    operation = _OPERATION_REGISTRY.get_operation(operation_id)
-    if operation is not None:
-        return bool(operation.read_only) and not bool(operation.destructive)
-    safety_tags = {
-        str(item or "").strip()
-        for item in list(tool_payload.get("safety_tags") or [])
-        if str(item or "").strip()
-    }
-    capability_tags = {
-        str(item or "").strip()
-        for item in list(tool_payload.get("capability_tags") or [])
-        if str(item or "").strip()
-    }
-    blocked_tags = {
-        "write",
-        "local_write",
-        "git_write",
-        "remote_write",
-        "shell",
-        "shell_execution",
-        "python_execution",
-        "destructive",
-        "asset_write",
-        "external_write_possible",
-        "interactive_browser",
-    }
-    tags = safety_tags | capability_tags
-    return "read_only" in tags and not bool(tags & blocked_tags)
+    return tuple(dict(item) for item in plan.model_visible_tools)
 
 
 def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -4145,7 +4141,8 @@ def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
     return _join_prompt_sections(
         cards,
         (
-            "Skill 使用规则：如果某个候选 skill 能改善当前任务，请在 selected_skill_ids 中填写对应 skill_id。"
+            "Skill 使用规则：如果某个候选 skill 能改善持续任务，请在 request_task_run 的 "
+            "task_contract_seed.skill_intent.selected_skill_ids 中填写对应 skill_id。"
             "候选卡片不是完整技能说明；进入持续任务后，运行时会展开已选择 skill 的全文。"
             "不要把 skill_id、内部路由或工具名暴露给用户。"
         ),
@@ -4153,9 +4150,10 @@ def _skill_candidate_instruction(assembly_payload: dict[str, Any]) -> str:
 
 
 def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    skill_activation = dict(assembly_payload.get("skill_activation") or {})
     selected_skill_ids = [
         str(item).strip()
-        for item in list(assembly_payload.get("selected_skill_ids") or [])
+        for item in list(skill_activation.get("selected_skill_ids") or [])
         if str(item).strip()
     ]
     if not selected_skill_ids:
@@ -4177,6 +4175,65 @@ def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any
             "source_refs": [],
             "error": "skill_expansion_failed",
         }
+
+
+def _capability_directory_model_visible_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+    directory = dict(assembly_payload.get("capability_directory") or {})
+    groups = [
+        _drop_empty_payload(
+            {
+                "group_id": str(item.get("group_id") or "").strip(),
+                "title": str(item.get("title") or "").strip(),
+                "use_when": str(item.get("use_when") or "").strip(),
+                "tool_namespaces": [
+                    str(value).strip()
+                    for value in list(item.get("tool_namespaces") or [])
+                    if str(value).strip()
+                ],
+                "candidate_tools": [
+                    {
+                        "tool_name": str(tool.get("tool_name") or "").strip(),
+                        "operation_id": str(tool.get("operation_id") or "").strip(),
+                        "read_only": bool(tool.get("read_only") is True),
+                    }
+                    for tool in list(item.get("candidate_tools") or [])
+                    if isinstance(tool, dict) and str(tool.get("tool_name") or "").strip()
+                ],
+                "candidate_skills": [
+                    {
+                        "skill_id": str(skill.get("skill_id") or "").strip(),
+                        "title": str(skill.get("title") or "").strip(),
+                    }
+                    for skill in list(item.get("candidate_skills") or [])
+                    if isinstance(skill, dict) and str(skill.get("skill_id") or "").strip()
+                ],
+                "loading_mode": str(item.get("loading_mode") or "").strip(),
+                "contract_requested": bool(item.get("contract_requested") is True),
+            }
+        )
+        for item in list(directory.get("capability_groups") or [])
+        if isinstance(item, dict) and str(item.get("group_id") or "").strip()
+    ]
+    if not groups:
+        return {}
+    return _drop_empty_payload(
+        {
+            "capability_groups": groups,
+            "requested_capability_groups": [
+                str(item).strip()
+                for item in list(directory.get("requested_capability_groups") or [])
+                if str(item).strip()
+            ],
+            "preferred_tool_namespaces": [
+                str(item).strip()
+                for item in list(directory.get("preferred_tool_namespaces") or [])
+                if str(item).strip()
+            ],
+            "tool_search_available": bool(directory.get("tool_search_available") is True),
+            "skill_selection_available": bool(directory.get("skill_selection_available") is True),
+            "authority": str(directory.get("authority") or "harness.runtime.capability_directory"),
+        }
+    )
 
 
 def _compact_text(value: Any, *, limit: int = 120) -> str:
