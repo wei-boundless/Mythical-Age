@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
-from runtime.memory.file_state_store import FileStateAuthorityStore
 
 from .execution_state_projector import ExecutionStateProjector
 from .history_projector import HistoryProjector
@@ -40,7 +39,6 @@ class DynamicContextManager:
 
     def project(self, request: DynamicContextInput) -> DynamicContextProjection:
         replacement_store, storage_root = self._replacement_store_for_request(request)
-        file_state_storage_root = dynamic_context_storage_root(self.base_dir, dict(request.runtime_assembly or {}))
         tool_result_projector = ToolResultProjector(root_dir=storage_root, replacement_store=replacement_store)
         observation_projector = ObservationProjector(
             replacement_store=replacement_store,
@@ -67,8 +65,6 @@ class DynamicContextManager:
         )
         execution_projection = self._with_file_state_authority_projection(
             execution_projection,
-            task_run_id=request.task_run_id,
-            storage_root=file_state_storage_root,
             editor_context=request.editor_context,
         )
         history_projection = self.history_projector.project(
@@ -168,19 +164,10 @@ class DynamicContextManager:
         self,
         execution_projection: dict[str, Any],
         *,
-        task_run_id: str,
-        storage_root: Path | None,
         editor_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         projection = dict(execution_projection or {})
         file_state = [dict(item) for item in list(projection.get("file_state") or []) if isinstance(item, dict)]
-        if not file_state and storage_root is not None and str(task_run_id or "").strip():
-            file_state = FileStateAuthorityStore(storage_root).snapshot(task_run_id, limit=20)
-            if file_state:
-                projection = {
-                    **projection,
-                    "file_state_source": "runtime.memory.file_state_store",
-                }
         editor_file_state = _editor_file_state_projection(editor_context)
         if not file_state and not editor_file_state:
             return projection

@@ -100,6 +100,62 @@ def test_workspace_search_defaults_do_not_duplicate_backend_knowledge_root(tmp_p
     assert "backend/knowledge/shared-note.md" not in result
 
 
+def test_search_files_reports_when_default_roots_omit_workspace_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    docs_dir = workspace / "docs"
+    docs_dir.mkdir(parents=True)
+    backend_dir.mkdir(parents=True)
+    (workspace / "mario.html").write_text("<html>root file</html>", encoding="utf-8")
+
+    search = SearchFilesTool(root_dir=backend_dir)
+
+    default_result = search.invoke({"query": "mario", "max_results": 10})
+    explicit_root_result = search.invoke({"query": "mario", "roots": ["."], "max_results": 10})
+
+    assert "没有找到匹配项：mario" in default_result
+    assert "未搜索项目根目录 '.'" in default_result
+    assert "roots=[\".\"]" in default_result
+    assert explicit_root_result.splitlines() == ["[1] mario.html"]
+
+
+def test_native_search_files_reports_search_root_boundary(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    docs_dir = workspace / "docs"
+    docs_dir.mkdir(parents=True)
+    backend_dir.mkdir(parents=True)
+    (workspace / "mario.html").write_text("<html>root file</html>", encoding="utf-8")
+
+    definition = get_tool_definition_map()["search_files"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+
+    default_envelope = asyncio.run(
+        tool.call(
+            {"query": "mario", "max_results": 10},
+            ToolUseContext(workspace_root=backend_dir),
+        )
+    )
+    explicit_root_envelope = asyncio.run(
+        tool.call(
+            {"query": "mario", "roots": ["."], "max_results": 10},
+            ToolUseContext(workspace_root=backend_dir),
+        )
+    )
+
+    default_result = dict(default_envelope.structured_payload["tool_result"])
+    explicit_result = dict(explicit_root_envelope.structured_payload["tool_result"])
+
+    assert default_result["matches"] == []
+    assert default_result["used_default_roots"] is True
+    assert default_result["omitted_workspace_root"] is True
+    assert "未搜索项目根目录 '.'" in default_envelope.text
+    assert explicit_result["matches"] == ["mario.html"]
+    assert explicit_result["used_default_roots"] is False
+    assert explicit_result["omitted_workspace_root"] is False
+
+
 def test_workspace_search_text_accepts_concrete_paths_and_rejects_files_in_roots(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     backend_dir = workspace / "backend"

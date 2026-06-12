@@ -167,7 +167,7 @@ def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: 
     assert event["file_unchanged"] is True
 
 
-def test_task_run_read_file_commits_file_state_and_dynamic_context_reads_store(tmp_path: Path) -> None:
+def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_injected_state(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "src").mkdir()
@@ -200,10 +200,15 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_reads_store(t
             session_id="session:read-file-authority-chain",
             task_run_id=task_run_id,
             task_run={"task_run_id": task_run_id},
-            execution_state={"system_projection": {"runtime_status": "running"}},
+            execution_state={
+                "system_projection": {
+                    "runtime_status": "running",
+                    "file_state": snapshot,
+                    "file_state_source": "runtime.memory.file_state_store",
+                }
+            },
             runtime_assembly={
                 "task_environment": {
-                    "storage_space": {"runtime_state_root": str(execution_store.root_dir)},
                 },
             },
         )

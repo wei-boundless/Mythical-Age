@@ -55,6 +55,19 @@ function renderLane(signals: RunMonitorSignal[]) {
   );
 }
 
+function renderLaneWithLogs(signals: RunMonitorSignal[]) {
+  return renderToStaticMarkup(
+    React.createElement(RunTaskLane, {
+      actionLoading: "",
+      loading: false,
+      onAction: () => undefined,
+      onOpen: () => undefined,
+      onOpenLog: () => undefined,
+      signals,
+    }),
+  );
+}
+
 describe("RunTaskLane", () => {
   it("does not let a stale activity signal render as running", () => {
     const html = renderLane([
@@ -117,5 +130,14 @@ describe("RunTaskLane", () => {
     expect(html).not.toContain(">打开</button>");
     expect(html).not.toContain(">检查</button>");
     expect(html).not.toContain(">继续</button>");
+  });
+
+  it("shows scoped runtime log entry when a task run id is present", () => {
+    const html = renderLaneWithLogs([
+      signal({ signal_id: "taskrun:1", task_run_id: "taskrun:1", title: "任务一" }),
+    ]);
+
+    expect(html).toContain("日志");
+    expect(html).toContain("run-monitor-task__actions");
   });
 });

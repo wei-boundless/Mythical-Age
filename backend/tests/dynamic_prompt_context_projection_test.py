@@ -548,7 +548,7 @@ def test_code_structure_locator_survives_current_fact_dedupe() -> None:
     assert latest["evidence_policy"]["source_kind"] == "code_locator"
 
 
-def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path) -> None:
+def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path) -> None:
     storage_root = tmp_path / "runtime-state"
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",
@@ -587,18 +587,24 @@ def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path)
             },
         },
     )
+    file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:derived-file-state")
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:derived-file-state",
         task_run={"task_run_id": "taskrun:derived-file-state", "diagnostics": {"executor_status": "running"}},
         contract={"task_run_goal": "验证文件状态投影", "completion_criteria": ["file_state 来自持久 store"]},
         observations=[],
-        execution_state={"system_projection": {"runtime_status": "running"}},
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "file_state": file_state,
+                "file_state_source": "runtime.memory.file_state_store",
+            }
+        },
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {
                 "environment_id": "env.coding.vibe_workspace",
-                "storage_space": {"runtime_state_root": str(storage_root)},
             },
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
@@ -613,7 +619,7 @@ def test_task_execution_projects_file_state_from_persisted_store(tmp_path: Path)
     assert file_state[0]["evidence_refs"] == ["obs:read-native", "obs:read-native"]
 
 
-def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volatile(tmp_path: Path) -> None:
+def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> None:
     storage_root = tmp_path / "runtime-state"
     read_envelope = build_tool_result_envelope(
         tool_name="read_file",
@@ -652,6 +658,7 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
             },
         },
     )
+    file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:bound-context")
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:bound-context",
@@ -663,12 +670,17 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
             "implementation_lock": {"plan_ref": "plan:bound-context", "status": "approved"},
         },
         observations=[],
-        execution_state={"system_projection": {"runtime_status": "running"}},
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "file_state": file_state,
+                "file_state_source": "runtime.memory.file_state_store",
+            }
+        },
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {
                 "environment_id": "env.coding.vibe_workspace",
-                "storage_space": {"runtime_state_root": str(storage_root)},
             },
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
@@ -680,6 +692,9 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
     manifest = result.packet.bound_task_context_manifest
 
     assert bound["plan_refs"] == ["plan:bound-context"]
+    assert bound["known_task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
+    assert bound["known_task_files"][0]["next_suggested_read"]["start_line"] == 31
+    assert "read_windows" not in bound["known_task_files"][0]
     assert "task_files" not in bound
     assert "rehydration_refs" not in bound
     assert manifest["task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
@@ -729,6 +744,7 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
             },
         },
     )
+    second_file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:bound-context")
 
     result_after_replay_growth = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:bound-context",
@@ -740,12 +756,17 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
             "implementation_lock": {"plan_ref": "plan:bound-context", "status": "approved"},
         },
         observations=[],
-        execution_state={"system_projection": {"runtime_status": "running"}},
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "file_state": second_file_state,
+                "file_state_source": "runtime.memory.file_state_store",
+            }
+        },
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {
                 "environment_id": "env.coding.vibe_workspace",
-                "storage_space": {"runtime_state_root": str(storage_root)},
             },
             "operation_authorization": {"allowed_operations": ["op.read_file"]},
         },
@@ -760,8 +781,9 @@ def test_task_execution_keeps_bound_context_stable_while_file_state_stays_volati
         item for item in result_after_replay_growth.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable"
     )
 
-    assert second_bound == bound
-    assert second_bound_segment["model_message_hash"] == bound_segment["model_message_hash"]
+    assert second_bound["known_task_files"][0]["next_suggested_read"]["start_line"] == 41
+    assert second_bound["context_hash"] != bound["context_hash"]
+    assert second_bound_segment["model_message_hash"] != bound_segment["model_message_hash"]
     assert second_manifest["diagnostics"]["runtime_state_hash"] != manifest["diagnostics"]["runtime_state_hash"]
     assert second_manifest["task_files"][0]["next_suggested_read"]["start_line"] == 41
 

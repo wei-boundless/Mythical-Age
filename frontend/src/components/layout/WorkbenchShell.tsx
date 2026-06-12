@@ -186,9 +186,7 @@ function sessionMetaLine(session: SessionSummary) {
     return `${projectLabel}${sessionTurnCountLabel(session)} · ${formatSessionTime(session.updated_at)}`;
   }
   const updatedAt = Number(task.updated_at || session.updated_at || 0);
-  const taskCount = Number(task.task_run_count || 0);
-  const countLabel = taskCount > 1 ? `${taskCount} 个任务记录` : "当前任务";
-  return `${projectLabel}${sessionTaskStatusLabel(task)} · ${countLabel} · ${formatSessionTime(updatedAt)}`;
+  return `${projectLabel}${sessionTaskStatusLabel(task)} · ${formatSessionTime(updatedAt)}`;
 }
 
 function sessionTurnCountLabel(session: SessionSummary) {

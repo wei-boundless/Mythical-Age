@@ -22,5 +22,4 @@ export type RunMonitorState = {
   loading: boolean;
   error: string;
   streamStatus: RunMonitorStreamStatus;
-  lastEvent: RunMonitorEvent["runtime_event"] | null;
 };

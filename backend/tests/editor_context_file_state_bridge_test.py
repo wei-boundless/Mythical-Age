@@ -91,6 +91,7 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
         observation_ref="obs:read",
         tool_call_id="call:read",
     )
+    persisted_file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:editor-merge")
 
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
@@ -98,10 +99,15 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
             session_id="session:editor-merge",
             task_run_id="taskrun:editor-merge",
             task_run={"task_run_id": "taskrun:editor-merge"},
-            execution_state={"system_projection": {"runtime_status": "running"}},
+            execution_state={
+                "system_projection": {
+                    "runtime_status": "running",
+                    "file_state": persisted_file_state,
+                    "file_state_source": "runtime.memory.file_state_store",
+                }
+            },
             runtime_assembly={
                 "task_environment": {
-                    "storage_space": {"runtime_state_root": str(storage_root)},
                 },
             },
             editor_context={
@@ -130,6 +136,24 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
 
 
 def test_file_state_still_absent_without_vscode_or_read_file_state(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    FileStateAuthorityStore(storage_root).apply_events(
+        "taskrun:no-editor",
+        [
+            {
+                "event_type": "read",
+                "path": "src/app.py",
+                "start_line": 1,
+                "end_line": 10,
+                "total_lines": 20,
+                "has_more": True,
+                "content_sha256": "sha256:must-not-be-read-from-environment",
+            }
+        ],
+        observation_ref="obs:read",
+        tool_call_id="call:read",
+    )
+
     projection = DynamicContextManager(base_dir=tmp_path).project(
         DynamicContextInput(
             invocation_kind="task_execution",
@@ -139,7 +163,7 @@ def test_file_state_still_absent_without_vscode_or_read_file_state(tmp_path: Pat
             execution_state={"system_projection": {"runtime_status": "running"}},
             runtime_assembly={
                 "task_environment": {
-                    "storage_space": {"runtime_state_root": str(tmp_path / "runtime-state")},
+                    "storage_space": {"runtime_state_root": str(storage_root)},
                 },
             },
         )

@@ -1192,12 +1192,20 @@ class NativeSearchFilesTool(_NativeToolBase):
         terms = _query_terms(query)
         matches = [path for path in paths if any(term in path.lower() for term in terms)]
         matched = tuple(sorted(dict.fromkeys(matches))[:limit])
-        text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or f"没有找到匹配项：{query}"
+        boundary = _path_search_boundary(files, safe_roots=safe_roots, using_default_roots=using_default_roots)
+        text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, boundary)
         return self._envelope(
             tool_args=args,
             status="ok",
             text=text,
-            structured_payload={"tool_result": {"kind": "path_search", "query": query, "matches": list(matched)}},
+            structured_payload={
+                "tool_result": {
+                    "kind": "path_search",
+                    "query": query,
+                    "matches": list(matched),
+                    **boundary,
+                }
+            },
             matched_paths=matched,
             execution_receipt=context.execution_receipt,
         )
@@ -2103,6 +2111,35 @@ def _workspace_files(files: WorkspaceFileService, *, safe_roots: list[Path], usi
             if path.is_file() and not files.is_excluded(path, include_default_search_excludes=using_default_roots):
                 paths.append(files.relative_path(path))
     return sorted(dict.fromkeys(paths))
+
+
+def _path_search_boundary(
+    files: WorkspaceFileService,
+    *,
+    safe_roots: list[Path],
+    using_default_roots: bool,
+) -> dict[str, Any]:
+    workspace_root = files.workspace_root.resolve()
+    searched_roots = [files.relative_path(root) or "." for root in safe_roots]
+    omitted_workspace_root = using_default_roots and all(root.resolve() != workspace_root for root in safe_roots)
+    return {
+        "searched_roots": searched_roots,
+        "used_default_roots": bool(using_default_roots),
+        "workspace_root": str(workspace_root),
+        "omitted_workspace_root": bool(omitted_workspace_root),
+    }
+
+
+def _format_path_search_no_results(query: str, boundary: dict[str, Any]) -> str:
+    lines = [
+        f"没有找到匹配项：{query}",
+        f"已搜索 roots：{', '.join(list(boundary.get('searched_roots') or [])) or '<none>'}",
+    ]
+    if boundary.get("omitted_workspace_root"):
+        lines.append(
+            "注意：本次使用默认搜索根，未搜索项目根目录 '.'。如果你已经知道文件路径，请直接使用 read_file/path_exists；如果要搜索根目录文件，请传 roots=[\".\"]."
+        )
+    return "\n".join(lines)
 
 
 def _nonempty_path_args(paths: Any) -> list[str]:

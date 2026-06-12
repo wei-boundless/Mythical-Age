@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from harness.runtime.run_monitor import RuntimeMonitorActionService
-from harness.runtime.projection.timeline_builder import project_runtime_monitor_event_public_delta
 
 router = APIRouter()
 
@@ -80,51 +79,37 @@ async def execute_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -
 
 @router.get("/orchestration/runtime-monitor/events")
 async def stream_runtime_monitor_events(request: Request, limit: int = 40):
-    runtime = require_runtime()
-    runtime_host = runtime.harness_runtime.single_agent_runtime_host
-    service = runtime_host.runtime_monitor_service
-    subscription = runtime_host.event_log.subscribe()
+    service = _service()
     requested_limit = max(1, min(int(limit or 40), 100))
 
     async def event_generator():
-        try:
+        yield _sse(
+            "runtime_monitor_snapshot",
+            {
+                "monitor": await _collect_global_runtime_monitor(service, limit=requested_limit),
+                "source": "initial",
+                "updated_at": time.time(),
+            },
+        )
+        while not await request.is_disconnected():
+            await asyncio.sleep(15.0)
+            if await request.is_disconnected():
+                break
             yield _sse(
                 "runtime_monitor_snapshot",
                 {
                     "monitor": await _collect_global_runtime_monitor(service, limit=requested_limit),
-                    "source": "initial",
+                    "source": "poll",
+                    "updated_at": time.time(),
                 },
             )
-            while not await request.is_disconnected():
-                try:
-                    runtime_event = await asyncio.wait_for(subscription.queue.get(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    yield _sse(
-                        "runtime_monitor_heartbeat",
-                        {
-                            "updated_at": time.time(),
-                            "source": "heartbeat",
-                        },
-                    )
-                    continue
-                monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
-                raw_event = runtime_event.to_dict()
-                public_projection = project_runtime_monitor_event_public_delta(
-                    raw_event,
-                    runtime_host=runtime_host,
-                    monitor=monitor,
-                )
-                yield _sse(
-                    "runtime_monitor_event",
-                    {
-                        "runtime_event": {**raw_event, **public_projection},
-                        "monitor": monitor,
-                        "source": "runtime_event_log",
-                    },
-                    event_id=runtime_event.event_id,
-                )
-        finally:
-            runtime_host.event_log.unsubscribe(subscription)
+            yield _sse(
+                "runtime_monitor_heartbeat",
+                {
+                    "updated_at": time.time(),
+                    "source": "heartbeat",
+                },
+            )
 
     return StreamingResponse(
         event_generator(),

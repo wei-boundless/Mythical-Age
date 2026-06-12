@@ -963,6 +963,30 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("opens runtime logs inside the shared center workspace", () => {
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeWorkspaceView: "task-system",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    runtime.actions.openRuntimeLog({
+      scope: "task_run",
+      run_id: " taskrun:log:1 ",
+      title: "运行日志",
+      subtitle: "TaskRun",
+    });
+
+    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().centerWorkspaceTarget).toMatchObject({
+      layer: "runtime-log",
+      scope: "task_run",
+      run_id: "taskrun:log:1",
+      title: "运行日志",
+      subtitle: "TaskRun",
+    });
+  });
+
   it("loads and updates the runtime permission mode selector state", async () => {
     vi.useRealTimers();
     api.getPermissionMode.mockResolvedValueOnce({
@@ -1981,7 +2005,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getRunMonitor).toHaveBeenCalledTimes(2);
   });
 
-  it("projects background TaskRun step summaries from the monitor event stream into chat", () => {
+  it("ignores legacy runtime_event payloads from the monitor stream", () => {
     const taskRunId = "taskrun:turn:session:stream:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2023,35 +2047,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         authority: "orchestration.runtime_event",
       },
     });
-    runtime.applyRunMonitorStreamPayload({
-      source: "runtime_event_log",
-      runtime_event: {
-        event_id: "rtevt:step:2",
-        run_id: taskRunId,
-        event_type: "step_summary_recorded",
-        offset: 2,
-        created_at: 11,
-        payload: {
-          task_run_id: taskRunId,
-          step: "task_model_action_invocation_started:1",
-          status: "running",
-          summary: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
-          public_progress_note: "我已经把任务上下文交给 agent，正在等待下一步动作。",
-        },
-        refs: { task_run_ref: taskRunId, turn_ref: "turn:session:stream:1" },
-        authority: "orchestration.runtime_event",
-      },
-    });
-
-    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
-    expect(attachment?.run_id).toBe(taskRunId);
-    expect(attachment?.anchor_turn_id).toBe("turn:session:stream:1");
-    expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["rtevt:step:1", "rtevt:step:2"]);
-    expect(attachment?.progress_entries?.at(-1)).toMatchObject({
-      body: "我已经把任务上下文交给 agent，正在等待下一步动作。",
-      eventType: "step_summary_recorded",
-      taskRunId,
-    });
+    expect(store.getState().runMonitor).not.toBeNull();
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
   it("does not project runtime events from a stale run monitor snapshot", () => {
@@ -2111,7 +2108,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("keeps raw tool observation summaries out of public timeline without an envelope", () => {
+  it("ignores raw tool observation runtime_event payloads from the monitor stream", () => {
     const taskRunId = "taskrun:turn:session:observation:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2158,19 +2155,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
-    expect(attachment?.progress_entries?.[0]).toMatchObject({
-      id: "rtevt:observation",
-      kind: "observation",
-      level: "error",
-      title: "结果已返回",
-      body: "工具返回失败：Image API request timed out",
-      publicNote: "工具返回失败：Image API request timed out",
-      agentBrief: "工具返回失败：Image API request timed out",
-      eventType: "step_summary_recorded",
-      taskRunId,
-    });
-    expect(attachment?.public_timeline ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
   it("does not project system tool step summaries from the legacy monitor stream", () => {
@@ -2276,7 +2261,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("projects public projection envelopes from monitor events without requiring a progress entry", () => {
+  it("ignores public projection envelopes carried by legacy monitor events", () => {
     const taskRunId = "taskrun:turn:session:public-delta:1:abc";
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -2307,7 +2292,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
         refs: {},
         authority: "orchestration.runtime_event",
-        public_projection_authority: "runtime_monitor.public_event_projection.v1",
+        public_projection_authority: "public_stream.public_projection.v1",
         public_event_type: "model_action_admission",
         public_projection_envelope: anchoredStatusProjectionEnvelope({
           projectionId: "publicproj:public-delta",
@@ -2320,21 +2305,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
-    expect(attachment).toMatchObject({
-      run_id: taskRunId,
-      anchor_turn_id: "turn:session:public-delta:1",
-    });
-    expect(attachment?.public_timeline).toEqual([
-      expect.objectContaining({
-        item_id: "status:public-delta",
-        kind: "status_update",
-        detail: "我正在公开说明当前判断。",
-      }),
-    ]);
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("keeps live monitor public timeline attachments after a stream snapshot hydrates the session", async () => {
+  it("hydrates from monitor snapshots without preserving legacy monitor event projections", async () => {
     vi.useRealTimers();
     const taskRunId = "taskrun:turn:session:hydrate:1:abc";
     api.getSessionTimeline.mockResolvedValue({
@@ -2391,12 +2365,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await flushPromises(12);
 
     expect(api.getSessionTimeline).toHaveBeenCalledWith("session:hydrate", undefined);
-    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
-    expect(attachment?.run_id).toBe(taskRunId);
-    expect(attachment?.public_timeline?.[0]).toMatchObject({
-      item_id: "status:hydrate",
-      detail: "这条 live 公开反馈还没有持久化到 session timeline。",
-    });
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
   it("does not hydrate session details from monitor snapshots while a chat stream is active", async () => {

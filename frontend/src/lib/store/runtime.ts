@@ -49,19 +49,17 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, PublicProjectionEnvelope, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { applyPublicProjectionEnvelope, publicProjectionEnvelopeFromRecord, publicProjectionEnvelopeSuppressesLegacy } from "@/lib/projection/reducer";
 import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import { RunMonitorController } from "../run-monitor/controller";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
-type RuntimeMonitorEvent = NonNullable<RunMonitorEventPayload["runtime_event"]>;
 const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
 const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
@@ -360,7 +358,6 @@ export class WorkspaceRuntime {
     }
     this.runMonitorController = new RunMonitorController(this.store, {
       hasActiveChatStream: () => this.hasActiveChatStream(),
-      patchRuntimeAttachmentFromRuntimeEvent: (prev, event) => this.patchRuntimeAttachmentFromRuntimeEvent(prev, event as RuntimeMonitorEvent),
       applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
       bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
       workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
@@ -521,6 +518,9 @@ export class WorkspaceRuntime {
       },
       openWorkspaceFile: (path) => {
         this.openWorkspaceFile(path);
+      },
+      openRuntimeLog: (target) => {
+        this.openRuntimeLog(target);
       },
       clearTaskGraphWorkspaceTarget: () => {
         this.clearTaskGraphWorkspaceTarget();
@@ -4003,6 +4003,28 @@ export class WorkspaceRuntime {
     }));
   }
 
+  private openRuntimeLog(target: Omit<RuntimeLogCenterWorkspaceTarget, "layer" | "requested_at">) {
+    const runId = String(target?.run_id || "").trim();
+    if (!runId) {
+      return;
+    }
+    const scope = target.scope === "turn_run" ? "turn_run" : "task_run";
+    const view = this.centerWorkspaceHostView(this.store.getState().activeWorkspaceView);
+    this.syncWorkspaceViewUrl(view);
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: view,
+      centerWorkspaceTarget: {
+        layer: "runtime-log",
+        scope,
+        run_id: runId,
+        title: String(target.title || "").trim() || undefined,
+        subtitle: String(target.subtitle || "").trim() || undefined,
+        requested_at: Date.now(),
+      },
+    }));
+  }
+
   private clearCenterWorkspaceTarget() {
     this.store.setState((prev) => ({
       ...prev,
@@ -4442,14 +4464,6 @@ export class WorkspaceRuntime {
     return mergePublicTimelineItems(direct, undefined, { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES });
   }
 
-  private publicTimelineItemsFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): PublicChatTimelineItem[] {
-    return mergePublicTimelineItems(
-      this.publicTimelineItemsFromRecord(runtimeEvent),
-      this.publicTimelineItemsFromRecord(runtimeEvent.payload),
-      { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
-    );
-  }
-
   private publicTimelineSummary(items: PublicChatTimelineItem[]) {
     for (const item of items) {
       const surface = String((item as { surface?: unknown }).surface ?? "").trim().toLowerCase();
@@ -4742,72 +4756,6 @@ export class WorkspaceRuntime {
     );
   }
 
-  private runtimeProgressEntryFromRuntimeEvent(runtimeEvent: RuntimeMonitorEvent): RuntimeProgressEntry | null {
-    if (runtimeEvent.event_type !== "step_summary_recorded") {
-      return null;
-    }
-    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
-      ? runtimeEvent.payload
-      : {};
-    const runId = String(runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? payload.task_run_id ?? "").trim();
-    const payloadTaskRunId = String(payload.task_run_id ?? "").trim();
-    const taskRunId = payloadTaskRunId.startsWith("taskrun:")
-      ? payloadTaskRunId
-      : runId.startsWith("taskrun:")
-        ? runId
-        : "";
-    if (!runId) {
-      return null;
-    }
-    const step = String(payload.step ?? "").trim();
-    if (this.runtimeShouldSkipLegacyProgressStep(step, payload.presentation_source)) {
-      return null;
-    }
-    const status = String(payload.status ?? "").trim();
-    const summary = this.runtimeVisibleProgressText(payload.summary);
-    const publicNote = this.runtimeVisibleProgressText(payload.public_progress_note ?? summary);
-    const agentBrief = String(payload.agent_brief_output ?? "").trim();
-    const kind = this.runtimeProgressKindFromStep(step);
-    if (kind === "observation" && this.runtimeIsInternalToolObservation(agentBrief)) {
-      return null;
-    }
-    const observationBody = kind === "observation"
-      ? this.runtimeToolObservationBody(agentBrief || publicNote || summary)
-      : "";
-    const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
-      ? payload.public_action_state as Record<string, unknown>
-      : {};
-    const meta = this.runtimeProgressMetaFromPayload(payload);
-    const actionBody = kind === "model" && meta.length
-      ? meta.map((item) => `${item.label}：${item.value}`).join("；")
-      : "";
-    const body = kind === "observation"
-      ? observationBody
-      : publicNote || summary || actionBody;
-    const level = kind === "observation" && this.runtimeObservationLooksFailed(agentBrief || observationBody)
-      ? "error"
-      : this.runtimeProgressLevelFromStatus(status);
-    if (!body) {
-      return null;
-    }
-    return {
-      id: String(runtimeEvent.event_id ?? "").trim() || `${runId}:event:${runtimeEvent.offset}`,
-      title: kind === "observation" ? "结果已返回" : kind === "model" ? "模型反馈" : publicNote || summary,
-      body,
-      publicNote: publicNote || actionBody || observationBody,
-      agentBrief: observationBody || agentBrief,
-      evidenceType: this.runtimeEvidenceTypeFromStep(step),
-      eventType: runtimeEvent.event_type,
-      kind,
-      level,
-      statusText: kind === "observation" && level === "error" ? "failed" : status || "running",
-      runId,
-      taskRunId: taskRunId || undefined,
-      createdAt: Number(runtimeEvent.created_at ?? 0) || undefined,
-      meta: meta.length ? meta : undefined,
-    };
-  }
-
   private runtimeProgressMetaFromPayload(payload: Record<string, unknown>) {
     const actionState = payload.public_action_state && typeof payload.public_action_state === "object" && !Array.isArray(payload.public_action_state)
       ? payload.public_action_state as Record<string, unknown>
@@ -5032,181 +4980,6 @@ export class WorkspaceRuntime {
   private looksLikeJson(value: string) {
     const text = String(value ?? "").trim();
     return (text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"));
-  }
-
-  private runtimeEventPublicAnchor(runtimeEvent: RuntimeMonitorEvent): Record<string, unknown> {
-    return runtimeEvent.public_anchor && typeof runtimeEvent.public_anchor === "object" && !Array.isArray(runtimeEvent.public_anchor)
-      ? runtimeEvent.public_anchor as Record<string, unknown>
-      : {};
-  }
-
-  private runtimeEventSessionId(runtimeEvent: RuntimeMonitorEvent) {
-    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
-    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
-      ? runtimeEvent.payload as Record<string, unknown>
-      : {};
-    const taskRun = payload.task_run && typeof payload.task_run === "object" && !Array.isArray(payload.task_run)
-      ? payload.task_run as Record<string, unknown>
-      : {};
-    return String(
-      publicAnchor.session_id
-      ?? payload.session_id
-      ?? taskRun.session_id
-      ?? "",
-    ).trim();
-  }
-
-  private publicProjectionEnvelopeSessionId(envelope: PublicProjectionEnvelope | null) {
-    if (!envelope) return "";
-    const anchor = envelope.anchor && typeof envelope.anchor === "object" && !Array.isArray(envelope.anchor)
-      ? envelope.anchor as Record<string, unknown>
-      : {};
-    return String(envelope.session_id ?? anchor.session_id ?? "").trim();
-  }
-
-  private runtimeSessionMatchesState(state: StoreState, sessionId: string) {
-    return !sessionId || !state.currentSessionId || state.currentSessionId === sessionId;
-  }
-
-  private runtimeEventAnchorTurnId(runtimeEvent: RuntimeMonitorEvent, state: StoreState) {
-    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
-    const publicAnchorTurnId = String(publicAnchor.anchor_turn_id ?? "").trim();
-    if (publicAnchorTurnId.startsWith("turn:")) {
-      return publicAnchorTurnId;
-    }
-    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
-      ? runtimeEvent.payload
-      : {};
-    const refs = runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
-      ? runtimeEvent.refs
-      : {};
-    const explicit = String(refs.turn_ref ?? payload.turn_id ?? "").trim();
-    if (explicit.startsWith("turn:")) {
-      return explicit;
-    }
-    const runId = String(runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
-    for (const message of [...state.messages].reverse()) {
-      const attachment = (message.runtimeAttachments ?? []).find((item) => this.runtimeAttachmentRunId(item) === runId);
-      const anchor = String(attachment?.anchor_turn_id ?? "").trim();
-      if (anchor.startsWith("turn:")) {
-        return anchor;
-      }
-    }
-    if (runId.startsWith("turnrun:turn:")) {
-      return runId.slice("turnrun:".length);
-    }
-    return "";
-  }
-
-  private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
-    const envelope = publicProjectionEnvelopeFromRecord(runtimeEvent.public_projection_envelope);
-    if (!this.runtimeSessionMatchesState(state, this.publicProjectionEnvelopeSessionId(envelope) || this.runtimeEventSessionId(runtimeEvent))) {
-      return state;
-    }
-    if (envelope) {
-      const stateWithProjection = applyPublicProjectionEnvelope(state, envelope);
-      if (publicProjectionEnvelopeSuppressesLegacy(envelope)) {
-        return stateWithProjection;
-      }
-      state = stateWithProjection;
-    }
-    const latestProgressEntry = this.runtimeProgressEntryFromRuntimeEvent(runtimeEvent);
-    const taskProjection = this.taskProjectionFromRecord(runtimeEvent);
-    const publicTimelineItems = this.publicTimelineItemsFromRuntimeEvent(runtimeEvent);
-    if (!latestProgressEntry && !publicTimelineItems.length && !taskProjection) {
-      return state;
-    }
-    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
-    const runId = String(publicAnchor.run_id ?? taskProjection?.task_run_id ?? latestProgressEntry?.runId ?? runtimeEvent.run_id ?? runtimeEvent.task_run_id ?? "").trim();
-    const latestTaskRunId = String(publicAnchor.task_run_id ?? taskProjection?.task_run_id ?? latestProgressEntry?.taskRunId ?? "").trim();
-    const taskRunId = latestTaskRunId.startsWith("taskrun:")
-      ? latestTaskRunId
-      : runId.startsWith("taskrun:")
-        ? runId
-        : "";
-    const anchorTurnId = String(taskProjection?.anchor_turn_id ?? "").trim()
-      || this.runtimeEventAnchorTurnId(runtimeEvent, state);
-    if (!runId || !anchorTurnId) {
-      return state;
-    }
-    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
-      ? runtimeEvent.payload
-      : {};
-    const publicSummary = this.runtimeVisibleProgressText(this.publicTimelineSummary(publicTimelineItems));
-    const payloadSummary = this.runtimeVisibleProgressText(payload.summary);
-    const payloadPublicNote = this.runtimeVisibleProgressText(payload.public_progress_note);
-    const refs = runtimeEvent.refs && typeof runtimeEvent.refs === "object" && !Array.isArray(runtimeEvent.refs)
-      ? runtimeEvent.refs
-      : {};
-    const explicitAnchor = String(
-      String(publicAnchor.anchor_turn_id ?? "").trim()
-      || String(refs.turn_ref ?? "").trim()
-      || String(payload.turn_id ?? "").trim(),
-    ).trim();
-    const attachment: SessionRuntimeAttachment = {
-      attachment_id: `runtime-attachment:${runId}`,
-      run_id: runId,
-      anchor_turn_id: anchorTurnId,
-      anchor_message_id: String(taskProjection?.anchor_message_id ?? "").trim() || undefined,
-      anchor_role: String(publicAnchor.anchor_role ?? "assistant"),
-      task_run_id: taskRunId || undefined,
-      task_id: String(taskProjection?.task_id ?? payload.task_id ?? ""),
-      status: String(taskProjection?.status ?? payload.status ?? "running"),
-      terminal_reason: "",
-      lifecycle: String(taskProjection?.status ?? payload.status ?? "running"),
-      title: "处理进展",
-      summary: payloadPublicNote || payloadSummary || publicSummary,
-      latest_step: {
-        step: String(payload.step ?? ""),
-        status: String(payload.status ?? ""),
-        summary: payloadSummary,
-        public_progress_note: payloadPublicNote || payloadSummary,
-        agent_brief_output: String(payload.agent_brief_output ?? ""),
-        event_id: String(runtimeEvent.event_id ?? ""),
-        offset: Number(runtimeEvent.offset ?? -1),
-        created_at: Number(runtimeEvent.created_at ?? 0),
-      },
-      latest_step_summary: payloadSummary,
-      latest_public_progress_note: payloadPublicNote || payloadSummary || publicSummary,
-      agent_brief_output: String(payload.agent_brief_output ?? ""),
-      latest_event_type: runtimeEvent.event_type,
-      event_count: Number(runtimeEvent.offset ?? -1) + 1,
-      progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
-      public_timeline: publicTimelineItems,
-      task_projection: taskProjection ?? undefined,
-      trace_available: true,
-      debug_trace_ref: String(taskProjection?.debug_trace_ref ?? runtimeEvent.debug_trace_ref ?? (taskRunId || runId)),
-      updated_at: Number(taskProjection?.updated_at ?? runtimeEvent.created_at ?? Date.now() / 1000),
-    };
-    const stateWithProjectionMessage = this.ensureRuntimeProjectionMessage(state, attachment);
-    return {
-      ...stateWithProjectionMessage,
-      messages: stateWithProjectionMessage.messages.map((message) => {
-        if (message.role !== "assistant") {
-          return message;
-        }
-        const existing = message.runtimeAttachments ?? [];
-        const sourceMatches = this.messageSourceMatchesRuntimeAnchor(message, { anchorTurnId, runId, taskRunId });
-        if (explicitAnchor.startsWith("turn:") && !sourceMatches) {
-          const filtered = existing.filter((item) => this.runtimeAttachmentRunId(item) !== runId);
-          return filtered.length === existing.length ? message : { ...message, runtimeAttachments: filtered };
-        }
-        const hasAttachment = existing.some((item) => this.runtimeAttachmentRunId(item) === runId);
-        if (!hasAttachment && !sourceMatches) {
-          return message;
-        }
-        const anchoredAttachment = {
-          ...attachment,
-          anchor_message_id: attachment.anchor_message_id || message.id,
-        };
-        return {
-          ...message,
-          runtimeAttachments: hasAttachment
-            ? existing.map((item) => this.runtimeAttachmentRunId(item) === runId ? this.mergeRuntimeAttachment(item, anchoredAttachment) : item)
-            : [...existing, anchoredAttachment],
-        };
-      }),
-    };
   }
 
   private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: HarnessSessionMonitor): StoreState {
@@ -5440,7 +5213,7 @@ export class WorkspaceRuntime {
 
   applyRunMonitorSnapshot(
     monitor: RuntimeMonitorEnvelope,
-    options: { selectedSignalId?: string; lastEvent?: RunMonitorEventPayload["runtime_event"] | null } = {},
+    options: { selectedSignalId?: string } = {},
   ) {
     this.runMonitorController.applySnapshot(monitor, options);
   }

@@ -4,7 +4,7 @@ import type {
   ModelProviderConfig,
   PublicChatTimelineItem,
   RetrievalResult,
-  RunMonitorEventPayload,
+  RuntimeLogScope,
   RuntimeMonitorActionPayload,
   RuntimeMonitorActionResult,
   RuntimeMonitorEnvelope,
@@ -347,7 +347,16 @@ export type FileCenterWorkspaceTarget = {
   requested_at: number;
 };
 
-export type CenterWorkspaceTarget = FileCenterWorkspaceTarget;
+export type RuntimeLogCenterWorkspaceTarget = {
+  layer: "runtime-log";
+  scope: RuntimeLogScope;
+  run_id: string;
+  title?: string;
+  subtitle?: string;
+  requested_at: number;
+};
+
+export type CenterWorkspaceTarget = FileCenterWorkspaceTarget | RuntimeLogCenterWorkspaceTarget;
 
 export type SessionEditorContext = {
   activeFilePath: string;
@@ -420,7 +429,6 @@ export type StoreState = {
   runMonitorLoading: boolean;
   runMonitorError: string;
   runMonitorStreamStatus: RuntimeMonitorStreamStatus;
-  runMonitorLastEvent: RunMonitorEventPayload["runtime_event"] | null;
   runMonitorActionLoading: string;
   runMonitorLastActionResult: RuntimeMonitorActionResult | null;
   taskGraphBoundRunMonitor: GraphRunMonitorView | null;
@@ -491,6 +499,7 @@ export type StoreActions = {
   runMonitorAction: (payload: RuntimeMonitorActionPayload) => Promise<RuntimeMonitorActionResult | null>;
   openTaskGraphWorkspace: (target?: Omit<TaskGraphWorkspaceTarget, "layer" | "requested_at">) => void;
   openWorkspaceFile: (path: string) => void;
+  openRuntimeLog: (target: Omit<RuntimeLogCenterWorkspaceTarget, "layer" | "requested_at">) => void;
   clearTaskGraphWorkspaceTarget: () => void;
   clearCenterWorkspaceTarget: () => void;
 };

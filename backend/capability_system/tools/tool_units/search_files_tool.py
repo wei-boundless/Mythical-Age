@@ -5,7 +5,7 @@ import fnmatch
 import re
 import subprocess
 from pathlib import Path
-from typing import Literal, Type
+from typing import Any, Literal, Type
 
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -68,8 +68,33 @@ def _run_rg(args: list[str], *, cwd: Path, timeout: float = 8.0) -> subprocess.C
         return None
 
 
-def _format_no_results(query: str) -> str:
-    return f"没有找到匹配项：{query}"
+def _format_no_results(query: str, *, search_boundary: dict[str, Any] | None = None) -> str:
+    lines = [f"没有找到匹配项：{query}"]
+    boundary = dict(search_boundary or {})
+    if boundary:
+        lines.append(f"已搜索 roots：{', '.join(list(boundary.get('searched_roots') or [])) or '<none>'}")
+    if boundary.get("omitted_workspace_root"):
+        lines.append(
+            "注意：本次使用默认搜索根，未搜索项目根目录 '.'。如果你已经知道文件路径，请直接使用 read_file/path_exists；如果要搜索根目录文件，请传 roots=[\".\"]."
+        )
+    return "\n".join(lines)
+
+
+def _path_search_boundary(
+    files: WorkspaceFileService,
+    *,
+    safe_roots: list[Path],
+    using_default_roots: bool,
+) -> dict[str, Any]:
+    workspace_root = files.workspace_root.resolve()
+    searched_roots = [files.relative_path(root) or "." for root in safe_roots]
+    omitted_workspace_root = using_default_roots and all(root.resolve() != workspace_root for root in safe_roots)
+    return {
+        "searched_roots": searched_roots,
+        "used_default_roots": bool(using_default_roots),
+        "workspace_root": str(workspace_root),
+        "omitted_workspace_root": bool(omitted_workspace_root),
+    }
 
 
 def _query_terms(query: str) -> list[str]:
@@ -90,6 +115,13 @@ def _query_terms(query: str) -> list[str]:
         seen.add(term)
         deduped.append(term)
     return deduped
+
+
+def _normalize_workspace_path(value: str) -> str:
+    path = str(value or "").strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
 
 
 class SearchFilesTool(BaseTool):
@@ -132,7 +164,7 @@ class SearchFilesTool(BaseTool):
             )
         paths: list[str] = []
         if completed is not None and completed.returncode in {0, 1}:
-            paths = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
+            paths = [_normalize_workspace_path(line) for line in completed.stdout.splitlines() if line.strip()]
         else:
             for root in safe_roots:
                 for path in root.rglob("*"):
@@ -146,7 +178,14 @@ class SearchFilesTool(BaseTool):
         matches = [path for path in paths if any(term in path.lower() for term in terms)]
         matches = sorted(dict.fromkeys(matches))[:limit]
         if not matches:
-            return _format_no_results(normalized_query)
+            return _format_no_results(
+                normalized_query,
+                search_boundary=_path_search_boundary(
+                    self._files,
+                    safe_roots=safe_roots,
+                    using_default_roots=using_default_roots,
+                ),
+            )
         return "\n".join(f"[{index}] {path}" for index, path in enumerate(matches, start=1))
 
     async def _arun(

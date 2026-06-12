@@ -11,6 +11,7 @@ type RunTaskLaneProps = {
   loading: boolean;
   actionLoading: string;
   onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onOpenLog?: (signal: RunMonitorSignal) => void;
   onOpen: (signalId: string) => void;
 };
 
@@ -82,7 +83,7 @@ function visibleTaskLaneActions(signal: RunMonitorSignal): RunTaskLaneAction[] {
   return (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action));
 }
 
-export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen }: RunTaskLaneProps) {
+export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen, onOpenLog }: RunTaskLaneProps) {
   const ordered = [...signals].sort((left, right) => signalSortRank(left) - signalSortRank(right));
   const visible = ordered.slice(0, 8);
   const hidden = Math.max(0, ordered.length - visible.length);
@@ -95,9 +96,10 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
       <div className="run-monitor-tasks">
         {visible.length ? visible.map((signal) => {
           const actions = visibleTaskLaneActions(signal);
+          const hasLogAction = Boolean(onOpenLog && signal.task_run_id);
           return (
             <div
-              className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}${actions.length ? " run-monitor-task--has-actions" : ""}`}
+              className={`run-monitor-task run-monitor-task--${signalVisualState(signal)}${actions.length || hasLogAction ? " run-monitor-task--has-actions" : ""}`}
               key={signalOpenId(signal)}
             >
               <span className="run-monitor-task__icon">{signalIcon(signal)}</span>
@@ -113,6 +115,7 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen 
                 actions={actions}
                 loadingAction={actionLoading}
                 onAction={onAction}
+                onOpenLog={onOpenLog}
                 signal={signal}
               />
             </div>
@@ -133,17 +136,31 @@ function RunTaskLaneActions({
   actions,
   loadingAction,
   onAction,
+  onOpenLog,
   signal,
 }: {
   actions: RunTaskLaneAction[];
   loadingAction: string;
   onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onOpenLog?: (signal: RunMonitorSignal) => void;
   signal: RunMonitorSignal;
 }) {
-  if (!actions.length) return null;
+  if (!actions.length && !(onOpenLog && signal.task_run_id)) return null;
   const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
   return (
     <div className="run-monitor-task__actions" aria-label="运行操作">
+      {onOpenLog && signal.task_run_id ? (
+        <button
+          className="run-monitor-task__action"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenLog(signal);
+          }}
+          type="button"
+        >
+          日志
+        </button>
+      ) : null}
       {actions.map((action) => (
         <button
           className={runTaskLaneActionClassName(action.action)}

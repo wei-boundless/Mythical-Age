@@ -4,7 +4,7 @@ from api.chat import _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import project_public_projection_event
-from harness.runtime.projection.timeline_builder import project_runtime_monitor_event_public_delta
+from harness.runtime.projection.timeline_builder import project_public_event_delta_from_runtime_event
 from runtime.tool_runtime import ToolObservation
 
 
@@ -305,7 +305,7 @@ def test_runtime_private_artifact_paths_do_not_project_as_public_text():
 
     assert public_text(private_path) == ""
 
-    projected = project_runtime_monitor_event_public_delta(
+    projected = project_public_event_delta_from_runtime_event(
         {
             "event_id": "event:private-path",
             "event_type": "step_summary_recorded",
@@ -328,7 +328,7 @@ def test_runtime_private_artifact_paths_do_not_project_as_public_text():
 
 
 def test_runtime_monitor_projection_uses_runtime_status_not_assistant_body():
-    projected = project_runtime_monitor_event_public_delta(
+    projected = project_public_event_delta_from_runtime_event(
         {
             "event_id": "event:summary",
             "event_type": "step_summary_recorded",
@@ -353,7 +353,7 @@ def test_runtime_monitor_projection_uses_runtime_status_not_assistant_body():
 
 
 def test_active_task_steer_projection_exposes_queue_transition_as_runtime_control_item():
-    projected = project_runtime_monitor_event_public_delta(
+    projected = project_public_event_delta_from_runtime_event(
         {
             "event_id": "event:steer-included",
             "event_type": "active_task_steer_included",

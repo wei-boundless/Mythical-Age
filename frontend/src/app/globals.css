@@ -11391,6 +11391,50 @@ html[data-workspace-tone] .agent-workbench {
   font-size: 0.82rem;
 }
 
+.center-workspace__runtime-log-layer {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--workbench-line);
+  border-radius: 8px;
+  background: var(--workbench-surface);
+}
+
+.center-workspace__runtime-log-layer .runtime-log-panel {
+  height: 100%;
+  min-height: 0;
+  border-top: 0;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.84));
+  padding: 12px;
+}
+
+.center-workspace__runtime-log-layer .runtime-log-panel__title strong {
+  max-width: min(66vw, 880px);
+  font-size: 15px;
+}
+
+.center-workspace__runtime-log-layer .runtime-log-panel__body {
+  grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+}
+
+.center-workspace__runtime-log-layer .runtime-log-event {
+  grid-template-columns: 56px minmax(0, 1fr) 72px;
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.center-workspace__runtime-log-layer .runtime-log-panel__detail pre {
+  font-size: 11.5px;
+}
+
+@media (max-width: 1180px) {
+  .center-workspace__runtime-log-layer .runtime-log-panel__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(190px, 0.9fr) minmax(240px, 1fr);
+  }
+}
+
 .task-graph-editor-page--embedded {
   min-width: 0;
   min-height: 0;
@@ -19017,7 +19061,7 @@ body {
   gap: 12px;
 }
 
-.run-monitor-panel__head div,
+.run-monitor-panel__headline,
 .run-monitor-lane__head {
   display: flex;
   align-items: baseline;
@@ -19025,7 +19069,7 @@ body {
   gap: 10px;
 }
 
-.run-monitor-panel__head div {
+.run-monitor-panel__headline {
   align-items: flex-start;
   flex-direction: column;
 }
@@ -19057,11 +19101,23 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
   color: #172033;
+  cursor: pointer;
 }
 
 .run-monitor-panel__head button:hover:not(:disabled) {
   border-color: rgba(20, 92, 255, 0.26);
   color: #145cff;
+}
+
+.run-monitor-panel__head button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.run-monitor-panel__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .run-monitor-panel__status {
@@ -19087,6 +19143,13 @@ body {
   align-items: flex-start;
   gap: 8px;
   color: #7a5b12;
+}
+
+.run-monitor-panel__body {
+  display: grid;
+  grid-row: 4;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .run-monitor-lane {
@@ -19275,6 +19338,313 @@ body {
   gap: 5px;
   padding: 18px 2px;
   color: rgba(23, 32, 51, 0.48);
+}
+
+.runtime-log-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  min-height: 300px;
+  overflow: hidden;
+  border-top: 1px solid rgba(17, 24, 39, 0.12);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.78));
+  color: #172033;
+  padding-top: 10px;
+}
+
+.runtime-log-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.runtime-log-panel__title {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.runtime-log-panel__title span,
+.runtime-log-panel__title small,
+.runtime-log-panel__metrics,
+.runtime-log-panel__notice,
+.runtime-log-event small,
+.runtime-log-event__time,
+.runtime-log-panel__detail header span,
+.runtime-log-panel__detail header em,
+.runtime-log-panel__detail-empty span,
+.runtime-log-panel__empty span {
+  color: rgba(23, 32, 51, 0.58);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.runtime-log-panel__title span,
+.runtime-log-panel__metrics span,
+.runtime-log-panel__stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.runtime-log-panel__title strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__title small {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.runtime-log-panel__actions button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 7px;
+  background: #fff;
+  color: #172033;
+  cursor: pointer;
+}
+
+.runtime-log-panel__actions button:hover {
+  border-color: rgba(20, 92, 255, 0.26);
+  color: #145cff;
+}
+
+.runtime-log-panel__stream {
+  min-height: 28px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(23, 32, 51, 0.68);
+  font-size: 11px;
+  font-weight: 740;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__stream--connected {
+  border-color: rgba(20, 122, 92, 0.2);
+  color: #147a5c;
+}
+
+.runtime-log-panel__stream--reconnecting {
+  border-color: rgba(161, 92, 0, 0.22);
+  color: #8a5a00;
+}
+
+.runtime-log-panel__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.runtime-log-panel__metrics span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__gap {
+  color: #a15c00;
+  font-family: var(--font-mono);
+  font-weight: 720;
+}
+
+.runtime-log-panel__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #7a5b12;
+}
+
+.runtime-log-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.82fr);
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.runtime-log-panel__events {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+  scrollbar-gutter: stable;
+}
+
+.runtime-log-event {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.07);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px 7px;
+  text-align: left;
+}
+
+.runtime-log-event:hover,
+.runtime-log-event--selected {
+  background: rgba(20, 92, 255, 0.07);
+}
+
+.runtime-log-event--selected {
+  box-shadow: inset 2px 0 0 #145cff;
+}
+
+.runtime-log-event__offset {
+  color: rgba(23, 32, 51, 0.52);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.runtime-log-event__body {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.runtime-log-event strong {
+  overflow: hidden;
+  color: #172033;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-log-event small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-log-event__time {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__detail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.runtime-log-panel__detail header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid rgba(248, 250, 252, 0.12);
+  padding: 7px 8px;
+}
+
+.runtime-log-panel__detail header div,
+.runtime-log-panel__detail-empty {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.runtime-log-panel__detail header strong,
+.runtime-log-panel__detail-empty strong {
+  overflow: hidden;
+  color: #f8fafc;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-log-panel__detail header span,
+.runtime-log-panel__detail header em,
+.runtime-log-panel__detail-empty span {
+  color: rgba(248, 250, 252, 0.62);
+  font-family: var(--font-mono);
+  font-style: normal;
+}
+
+.runtime-log-panel__detail pre {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  color: #dbeafe;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px;
+  white-space: pre;
+}
+
+.runtime-log-panel__empty,
+.runtime-log-panel__detail-empty {
+  align-content: start;
+  justify-items: start;
+  gap: 5px;
+  padding: 14px 9px;
+}
+
+.runtime-log-panel__empty strong {
+  color: #172033;
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.runtime-log-panel__detail-empty {
+  color: #f8fafc;
+}
+
+@media (max-width: 1180px) {
+  .runtime-log-panel__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 0.9fr) minmax(160px, 1fr);
+  }
 }
 
 .file-changes-panel {

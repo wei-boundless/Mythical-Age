@@ -529,7 +529,7 @@ function getTile(col, row) {
 }
 
 function isSolid(tile) {
-  return tile !== 0 && tile !== 3; // question block also solid? we treat as solid here
+  return tile !== 0; // tile 0 is air, all others solid
 }
 
 function getTileRect(col, row) {

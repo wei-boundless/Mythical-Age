@@ -1,19 +1,30 @@
 "use client";
 
-import { Edit3, FileText, RefreshCw, Save, Sparkles, Workflow, X } from "lucide-react";
+import { Edit3, FileText, RefreshCw, Save, Sparkles, Terminal, Workflow, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
+import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
 import { useAppStore } from "@/lib/store";
 
-type CenterWorkspaceLayer = "chat" | "file";
+type CenterWorkspaceLayer = "chat" | "file" | "runtime-log";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
 
 function compactFileName(path: string) {
   const normalized = path.replace(/\\/g, "/");
   const parts = normalized.split("/");
   return parts[parts.length - 1] || path || "文件";
+}
+
+function runtimeLogPageKey(target: RuntimeLogTarget) {
+  return `${target.scope}:${target.runId}`;
+}
+
+function runtimeLogPageTitle(target: RuntimeLogTarget) {
+  const title = String(target.title || "").trim();
+  if (title) return title.length > 28 ? `${title.slice(0, 28)}...` : title;
+  return target.scope === "turn_run" ? "TurnRun Log" : "TaskRun Log";
 }
 
 function isEditableWorkspacePath(path: string, editablePrefixes: string[] = []) {
@@ -150,6 +161,8 @@ export function CenterWorkspaceView({
   const [layer, setLayer] = useState<CenterWorkspaceLayer>("chat");
   const [activeFilePath, setActiveFilePath] = useState("");
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
+  const [activeRuntimeLogKey, setActiveRuntimeLogKey] = useState("");
+  const [openRuntimeLogPages, setOpenRuntimeLogPages] = useState<RuntimeLogTarget[]>([]);
   const sessionEditorContext = currentSessionId ? sessionEditorContexts[currentSessionId] : null;
 
   const canSwitchActiveFile = useCallback((nextPath: string) => {
@@ -192,6 +205,40 @@ export function CenterWorkspaceView({
     setSessionEditorPageState({ activeFilePath: nextActiveFilePath, openFilePaths: nextOpenFilePaths });
   }, [activeFilePath, inspectorDirty, openFilePaths, setSessionEditorPageState]);
 
+  const openRuntimeLogPage = useCallback((target: RuntimeLogTarget) => {
+    const runId = String(target.runId || "").trim();
+    if (!runId) return;
+    const normalized: RuntimeLogTarget = {
+      scope: target.scope === "turn_run" ? "turn_run" : "task_run",
+      runId,
+      title: String(target.title || "").trim() || undefined,
+      subtitle: String(target.subtitle || "").trim() || runId,
+    };
+    const key = runtimeLogPageKey(normalized);
+    setOpenRuntimeLogPages((pages) => {
+      const existing = pages.find((page) => runtimeLogPageKey(page) === key);
+      if (existing) {
+        return pages.map((page) => runtimeLogPageKey(page) === key ? { ...page, ...normalized } : page);
+      }
+      return [...pages, normalized];
+    });
+    setActiveRuntimeLogKey(key);
+    setLayer("runtime-log");
+  }, []);
+
+  const closeRuntimeLogPage = useCallback((key: string) => {
+    setOpenRuntimeLogPages((pages) => {
+      const index = pages.findIndex((page) => runtimeLogPageKey(page) === key);
+      const nextPages = pages.filter((page) => runtimeLogPageKey(page) !== key);
+      if (key === activeRuntimeLogKey) {
+        const nextPage = nextPages[Math.min(Math.max(index, 0), nextPages.length - 1)] ?? null;
+        setActiveRuntimeLogKey(nextPage ? runtimeLogPageKey(nextPage) : "");
+        setLayer(nextPage ? "runtime-log" : activeFilePath ? "file" : "chat");
+      }
+      return nextPages;
+    });
+  }, [activeFilePath, activeRuntimeLogKey]);
+
   useEffect(() => {
     const nextOpenFilePaths = sessionEditorContext?.openFilePaths ?? [];
     const nextActiveFilePath = sessionEditorContext?.activeFilePath ?? "";
@@ -206,13 +253,22 @@ export function CenterWorkspaceView({
     }
     if (centerWorkspaceTarget.layer === "file") {
       openFilePage(centerWorkspaceTarget.file_path);
+    } else if (centerWorkspaceTarget.layer === "runtime-log") {
+      openRuntimeLogPage({
+        scope: centerWorkspaceTarget.scope,
+        runId: centerWorkspaceTarget.run_id,
+        title: centerWorkspaceTarget.title,
+        subtitle: centerWorkspaceTarget.subtitle,
+      });
     }
     clearCenterWorkspaceTarget();
-  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget, openFilePage]);
+  }, [centerWorkspaceTarget, clearCenterWorkspaceTarget, openFilePage, openRuntimeLogPage]);
 
   function closeFileLayer() {
     closeFilePage(activeFilePath);
   }
+
+  const activeRuntimeLogPage = openRuntimeLogPages.find((page) => runtimeLogPageKey(page) === activeRuntimeLogKey) ?? null;
 
   return (
     <section className="center-workspace" aria-label="中心工作区">
@@ -268,6 +324,40 @@ export function CenterWorkspaceView({
               </div>
             );
           })}
+          {openRuntimeLogPages.map((target) => {
+            const key = runtimeLogPageKey(target);
+            const active = layer === "runtime-log" && key === activeRuntimeLogKey;
+            const label = runtimeLogPageTitle(target);
+            return (
+              <div
+                className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
+                key={key}
+                title={target.subtitle || target.runId}
+              >
+                <button
+                  aria-current={active ? "page" : undefined}
+                  className="center-workspace-file-tab__main"
+                  onClick={() => {
+                    setActiveRuntimeLogKey(key);
+                    setLayer("runtime-log");
+                  }}
+                  type="button"
+                >
+                  <Terminal size={14} />
+                  <span>{label}</span>
+                </button>
+                <button
+                  aria-label={`关闭日志页 ${label}`}
+                  className="center-workspace-file-tab__close"
+                  onClick={() => closeRuntimeLogPage(key)}
+                  title="关闭日志页"
+                  type="button"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
         </nav>
         <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
       </header>
@@ -276,8 +366,14 @@ export function CenterWorkspaceView({
         <div className="center-workspace__chat">
           <ChatPanel />
         </div>
-      ) : (
+      ) : layer === "file" ? (
         <CenterWorkspaceFileLayer onClose={closeFileLayer} path={activeFilePath} />
+      ) : activeRuntimeLogPage ? (
+        <section className="center-workspace__runtime-log-layer" aria-label="运行日志页">
+          <RuntimeLogPanel target={activeRuntimeLogPage} onClose={() => closeRuntimeLogPage(runtimeLogPageKey(activeRuntimeLogPage))} />
+        </section>
+      ) : (
+        <div className="center-workspace-file__empty">没有打开的运行日志。</div>
       )}
     </section>
   );

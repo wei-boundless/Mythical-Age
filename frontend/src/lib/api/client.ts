@@ -19,6 +19,26 @@ export function getRuntimeMonitorEventStreamUrl(limit = 40) {
   return `${getApiBase()}/orchestration/runtime-monitor/events?limit=${encodeURIComponent(String(limit))}`;
 }
 
+export function getRuntimeLogEventStreamUrl(
+  scope: "task_run" | "turn_run",
+  runId: string,
+  options: {
+    afterOffset?: number;
+    limit?: number;
+    includePayloads?: boolean;
+    includeModelMessages?: boolean;
+  } = {},
+) {
+  const path = scope === "turn_run" ? "turn-runs" : "task-runs";
+  const params = new URLSearchParams();
+  if (options.afterOffset !== undefined) params.set("after_offset", String(options.afterOffset));
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.includePayloads) params.set("include_payloads", "true");
+  if (options.includeModelMessages) params.set("include_model_messages", "true");
+  const query = params.toString();
+  return `${getApiBase()}/runtime/logs/${path}/${encodeURIComponent(runId)}/events${query ? `?${query}` : ""}`;
+}
+
 function requestTimeoutMs(path: string) {
   if (path === "/sessions") {
     return 5000;

@@ -1,4 +1,4 @@
-import type { RunMonitorEnvelope, RunMonitorEvent, RunMonitorSignal, RunMonitorState } from "./types";
+import type { RunMonitorEnvelope, RunMonitorSignal, RunMonitorState } from "./types";
 import { autoSelectableRunMonitorSignals } from "./selectors";
 
 export function createRunMonitorState(): RunMonitorState {
@@ -12,7 +12,6 @@ export function createRunMonitorState(): RunMonitorState {
     loading: false,
     error: "",
     streamStatus: "closed",
-    lastEvent: null,
   };
 }
 
@@ -70,7 +69,7 @@ export function findRunMonitorSignal(monitor: RunMonitorEnvelope | null | undefi
 export function applyRunMonitorSnapshot(
   state: RunMonitorState,
   monitor: RunMonitorEnvelope,
-  options: { selectedSignalId?: string; lastEvent?: RunMonitorEvent["runtime_event"] | null } = {},
+  options: { selectedSignalId?: string } = {},
 ): RunMonitorState {
   const nextRevision = runMonitorRevision(monitor);
   if (isStaleRunMonitorRevision(nextRevision, state.revision)) return state;
@@ -89,7 +88,6 @@ export function applyRunMonitorSnapshot(
     selectedDetail: selected?.signal_id === state.selectedSignalId && nextRevision === state.revision ? state.selectedDetail : null,
     selectedGraphMonitor: selected?.signal_id === state.selectedSignalId && nextRevision === state.revision ? state.selectedGraphMonitor : null,
     error: "",
-    lastEvent: options.lastEvent ?? state.lastEvent,
   };
 }
 

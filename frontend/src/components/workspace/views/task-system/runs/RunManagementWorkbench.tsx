@@ -18,6 +18,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
   const confirm = useConfirmDialog();
   const {
     openRunMonitorSignal,
+    openRuntimeLog,
     refreshRunMonitor,
     runMonitor,
     runMonitorAction,
@@ -67,6 +68,17 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
     await runMonitorAction(payload);
   }
 
+  function openSignalLog(signal: RunMonitorSignal) {
+    const runId = String(signal.task_run_id || "").trim();
+    if (!runId) return;
+    openRuntimeLog({
+      scope: "task_run",
+      run_id: runId,
+      title: signal.title || "TaskRun",
+      subtitle: signal.line || runId,
+    });
+  }
+
   return (
     <section className="run-management-workbench">
       <header className="run-management-workbench__head">
@@ -86,6 +98,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
           actionLoading={runMonitorActionLoading}
           emptyText="当前没有需要管理的运行队列。"
           onAction={(payload) => void handleAction(payload)}
+          onOpenLog={openSignalLog}
           onOpen={openRunMonitorSignal}
           rows={queueRows}
         />
@@ -96,6 +109,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
           actionLoading={runMonitorActionLoading}
           emptyText="当前没有已清出或最近完成的运行记录。"
           onAction={(payload) => void handleAction(payload)}
+          onOpenLog={openSignalLog}
           onOpen={openRunMonitorSignal}
           rows={recordRows}
         />
@@ -109,6 +123,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
             actionLoading={runMonitorActionLoading}
             emptyText="暂无可预览清理的记录。"
             onAction={(payload) => void handleAction(payload)}
+            onOpenLog={openSignalLog}
             onOpen={openRunMonitorSignal}
             rows={recordRows.filter((signal) => (signal.actions ?? []).some((action) => action.action.includes("delete") && action.enabled))}
           />
@@ -122,12 +137,14 @@ function RunManagementRows({
   actionLoading,
   emptyText,
   onAction,
+  onOpenLog,
   onOpen,
   rows,
 }: {
   actionLoading: string;
   emptyText: string;
   onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onOpenLog: (signal: RunMonitorSignal) => void;
   onOpen: (signalId: string) => void;
   rows: RunMonitorSignal[];
 }) {
@@ -151,7 +168,7 @@ function RunManagementRows({
             <strong>{stateLabel(signal)}</strong>
             <span>{signal.detail}</span>
           </div>
-          <RunManagementActions loadingAction={actionLoading} onAction={onAction} signal={signal} />
+          <RunManagementActions loadingAction={actionLoading} onAction={onAction} onOpenLog={onOpenLog} signal={signal} />
         </div>
       ))}
     </div>
@@ -161,19 +178,27 @@ function RunManagementRows({
 function RunManagementActions({
   loadingAction,
   onAction,
+  onOpenLog,
   signal,
 }: {
   loadingAction: string;
   onAction: (payload: RuntimeMonitorActionPayload) => void;
+  onOpenLog: (signal: RunMonitorSignal) => void;
   signal: RunMonitorSignal;
 }) {
   const actions = (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action));
-  if (!actions.length) {
+  const hasLogAction = Boolean(signal.task_run_id);
+  if (!actions.length && !hasLogAction) {
     return <div className="run-management-row__actions" aria-label="无可用操作" />;
   }
   const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
   return (
     <div className="run-management-row__actions" aria-label="运行操作">
+      {hasLogAction ? (
+        <button className="run-management-row__action" onClick={() => onOpenLog(signal)} type="button">
+          日志
+        </button>
+      ) : null}
       {actions.map((action) => (
         <button
           className={actionButtonClassName(action.action)}

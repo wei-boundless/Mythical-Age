@@ -31,7 +31,6 @@ const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
 
 type RunMonitorHost = {
   hasActiveChatStream: () => boolean;
-  patchRuntimeAttachmentFromRuntimeEvent: (prev: StoreState, event: NonNullable<RunMonitorEventPayload["runtime_event"]>) => StoreState;
   applySelectedSessionShell: (sessionId: string, scope?: Partial<SessionScope>) => boolean;
   bindTaskEnvironmentContext: (
     taskEnvironmentId: string,
@@ -148,7 +147,7 @@ export class RunMonitorController {
     }
   }
 
-  applySnapshot(monitor: RunMonitorEnvelope, options: { selectedSignalId?: string; lastEvent?: RunMonitorEventPayload["runtime_event"] | null } = {}) {
+  applySnapshot(monitor: RunMonitorEnvelope, options: { selectedSignalId?: string } = {}) {
     const state = this.store.getState();
     const next = applyRunMonitorSnapshot(
       {
@@ -161,7 +160,6 @@ export class RunMonitorController {
         loading: state.runMonitorLoading,
         error: state.runMonitorError,
         streamStatus: state.runMonitorStreamStatus,
-        lastEvent: state.runMonitorLastEvent,
       },
       monitor,
       options,
@@ -175,7 +173,6 @@ export class RunMonitorController {
       runMonitorSelectedDetail: next.selectedDetail,
       runMonitorSelectedGraphMonitor: next.selectedGraphMonitor,
       runMonitorError: next.error,
-      runMonitorLastEvent: next.lastEvent,
     }));
   }
 
@@ -186,15 +183,11 @@ export class RunMonitorController {
     const stalePayload = Boolean(payload.monitor && isStaleRunMonitorRevision(incomingRevision, currentRevision));
     if (payload.monitor) {
       this.applySnapshot(payload.monitor, {
-        lastEvent: payload.runtime_event ?? null,
-        selectedSignalId: signalIdFromRuntimeEvent(payload.runtime_event, payload.monitor),
+        selectedSignalId: "",
       });
-      if (!payload.runtime_event) {
+      if (!stalePayload) {
         this.hydrateCurrentSessionFromStream();
       }
-    }
-    if (payload.runtime_event && !stalePayload) {
-      this.store.setState((prev) => this.host.patchRuntimeAttachmentFromRuntimeEvent(prev, payload.runtime_event as NonNullable<RunMonitorEventPayload["runtime_event"]>));
     }
   }
 
@@ -212,7 +205,6 @@ export class RunMonitorController {
           loading: prev.runMonitorLoading,
           error: prev.runMonitorError,
           streamStatus: prev.runMonitorStreamStatus,
-          lastEvent: prev.runMonitorLastEvent,
         },
         normalized,
       );
@@ -382,7 +374,6 @@ export class RunMonitorController {
       this.schedulePoll(2500);
     };
     source.addEventListener("runtime_monitor_snapshot", (event) => this.handleStreamMessage(event));
-    source.addEventListener("runtime_monitor_event", (event) => this.handleStreamMessage(event));
     source.addEventListener("runtime_monitor_heartbeat", () => {
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected" }));
     });
@@ -639,13 +630,6 @@ export class RunMonitorController {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
     }
   }
-}
-
-function signalIdFromRuntimeEvent(event: RunMonitorEventPayload["runtime_event"] | null | undefined, monitor: RunMonitorEnvelope) {
-  if (!event) return "";
-  const taskRunId = String(event.task_run_id || event.run_id || "").trim();
-  if (!taskRunId) return "";
-  return monitor.signals.find((signal) => signal.task_run_id === taskRunId || signal.signal_id === taskRunId)?.signal_id ?? "";
 }
 
 function normalizeTaskGraphBinding(

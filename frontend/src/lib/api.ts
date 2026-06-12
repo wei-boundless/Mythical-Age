@@ -1,6 +1,6 @@
-import { apiRequest, getApiBase, getRuntimeMonitorEventStreamUrl } from "./api/client";
+import { apiRequest, getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl } from "./api/client";
 
-export { getApiBase, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
+export { getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
 
 export type ToolCall = {
   tool: string;
@@ -2714,32 +2714,26 @@ export type RuntimeMonitorActionResult = {
 export type RunMonitorEventPayload = {
   source?: string;
   monitor?: RuntimeMonitorEnvelope;
-  runtime_event?: {
-    event_id: string;
-    run_id: string;
-    task_run_id?: string;
-    event_type: string;
-    offset: number;
-    created_at: number;
-    payload: Record<string, unknown>;
-    refs: Record<string, unknown>;
-    authority: string;
-    public_projection_authority?: string;
-    public_projection_envelope?: PublicProjectionEnvelope;
-    public_event_type?: string;
-    public_timeline?: PublicChatTimelineItem[];
-    task_projection?: SingleAgentTaskProjection;
-    task_projection_delta?: SingleAgentTaskProjection;
-    public_anchor?: {
-      run_id?: string;
-      task_run_id?: string;
-      turn_run_id?: string;
-      anchor_turn_id?: string;
-      anchor_role?: "assistant" | string;
-    };
-    debug_trace_ref?: string;
-    public_projection_skip_reason?: string;
-  };
+  updated_at?: number;
+};
+
+export type RuntimeLogScope = "task_run" | "turn_run";
+
+export type RuntimeLogGap = {
+  expected_after_offset: number;
+  observed_offset: number;
+  recovered: boolean;
+};
+
+export type RuntimeLogStreamPayload = {
+  source?: "snapshot" | "event" | "gap" | "heartbeat" | "closed" | string;
+  scope: RuntimeLogScope;
+  run_id: string;
+  event?: HarnessTraceEvent;
+  events?: HarnessTraceEvent[];
+  event_offset?: number;
+  last_event_id?: string;
+  gap?: RuntimeLogGap;
   updated_at?: number;
 };
 

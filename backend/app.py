@@ -18,6 +18,7 @@ from api.orchestration_catalog import router as orchestration_catalog_router
 from api.orchestration_harness import router as orchestration_harness_router
 from api.project_workspaces import router as project_workspaces_router
 from api.runtime_facts import router as runtime_facts_router
+from api.runtime_logs import router as runtime_logs_router
 from api.runtime_monitor import router as runtime_monitor_router
 from api.runtime_trace import router as runtime_trace_router
 from api.capability_system import router as capability_system_router
@@ -64,6 +65,7 @@ app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestra
 app.include_router(graph_task_instances_router, prefix="/api", tags=["graph-task-instances"])
 app.include_router(project_workspaces_router, prefix="/api", tags=["project-workspaces"])
 app.include_router(runtime_monitor_router, prefix="/api", tags=["runtime-monitor"])
+app.include_router(runtime_logs_router, prefix="/api", tags=["runtime-logs"])
 app.include_router(runtime_trace_router, prefix="/api", tags=["runtime-trace"])
 app.include_router(runtime_facts_router, prefix="/api", tags=["runtime-facts"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])

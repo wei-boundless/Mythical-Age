@@ -503,8 +503,7 @@ function composeAssistantBodyContent(
 ) {
   return orderedSegmentIds
     .map((segmentId) => segments[segmentId]?.canonicalContent ?? "")
-    .map((content) => content.trim())
-    .filter(Boolean)
+    .filter((content) => content.length > 0)
     .join("\n\n");
 }
 

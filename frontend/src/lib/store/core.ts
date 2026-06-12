@@ -99,7 +99,6 @@ export function getDefaultState(): StoreState {
     runMonitorLoading: false,
     runMonitorError: "",
     runMonitorStreamStatus: "closed",
-    runMonitorLastEvent: null,
     runMonitorActionLoading: "",
     runMonitorLastActionResult: null,
     taskGraphBoundRunMonitor: null,

@@ -12,7 +12,7 @@ from .projector import project_public_projection_event
 from .task_projection import build_single_agent_task_projection_for_event
 
 
-PUBLIC_PROJECTION_AUTHORITY = "runtime_monitor.public_event_projection"
+PUBLIC_PROJECTION_AUTHORITY = "public_stream.public_projection.v1"
 INTERNAL_TURN_TERMINAL_REASONS = {
     "active_work_control",
     "continue_active_work",
@@ -42,7 +42,7 @@ PUBLIC_TIMELINE_ORDER_FIELDS = (
 )
 
 
-def project_runtime_monitor_event_public_delta(
+def project_public_event_delta_from_runtime_event(
     runtime_event: dict[str, Any],
     *,
     runtime_host: Any | None = None,
@@ -105,7 +105,7 @@ def project_public_timeline_from_events(
     action_requests = _action_requests_by_ref([_event_record(event) for event in events])
     for event in _ordered_events(events):
         event = _event_with_action_request(event, action_requests)
-        delta = project_runtime_monitor_event_public_delta(
+        delta = project_public_event_delta_from_runtime_event(
             event,
             runtime_host=runtime_host,
             monitor=monitor,

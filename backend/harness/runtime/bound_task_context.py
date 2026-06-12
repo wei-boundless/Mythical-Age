@@ -15,6 +15,7 @@ class BoundTaskContext:
     source_ref: str
     plan_refs: tuple[str, ...] = ()
     task_files: tuple[dict[str, Any], ...] = ()
+    known_task_files: tuple[dict[str, Any], ...] = ()
     edit_targets: tuple[dict[str, Any], ...] = ()
     artifact_refs: tuple[dict[str, Any], ...] = ()
     context_refs: tuple[str, ...] = ()
@@ -45,6 +46,7 @@ class BoundTaskContext:
         payload = asdict(self)
         payload["plan_refs"] = list(self.plan_refs)
         payload["task_files"] = [dict(item) for item in self.task_files]
+        payload["known_task_files"] = [dict(item) for item in self.known_task_files]
         payload["edit_targets"] = [dict(item) for item in self.edit_targets]
         payload["artifact_refs"] = [dict(item) for item in self.artifact_refs]
         payload["context_refs"] = list(self.context_refs)
@@ -58,6 +60,7 @@ class BoundTaskContext:
             {
                 "plan_refs": list(self.plan_refs),
                 "context_refs": list(self.context_refs),
+                "known_task_files": [dict(item) for item in self.known_task_files],
                 "restore_policy": dict(self.restore_policy),
             }
         )
@@ -81,14 +84,17 @@ def build_bound_task_context(
         tuple(getattr(dynamic_context, "artifact_refs", ()) or ()),
     )
     task_files = _task_files(state_payload.get("file_state"))
+    known_task_files = _known_task_files(task_files)
     rehydration_refs = _rehydration_refs(task_files=task_files, replay_entries=replay_entries)
     edit_targets = _edit_targets(task_files)
     plan_refs = _plan_refs(contract_payload, planning_payload)
+    restore_enabled = bool(plan_refs or context_refs or known_task_files)
     stable_seed = _drop_empty_payload(
         {
             "plan_refs": list(plan_refs),
             "context_refs": list(context_refs),
-            "restore_policy": _restore_policy(enabled=bool(plan_refs or context_refs)),
+            "known_task_files": known_task_files,
+            "restore_policy": _restore_policy(enabled=restore_enabled),
         }
     )
     runtime_state_seed = _drop_empty_payload(
@@ -108,15 +114,17 @@ def build_bound_task_context(
         source_ref=context_id,
         plan_refs=plan_refs,
         task_files=tuple(task_files),
+        known_task_files=tuple(known_task_files),
         edit_targets=tuple(edit_targets),
         artifact_refs=tuple(artifact_refs),
         context_refs=context_refs,
         rehydration_refs=tuple(rehydration_refs),
-        restore_policy=_restore_policy(enabled=bool(plan_refs or context_refs)),
+        restore_policy=_restore_policy(enabled=restore_enabled),
         diagnostics={
             "task_run_id": str(task_run_id or ""),
             "plan_ref_count": len(plan_refs),
             "task_file_count": len(task_files),
+            "known_task_file_count": len(known_task_files),
             "edit_target_count": len(edit_targets),
             "artifact_ref_count": len(artifact_refs),
             "context_ref_count": len(context_refs),
@@ -174,6 +182,29 @@ def _task_files(value: Any) -> list[dict[str, Any]]:
         if projected:
             result.append(projected)
     return result[-20:]
+
+
+def _known_task_files(task_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in task_files:
+        if not isinstance(item, dict):
+            continue
+        path = _clean_path(item.get("path"))
+        if not path:
+            continue
+        result.append(
+            _drop_empty_payload(
+                {
+                    "path": path,
+                    "status": str(item.get("status") or "").strip(),
+                    "total_lines": item.get("total_lines") if isinstance(item.get("total_lines"), int) else None,
+                    "content_sha256": str(item.get("content_sha256") or "").strip(),
+                    "next_suggested_read": dict(item.get("next_suggested_read") or {}),
+                    "last_observation_ref": str(item.get("last_observation_ref") or "").strip(),
+                }
+            )
+        )
+    return result[-12:]
 
 
 def _read_windows(value: Any) -> list[dict[str, Any]]:
@@ -287,8 +318,8 @@ def _restore_policy(*, enabled: bool) -> dict[str, Any]:
     return {
         "mode": "task_bound_context_restore",
         "compact_resume": "Restore bound plan refs and context refs before relying on older transcript summaries.",
-        "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries, not by this stable binding segment.",
-        "file_precision": "Before line-level edits or exact claims, re-read the current target range from the live file state.",
+        "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries; known_task_files only carries file identity and recovery hints.",
+        "file_precision": "For a known path, use read_file or path_exists directly before line-level edits or exact claims; use search_files only when the path itself is unknown.",
     }
 
 
