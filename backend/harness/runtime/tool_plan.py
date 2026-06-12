@@ -24,6 +24,8 @@ _SUBAGENT_LIFECYCLE_TOOL_NAMES = {
     "close_subagent",
 }
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
+_TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
+_TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,7 +252,11 @@ def _tool_allowed_for_runtime_plan(
             )
         )
         return False
-    if invocation_kind == "single_agent_turn" and owner_scope in _TASK_RUNTIME_OWNER_SCOPES:
+    if invocation_kind == "single_agent_turn" and (
+        owner_scope in _TASK_RUNTIME_OWNER_SCOPES
+        or tool_name in _TASK_RUNTIME_TOOL_NAMES
+        or operation_id in _TASK_RUNTIME_OPERATION_IDS
+    ):
         filtered_issues.append(
             ToolCapabilityFilterIssue(
                 operation_id=operation_id,

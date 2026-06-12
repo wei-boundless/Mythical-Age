@@ -2069,11 +2069,11 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
             "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
         ],
-        "public_progress_note": "一句用户可理解的公开正文反馈；request_task_run/respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”“正在建立任务运行”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 以及进入持续执行流程时，用它表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”“正在建立任务运行”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
         "public_action_state": {
             "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
-            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；request_task_run 时是建立任务运行；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
+            "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；需要持续执行时是进入执行流程；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["可选；已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["可选；已经观察到的公开阻塞或风险；不要写预测性风险"],
             "completion_status": "可选机器状态；working|waiting_for_tool|verifying|ready_to_finish|blocked。只供系统状态机使用，不是用户可见正文；不要复制到公开反馈、阶段判断、下一步、阻塞说明或最终回答。"
@@ -2233,7 +2233,11 @@ def _single_agent_turn_effective_control_capabilities(
         and set(visible_tool_names).intersection(_SUBAGENT_TOOL_NAMES)
     )
     effective["supports_json_action_protocol"] = supports_json_action_protocol
-    effective["requires_json_action_protocol"] = bool(effective.get("requires_json_action_protocol") is True)
+    control_actions = {"ask_user", "block", "request_task_run", "active_work_control"}
+    effective["requires_json_action_protocol"] = bool(
+        effective.get("requires_json_action_protocol") is True
+        or bool(control_actions.intersection(allowed))
+    )
     effective["visible_tool_count"] = visible_tool_count
     effective["may_request_task_run"] = "request_task_run" in allowed
     effective["may_control_active_work"] = "active_work_control" in allowed
@@ -2275,7 +2279,7 @@ def _single_agent_turn_output_contract(
             "如果任务承接条件成立但本轮不允许 request_task_run，必须选择 ask_user 说明缺口或 block 说明运行边界，不能假装已经进入持续任务。"
         )
     return {
-        "format": "json_action" if json_action_required else "assistant_message_or_native_or_json_action",
+        "format": "json_action" if json_action_required else "structured_action",
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_selection_rules": action_selection_rules,
@@ -2306,7 +2310,7 @@ def _single_agent_turn_output_contract(
             },
             "native_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
-                "provider_multi_tool_calls_allowed": True,
+                "provider_multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "control_actions_exposed_as_native_tools": False,
                 "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
@@ -2333,7 +2337,7 @@ def _single_agent_turn_output_contract(
                 "required_fields": ["action", "relation_to_current_work"],
                 "payload_schema": {
                     "action": "one of allowed_controls; use this exact field name for the control decision",
-                    "response": "本次控制动作的简短语义说明；系统会把它连同执行结果作为观察返回，它不是最终用户回复",
+                    "response": "本次控制动作的用户可见反馈意图；系统会把它与执行结果投影成控制回执，它不是一条脱离控制动作的最终正文",
                     "appended_instruction": "required when action is append_instruction_to_active_work unless the latest user message itself is the instruction",
                     "relation_to_current_work": "current_work when the latest user message clearly points at the active work",
                     "continuation_strategy": "same_run_resume, already_running, defer, or none",
@@ -2407,9 +2411,10 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
                 "answer_then_continue_active_work",
             ],
             "decision_boundary": (
-                "active_work_context represents the current non-terminal active turn or latest resumable executor checkpoint. "
-                "Historical work summaries, old artifacts, and terminal task records are not controllable current work. "
-                "The agent owns semantic scheduling; the system only exposes available controls and edge validation."
+                "active_work_context represents only current active-turn-bound work exposed by this turn. "
+                "If it contains a recovery boundary, that boundary has already been explicitly bound to the current active turn by the system; it is not a latest-task fallback. "
+                "Historical work summaries, recent_work_outcome, ordinary waiting_executor state, old artifacts, and terminal task records are read-only facts, not controllable current work. "
+                "The agent owns semantic scheduling; the system only exposes available controls, control feedback projection, and edge validation."
             ),
         }
     )
@@ -3926,7 +3931,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append(
             "- 选择 request_task_run 时，如果你已经能向用户说明为什么需要进入持续任务或第一阶段要判断什么，"
             "必须把这句自然语言写入 public_progress_note 或 public_action_state.current_judgment；"
-            "不要把 visible_status、thinking、working、task_executor_scheduled、request_task_run 等机器状态写给用户。"
+            "不要把 action_type、协议名、visible_status、thinking、working、task_executor_scheduled 等机器状态写给用户。"
             "如果还没有真实公开判断，留空公开反馈，让界面显示占位，不要编造“开始处理”。"
         )
         lines.append(
@@ -3983,14 +3988,17 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；你仍负责最终判断和收口。")
     if "active_work_control" in allowed_actions:
         lines.append(
-            "- 如果本轮上下文包含 active_work_context，它只是当前工作或可恢复断点的事实和可用控制动作；"
+            "- 如果本轮上下文包含 active_work_context，它只代表系统在本轮显式暴露的当前 active-turn-bound work；"
+            "如果其中出现可恢复边界，也已经由系统绑定到当前 active turn，不是 latest task fallback。"
+            "recent_work_outcome、历史摘要和普通 waiting_executor 只能作为只读事实，不能被当作当前可控制工作。"
             "是否继续、暂停、停止、补充要求、回答进展或另开请求，由你根据用户当前话语判断。"
         )
         lines.append(
             "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
-            "用户明确要求暂停、先停一下、停止、取消当前任务或不用继续做时，必须选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
-            "纯继续、暂停、停止或补充要求通常不需要用户可见正文，但仍必须选择能推进当前工作的结构化控制动作；不要把无需正文理解成结束任务。"
+            "只有用户明确要求暂停或停止当前工作时，才选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
+            "“等一下，为什么 X？”、“先看一下 X”、质疑、询问、纠错或追加约束不等同暂停或停止；按语义选择 answer_about_active_work、answer_then_continue_active_work 或 append_instruction_to_active_work。"
+            "继续、暂停、停止或补充这类纯控制也必须携带简短用户可见反馈意图，由控制裁决和系统投影统一给出可见回执；不要另外生成一条与控制动作脱节的普通 assistant 正文，也不要把无需正文理解成结束任务。"
             "用户是在问进展、追问原因、指出错误、表达不满，或一边提问一边要求继续时，才需要回答当前工作状态或回答后继续。"
             "具体字段形状以本轮 action schema 为准，不要把控制字段或机器状态写进用户正文。"
             "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后基于真实状态决定继续、收口、询问或阻塞。"

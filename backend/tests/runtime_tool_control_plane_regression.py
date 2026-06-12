@@ -168,6 +168,60 @@ def test_runtime_tool_plan_hides_task_memory_tools_outside_task_execution() -> N
     assert filtered["memory_search"]["metadata"]["required_action"] == "request_task_run"
 
 
+def test_runtime_tool_plan_hides_agent_todo_outside_task_execution() -> None:
+    definitions = {
+        "agent_todo": SimpleNamespace(
+            operation_id="op.agent_todo",
+            is_read_only=False,
+            contract=SimpleNamespace(owner_scope="state"),
+        ),
+        "read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "agent_todo", "operation_id": "op.agent_todo", "owner_scope": "state"},
+                {"name": "read_file", "operation_id": "op.read_file"},
+            ],
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name=definitions,
+    )
+
+    filtered = {
+        item["tool_name"]: item
+        for item in plan.capability_table.to_dict()["filtered"]
+        if item.get("tool_name")
+    }
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
+    assert "agent_todo" not in plan.dispatchable_tool_names
+    assert filtered["agent_todo"]["reason"] == "task_scoped_tool_requires_task_run"
+    assert filtered["agent_todo"]["metadata"]["required_action"] == "request_task_run"
+
+
+def test_runtime_tool_plan_keeps_agent_todo_for_task_execution() -> None:
+    definitions = {
+        "agent_todo": SimpleNamespace(
+            operation_id="op.agent_todo",
+            is_read_only=False,
+            contract=SimpleNamespace(owner_scope="state"),
+        ),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "agent_todo", "operation_id": "op.agent_todo", "owner_scope": "state"},
+            ],
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=definitions,
+    )
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["agent_todo"]
+    assert plan.dispatchable_tool_names == ("agent_todo",)
+
+
 def test_runtime_tool_plan_keeps_task_memory_tools_for_task_execution() -> None:
     definitions = {
         "memory_search": SimpleNamespace(

@@ -8,6 +8,8 @@ from .model_action_protocol import AnyModelActionRequest
 
 AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run"]
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
+_TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
+_TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +90,12 @@ def admit_model_action(
                 resource_errors=(f"tool_not_available:{tool_name}",),
             )
         owner_scope = _tool_owner_scope(definition)
-        if invocation_kind in {"single_agent_turn", "agent_turn"} and owner_scope in _TASK_RUNTIME_OWNER_SCOPES:
+        operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+        if invocation_kind in {"single_agent_turn", "agent_turn"} and (
+            owner_scope in _TASK_RUNTIME_OWNER_SCOPES
+            or tool_name in _TASK_RUNTIME_TOOL_NAMES
+            or operation_id in _TASK_RUNTIME_OPERATION_IDS
+        ):
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
@@ -98,7 +105,7 @@ def admit_model_action(
                 resource_errors=(f"task_scoped_tool_requires_task_run:{tool_name}",),
                 permission_delta={
                     "tool_name": tool_name,
-                    "operation_id": str(getattr(definition, "operation_id", "") or tool_name),
+                    "operation_id": operation_id,
                     "owner_scope": owner_scope,
                     "required_action": "request_task_run",
                     "invocation_kind": str(invocation_kind or ""),
@@ -127,7 +134,6 @@ def admit_model_action(
                 system_reason="side_effect_tool_requires_task_run",
                 resource_errors=(f"tool_requires_task_run:{tool_name}",),
             )
-        operation_id = str(getattr(definition, "operation_id", "") or tool_name)
         return AdmissionDecision(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,

@@ -10,7 +10,7 @@ RUNTIME_SINGLE_AGENT_TURN_PROMPT = """
 先理解用户最新话语，再选择一个最小充分动作；不要把回答、工具请求、任务开启和当前工作控制混成多个裁决。
 
 合法动作、字段和 JSON 形态由本轮 output_contract 与 system call protocol 定义；本层只负责判断语义上应该做什么。
-常见语义裁决包括 respond、ask_user、tool_call、request_task_run、active_work_control 和 block；active_work_control 是你请求系统调整当前工作的动作，不是对用户的最终答复。
+常见语义裁决包括 respond、ask_user、tool_call、request_task_run、active_work_control 和 block；active_work_control 是你请求系统调整当前工作的动作，必须携带用户可见反馈意图，由系统投影成控制回执。不要另外生成一条与控制动作脱节的普通 assistant 正文。
 需要工具时，只能请求本轮可见且可派发的工具。工具由系统执行；你提出请求、等待观察，并在观察返回后重新判断。
 
 用户可见内容必须和真实动作一致。不要预测工具结果、伪造完成、暴露隐藏推理、内部编号、任务内部标识或协议字段。
@@ -61,8 +61,8 @@ RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 你刚收到一次系统执行后的观察结果。观察是事实输入，不是给用户的最终回复。
 你会同时看到观察内容、当前环境、权限边界、工作角色、生命周期提示和本轮输出协议；基于这些事实重新判断下一步动作。
 输出格式和允许动作由本轮 output_contract 与 system call protocol 定义；本层只负责判断观察之后应该继续、收口、询问、控制当前工作还是阻塞。
-如果观察显示用户正在 steering 当前工作，使用 active_work_control 语义裁决；系统会执行控制动作并把结果作为下一次观察交还给你。
-如果 steering 内容明确是暂停、先停一下、停止、取消当前任务或不用继续做，必须选择对应的暂停或停止控制动作；不要把它们写成追加要求。
+只有观察显示用户明确在 steering 当前工作时，使用 active_work_control 语义裁决；系统会执行控制动作、投影用户可见反馈，并把结果作为下一次观察交还给你。
+只有 steering 内容明确要求暂停或停止当前工作时，才选择对应的暂停或停止控制动作；“等一下，为什么 X？”、质疑、询问、纠错或追加约束不等同暂停或停止，应按语义回答进展、回答后继续或追加要求。
 观察足以回答时使用 respond；仍缺少关键证据或来源时，可以请求下一次可见工具观察；用户明确控制当前工作时使用 active_work_control；需要写入、命令、长期跟进或真实交付物时，使用 request_task_run。
 如果观察结果指出 task_contract_invalid，需要修正合同字段后重新提交 request_task_run。
 用户可见内容只描述进展、结果、问题或阻塞原因，不包含内部编号、系统结构或协议字段。

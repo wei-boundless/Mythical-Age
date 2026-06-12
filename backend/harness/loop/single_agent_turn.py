@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from project_layout import ProjectLayout
-from harness.task_contract_normalization import contract_dict_list, contract_string_list
 from harness.loop.admission import AdmissionDecision, admit_model_action
 from harness.loop.active_work import active_work_action_from_payload
 from harness.loop.action_permit import action_permit_from_admission
@@ -87,10 +86,9 @@ _MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
-_CONTROL_NATIVE_TOOL_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
+_CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
 _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
     "single_agent_turn_model_protocol_error",
-    "single_agent_turn_multiple_native_actions",
     "single_agent_turn_multiple_action_sources",
     "single_agent_turn_invalid_native_action",
     "single_agent_turn_invalid_json_action",
@@ -1944,8 +1942,10 @@ async def _invoke_single_turn_model_with_stream_events(
     require_json_action: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     if require_json_action:
-        model_selection = _model_selection_with_json_object_contract(model_selection)
-        native_tools = []
+        if native_tools:
+            model_selection = _model_selection_for_native_tool_protocol(model_selection)
+        else:
+            model_selection = _model_selection_with_json_object_contract(model_selection)
     elif native_tools:
         model_selection = _model_selection_for_native_tool_protocol(model_selection)
     stream_policy = dict(dict(model_selection or {}).get("stream_policy") or {})
@@ -2416,10 +2416,10 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                         "tool_name": "read_file",
                         "args": {"path": "README.md"},
                     },
-                    "public_progress_note": "准备读取文件确认事实。",
+                    "public_progress_note": "我会先核对可见事实，再给出判断。",
                     "public_action_state": {
-                        "current_judgment": "需要读取文件确认事实。",
-                        "next_action": "调用 read_file。",
+                        "current_judgment": "当前需要补充文件事实才能判断。",
+                        "next_action": "核对文件内容。",
                     },
                 },
             }
@@ -2432,10 +2432,10 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                     "authority": "harness.loop.model_action_request",
                     "action_type": "respond",
                     "final_answer": "在这里写给用户的最终回复。",
-                    "public_progress_note": "正在整理最终回复。",
+                    "public_progress_note": "已有事实足以直接回复。",
                     "public_action_state": {
                         "current_judgment": "当前事实足以回复用户。",
-                        "next_action": "提交最终回复。",
+                        "next_action": "整理回复。",
                     },
                 },
             }
@@ -2508,10 +2508,10 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                             "finalization_requires_evidence": True,
                         },
                     },
-                    "public_progress_note": "准备创建持续任务。",
+                    "public_progress_note": "我会按可验收目标推进，并用结果和验证收口。",
                     "public_action_state": {
-                        "current_judgment": "该请求需要持续任务执行。",
-                        "next_action": "请求创建任务运行。",
+                        "current_judgment": "目标需要进入可验收执行流程。",
+                        "next_action": "进入执行流程。",
                     },
                 },
             }
@@ -2529,10 +2529,10 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                         "turn_response_policy": "active_work_only",
                         "answer_obligation": "none",
                     },
-                    "public_progress_note": "继续当前工作。",
+                    "public_progress_note": "我会按当前目标继续推进。",
                     "public_action_state": {
                         "current_judgment": "用户要求继续当前工作。",
-                        "next_action": "发送当前工作控制信号。",
+                        "next_action": "继续当前工作。",
                     },
                 },
             }
@@ -2569,7 +2569,7 @@ def _single_agent_action_request_from_response(
         request_id=request_id,
         turn_id=turn_id,
         require_json_action=require_json_action,
-        allow_native_tool_calls=not require_json_action,
+        allow_native_tool_calls=True,
     )
     native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
     json_payload = _normalize_single_agent_json_payload(
@@ -2660,6 +2660,57 @@ def _single_agent_action_request_from_response(
                 ),
             )
         return SingleAgentActionParse(action_request=None, native_tool_calls=[])
+    allowed_set = set(allowed_action_types or ())
+    if "tool_call" not in allowed_set:
+        native_errors: list[dict[str, Any]] = []
+        for call in native_tool_calls:
+            tool_name = str(dict(call or {}).get("name") or "").strip()
+            if tool_name in _CONTROL_ACTION_NAMES:
+                native_errors.append(
+                    {
+                        "authority": "harness.loop.single_agent_turn.native_action_parser",
+                        "code": "native_control_action_requires_json_action",
+                        "reason": "native_control_action_requires_json_action",
+                        "native_tool_call": _native_tool_call_diagnostics(dict(call or {})),
+                        "repairable": True,
+                        "repair_contract": {
+                            "required_transport": "json_action",
+                            "action_type": tool_name,
+                        },
+                    }
+                )
+            else:
+                native_errors.append(
+                    {
+                        "authority": "harness.loop.single_agent_turn.native_action_parser",
+                        "code": "native_tool_calls_not_allowed",
+                        "reason": "native_tool_calls_not_allowed",
+                        "native_tool_call": _native_tool_call_diagnostics(dict(call or {})),
+                        "repairable": True,
+                        "repair_contract": {
+                            "allowed_action_types": list(allowed_action_types or ()),
+                        },
+                    }
+                )
+        reasons = [
+            str(error.get("reason") or error.get("code") or "").strip()
+            for error in native_errors
+            if str(error.get("reason") or error.get("code") or "").strip()
+        ]
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_invalid_native_action",
+                reason=";".join(reasons) or "native_tool_calls_not_allowed",
+                diagnostics={
+                    "native_tool_call_count": len(native_tool_calls),
+                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                    "native_action_errors": native_errors,
+                    "phase": phase,
+                },
+            ),
+        )
     native_parse = _action_requests_from_native_tool_calls_with_diagnostics(
         native_tool_calls,
         turn_id=turn_id,
@@ -2688,46 +2739,22 @@ def _single_agent_action_request_from_response(
             ),
         )
     tool_actions = tuple(item for item in native_actions if item.action_type == "tool_call")
-    control_actions = tuple(item for item in native_actions if item.action_type != "tool_call")
-    if tool_actions and control_actions:
-        return SingleAgentActionParse(
-            action_request=None,
-            native_tool_calls=native_tool_calls,
-            error=_single_agent_protocol_error(
-                code="single_agent_turn_multiple_action_sources",
-                reason="single_agent_turn_mixed_tool_and_control_actions",
-                diagnostics={
-                    "native_tool_call_count": len(native_tool_calls),
-                    "tool_action_count": len(tool_actions),
-                    "control_action_count": len(control_actions),
-                    "action_types": [item.action_type for item in native_actions],
-                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
-                    "phase": phase,
-                },
-            ),
-        )
-    if len(control_actions) > 1:
-        return SingleAgentActionParse(
-            action_request=None,
-            native_tool_calls=native_tool_calls,
-            error=_single_agent_protocol_error(
-                code="single_agent_turn_multiple_native_actions",
-                reason="single_agent_turn_multiple_control_actions",
-                diagnostics={
-                    "native_tool_call_count": len(native_tool_calls),
-                    "action_types": [item.action_type for item in control_actions],
-                    "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
-                    "phase": phase,
-                },
-            ),
-        )
-    if len(control_actions) == 1:
-        return SingleAgentActionParse(
-            action_request=control_actions[0],
-            native_tool_calls=native_tool_calls,
-            control_action=control_actions[0],
-        )
     if tool_actions:
+        if "tool_call" not in set(allowed_action_types or ()):
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=native_tool_calls,
+                error=_single_agent_protocol_error(
+                    code="single_agent_turn_invalid_native_action",
+                    reason="native_tool_call_not_allowed_for_context",
+                    diagnostics={
+                        "native_tool_call_count": len(native_tool_calls),
+                        "tool_names": [str(call.get("name") or "") for call in native_tool_calls],
+                        "allowed_action_types": list(allowed_action_types or ()),
+                        "phase": phase,
+                    },
+                ),
+            )
         return SingleAgentActionParse(
             action_request=tool_actions[0] if len(tool_actions) == 1 else None,
             native_tool_calls=native_tool_calls,
@@ -2782,53 +2809,8 @@ def _normalize_single_agent_json_payload(
     turn_id: str,
     packet_ref: str,
 ) -> dict[str, Any]:
-    raw = dict(payload or {})
-    if not _is_bare_active_work_control_payload(raw):
-        return raw
-    control = {
-        "action": active_work_action_from_payload(raw),
-        "response": str(raw.get("response") or "").strip(),
-        "appended_instruction": str(raw.get("appended_instruction") or "").strip(),
-        "continuation_strategy": str(raw.get("continuation_strategy") or "").strip(),
-        "turn_response_policy": str(raw.get("turn_response_policy") or "").strip(),
-        "user_turn_kind": str(raw.get("user_turn_kind") or "").strip(),
-        "answer_obligation": str(raw.get("answer_obligation") or "").strip(),
-        "relation_to_current_work": str(raw.get("relation_to_current_work") or raw.get("relation") or "").strip(),
-        "evidence": str(raw.get("evidence") or "").strip(),
-        "turn_id": turn_id,
-        "packet_ref": packet_ref,
-    }
-    return {
-        "authority": "harness.loop.model_action_request",
-        "request_id": f"model-action:{turn_id}:single-agent-active-work-control-json",
-        "turn_id": turn_id,
-        "action_type": "active_work_control",
-        "public_progress_note": "",
-        "active_work_control": control,
-        "diagnostics": {
-            "origin_kind": "single_agent_turn_json_active_work_control_payload",
-            "origin_authority": "harness.loop.single_agent_turn",
-            "packet_ref": packet_ref,
-            "model_response_request_id": request_id,
-        },
-    }
-
-
-def _is_bare_active_work_control_payload(payload: dict[str, Any]) -> bool:
-    raw = dict(payload or {})
-    if not raw or raw.get("action_type") or raw.get("authority") == "harness.loop.model_action_request":
-        return False
-    action = active_work_action_from_payload(raw)
-    if action not in {
-        "continue_active_work",
-        "pause_active_work",
-        "stop_active_work",
-        "append_instruction_to_active_work",
-        "answer_about_active_work",
-        "answer_then_continue_active_work",
-    }:
-        return False
-    return True
+    del request_id, turn_id, packet_ref
+    return dict(payload or {})
 
 
 def _action_requests_from_native_tool_calls(
@@ -2870,7 +2852,22 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 }
             )
             continue
-        if tool_name not in _CONTROL_NATIVE_TOOL_NAMES:
+        if tool_name in _CONTROL_ACTION_NAMES:
+            errors.append(
+                {
+                    "authority": "harness.loop.single_agent_turn.native_action_parser",
+                    "code": "native_control_action_requires_json_action",
+                    "reason": "native_control_action_requires_json_action",
+                    "native_tool_call": _native_tool_call_diagnostics(call),
+                    "repairable": True,
+                    "repair_contract": {
+                        "required_transport": "json_action",
+                        "action_type": tool_name,
+                    },
+                }
+            )
+            continue
+        else:
             action = _tool_action_request_from_native_tool_calls(
                 [call],
                 turn_id=turn_id,
@@ -2878,19 +2875,6 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 iteration=iteration,
             )
             error = None
-        elif tool_name == "active_work_control":
-            action = _active_work_action_request_from_native_tool_calls(
-                [call],
-                turn_id=turn_id,
-                packet_ref=packet_ref,
-            )
-            error = None
-        else:
-            action, error = _control_action_request_from_native_tool_call(
-                call,
-                turn_id=turn_id,
-                packet_ref=packet_ref,
-            )
         if error is not None:
             errors.append(error)
             continue
@@ -2917,121 +2901,6 @@ def _native_tool_call_diagnostics(call: dict[str, Any]) -> dict[str, Any]:
         "name": str(payload.get("name") or ""),
         "source": str(payload.get("source") or ""),
         "args": dict(args or {}) if isinstance(args, dict) else {},
-    }
-
-
-def _control_action_request_from_native_tool_call(
-    call: dict[str, Any],
-    *,
-    turn_id: str,
-    packet_ref: str,
-) -> tuple[ModelActionRequest | None, dict[str, Any] | None]:
-    action = _action_request_from_native_tool_calls(
-        [call],
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-    )
-    if action is not None:
-        return action, None
-    diagnostics = _request_task_run_native_validation_error(
-        call,
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-    )
-    if diagnostics:
-        return None, diagnostics
-    return None, {
-        "authority": "harness.loop.single_agent_turn.native_action_parser",
-        "code": "native_control_action_unrecognized",
-        "reason": "native_control_action_unrecognized",
-        "native_tool_call": _native_tool_call_diagnostics(call),
-        "repairable": True,
-    }
-
-
-def _request_task_run_native_validation_error(
-    call: dict[str, Any],
-    *,
-    turn_id: str,
-    packet_ref: str,
-) -> dict[str, Any]:
-    tool_name = str(dict(call or {}).get("name") or "").strip()
-    if tool_name != "request_task_run":
-        return {}
-    args = dict(dict(call or {}).get("args") or {})
-    payload = _native_request_task_run_payload(
-        call,
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-    )
-    _action, diagnostics = model_action_request_from_payload(payload, turn_id=turn_id)
-    validation_errors = [str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or []) if str(item)]
-    reason = ";".join(validation_errors) or "native_request_task_run_contract_invalid"
-    return {
-        "authority": "harness.loop.single_agent_turn.native_action_parser",
-        "code": "native_request_task_run_contract_invalid",
-        "reason": reason,
-        "validation_errors": validation_errors,
-        "model_action_diagnostics": dict(diagnostics or {}),
-        "native_tool_call": _native_tool_call_diagnostics(call),
-        "repairable": True,
-        "repair_contract": {
-            "missing_or_invalid_fields": validation_errors,
-            "must_return_action_type": "request_task_run",
-            "required_seed_fields": [
-                "working_scope",
-                "capability_intent",
-                "skill_intent",
-                "observation_contract",
-            ],
-        },
-        "native_args": args,
-    }
-
-
-def _native_request_task_run_payload(
-    call: dict[str, Any],
-    *,
-    turn_id: str,
-    packet_ref: str,
-) -> dict[str, Any]:
-    args = dict(dict(call or {}).get("args") or {})
-    contract_seed = {
-        "user_visible_goal": str(args.get("user_visible_goal") or "").strip(),
-        "task_run_goal": str(args.get("task_run_goal") or "").strip(),
-        "working_scope": dict(args.get("working_scope") or {}) if isinstance(args.get("working_scope"), dict) else {},
-        "required_artifacts": contract_dict_list(args.get("required_artifacts")),
-        "required_verifications": contract_dict_list(args.get("required_verifications")),
-        "completion_criteria": contract_string_list(args.get("completion_criteria")),
-        "capability_intent": dict(args.get("capability_intent") or {}) if isinstance(args.get("capability_intent"), dict) else {},
-        "skill_intent": dict(args.get("skill_intent") or {}) if isinstance(args.get("skill_intent"), dict) else {},
-        "observation_contract": dict(args.get("observation_contract") or {}) if isinstance(args.get("observation_contract"), dict) else {},
-    }
-    active_work_relationship = str(args.get("active_work_relationship") or "").strip()
-    if active_work_relationship:
-        contract_seed["active_work_relationship"] = active_work_relationship
-    public_note = str(args.get("public_progress_note") or "").strip()
-    public_action_state = {
-        "visible_status": "thinking",
-        "completion_status": "working",
-        "next_action": "",
-    }
-    if public_note:
-        public_action_state["current_judgment"] = public_note
-    return {
-        "request_id": f"model-action:{turn_id}:single-agent-request-task-run",
-        "turn_id": turn_id,
-        "action_type": "request_task_run",
-        "public_progress_note": public_note,
-        "public_action_state": public_action_state,
-        "task_contract_seed": contract_seed,
-        "completion_contract": {"completion_criteria": list(contract_seed.get("completion_criteria") or [])},
-        "diagnostics": {
-            "origin_kind": "single_agent_turn_native_action",
-            "origin_authority": "harness.loop.single_agent_turn",
-            "packet_ref": packet_ref,
-            "native_tool_call": _native_tool_call_diagnostics(call),
-        },
     }
 
 
@@ -3198,61 +3067,6 @@ def _runtime_native_tools(available_tools: tuple[dict[str, Any], ...]) -> list[d
     return tools
 
 
-def _action_request_from_native_tool_calls(
-    tool_calls: list[dict[str, Any]],
-    *,
-    turn_id: str,
-    packet_ref: str,
-) -> ModelActionRequest | None:
-    for call in tool_calls:
-        tool_name = str(call.get("name") or "").strip()
-        args = dict(call.get("args") or {})
-        if tool_name == "ask_user":
-            return ModelActionRequest(
-                request_id=f"model-action:{turn_id}:single-agent-ask-user",
-                turn_id=turn_id,
-                action_type="ask_user",
-                public_progress_note="需要用户补充信息后才能继续。",
-                user_question=str(args.get("question") or "").strip() or "我需要你补充一点信息。",
-                diagnostics={
-                    "origin_kind": "single_agent_turn_native_action",
-                    "origin_authority": "harness.loop.single_agent_turn",
-                    "packet_ref": packet_ref,
-                    "native_tool_call": {
-                        "id": str(call.get("id") or ""),
-                        "name": tool_name,
-                        "source": str(call.get("source") or ""),
-                    },
-                },
-            )
-        if tool_name == "block":
-            return ModelActionRequest(
-                request_id=f"model-action:{turn_id}:single-agent-block",
-                turn_id=turn_id,
-                action_type="block",
-                public_progress_note="当前请求无法继续执行。",
-                blocking_reason=str(args.get("reason") or "").strip() or "当前请求无法继续处理。",
-                diagnostics={
-                    "origin_kind": "single_agent_turn_native_action",
-                    "origin_authority": "harness.loop.single_agent_turn",
-                    "packet_ref": packet_ref,
-                    "native_tool_call": {
-                        "id": str(call.get("id") or ""),
-                        "name": tool_name,
-                        "source": str(call.get("source") or ""),
-                    },
-                },
-            )
-        if tool_name != "request_task_run":
-            continue
-        action, _diagnostics = model_action_request_from_payload(
-            _native_request_task_run_payload(call, turn_id=turn_id, packet_ref=packet_ref),
-            turn_id=turn_id,
-        )
-        return action
-    return None
-
-
 def _tool_action_request_from_native_tool_calls(
     tool_calls: list[dict[str, Any]],
     *,
@@ -3262,7 +3076,7 @@ def _tool_action_request_from_native_tool_calls(
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
-        if not tool_name or tool_name in _CONTROL_NATIVE_TOOL_NAMES:
+        if not tool_name or tool_name in _CONTROL_ACTION_NAMES:
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
@@ -3322,59 +3136,6 @@ def _stable_action_suffix(value: str) -> str:
 
     text = str(value or "").strip() or "tool-call"
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-
-
-def _active_work_action_request_from_native_tool_calls(
-    tool_calls: list[dict[str, Any]],
-    *,
-    turn_id: str,
-    packet_ref: str,
-) -> ModelActionRequest | None:
-    for call in tool_calls:
-        if str(call.get("name") or "").strip() != "active_work_control":
-            continue
-        args = dict(call.get("args") or {})
-        action = active_work_action_from_payload(args)
-        if action not in {
-            "continue_active_work",
-            "pause_active_work",
-            "stop_active_work",
-            "append_instruction_to_active_work",
-            "answer_about_active_work",
-            "answer_then_continue_active_work",
-        }:
-            return None
-        active_work_control = {
-            "action": action,
-            "response": str(args.get("response") or "").strip(),
-            "appended_instruction": str(args.get("appended_instruction") or "").strip(),
-            "continuation_strategy": str(args.get("continuation_strategy") or "").strip(),
-            "turn_response_policy": str(args.get("turn_response_policy") or "").strip(),
-            "user_turn_kind": str(args.get("user_turn_kind") or "").strip(),
-            "answer_obligation": str(args.get("answer_obligation") or "").strip(),
-            "relation_to_current_work": str(args.get("relation_to_current_work") or args.get("relation") or "").strip(),
-            "evidence": str(args.get("evidence") or "").strip(),
-            "turn_id": turn_id,
-            "packet_ref": packet_ref,
-        }
-        return ModelActionRequest(
-            request_id=f"model-action:{turn_id}:single-agent-active-work-control",
-            turn_id=turn_id,
-            action_type="active_work_control",
-            public_progress_note="",
-            active_work_control=active_work_control,
-            diagnostics={
-                "origin_kind": "single_agent_turn_native_action",
-                "origin_authority": "harness.loop.single_agent_turn",
-                "packet_ref": packet_ref,
-                "native_tool_call": {
-                    "id": str(call.get("id") or ""),
-                    "name": str(call.get("name") or ""),
-                    "source": str(call.get("source") or ""),
-                },
-            },
-        )
-    return None
 
 
 def _runtime_profile_payload(runtime_assembly: Any) -> dict[str, Any]:

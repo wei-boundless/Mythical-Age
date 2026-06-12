@@ -854,7 +854,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["planning"]["todo_required_when_task_run"] is True
 
 
-def test_single_turn_task_memory_tool_route_is_dynamic_not_tool_index() -> None:
+def test_single_turn_task_scoped_tool_routes_are_dynamic_not_tool_index() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:task-memory-route",
         turn_id="turn:task-memory-route",
@@ -869,11 +869,12 @@ def test_single_turn_task_memory_tool_route_is_dynamic_not_tool_index() -> None:
             },
             "task_environment": {"environment_id": "env.general.workspace"},
             "available_tools": [
+                {"tool_name": "agent_todo", "operation_id": "op.agent_todo", "owner_scope": "state"},
                 {"tool_name": "memory_search", "operation_id": "op.memory_read", "owner_scope": "task_memory"},
                 {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
             ],
             "operation_authorization": {
-                "allowed_operations": ["op.model_response", "op.memory_read", "op.read_file"],
+                "allowed_operations": ["op.model_response", "op.agent_todo", "op.memory_read", "op.read_file"],
             },
             "control_capabilities": {
                 "may_call_tools": True,
@@ -891,9 +892,16 @@ def test_single_turn_task_memory_tool_route_is_dynamic_not_tool_index() -> None:
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
     routes = projection["tool_boundary"]["task_scoped_tool_routes"]
     tool_names = [item["tool_name"] for item in tool_index["available_tools"]]
+    stable_boundary = _message_content_with_title(result.packet, "Single agent turn stable boundary")
 
     assert tool_names == ["read_file"]
     assert routes == [
+        {
+            "tool_name": "agent_todo",
+            "operation_id": "op.agent_todo",
+            "owner_scope": "state",
+            "required_action": "request_task_run",
+        },
         {
             "tool_name": "memory_search",
             "operation_id": "op.memory_read",
@@ -901,6 +909,9 @@ def test_single_turn_task_memory_tool_route_is_dynamic_not_tool_index() -> None:
             "required_action": "request_task_run",
         }
     ]
+    assert "agent_todo" not in json.dumps(tool_index, ensure_ascii=False)
+    assert "agent_todo" not in stable_boundary
+    assert "agent_todo" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
     assert "memory_search" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
     assert "request_task_run" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
 

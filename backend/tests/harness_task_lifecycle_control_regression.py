@@ -623,7 +623,11 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
     assert runtime_contract["task_environment_id"] == "env.coding.vibe_workspace"
 
 def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_answer() -> None:
-    runtime = build_harness_runtime(model_runtime=SingleMessageModelRuntimeStub(content="可以直接回答。"))
+    runtime = build_harness_runtime(
+        model_runtime=_TurnActionSequenceModelRuntime(
+            [_action_request(action_type="respond", final_answer="可以直接回答。")]
+        )
+    )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -651,7 +655,24 @@ def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_ans
     assert "task_run_lifecycle_started" not in stream_types
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "可以直接回答。" for event in events)
 
-def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() -> None:
+def test_single_agent_turn_native_request_task_run_repairs_to_json_before_lifecycle() -> None:
+    task_seed = _canonical_task_contract_seed(
+        {
+            "user_visible_goal": "交付一个真实页面。",
+            "task_run_goal": "创建并验证一个真实 HTML 页面。",
+            "working_scope": {
+                "target_objects": ["真实 HTML 页面"],
+                "workspace_refs": [],
+                "source_refs": [],
+                "excluded_scope": [],
+                "known_constraints": ["页面文件必须真实存在"],
+            },
+            "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
+            "required_verifications": [{"verification_kind": "file_exists"}],
+            "completion_criteria": ["页面文件真实存在"],
+        },
+        capability_groups=["file_work", "artifact_generation"],
+    )
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
@@ -660,37 +681,15 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
                 "args": {
                     "user_visible_goal": "交付一个真实页面。",
                     "task_run_goal": "创建并验证一个真实 HTML 页面。",
-                    "working_scope": {
-                        "target_objects": ["真实 HTML 页面"],
-                        "workspace_refs": [],
-                        "source_refs": [],
-                        "excluded_scope": [],
-                        "known_constraints": ["页面文件必须真实存在"],
-                    },
-                    "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
-                    "required_verifications": [{"verification_kind": "file_exists"}],
-                    "completion_criteria": ["页面文件真实存在"],
-                    "capability_intent": {
-                        "needed_capability_groups": ["file_work", "artifact_generation"],
-                        "preferred_tool_namespaces": [],
-                        "requires_deferred_tool_loading": True,
-                        "reason": "需要创建页面文件并记录验证证据。",
-                    },
-                    "skill_intent": {
-                        "selected_skill_ids": [],
-                        "candidate_skill_ids": [],
-                        "required_capability_tags": [],
-                        "reason": "",
-                    },
-                    "observation_contract": {
-                        "evidence_policy": "observation_required",
-                        "progress_granularity": "step",
-                        "finalization_requires_evidence": True,
-                    },
                     "public_progress_note": "我先把页面目标转成可执行任务，然后推进实现和文件验证。",
                 },
             }
-        ]
+        ],
+        repair_action=_action_request(
+            action_type="request_task_run",
+            public_progress_note="我先把页面目标转成可执行任务，然后推进实现和文件验证。",
+            task_contract_seed=task_seed,
+        ),
     )
     runtime = build_harness_runtime(model_runtime=model)
 
@@ -723,13 +722,15 @@ def test_single_agent_turn_request_task_run_tool_starts_real_task_lifecycle() ->
     admissions = _admission_payloads(events)
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
-    assert dict(admissions[0].get("model_action_request") or {}).get("action_type") == "request_task_run"
+    admitted_action = dict(admissions[0].get("model_action_request") or {})
+    assert admitted_action.get("action_type") == "request_task_run"
+    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_native_action"
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
     assert "task_run_lifecycle_started" in stream_types
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
-    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_native_action"
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "single_agent_turn_json_action"
 
 def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() -> None:
     runtime = build_harness_runtime(

@@ -2,46 +2,40 @@ from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
 from harness.loop.model_action_protocol import ModelActionRequest
-from harness.loop.single_agent_turn import _action_request_from_native_tool_calls
 from harness.loop.task_lifecycle import contract_from_action_request
 
 
-def test_native_request_task_run_normalizes_string_completion_criteria_without_character_splitting() -> None:
-    action = _action_request_from_native_tool_calls(
-        [
-            {
-                "id": "call:task",
-                "name": "request_task_run",
-                "args": {
-                    "user_visible_goal": "审查项目。",
-                    "task_run_goal": "逐模块审查项目。",
-                    "working_scope": {
-                        "target_objects": ["后端核心模块", "前端核心模块"],
-                        "known_constraints": ["输出书面审查报告"],
-                    },
-                    "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
-                    "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
-                    "capability_intent": {
-                        "needed_capability_groups": ["file_work"],
-                        "reason": "需要读取项目文件并形成审查证据。",
-                    },
-                    "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
-                    "observation_contract": {"evidence_policy": "observation_required"},
+def test_json_request_task_run_normalizes_string_completion_criteria_without_character_splitting() -> None:
+    contract, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:json-task-string-criteria",
+            turn_id="turn:json-task-string-criteria",
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "审查项目。",
+                "task_run_goal": "逐模块审查项目。",
+                "working_scope": {
+                    "target_objects": ["后端核心模块", "前端核心模块"],
+                    "known_constraints": ["输出书面审查报告"],
                 },
-            }
-        ],
-        turn_id="turn:test:native-task",
+                "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
+                "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
+                "capability_intent": {
+                    "needed_capability_groups": ["file_work"],
+                    "reason": "需要读取项目文件并形成审查证据。",
+                },
+                "skill_intent": {"selected_skill_ids": [], "candidate_skill_ids": []},
+                "observation_contract": {"evidence_policy": "observation_required"},
+            },
+        ),
         packet_ref="packet:test",
     )
 
-    assert action is not None
-    assert action.public_progress_note == ""
-    assert "next_action" not in action.public_action_state
-    seed = action.task_contract_seed
-    assert seed["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
-    assert seed["required_artifacts"] == [{"artifact_kind": "markdown_document", "user_visible_name": "审查报告"}]
-    assert seed["capability_intent"]["needed_capability_groups"] == ["file_work"]
-    assert action.completion_contract["completion_criteria"] == seed["completion_criteria"]
+    assert errors == []
+    assert contract is not None
+    assert contract.completion_criteria == ("后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。")
+    assert contract.required_artifacts == ({"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},)
+    assert contract.capability_intent["needed_capability_groups"] == ["file_work"]
 
 
 def test_json_request_task_run_normalizes_numbered_completion_criteria_without_character_splitting() -> None:
@@ -96,7 +90,7 @@ def test_request_task_run_rejects_legacy_handoff_without_capability_intent() -> 
     assert "observation_contract.evidence_policy_required" in errors
 
 
-def test_native_request_task_run_contract_gap_preserves_repair_diagnostics() -> None:
+def test_native_request_task_run_requires_json_action_transport() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -130,12 +124,46 @@ def test_native_request_task_run_contract_gap_preserves_repair_diagnostics() -> 
     assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
     diagnostics = parsed.error["diagnostics"]
     native_errors = diagnostics["native_action_errors"]
-    assert native_errors[0]["code"] == "native_request_task_run_contract_invalid"
+    assert native_errors[0]["code"] == "native_control_action_requires_json_action"
     assert native_errors[0]["native_tool_call"]["id"] == "call:task-gap"
     assert native_errors[0]["native_tool_call"]["args"]["task_run_goal"] == "修复运行监控和日志分离。"
-    assert "capability_intent_required_for_request_task_run" in native_errors[0]["validation_errors"]
-    assert "observation_contract.evidence_policy_required" in native_errors[0]["validation_errors"]
+    assert native_errors[0]["repair_contract"]["required_transport"] == "json_action"
+    assert native_errors[0]["repair_contract"]["action_type"] == "request_task_run"
     assert native_errors[0]["repairable"] is True
+
+
+def test_single_agent_parser_rejects_markdown_fenced_json_action_when_json_required() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    action = _action_request(
+        action_type="request_task_run",
+        task_contract_seed=_canonical_task_contract_seed(
+            {
+                "user_visible_goal": "修复运行监控。",
+                "task_run_goal": "修复运行监控和日志分离。",
+                "completion_criteria": ["监控只读 canonical projection"],
+            },
+            target_objects=["runtime monitor"],
+            capability_groups=["file_work"],
+        ),
+    )
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(content="```json\n" + json.dumps(action, ensure_ascii=False) + "\n```"),
+        request_id="model-response:test:fenced-json-action",
+        turn_id="turn:test:fenced-json-action",
+        packet_ref="packet:test:fenced-json-action",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="initial",
+        require_json_action=True,
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_model_protocol_error"
+    assert "json_action_must_not_use_markdown_fence" in parsed.error["reason"]
 
 
 def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_path: Path) -> None:
@@ -219,8 +247,8 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_model_protocol_error"
-    assert "native_tool_calls_not_allowed" in parsed.error["reason"]
+    assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
+    assert parsed.error["reason"] == "native_tool_calls_not_allowed"
 
 def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
     class MalformedThenCloseoutRuntime:
@@ -327,7 +355,7 @@ def test_invalid_json_action_text_repairs_without_leaking_protocol() -> None:
     assert any(event.get("type") == "done" and "协议修复后完成" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
-def test_single_agent_turn_multiple_native_control_actions_repair_to_single_control_action() -> None:
+def test_single_agent_turn_native_control_actions_repair_to_json_action() -> None:
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
@@ -362,11 +390,11 @@ def test_single_agent_turn_multiple_native_control_actions_repair_to_single_cont
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     admitted_action = dict(admissions[0].get("model_action_request") or {})
     assert admitted_action.get("action_type") == "ask_user"
-    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_multiple_native_actions"
+    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_native_action"
     assert not any(dict(payload.get("model_action_request") or {}).get("action_type") == "block" for payload in admissions)
     assert any(event.get("type") == "done" and "请补充目标平台" in str(event.get("content") or "") for event in events)
 
-def test_single_agent_turn_multiple_native_control_actions_do_not_execute_original_when_repair_fails() -> None:
+def test_single_agent_turn_native_control_actions_do_not_execute_original_when_repair_fails() -> None:
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
@@ -618,7 +646,7 @@ def test_active_work_control_request_accepts_intent_alias() -> None:
     assert action.active_work_control["intent"] == "continue_active_work"
 
 
-def test_single_agent_parser_normalizes_bare_active_work_control_payload() -> None:
+def test_single_agent_parser_rejects_bare_active_work_control_payload() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -636,15 +664,12 @@ def test_single_agent_parser_normalizes_bare_active_work_control_payload() -> No
         require_json_action=True,
     )
 
-    assert parsed.error is None
-    assert parsed.action_request is not None
-    assert parsed.action_request.action_type == "active_work_control"
-    assert parsed.action_request.active_work_control["action"] == "continue_active_work"
-    assert parsed.action_request.active_work_control["relation_to_current_work"] == "current_work"
-    assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_json_active_work_control_payload"
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_json_action_required"
 
 
-def test_single_agent_parser_normalizes_minimal_bare_active_work_control_payload() -> None:
+def test_single_agent_parser_rejects_minimal_bare_active_work_control_payload() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -657,17 +682,15 @@ def test_single_agent_parser_normalizes_minimal_bare_active_work_control_payload
         iteration=1,
         allowed_action_types=("respond", "active_work_control"),
         phase="final",
-        require_json_action=False,
+        require_json_action=True,
     )
 
-    assert parsed.error is None
-    assert parsed.action_request is not None
-    assert parsed.action_request.action_type == "active_work_control"
-    assert parsed.action_request.active_work_control["action"] == "continue_active_work"
-    assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_json_active_work_control_payload"
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_json_action_required"
 
 
-def test_single_agent_parser_rejects_bare_active_work_control_when_not_allowed() -> None:
+def test_single_agent_parser_requires_action_type_before_checking_active_work_allowed_actions() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -687,8 +710,7 @@ def test_single_agent_parser_rejects_bare_active_work_control_when_not_allowed()
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
-    assert "action_type_not_allowed_for_context:active_work_control" in parsed.error["reason"]
+    assert parsed.error["code"] == "single_agent_turn_json_action_required"
 
 
 def test_active_work_turn_decision_preserves_control_only_reply_contract() -> None:

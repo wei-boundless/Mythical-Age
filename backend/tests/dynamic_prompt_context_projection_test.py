@@ -1481,9 +1481,50 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     assert outcome["continuation_state"] == "terminal_or_interrupted_task_record"
     assert "history" not in volatile_payload
     assert "active_work_context" not in json.dumps(volatile_payload, ensure_ascii=False)
+    assert "latest resumable executor checkpoint" not in model_input
+    assert "当前工作或可恢复断点" not in model_input
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["recent_work_outcome_present"] is True
     assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")
+
+
+def test_single_agent_turn_active_work_prompt_binds_control_to_current_turn() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:active-work-current-turn",
+        turn_id="turn:active-work-current-turn",
+        agent_invocation_id="aginvoke:active-work-current-turn",
+        user_message="继续，但是先说明为什么刚才卡住。",
+        history=[],
+        active_work_context={
+            "status": "running",
+            "control_state": "running",
+            "user_visible_goal": "修复控制链路。",
+            "latest_progress": "已定位到 active work prompt 边界。",
+            "latest_step_name": "prompt audit",
+            "resumable": True,
+            "running": True,
+            "continuation_kind": "same_run_resume",
+        },
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    )
+
+    dynamic_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn dynamic runtime")
+    active_work = dynamic_payload["active_work_context"]
+    decision_boundary = str(active_work["decision_boundary"])
+    model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
+
+    assert "current active-turn-bound work" in decision_boundary
+    assert "latest resumable executor checkpoint" not in decision_boundary
+    assert "latest-task fallback" in decision_boundary
+    assert "recent_work_outcome" in decision_boundary
+    assert "当前工作或可恢复断点" not in model_input
+    assert "系统在本轮显式暴露的当前 active-turn-bound work" in model_input
+    assert "用户可见反馈意图" in model_input
+    assert "控制动作脱节" in model_input
+    assert "不等同暂停或停止" in model_input
 
 
 def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:

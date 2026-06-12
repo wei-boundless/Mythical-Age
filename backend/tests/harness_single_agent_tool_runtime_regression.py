@@ -29,17 +29,27 @@ def test_native_tool_call_action_keeps_agent_text_out_of_tool_projection() -> No
         "args": {"query": "requestAnimationFrame"},
     }
 
-def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp_path: Path) -> None:
-    class RecordingNativeTurnModelRuntime(NativeToolCallModelRuntimeStub):
+def test_single_agent_turn_projection_requires_json_action_and_hides_native_control_transport(tmp_path: Path) -> None:
+    class RecordingTurnModelRuntime:
         def __init__(self) -> None:
-            super().__init__(content="直接回答。")
             self.last_messages: list[dict[str, object]] = []
+            self.seen_tool_call_options: list[object] = []
 
         async def invoke_messages_with_tools(self, messages, tools, **kwargs):
-            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
-            return await super().invoke_messages_with_tools(messages, tools, **kwargs)
+            del tools
+            return await self.invoke_messages(messages, **kwargs)
 
-    model = RecordingNativeTurnModelRuntime()
+        async def invoke_messages(self, messages, **kwargs):
+            self.last_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            self.seen_tool_call_options.append(kwargs.get("tool_call_options"))
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(action_type="respond", final_answer="直接回答。"),
+                    ensure_ascii=False,
+                )
+            )
+
+    model = RecordingTurnModelRuntime()
     tool_base_dir = _project_backend_dir()
     runtime = build_harness_runtime(
         base_dir=_runtime_test_root(tmp_path),
@@ -86,10 +96,11 @@ def test_single_agent_turn_projection_only_exposes_executable_native_actions(tmp
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True
-    assert effective_capabilities.get("requires_json_action_protocol") is False
+    assert effective_capabilities.get("requires_json_action_protocol") is True
     assert ordinary_tool_contract.get("multi_tool_calls_allowed") is True
     assert ordinary_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
     assert "parallel_allowed" not in ordinary_tool_contract
+    assert native_tool_contract.get("enabled") is True
     assert native_tool_contract.get("provider_multi_tool_calls_allowed") is True
     assert native_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
     assert dict(action_protocol.get("control_actions") or {}).get("native_tool_transport_enabled") is False
@@ -110,10 +121,18 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
                 ]
             },
             {
-                "content": "已经读取 requirements.txt。",
+                "content": json.dumps(
+                    _action_request(action_type="respond", final_answer="已经读取 requirements.txt。"),
+                    ensure_ascii=False,
+                ),
                 "additional_kwargs": {"reasoning_content": "The file result is enough to answer."},
             },
-            {"content": "第二轮继续回答。"},
+            {
+                "content": json.dumps(
+                    _action_request(action_type="respond", final_answer="第二轮继续回答。"),
+                    ensure_ascii=False,
+                )
+            },
         ]
     )
     tool_base_dir = _project_backend_dir()
@@ -174,38 +193,6 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
 
     assert dict(list(replayed_tool_call["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
-
-def test_single_agent_turn_stream_policy_emits_assistant_text_frame_before_done(tmp_path: Path) -> None:
-    model = StreamingMessageModelRuntimeStub(chunks=["第一段", "，第二段。"])
-    runtime = build_harness_runtime(
-        base_dir=_runtime_test_root(tmp_path),
-        model_runtime=model,
-    )
-
-    async def _collect() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime.astream(
-            HarnessRuntimeRequest(
-                session_id="session-single-turn-stream",
-                message="直接回答。",
-                model_selection={
-                    "stream_policy": {
-                        "enabled": True,
-                        "emit_assistant_text_delta": True,
-                    }
-                },
-            )
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    deltas = [str(event.get("content") or "") for event in events if event.get("type") == "assistant_text_delta"]
-    final = next(event for event in events if event.get("type") == "assistant_text_final")
-    done = next(event for event in events if event.get("type") == "done")
-
-    event_types = [event.get("type") for event in events]
-    assert event_types.index("assistant_text_delta") < event_types.index("assistant_text_final") < event_types.index("done")
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(
@@ -306,7 +293,12 @@ def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_packag
                     }
                 ]
             },
-            {"content": "已经基于恢复包和工具结果继续。"},
+            {
+                "content": json.dumps(
+                    _action_request(action_type="respond", final_answer="已经基于恢复包和工具结果继续。"),
+                    ensure_ascii=False,
+                )
+            },
         ]
     )
     runtime = build_harness_runtime(
@@ -368,7 +360,12 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
                     {"id": "call-path-exists", "name": "path_exists", "args": {"path": "requirements.txt"}},
                 ]
             },
-            {"content": "已经完成两个检查。"},
+            {
+                "content": json.dumps(
+                    _action_request(action_type="respond", final_answer="已经完成两个检查。"),
+                    ensure_ascii=False,
+                )
+            },
         ]
     )
     tool_base_dir = _project_backend_dir()
@@ -401,7 +398,7 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
     assert batch_groups[0]["item_indexes"] == [0, 1]
     assert [item["tool_name"] for item in tool_observations] == ["read_file", "path_exists"]
     assert all(item["status"] == "ok" for item in tool_observations)
-    assert [dict(item).get("action_type") for item in admitted_actions] == ["tool_call", "tool_call"]
+    assert [dict(item).get("action_type") for item in admitted_actions] == ["tool_call", "tool_call", "respond"]
     assert len(list(assistant_tool_message["tool_calls"])) == 2
     assert [item["tool_call_id"] for item in tool_messages] == ["call-read-requirements", "call-path-exists"]
 

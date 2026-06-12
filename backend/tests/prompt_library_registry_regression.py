@@ -300,6 +300,13 @@ def test_runtime_protocol_prompts_include_active_work_control_action(tmp_path: P
 
     assert single_turn is not None
     assert observation_followup is not None
+    assert "active_work_control" in single_turn.content
+    assert "用户可见反馈意图" in single_turn.content
+    assert "控制动作脱节" in single_turn.content
+    assert "用户可见反馈" in observation_followup.content
+    assert "不等同暂停或停止" in observation_followup.content
+    assert "质疑" in observation_followup.content
+    assert "纠错" in observation_followup.content
 
 
 def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: Path) -> None:
@@ -315,6 +322,13 @@ def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: 
         assert resource is not None
         assert "turn_response_policy=" not in resource.content
         assert "answer_obligation=" not in resource.content
+        assert "先用一句" not in resource.content
+        assert "轻反馈" not in resource.content
+        assert "用户可见反馈意图" in resource.content
+        assert "系统投影" in resource.content
+        assert "控制动作脱节" in resource.content
+        assert "这不是自动暂停或停止" in resource.content
+        assert "回答后继续" in resource.content
 
     coding_capability = registry.get_resource("environment.coding.lifecycle.environment_capability_alignment")
     assert coding_capability is not None

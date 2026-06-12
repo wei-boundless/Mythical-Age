@@ -75,6 +75,36 @@ def test_action_admission_routes_task_memory_tool_to_task_run() -> None:
     assert admission.permission_delta["required_action"] == "request_task_run"
 
 
+def test_action_admission_routes_agent_todo_to_task_run() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:test:agent-todo",
+        turn_id="turn:test:agent-todo",
+        action_type="tool_call",
+        tool_call={"tool_name": "agent_todo", "args": {"action": "start", "items": []}},
+    )
+
+    admission = admit_model_action(
+        action,
+        packet_allowed_action_types=("respond", "tool_call", "request_task_run", "block"),
+        invocation_kind="single_agent_turn",
+        definitions_by_name={
+            "agent_todo": SimpleNamespace(
+                operation_id="op.agent_todo",
+                is_read_only=False,
+                contract=SimpleNamespace(owner_scope="state"),
+            )
+        },
+        allowed_tool_names={"agent_todo"},
+        permission_mode="default",
+        side_effect_policy="runtime_authorized",
+    )
+
+    assert admission.decision == "needs_task_run"
+    assert admission.system_reason == "task_scoped_tool_requires_task_run"
+    assert admission.permission_delta["operation_id"] == "op.agent_todo"
+    assert admission.permission_delta["required_action"] == "request_task_run"
+
+
 def test_tool_invocation_permit_validation_rejects_mismatched_tool() -> None:
     permit = {
         "permit_id": "action-permit:model-action:test:read",
