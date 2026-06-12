@@ -106,7 +106,6 @@ def _public_progress_scrub(text: str) -> str:
     normalized = text
     for source, replacement in _PUBLIC_ERROR_REWRITES.items():
         normalized = normalized.replace(source, replacement)
-    normalized = _rewrite_raw_tool_failure(normalized)
     normalized = re.sub(r"当前处理已停止\s*[:：]", "当前步骤遇到阻塞：", normalized)
     normalized = re.sub(
         r"当前\s*image_generate\s*的\s*agent_auto_retry_allowed\s*为\s*false\s*[，,]\s*agent_retry_policy\s*为\s*do_not_auto_retry\s*[，,]",
@@ -154,25 +153,6 @@ def _looks_like_machine_status_leak(text: str) -> bool:
     )
 
 
-def _rewrite_raw_tool_failure(text: str) -> str:
-    normalized = str(text or "").strip()
-    if not normalized:
-        return ""
-    if re.search(r"\bold_text not found\b", normalized, flags=re.IGNORECASE):
-        return "文件更新未完成：当前内容与预期不一致，需要先读取最新片段再修改。"
-    if re.match(r"^Edit failed:\s*file does not exist\b", normalized, flags=re.IGNORECASE):
-        return "文件更新未完成：目标文件不存在，需要先确认路径。"
-    if re.match(r"^Edit failed:\s*path is a directory\b", normalized, flags=re.IGNORECASE):
-        return "文件更新未完成：目标是目录，需要重新确认文件路径。"
-    if re.match(r"^Edit failed:", normalized, flags=re.IGNORECASE):
-        return "文件更新未完成，需要根据返回结果调整后继续。"
-    if re.match(r"^Read failed:", normalized, flags=re.IGNORECASE):
-        return ""
-    if re.match(r"^Write failed:", normalized, flags=re.IGNORECASE):
-        return "写入未完成，需要确认目标路径和写入条件后继续。"
-    return normalized
-
-
 def _public_role_label(text: str) -> str:
     if text.startswith("agent "):
         return "助手" + text[len("agent ") :]
@@ -190,6 +170,10 @@ def _looks_like_raw_tool_output(text: str) -> bool:
     if re.search(r"(?m)^\s*\d{1,6}\s*\|\s+", raw):
         return True
     if re.search(r"\b(?:Exit code|Wall time|Output):", raw, flags=re.IGNORECASE):
+        return True
+    if re.match(r"^(?:Edit|Write|Read) failed:", raw, flags=re.IGNORECASE):
+        return True
+    if re.match(r"^tool_policy_rejection:", raw, flags=re.IGNORECASE):
         return True
     if re.search(r"\b(?:Get-Content|Get-ChildItem|Select-Object|Stop-Process|Start-Process|python -m|npm run|npx )\b", raw, flags=re.IGNORECASE):
         return True

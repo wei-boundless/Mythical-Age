@@ -12,7 +12,7 @@ TERMINAL_STATUSES = {"completed", "failed", "stopped", "aborted", "cancelled", "
 WAITING_STATUSES = {"waiting_executor", "waiting_approval", "waiting_user", "paused", "queued"}
 ERROR_STATUSES = {"failed", "error", "blocked"}
 ACTIVE_ACTIVITY_STATES = {"running", "working", "partial", "waiting", "queued", "paused"}
-INTERNAL_RUNTIME_TOOL_NAMES = {
+STRUCTURED_PLAN_TOOL_NAMES = {
     "agent_todo",
 }
 
@@ -47,6 +47,10 @@ def build_single_agent_task_projection(
         task_run=task_run,
         todo=todo,
     )
+    projection_summary = "" if _latest_step_is_system_tool_status(
+        monitor=monitor_payload,
+        diagnostics=diagnostics,
+    ) else public_text(monitor_payload.get("summary") or diagnostics.get("summary"), limit=220)
     return compact(
         {
             "authority": SINGLE_AGENT_TASK_PROJECTION_AUTHORITY,
@@ -58,7 +62,7 @@ def build_single_agent_task_projection(
             "status": _projection_status(status, control=control),
             "phase": _projection_phase(status=status, control=control),
             "title": public_text(_task_title(task_run, diagnostics), limit=120) or "任务执行",
-            "summary": public_text(monitor_payload.get("summary") or diagnostics.get("summary"), limit=220),
+            "summary": projection_summary,
             "current_action": current_action,
             "todo": todo,
             "activities": activities[-20:],
@@ -146,7 +150,7 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
             or "工具"
         )
         normalized_tool_name = tool_name.lower()
-        if normalized_tool_name in INTERNAL_RUNTIME_TOOL_NAMES or source in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
+        if normalized_tool_name in STRUCTURED_PLAN_TOOL_NAMES or source in {"agent_todo", "system:agent_todo", "tool:agent_todo"}:
             return {}
         tool_args = record(observation_payload.get("tool_args") or observation_payload.get("args") or envelope.get("args") or structured.get("args"))
         tool_target = _tool_target_label(
@@ -178,6 +182,8 @@ def _activity_from_event(event: dict[str, Any]) -> dict[str, Any]:
     if event_type == "step_summary_recorded":
         step = text(payload.get("step"))
         if step in {"task_lifecycle_started", "task_executor_scheduled"}:
+            return {}
+        if step.startswith("task_duplicate_tool_call_guarded"):
             return {}
         if _is_system_tool_step_summary(step, presentation_source=text(payload.get("presentation_source"))):
             return {}
@@ -222,6 +228,9 @@ def _current_action(
 ) -> dict[str, Any]:
     if text(status).lower() in TERMINAL_STATUSES:
         return _terminal_current_action(status=status, monitor=monitor, diagnostics=diagnostics, task_run=task_run)
+    recovery_action = _waiting_executor_recovery_action(status=status, monitor=monitor, diagnostics=diagnostics)
+    if recovery_action:
+        return recovery_action
     allowed_activity_states = _allowed_current_activity_states(status)
     for activity in reversed(activities):
         if text(activity.get("state")) in allowed_activity_states:
@@ -229,6 +238,8 @@ def _current_action(
     todo_action = _current_action_from_todo(todo, status=status)
     if todo_action:
         return todo_action
+    if _latest_step_is_system_tool_status(monitor=monitor, diagnostics=diagnostics):
+        return {}
     latest_action_state = record(diagnostics.get("latest_public_action_state") or monitor.get("latest_public_action_state"))
     title = public_text(
         diagnostics.get("latest_current_judgment")
@@ -262,6 +273,46 @@ def _current_action(
     )
 
 
+def _waiting_executor_recovery_action(*, status: str, monitor: dict[str, Any], diagnostics: dict[str, Any]) -> dict[str, Any]:
+    if text(status).lower() != "waiting_executor":
+        return {}
+    recoverable = record(diagnostics.get("recoverable_error") or monitor.get("recoverable_error"))
+    latest_step = record(monitor.get("latest_step"))
+    latest_step_name = text(
+        diagnostics.get("latest_step")
+        or latest_step.get("step")
+        or monitor.get("latest_step_name")
+        or monitor.get("latest_step")
+    )
+    error_code = text(recoverable.get("error_code") or recoverable.get("code"))
+    is_runtime_restart = (
+        latest_step_name == "task_executor_recovered_after_runtime_start"
+        or error_code == "task_executor_interrupted_by_runtime_restart"
+    )
+    if not is_runtime_restart:
+        return {}
+    title = public_text(
+        diagnostics.get("latest_public_progress_note")
+        or diagnostics.get("latest_step_summary")
+        or monitor.get("latest_public_progress_note")
+        or monitor.get("latest_step_summary")
+        or recoverable.get("user_message"),
+        limit=160,
+    ) or "后端运行时已重启，当前任务可继续。"
+    detail = public_text(recoverable.get("user_message"), limit=180)
+    return compact(
+        {
+            "kind": "lifecycle",
+            "title": title,
+            "detail": detail if detail != title else "",
+            "state": "waiting",
+            "display_surface": "timeline",
+            "visibility_level": "primary",
+            "source_kind": "runtime_recovery",
+        }
+    )
+
+
 def _activity_state_from_status(value: Any) -> str:
     status = text(value).lower()
     if status in {"completed", "success", "done"}:
@@ -277,6 +328,25 @@ def _is_system_tool_step_summary(step: str, *, presentation_source: str) -> bool
     if text(presentation_source) == "system.tool_call_status":
         return True
     return step.startswith(("task_tool_batch_started", "task_tool_repair_required"))
+
+
+def _latest_step_is_system_tool_status(*, monitor: dict[str, Any], diagnostics: dict[str, Any]) -> bool:
+    latest_step = record(monitor.get("latest_step") or diagnostics.get("latest_step"))
+    step = text(
+        latest_step.get("step")
+        or monitor.get("latest_step_name")
+        or monitor.get("latest_step")
+        or diagnostics.get("latest_step")
+    )
+    presentation_source = text(
+        latest_step.get("presentation_source")
+        or monitor.get("presentation_source")
+        or diagnostics.get("presentation_source")
+    )
+    return step.startswith("task_duplicate_tool_call_guarded") or _is_system_tool_step_summary(
+        step,
+        presentation_source=presentation_source,
+    )
 
 
 def _tool_target_label(value: Any) -> str:

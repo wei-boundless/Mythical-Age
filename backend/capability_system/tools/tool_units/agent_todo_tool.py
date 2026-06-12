@@ -24,7 +24,10 @@ class AgentTodoItemInput(BaseModel):
 
     content: str = Field(description="Concrete todo item content.")
     active_form: str = Field(default="", description="Short active-form wording for the item while it is in progress.")
-    status: Literal["pending", "in_progress", "completed"] = Field(default="pending", description="Current item status.")
+    status: Literal["pending", "in_progress", "completed"] = Field(
+        default="pending",
+        description="Current item status. Use in_progress for the one item currently being worked; never use active.",
+    )
     notes: str = Field(default="", description="Brief evidence, blocker, or progress note for this item.")
     evidence_expectations: list[str] = Field(default_factory=list, description="Evidence expected before this item can be completed.")
     contract_refs: list[str] = Field(default_factory=list, description="Task contract references this item satisfies.")
@@ -54,8 +57,11 @@ class AgentTodoInput(BaseModel):
             "Use this field instead of todos."
         ),
     )
-    todo_id: str = Field(default="", description="Target todo id for start, complete, update_status, or remove.")
-    status: str = Field(default="", description="Target status for update_status: pending, in_progress, or completed.")
+    todo_id: str = Field(default="", description="Target todo id for start, complete, update_status, or remove. Use this field name, not id.")
+    status: Literal["", "pending", "in_progress", "completed"] = Field(
+        default="",
+        description="Target status for update_status: pending, in_progress, or completed. Leave empty for other operations; never use active.",
+    )
     notes: str = Field(default="", description="Short note explaining a status update or blocker.")
 
 

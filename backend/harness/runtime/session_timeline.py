@@ -4,11 +4,15 @@ import json
 from typing import Any
 
 from harness.runtime.progress_presenter import build_progress_presentation
-from harness.runtime.projection.timeline_builder import build_public_chat_timeline_from_progress_entries
+from harness.runtime.projection.timeline_builder import (
+    build_public_chat_timeline_from_progress_entries,
+    merge_public_timeline_item,
+    project_public_timeline_from_events,
+    public_timeline_order_key,
+)
 from harness.runtime.projection.filters import should_hide_public_tool_observation
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.public_progress import public_runtime_progress_title
-from harness.runtime.projection.timeline_builder import project_public_timeline_from_events
 from harness.runtime.projection.task_projection import build_single_agent_task_projection
 
 
@@ -54,6 +58,17 @@ _SUPPRESSED_PROGRESS_TEXT = {
     "running",
     "working",
     "success",
+}
+_STRUCTURED_PLAN_TOOL_NAMES = {
+    "agent_todo",
+}
+_PUBLIC_TIMELINE_RESET_EVENTS = {
+    "user_work_instruction_recorded",
+    "active_task_steer_recorded",
+    "active_task_steer_accepted",
+    "active_task_steer_included",
+    "active_task_steer_consumed",
+    "task_run_resume_requested",
 }
 
 
@@ -103,28 +118,40 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     if not task_run_id:
         return {}
+    session_id = str(getattr(task_run, "session_id", "") or "")
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
+    public_since_offset = _public_since_offset(events)
+    public_events = _events_since_offset(events, public_since_offset)
     monitor = runtime_host.monitor_projector.project_task_run(task_run, now=_latest_now(events, task_run))
     final_answer = str(diagnostics.get("final_answer") or "")
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
     progress_presentation = build_progress_presentation(events=events, task_run=task_run, monitor=monitor)
-    progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
-    anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
+    progress_entries = _progress_entries(public_events)[-max(1, int(max_timeline_items or 24)) :]
+    anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=public_events or events)
+    progress_entries = _scope_progress_entries(
+        progress_entries,
+        session_id=session_id,
+        anchor_turn_id=anchor_turn_id,
+        run_id=task_run_id,
+        task_run_id=task_run_id,
+        turn_run_id="",
+    )
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
     task_projection = build_single_agent_task_projection(
         runtime_host,
         task_run,
-        events=events,
+        events=public_events,
         monitor=monitor,
         anchor_turn_id=anchor_turn_id,
         anchor_message_id=anchor_message_id,
     )
     public_timeline = project_public_timeline_from_events(
-        events,
+        public_events,
         runtime_host=runtime_host,
         monitor=monitor,
+        session_id=session_id,
         run_id=task_run_id,
         task_run_id=task_run_id,
         final_answer=final_answer,
@@ -135,6 +162,14 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         public_timeline,
         _public_timeline_from_progress_entries(progress_entries),
         limit=max_timeline_items,
+    )
+    public_timeline = _scope_public_timeline_items(
+        public_timeline,
+        session_id=session_id,
+        anchor_turn_id=anchor_turn_id,
+        run_id=task_run_id,
+        task_run_id=task_run_id,
+        turn_run_id="",
     )
     latest_step = _sanitized_latest_step(monitor.get("latest_step"))
     closeout_summary = _attachment_closeout_summary(task_run=task_run, diagnostics=diagnostics, monitor=monitor)
@@ -165,6 +200,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "progress_presentation": progress_presentation,
         "progress_entries": progress_entries,
         "public_timeline": public_timeline,
+        "public_since_offset": public_since_offset,
         **({"task_projection": task_projection} if task_projection else {}),
         "artifact_refs": artifact_refs,
         "trace_available": True,
@@ -179,9 +215,18 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
     if not turn_run_id:
         return {}
+    session_id = str(getattr(turn_run, "session_id", "") or "")
     events = [item.to_dict() for item in _recent_events(runtime_host, turn_run_id, limit=max_timeline_items * 8)]
     progress_entries = _progress_entries(events)[-max(1, int(max_timeline_items or 24)) :]
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
+    progress_entries = _scope_progress_entries(
+        progress_entries,
+        session_id=session_id,
+        anchor_turn_id=anchor_turn_id,
+        run_id=turn_run_id,
+        task_run_id="",
+        turn_run_id=turn_run_id,
+    )
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     status = str(getattr(turn_run, "status", "") or "")
     terminal_reason = str(getattr(turn_run, "terminal_reason", "") or "")
@@ -198,6 +243,14 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         public_timeline,
         _public_timeline_from_progress_entries(progress_entries),
         limit=max_timeline_items,
+    )
+    public_timeline = _scope_public_timeline_items(
+        public_timeline,
+        session_id=session_id,
+        anchor_turn_id=anchor_turn_id,
+        run_id=turn_run_id,
+        task_run_id="",
+        turn_run_id=turn_run_id,
     )
     if not public_timeline:
         return {}
@@ -297,7 +350,8 @@ def _attachment_closeout_summary(*, task_run: Any, diagnostics: dict[str, Any], 
 
 
 def _merge_public_timeline(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    merged: list[dict[str, Any]] = []
+    merged_by_key: dict[str, dict[str, Any]] = {}
+    insertion_order: list[str] = []
     seen: set[str] = set()
     primary_has_error_item = any(_public_timeline_item_is_error(item) for item in primary)
     for item in [*list(primary or []), *list(secondary or [])]:
@@ -305,11 +359,75 @@ def _merge_public_timeline(primary: list[dict[str, Any]], secondary: list[dict[s
         if primary_has_error_item and str(payload.get("kind") or "") == "blocked":
             continue
         key = _public_timeline_key(payload)
-        if not key or key in seen:
+        if not key:
+            continue
+        if key in seen:
+            merged_by_key[key] = merge_public_timeline_item(merged_by_key[key], payload)
             continue
         seen.add(key)
-        merged.append(payload)
-    return merged[-max(1, int(limit or 24)) :]
+        insertion_order.append(key)
+        merged_by_key[key] = payload
+    ordered = sorted(
+        enumerate([merged_by_key[key] for key in insertion_order]),
+        key=lambda item: (*public_timeline_order_key(item[1]), item[0]),
+    )
+    return [item for _, item in ordered][-max(1, int(limit or 24)) :]
+
+
+def _scope_progress_entries(
+    entries: list[dict[str, Any]],
+    *,
+    session_id: str,
+    anchor_turn_id: str,
+    run_id: str,
+    task_run_id: str,
+    turn_run_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            **dict(entry),
+            "sessionId": str(entry.get("sessionId") or entry.get("session_id") or session_id),
+            "session_id": str(entry.get("session_id") or entry.get("sessionId") or session_id),
+            "turnId": str(entry.get("turnId") or entry.get("turn_id") or entry.get("anchorTurnId") or entry.get("anchor_turn_id") or anchor_turn_id),
+            "turn_id": str(entry.get("turn_id") or entry.get("turnId") or entry.get("anchor_turn_id") or entry.get("anchorTurnId") or anchor_turn_id),
+            "anchorTurnId": str(entry.get("anchorTurnId") or entry.get("anchor_turn_id") or entry.get("turnId") or entry.get("turn_id") or anchor_turn_id),
+            "anchor_turn_id": str(entry.get("anchor_turn_id") or entry.get("anchorTurnId") or entry.get("turn_id") or entry.get("turnId") or anchor_turn_id),
+            "runId": str(entry.get("runId") or entry.get("run_id") or entry.get("sourceRunId") or entry.get("source_run_id") or run_id),
+            "run_id": str(entry.get("run_id") or entry.get("runId") or entry.get("source_run_id") or entry.get("sourceRunId") or run_id),
+            "taskRunId": str(entry.get("taskRunId") or entry.get("task_run_id") or task_run_id),
+            "task_run_id": str(entry.get("task_run_id") or entry.get("taskRunId") or task_run_id),
+            "turnRunId": str(entry.get("turnRunId") or entry.get("turn_run_id") or turn_run_id),
+            "turn_run_id": str(entry.get("turn_run_id") or entry.get("turnRunId") or turn_run_id),
+        }
+        for entry in list(entries or [])
+    ]
+
+
+def _scope_public_timeline_items(
+    items: list[dict[str, Any]],
+    *,
+    session_id: str,
+    anchor_turn_id: str,
+    run_id: str,
+    task_run_id: str,
+    turn_run_id: str,
+) -> list[dict[str, Any]]:
+    scoped: list[dict[str, Any]] = []
+    for item in list(items or []):
+        payload = dict(item or {})
+        turn_id = str(payload.get("turn_id") or payload.get("anchor_turn_id") or anchor_turn_id)
+        scoped.append(
+            {
+                **payload,
+                "session_id": str(payload.get("session_id") or session_id),
+                "anchor_turn_id": turn_id,
+                "turn_id": turn_id,
+                "run_id": str(payload.get("run_id") or payload.get("source_run_id") or run_id),
+                "task_run_id": str(payload.get("task_run_id") or task_run_id),
+                "turn_run_id": str(payload.get("turn_run_id") or turn_run_id),
+            }
+        )
+    return scoped
 
 
 def _public_timeline_item_is_error(item: dict[str, Any]) -> bool:
@@ -377,6 +495,27 @@ def _public_timeline_item_text(item: dict[str, Any]) -> str:
     return ""
 
 
+def _public_since_offset(events: list[dict[str, Any]]) -> int:
+    for event in reversed(sorted(list(events or []), key=lambda item: int(item.get("offset") or 0))):
+        event_type = str(event.get("event_type") or "")
+        if event_type in _PUBLIC_TIMELINE_RESET_EVENTS:
+            return int(event.get("offset") or 0)
+        if event_type == "task_run_executor_scheduled":
+            payload = dict(event.get("payload") or {})
+            recovered_from = str(payload.get("recovered_from") or "").strip()
+            scheduler = str(payload.get("scheduler") or "").strip()
+            if recovered_from or scheduler in {"task_run_resume_api", "task_run_approval_resume_api", "runtime_start_recovery"}:
+                return int(event.get("offset") or 0)
+    return 0
+
+
+def _events_since_offset(events: list[dict[str, Any]], offset: int) -> list[dict[str, Any]]:
+    boundary = int(offset or 0)
+    if boundary <= 0:
+        return list(events or [])
+    return [event for event in list(events or []) if int(event.get("offset") or 0) >= boundary]
+
+
 def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:
     window_reader = getattr(runtime_host.event_log, "list_event_window", None)
     if callable(window_reader):
@@ -429,10 +568,10 @@ def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:
 
 def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: list[dict[str, Any]]) -> str:
     return (
-        _valid_turn_ref(diagnostics.get("turn_id"))
-        or _turn_id_from_task_run(task_run_id)
+        _latest_interaction_turn_id(events)
         or _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
-        or _latest_interaction_turn_id(events)
+        or _valid_turn_ref(diagnostics.get("turn_id"))
+        or _turn_id_from_task_run(task_run_id)
         or ""
     )
 
@@ -583,9 +722,11 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 observation = observations_by_ref.get(str(refs.get("observation_ref") or "").strip(), {})
                 source = str(observation.get("source") or "").strip()
                 ref_tool_name = str(refs.get("tool_name") or "").strip()
-                if _is_internal_tool_observation(source=source, text=agent_brief):
+                if _is_structured_plan_observation(source=source, text=agent_brief):
                     continue
                 tool_name = source.removeprefix("tool:") or ref_tool_name
+                if _is_structured_plan_tool(tool_name):
+                    continue
                 observation_body = _tool_observation_body(agent_brief or _observation_payload_result(observation) or public_note or summary)
                 failed = _observation_text_is_failure(agent_brief or observation_body)
                 entries.append(
@@ -676,7 +817,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     continue
             source = str(observation.get("source") or "").strip()
             summary = public_runtime_progress_summary(observation.get("summary") or "").strip()
-            if _is_internal_tool_observation(source=source, text=summary or _observation_payload_result(observation)):
+            if _is_structured_plan_observation(source=source, text=summary or _observation_payload_result(observation)):
                 continue
             if event_type == "task_tool_observation_recorded" and source.startswith("tool:"):
                 observation_body = _tool_observation_body(summary or _observation_payload_result(observation))
@@ -793,6 +934,8 @@ def _turn_model_action_entry(event: dict[str, Any], *, payload: dict[str, Any]) 
         )
     tool_call = dict(action_request.get("tool_call") or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or action_request.get("tool_name") or "").strip()
+    if _is_structured_plan_tool(tool_name):
+        return {}
     tool_call_id = str(tool_call.get("id") or action_request.get("tool_call_id") or action_request.get("request_id") or "").strip()
     preview = _tool_call_preview(tool_call)
     title = _tool_activity_title(tool_name=tool_name, preview=preview, phase="started")
@@ -826,6 +969,8 @@ def _turn_tool_observation_entry(event: dict[str, Any], *, payload: dict[str, An
     envelope = dict(observation.get("result_envelope") or {})
     receipt = dict(observation.get("execution_receipt") or {})
     tool_name = str(observation.get("tool_name") or envelope.get("tool_name") or receipt.get("tool_name") or "").strip()
+    if _is_structured_plan_tool(tool_name):
+        return {}
     tool_call_id = str(
         observation.get("tool_call_id")
         or envelope.get("tool_call_id")
@@ -1017,11 +1162,24 @@ def _entry(
     meta: list[dict[str, str]] | None = None,
     artifacts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
+    event_offset = int(event.get("offset") or 0)
+    anchor_turn_id = _event_anchor_turn_id(event)
     item = {
         "id": str(event.get("event_id") or f"{event.get('run_id') or event.get('task_run_id')}:{event.get('offset')}"),
         "eventType": str(event.get("event_type") or ""),
         "runId": str(event.get("run_id") or event.get("task_run_id") or ""),
         "taskRunId": _formal_task_run_id(event.get("run_id") or event.get("task_run_id")),
+        "turnId": anchor_turn_id,
+        "turn_id": anchor_turn_id,
+        "anchorTurnId": anchor_turn_id,
+        "anchor_turn_id": anchor_turn_id,
+        "sequence": event_offset,
+        "eventOffset": event_offset,
+        "event_offset": event_offset,
+        "sourceRunId": str(event.get("run_id") or event.get("task_run_id") or ""),
+        "source_run_id": str(event.get("run_id") or event.get("task_run_id") or ""),
+        "sourceEventId": str(event.get("event_id") or ""),
+        "source_event_id": str(event.get("event_id") or ""),
         "title": title,
         "body": body,
         "kind": kind,
@@ -1044,6 +1202,28 @@ def _entry(
     if artifacts:
         item["artifacts"] = list(artifacts)
     return item
+
+
+def _event_anchor_turn_id(event: dict[str, Any]) -> str:
+    payload = dict(event.get("payload") or {})
+    refs = dict(event.get("refs") or {})
+    action = dict(payload.get("model_action_request") or {})
+    submission = dict(payload.get("submission") or {})
+    observation = dict(payload.get("observation") or {})
+    observation_payload = dict(observation.get("payload") or {})
+    structured_payload = dict(observation_payload.get("structured_payload") or {})
+    for candidate in (
+        refs.get("turn_ref"),
+        payload.get("turn_id"),
+        submission.get("turn_id"),
+        action.get("turn_id"),
+        observation.get("request_ref"),
+        structured_payload.get("turn_id"),
+    ):
+        turn_id = _valid_turn_ref(candidate)
+        if turn_id:
+            return turn_id
+    return ""
 
 
 def _formal_task_run_id(value: Any) -> str:
@@ -1082,12 +1262,16 @@ def _observation_payload_result(observation: dict[str, Any]) -> str:
     return str(dict(observation.get("payload") or {}).get("result") or "").strip()
 
 
-def _is_internal_tool_observation(*, source: str, text: str) -> bool:
+def _is_structured_plan_observation(*, source: str, text: str) -> bool:
     tool_name = str(source or "").strip().removeprefix("tool:")
-    if tool_name == "agent_todo":
+    if _is_structured_plan_tool(tool_name):
         return True
     stripped = str(text or "").strip()
     return stripped.startswith("{") and '"plan_id"' in stripped and '"items"' in stripped
+
+
+def _is_structured_plan_tool(tool_name: str) -> bool:
+    return str(tool_name or "").strip().lower() in _STRUCTURED_PLAN_TOOL_NAMES
 
 
 def _public_action_state_brief(

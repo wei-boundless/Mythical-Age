@@ -49,7 +49,7 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, PublicProjectionEnvelope, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -1331,27 +1331,27 @@ export class WorkspaceRuntime {
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
-    if (!currentMessages.some((message) => message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length || message.runtimeAttachments?.length)) {
+    if (!currentMessages.some((message) => this.messageHasRuntimeVolatileState(message))) {
       return refreshedMessages;
     }
-    const currentBySourceIndex = new Map<number, Message>();
-    for (const message of currentMessages) {
-      if (message.role === "assistant" && message.sourceIndex !== undefined) {
-        currentBySourceIndex.set(message.sourceIndex, message);
-      }
-    }
+    const currentVolatileMessages = currentMessages.filter((message) =>
+      message.role === "assistant" && this.messageHasRuntimeVolatileState(message)
+    );
+    const currentById = new Map(currentVolatileMessages.map((message) => [message.id, message]));
     const refreshedWithMergedProgress = refreshedMessages.map((message) => {
-      if (message.role !== "assistant" || message.sourceIndex === undefined) {
+      if (message.role !== "assistant") {
         return message;
       }
-      const current = currentBySourceIndex.get(message.sourceIndex);
-      if (!current?.runtimeProgress?.length && !current?.runtimePublicTimelineDraft?.length && !current?.runtimeAttachments?.length) {
+      const current = currentById.get(message.id)
+        ?? this.findCurrentRuntimeMessageForRefresh(message, currentVolatileMessages);
+      if (!current || !this.messageHasRuntimeVolatileState(current)) {
         return message;
       }
       const runtimeAttachments = this.mergeRuntimeAttachments(
         message.runtimeAttachments,
         current.runtimeAttachments ?? [],
       );
+      const publicSinceOffset = this.runtimeAttachmentsPublicSinceOffset(runtimeAttachments);
       const persistedPublicTimeline = this.publicTimelineFromRuntimeAttachments(runtimeAttachments);
       return {
         ...message,
@@ -1359,7 +1359,7 @@ export class WorkspaceRuntime {
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
         runtimePublicTimelineDraft: mergePublicTimelineItems(
           persistedPublicTimeline,
-          current.runtimePublicTimelineDraft,
+          this.publicTimelineItemsSinceOffset(current.runtimePublicTimelineDraft, publicSinceOffset),
           {
             terminalState: publicTimelineTerminalStateFromAnswer({
               answerCanonicalState: message.answerCanonicalState,
@@ -1370,19 +1370,126 @@ export class WorkspaceRuntime {
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
     });
-    const refreshedSourceIndexes = new Set(
-      refreshedWithMergedProgress
-        .map((message) => message.sourceIndex)
-        .filter((sourceIndex): sourceIndex is number => sourceIndex !== undefined),
+    const refreshedMessageIds = new Set(refreshedWithMergedProgress.map((message) => message.id));
+    const preservedRuntimeMessages = currentVolatileMessages.filter((message) =>
+      !refreshedMessageIds.has(message.id)
+      && !this.refreshedMessagesContainRuntimeAnchor(refreshedWithMergedProgress, message)
+      && this.refreshedHistoryContainsRuntimeTurn(refreshedMessages, message)
     );
     const localSteerReceipts = currentMessages.filter((message) =>
       this.isLocalActiveTurnSteerReceipt(message)
-      && (message.sourceIndex === undefined || !refreshedSourceIndexes.has(message.sourceIndex))
+      && !refreshedMessageIds.has(message.id)
       && !this.hasEquivalentActiveTurnSteerReceipt(refreshedWithMergedProgress, message)
     );
-    return localSteerReceipts.length
-      ? [...refreshedWithMergedProgress, ...localSteerReceipts]
-      : refreshedWithMergedProgress;
+    return [...refreshedWithMergedProgress, ...preservedRuntimeMessages, ...localSteerReceipts]
+      .sort((left, right) => {
+        const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+        if (left.role !== right.role) return left.role === "user" ? -1 : 1;
+        return left.id.localeCompare(right.id);
+      });
+  }
+
+  private messageHasRuntimeVolatileState(message: Message) {
+    return Boolean(message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length || message.runtimeAttachments?.length);
+  }
+
+  private findCurrentRuntimeMessageForRefresh(message: Message, candidates: Message[]) {
+    return candidates.find((candidate) => this.messagesShareRuntimeIdentity(message, candidate));
+  }
+
+  private refreshedMessagesContainRuntimeAnchor(refreshedMessages: Message[], current: Message) {
+    return refreshedMessages.some((message) =>
+      message.role === "assistant" && this.messagesShareRuntimeIdentity(message, current)
+    );
+  }
+
+  private refreshedHistoryContainsRuntimeTurn(refreshedMessages: Message[], current: Message) {
+    const turns = this.messageRuntimeTurnIds(current);
+    if (!turns.size) {
+      return false;
+    }
+    return refreshedMessages.some((message) =>
+      message.role === "user" && turns.has(String(message.sourceTurnId ?? "").trim())
+    );
+  }
+
+  private messagesShareRuntimeIdentity(left: Message, right: Message) {
+    const leftTurns = this.messageRuntimeTurnIds(left);
+    const rightTurns = this.messageRuntimeTurnIds(right);
+    const sharedTurn = this.setsIntersect(leftTurns, rightTurns);
+    const leftRuns = this.messageRuntimeRunIds(left);
+    const rightRuns = this.messageRuntimeRunIds(right);
+    const sharedRun = this.setsIntersect(leftRuns, rightRuns);
+    if (sharedTurn && (!leftRuns.size || !rightRuns.size || sharedRun)) {
+      return true;
+    }
+    return sharedRun && (!leftTurns.size || !rightTurns.size || sharedTurn);
+  }
+
+  private messageRuntimeTurnIds(message: Message) {
+    const values = new Set<string>();
+    const add = (value: unknown) => {
+      const text = String(value ?? "").trim();
+      if (text) values.add(text);
+    };
+    add(message.sourceTurnId);
+    for (const attachment of message.runtimeAttachments ?? []) {
+      add(attachment.anchor_turn_id);
+      for (const item of attachment.public_timeline ?? []) {
+        add((item as Record<string, unknown>).anchor_turn_id);
+        add((item as Record<string, unknown>).turn_id);
+      }
+      for (const entry of attachment.progress_entries ?? []) {
+        add(entry.anchorTurnId);
+        add(entry.anchor_turn_id);
+        add(entry.turnId);
+        add(entry.turn_id);
+      }
+    }
+    return values;
+  }
+
+  private messageRuntimeRunIds(message: Message) {
+    const values = new Set<string>();
+    const add = (value: unknown) => {
+      const text = String(value ?? "").trim();
+      if (text) values.add(text);
+    };
+    add(message.sourceRunId);
+    add(message.sourceTaskRunId);
+    add(message.sourceTurnRunId);
+    for (const attachment of message.runtimeAttachments ?? []) {
+      add(attachment.run_id);
+      add(attachment.task_run_id);
+      add(attachment.turn_run_id);
+      for (const item of attachment.public_timeline ?? []) {
+        add((item as Record<string, unknown>).run_id);
+        add(item.source_run_id);
+        add(item.sourceRunId);
+        add((item as Record<string, unknown>).task_run_id);
+        add((item as Record<string, unknown>).turn_run_id);
+      }
+      for (const entry of attachment.progress_entries ?? []) {
+        add(entry.runId);
+        add(entry.run_id);
+        add(entry.sourceRunId);
+        add(entry.source_run_id);
+        add(entry.taskRunId);
+        add(entry.task_run_id);
+        add(entry.turnRunId);
+        add(entry.turn_run_id);
+      }
+    }
+    return values;
+  }
+
+  private setsIntersect(left: Set<string>, right: Set<string>) {
+    for (const item of left) {
+      if (right.has(item)) return true;
+    }
+    return false;
   }
 
   private isLocalActiveTurnSteerReceipt(message: Message) {
@@ -4433,18 +4540,92 @@ export class WorkspaceRuntime {
   }
 
   private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
+    const publicSinceOffset = Math.max(
+      this.runtimeAttachmentPublicSinceOffset(existing),
+      this.runtimeAttachmentPublicSinceOffset(attachment),
+    );
+    const existingProgressEntries = this.progressEntriesSinceOffset(existing?.progress_entries, publicSinceOffset);
+    const incomingProgressEntries = this.progressEntriesSinceOffset(attachment.progress_entries, publicSinceOffset);
     return {
       ...existing,
       ...attachment,
-      progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
-      public_timeline: mergePublicTimelineItems(existing?.public_timeline, attachment.public_timeline, {
+      ...(publicSinceOffset > 0 ? { public_since_offset: publicSinceOffset } : {}),
+      progress_entries: this.mergeRuntimeProgressEntries(existingProgressEntries, incomingProgressEntries[0] ?? null),
+      public_timeline: mergePublicTimelineItems(
+        this.publicTimelineItemsSinceOffset(existing?.public_timeline, publicSinceOffset),
+        this.publicTimelineItemsSinceOffset(attachment.public_timeline, publicSinceOffset),
+        {
         limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
-      }),
+        },
+      ),
     };
   }
 
   private runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined) {
     return String(attachment?.run_id ?? attachment?.task_run_id ?? "").trim();
+  }
+
+  private runtimeAttachmentsPublicSinceOffset(attachments: SessionRuntimeAttachment[] | undefined) {
+    return Math.max(0, ...(attachments ?? []).map((attachment) => this.runtimeAttachmentPublicSinceOffset(attachment)));
+  }
+
+  private runtimeAttachmentPublicSinceOffset(attachment: SessionRuntimeAttachment | undefined) {
+    return this.numericRuntimeOffset(attachment?.public_since_offset ?? attachment?.publicSinceOffset) ?? 0;
+  }
+
+  private publicTimelineItemsSinceOffset(items: PublicChatTimelineItem[] | undefined, publicSinceOffset: number) {
+    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
+    const source = Array.isArray(items) ? items : [];
+    if (boundary <= 0) {
+      return source;
+    }
+    return source.filter((item) => this.publicTimelineItemIntersectsOffsetWindow(item, boundary));
+  }
+
+  private publicTimelineItemIntersectsOffsetWindow(item: PublicChatTimelineItem, publicSinceOffset: number) {
+    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
+    if (boundary <= 0) {
+      return true;
+    }
+    const offsets = [
+      item.sequence,
+      item.event_offset,
+      item.eventOffset,
+      item.updated_event_offset,
+    ].map((value) => this.numericRuntimeOffset(value)).filter((value): value is number => value !== undefined);
+    if (offsets.length > 0) {
+      return Math.max(...offsets) >= boundary;
+    }
+    const slot = String(item.slot ?? "").trim().toLowerCase();
+    const surface = String(item.surface ?? "").trim().toLowerCase();
+    return slot === "status" || slot === "control" || surface === "status_bar" || surface === "control";
+  }
+
+  private progressEntriesSinceOffset(entries: Array<Record<string, unknown>> | undefined, publicSinceOffset: number) {
+    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
+    const source = Array.isArray(entries) ? entries : [];
+    if (boundary <= 0) {
+      return source;
+    }
+    return source.filter((entry) => {
+      const offset = this.progressEntryOffset(entry);
+      return offset !== undefined && offset >= boundary;
+    });
+  }
+
+  private progressEntryOffset(entry: Record<string, unknown>) {
+    return this.numericRuntimeOffset(entry.eventOffset)
+      ?? this.numericRuntimeOffset(entry.event_offset)
+      ?? this.numericRuntimeOffset(entry.offset)
+      ?? this.numericRuntimeOffset((entry.latest_step as Record<string, unknown> | undefined)?.offset);
+  }
+
+  private numericRuntimeOffset(value: unknown) {
+    if (value === null || value === undefined || value === "") {
+      return undefined;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
   }
 
   private messageSourceMatchesRuntimeAnchor(
@@ -4500,7 +4681,10 @@ export class WorkspaceRuntime {
       return state;
     }
     const userMessage = state.messages[userIndex];
-    const messageId = String(attachment.anchor_message_id ?? "").trim() || `history-message:${anchorTurnId}:assistant`;
+    const requestedMessageId = String(attachment.anchor_message_id ?? "").trim();
+    const requestedMessageIdIsAvailable = requestedMessageId
+      && !state.messages.some((message) => message.id === requestedMessageId);
+    const messageId = requestedMessageIdIsAvailable ? requestedMessageId : `history-message:${anchorTurnId}:assistant`;
     if (state.messages.some((message) => message.id === messageId)) {
       return state;
     }
@@ -4856,6 +5040,34 @@ export class WorkspaceRuntime {
       : {};
   }
 
+  private runtimeEventSessionId(runtimeEvent: RuntimeMonitorEvent) {
+    const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
+    const payload = runtimeEvent.payload && typeof runtimeEvent.payload === "object" && !Array.isArray(runtimeEvent.payload)
+      ? runtimeEvent.payload as Record<string, unknown>
+      : {};
+    const taskRun = payload.task_run && typeof payload.task_run === "object" && !Array.isArray(payload.task_run)
+      ? payload.task_run as Record<string, unknown>
+      : {};
+    return String(
+      publicAnchor.session_id
+      ?? payload.session_id
+      ?? taskRun.session_id
+      ?? "",
+    ).trim();
+  }
+
+  private publicProjectionEnvelopeSessionId(envelope: PublicProjectionEnvelope | null) {
+    if (!envelope) return "";
+    const anchor = envelope.anchor && typeof envelope.anchor === "object" && !Array.isArray(envelope.anchor)
+      ? envelope.anchor as Record<string, unknown>
+      : {};
+    return String(envelope.session_id ?? anchor.session_id ?? "").trim();
+  }
+
+  private runtimeSessionMatchesState(state: StoreState, sessionId: string) {
+    return !sessionId || !state.currentSessionId || state.currentSessionId === sessionId;
+  }
+
   private runtimeEventAnchorTurnId(runtimeEvent: RuntimeMonitorEvent, state: StoreState) {
     const publicAnchor = this.runtimeEventPublicAnchor(runtimeEvent);
     const publicAnchorTurnId = String(publicAnchor.anchor_turn_id ?? "").trim();
@@ -4888,6 +5100,9 @@ export class WorkspaceRuntime {
 
   private patchRuntimeAttachmentFromRuntimeEvent(state: StoreState, runtimeEvent: RuntimeMonitorEvent): StoreState {
     const envelope = publicProjectionEnvelopeFromRecord(runtimeEvent.public_projection_envelope);
+    if (!this.runtimeSessionMatchesState(state, this.publicProjectionEnvelopeSessionId(envelope) || this.runtimeEventSessionId(runtimeEvent))) {
+      return state;
+    }
     if (envelope) {
       const stateWithProjection = applyPublicProjectionEnvelope(state, envelope);
       if (publicProjectionEnvelopeSuppressesLegacy(envelope)) {

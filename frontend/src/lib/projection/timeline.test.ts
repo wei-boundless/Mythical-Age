@@ -72,6 +72,107 @@ describe("publicTimeline", () => {
     })).toBe("error");
   });
 
+  it("does not treat task opening judgments as terminal answers", () => {
+    expect(publicTimelineTerminalStateFromAnswer({
+      answerCanonicalState: "stable_answer",
+      answerChannel: "opening_judgment",
+    })).toBe("");
+  });
+
+  it("orders public timeline items by backend event sequence across incoming batches", () => {
+    const items = mergePublicTimelineItems(
+      [
+        {
+          item_id: "event:3",
+          kind: "status_update",
+          title: "第三步",
+          state: "running",
+          sequence: 3,
+          event_offset: 3,
+          created_at: 30,
+          source_event_id: "event:3",
+        },
+      ],
+      [
+        {
+          item_id: "event:1",
+          kind: "status_update",
+          title: "第一步",
+          state: "running",
+          sequence: 1,
+          event_offset: 1,
+          created_at: 10,
+          source_event_id: "event:1",
+        },
+        {
+          item_id: "event:2",
+          kind: "work_action",
+          slot: "tool",
+          surface: "tool_window",
+          title: "第二步",
+          public_summary: "第二步",
+          subject_label: "docs/a.md",
+          state: "done",
+          sequence: 2,
+          event_offset: 2,
+          created_at: 20,
+          source_event_id: "event:2",
+        },
+      ],
+    );
+
+    expect(items.map((item) => item.item_id)).toEqual(["event:1", "event:2", "event:3"]);
+  });
+
+  it("keeps the earliest sequence when reconciling a tool lifecycle", () => {
+    const items = mergePublicTimelineItems(
+      [
+        {
+          item_id: "tool:read",
+          kind: "work_action",
+          slot: "tool",
+          surface: "tool_window",
+          action_kind: "read",
+          title: "正在读取上下文",
+          subject_label: "docs/a.md",
+          public_summary: "正在读取上下文：docs/a.md",
+          state: "running",
+          sequence: 4,
+          event_offset: 4,
+          source_event_id: "event:start",
+        },
+      ],
+      [
+        {
+          item_id: "tool:read",
+          kind: "work_action",
+          slot: "tool",
+          surface: "tool_window",
+          action_kind: "read",
+          title: "已读取上下文",
+          subject_label: "docs/a.md",
+          public_summary: "已读取上下文：docs/a.md",
+          state: "done",
+          sequence: 9,
+          event_offset: 9,
+          source_event_id: "event:done",
+        },
+      ],
+    );
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        item_id: "tool:read",
+        state: "done",
+        sequence: 4,
+        event_offset: 4,
+        source_event_id: "event:start",
+        updated_event_offset: 9,
+        updated_source_event_id: "event:done",
+      }),
+    ]);
+  });
+
   it("keeps line-numbered text as ordinary timeline text", () => {
     const rawFilePreview = "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 这是一段工具读取的文件原文";
 

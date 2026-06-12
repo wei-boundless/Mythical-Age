@@ -499,9 +499,9 @@ def _exploration_advisory_projection(value: dict[str, Any]) -> dict[str, Any]:
         {
             "triggered": value.get("triggered") if isinstance(value.get("triggered"), bool) else None,
             "kind": str(value.get("kind") or ""),
+            "authority_boundary": str(value.get("authority_boundary") or ""),
             "consecutive_exploration_tool_calls": value.get("consecutive_exploration_tool_calls"),
             "threshold": value.get("threshold"),
-            "recommended_action": str(value.get("recommended_action") or ""),
             "non_blocking": value.get("non_blocking") if isinstance(value.get("non_blocking"), bool) else None,
             "decision_questions": [
                 compact_text(item, limit=80)

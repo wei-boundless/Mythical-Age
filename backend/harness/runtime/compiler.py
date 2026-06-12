@@ -28,6 +28,7 @@ from prompt_composition import (
     render_prompt_contract_instruction,
 )
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
+from agent_system.identity import normalize_agent_id_sequence
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
@@ -3803,7 +3804,9 @@ def _agent_visible_runtime_projection(
             "allowed_operation_count": len(allowed_operations),
             "tools_are_limited_to_visible_context": True,
             "subagent_lifecycle_enabled": subagent_lifecycle_enabled,
-            "allowed_subagent_ids": [str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item)],
+            "allowed_subagent_ids": list(
+                normalize_agent_id_sequence(str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item))
+            ),
         },
         "permission_boundary": {
             "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),

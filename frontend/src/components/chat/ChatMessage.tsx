@@ -113,6 +113,7 @@ export function ChatMessage({
   const compactCompletedTools = Boolean(messageDisplayContent.trim()) || Boolean(terminalState);
   const suppressPublicTimelineActivity = shouldSuppressPublicTimelineAfterFinalAnswer({
     displayContent: messageDisplayContent,
+    hasActiveTaskProjection: hasActiveTaskProjection(taskProjections),
     isUser,
     streamingContent,
     terminalState,
@@ -440,19 +441,28 @@ function compactContentKey(value: unknown) {
 
 function shouldSuppressPublicTimelineAfterFinalAnswer({
   displayContent,
+  hasActiveTaskProjection,
   isUser,
   streamingContent,
   terminalState,
 }: {
   displayContent: string;
+  hasActiveTaskProjection: boolean;
   isUser: boolean;
   streamingContent: boolean;
   terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>;
 }) {
+  if (hasActiveTaskProjection) {
+    return false;
+  }
   return !isUser
     && !streamingContent
     && ["done", "error", "stopped"].includes(terminalState)
     && Boolean(displayContent.trim());
+}
+
+function hasActiveTaskProjection(taskProjections: SingleAgentTaskProjection[]) {
+  return taskProjections.some((projection) => isNonCloseoutRuntimeState(compactTerminalValue(projection.status)));
 }
 
 function combinedPublicTimelineTerminalState(

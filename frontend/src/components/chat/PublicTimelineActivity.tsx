@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
 import type { PublicChatTimelineItem, SingleAgentTaskProjection } from "@/lib/api";
-import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems, sanitizePublicTimelineText } from "@/lib/projection/timeline";
+import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems, publicTimelineExplicitOrderValue, sanitizePublicTimelineText } from "@/lib/projection/timeline";
 
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
@@ -28,7 +28,7 @@ type ActivityEntry = {
   eventRefs?: string[];
   groupKey?: string;
   id: string;
-  kind: "status" | "stopped" | "tool";
+  kind: "body" | "status" | "stopped" | "tool";
   order?: number;
   source?: ActivityEntrySource;
   sourceIndex?: number;
@@ -69,7 +69,9 @@ export function PublicTimelineActivity({ items, taskProjections, compactComplete
       data-entry-count={view.entries.length}
     >
       {view.entries.map((entry) => (
-        entry.kind === "tool"
+        entry.kind === "body"
+          ? <ActivityBody entry={entry} key={entry.id || entry.text} />
+        : entry.kind === "tool"
           ? <ToolWindow entry={entry} key={entry.id || entry.text} />
         : <ActivityLine entry={entry} key={entry.id || entry.text} />
       ))}
@@ -206,6 +208,19 @@ function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection,
     return null;
   }
   const state = cleanPublicTimelineText(current.state).toLowerCase();
+  const bodyText = taskProjectionStageFeedbackBodyText(current, title, detail);
+  if (bodyText) {
+    return {
+      eventRefs: eventRefsFromUnknown(current.event_ref),
+      id: `${projectionId}:body:${cleanPublicTimelineText(current.event_ref) || bodyText}`,
+      kind: "body",
+      state,
+      text: bodyText,
+    };
+  }
+  if (isTaskProjectionStageFeedback(current)) {
+    return null;
+  }
   return {
     eventRefs: eventRefsFromUnknown(current.event_ref),
     id: `${projectionId}:current:${cleanPublicTimelineText(current.event_ref) || title || detail}`,
@@ -271,6 +286,19 @@ function taskProjectionActivityEntry(
   const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
   const state = cleanPublicTimelineText(activity.state).toLowerCase();
   const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  const bodyText = taskProjectionStageFeedbackBodyText(activity, title, detail);
+  if (bodyText) {
+    return {
+      eventRefs: eventRefsFromUnknown(activity.event_ref),
+      id: `${projectionId}:body:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || bodyText}`,
+      kind: "body",
+      state,
+      text: bodyText,
+    };
+  }
+  if (isTaskProjectionStageFeedback(activity)) {
+    return null;
+  }
   const isObservation = kind === "observation";
   const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window"
     ? "tool"
@@ -355,6 +383,8 @@ function rebuildActivityMergeIndex(entries: ActivityEntry[], indexByKey: Map<str
 function mergeActivityEntries(left: ActivityEntry, right: ActivityEntry): ActivityEntry {
   const mergedKind: ActivityEntry["kind"] = left.kind === "tool" || right.kind === "tool"
     ? "tool"
+    : left.kind === "body" || right.kind === "body"
+      ? "body"
     : left.kind === "stopped" || right.kind === "stopped"
       ? "stopped"
       : "status";
@@ -392,6 +422,7 @@ function preferActivityEntry(left: ActivityEntry, right: ActivityEntry) {
 
 function activityDisplayRank(entry: ActivityEntry) {
   let rank = activityStateRank(entry.state) * 100;
+  if (entry.kind === "body") rank += 20;
   rank += entry.source === "timeline" ? 14 : 8;
   if (entry.toolTarget) rank += 6;
   if (entry.detail) rank += 3;
@@ -615,6 +646,60 @@ function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
   return false;
 }
 
+function isTaskProjectionStageFeedback(activity: Record<string, unknown>) {
+  return cleanPublicTimelineText(activity.source_kind).toLowerCase() === "stage_feedback";
+}
+
+function taskProjectionStageFeedbackBodyText(
+  activity: Record<string, unknown>,
+  title: string,
+  detail: string,
+) {
+  if (!isTaskProjectionStageFeedback(activity)) {
+    return "";
+  }
+  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
+  if (["control", "debug", "diagnostics", "monitor", "tool_window"].includes(displaySurface)) {
+    return "";
+  }
+  const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
+  if (["tool", "tool_activity", "tool_observation", "todo"].includes(kind)) {
+    return "";
+  }
+  const text = [title, detail && detail !== title ? detail : ""].filter(Boolean).join("\n\n");
+  return isNaturalLanguageStageFeedback(text) ? text : "";
+}
+
+function isNaturalLanguageStageFeedback(value: string) {
+  const text = sanitizePublicTimelineText(value);
+  if (!text || looksLikeRawToolOutput(text)) {
+    return false;
+  }
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length < 14) {
+    return false;
+  }
+  if (!/[\u4e00-\u9fff]/.test(compact)) {
+    return false;
+  }
+  if (/^(dir|file)\s+/i.test(compact)) {
+    return false;
+  }
+  if (/^[a-z_]+(?:_[a-z0-9]+)*_after_\d+s$/i.test(compact)) {
+    return false;
+  }
+  if (/^[\w./\\-]+\.[a-z0-9]+$/i.test(compact)) {
+    return false;
+  }
+  if (/^[\w./\\-]+:\d+:\d+:/i.test(compact)) {
+    return false;
+  }
+  if (/^(search|read|write|edit|tool|command|structured read)\s+(failed|error|returned)/i.test(compact)) {
+    return false;
+  }
+  return true;
+}
+
 function isLowSignalTaskProjectionActivity(
   activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
   title: string,
@@ -775,9 +860,6 @@ function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelin
     if (kindOf(item) === "todo_plan") {
       continue;
     }
-    if (isLowSignalCompletedToolActivity(item, options)) {
-      continue;
-    }
     const kind = activityLineKind(item);
     if (!kind) {
       continue;
@@ -792,12 +874,13 @@ function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelin
     }
     const toolTarget = publicTimelineToolTarget(item);
     entries.push({
-      collapsed: kind === "tool" ? shouldCollapseToolWindow(item) : undefined,
+      collapsed: kind === "tool" ? shouldCollapseToolWindow(item, options) : undefined,
       detail,
       eventRefs: eventRefsFromUnknown(item.trace_refs),
       id: String(item.item_id ?? "") || `${kind}:${index}:${text}`,
       kind,
       actionKind: cleanPublicTimelineText(item.action_kind),
+      order: publicTimelineExplicitOrderValue(item),
       state: cleanPublicTimelineText(item.state).toLowerCase(),
       text: shortText(text, kind === "tool" ? 180 : 220),
       toolName: cleanPublicTimelineText(item.tool_name),
@@ -823,63 +906,6 @@ function activityLineKind(item: PublicChatTimelineItem): ActivityEntry["kind"] |
   return "";
 }
 
-function isLowSignalCompletedToolActivity(item: PublicChatTimelineItem, options: PublicTimelineActivityOptions = {}) {
-  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  if (slot !== "tool") {
-    return false;
-  }
-  const state = cleanPublicTimelineText(item.state).toLowerCase();
-  const phase = cleanPublicTimelineText(item.phase).toLowerCase();
-  const done = phase === "done" || ["completed", "complete", "done", "ready", "passed", "success"].includes(state);
-  const failed = ["error", "failed", "blocked", "missing"].includes(state);
-  if (!done || failed) {
-    return false;
-  }
-  const actionKind = cleanPublicTimelineText(item.action_kind).toLowerCase();
-  const title = cleanPublicTimelineText(item.title);
-  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
-  const rawOutputSuppressed = (item as { raw_output_suppressed?: unknown }).raw_output_suppressed === true;
-  if (rawOutputSuppressed && ["读取完成", "已读取完成", "读取已完成", "工具已完成", "操作已返回", "结果已返回"].map(compactActivityText).includes(normalizedTitle)) {
-    return true;
-  }
-  const inspectOrSearch = ["inspect", "search"].includes(actionKind)
-    || title.startsWith("已确认目标")
-    || title.startsWith("已搜索引用");
-  const hasMeaningfulPayload = hasMeaningfulCompletedToolPayload(item, { resultOnly: inspectOrSearch });
-  if (!hasMeaningfulPayload && isGenericCompletedToolText(title) && isGenericCompletedToolText(item.public_summary)) {
-    return true;
-  }
-  if (options.compactCompletedTools && !hasMeaningfulPayload) {
-    return true;
-  }
-  return inspectOrSearch && !hasMeaningfulPayload;
-}
-
-function hasMeaningfulCompletedToolPayload(item: PublicChatTimelineItem, options: { resultOnly?: boolean } = {}) {
-  const candidates = options.resultOnly
-    ? [item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text]
-    : [item.public_summary, item.observation, item.detail, item.recovery_hint, item.implication, item.next_step, item.text, item.path, item.href];
-  for (const candidate of candidates) {
-    const text = cleanPublicTimelineText(candidate);
-    if (!text || looksLikeRawToolOutput(text) || isGenericCompletedToolText(text) || isLowSignalCompletedToolPayloadText(text)) {
-      continue;
-    }
-    return true;
-  }
-  return false;
-}
-
-function isLowSignalCompletedToolPayloadText(value: unknown) {
-  const normalized = compactActivityText(cleanPublicTimelineText(value)).replace(/[。.!！?？,，;；:：]$/g, "");
-  return new Set([
-    "nopathsmatched",
-    "nomatches",
-    "nomatchesfound",
-    "未匹配到路径",
-    "没有匹配结果",
-  ]).has(normalized);
-}
-
 function isGenericCompletedToolText(value: unknown) {
   const normalized = compactActivityText(cleanPublicTimelineText(value)).replace(/[。.!！?？,，;；:：]$/g, "");
   return GENERIC_COMPLETED_TOOL_TEXT.has(normalized);
@@ -902,13 +928,14 @@ const GENERIC_COMPLETED_TOOL_TEXT = new Set([
   "已完成",
 ].map(compactActivityText));
 
-function shouldCollapseToolWindow(item: PublicChatTimelineItem) {
+function shouldCollapseToolWindow(item: PublicChatTimelineItem, options: PublicTimelineActivityOptions = {}) {
   const state = cleanPublicTimelineText(item.state).toLowerCase();
   const running = ["", "running", "working", "partial"].includes(state) || item.stream_state === "streaming";
   const failed = ["error", "failed", "blocked", "missing"].includes(state);
   if (running || failed) return false;
   if (typeof item.collapsed === "boolean") return item.collapsed;
-  return Boolean(item.collapse_after_body_feedback);
+  if (options.compactCompletedTools) return true;
+  return true;
 }
 
 function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActivityTone {
@@ -1108,6 +1135,23 @@ function activityDetailMarkdown(value: string) {
   if (!text) return "";
   const withListBreaks = text.replace(/\s+(?=\d{1,2}\.\s+\S)/g, "\n");
   return withListBreaks.replace(/([^\n])\n(?=1\.\s+\S)/, "$1\n\n");
+}
+
+function ActivityBody({ entry }: { entry: ActivityEntry }) {
+  return (
+    <div
+      className="public-run-activity__body markdown"
+      data-activity-group={entry.groupKey || undefined}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.kind}
+      data-activity-order={formatActivityOrder(entry.order)}
+      data-activity-source={activitySourcesLabel(entry)}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {entry.text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function ToolWindow({ entry }: { entry: ActivityEntry }) {

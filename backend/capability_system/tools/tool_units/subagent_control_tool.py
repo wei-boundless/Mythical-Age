@@ -11,7 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field
 class SpawnSubagentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    target_agent_id: str = Field(description="Visible subagent id to start.")
+    target_agent_id: str = Field(
+        description=(
+            "Canonical subagent id to start. Use only a value listed in the current runtime boundary "
+            "allowed_subagent_ids, such as agent:codebase_searcher or agent:verifier; do not use short names."
+        )
+    )
     goal: str = Field(description="Concrete goal for the subagent.")
     instructions: str = Field(default="", description="Execution instructions, boundaries, output expectations, and failure handling.")
     context_refs: list[str] = Field(default_factory=list, description="Explicit context or artifact refs the subagent may use.")

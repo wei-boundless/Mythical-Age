@@ -189,9 +189,9 @@ def test_task_state_projects_exploration_advisory() -> None:
                 "exploration_advisory": {
                     "triggered": True,
                     "kind": "large_scope_exploration_streak",
+                    "authority_boundary": "observation_pattern_only",
                     "consecutive_exploration_tool_calls": 6,
                     "threshold": 6,
-                    "recommended_action": "pause_serial_exploration_and_consider_agent_todo_plus_codebase_searcher_split",
                     "non_blocking": True,
                 }
             }
@@ -207,8 +207,10 @@ def test_task_state_projects_exploration_advisory() -> None:
     advisory = volatile_payload["task_state"]["exploration_advisory"]
 
     assert advisory["triggered"] is True
+    assert advisory["authority_boundary"] == "observation_pattern_only"
     assert advisory["consecutive_exploration_tool_calls"] == 6
     assert advisory["non_blocking"] is True
+    assert "recommended_action" not in advisory
 
 
 def test_read_file_content_windows_survive_task_state_projection() -> None:

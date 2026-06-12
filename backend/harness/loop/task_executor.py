@@ -5999,14 +5999,14 @@ def _exploration_advisory_from_records(records: list[dict[str, Any]]) -> dict[st
     return {
         "triggered": True,
         "kind": "large_scope_exploration_streak",
+        "authority_boundary": "observation_pattern_only",
         "consecutive_exploration_tool_calls": len(ordered),
         "threshold": _EXPLORATION_ADVISORY_THRESHOLD,
         "recent_tools": [_exploration_record_projection(item) for item in ordered[-8:]],
-        "recommended_action": "pause_serial_exploration_and_consider_agent_todo_plus_codebase_searcher_split",
         "decision_questions": [
             "还剩多少未探索的独立代码区域？",
-            "剩余区域是否可以按目录、模块或语言层拆给 codebase_searcher？",
-            "是否已经有足够证据可以停止探索并进入计划、实现或收口？",
+            "哪些已有 observation 可以作为当前任务证据复用？",
+            "是否需要更多读取、搜索、委派、实现、验证或收口，由模型根据任务合同自行裁决。",
         ],
         "non_blocking": True,
         "authority": "harness.task_observation_projection.exploration_advisory",
@@ -7033,6 +7033,7 @@ _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
 )
 _READ_FILE_FINGERPRINT_DEFAULT_START_LINE = 1
 _READ_FILE_FINGERPRINT_DEFAULT_LINE_COUNT = 240
+_DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT = 5
 
 
 def _duplicate_read_only_tool_call_observation(
@@ -7059,28 +7060,30 @@ def _duplicate_read_only_tool_call_observation(
             previous_ok_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
         elif status in {"failed", "denied", "canceled", "error"}:
             previous_failed_refs.append(str(observation.get("observation_id") or observation.get("observation_ref") or ""))
+    if len(previous_ok_refs) < _DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT and len(previous_failed_refs) < _DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT:
+        return None
     if not previous_ok_refs:
         if not previous_failed_refs:
             return None
         error_code = "duplicate_failed_read_only_tool_call"
         message = (
-            f"重复失败的只读工具调用不会提供新增信息：{tool_name}。"
-            "请根据上一次失败原因修改参数、换工具、缩小范围，或明确说明阻塞；不要原样重试。"
+            f"相同参数的只读工具调用已连续失败 {len(previous_failed_refs)} 次：{tool_name}。"
+            "请根据失败原因修改参数、换工具、缩小范围，或明确说明阻塞；不要继续原样重试。"
         )
         previous_refs = previous_failed_refs
         repair_instruction = (
-            "Do not repeat a failed read-only tool call with identical arguments. "
+            "The identical failed read-only tool call has reached the retry limit. "
             "Use the previous failure as evidence, change arguments or tool, or report the blocker."
         )
     else:
         error_code = "duplicate_read_only_tool_call"
         message = (
-            f"重复的只读工具调用不会提供新增信息：{tool_name}。"
+            f"相同参数的只读工具调用已达到 {len(previous_ok_refs)} 次：{tool_name}。"
             "请使用已有 observation 作为证据，或改用更有针对性的验证工具/参数；如果合同已满足，应直接 respond。"
         )
         previous_refs = previous_ok_refs
         repair_instruction = (
-            "Do not repeat the same read-only tool call with identical arguments. "
+            "The identical read-only tool call has reached the repeat limit. "
             "Use the existing observation, change the verification method or arguments, or finish if completion evidence is sufficient."
         )
     return {

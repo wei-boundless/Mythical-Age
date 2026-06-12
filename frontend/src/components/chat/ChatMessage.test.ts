@@ -131,6 +131,120 @@ describe("ChatMessage", () => {
     expect(html).toContain("public-run-activity");
   });
 
+  it("keeps task progress visible after an opening judgment starts a task", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "opening_judgment",
+        answerPersistPolicy: "persist_canonical",
+        answerSource: "harness.single_agent_turn.request_task_run.opening_judgment",
+        content: "根据用户要求，将启动一个任务来完成剩余三项审查。",
+        id: "history-message:turn:session-a:21:assistant",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-a:21:abc",
+            anchor_message_id: "history-message:turn:session-a:21:assistant",
+            anchor_role: "assistant",
+            anchor_turn_id: "turn:session-a:21",
+            run_id: "taskrun:turn:session-a:21:abc",
+            status: "running",
+            task_run_id: "taskrun:turn:session-a:21:abc",
+            task_projection: {
+              authority: "harness.runtime.single_agent_task_projection.v1",
+              projection_id: "projection:taskrun:turn:session-a:21:abc",
+              status: "running",
+              task_id: "task:turn:session-a:21",
+              task_run_id: "taskrun:turn:session-a:21:abc",
+              title: "完成剩余审查",
+              current_action: {
+                activity_id: "activity:read-profile",
+                kind: "progress",
+                title: "正在读取 profile 配置并追踪切换分支。",
+                state: "running",
+              },
+            },
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("根据用户要求，将启动一个任务");
+    expect(html).toContain("正在读取 profile 配置并追踪切换分支");
+    expect(html).toContain("public-run-activity");
+  });
+
+  it("keeps runtime restart recovery visible beside an opening judgment", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, {
+        answerCanonicalState: "stable_answer",
+        answerChannel: "opening_judgment",
+        answerPersistPolicy: "persist_canonical",
+        answerSource: "harness.single_agent_turn.request_task_run.opening_judgment",
+        content: "根据用户要求，将启动一个任务来完成剩余三项审查。",
+        id: "history-message:turn:session-a:21:assistant",
+        retrievals: [],
+        role: "assistant",
+        runtimeAttachments: [
+          {
+            attachment_id: "runtime-attachment:turnrun:turn:session-a:21",
+            anchor_message_id: "history-message:turn:session-a:21:assistant",
+            anchor_role: "assistant",
+            anchor_turn_id: "turn:session-a:21",
+            run_id: "turnrun:turn:session-a:21",
+            status: "aborted",
+          },
+          {
+            attachment_id: "runtime-attachment:taskrun:turn:session-a:21:abc",
+            anchor_message_id: "history-message:turn:session-a:21:assistant",
+            anchor_role: "assistant",
+            anchor_turn_id: "turn:session-a:21",
+            run_id: "taskrun:turn:session-a:21:abc",
+            status: "waiting_executor",
+            task_run_id: "taskrun:turn:session-a:21:abc",
+            public_timeline: [
+              {
+                item_id: "runtime-status:restart",
+                kind: "status_update",
+                slot: "status",
+                surface: "timeline",
+                source_authority: "runtime",
+                title: "等待继续",
+                detail: "后端运行时已重启，当前任务可继续。",
+                state: "waiting",
+              },
+            ],
+            task_projection: {
+              authority: "harness.runtime.single_agent_task_projection.v1",
+              projection_id: "projection:taskrun:turn:session-a:21:abc",
+              status: "waiting",
+              task_id: "task:turn:session-a:21",
+              task_run_id: "taskrun:turn:session-a:21:abc",
+              title: "完成剩余审查",
+              current_action: {
+                kind: "lifecycle",
+                title: "后端运行时已重启，当前任务可继续。",
+                detail: "任务可以继续续跑。",
+                state: "waiting",
+                display_surface: "timeline",
+                visibility_level: "primary",
+                source_kind: "runtime_recovery",
+              },
+            },
+          },
+        ],
+        toolCalls: [],
+      }),
+    );
+
+    expect(html).toContain("根据用户要求，将启动一个任务");
+    expect(html).toContain("后端运行时已重启，当前任务可继续。");
+    expect(html).toContain("public-run-activity");
+    expect(html).not.toContain("任务已停止");
+  });
+
   it("renders tool window metadata without keyword or path filtering", () => {
     const privatePath = "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json";
     const html = renderToStaticMarkup(
@@ -547,11 +661,11 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("当前：正在审查运行状态");
     expect(html).not.toContain("输出修复结果");
     expect(html).not.toContain("正在思考");
-    expect(html).not.toContain("读取文件内容");
+    expect(html).toContain("读取文件内容 backend/api/chat.py");
     expect(html).not.toContain("补齐验收证据");
-    expect(html).not.toContain("backend/api/chat.py");
+    expect(html).toContain("backend/api/chat.py");
     expect(html).toContain("正在运行验证 前端测试");
-    expect(html).toContain("data-entry-count=\"2\"");
+    expect(html).toContain("data-entry-count=\"3\"");
     expect(html).not.toContain("请选择要优先验证的页面。");
   });
 
@@ -930,7 +1044,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("不是运行时协议泄露");
   });
 
-  it("suppresses tool activity for a completed closeout turn even when answer metadata is missing", () => {
+  it("keeps completed closeout tool activity folded when answer metadata is missing", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "收口总结：已经完成检查，结论以这段正文为准。",
@@ -963,8 +1077,9 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("收口总结");
-    expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("读取完成 backend/harness/runtime/compiler.py");
+    expect(html).toContain("public-run-activity");
+    expect(html).toContain("读取完成 backend/harness/runtime/compiler.py");
+    expect(html).not.toContain("open=\"\"");
   });
 
   it("keeps executor handoff activity visible because it is not a closeout turn", () => {

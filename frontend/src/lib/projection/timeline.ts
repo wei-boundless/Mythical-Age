@@ -189,7 +189,7 @@ export function normalizePublicTimelineItems(
     const semanticKey = publicTimelineSemanticKey(item);
     const existingIndex = indexByKey.get(key) ?? (semanticKey ? indexBySemanticKey.get(semanticKey) : undefined);
     if (existingIndex !== undefined) {
-      result[existingIndex] = preferPublicTimelineItem(result[existingIndex], item);
+      result[existingIndex] = mergePublicTimelineItem(result[existingIndex], item);
       indexByKey.set(key, existingIndex);
       if (semanticKey) indexBySemanticKey.set(semanticKey, existingIndex);
       continue;
@@ -198,7 +198,7 @@ export function normalizePublicTimelineItems(
     if (semanticKey) indexBySemanticKey.set(semanticKey, result.length);
     result.push(item);
   }
-  return trimPublicTimelineItems(result, options.limit);
+  return trimPublicTimelineItems(sortPublicTimelineItems(result), options.limit);
 }
 
 function shouldKeepStatusTimelineItem(item: PublicChatTimelineItem, terminalState: PublicTimelineTerminalState | undefined) {
@@ -224,7 +224,7 @@ export function publicTimelineTerminalStateFromAnswer({
 }): PublicTimelineTerminalState {
   const canonicalState = cleanPublicTimelineText(answerCanonicalState).toLowerCase();
   const channel = cleanPublicTimelineText(answerChannel).toLowerCase();
-  if (channel === "task_control") return "";
+  if (channel === "task_control" || channel === "opening_judgment") return "";
   if (channel === "blocked" || canonicalState === "missing_answer") return "error";
   return ["final", "stable_answer"].includes(canonicalState) ? "done" : "";
 }
@@ -251,10 +251,109 @@ function finalizePublicTimelineItem(item: PublicChatTimelineItem, terminalState:
   return { ...item, state: terminalState === "done" ? "done" : terminalState, stream_state: terminalState === "done" ? "done" : item.stream_state };
 }
 
-function preferPublicTimelineItem(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
+function mergePublicTimelineItem(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
   const leftRank = publicTimelineStateRank(left);
   const rightRank = publicTimelineStateRank(right);
-  return rightRank >= leftRank ? { ...left, ...right } : { ...right, ...left };
+  const preferred = rightRank >= leftRank ? { ...left, ...right } : { ...right, ...left };
+  return preserveEarliestPublicTimelineOrder(preferred, left, right);
+}
+
+function preserveEarliestPublicTimelineOrder(
+  merged: PublicChatTimelineItem,
+  left: PublicChatTimelineItem,
+  right: PublicChatTimelineItem,
+) {
+  const earliest = comparePublicTimelineOrder(left, right) <= 0 ? left : right;
+  const latest = comparePublicTimelineOrder(left, right) <= 0 ? right : left;
+  return {
+    ...merged,
+    ...publicTimelineOrderFields(earliest),
+    ...publicTimelineUpdatedFields(latest),
+  };
+}
+
+function sortPublicTimelineItems(items: PublicChatTimelineItem[]) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftOrder = publicTimelineOrderValue(left.item, left.index);
+      const rightOrder = publicTimelineOrderValue(right.item, right.index);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      const leftEvent = cleanPublicTimelineText(left.item.source_event_id ?? left.item.sourceEventId);
+      const rightEvent = cleanPublicTimelineText(right.item.source_event_id ?? right.item.sourceEventId);
+      return leftEvent.localeCompare(rightEvent) || left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+export function publicTimelineOrderValue(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {
+  const explicitOrder = publicTimelineExplicitOrderValue(item);
+  if (explicitOrder !== undefined) {
+    return explicitOrder;
+  }
+  return 2_000_000_000 + fallbackIndex;
+}
+
+export function publicTimelineExplicitOrderValue(item: PublicChatTimelineItem | undefined) {
+  const explicit = numericTimelineValue(item?.sequence)
+    ?? numericTimelineValue(item?.event_offset)
+    ?? numericTimelineValue(item?.eventOffset);
+  const created = numericTimelineValue(item?.created_at)
+    ?? numericTimelineValue(item?.createdAt);
+  if (explicit !== undefined) {
+    return explicit + (created ?? 0) / 1_000_000_000;
+  }
+  if (created !== undefined) {
+    return 1_000_000_000 + created;
+  }
+  return undefined;
+}
+
+function comparePublicTimelineOrder(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {
+  const leftOrder = publicTimelineOrderValue(left, 0);
+  const rightOrder = publicTimelineOrderValue(right, 0);
+  if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  const leftEvent = cleanPublicTimelineText(left.source_event_id ?? left.sourceEventId);
+  const rightEvent = cleanPublicTimelineText(right.source_event_id ?? right.sourceEventId);
+  return leftEvent.localeCompare(rightEvent);
+}
+
+function publicTimelineOrderFields(item: PublicChatTimelineItem) {
+  const fields: Partial<PublicChatTimelineItem> = {};
+  if (numericTimelineValue(item.sequence) !== undefined) fields.sequence = Number(item.sequence);
+  if (numericTimelineValue(item.event_offset) !== undefined) fields.event_offset = Number(item.event_offset);
+  if (numericTimelineValue(item.eventOffset) !== undefined) fields.eventOffset = Number(item.eventOffset);
+  if (numericTimelineValue(item.created_at) !== undefined) fields.created_at = Number(item.created_at);
+  if (numericTimelineValue(item.createdAt) !== undefined) fields.createdAt = Number(item.createdAt);
+  if (cleanPublicTimelineText(item.source_run_id)) fields.source_run_id = cleanPublicTimelineText(item.source_run_id);
+  if (cleanPublicTimelineText(item.sourceRunId)) fields.sourceRunId = cleanPublicTimelineText(item.sourceRunId);
+  if (cleanPublicTimelineText(item.source_event_id)) fields.source_event_id = cleanPublicTimelineText(item.source_event_id);
+  if (cleanPublicTimelineText(item.sourceEventId)) fields.sourceEventId = cleanPublicTimelineText(item.sourceEventId);
+  return fields;
+}
+
+function publicTimelineUpdatedFields(item: PublicChatTimelineItem) {
+  const fields: Partial<PublicChatTimelineItem> = {};
+  const updatedOffset = numericTimelineValue(item.updated_event_offset)
+    ?? numericTimelineValue(item.event_offset)
+    ?? numericTimelineValue(item.eventOffset)
+    ?? numericTimelineValue(item.sequence);
+  const updatedAt = numericTimelineValue(item.updated_at)
+    ?? numericTimelineValue(item.created_at)
+    ?? numericTimelineValue(item.createdAt);
+  const updatedEvent = cleanPublicTimelineText(item.updated_source_event_id)
+    || cleanPublicTimelineText(item.source_event_id)
+    || cleanPublicTimelineText(item.sourceEventId);
+  if (updatedOffset !== undefined) fields.updated_event_offset = updatedOffset;
+  if (updatedAt !== undefined) fields.updated_at = updatedAt;
+  if (updatedEvent) fields.updated_source_event_id = updatedEvent;
+  return fields;
+}
+
+function numericTimelineValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function trimPublicTimelineItems(items: PublicChatTimelineItem[], limit = 24) {

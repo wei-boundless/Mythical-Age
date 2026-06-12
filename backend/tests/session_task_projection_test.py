@@ -68,7 +68,7 @@ def test_task_projection_keeps_tool_observation_on_tool_surface():
     assert projection["activities"][0]["kind"] == "tool_observation"
 
 
-def test_task_projection_routes_tool_error_code_to_tool_detail_not_title():
+def test_task_projection_keeps_runtime_rehydration_tool_observation_visible():
     task_run = SimpleNamespace(
         task_run_id="taskrun:turn:test:abc",
         task_id="task:turn:test",
@@ -106,8 +106,42 @@ def test_task_projection_routes_tool_error_code_to_tool_detail_not_title():
     assert activity["display_surface"] == "tool_window"
     assert activity["kind"] == "tool_observation"
     assert activity["tool_name"] == "read_persisted_tool_result"
-    assert activity["title"] != "missing_required_tool_inputs"
+    assert activity["title"] == "工具输出读取失败"
     assert activity["detail"] == "missing_required_tool_inputs"
+
+
+def test_task_projection_keeps_task_tool_observation_step_summary_when_it_is_the_only_output():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="running",
+        diagnostics={"turn_id": "turn:test"},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:tool-step",
+                "event_type": "step_summary_recorded",
+                "payload": {
+                    "step": "task_tool_observation_recorded:3",
+                    "status": "running",
+                    "summary": "工具结果已返回，可以继续整理页面实现。",
+                    "agent_brief_output": "工具结果已返回，可以继续整理页面实现。",
+                },
+            }
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    assert projection["activities"][0]["kind"] == "progress"
+    assert projection["activities"][0]["title"] == "工具结果已返回，可以继续整理页面实现。"
 
 
 def test_task_projection_ignores_system_tool_step_summaries():
@@ -194,6 +228,57 @@ def test_waiting_executor_projection_does_not_promote_stale_running_step_to_curr
     assert projection["current_action"]["state"] == "waiting"
     assert projection["current_action"].get("event_ref") != "event:stale-running-step"
     assert {item.get("state") for item in projection.get("activities", [])} == {"waiting"}
+
+
+def test_waiting_executor_runtime_restart_uses_recovery_action_not_stale_judgment():
+    task_run = SimpleNamespace(
+        task_run_id="taskrun:turn:test:abc",
+        task_id="task:turn:test",
+        status="waiting_executor",
+        diagnostics={
+            "turn_id": "turn:test",
+            "latest_current_judgment": "正在读取掉线前的旧文件。",
+            "latest_next_action": "继续掉线前的旧步骤。",
+            "latest_step": "task_executor_recovered_after_runtime_start",
+            "latest_step_summary": "后端运行时已重启，当前任务可继续。",
+            "latest_public_progress_note": "后端运行时已重启，当前任务可继续。",
+            "executor_status": "waiting_executor",
+            "recoverable_error": {
+                "error_code": "task_executor_interrupted_by_runtime_restart",
+                "retryable": True,
+                "user_message": "后端运行时已重启，任务可以继续续跑。",
+            },
+            "recovery_action": "rerun_task_executor",
+        },
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    projection = build_single_agent_task_projection(
+        None,
+        task_run,
+        events=[
+            {
+                "event_id": "event:old-tool",
+                "event_type": "step_summary_recorded",
+                "payload": {
+                    "step": "task_tool_observation_recorded:3",
+                    "status": "running",
+                    "summary": "掉线前的旧读取动作。",
+                },
+            }
+        ],
+        monitor={},
+        anchor_turn_id="turn:test",
+        anchor_message_id="assistant:test",
+    )
+
+    assert projection["status"] == "waiting"
+    assert projection["phase"] == "waiting_executor"
+    assert projection["current_action"]["kind"] == "lifecycle"
+    assert projection["current_action"]["title"] == "后端运行时已重启，当前任务可继续。"
+    assert projection["current_action"]["state"] == "waiting"
+    assert "掉线前" not in projection["current_action"]["title"]
 
 
 def test_waiting_executor_todo_current_action_uses_waiting_state():

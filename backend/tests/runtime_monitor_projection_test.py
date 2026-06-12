@@ -1250,8 +1250,8 @@ def test_project_task_run_exposes_backend_public_timeline():
     public_timeline = list(item.get("public_timeline") or [])
 
     assert public_timeline
-    assert public_timeline[0]["kind"] == "opening_judgment"
-    assert public_timeline[0]["text"] == "我先确认当前反馈链路，再收敛到单一页面投影。"
+    assert public_timeline[0]["kind"] == "status_update"
+    assert public_timeline[0]["title"] == "我先确认当前反馈链路，再收敛到单一页面投影。"
 
 
 def test_latest_public_action_state_is_exposed_and_kept_separate_from_wait_heartbeat():

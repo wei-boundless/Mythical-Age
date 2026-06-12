@@ -445,6 +445,494 @@ def test_session_runtime_timeline_does_not_project_system_tool_step_summaries() 
     assert items == []
 
 
+def test_session_runtime_timeline_orders_public_items_across_projection_sources() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-timeline-order"
+    turn_id = "turn:session-timeline-order:1"
+    task_run_id = "taskrun:turn:session-timeline-order:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-timeline-order:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:1",
+            "status": "running",
+            "summary": "先确认需求。",
+            "public_progress_note": "先确认需求。",
+        },
+        refs={"turn_ref": turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:timeline-order:search",
+                "source": "tool:search_text",
+                "summary": "搜索证据已返回。",
+                "payload": {"result": "搜索证据已返回。"},
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:timeline-order:search"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:2",
+            "status": "running",
+            "summary": "再整理结论。",
+            "public_progress_note": "再整理结论。",
+        },
+        refs={"turn_ref": turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    items = timeline["runtime_attachments"][0]["public_timeline"]
+    offsets = [int(item["event_offset"]) for item in items]
+    assert offsets == sorted(offsets)
+    visible = json.dumps(items, ensure_ascii=False)
+    assert visible.index("先确认需求") < visible.index("搜索证据已返回") < visible.index("再整理结论")
+
+
+def test_session_runtime_timeline_keeps_runtime_rehydration_tool_on_public_surfaces() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-show-rehydration"
+    turn_id = "turn:session-show-rehydration:1"
+    task_run_id = "taskrun:turn:session-show-rehydration:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-show-rehydration:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "model_action_admission_checked",
+        payload={
+            "model_action_request": {
+                "request_id": "model-action:rehydrate",
+                "turn_id": turn_id,
+                "action_type": "tool_call",
+                "public_progress_note": "读取工具输出缓存。",
+                "tool_call": {
+                    "id": "call:rehydrate",
+                    "tool_name": "read_persisted_tool_result",
+                    "args": {"replacement_id": "tool_result:abc"},
+                },
+            }
+        },
+        refs={"turn_ref": turn_id, "action_request_ref": "model-action:rehydrate"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:rehydrate",
+                "source": "tool:read_persisted_tool_result",
+                "summary": "旧工具输出缓存内容。",
+                "payload": {"tool_name": "read_persisted_tool_result", "result": "旧工具输出缓存内容。"},
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:rehydrate"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "task_tool_observation_recorded:1",
+            "status": "running",
+            "summary": "旧工具输出缓存内容。",
+            "agent_brief_output": "旧工具输出缓存内容。",
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:rehydrate"},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    visible = json.dumps(
+        {
+            "progress_entries": attachment.get("progress_entries"),
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": attachment.get("task_projection"),
+        },
+        ensure_ascii=False,
+    )
+    assert "read_persisted_tool_result" in visible
+    assert "旧工具输出缓存内容" in visible
+    assert "工具输出" in visible
+
+
+def test_session_runtime_timeline_uses_resume_boundary_for_running_public_segment() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-resume-boundary"
+    turn_id = "turn:session-resume-boundary:1"
+    task_run_id = "taskrun:turn:session-resume-boundary:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-resume-boundary:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:resume-boundary:old-read",
+                "source": "tool:read_file",
+                "summary": "旧文件 backend/old_context.py 已读取。",
+                "payload": {"result": "旧文件 backend/old_context.py 已读取。"},
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:resume-boundary:old-read"},
+    )
+    resume_event = host.event_log.append(
+        task_run_id,
+        "task_run_resume_requested",
+        payload={"task_run_id": task_run_id, "requested_by": "user"},
+        refs={"turn_ref": turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:2",
+            "status": "running",
+            "summary": "继续后正在重新判断。",
+            "public_progress_note": "继续后正在重新判断。",
+        },
+        refs={"turn_ref": turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    visible = json.dumps(
+        {
+            "progress_entries": attachment.get("progress_entries"),
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": attachment.get("task_projection"),
+        },
+        ensure_ascii=False,
+    )
+    assert attachment["public_since_offset"] == resume_event.offset
+    assert "backend/old_context.py" not in visible
+    assert "继续后正在重新判断" in visible
+
+
+def test_session_runtime_timeline_uses_latest_user_interaction_as_public_lifecycle_boundary() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-user-boundary"
+    original_turn_id = "turn:session-user-boundary:1"
+    latest_turn_id = "turn:session-user-boundary:3"
+    task_run_id = "taskrun:turn:session-user-boundary:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-user-boundary:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={
+                "turn_id": original_turn_id,
+                "latest_interaction_turn_id": latest_turn_id,
+            },
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:user-boundary:old-read",
+                "source": "tool:read_file",
+                "summary": "旧文件 backend/old_context.py 已读取。",
+                "payload": {"result": "旧文件 backend/old_context.py 已读取。"},
+            }
+        },
+        refs={"turn_ref": original_turn_id, "observation_ref": "rtobs:user-boundary:old-read"},
+    )
+    boundary_event = host.event_log.append(
+        task_run_id,
+        "active_task_steer_recorded",
+        payload={
+            "steer": {
+                "turn_id": latest_turn_id,
+                "content": "检查最新对话显示。",
+            }
+        },
+        refs={"turn_ref": latest_turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:after-user-boundary",
+            "status": "running",
+            "summary": "正在检查最新对话显示。",
+            "public_progress_note": "正在检查最新对话显示。",
+        },
+        refs={"turn_ref": latest_turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={
+            "messages": [
+                {"role": "user", "content": "start", "turn_id": original_turn_id},
+                {"role": "assistant", "content": "accepted", "id": "message:old-assistant", "turn_id": original_turn_id},
+                {"role": "user", "content": "continue", "turn_id": latest_turn_id},
+                {"role": "assistant", "content": "继续检查。", "id": "message:latest-assistant", "turn_id": latest_turn_id},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    visible = json.dumps(
+        {
+            "progress_entries": attachment.get("progress_entries"),
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": attachment.get("task_projection"),
+        },
+        ensure_ascii=False,
+    )
+    assert attachment["public_since_offset"] == boundary_event.offset
+    assert attachment["anchor_turn_id"] == latest_turn_id
+    assert attachment["anchor_message_id"] == "message:latest-assistant"
+    assert "backend/old_context.py" not in visible
+    assert "正在检查最新对话显示" in visible
+
+
+def test_session_runtime_timeline_keeps_resume_boundary_after_task_completes() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-resume-boundary-completed"
+    turn_id = "turn:session-resume-boundary-completed:1"
+    task_run_id = "taskrun:turn:session-resume-boundary-completed:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-resume-boundary-completed:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={"turn_id": turn_id},
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:resume-boundary-completed:old-read",
+                "source": "tool:read_file",
+                "summary": "旧文件 backend/old_context.py 已读取。",
+                "payload": {"result": "旧文件 backend/old_context.py 已读取。"},
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:resume-boundary-completed:old-read"},
+    )
+    resume_event = host.event_log.append(
+        task_run_id,
+        "task_run_resume_requested",
+        payload={"task_run_id": task_run_id, "requested_by": "user"},
+        refs={"turn_ref": turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "step_summary_recorded",
+        payload={
+            "task_run_id": task_run_id,
+            "step": "model_action_received:after-resume",
+            "status": "running",
+            "summary": "继续后已经完成核查。",
+            "public_progress_note": "继续后已经完成核查。",
+        },
+        refs={"turn_ref": turn_id},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_run_lifecycle_finished",
+        payload={"task_run": {"task_run_id": task_run_id, "status": "completed", "terminal_reason": "completed"}},
+        refs={"turn_ref": turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    visible = json.dumps(
+        {
+            "progress_entries": attachment.get("progress_entries"),
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": attachment.get("task_projection"),
+        },
+        ensure_ascii=False,
+    )
+    assert attachment["public_since_offset"] == resume_event.offset
+    assert "backend/old_context.py" not in visible
+    assert "继续后已经完成核查" in visible
+
+
+def test_session_runtime_timeline_preserves_process_after_runtime_restart_recovery() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    session_id = "session-runtime-restart"
+    turn_id = "turn:session-runtime-restart:1"
+    task_run_id = "taskrun:turn:session-runtime-restart:1:abc"
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id="task:turn:session-runtime-restart:1",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            terminal_reason="waiting_executor",
+            created_at=1.0,
+            updated_at=4.0,
+            diagnostics={
+                "turn_id": turn_id,
+                "latest_current_judgment": "正在读取掉线前的旧文件。",
+                "latest_next_action": "继续掉线前的旧步骤。",
+                "latest_step": "task_executor_recovered_after_runtime_start",
+                "latest_step_summary": "后端运行时已重启，当前任务可继续。",
+                "latest_public_progress_note": "后端运行时已重启，当前任务可继续。",
+                "executor_status": "waiting_executor",
+                "recoverable_error": {
+                    "error_code": "task_executor_interrupted_by_runtime_restart",
+                    "retryable": True,
+                    "user_message": "后端运行时已重启，任务可以继续续跑。",
+                },
+                "recovery_action": "rerun_task_executor",
+            },
+        )
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "rtobs:restart:read",
+                "source": "tool:read_file",
+                "summary": "已读取文件：backend/harness/runtime/session_timeline.py",
+                "payload": {
+                    "tool_name": "read_file",
+                    "result": "已读取文件：backend/harness/runtime/session_timeline.py",
+                },
+            }
+        },
+        refs={"turn_ref": turn_id, "observation_ref": "rtobs:restart:read"},
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_run_executor_recovered_after_runtime_start",
+        payload={
+            "task_run_id": task_run_id,
+            "previous_status": "running",
+            "previous_executor_status": "running",
+        },
+        refs={"turn_ref": turn_id},
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history={
+            "messages": [
+                {"role": "user", "content": "继续", "turn_id": turn_id},
+                {"role": "assistant", "content": "任务已启动。", "turn_id": turn_id, "id": "message:assistant"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    task_projection = dict(attachment.get("task_projection") or {})
+    current_action = dict(task_projection.get("current_action") or {})
+    runtime_status_items = [
+        dict(item)
+        for item in list(attachment.get("public_timeline") or [])
+        if str(item.get("item_id") or "").startswith("runtime-status:")
+    ]
+    visible = json.dumps(
+        {
+            "public_timeline": attachment.get("public_timeline"),
+            "task_projection": task_projection,
+        },
+        ensure_ascii=False,
+    )
+    assert attachment["public_since_offset"] == 0
+    assert "backend/harness/runtime/session_timeline.py" in visible
+    assert "后端运行时已重启" in visible
+    assert runtime_status_items[-1]["detail"] == "后端运行时已重启，当前任务可继续。"
+    assert current_action["kind"] == "lifecycle"
+    assert current_action["state"] == "waiting"
+    assert "后端运行时已重启" in current_action["title"]
+    assert "掉线前" not in current_action["title"]
+
+
 def test_session_runtime_timeline_does_not_expose_line_numbered_tool_output() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
@@ -700,7 +1188,7 @@ def test_session_runtime_timeline_anchors_to_original_assistant_turn_message() -
     assert attachment["anchor_role"] == "assistant"
 
 
-def test_session_runtime_timeline_does_not_move_task_anchor_to_later_continue_turn() -> None:
+def test_session_runtime_timeline_anchors_visible_segment_to_latest_interaction_turn() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:turn:session-anchor-message:1:abc"
@@ -746,8 +1234,8 @@ def test_session_runtime_timeline_does_not_move_task_anchor_to_later_continue_tu
     )
 
     attachment = timeline["runtime_attachments"][0]
-    assert attachment["anchor_turn_id"] == "turn:session-anchor-message:1"
-    assert attachment["anchor_message_id"] == "message:old-assistant"
+    assert attachment["anchor_turn_id"] == "turn:session-anchor-message:3"
+    assert attachment["anchor_message_id"] == "message:new-assistant"
 
 
 def test_session_runtime_timeline_leaves_anchor_message_empty_when_original_assistant_is_missing() -> None:

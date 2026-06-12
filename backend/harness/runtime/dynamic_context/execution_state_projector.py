@@ -112,10 +112,10 @@ def _exploration_advisory(value: Any) -> dict[str, Any]:
         {
             "triggered": value.get("triggered") if isinstance(value.get("triggered"), bool) else None,
             "kind": compact_text(value.get("kind") or "", limit=120),
+            "authority_boundary": compact_text(value.get("authority_boundary") or "", limit=120),
             "consecutive_exploration_tool_calls": value.get("consecutive_exploration_tool_calls"),
             "threshold": value.get("threshold"),
             "recent_tools": recent_tools,
-            "recommended_action": compact_text(value.get("recommended_action") or "", limit=180),
             "decision_questions": [compact_text(item, limit=180) for item in list(value.get("decision_questions") or [])[:4] if str(item).strip()],
             "non_blocking": value.get("non_blocking") if isinstance(value.get("non_blocking"), bool) else None,
             "authority": compact_text(value.get("authority") or "", limit=160),

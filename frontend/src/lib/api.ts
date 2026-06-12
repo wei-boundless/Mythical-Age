@@ -240,6 +240,18 @@ export type PublicChatTimelineItem = {
   slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
   surface?: "assistant_body" | "body" | "tool_window" | "status_bar" | "status" | "timeline" | "control" | string;
   source_authority?: "model" | "runtime" | "tool" | "system" | string;
+  sequence?: number;
+  event_offset?: number;
+  eventOffset?: number;
+  created_at?: number;
+  createdAt?: number;
+  source_run_id?: string;
+  sourceRunId?: string;
+  source_event_id?: string;
+  sourceEventId?: string;
+  updated_event_offset?: number;
+  updated_at?: number;
+  updated_source_event_id?: string;
   action_kind?: "inspect" | "read" | "search" | "edit" | "write" | "run" | "verify" | "memory" | "prepare" | "artifact" | "browse" | "image" | "work" | string;
   tool_lifecycle_id?: string;
   tool_call_id?: string;
@@ -349,6 +361,7 @@ export type SingleAgentTaskProjection = {
   status: "queued" | "running" | "waiting_approval" | "waiting_user" | "paused" | "stopped" | "failed" | "completed" | string;
   raw_status?: string;
   phase?: "handoff" | "scheduled" | "executing" | "tool_waiting" | "verifying" | "blocked" | "completed" | string;
+  title?: string;
   user_visible_goal?: string;
   current_action?: Record<string, unknown>;
   todo?: SingleAgentTaskProjectionTodo;
@@ -407,6 +420,8 @@ export type SessionRuntimeAttachment = {
   progress_presentation?: RuntimeProgressPresentation;
   progress_entries?: Array<Record<string, unknown>>;
   public_timeline?: PublicChatTimelineItem[];
+  public_since_offset?: number;
+  publicSinceOffset?: number;
   task_projection?: SingleAgentTaskProjection;
   artifact_refs?: Array<Record<string, unknown>>;
   trace_available?: boolean;

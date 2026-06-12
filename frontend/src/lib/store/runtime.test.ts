@@ -4604,6 +4604,285 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.event).toBe("");
   });
 
+  it("does not merge pre-resume volatile public timeline back into a refreshed attachment", async () => {
+    const sessionId = "session:resume-refresh";
+    const taskRunId = "taskrun:turn:session:resume-refresh:1:abc";
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "开始修复", turn_id: "turn:session:resume-refresh:1" },
+        {
+          id: "assistant:resume-refresh",
+          role: "assistant",
+          content: "任务已接管",
+          turn_id: "turn:session:resume-refresh:1",
+        },
+      ],
+      runtime_attachments: [
+        {
+          attachment_id: `runtime-attachment:${taskRunId}`,
+          run_id: taskRunId,
+          anchor_turn_id: "turn:session:resume-refresh:1",
+          anchor_message_id: "assistant:resume-refresh",
+          anchor_role: "assistant",
+          task_run_id: taskRunId,
+          status: "running",
+          public_since_offset: 8,
+          public_timeline: [
+            {
+              item_id: "stage:resume",
+              kind: "status_update",
+              slot: "timeline",
+              surface: "timeline",
+              source_authority: "runtime",
+              title: "继续后正在重新判断。",
+              state: "running",
+              sequence: 9,
+              event_offset: 9,
+              source_event_id: "event:resume-stage",
+            },
+          ],
+          task_projection: {
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            projection_id: `projection:${taskRunId}`,
+            task_run_id: taskRunId,
+            task_id: "task:turn:session:resume-refresh:1",
+            status: "running",
+            title: "修复续接问题",
+          },
+        },
+      ],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    const oldToolItem = {
+      item_id: "tool:old-read",
+      kind: "work_action",
+      slot: "tool",
+      surface: "tool_window",
+      source_authority: "tool",
+      action_kind: "read",
+      title: "读取完成 backend/old_context.py",
+      subject_label: "backend/old_context.py",
+      public_summary: "旧文件 backend/old_context.py 已读取。",
+      state: "done",
+      sequence: 3,
+      event_offset: 3,
+      source_event_id: "event:old-read",
+    };
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Resume Refresh",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        {
+          id: "user:resume-refresh",
+          role: "user",
+          content: "开始修复",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+          sourceTurnId: "turn:session:resume-refresh:1",
+        },
+        {
+          id: "assistant:resume-refresh",
+          role: "assistant",
+          content: "任务已接管",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 1,
+          sourceTurnId: "turn:session:resume-refresh:1",
+          runtimeAttachments: [
+            {
+              attachment_id: `runtime-attachment:${taskRunId}`,
+              run_id: taskRunId,
+              anchor_turn_id: "turn:session:resume-refresh:1",
+              anchor_message_id: "assistant:resume-refresh",
+              anchor_role: "assistant",
+              task_run_id: taskRunId,
+              status: "running",
+              public_timeline: [oldToolItem],
+              progress_entries: [
+                {
+                  id: "step:old-read",
+                  eventOffset: 3,
+                  title: "读取完成 backend/old_context.py",
+                  kind: "tool",
+                },
+              ],
+            },
+          ],
+          runtimePublicTimelineDraft: [oldToolItem],
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails(sessionId);
+
+    const refreshedAssistant = store.getState().messages.find((message) => message.id === "assistant:resume-refresh");
+    const visiblePayload = JSON.stringify({
+      attachment: refreshedAssistant?.runtimeAttachments?.[0],
+      draft: refreshedAssistant?.runtimePublicTimelineDraft,
+    });
+    expect(visiblePayload).toContain("继续后正在重新判断");
+    expect(visiblePayload).not.toContain("backend/old_context.py");
+    expect(refreshedAssistant?.runtimeAttachments?.[0]?.public_since_offset).toBe(8);
+    expect(refreshedAssistant?.runtimeAttachments?.[0]?.progress_entries ?? []).toHaveLength(0);
+  });
+
+  it("does not carry a volatile attachment to a refreshed message with the same source index but a different turn", async () => {
+    const sessionId = "session:source-index-noise";
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "新问题", turn_id: "turn:session:source-index-noise:2" },
+        { id: "assistant:new", role: "assistant", content: "新回答", turn_id: "turn:session:source-index-noise:2" },
+      ],
+      runtime_attachments: [],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Source index noise",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 2,
+      }],
+      messages: [
+        {
+          id: "user:old",
+          role: "user",
+          content: "旧问题",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+          sourceTurnId: "turn:session:source-index-noise:1",
+        },
+        {
+          id: "assistant:old",
+          role: "assistant",
+          content: "旧回答",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 1,
+          sourceTurnId: "turn:session:source-index-noise:1",
+          runtimeAttachments: [{
+            attachment_id: "runtime-attachment:old",
+            run_id: "taskrun:turn:session:source-index-noise:1:abc",
+            anchor_turn_id: "turn:session:source-index-noise:1",
+            anchor_role: "assistant",
+            task_run_id: "taskrun:turn:session:source-index-noise:1:abc",
+            status: "running",
+            public_timeline: [{
+              item_id: "tool:old-read",
+              kind: "work_action",
+              slot: "tool",
+              surface: "tool_window",
+              source_authority: "tool",
+              title: "已读取 backend/old_context.py",
+              subject_label: "backend/old_context.py",
+              state: "done",
+              event_offset: 3,
+            }],
+          }],
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails(sessionId);
+
+    const visiblePayload = JSON.stringify(store.getState().messages);
+    expect(visiblePayload).toContain("新回答");
+    expect(visiblePayload).not.toContain("backend/old_context.py");
+  });
+
+  it("keeps the latest same-turn runtime attachment when a history refresh has not persisted it yet", async () => {
+    const sessionId = "session:latest-runtime-refresh";
+    const turnId = "turn:session:latest-runtime-refresh:1";
+    const taskRunId = "taskrun:turn:session:latest-runtime-refresh:1:abc";
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "检查最新对话", turn_id: turnId },
+      ],
+      runtime_attachments: [],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: sessionId,
+      sessions: [{
+        id: sessionId,
+        title: "Latest runtime refresh",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      }],
+      messages: [
+        {
+          id: "user:latest",
+          role: "user",
+          content: "检查最新对话",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+          sourceTurnId: turnId,
+        },
+        {
+          id: "assistant:latest-runtime",
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0.5,
+          sourceTurnId: turnId,
+          sourceRunId: taskRunId,
+          sourceTaskRunId: taskRunId,
+          runtimeAttachments: [{
+            attachment_id: `runtime-attachment:${taskRunId}`,
+            run_id: taskRunId,
+            anchor_turn_id: turnId,
+            anchor_role: "assistant",
+            task_run_id: taskRunId,
+            status: "running",
+            public_timeline: [{
+              item_id: "tool:latest",
+              kind: "work_action",
+              slot: "tool",
+              surface: "tool_window",
+              source_authority: "tool",
+              title: "正在读取最新文件",
+              subject_label: "backend/harness/runtime/session_timeline.py",
+              state: "running",
+              event_offset: 9,
+              source_run_id: taskRunId,
+            }],
+          }],
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails(sessionId);
+
+    const visiblePayload = JSON.stringify(store.getState().messages);
+    expect(visiblePayload).toContain("backend/harness/runtime/session_timeline.py");
+    expect(store.getState().messages.find((message) => message.id === "assistant:latest-runtime")).toBeTruthy();
+  });
+
   it("keeps the local streaming assistant shell when session history refresh races with deltas", async () => {
     const sessionId = "session:live-refresh";
     const assistantId = "assistant:local-live";

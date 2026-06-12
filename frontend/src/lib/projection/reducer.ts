@@ -152,7 +152,9 @@ function ensureProjectionMessage(
   const runId = runtimeAttachmentRunId(attachment);
   const taskRunId = text(attachment.task_run_id || anchor.task_run_id);
   const turnRunId = text(attachment.turn_run_id || anchor.turn_run_id);
-  const id = text(anchor.message_id) || `history-message:${turnId}:assistant`;
+  const requestedId = text(anchor.message_id);
+  const requestedIdIsAvailable = requestedId && !state.messages.some((message) => message.id === requestedId);
+  const id = requestedIdIsAvailable ? requestedId : `history-message:${turnId}:assistant`;
   if (state.messages.some((message) => message.id === id)) {
     return state;
   }
@@ -181,38 +183,71 @@ function projectionMessageIndex(state: StoreState, envelope: PublicProjectionEnv
   const runId = text(anchor.run_id);
   const taskRunId = text(anchor.task_run_id);
   const turnRunId = text(anchor.turn_run_id);
-  if (taskRunId) {
-    const taskRunIndex = findAssistantMessageIndexByTaskRunId(state, taskRunId);
-    if (taskRunIndex >= 0) return taskRunIndex;
-  }
   if (options.assistantId && streamAnchorMatchesEnvelope(options.streamAnchor, envelope)) {
     const streamIndex = state.messages.findIndex((message) => message.id === options.assistantId && message.role === "assistant");
     if (streamIndex >= 0) return streamIndex;
   }
   const messageId = text(anchor.message_id);
   if (messageId) {
-    const index = state.messages.findIndex((message) => message.id === messageId && message.role === "assistant");
+    const index = state.messages.findIndex((message) =>
+      message.id === messageId
+      && message.role === "assistant"
+      && messageCanAcceptProjectionAnchor(message, { turnId, runId, taskRunId, turnRunId })
+    );
     if (index >= 0) return index;
+  }
+  if (turnId) {
+    const turnIndex = findAssistantMessageIndexByTurnId(state, turnId);
+    if (turnIndex >= 0) return turnIndex;
   }
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
     if (
       message.role === "assistant"
       && (
-        (turnId && message.sourceTurnId === turnId)
-        || (runId && message.sourceRunId === runId)
-        || (taskRunId && message.sourceTaskRunId === taskRunId)
+        (runId && message.sourceRunId === runId)
         || (turnRunId && message.sourceTurnRunId === turnRunId)
         || (message.runtimeAttachments ?? []).some((attachment) =>
-          (turnId && text(attachment.anchor_turn_id) === turnId)
-          || (runId && text(attachment.run_id) === runId)
-          || (taskRunId && text(attachment.task_run_id) === taskRunId)
+          (runId && text(attachment.run_id) === runId)
           || (turnRunId && text(attachment.turn_run_id) === turnRunId)
         )
       )
     ) {
       return index;
     }
+  }
+  if (!turnId && taskRunId) {
+    const taskRunIndex = findAssistantMessageIndexByTaskRunId(state, taskRunId);
+    if (taskRunIndex >= 0) return taskRunIndex;
+  }
+  return -1;
+}
+
+function messageCanAcceptProjectionAnchor(
+  message: Message,
+  anchor: { turnId?: string; runId?: string; taskRunId?: string; turnRunId?: string },
+) {
+  const turnId = text(anchor.turnId);
+  const messageTurnId = text(message.sourceTurnId);
+  if (turnId && messageTurnId && messageTurnId !== turnId) return false;
+  const taskRunId = text(anchor.taskRunId);
+  const messageTaskRunId = text(message.sourceTaskRunId);
+  if (taskRunId && messageTaskRunId && messageTaskRunId !== taskRunId) return false;
+  const runId = text(anchor.runId);
+  const turnRunId = text(anchor.turnRunId);
+  if (runId && text(message.sourceRunId) && text(message.sourceRunId) !== runId) return false;
+  if (turnRunId && text(message.sourceTurnRunId) && text(message.sourceTurnRunId) !== turnRunId) return false;
+  return true;
+}
+
+function findAssistantMessageIndexByTurnId(state: StoreState, turnId: string) {
+  const normalized = text(turnId);
+  if (!normalized) return -1;
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.role !== "assistant") continue;
+    if (message.sourceTurnId === normalized) return index;
+    if ((message.runtimeAttachments ?? []).some((attachment) => text(attachment.anchor_turn_id) === normalized)) return index;
   }
   return -1;
 }

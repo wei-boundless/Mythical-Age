@@ -126,6 +126,11 @@ def _task_execution_runtime_context_projection(
                     "visible_tool_count": int(tool_boundary.get("visible_tool_count") or 0),
                     "allowed_operation_count": int(tool_boundary.get("allowed_operation_count") or 0),
                     "subagent_lifecycle_enabled": bool(tool_boundary.get("subagent_lifecycle_enabled") is True),
+                    "allowed_subagent_ids": [
+                        str(item)
+                        for item in list(tool_boundary.get("allowed_subagent_ids") or [])
+                        if str(item)
+                    ],
                 }
             ),
             "authority": "harness.runtime.task_execution_context.model_visible",

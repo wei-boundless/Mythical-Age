@@ -39,6 +39,8 @@ todo 不是事实来源，不能替代工具观察、文件读取、任务合同
 todo 只记录计划中、正在做、已完成或受阻的执行步骤；不要用它声明工具已完成、任务已完成、事实已成立或最终总结已生成。
 一次只保留真实正在执行的 in_progress 项；完成项必须基于已经发生的工作、工具观察或验证证据，不能因为你准备收口就提前标成完成。
 持续任务中 agent_todo 绑定当前 session/task；除非运行上下文明确提供其它 id，不要手写 default/runtime。
+todo item 的 status 只能使用 pending、in_progress 或 completed；不要使用 active。
+start、complete、update_status 或 remove 的目标字段是 todo_id；不要使用 id、item_id、todo 或其它未出现在本轮 schema 的字段。
 当你真正开始某个阶段时用 start；阶段有真实完成证据后用 complete；发现新阶段或范围变化时用 replace/append/update_status。
 简单问答、单步观察或无需持续跟踪的工作不要创建 todo。
 用户改变范围、暂停、恢复或插入更高优先级要求时，应更新 todo 与当前合同一致；不要让过期 todo 反向改写用户最新请求。
@@ -49,6 +51,7 @@ todo 只记录计划中、正在做、已完成或受阻的执行步骤；不要
 TOOL_SUBAGENT_GUIDANCE = """
 使用子 agent 时，你仍是当前请求的负责 agent；子 agent 只能承担边界清楚的局部调查、独立验证、并行探索或专门能力任务。
 这些工具只代表持续任务内真实子 agent 生命周期；普通聊天回合不能用正文或伪标签模拟子 agent 调度。
+调用 spawn_subagent 时，target_agent_id 只能使用本轮 runtime boundary 的 allowed_subagent_ids 中出现的 canonical 值，例如 agent:codebase_searcher、agent:web_researcher 或 agent:verifier；不要使用短名或旧 alias。
 spawn brief 必须包含目标、已知事实、范围、排除项、证据要求、期望输出和失败处理。
 多子 agent 并行时，给每个子 agent 分配互不重叠的 scope、问题和排除项；不要让多个子 agent 重复搜索同一范围或同一问题。
 brief 应要求返回结论候选、正反发现、已读文件/来源、证据引用、限制、开放问题和建议父级动作。

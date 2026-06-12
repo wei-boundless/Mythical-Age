@@ -156,18 +156,26 @@ describe("public projection reducer contract", () => {
     });
   });
 
-  it("prefers task_run_id over stale anchor message id when routing projections", () => {
+  it("does not let task_run_id override a stale message id when a current turn anchor exists", () => {
     const taskRunId = "taskrun:projection:final";
     const state = {
       ...getDefaultState(),
       messages: [
+        {
+          id: "user-current",
+          role: "user",
+          content: "continue",
+          toolCalls: [],
+          retrievals: [],
+          sourceTurnId: "turn:projection:1",
+        },
         {
           id: "assistant-opening",
           role: "assistant",
           content: "",
           toolCalls: [],
           retrievals: [],
-          sourceTurnId: "turn:projection:1",
+          sourceTurnId: "turn:projection:old",
         },
         {
           id: "assistant-final",
@@ -213,12 +221,15 @@ describe("public projection reducer contract", () => {
     const final = next.messages.find((message) => message.id === "assistant-final");
 
     expect(opening?.runtimeAttachments ?? []).toEqual([]);
-    expect(final?.runtimeAttachments?.[0]).toMatchObject({
+    expect(final?.runtimeAttachments ?? []).toEqual([]);
+    const currentTurn = next.messages.find((message) =>
+      message.role === "assistant"
+      && message.sourceTurnId === "turn:projection:1"
+      && message.id !== "assistant-opening"
+    );
+    expect(currentTurn?.runtimeAttachments?.[0]).toMatchObject({
       task_run_id: taskRunId,
-      task_projection: {
-        task_run_id: taskRunId,
-        status: "completed",
-      },
+      anchor_turn_id: "turn:projection:1",
     });
   });
 

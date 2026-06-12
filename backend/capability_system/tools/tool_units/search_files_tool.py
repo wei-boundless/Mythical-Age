@@ -5,7 +5,7 @@ import fnmatch
 import re
 import subprocess
 from pathlib import Path
-from typing import Type
+from typing import Literal, Type
 
 from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -20,6 +20,8 @@ from capability_system.tools.workspace_file_service import (
 
 
 class SearchFilesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(..., description="文件名或路径关键词，例如 OpenClaw、计划书、task_understanding.py")
     roots: list[str] = Field(
         default_factory=list,
@@ -29,6 +31,8 @@ class SearchFilesInput(BaseModel):
 
 
 class SearchTextInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(..., description="要在文件内容里搜索的文本或正则关键词")
     roots: list[str] = Field(
         default_factory=list,
@@ -40,7 +44,7 @@ class SearchTextInput(BaseModel):
     )
     glob: str = Field(default="", description="可选 glob，例如 **/*.md 或 backend/**/*.py")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
-    output_mode: str = Field(default="content", description="输出模式：content、files_with_matches 或 count")
+    output_mode: Literal["content", "files_with_matches", "count"] = Field(default="content", description="输出模式：content、files_with_matches 或 count")
     context: int = Field(default=0, ge=0, le=20, description="推荐读取窗口时每个命中行前后包含的上下文行数")
     case_sensitive: bool = Field(default=False, description="是否区分大小写搜索")
     head_limit: int = Field(default=0, ge=0, le=100, description="分页返回条数；0 表示使用 max_results")

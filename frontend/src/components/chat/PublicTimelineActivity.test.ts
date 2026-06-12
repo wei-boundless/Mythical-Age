@@ -9,6 +9,120 @@ function attributeValues(html: string, name: string) {
 }
 
 describe("PublicTimelineActivity", () => {
+  it("renders natural-language task stage feedback with body typography", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            projection_id: "projection:stage-feedback",
+            task_run_id: "taskrun:stage-feedback",
+            status: "running",
+            current_action: {
+              activity_id: "activity:stage-feedback",
+              kind: "progress",
+              source_kind: "stage_feedback",
+              display_surface: "timeline",
+              visibility_level: "secondary",
+              title: "开始执行三项核查：读取 prompt_ref_migrations 尾部以确认 prompt_pack_refs_by_invocation 配置，定位 single_agent_turn 中的 invocation_kind 和 compiler 调用点，并获取 profiles 目录完整列表以查找三种环境的配置文件",
+              state: "running",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("public-run-activity__body");
+    expect(attributeValues(html, "data-activity-kind")).toContain("body");
+    expect(html).toContain("开始执行三项核查");
+    expect(html).not.toContain("public-run-activity__line--status");
+  });
+
+  it("does not promote tool echo stage feedback to body typography", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        taskProjections: [
+          {
+            authority: "harness.runtime.single_agent_task_projection.v1",
+            projection_id: "projection:tool-echo",
+            task_run_id: "taskrun:tool-echo",
+            status: "running",
+            activities: [
+              {
+                activity_id: "activity:path",
+                kind: "progress",
+                source_kind: "stage_feedback",
+                display_surface: "timeline",
+                visibility_level: "secondary",
+                title: "system_control_review.md",
+                state: "running",
+              },
+              {
+                activity_id: "activity:timeout",
+                kind: "progress",
+                source_kind: "stage_feedback",
+                display_surface: "timeline",
+                visibility_level: "secondary",
+                title: "task_tool_batch_group_timeout_after_300s",
+                state: "running",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(html).toBe("");
+  });
+
+  it("renders timeline activity in backend event sequence order", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PublicTimelineActivity, {
+        items: [
+          {
+            item_id: "event:3",
+            kind: "status_update",
+            slot: "timeline",
+            surface: "timeline",
+            title: "第三步",
+            state: "running",
+            sequence: 3,
+            event_offset: 3,
+            source_event_id: "event:3",
+          },
+          {
+            item_id: "event:1",
+            kind: "status_update",
+            slot: "timeline",
+            surface: "timeline",
+            title: "第一步",
+            state: "running",
+            sequence: 1,
+            event_offset: 1,
+            source_event_id: "event:1",
+          },
+          {
+            item_id: "event:2",
+            kind: "work_action",
+            slot: "tool",
+            surface: "tool_window",
+            action_kind: "read",
+            title: "第二步",
+            public_summary: "第二步",
+            subject_label: "docs/a.md",
+            state: "done",
+            sequence: 2,
+            event_offset: 2,
+            source_event_id: "event:2",
+          },
+        ],
+      }),
+    );
+
+    expect(html.indexOf("第一步")).toBeLessThan(html.indexOf("第二步"));
+    expect(html.indexOf("第二步")).toBeLessThan(html.indexOf("第三步"));
+  });
+
   it("keeps tool error codes inside the tool window instead of using them as the activity title", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
@@ -553,7 +667,7 @@ describe("PublicTimelineActivity", () => {
     expect(html).toContain("行数 80");
   });
 
-  it("hides completed low-signal inspect and search tool activity", () => {
+  it("folds completed low-signal inspect and search tool activity instead of dropping it", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         items: [
@@ -604,9 +718,11 @@ describe("PublicTimelineActivity", () => {
     );
 
     expect(html).toContain("已更新文件 docs/report.md");
-    expect(html).not.toContain("已确认目标 .");
-    expect(html).not.toContain("已搜索引用 **/*.{ts,tsx}");
-    expect(html).not.toContain("No paths matched");
+    expect(html).toContain("已确认目标");
+    expect(html).toContain("已搜索引用 **/*.{ts,tsx}");
+    expect(html).toContain("No paths matched");
+    expect(attributeValues(html, "data-activity-kind").filter((value) => value === "tool")).toHaveLength(3);
+    expect(html).not.toContain("open=\"\"");
   });
 
   it("renders tool activity without taking ownership of model body items", () => {
@@ -706,7 +822,7 @@ describe("PublicTimelineActivity", () => {
     expect(html).toBe("");
   });
 
-  it("does not render line-numbered tool output as model body activity", () => {
+  it("keeps line-numbered tool output out of body while preserving the tool row", () => {
     const html = renderToStaticMarkup(
       React.createElement(PublicTimelineActivity, {
         items: [
@@ -733,7 +849,10 @@ describe("PublicTimelineActivity", () => {
       }),
     );
 
-    expect(html).toBe("");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).toContain("读取完成");
+    expect(html).not.toContain("LangChain-Agent 项目代码审查报告");
+    expect(html).not.toContain("1 | #");
   });
 
   it("leaves markdown model body timeline text for the chat message body renderer", () => {

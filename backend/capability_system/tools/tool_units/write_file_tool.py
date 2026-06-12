@@ -12,6 +12,8 @@ from capability_system.tools.workspace_file_service import WorkspaceFileService
 
 
 class WriteFileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     path: str = Field(..., description="Relative path inside the project root. Use the argument name `path`, not `filepath` or `file_path`.")
     content: str = Field(..., description="Complete file content to write. Do not pass placeholders or partial fragments.")
     allow_overwrite: bool = Field(
@@ -25,6 +27,8 @@ class WriteFileInput(BaseModel):
 
 
 class EditFileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     path: str = Field(..., description="Relative path inside the project root.")
     old_text: str = Field(..., description="Exact current text to replace. Read the file first and pass a unique verbatim span, including whitespace and line breaks.")
     new_text: str = Field(..., description="Replacement text. Keep unchanged surrounding content out of this value unless it is part of the exact replacement span.")

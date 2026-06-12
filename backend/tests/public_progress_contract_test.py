@@ -38,6 +38,19 @@ def test_public_progress_summary_suppresses_runtime_private_artifact_paths() -> 
         assert public_runtime_progress_summary(text) == ""
 
 
+def test_public_progress_summary_suppresses_whole_tool_failure_text() -> None:
+    tool_failures = (
+        "Edit failed: old_text not found",
+        "Edit failed: file does not exist",
+        "Write failed: expected_previous_sha256 does not match current file",
+        "Read failed: file does not exist",
+        "tool_policy_rejection: Policy rejected before execution: requested_tool=write_file",
+    )
+
+    for text in tool_failures:
+        assert public_runtime_progress_summary(text) == ""
+
+
 def test_action_progress_note_does_not_fallback_to_action_type() -> None:
     action = TaskExecutionModelActionRequest(
         request_id="model-action:test:no-public-feedback",

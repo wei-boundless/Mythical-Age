@@ -222,9 +222,11 @@ def test_task_observation_projection_reports_serial_exploration_as_non_blocking_
     )["execution_state"]["system_projection"]["exploration_advisory"]
 
     assert advisory["triggered"] is True
+    assert advisory["authority_boundary"] == "observation_pattern_only"
     assert advisory["non_blocking"] is True
     assert advisory["consecutive_exploration_tool_calls"] == len(tool_calls)
     assert advisory["recent_tools"][-1]["tool_name"] == "read_file"
+    assert "recommended_action" not in advisory
 
 
 def test_task_observation_projection_ignores_already_projected_pending_records() -> None:

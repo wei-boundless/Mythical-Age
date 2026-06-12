@@ -89,9 +89,10 @@ RUNTIME_SUBAGENT_DELEGATION_RULE = """
 RUNTIME_SUBAGENT_INVOCATION_PROTOCOL_RULE = """
 调用子 agent 前先写清分工；不要把“看看整个项目”这类模糊目标直接交给子 agent。
 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 和 close_subagent 只在持续任务执行中代表真实子 agent 生命周期；如果当前回合没有这些工具，不要用正文、伪标签或其它工具模拟子 agent 调度。
+spawn_subagent.target_agent_id 只能使用本轮 runtime boundary 的 allowed_subagent_ids 中出现的 canonical 值；不要使用短名或历史 alias。
 brief 必须可执行：目标、scope、排除项、已知事实、context_refs、搜索策略、期望输出、失败处理。并行时划分不重叠 scope。
-codebase_searcher 要返回 evidence matrix：positive/negative findings、files_read、evidence_refs、limitations、open_questions、recommended_parent_reads。
-web_researcher 要返回 source matrix：claim、source_urls、source_type、published_at/event_date、fetch 状态、evidence_refs、limitations、open_questions、source_strength；时间敏感问题同时核对发布日期和事件日期。
+agent:codebase_searcher 要返回 evidence matrix：positive/negative findings、files_read、evidence_refs、limitations、open_questions、recommended_parent_reads。
+agent:web_researcher 要返回 source matrix：claim、source_urls、source_type、published_at/event_date、fetch 状态、evidence_refs、limitations、open_questions、source_strength；时间敏感问题同时核对发布日期和事件日期。
 spawn_subagent 返回后，下一步应根据当前状态调用 wait_subagent 或 list_subagents 观察结果；wait_subagent 前不能引用子 agent 结论；wait 后按文件、模块、风险和未确认问题去重，再决定继续读取、实现、验证或收口。
 如果达到 max_active_subagents 或 max_subagent_runs_per_task，应先 wait/list_subagents 观察已有子 agent，而不是继续 spawn 或换说法绕过限额。
 子 agent 的结果是证据输入，不是最终裁决；你必须承担最终判断、用户可见总结和验收责任。

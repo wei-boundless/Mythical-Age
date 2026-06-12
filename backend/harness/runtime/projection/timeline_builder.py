@@ -30,6 +30,16 @@ INTERNAL_TURN_TERMINAL_REASONS = {
     "turn_stream_closed",
     "harness.entrypoint_error",
 }
+STRUCTURED_PLAN_TOOL_NAMES = {
+    "agent_todo",
+}
+PUBLIC_TIMELINE_ORDER_FIELDS = (
+    "sequence",
+    "event_offset",
+    "created_at",
+    "source_run_id",
+    "source_event_id",
+)
 
 
 def project_runtime_monitor_event_public_delta(
@@ -82,6 +92,7 @@ def project_public_timeline_from_events(
     *,
     runtime_host: Any | None = None,
     monitor: dict[str, Any] | None = None,
+    session_id: str = "",
     run_id: str = "",
     task_run_id: str = "",
     turn_run_id: str = "",
@@ -101,8 +112,18 @@ def project_public_timeline_from_events(
             include_task_projection=False,
             allow_runtime_lookup=False,
         )
+        anchor = record(delta.get("public_anchor"))
         for item in _projection_items_from_envelope(record(delta.get("public_projection_envelope"))):
-            _append_or_replace_public_item(items, index_by_key, item)
+            ordered = _with_event_order(item, event)
+            scoped = _with_projection_scope(
+                ordered,
+                anchor=anchor,
+                session_id=session_id,
+                fallback_run_id=run_id,
+                fallback_task_run_id=task_run_id,
+                fallback_turn_run_id=turn_run_id,
+            )
+            _append_or_replace_public_item(items, index_by_key, scoped)
     return _trim_public_timeline_items(items, limit)
 
 
@@ -191,10 +212,13 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
         if kind == "tool":
             tool_call_id = text(payload.get("toolCallId") or payload.get("tool_call_id"))
             tool_lifecycle_id = text(payload.get("toolLifecycleId") or payload.get("tool_lifecycle_id") or tool_call_id)
+            tool_name = text(payload.get("toolName"))
+            if _is_structured_plan_tool(tool_name):
+                continue
             target = text(payload.get("target") or payload.get("toolTarget") or payload.get("tool_target"))
             item = work_action_item(
                 item_id=tool_lifecycle_id or stable_id("progress-tool", payload.get("id"), payload.get("toolName")),
-                tool_name=payload.get("toolName"),
+                tool_name=tool_name,
                 tool_lifecycle_id=tool_lifecycle_id,
                 tool_call_id=tool_call_id,
                 raw_target=target or payload.get("title"),
@@ -225,7 +249,7 @@ def build_public_chat_timeline_from_progress_entries(entries: list[dict[str, Any
                 state=state,
                 trace_refs=refs,
             )
-        _append_or_replace_public_item(items, index_by_key, item)
+        _append_or_replace_public_item(items, index_by_key, _with_progress_entry_order(item, payload))
     return items
 
 
@@ -240,7 +264,14 @@ def _public_event_type(event_type: str, event: dict[str, Any]) -> str:
         return event_type
     if event_type == "agent_todo_initialized":
         return "task_run_lifecycle_event"
-    if event_type in {"task_run_lifecycle_started", "task_run_executor_started", "task_run_lifecycle_waiting_executor", "task_run_executor_scheduled", "active_work_control_observed"}:
+    if event_type in {
+        "task_run_lifecycle_started",
+        "task_run_executor_started",
+        "task_run_lifecycle_waiting_executor",
+        "task_run_executor_scheduled",
+        "task_run_executor_recovered_after_runtime_start",
+        "active_work_control_observed",
+    }:
         return "runtime_status"
     if event_type in {"active_task_steer_recorded", "active_task_steer_accepted", "active_task_steer_included", "active_task_steer_consumed"}:
         return "active_task_steer_accepted"
@@ -283,7 +314,7 @@ def _public_event_data(*, public_event_type: str, event: dict[str, Any], monitor
             "tool_name": payload.get("tool_name"),
         }
     if public_event_type == "runtime_status":
-        return {**base, **_runtime_status_data(event)}
+        return {**base, **_runtime_status_data(event, monitor=monitor)}
     if public_event_type in {"done", "error", "stopped"}:
         return {**base, **_terminal_data(event, public_event_type=public_event_type)}
     if public_event_type == "active_task_steer_accepted":
@@ -348,6 +379,7 @@ def _hydrate_external_event_payload(event: dict[str, Any], *, runtime_host: Any 
 def _public_anchor(event: dict[str, Any], *, monitor: dict[str, Any] | None) -> dict[str, Any]:
     payload = record(event.get("payload"))
     refs = record(event.get("refs"))
+    monitor_payload = record(monitor)
     run_id = text(event.get("run_id") or event.get("task_run_id"))
     task_run_id = _task_run_id(event.get("task_run_id") or refs.get("task_run_ref") or payload.get("task_run_id") or run_id)
     turn_run_id = _turn_run_id(refs.get("turn_run_ref") or payload.get("turn_run_id") or run_id)
@@ -366,6 +398,7 @@ def _public_anchor(event: dict[str, Any], *, monitor: dict[str, Any] | None) -> 
         anchor_turn_id = _turn_id_from_run_id(run_id) or _turn_id_from_run_id(task_run_id) or _turn_id_from_monitor(run_id, monitor)
     return compact(
         {
+            "session_id": text(payload.get("session_id") or task_run.get("session_id") or monitor_payload.get("session_id")),
             "run_id": run_id,
             "task_run_id": task_run_id,
             "turn_run_id": turn_run_id,
@@ -408,11 +441,24 @@ def _terminal_data(event: dict[str, Any], *, public_event_type: str) -> dict[str
     }
 
 
-def _runtime_status_data(event: dict[str, Any]) -> dict[str, Any]:
+def _runtime_status_data(event: dict[str, Any], *, monitor: dict[str, Any] | None = None) -> dict[str, Any]:
     event_type = text(event.get("event_type"))
     payload = record(event.get("payload"))
     if event_type == "active_work_control_observed":
         return {"title": payload.get("title") or "当前工作控制", "detail": payload.get("detail"), "state": payload.get("state") or "running"}
+    if event_type == "task_run_executor_recovered_after_runtime_start":
+        detail = (
+            payload.get("summary")
+            or payload.get("public_progress_note")
+            or "后端运行时已重启，当前任务可继续。"
+        )
+        return {
+            "runtime_status_visible": True,
+            "title": "等待继续",
+            "detail": detail,
+            "summary": detail,
+            "state": "waiting",
+        }
     if event_type in {"task_run_lifecycle_waiting_executor", "task_run_executor_scheduled"}:
         return {"title": "等待执行器继续", "detail": payload.get("summary"), "state": "waiting"}
     return {"state": payload.get("status") or "running", "summary": payload.get("summary")}
@@ -493,7 +539,7 @@ def _append_or_replace_public_item(items: list[dict[str, Any]], index_by_key: di
     if not key:
         return
     if key in index_by_key:
-        items[index_by_key[key]] = {**items[index_by_key[key]], **payload}
+        items[index_by_key[key]] = merge_public_timeline_item(items[index_by_key[key]], payload)
         return
     index_by_key[key] = len(items)
     items.append(payload)
@@ -517,6 +563,162 @@ def _trim_public_timeline_items(items: list[dict[str, Any]], limit: int | None) 
     if not limit:
         return items
     return items[-max(1, int(limit)) :]
+
+
+def _with_event_order(item: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    payload = record(item)
+    if not payload:
+        return {}
+    return {**payload, **_event_order_fields(event)}
+
+
+def _with_progress_entry_order(item: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    payload = record(item)
+    if not payload:
+        return {}
+    event_offset = _int_value(entry.get("eventOffset"))
+    if event_offset is None:
+        event_offset = _int_value(entry.get("event_offset"))
+    event_id = text(entry.get("sourceEventId") or entry.get("source_event_id") or entry.get("id"))
+    run_id = text(entry.get("sourceRunId") or entry.get("source_run_id") or entry.get("runId") or entry.get("run_id"))
+    created_at = _float_value(entry.get("createdAt") or entry.get("created_at"))
+    return {
+        **payload,
+        **_progress_entry_scope_fields(entry),
+        **_compact_order_fields(
+            sequence=event_offset,
+            event_offset=event_offset,
+            created_at=created_at,
+            source_run_id=run_id,
+            source_event_id=event_id,
+        ),
+    }
+
+
+def _with_projection_scope(
+    item: dict[str, Any],
+    *,
+    anchor: dict[str, Any],
+    session_id: str,
+    fallback_run_id: str,
+    fallback_task_run_id: str,
+    fallback_turn_run_id: str,
+) -> dict[str, Any]:
+    payload = record(item)
+    if not payload:
+        return {}
+    turn_id = text(anchor.get("anchor_turn_id") or anchor.get("turn_id"))
+    return compact(
+        {
+            **payload,
+            "session_id": text(anchor.get("session_id") or session_id),
+            "anchor_turn_id": turn_id,
+            "turn_id": turn_id,
+            "run_id": text(anchor.get("run_id") or payload.get("source_run_id") or fallback_run_id),
+            "task_run_id": text(anchor.get("task_run_id") or fallback_task_run_id),
+            "turn_run_id": text(anchor.get("turn_run_id") or fallback_turn_run_id),
+        }
+    )
+
+
+def _progress_entry_scope_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    turn_id = text(entry.get("anchorTurnId") or entry.get("anchor_turn_id") or entry.get("turnId") or entry.get("turn_id"))
+    return compact(
+        {
+            "anchor_turn_id": turn_id,
+            "turn_id": turn_id,
+            "run_id": text(entry.get("runId") or entry.get("run_id") or entry.get("sourceRunId") or entry.get("source_run_id")),
+            "task_run_id": text(entry.get("taskRunId") or entry.get("task_run_id")),
+            "turn_run_id": text(entry.get("turnRunId") or entry.get("turn_run_id")),
+            "session_id": text(entry.get("sessionId") or entry.get("session_id")),
+        }
+    )
+
+
+def _event_order_fields(event: dict[str, Any]) -> dict[str, Any]:
+    event_offset = _int_value(event.get("offset"))
+    return _compact_order_fields(
+        sequence=event_offset,
+        event_offset=event_offset,
+        created_at=_float_value(event.get("created_at")),
+        source_run_id=text(event.get("run_id") or event.get("task_run_id")),
+        source_event_id=text(event.get("event_id")),
+    )
+
+
+def _compact_order_fields(
+    *,
+    sequence: int | None,
+    event_offset: int | None,
+    created_at: float | None,
+    source_run_id: str,
+    source_event_id: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if sequence is not None:
+        payload["sequence"] = sequence
+    if event_offset is not None:
+        payload["event_offset"] = event_offset
+    if created_at is not None:
+        payload["created_at"] = created_at
+    if source_run_id:
+        payload["source_run_id"] = source_run_id
+    if source_event_id:
+        payload["source_event_id"] = source_event_id
+    return payload
+
+
+def merge_public_timeline_item(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = {**existing, **incoming}
+    existing_order = public_timeline_order_key(existing)
+    incoming_order = public_timeline_order_key(incoming)
+    earliest = existing if existing_order <= incoming_order else incoming
+    for key in PUBLIC_TIMELINE_ORDER_FIELDS:
+        if key in earliest:
+            merged[key] = earliest[key]
+        elif key in merged:
+            merged.pop(key, None)
+    latest = incoming if incoming_order >= existing_order else existing
+    latest_event_id = text(latest.get("source_event_id"))
+    latest_offset = _int_value(latest.get("event_offset"))
+    latest_created_at = _float_value(latest.get("created_at"))
+    if latest_event_id:
+        merged["updated_source_event_id"] = latest_event_id
+    if latest_offset is not None:
+        merged["updated_event_offset"] = latest_offset
+    if latest_created_at is not None:
+        merged["updated_at"] = latest_created_at
+    return merged
+
+
+def public_timeline_order_key(item: dict[str, Any]) -> tuple[int, float, str]:
+    sequence = _int_value(item.get("sequence"))
+    if sequence is None:
+        sequence = _int_value(item.get("event_offset"))
+    if sequence is not None:
+        return (sequence, _float_value(item.get("created_at")) or 0.0, text(item.get("source_event_id")))
+    created_at = _float_value(item.get("created_at"))
+    if created_at is not None:
+        return (10**12, created_at, text(item.get("source_event_id")))
+    return (10**12, 10**12, text(item.get("source_event_id")))
+
+
+def _int_value(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_value(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_structured_plan_tool(tool_name: str) -> bool:
+    return text(tool_name).lower() in STRUCTURED_PLAN_TOOL_NAMES
 
 
 def _first_evidence_summary(unit: dict[str, Any]) -> str:
@@ -550,9 +752,16 @@ def _turn_id_from_monitor(run_id: str, monitor: dict[str, Any] | None) -> str:
 
 
 def _turn_id_from_run_id(value: str) -> str:
-    parts = text(value).split(":")
-    if len(parts) >= 3 and parts[0] in {"turnrun", "taskrun"} and parts[1] == "turn":
-        return f"turn:{parts[2]}"
+    candidate = text(value)
+    if candidate.startswith("turnrun:"):
+        suffix = candidate[len("turnrun:") :]
+        return suffix if suffix.startswith("turn:") else ""
+    if not candidate.startswith("taskrun:turn:"):
+        return ""
+    parts = candidate.split(":")
+    for index in range(2, len(parts)):
+        if parts[index].isdigit():
+            return ":".join(parts[1 : index + 1])
     return ""
 
 

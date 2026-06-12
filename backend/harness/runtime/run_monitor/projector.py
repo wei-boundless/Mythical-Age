@@ -192,7 +192,7 @@ class RuntimeMonitorProjector:
             "observation": public_runtime_progress_summary(latest_step.get("observation") or diagnostics.get("latest_observation") or ""),
             "current_judgment": public_runtime_progress_summary(latest_step.get("current_judgment") or diagnostics.get("latest_current_judgment") or ""),
             "next_action": public_runtime_progress_summary(latest_step.get("next_action") or diagnostics.get("latest_next_action") or ""),
-            "completion_status": public_runtime_progress_summary(latest_step.get("completion_status") or diagnostics.get("latest_completion_status") or ""),
+            "completion_status": str(latest_step.get("completion_status") or diagnostics.get("latest_completion_status") or ""),
             "open_risks": list(latest_step.get("open_risks") or dict(diagnostics.get("latest_public_action_state") or {}).get("open_risks") or []),
             "evidence_refs": list(latest_step.get("evidence_refs") or dict(diagnostics.get("latest_public_action_state") or {}).get("evidence_refs") or []),
             "summary": summary,
@@ -1037,11 +1037,11 @@ class RuntimeMonitorProjector:
                     or ""
                 ),
                 "next_action": public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or ""),
-                "completion_status": public_runtime_progress_summary(
+                "completion_status": str(
                     payload.get("completion_status")
                     or public_action_state.get("completion_status")
                     or ""
-                ),
+                ).strip(),
                 "open_risks": list(public_action_state.get("open_risks") or []),
                 "evidence_refs": list(public_action_state.get("evidence_refs") or []),
                 "presentation_source": str(payload.get("presentation_source") or ""),
@@ -1068,7 +1068,7 @@ class RuntimeMonitorProjector:
             "observation": public_runtime_progress_summary(diagnostics.get("latest_observation") or ""),
             "current_judgment": public_runtime_progress_summary(diagnostics.get("latest_current_judgment") or ""),
             "next_action": public_runtime_progress_summary(diagnostics.get("latest_next_action") or ""),
-            "completion_status": public_runtime_progress_summary(diagnostics.get("latest_completion_status") or ""),
+            "completion_status": str(diagnostics.get("latest_completion_status") or "").strip(),
             "presentation_source": "diagnostics",
             "event_id": "",
             "offset": -1,
@@ -1444,6 +1444,8 @@ def _active_turn_status(state: str) -> str:
 
 def _active_turn_summary(state: str) -> str:
     normalized = str(state or "").strip()
+    if normalized in {"starting", "model_turn"}:
+        return "正在分析请求并准备执行。"
     if normalized == "waiting_user":
         return "等待新的用户输入。"
     if normalized == "waiting_executor":

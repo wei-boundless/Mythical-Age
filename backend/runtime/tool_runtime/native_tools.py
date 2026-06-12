@@ -1614,7 +1614,7 @@ def _full_access_project_repository_override(
 ) -> str:
     if profile_id != "file_profile.managed_project_workspace":
         return ""
-    if action not in {"write", "edit"}:
+    if action not in {"read", "search", "write", "edit", "open"}:
         return ""
     if str(context.permission_mode or "").strip().lower() not in {"full_access", "bypass"}:
         return ""

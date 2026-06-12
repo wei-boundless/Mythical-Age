@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_system.identity import normalize_agent_id_sequence
 from capability_system.skills.registry import SkillRegistry
 from capability_system.tools.authorization import build_authorized_tool_set
 from permissions.policy import normalize_permission_mode
@@ -737,7 +738,7 @@ def _control_capabilities_for_runtime(
 def _subagent_policy(*, agent_runtime_profile: Any | None, policy: dict[str, Any]) -> dict[str, Any]:
     profile_policy = getattr(agent_runtime_profile, "subagent_policy", None)
     profile_payload = profile_policy.to_dict() if hasattr(profile_policy, "to_dict") else dict(profile_policy or {})
-    allowed_ids = _string_tuple(profile_payload.get("allowed_subagent_ids"))
+    allowed_ids = normalize_agent_id_sequence(_string_tuple(profile_payload.get("allowed_subagent_ids")))
     policy_enabled = policy.get("enabled")
     profile_enabled = bool(profile_payload.get("enabled") is True)
     enabled = profile_enabled if policy_enabled is None else bool(policy_enabled is True and profile_enabled)

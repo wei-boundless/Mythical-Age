@@ -8,6 +8,14 @@ from typing import Any
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
 
 _MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
+_SPECIAL_CONTRACT_TOOL_NAMES = {
+    "agent_todo",
+    "write_file",
+    "edit_file",
+    "spawn_subagent",
+    "read_file",
+    "search_text",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,33 +157,33 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
         }
     input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
     if input_schema:
-        payload["input_schema_summary"] = _input_schema_summary(input_schema)
+        input_schema_summary = _input_schema_summary(input_schema)
+        payload["input_schema_summary"] = input_schema_summary
         payload["input_schema_ref"] = _short_hash(_stable_json_hash(input_schema))
+        tool_contract_summary = _special_tool_contract_summary(
+            tool_name=name,
+            input_schema_summary=input_schema_summary,
+        )
+        if tool_contract_summary:
+            payload["tool_contract_summary"] = tool_contract_summary
     return payload
 
 
 def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
     properties = dict(schema.get("properties") or {})
     summarized_properties: dict[str, str] = {}
+    property_details: dict[str, dict[str, Any]] = {}
     for name, value in properties.items():
         if not isinstance(value, dict):
             continue
-        field_type = str(value.get("type") or "any")
-        if isinstance(value.get("items"), dict):
-            item_payload = dict(value.get("items") or {})
-            item_type = str(item_payload.get("type") or "any")
-            field_type = f"{field_type}<{item_type}>"
-        parts = [field_type]
-        if value.get("format"):
-            parts.append(f"format={value.get('format')}")
-        if "enum" in value:
-            enum_values = [str(item) for item in list(value.get("enum") or [])]
-            if enum_values:
-                parts.append("enum=" + "|".join(enum_values))
-        if "default" in value:
-            parts.append("default=" + json.dumps(value.get("default"), ensure_ascii=False, separators=(",", ":")))
-        summarized_properties[str(name)] = " ".join(parts)
+        summarized_properties[str(name)] = _field_summary(value, root_schema=schema)
+        property_details[str(name)] = _field_detail(value, root_schema=schema)
     summary: dict[str, Any] = {"properties": summarized_properties}
+    if property_details:
+        summary["property_details"] = property_details
+    field_paths = _schema_field_paths(properties, root_schema=schema)
+    if field_paths:
+        summary["field_paths"] = field_paths
     schema_type = str(schema.get("type") or "object")
     if schema_type != "object":
         summary["type"] = schema_type
@@ -187,7 +195,207 @@ def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
         summary["optional"] = optional
     if "additionalProperties" in schema:
         summary["additionalProperties"] = bool(schema.get("additionalProperties") is True)
+        summary["forbidden_unknown_fields"] = schema.get("additionalProperties") is False
     return summary
+
+
+def _field_summary(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> str:
+    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
+    field_type = _field_type_label(field_schema, root_schema=root_schema)
+    parts = [field_type]
+    if field_schema.get("format"):
+        parts.append(f"format={field_schema.get('format')}")
+    if "enum" in field_schema:
+        enum_values = [str(item) for item in list(field_schema.get("enum") or [])]
+        if enum_values:
+            parts.append("enum=" + "|".join(enum_values))
+    if "default" in field_schema:
+        parts.append("default=" + json.dumps(field_schema.get("default"), ensure_ascii=False, separators=(",", ":")))
+    return " ".join(parts)
+
+
+def _field_detail(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> dict[str, Any]:
+    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
+    detail: dict[str, Any] = {"type": _field_type_label(field_schema, root_schema=root_schema)}
+    for key in ("format", "description"):
+        value = field_schema.get(key)
+        if value:
+            detail[key] = str(value)
+    if "enum" in field_schema:
+        enum_values = [str(item) for item in list(field_schema.get("enum") or [])]
+        if enum_values:
+            detail["enum"] = enum_values
+    if "default" in field_schema:
+        detail["default"] = field_schema.get("default")
+    for key in ("minimum", "maximum", "minLength", "maxLength"):
+        if key in field_schema:
+            detail[key] = field_schema.get(key)
+    if "additionalProperties" in field_schema:
+        detail["additionalProperties"] = bool(field_schema.get("additionalProperties") is True)
+        detail["forbidden_unknown_fields"] = field_schema.get("additionalProperties") is False
+    items = field_schema.get("items")
+    if isinstance(items, dict):
+        resolved_items = _resolve_schema_ref(items, root_schema=root_schema)
+        detail["items"] = _field_detail(resolved_items, root_schema=root_schema)
+    return {key: _json_stable(value) for key, value in detail.items() if value not in ("", [], {})}
+
+
+def _schema_field_paths(
+    properties: dict[str, Any],
+    *,
+    root_schema: dict[str, Any],
+    parent: str = "",
+    max_depth: int = 3,
+) -> dict[str, dict[str, Any]]:
+    if max_depth <= 0:
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_schema in properties.items():
+        if not isinstance(raw_schema, dict):
+            continue
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        field_schema = _resolve_schema_ref(raw_schema, root_schema=root_schema)
+        path = f"{parent}.{name}" if parent else name
+        result[path] = _field_detail(field_schema, root_schema=root_schema)
+        items = field_schema.get("items")
+        if isinstance(items, dict):
+            item_schema = _resolve_schema_ref(items, root_schema=root_schema)
+            item_properties = dict(item_schema.get("properties") or {}) if isinstance(item_schema.get("properties"), dict) else {}
+            if item_properties:
+                result.update(
+                    _schema_field_paths(
+                        item_properties,
+                        root_schema=root_schema,
+                        parent=f"{path}[]",
+                        max_depth=max_depth - 1,
+                    )
+                )
+        child_properties = dict(field_schema.get("properties") or {}) if isinstance(field_schema.get("properties"), dict) else {}
+        if child_properties:
+            result.update(
+                _schema_field_paths(
+                    child_properties,
+                    root_schema=root_schema,
+                    parent=path,
+                    max_depth=max_depth - 1,
+                )
+            )
+    return result
+
+
+def _field_type_label(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> str:
+    field_schema = _resolve_schema_ref(schema, root_schema=root_schema)
+    raw_type = field_schema.get("type")
+    if isinstance(raw_type, list):
+        field_type = "|".join(str(item) for item in raw_type if str(item)) or "any"
+    else:
+        field_type = str(raw_type or ("string" if field_schema.get("enum") else "any"))
+    items = field_schema.get("items")
+    if isinstance(items, dict):
+        item_schema = _resolve_schema_ref(items, root_schema=root_schema)
+        item_type = _field_type_label(item_schema, root_schema=root_schema)
+        field_type = f"{field_type}<{item_type}>"
+    return field_type
+
+
+def _resolve_schema_ref(schema: dict[str, Any], *, root_schema: dict[str, Any]) -> dict[str, Any]:
+    ref = str(schema.get("$ref") or "").strip()
+    if not ref.startswith("#/"):
+        return dict(schema)
+    target: Any = root_schema
+    for part in ref[2:].split("/"):
+        if not isinstance(target, dict):
+            return dict(schema)
+        target = target.get(part.replace("~1", "/").replace("~0", "~"))
+    if not isinstance(target, dict):
+        return dict(schema)
+    merged = dict(target)
+    for key, value in schema.items():
+        if key != "$ref":
+            merged[key] = value
+    return merged
+
+
+def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict[str, Any]) -> dict[str, Any]:
+    name = str(tool_name or "").strip()
+    if name not in _SPECIAL_CONTRACT_TOOL_NAMES:
+        return {}
+    summary: dict[str, Any] = {
+        "authority": "harness.runtime.tool_catalog_manifest.tool_contract_summary",
+        "required_inputs": [str(item) for item in list(input_schema_summary.get("required") or []) if str(item)],
+        "optional_inputs": [str(item) for item in list(input_schema_summary.get("optional") or []) if str(item)],
+        "forbidden_unknown_fields": bool(input_schema_summary.get("forbidden_unknown_fields") is True),
+    }
+    field_paths = dict(input_schema_summary.get("field_paths") or {})
+    if name == "agent_todo":
+        summary.update(
+            {
+                "critical_fields": {
+                    "items[].status": dict(field_paths.get("items[].status") or {}),
+                    "todo_id": dict(field_paths.get("todo_id") or {}),
+                    "status": dict(field_paths.get("status") or {}),
+                },
+                "forbidden_fields": ["id", "item_id", "todo", "todos"],
+                "forbidden_values": {"items[].status": ["active"], "status": ["active"]},
+            }
+        )
+    elif name == "spawn_subagent":
+        summary.update(
+            {
+                "critical_fields": {"target_agent_id": dict(field_paths.get("target_agent_id") or {})},
+                "runtime_constraint": "target_agent_id must be one of runtime_boundary.tool_boundary.allowed_subagent_ids.",
+                "forbidden_fields": ["agent_id", "target_subagent_id"],
+            }
+        )
+    elif name == "write_file":
+        summary.update(
+            {
+                "critical_fields": {
+                    "path": dict(field_paths.get("path") or {}),
+                    "content": dict(field_paths.get("content") or {}),
+                    "allow_overwrite": dict(field_paths.get("allow_overwrite") or {}),
+                    "expected_previous_sha256": dict(field_paths.get("expected_previous_sha256") or {}),
+                }
+            }
+        )
+    elif name == "edit_file":
+        summary.update(
+            {
+                "critical_fields": {
+                    "path": dict(field_paths.get("path") or {}),
+                    "old_text": dict(field_paths.get("old_text") or {}),
+                    "new_text": dict(field_paths.get("new_text") or {}),
+                }
+            }
+        )
+    elif name == "read_file":
+        summary.update(
+            {
+                "critical_fields": {
+                    "path": dict(field_paths.get("path") or {}),
+                    "start_line": dict(field_paths.get("start_line") or {}),
+                    "line_count": dict(field_paths.get("line_count") or {}),
+                    "read_intent": dict(field_paths.get("read_intent") or {}),
+                },
+                "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "file_unchanged"],
+            }
+        )
+    elif name == "search_text":
+        summary.update(
+            {
+                "critical_fields": {
+                    "query": dict(field_paths.get("query") or {}),
+                    "output_mode": dict(field_paths.get("output_mode") or {}),
+                    "context": dict(field_paths.get("context") or {}),
+                    "head_limit": dict(field_paths.get("head_limit") or {}),
+                    "offset": dict(field_paths.get("offset") or {}),
+                },
+                "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
+            }
+        )
+    return {key: _json_stable(value) for key, value in summary.items() if value not in ("", [], {})}
 
 
 def _stable_json_hash(value: Any) -> str:

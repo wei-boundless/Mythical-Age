@@ -123,6 +123,49 @@ def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     assert tool_result["has_more"] is True
 
 
+def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.js").write_text("const label = 'old';", encoding="utf-8")
+
+    first_read = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "src/app.js"},
+        operation_id="op.read_file",
+        permission_mode="full_access",
+    )
+    assert first_read["error"] == ""
+
+    edit = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="edit_file",
+        tool_args={"path": "src/app.js", "old_text": "old", "new_text": "new"},
+        operation_id="op.edit_file",
+        permission_mode="full_access",
+    )
+    assert edit["error"] == ""
+    assert (project / "src" / "app.js").read_text(encoding="utf-8") == "const label = 'new';"
+
+    second_read = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "src/app.js"},
+        operation_id="op.read_file",
+        permission_mode="full_access",
+    )
+
+    envelope = second_read["observation"].payload["result_envelope"]
+    tool_result = envelope["structured_payload"]["tool_result"]
+    assert second_read["error"] == ""
+    assert second_read["observation"].payload["result"] == "1 | const label = 'new';"
+    assert tool_result["repository_id"] == "repo.managed_project.project_workspace"
+
+
 def test_runtime_project_workspace_write_is_rejected_without_file_approval(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
@@ -246,6 +289,7 @@ def _run_tool(
     file_profile_id: str = "file_profile.managed_project_workspace",
     file_repositories: dict[str, str] | None = None,
     default_file_repositories: bool = True,
+    permission_mode: str = "",
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
@@ -311,6 +355,7 @@ def _run_tool(
                 "mode": "workspace_overlay",
                 "sandbox_root": str(sandbox_root),
                 "workspace_root": str(workspace),
+                **({"permission_mode": permission_mode} if permission_mode else {}),
             },
             file_management_policy={
                 "enabled": True,
