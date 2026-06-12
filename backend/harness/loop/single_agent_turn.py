@@ -3566,7 +3566,7 @@ def _tool_observation_status_from_admission(admission: AdmissionDecision) -> str
         return "denied"
     if decision == "ask_approval":
         return "needs_approval"
-    if decision == "needs_contract":
+    if decision in {"needs_contract", "needs_task_run"}:
         return "needs_contract"
     return "error"
 
@@ -4279,14 +4279,14 @@ def _active_work_control_requires_followup(active_work_control: dict[str, Any], 
         return True
     if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
         return True
-    if action in _STEER_ACTIVE_WORK_ACTIONS:
-        return True
-    if user_turn_kind in {"question", "complaint", "mixed"}:
-        return True
     if obligation in {"none", "no_answer_required", "acknowledgement_only", "ack_only", "ack"}:
         return False
     if response_policy in {"active_work_only", "no_user_reply", "control_only", "status_only"}:
         return False
+    if user_turn_kind in {"question", "complaint", "mixed"}:
+        return True
+    if action in _STEER_ACTIVE_WORK_ACTIONS:
+        return True
     return action not in _STEER_ACTIVE_WORK_ACTIONS
 
 

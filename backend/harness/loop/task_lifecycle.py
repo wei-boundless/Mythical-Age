@@ -352,7 +352,7 @@ def start_task_lifecycle(
         task_contract_ref=contract_ref,
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
         execution_runtime_kind="single_agent_task",
-        status="waiting_executor",
+        status="created",
         created_at=now,
         updated_at=now,
         diagnostics={
@@ -406,7 +406,7 @@ def start_task_lifecycle(
         task_run_id=task_run_id,
         agent_id="agent:0",
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
-        status="waiting_executor",
+        status="created",
         execution_runtime_kind="single_agent_task",
         created_at=now,
         updated_at=now,
@@ -415,7 +415,7 @@ def start_task_lifecycle(
     lifecycle = TaskLifecycleRecord(
         task_run_id=task_run_id,
         contract_ref=contract_ref,
-        status="waiting_executor",
+        status="created",
         created_at=now,
         updated_at=now,
     )
@@ -439,7 +439,7 @@ def start_task_lifecycle(
                 session_id=session_id,
                 turn_id=turn_id,
                 task_run_id=task_run_id,
-                state="waiting_executor",
+                state="starting",
             )
         except Exception:
             pass

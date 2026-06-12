@@ -57,6 +57,16 @@ _SUPPRESSED_PROGRESS_TEXT = {
 _STRUCTURED_PLAN_TOOL_NAMES = {
     "agent_todo",
 }
+_PUBLIC_TIMELINE_RESET_EVENTS = {
+    "user_work_instruction_recorded",
+    "active_task_steer_recorded",
+    "active_task_steer_accepted",
+    "active_task_steer_included",
+    "active_task_steer_consumed",
+    "task_run_resume_requested",
+}
+
+
 def build_session_runtime_timeline(
     *,
     session_id: str,
@@ -503,6 +513,15 @@ def _public_timeline_item_text(item: dict[str, Any]) -> str:
 
 
 def _public_since_offset(events: list[dict[str, Any]]) -> int:
+    for event in reversed(sorted(list(events or []), key=lambda item: int(item.get("offset") or 0))):
+        event_type = str(event.get("event_type") or "")
+        if event_type in _PUBLIC_TIMELINE_RESET_EVENTS:
+            return int(event.get("offset") or 0)
+        if event_type == "task_run_executor_scheduled":
+            payload = dict(event.get("payload") or {})
+            scheduler = str(payload.get("scheduler") or "").strip()
+            if scheduler in {"task_run_resume_api", "task_run_approval_resume_api"}:
+                return int(event.get("offset") or 0)
     return 0
 
 

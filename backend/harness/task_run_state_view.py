@@ -63,7 +63,7 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         work_state = "paused"
     elif terminal_failed:
         work_state = "failed"
-    elif status == "blocked" and recoverable:
+    elif status == "blocked" and recoverable and recovery_action in RECOVERY_ACTIONS:
         work_state = "ready_to_continue"
     elif status == "blocked":
         work_state = "waiting_user"
@@ -205,9 +205,7 @@ def _resumable_breakpoint(
 ) -> bool:
     if recovery_action in RECOVERY_ACTIONS and recoverable:
         return True
-    if status == "waiting_executor" and terminal_reason == "waiting_executor":
-        return True
-    if status == "waiting_executor" and control_state in {"resume_requested", "interrupted_for_replan"}:
+    if status == "waiting_executor" and control_state == "resume_requested":
         return True
     return False
 

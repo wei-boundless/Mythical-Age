@@ -854,6 +854,57 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["planning"]["todo_required_when_task_run"] is True
 
 
+def test_single_turn_task_memory_tool_route_is_dynamic_not_tool_index() -> None:
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:task-memory-route",
+        turn_id="turn:task-memory-route",
+        agent_invocation_id="aginvoke:task-memory-route",
+        user_message="结合之前留下的记忆，为我梳理一份新的升级计划",
+        history=[],
+        runtime_assembly={
+            "profile": {
+                "profile_ref": "main_interactive_agent",
+                "task_lifecycle_policy": {"request_task_run": True},
+                "permission_policy": {"permission_scope": "agent_profile_ceiling"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "available_tools": [
+                {"tool_name": "memory_search", "operation_id": "op.memory_read", "owner_scope": "task_memory"},
+                {"tool_name": "read_file", "operation_id": "op.read_file", "owner_scope": "none"},
+            ],
+            "operation_authorization": {
+                "allowed_operations": ["op.model_response", "op.memory_read", "op.read_file"],
+            },
+            "control_capabilities": {
+                "may_call_tools": True,
+                "may_request_task_run": True,
+                "may_control_active_work": False,
+            },
+        },
+    )
+
+    tool_index = _message_payload_with_title(result.packet, "Single agent turn tool index")
+    dynamic_payload = _payload_after_title(
+        _message_content_with_title(result.packet, "Single agent turn dynamic runtime"),
+        "Single agent turn dynamic runtime",
+    )
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
+    routes = projection["tool_boundary"]["task_scoped_tool_routes"]
+    tool_names = [item["tool_name"] for item in tool_index["available_tools"]]
+
+    assert tool_names == ["read_file"]
+    assert routes == [
+        {
+            "tool_name": "memory_search",
+            "operation_id": "op.memory_read",
+            "owner_scope": "task_memory",
+            "required_action": "request_task_run",
+        }
+    ]
+    assert "memory_search" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
+    assert "request_task_run" in _message_content_with_title(result.packet, "Single agent turn dynamic runtime")
+
+
 def test_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:conversation-projection",

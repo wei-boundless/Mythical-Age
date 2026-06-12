@@ -23,6 +23,7 @@ _SUBAGENT_LIFECYCLE_TOOL_NAMES = {
     "list_subagents",
     "close_subagent",
 }
+_TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,7 @@ def build_runtime_tool_plan(
         definition = definition_by_name.get(name)
         operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or name)
         operation = _operation_descriptor(operation_id)
+        owner_scope = _tool_owner_scope(tool, definition)
         if operation is not None:
             read_only = bool(operation.read_only)
             destructive = bool(operation.destructive)
@@ -139,6 +141,7 @@ def build_runtime_tool_plan(
                     "destructive": destructive,
                     "concurrency_safe": concurrency_safe,
                     "operation_type": operation_type,
+                    "owner_scope": owner_scope,
                     "requires_approval_by_default": requires_approval_by_default,
                     "authorization_reason": str(tool.get("authorization_reason") or ""),
                     "tool_view": dict(tool),
@@ -235,6 +238,7 @@ def _tool_allowed_for_runtime_plan(
     tool_name = _tool_name(tool)
     definition = definition_by_name.get(tool_name)
     operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
+    owner_scope = _tool_owner_scope(tool, definition)
     if tool_name in _SUBAGENT_LIFECYCLE_TOOL_NAMES and invocation_kind != "task_execution":
         filtered_issues.append(
             ToolCapabilityFilterIssue(
@@ -243,6 +247,21 @@ def _tool_allowed_for_runtime_plan(
                 reason="subagent_lifecycle_requires_task_execution",
                 source="invocation_kind",
                 metadata={"invocation_kind": str(invocation_kind or "")},
+            )
+        )
+        return False
+    if invocation_kind == "single_agent_turn" and owner_scope in _TASK_RUNTIME_OWNER_SCOPES:
+        filtered_issues.append(
+            ToolCapabilityFilterIssue(
+                operation_id=operation_id,
+                tool_name=tool_name,
+                reason="task_scoped_tool_requires_task_run",
+                source="runtime_scope",
+                metadata={
+                    "invocation_kind": str(invocation_kind or ""),
+                    "owner_scope": owner_scope,
+                    "required_action": "request_task_run",
+                },
             )
         )
         return False
@@ -317,6 +336,11 @@ def _tool_with_authorization_metadata(
         "requires_approval": requires_approval,
         "authorization_reason": str(dict(decision or {}).get("reason") or payload.get("authorization_reason") or ""),
     }
+
+
+def _tool_owner_scope(tool: dict[str, Any], definition: Any | None) -> str:
+    contract = getattr(definition, "contract", None)
+    return str(tool.get("owner_scope") or getattr(contract, "owner_scope", "") or "none").strip()
 
 
 def _local_mcp_route_capabilities(

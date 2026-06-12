@@ -406,7 +406,7 @@ def resume_paused_task_run(
         return _conflict(task_run_id, f"task_run_terminal:{status}")
     if status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
         return _conflict(task_run_id, "task_run_waiting_approval_requires_grant")
-    if not _is_task_run_resumable_for_user_control(task_run) and status != "blocked":
+    if not _is_task_run_resumable_for_user_control(task_run):
         return _conflict(task_run_id, f"task_run_not_resumable:{status}")
     now = time.time()
     recovery_state = recovery_state_for_task_run(task_run)

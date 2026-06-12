@@ -50,6 +50,15 @@ class TaskExecutorController:
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
+        if str(scheduler or "").strip() == "runtime_start_recovery":
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="runtime_start_recovery_does_not_auto_schedule",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
         if _is_task_run_executor_claimed(task_run):
             return _schedule_result(
                 ok=True,
@@ -116,6 +125,15 @@ class TaskExecutorController:
                 scheduled=False,
                 task_run_id=task_run_id,
                 reason="session_deleted",
+                scheduler=scheduler,
+                recovered_from=recovered_from,
+            )
+        if str(scheduler or "").strip() == "runtime_start_recovery":
+            return _schedule_result(
+                ok=False,
+                scheduled=False,
+                task_run_id=task_run_id,
+                reason="runtime_start_recovery_does_not_auto_schedule",
                 scheduler=scheduler,
                 recovered_from=recovered_from,
             )
@@ -231,52 +249,6 @@ class TaskExecutorController:
             "task_run_ids": recovered,
             "skipped_graph_node_task_run_ids": skipped_graph_node_task_run_ids,
             "authority": "harness.loop.task_executor_controller.runtime_start_recovery",
-        }
-
-    def schedule_runtime_start_recovered_executors(
-        self,
-        task_run_ids: list[str] | tuple[str, ...] | set[str] | None = None,
-        *,
-        scheduler: str = "runtime_start_recovery",
-        max_steps: int = 50,
-    ) -> dict[str, Any]:
-        requested_ids = [str(item or "").strip() for item in list(task_run_ids or []) if str(item or "").strip()]
-        candidate_ids = _dedupe_preserving_order(
-            [
-                *requested_ids,
-                *[
-                    str(getattr(task_run, "task_run_id", "") or "").strip()
-                    for task_run in self.runtime_host.state_index.list_task_runs()
-                    if _is_runtime_start_recovery_breakpoint(task_run)
-                ],
-            ]
-        )
-        scheduled: list[str] = []
-        skipped: list[dict[str, str]] = []
-        schedule_results: list[dict[str, Any]] = []
-        for task_run_id in candidate_ids:
-            result = self.schedule(
-                task_run_id,
-                scheduler=scheduler,
-                max_steps=max_steps,
-                recovered_from="runtime_start_recovery",
-            )
-            schedule_results.append(result)
-            if bool(result.get("ok")) and bool(result.get("scheduled")):
-                scheduled.append(task_run_id)
-            else:
-                skipped.append(
-                    {
-                        "task_run_id": task_run_id,
-                        "reason": str(result.get("reason") or "not_scheduled"),
-                    }
-                )
-        return {
-            "scheduled_count": len(scheduled),
-            "scheduled_task_run_ids": scheduled,
-            "skipped": skipped,
-            "schedule_results": schedule_results,
-            "authority": "harness.loop.task_executor_controller.runtime_start_scheduler",
         }
 
     async def _runner(self, *, task_run_id: str, scheduler: str, max_steps: int) -> None:
@@ -413,19 +385,6 @@ def _is_task_run_executor_claimed(task_run: Any) -> bool:
     return recovery_state_for_task_run(task_run).running_claimed
 
 
-def _is_runtime_start_recovery_breakpoint(task_run: Any) -> bool:
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    recoverable_error = diagnostics.get("recoverable_error")
-    if not isinstance(recoverable_error, dict):
-        recoverable_error = {}
-    return (
-        str(getattr(task_run, "status", "") or "") == "waiting_executor"
-        and str(diagnostics.get("executor_status") or "") == "waiting_executor"
-        and str(diagnostics.get("recovery_action") or "") == "rerun_task_executor"
-        and str(recoverable_error.get("error_code") or "") == "task_executor_interrupted_by_runtime_restart"
-    )
-
-
 def _is_single_agent_task_run(task_run: Any) -> bool:
     return str(getattr(task_run, "execution_runtime_kind", "") or "") in {"single_agent_task", "subagent_task"}
 
@@ -471,17 +430,6 @@ def _strip_terminal_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
     ):
         payload.pop(key, None)
     return payload
-
-
-def _dedupe_preserving_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items:
-        if not item or item in seen:
-            continue
-        seen.add(item)
-        result.append(item)
-    return result
 
 
 def _schedule_result(

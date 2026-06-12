@@ -365,10 +365,11 @@ class RuntimeCompiler:
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
         )
-        single_turn_tools = _single_agent_turn_tools(
+        single_turn_tool_plan = _single_agent_turn_tool_plan(
             assembly_payload=assembly_payload,
             control_capabilities=control_capabilities,
         )
+        single_turn_tools = tuple(dict(item) for item in single_turn_tool_plan.model_visible_tools)
         if single_turn_tools and "tool_call" not in allowed_actions:
             allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
@@ -399,6 +400,7 @@ class RuntimeCompiler:
             operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
             available_tools=single_turn_tools,
             permission_mode=permission_mode,
+            tool_plan=single_turn_tool_plan,
         )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:single_agent_turn",
@@ -2355,14 +2357,29 @@ def _single_agent_turn_tools(
     assembly_payload: dict[str, Any],
     control_capabilities: dict[str, Any],
 ) -> tuple[dict[str, Any], ...]:
+    plan = _single_agent_turn_tool_plan(
+        assembly_payload=assembly_payload,
+        control_capabilities=control_capabilities,
+    )
+    return tuple(dict(item) for item in plan.model_visible_tools)
+
+
+def _single_agent_turn_tool_plan(
+    *,
+    assembly_payload: dict[str, Any],
+    control_capabilities: dict[str, Any],
+) -> Any:
     if bool(control_capabilities.get("may_call_tools") is False):
-        return ()
-    plan = build_runtime_tool_plan(
+        return build_runtime_tool_plan(
+            runtime_assembly={**dict(assembly_payload or {}), "available_tools": []},
+            invocation_kind="single_agent_turn",
+            tool_definitions_by_name={},
+        )
+    return build_runtime_tool_plan(
         runtime_assembly=assembly_payload,
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={},
     )
-    return tuple(dict(item) for item in plan.model_visible_tools)
 
 
 def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -3731,6 +3748,7 @@ def _agent_visible_runtime_projection(
     available_tools: tuple[dict[str, Any], ...],
     permission_mode: str = "default",
     prompt_policy: dict[str, Any] | None = None,
+    tool_plan: Any | None = None,
 ) -> dict[str, Any]:
     prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
@@ -3757,6 +3775,7 @@ def _agent_visible_runtime_projection(
         for item in available_tools
         if str(item.get("tool_name") or item.get("name") or "")
     ]
+    task_scoped_tool_routes = _task_scoped_tool_routes_from_tool_plan(tool_plan)
     visible_tool_name_set = {name for name in tool_names if name}
     subagent_lifecycle_enabled = bool(subagent.get("enabled") is True) and bool(
         visible_tool_name_set.intersection(
@@ -3797,6 +3816,7 @@ def _agent_visible_runtime_projection(
         "tool_boundary": {
             "visible_tool_count": len(tool_names),
             "visible_tool_names": tool_names,
+            "task_scoped_tool_routes": task_scoped_tool_routes,
             "allowed_operation_count": len(allowed_operations),
             "tools_are_limited_to_visible_context": True,
             "subagent_lifecycle_enabled": subagent_lifecycle_enabled,
@@ -3817,6 +3837,26 @@ def _agent_visible_runtime_projection(
             "boundary_authority": str(environment_boundary.get("authority") or ""),
         }
     return payload
+
+
+def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[str, str]]:
+    plan = tool_plan.to_dict() if hasattr(tool_plan, "to_dict") else dict(tool_plan or {})
+    capability_table = dict(plan.get("capability_table") or {})
+    routes: list[dict[str, str]] = []
+    for item in list(capability_table.get("filtered") or []):
+        issue = dict(item or {})
+        if str(issue.get("reason") or "") != "task_scoped_tool_requires_task_run":
+            continue
+        metadata = dict(issue.get("metadata") or {})
+        routes.append(
+            {
+                "tool_name": str(issue.get("tool_name") or ""),
+                "operation_id": str(issue.get("operation_id") or ""),
+                "owner_scope": str(metadata.get("owner_scope") or ""),
+                "required_action": str(metadata.get("required_action") or "request_task_run"),
+            }
+        )
+    return [item for item in routes if item["tool_name"]]
 
 
 def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
@@ -3894,6 +3934,17 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
     elif "request_task_run" in allowed_actions:
         lines.append("- 本轮不允许开启持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
+    task_scoped_routes = [
+        dict(item)
+        for item in list(tool_boundary.get("task_scoped_tool_routes") or [])
+        if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
+    ]
+    if projection.get("invocation_kind") == "single_agent_turn" and task_scoped_routes:
+        route_names = "、".join(str(item.get("tool_name") or "") for item in task_scoped_routes)
+        lines.append(
+            f"- 以下工具属于任务态能力，当前未进入任务运行，不能直接用普通 tool_call 调用：{route_names}。"
+            "如果本轮需要这些能力，必须选择 request_task_run 进入持续任务；如果任务目标、范围或验收标准不足，先 ask_user。"
+        )
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")

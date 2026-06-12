@@ -859,7 +859,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
 def _admission_is_blocked(payload: dict[str, Any]) -> bool:
     admission = _record(payload.get("admission") or payload.get("admission_decision"))
     decision = str(admission.get("decision") or "").strip().lower()
-    return decision in {"deny", "denied", "invalid", "needs_contract", "blocked"}
+    return decision in {"deny", "denied", "invalid", "needs_contract", "needs_task_run", "blocked"}
 
 
 def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

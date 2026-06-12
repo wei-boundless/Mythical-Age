@@ -107,7 +107,6 @@ class AppRuntime:
                 self._run_background_service_after_startup(command_supervisor.run_forever),
                 name="health-graph-breakpoint-command-supervisor",
             )
-        runtime.harness_runtime.start_runtime_recovered_task_run_executors()
         self._background_services_started = True
 
     async def _run_background_service_after_startup(self, runner, *, initial_delay_seconds: float = 1.0) -> None:
@@ -340,4 +339,3 @@ class AppRuntime:
 
 
 app_runtime = AppRuntime()
-

@@ -46,6 +46,35 @@ def test_action_admission_emits_permit_for_allowed_tool_call() -> None:
     assert payload["allowed_tool_names"] == ["read_file"]
 
 
+def test_action_admission_routes_task_memory_tool_to_task_run() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:test:memory",
+        turn_id="turn:test:memory",
+        action_type="tool_call",
+        tool_call={"tool_name": "memory_search", "args": {"query": "升级计划"}},
+    )
+
+    admission = admit_model_action(
+        action,
+        packet_allowed_action_types=("respond", "tool_call", "request_task_run", "block"),
+        invocation_kind="single_agent_turn",
+        definitions_by_name={
+            "memory_search": SimpleNamespace(
+                operation_id="op.memory_read",
+                is_read_only=True,
+                contract=SimpleNamespace(owner_scope="task_memory"),
+            )
+        },
+        allowed_tool_names={"memory_search"},
+        permission_mode="default",
+        side_effect_policy="runtime_authorized",
+    )
+
+    assert admission.decision == "needs_task_run"
+    assert admission.system_reason == "task_scoped_tool_requires_task_run"
+    assert admission.permission_delta["required_action"] == "request_task_run"
+
+
 def test_tool_invocation_permit_validation_rejects_mismatched_tool() -> None:
     permit = {
         "permit_id": "action-permit:model-action:test:read",

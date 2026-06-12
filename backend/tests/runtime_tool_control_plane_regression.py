@@ -136,6 +136,60 @@ def test_runtime_tool_plan_hides_subagent_lifecycle_tools_outside_task_execution
     assert filtered["spawn_subagent"] == "subagent_lifecycle_requires_task_execution"
 
 
+def test_runtime_tool_plan_hides_task_memory_tools_outside_task_execution() -> None:
+    definitions = {
+        "memory_search": SimpleNamespace(
+            operation_id="op.memory_read",
+            is_read_only=True,
+            contract=SimpleNamespace(owner_scope="task_memory"),
+        ),
+        "read_file": SimpleNamespace(operation_id="op.read_file", is_read_only=True),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "memory_search", "operation_id": "op.memory_read", "owner_scope": "task_memory"},
+                {"name": "read_file", "operation_id": "op.read_file"},
+            ],
+        ),
+        invocation_kind="single_agent_turn",
+        tool_definitions_by_name=definitions,
+    )
+
+    filtered = {
+        item["tool_name"]: item
+        for item in plan.capability_table.to_dict()["filtered"]
+        if item.get("tool_name")
+    }
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["read_file"]
+    assert "memory_search" not in plan.dispatchable_tool_names
+    assert filtered["memory_search"]["reason"] == "task_scoped_tool_requires_task_run"
+    assert filtered["memory_search"]["metadata"]["required_action"] == "request_task_run"
+
+
+def test_runtime_tool_plan_keeps_task_memory_tools_for_task_execution() -> None:
+    definitions = {
+        "memory_search": SimpleNamespace(
+            operation_id="op.memory_read",
+            is_read_only=True,
+            contract=SimpleNamespace(owner_scope="task_memory"),
+        ),
+    }
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "memory_search", "operation_id": "op.memory_read", "owner_scope": "task_memory"},
+            ],
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name=definitions,
+    )
+
+    assert [tool["name"] for tool in plan.model_visible_tools] == ["memory_search"]
+    assert plan.dispatchable_tool_names == ("memory_search",)
+
+
 def test_runtime_tool_plan_keeps_subagent_lifecycle_tools_for_task_execution() -> None:
     definitions = {
         "list_subagents": SimpleNamespace(operation_id="op.subagent_list", is_read_only=True),

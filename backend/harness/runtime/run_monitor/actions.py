@@ -72,8 +72,6 @@ class RuntimeMonitorActionService:
             effects = await self._delete_record(payload=payload, signal=signal)
         elif action == "pause_task":
             effects = self._pause_task(payload=payload, signal=signal)
-        elif action == "resume_task":
-            effects = self._resume_task(payload=payload, signal=signal)
         elif action == "stop_task":
             effects = self._stop_task(payload=payload, signal=signal)
         elif action in {"preview_delete_record", "preview_delete_graph_run"}:
@@ -112,7 +110,6 @@ class RuntimeMonitorActionService:
         task_run_required_actions = {
             "close_runtime",
             "pause_task",
-            "resume_task",
             "stop_task",
             "delete_record",
             "preview_delete_record",
@@ -276,25 +273,6 @@ class RuntimeMonitorActionService:
         task_run_id = _task_run_id(payload=payload, signal=signal)
         return dict(request_task_run_pause(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
 
-    def _resume_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        from harness.loop.task_executor import resume_paused_task_run
-
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        result = dict(resume_paused_task_run(self.host, task_run_id, reason=str(payload.get("reason") or ""), requested_by="user") or {})
-        if result.get("ok"):
-            schedule = self.runtime.harness_runtime.schedule_task_run_executor(
-                task_run_id,
-                scheduler="runtime_monitor_action_resume",
-                max_steps=max(1, min(int(payload.get("max_steps") or 12), 50)),
-            )
-            result["schedule"] = schedule
-            result["background_started"] = bool(schedule.get("scheduled"))
-            if str(schedule.get("reason") or "").strip() == "already_running":
-                result["executor_already_running"] = True
-            if not _schedule_result_allows_progress(schedule):
-                result["error"] = str(schedule.get("reason") or "task_run_schedule_rejected")
-        return result
-
     def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         from harness.loop.task_executor import stop_task_run
 
@@ -304,14 +282,6 @@ class RuntimeMonitorActionService:
 
 def _action_name(payload: dict[str, Any]) -> str:
     return str(payload.get("action") or "").strip()
-
-
-def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
-    if not result.get("ok"):
-        return False
-    if result.get("scheduled"):
-        return True
-    return str(result.get("reason") or "").strip() == "already_running"
 
 
 def _source_revision_check(*, payload: dict[str, Any], monitor: dict[str, Any]) -> dict[str, Any]:

@@ -446,7 +446,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     waiting_actions = {item["action"]: item for item in waiting_signal["actions"]}
     assert waiting_signal["activity_state"] == "waiting"
     assert waiting_signal["is_resumable"] is False
-    assert waiting_actions["resume_task"]["enabled"] is False
+    assert "resume_task" not in waiting_actions
     assert waiting_actions["pause_task"]["enabled"] is False
     assert waiting_actions["stop_task"]["enabled"] is True
     assert waiting_actions["close_runtime"]["enabled"] is False
@@ -455,7 +455,7 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     paused_actions = {item["action"]: item for item in paused_signal["actions"]}
     assert paused_signal["activity_state"] == "paused"
     assert paused_signal["is_resumable"] is True
-    assert paused_actions["resume_task"]["enabled"] is True
+    assert "resume_task" not in paused_actions
     assert paused_actions["pause_task"]["enabled"] is False
     assert paused_actions["stop_task"]["enabled"] is True
     assert paused_actions["close_runtime"]["enabled"] is False
@@ -465,13 +465,13 @@ def test_runtime_monitor_actions_use_activity_control_capability(tmp_path):
     assert running_signal["is_running"] is True
     assert running_actions["pause_task"]["enabled"] is True
     assert running_actions["stop_task"]["enabled"] is True
-    assert running_actions["resume_task"]["enabled"] is False
+    assert "resume_task" not in running_actions
     assert running_actions["close_runtime"]["enabled"] is False
 
     stopped_signal = signals["taskrun:stopped"]
     stopped_actions = {item["action"]: item for item in stopped_signal["actions"]}
     assert stopped_signal["activity_state"] == "stopped"
-    assert stopped_actions["resume_task"]["enabled"] is False
+    assert "resume_task" not in stopped_actions
     assert stopped_actions["stop_task"]["enabled"] is False
 
 
@@ -754,7 +754,7 @@ def test_runtime_monitor_management_projects_stale_waiting_executor_as_closeable
     assert monitor["summary"]["waiting"] == 0
     assert actions["clear_from_monitor"]["enabled"] is True
     assert actions["pause_task"]["enabled"] is False
-    assert actions["resume_task"]["enabled"] is False
+    assert "resume_task" not in actions
     assert actions["close_runtime"]["enabled"] is True
     assert actions["stop_task"]["enabled"] is False
 
@@ -785,7 +785,7 @@ def test_runtime_monitor_management_projects_stale_running_as_closeable_not_paus
     assert signal["is_running"] is False
     assert monitor["summary"]["active"] == 0
     assert actions["pause_task"]["enabled"] is False
-    assert actions["resume_task"]["enabled"] is False
+    assert "resume_task" not in actions
     assert actions["stop_task"]["enabled"] is False
     assert actions["close_runtime"]["enabled"] is True
 
@@ -870,7 +870,7 @@ def test_runtime_monitor_close_runtime_stops_and_hides_signal(tmp_path, monkeypa
     assert [item["signal_id"] for item in hidden] == ["taskrun:stale-close"]
 
 
-def test_runtime_monitor_resume_treats_already_running_schedule_as_accepted(tmp_path, monkeypatch):
+def test_runtime_monitor_resume_action_is_not_a_backend_control_path(tmp_path, monkeypatch):
     paused = task_run(
         task_run_id="taskrun:paused-resume",
         session_id="session-paused-resume",
@@ -904,18 +904,19 @@ def test_runtime_monitor_resume_treats_already_running_schedule_as_accepted(tmp_
         harness_runtime=HarnessRuntimeStub(),
     )
     action_service = RuntimeMonitorActionService(runtime=runtime, monitor_service=service)
+    schedule_calls = []
 
     def fake_resume_paused_task_run(host, task_run_id, *, reason="", requested_by="user"):
-        return {"ok": True, "accepted": True, "task_run_id": task_run_id, "reason": reason, "requested_by": requested_by}
+        raise AssertionError("monitor resume should not call task resume")
 
     monkeypatch.setattr("harness.loop.task_executor.resume_paused_task_run", fake_resume_paused_task_run)
+    runtime.harness_runtime.schedule_task_run_executor = lambda *args, **kwargs: schedule_calls.append((args, kwargs))
 
     result = asyncio.run(action_service.execute({"action": "resume_task", "signal_id": "taskrun:paused-resume"}))
 
-    assert result["accepted"] is True
-    assert result["effects"]["background_started"] is False
-    assert result["effects"]["executor_already_running"] is True
-    assert "error" not in result["effects"]
+    assert result["accepted"] is False
+    assert result["disabled_reason"] == "action_not_available"
+    assert schedule_calls == []
 
 
 def test_runtime_monitor_delete_action_queues_physical_cleanup_and_hides_signal(tmp_path):

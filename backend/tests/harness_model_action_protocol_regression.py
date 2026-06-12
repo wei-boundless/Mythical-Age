@@ -732,7 +732,7 @@ def test_active_work_turn_decision_maps_no_user_reply_to_no_answer_obligation() 
     assert decision.answer_obligation == "none"
 
 
-def test_active_work_control_followup_contract_keeps_steer_actions_running() -> None:
+def test_active_work_control_followup_contract_honors_explicit_response_policy() -> None:
     from harness.loop.single_agent_turn import _active_work_control_requires_followup
 
     assert (
@@ -745,7 +745,7 @@ def test_active_work_control_followup_contract_keeps_steer_actions_running() -> 
             },
             status="completed",
         )
-        is True
+        is False
     )
     assert (
         _active_work_control_requires_followup(
@@ -757,7 +757,7 @@ def test_active_work_control_followup_contract_keeps_steer_actions_running() -> 
             },
             status="completed",
         )
-        is True
+        is False
     )
     assert (
         _active_work_control_requires_followup(

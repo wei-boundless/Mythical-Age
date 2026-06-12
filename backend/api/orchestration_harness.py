@@ -267,7 +267,7 @@ def _assert_expected_active_turn(runtime_host: Any, task_run_id: str, expected_a
         return
     active_turn = runtime_host.active_turn_registry.snapshot(_task_run_session_id(runtime_host, task_run_id))
     if active_turn is None:
-        return
+        raise HTTPException(status_code=409, detail="active_turn_unavailable")
     if active_turn.turn_id != expected:
         raise HTTPException(status_code=409, detail="active_turn_mismatch")
     if active_turn.bound_task_run_id != task_run_id:

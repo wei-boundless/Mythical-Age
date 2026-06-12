@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ import api.orchestration_harness as orchestration_harness
 from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
-from harness.loop.task_executor import request_task_run_pause
+from harness.loop.task_executor import is_task_run_executable, request_task_run_pause, resume_paused_task_run
 from harness.loop.task_lifecycle import (
     TaskLifecycleRecord,
     TaskRunContract,
@@ -269,6 +270,25 @@ def test_task_run_control_rejects_mismatched_active_turn(tmp_path: Path) -> None
     assert exc.value.detail == "active_turn_mismatch"
 
 
+def test_task_run_control_rejects_missing_active_turn_when_expected_id_present(tmp_path: Path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:current",
+        session_id="session:test",
+        task_id="task:current",
+        status="running",
+        created_at=1,
+        updated_at=2,
+    )
+    host.state_index.upsert_task_run(task_run)
+
+    with pytest.raises(HTTPException) as exc:
+        _assert_expected_active_turn(host, "taskrun:current", "turn:session:test:1")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "active_turn_unavailable"
+
+
 def test_execute_task_run_rejects_mismatched_active_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
     task_run = TaskRun(
@@ -311,14 +331,56 @@ def test_execute_task_run_rejects_mismatched_active_turn(tmp_path: Path, monkeyp
     assert exc.value.detail == "active_turn_mismatch"
 
 
-def test_active_turn_plain_instruction_uses_fast_path_without_new_task(tmp_path: Path) -> None:
+def test_waiting_executor_without_explicit_recovery_boundary_is_not_executable(tmp_path: Path) -> None:
+    host = SingleAgentRuntimeHost(tmp_path, backend_dir=Path.cwd())
+    task_run = TaskRun(
+        task_run_id="taskrun:ambiguous-waiting",
+        session_id="session:test",
+        task_id="task:ambiguous-waiting",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        terminal_reason="waiting_executor",
+        created_at=1,
+        updated_at=2,
+    )
+    host.state_index.upsert_task_run(task_run)
+
+    resume = resume_paused_task_run(host, task_run.task_run_id, requested_by="user")
+
+    assert is_task_run_executable(task_run) is False
+    assert resume["ok"] is False
+    assert resume["error"] == "task_run_not_resumable:waiting_executor"
+
+
+def test_active_turn_plain_instruction_uses_model_decision_without_keyword_pause(tmp_path: Path) -> None:
     import asyncio
 
-    class FailingModelRuntime:
-        async def invoke_messages(self, *_args, **_kwargs):
-            raise AssertionError("active turn steer plain instruction should not fall back to model")
+    class ActiveWorkAppendModelRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
 
-    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=FailingModelRuntime())
+        async def invoke_messages(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                action = ModelActionRequest(
+                    request_id="model-action:active-steer",
+                    turn_id="turn:session:test:1",
+                    action_type="active_work_control",
+                    public_progress_note="正在判断当前补充要求。",
+                    active_work_control={
+                        "action": "append_instruction_to_active_work",
+                        "relation_to_current_work": "current_work",
+                        "appended_instruction": "等一下 task runtime 为什么必须有 task_environment？",
+                        "response": "我会先把这个问题接入当前工作判断。",
+                        "turn_response_policy": "active_work_only",
+                        "answer_obligation": "none",
+                    },
+                )
+                return SimpleNamespace(content=json.dumps(action.to_dict(), ensure_ascii=False))
+            return SimpleNamespace(content="已接入当前工作。")
+
+    model = ActiveWorkAppendModelRuntime()
+    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
     host = runtime.single_agent_runtime_host
     task_run = TaskRun(
         task_run_id="taskrun:current",
@@ -344,7 +406,7 @@ def test_active_turn_plain_instruction_uses_fast_path_without_new_task(tmp_path:
         async for event in runtime.astream(
             HarnessRuntimeRequest(
                 session_id="session:test",
-                message="顺手把异常链路也一起修掉。",
+                message="等一下 task runtime 为什么必须有 task_environment？",
                 active_turn_input_policy="steer",
                 expected_active_turn_id="turn:session:test:old",
             )
@@ -354,13 +416,58 @@ def test_active_turn_plain_instruction_uses_fast_path_without_new_task(tmp_path:
 
     events = asyncio.run(_collect())
     updated = host.state_index.get_task_run("taskrun:current")
+    event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
+    assert model.calls >= 1
     assert any(event.get("type") == "active_task_steer_accepted" for event in events)
-    assert any(event.get("type") == "runtime_status" and event.get("title") == "已加入当前工作队列" for event in events)
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "append_instruction_to_active_work" for event in events)
+    assert not any(event.get("terminal_reason") == "pause_active_work" for event in events)
     assert updated is not None
+    assert updated.status == "running"
     assert int(dict(updated.diagnostics or {}).get("pending_user_steer_count") or 0) >= 1
+    assert "task_run_pause_requested" not in event_types
     messages = runtime.session_manager.load_session("session:test")
     assert len(messages) == 1
     assert messages[0]["role"] == "user"
     assert messages[0]["turn_id"] == "turn:session:test:1"
+
+
+def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing(tmp_path: Path) -> None:
+    import asyncio
+
+    class FailingModelRuntime:
+        async def invoke_messages(self, *_args, **_kwargs):
+            raise AssertionError("missing active turn steer should block before model")
+
+    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=FailingModelRuntime())
+    host = runtime.single_agent_runtime_host
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:old-waiting",
+            session_id="session:test",
+            task_id="task:old-waiting",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            terminal_reason="waiting_executor",
+            created_at=1,
+            updated_at=2,
+            diagnostics={"recovery_action": "rerun_task_executor", "recoverable_error": {"retryable": True}},
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session:test",
+                message="继续刚才那个任务。",
+                active_turn_input_policy="steer",
+                expected_active_turn_id="turn:session:test:old",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert host.active_turn_registry.snapshot("session:test") is None
+    assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_turn_steer_not_running" for event in events)

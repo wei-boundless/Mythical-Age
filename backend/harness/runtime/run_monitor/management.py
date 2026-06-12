@@ -237,7 +237,6 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     signal_capability = dict(signal.get("control_capability") or {})
     capability = {**source_capability, **signal_capability}
     pause_allowed = bool(capability.get("can_pause_task", signal.get("is_interruptible") is True or source.get("is_interruptible") is True))
-    resume_allowed = bool(capability.get("can_resume_task", signal.get("is_resumable") is True or source.get("is_resumable") is True))
     stop_allowed = bool(capability.get("can_stop_task", pause_allowed))
     graph_task = work_kind == "graph_task" or bool(graph_run_id)
     actions = [
@@ -250,13 +249,11 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
         clear_enabled = (terminal or stale) and not running
         actions.append(_action("clear_from_monitor", "清出", clear_enabled, "" if clear_enabled else "active_or_waiting_runtime"))
     pause_enabled = bool(task_run_id) and pause_allowed and not terminal and not (stale and not running)
-    resume_enabled = bool(task_run_id) and resume_allowed and not terminal and not (stale and not running)
     stop_enabled = bool(task_run_id) and stop_allowed and not terminal and not (stale and not running)
     close_enabled = bool(task_run_id) and stop_allowed and not terminal and stale and not running
     actions.extend(
         [
             _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),
-            _action("resume_task", "继续", resume_enabled, "" if resume_enabled else "not_waiting_task"),
             _action("stop_task", "停止", stop_enabled, "" if stop_enabled else "not_running_task"),
             _action(
                 "close_runtime",

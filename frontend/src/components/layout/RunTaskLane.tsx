@@ -17,7 +17,7 @@ type RunTaskLaneProps = {
 
 type RunTaskLaneAction = NonNullable<RunMonitorSignal["actions"]>[number];
 
-const HIDDEN_ACTIONS = new Set(["open", "inspect", "resume_task"]);
+const HIDDEN_ACTIONS = new Set(["open", "inspect"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
 const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 

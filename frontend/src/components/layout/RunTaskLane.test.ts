@@ -112,7 +112,7 @@ describe("RunTaskLane", () => {
     expect(html).not.toContain("run-monitor-action-menu");
   });
 
-  it("keeps continuation and navigation actions out of the task lane action group", () => {
+  it("keeps navigation actions out of the task lane action group", () => {
     const html = renderLane([
       signal({
         signal_id: "taskrun:1",
@@ -120,7 +120,6 @@ describe("RunTaskLane", () => {
         actions: [
           { action: "open", enabled: true, label: "打开" },
           { action: "inspect", enabled: true, label: "检查" },
-          { action: "resume_task", enabled: true, label: "继续" },
           { action: "delete_record", enabled: true, label: "删除记录" },
         ],
       }),
@@ -129,7 +128,6 @@ describe("RunTaskLane", () => {
     expect(html).toContain("删除记录");
     expect(html).not.toContain(">打开</button>");
     expect(html).not.toContain(">检查</button>");
-    expect(html).not.toContain(">继续</button>");
   });
 
   it("shows scoped runtime log entry when a task run id is present", () => {

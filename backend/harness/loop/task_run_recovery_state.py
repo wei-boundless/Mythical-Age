@@ -44,11 +44,11 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     recoverable = bool(view.get("recoverable"))
     graph_controlled = bool(view.get("graph_controlled"))
     task_work_state = str(view.get("task_work_state") or "")
-    executor_lease_state = str(view.get("executor_lease_state") or "")
     stopped = task_work_state == "stopped"
     paused = task_work_state == "paused" or control_state in PAUSE_CONTROL_STATES
     completed_iteration = task_work_state == "completed" or status in TERMINAL_COMPLETED_STATUSES
     running_claimed = bool(view.get("running_claimed"))
+    active_executable = bool(task_work_state == "active" and not graph_controlled)
 
     same_run_resumable = False
     reason = "not_resumable"
@@ -63,17 +63,13 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     elif bool(view.get("can_resume")):
         same_run_resumable = True
         reason = str(view.get("control_reason") or "resumable")
-    elif status == "waiting_executor" and executor_lease_state in {"lost", "none", "blocked"}:
-        same_run_resumable = True
-        reason = str(view.get("control_reason") or "waiting_executor")
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
-    elif status == "blocked" and recoverable:
-        same_run_resumable = True
-        reason = "recoverable_terminal"
+    elif active_executable:
+        reason = "active_task_run"
 
-    executable = same_run_resumable and not paused and control_state not in STOP_CONTROL_STATES
+    executable = (active_executable or same_run_resumable) and not paused and control_state not in STOP_CONTROL_STATES
     return TaskRunRecoveryState(
         status=status,
         executor_status=executor_status,

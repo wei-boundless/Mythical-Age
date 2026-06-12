@@ -6,7 +6,8 @@ from typing import Any, Literal
 from .model_action_protocol import AnyModelActionRequest
 
 
-AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract"]
+AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run"]
+_TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,23 @@ def admit_model_action(
                 user_visible_reason="请求的工具当前不可用。",
                 system_reason="tool_not_available",
                 resource_errors=(f"tool_not_available:{tool_name}",),
+            )
+        owner_scope = _tool_owner_scope(definition)
+        if invocation_kind in {"single_agent_turn", "agent_turn"} and owner_scope in _TASK_RUNTIME_OWNER_SCOPES:
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="needs_task_run",
+                user_visible_reason="这个工具属于任务运行作用域，需要先进入持续任务。",
+                system_reason="task_scoped_tool_requires_task_run",
+                resource_errors=(f"task_scoped_tool_requires_task_run:{tool_name}",),
+                permission_delta={
+                    "tool_name": tool_name,
+                    "operation_id": str(getattr(definition, "operation_id", "") or tool_name),
+                    "owner_scope": owner_scope,
+                    "required_action": "request_task_run",
+                    "invocation_kind": str(invocation_kind or ""),
+                },
             )
         if str(permission_mode or "").strip().lower() == "plan" and not _tool_allowed_in_plan_mode(definition, tool_name):
             return AdmissionDecision(
@@ -220,3 +238,8 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
         "web_search",
         "fetch_url",
     }
+
+
+def _tool_owner_scope(definition: Any) -> str:
+    contract = getattr(definition, "contract", None)
+    return str(getattr(contract, "owner_scope", "") or getattr(definition, "owner_scope", "") or "none").strip()

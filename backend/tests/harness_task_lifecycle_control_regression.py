@@ -57,7 +57,12 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     model = InterruptibleStopModelRuntime()
     runtime = build_harness_runtime(model_runtime=model)
     host = runtime.single_agent_runtime_host
-    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:stop-signal", session_id="session-stop-signal")
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:stop-signal",
+        session_id="session-stop-signal",
+        status="running",
+    )
 
     async def _run() -> tuple[dict[str, object], dict[str, object]]:
         execution = asyncio.create_task(runtime.execute_task_run(task_run_id, max_steps=4))
@@ -132,6 +137,53 @@ def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -
     assert dict(recovered.diagnostics)["recovery_action"] == "rerun_task_executor"
     assert dict(dict(recovered.diagnostics)["recoverable_error"])["error_code"] == "task_executor_interrupted_by_runtime_restart"
     assert "task_run_executor_recovered_after_runtime_start" in events
+
+
+def test_runtime_start_recovery_does_not_auto_schedule_recovered_executor() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:restart-recovered-no-autoschedule",
+        session_id="session-restart-recovered-no-autoschedule",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "executor_status": "running",
+            },
+        )
+    )
+    runtime.task_executor_controller.recover_interrupted_executor_leases()
+
+    result = runtime.task_executor_controller.schedule(
+        task_run_id,
+        scheduler="runtime_start_recovery",
+        max_steps=4,
+        recovered_from="runtime_start_recovery",
+    )
+    unchanged = host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is False
+    assert result["scheduled"] is False
+    assert result["reason"] == "runtime_start_recovery_does_not_auto_schedule"
+    assert unchanged.status == "waiting_executor"
+    assert dict(unchanged.diagnostics)["executor_status"] == "waiting_executor"
+
+    recover_result = runtime.task_executor_controller.recover_scheduled(
+        task_run_id,
+        scheduler="runtime_start_recovery",
+        max_steps=4,
+        recovered_from="runtime_start_recovery",
+    )
+
+    assert recover_result["ok"] is False
+    assert recover_result["scheduled"] is False
+    assert recover_result["reason"] == "runtime_start_recovery_does_not_auto_schedule"
 
 
 def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption() -> None:

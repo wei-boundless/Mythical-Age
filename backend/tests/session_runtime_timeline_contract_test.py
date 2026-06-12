@@ -591,7 +591,7 @@ def test_session_runtime_timeline_keeps_runtime_rehydration_tool_on_public_surfa
     assert "工具输出" in visible
 
 
-def test_session_runtime_timeline_keeps_running_public_segment_across_resume() -> None:
+def test_session_runtime_timeline_uses_resume_boundary_for_running_public_segment() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     session_id = "session-resume-boundary"
@@ -656,12 +656,12 @@ def test_session_runtime_timeline_keeps_running_public_segment_across_resume() -
         },
         ensure_ascii=False,
     )
-    assert attachment["public_since_offset"] == 0
-    assert "backend/old_context.py" in visible
+    assert attachment["public_since_offset"] == resume_event.offset
+    assert "backend/old_context.py" not in visible
     assert "继续后正在重新判断" in visible
 
 
-def test_session_runtime_timeline_keeps_task_flow_across_latest_user_interaction() -> None:
+def test_session_runtime_timeline_uses_latest_user_interaction_as_public_lifecycle_boundary() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     session_id = "session-user-boundary"
@@ -742,14 +742,14 @@ def test_session_runtime_timeline_keeps_task_flow_across_latest_user_interaction
         },
         ensure_ascii=False,
     )
-    assert attachment["public_since_offset"] == 0
+    assert attachment["public_since_offset"] == boundary_event.offset
     assert attachment["anchor_turn_id"] == latest_turn_id
     assert attachment["anchor_message_id"] == "message:latest-assistant"
-    assert "backend/old_context.py" in visible
+    assert "backend/old_context.py" not in visible
     assert "正在检查最新对话显示" in visible
 
 
-def test_session_runtime_timeline_keeps_task_flow_across_resume_until_closeout() -> None:
+def test_session_runtime_timeline_keeps_resume_boundary_after_task_completes() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     session_id = "session-resume-boundary-completed"
@@ -821,8 +821,8 @@ def test_session_runtime_timeline_keeps_task_flow_across_resume_until_closeout()
         },
         ensure_ascii=False,
     )
-    assert attachment["public_since_offset"] == 0
-    assert "backend/old_context.py" in visible
+    assert attachment["public_since_offset"] == resume_event.offset
+    assert "backend/old_context.py" not in visible
     assert "继续后已经完成核查" in visible
 
 
