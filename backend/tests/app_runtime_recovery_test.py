@@ -37,11 +37,11 @@ def _ready_app_runtime(harness_runtime: _HarnessRuntimeStub) -> AppRuntime:
     return app
 
 
-def test_background_services_do_not_auto_start_recovered_task_executors():
+def test_background_services_start_runtime_recovered_task_executors():
     harness_runtime = _HarnessRuntimeStub()
     app = _ready_app_runtime(harness_runtime)
 
     asyncio.run(app.start_background_services())
 
     assert app._background_services_started is True
-    assert harness_runtime.recovered_executor_start_count == 0
+    assert harness_runtime.recovered_executor_start_count == 1

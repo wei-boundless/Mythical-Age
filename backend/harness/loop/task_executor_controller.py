@@ -175,6 +175,11 @@ class TaskExecutorController:
             if _origin_kind(task_run) == "graph_node_assigned":
                 skipped_graph_node_task_run_ids.append(task_run_id)
                 continue
+            diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+            runtime_control = diagnostics.get("runtime_control")
+            control_state = str(runtime_control.get("state") or "").strip() if isinstance(runtime_control, dict) else ""
+            if control_state in {"pause_requested", "paused", "stop_requested", "stopped", "replan_requested", "interrupted_for_replan"}:
+                continue
             if not _is_task_run_executor_claimed(task_run):
                 continue
             event = self.runtime_host.event_log.append(
@@ -194,7 +199,7 @@ class TaskExecutorController:
                 latest_event_offset=event.offset,
                 terminal_reason="waiting_executor",
                 diagnostics={
-                    **_strip_terminal_diagnostics(dict(getattr(task_run, "diagnostics", {}) or {})),
+                    **_strip_terminal_diagnostics(diagnostics),
                     "executor_status": "waiting_executor",
                     "latest_step": "task_executor_recovered_after_runtime_start",
                     "latest_step_status": "waiting_executor",

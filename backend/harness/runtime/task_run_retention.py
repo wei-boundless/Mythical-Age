@@ -412,6 +412,8 @@ class EphemeralRuntimeCacheReleaser:
                 cache_key=task_run_id,
                 reason=reason or "runtime_retention_expired",
                 dry_run=False,
+                measure_size=False,
+                defer_delete=True,
             )
         except Exception as exc:
             return {"authority": "runtime.cache_manager.delete_cache_entry", "error": str(exc)}

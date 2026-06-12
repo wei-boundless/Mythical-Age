@@ -81,14 +81,16 @@ async def execute_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -
 async def stream_runtime_monitor_events(request: Request, limit: int = 40):
     service = _service()
     requested_limit = max(1, min(int(limit or 40), 100))
+    initial_monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
+    initial_updated_at = time.time()
 
     async def event_generator():
         yield _sse(
             "runtime_monitor_snapshot",
             {
-                "monitor": await _collect_global_runtime_monitor(service, limit=requested_limit),
+                "monitor": initial_monitor,
                 "source": "initial",
-                "updated_at": time.time(),
+                "updated_at": initial_updated_at,
             },
         )
         while not await request.is_disconnected():

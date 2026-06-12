@@ -301,10 +301,14 @@ class RuntimeMonitorProjector:
         return with_runtime_activity(item)
 
     def build_global_monitor(self, task_runs: list[Any], *, now: float, limit: int) -> dict[str, Any]:
+        candidates = [
+            task_run
+            for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
+            if not self._is_internal_child_run(task_run) and self._is_global_live_task_run_candidate(task_run)
+        ]
         projected = [
             self.project_task_run(task_run, now=now, include_runtime_details=False, include_graph_runtime=False)
-            for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
-            if not self._is_internal_child_run(task_run)
+            for task_run in candidates
         ]
         items = self._current_graph_items_by_scope(
             self._current_items_by_session([item for item in projected if self._is_global_live_item(item)])
@@ -962,6 +966,18 @@ class RuntimeMonitorProjector:
 
     def is_top_level_task_run(self, task_run: Any) -> bool:
         return not self._is_internal_child_run(task_run)
+
+    def _is_global_live_task_run_candidate(self, task_run: Any) -> bool:
+        status = str(getattr(task_run, "status", "") or "").strip()
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        control_state = str(runtime_control(diagnostics).get("state") or "").strip()
+        if status in RUNNING_TASK_RUN_STATUSES | WAITING_TASK_RUN_STATUSES | BLOCKED_TASK_RUN_STATUSES:
+            return True
+        if control_state in {"pause_requested", "paused", "resume_requested", "stop_requested"}:
+            return True
+        if status and status not in KNOWN_TASK_RUN_STATUSES:
+            return True
+        return False
 
     def _is_global_live_item(self, item: dict[str, Any]) -> bool:
         if str(item.get("kind") or "").strip() == "task_graph":

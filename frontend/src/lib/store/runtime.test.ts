@@ -2080,6 +2080,87 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
+  it("does not hydrate the current session from monitor snapshots before formal closeout", async () => {
+    const taskRunId = "taskrun:turn:session:stream-running:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stream-running",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:stream-running:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:stream-running:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+    api.getSessionTimeline.mockClear();
+
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:stream-running",
+          task_id: "task:turn:session:stream-running:1",
+          status: "running",
+          lifecycle: "running",
+          activity_state: "running",
+          task_projection: {
+            current_action: {
+              kind: "work",
+              title: "继续执行任务",
+            },
+          },
+        }),
+      ], { revision: "rtmon:10:running" }),
+    });
+
+    expect(store.getState().runMonitorRevision).toBe("rtmon:10:running");
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    await Promise.resolve();
+  });
+
+  it("hydrates the current session from monitor snapshots after formal closeout", async () => {
+    const taskRunId = "taskrun:turn:session:stream-closeout:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stream-closeout",
+      messages: [
+        { id: "user:1", role: "user", content: "开始长任务", toolCalls: [], retrievals: [], sourceIndex: 0, sourceTurnId: "turn:session:stream-closeout:1" },
+        { id: "assistant:1", role: "assistant", content: "任务已接管。", toolCalls: [], retrievals: [], sourceIndex: 1, sourceTurnId: "turn:session:stream-closeout:1" },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+    api.getSessionTimeline.mockClear();
+
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:stream-closeout",
+          task_id: "task:turn:session:stream-closeout:1",
+          status: "completed",
+          lifecycle: "completed",
+          activity_state: "completed",
+          is_live: false,
+          is_running: false,
+          task_projection: {
+            current_action: {
+              kind: "closeout",
+              title: "结果收口",
+              state: "completed",
+            },
+          },
+        }),
+      ], { revision: "rtmon:10:closeout" }),
+    });
+
+    expect(store.getState().runMonitorRevision).toBe("rtmon:10:closeout");
+    expect(api.getSessionTimeline).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+  });
+
   it("does not project runtime events from a stale run monitor snapshot", () => {
     const taskRunId = "taskrun:turn:session:stale-stream:1:abc";
     const currentMonitor = monitorForTest([
@@ -2337,7 +2418,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
-  it("hydrates from monitor snapshots without preserving legacy monitor event projections", async () => {
+  it("does not hydrate from monitor snapshots before closeout after legacy monitor event projections", async () => {
     vi.useRealTimers();
     const taskRunId = "taskrun:turn:session:hydrate:1:abc";
     api.getSessionTimeline.mockResolvedValue({
@@ -2393,7 +2474,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     await flushPromises(12);
 
-    expect(api.getSessionTimeline).toHaveBeenCalledWith("session:hydrate", undefined);
+    expect(api.getSessionTimeline).not.toHaveBeenCalled();
     expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
   });
 
@@ -4627,32 +4708,32 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.event).toBe("");
   });
 
-  it("does not merge pre-resume volatile public timeline back into a refreshed attachment", async () => {
-    const sessionId = "session:resume-refresh";
-    const taskRunId = "taskrun:turn:session:resume-refresh:1:abc";
+  it("keeps pre-closeout volatile public timeline when a running attachment is refreshed", async () => {
+    const sessionId = "session:running-refresh";
+    const taskRunId = "taskrun:turn:session:running-refresh:1:abc";
     api.getSessionTimeline.mockResolvedValue({
       messages: [
-        { role: "user", content: "开始修复", turn_id: "turn:session:resume-refresh:1" },
+        { role: "user", content: "开始修复", turn_id: "turn:session:running-refresh:1" },
         {
-          id: "assistant:resume-refresh",
+          id: "assistant:running-refresh",
           role: "assistant",
           content: "任务已接管",
-          turn_id: "turn:session:resume-refresh:1",
+          turn_id: "turn:session:running-refresh:1",
         },
       ],
       runtime_attachments: [
         {
           attachment_id: `runtime-attachment:${taskRunId}`,
           run_id: taskRunId,
-          anchor_turn_id: "turn:session:resume-refresh:1",
-          anchor_message_id: "assistant:resume-refresh",
+          anchor_turn_id: "turn:session:running-refresh:1",
+          anchor_message_id: "assistant:running-refresh",
           anchor_role: "assistant",
           task_run_id: taskRunId,
           status: "running",
-          public_since_offset: 8,
+          public_since_offset: 0,
           public_timeline: [
             {
-              item_id: "stage:resume",
+              item_id: "stage:running",
               kind: "status_update",
               slot: "timeline",
               surface: "timeline",
@@ -4668,7 +4749,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             authority: "harness.runtime.single_agent_task_projection.v1",
             projection_id: `projection:${taskRunId}`,
             task_run_id: taskRunId,
-            task_id: "task:turn:session:resume-refresh:1",
+            task_id: "task:turn:session:running-refresh:1",
             status: "running",
             title: "修复续接问题",
           },
@@ -4696,35 +4777,35 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       currentSessionId: sessionId,
       sessions: [{
         id: sessionId,
-        title: "Resume Refresh",
+        title: "Running Refresh",
         created_at: 1,
         updated_at: 1,
         message_count: 2,
       }],
       messages: [
         {
-          id: "user:resume-refresh",
+          id: "user:running-refresh",
           role: "user",
           content: "开始修复",
           toolCalls: [],
           retrievals: [],
           sourceIndex: 0,
-          sourceTurnId: "turn:session:resume-refresh:1",
+          sourceTurnId: "turn:session:running-refresh:1",
         },
         {
-          id: "assistant:resume-refresh",
+          id: "assistant:running-refresh",
           role: "assistant",
           content: "任务已接管",
           toolCalls: [],
           retrievals: [],
           sourceIndex: 1,
-          sourceTurnId: "turn:session:resume-refresh:1",
+          sourceTurnId: "turn:session:running-refresh:1",
           runtimeAttachments: [
             {
               attachment_id: `runtime-attachment:${taskRunId}`,
               run_id: taskRunId,
-              anchor_turn_id: "turn:session:resume-refresh:1",
-              anchor_message_id: "assistant:resume-refresh",
+              anchor_turn_id: "turn:session:running-refresh:1",
+              anchor_message_id: "assistant:running-refresh",
               anchor_role: "assistant",
               task_run_id: taskRunId,
               status: "running",
@@ -4741,14 +4822,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.refreshSessionDetails(sessionId);
 
-    const refreshedAssistant = store.getState().messages.find((message) => message.id === "assistant:resume-refresh");
+    const refreshedAssistant = store.getState().messages.find((message) => message.id === "assistant:running-refresh");
     const visiblePayload = JSON.stringify({
       attachment: refreshedAssistant?.runtimeAttachments?.[0],
       draft: refreshedAssistant?.runtimePublicTimelineDraft,
     });
     expect(visiblePayload).toContain("继续后正在重新判断");
-    expect(visiblePayload).not.toContain("backend/old_context.py");
-    expect(refreshedAssistant?.runtimeAttachments?.[0]?.public_since_offset).toBe(8);
+    expect(visiblePayload).toContain("backend/old_context.py");
+    expect(refreshedAssistant?.runtimeAttachments?.[0]?.public_since_offset ?? 0).toBe(0);
     expect(JSON.stringify(refreshedAssistant?.runtimeAttachments?.[0] ?? {})).not.toContain("progress_entries");
   });
 

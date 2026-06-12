@@ -81,6 +81,29 @@ def test_runtime_cache_deletes_single_entry_by_namespace_and_key(tmp_path: Path)
     assert keep.exists()
 
 
+def test_runtime_cache_can_detach_single_entry_without_size_scan(tmp_path: Path) -> None:
+    manager = RuntimeCacheManager(tmp_path / "runtime_cache")
+    target = manager.sandbox_root("taskrun:old")
+    keep = manager.sandbox_root("taskrun:keep")
+    (target / "file.txt").write_text("cache", encoding="utf-8")
+    (keep / "file.txt").write_text("cache", encoding="utf-8")
+
+    result = manager.delete_cache_entry(
+        namespace="sandboxes",
+        cache_key="taskrun:old",
+        reason="blocked_expired",
+        measure_size=False,
+        defer_delete=True,
+    )
+
+    assert result["detached"] is True
+    assert result["deleted"] is False
+    assert result["size_measured"] is False
+    assert result["size_bytes"] == 0
+    assert not target.exists()
+    assert keep.exists()
+
+
 def test_task_sandbox_policy_defaults_to_runtime_cache(tmp_path: Path) -> None:
     runtime_root = tmp_path / "storage" / "runtime_state"
     runtime_root.mkdir(parents=True)

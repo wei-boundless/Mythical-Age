@@ -100,6 +100,76 @@ def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
     assert "signal_kind" in second_model_payload
 
 
+def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:network-interrupted",
+        session_id="session-network-interrupted",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "executor_status": "running",
+            },
+        )
+    )
+
+    result = runtime.task_executor_controller.recover_interrupted_executor_leases()
+    recovered = host.state_index.get_task_run(task_run_id)
+    events = [event.event_type for event in host.event_log.list_events(task_run_id)]
+
+    assert result["recovered_count"] == 1
+    assert result["task_run_ids"] == [task_run_id]
+    assert recovered.status == "waiting_executor"
+    assert recovered.terminal_reason == "waiting_executor"
+    assert dict(recovered.diagnostics)["executor_status"] == "waiting_executor"
+    assert dict(recovered.diagnostics)["recovery_action"] == "rerun_task_executor"
+    assert dict(dict(recovered.diagnostics)["recoverable_error"])["error_code"] == "task_executor_interrupted_by_runtime_restart"
+    assert "task_run_executor_recovered_after_runtime_start" in events
+
+
+def test_runtime_start_recovery_does_not_reconnect_user_controlled_interruption() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:user-replan-interrupted",
+        session_id="session-user-replan-interrupted",
+        status="running",
+    )
+    task = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            task,
+            diagnostics={
+                **dict(task.diagnostics or {}),
+                "executor_status": "running",
+                "runtime_control": {
+                    "state": "replan_requested",
+                    "requested_by": "user",
+                    "reason": "new_user_instruction",
+                },
+            },
+        )
+    )
+
+    result = runtime.task_executor_controller.recover_interrupted_executor_leases()
+    unchanged = host.state_index.get_task_run(task_run_id)
+    events = [event.event_type for event in host.event_log.list_events(task_run_id)]
+
+    assert result["recovered_count"] == 0
+    assert result["task_run_ids"] == []
+    assert unchanged.status == "running"
+    assert dict(unchanged.diagnostics)["executor_status"] == "running"
+    assert "task_run_executor_recovered_after_runtime_start" not in events
+
+
 def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(

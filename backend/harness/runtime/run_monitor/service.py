@@ -23,11 +23,16 @@ class RuntimeMonitorService:
         graph_harness: Any | None = None,
         freshness_seconds: float = 5 * 60.0,
         global_monitor_cache_seconds: float = 1.0,
+        retention_sweep_interval_seconds: float = 30.0,
     ) -> None:
         self.runtime_host = runtime_host
         self.global_monitor_cache_seconds = max(0.0, float(global_monitor_cache_seconds or 0.0))
+        self.retention_sweep_interval_seconds = max(0.0, float(retention_sweep_interval_seconds or 0.0))
         self._global_monitor_cache_lock = threading.RLock()
         self._global_monitor_cache: dict[tuple[int, tuple[Any, ...]], tuple[float, dict[str, Any]]] = {}
+        self._retention_sweep_lock = threading.RLock()
+        self._last_retention_sweep_at = 0.0
+        self._last_retention_sweep_result: dict[str, Any] | None = None
         self.resource_resolver = MonitorResourceResolver(
             runtime_host=runtime_host,
             graph_harness=graph_harness,
@@ -121,7 +126,24 @@ class RuntimeMonitorService:
             self._global_monitor_cache.clear()
 
     def _sweep_expired_task_runs(self, *, now: float, limit: int) -> dict[str, Any]:
-        sweep = self.lifecycle_retention.sweep_expired_task_runs(now=now, limit=limit)
+        with self._retention_sweep_lock:
+            elapsed = now - self._last_retention_sweep_at if self._last_retention_sweep_at else 0.0
+            if (
+                self._last_retention_sweep_result is not None
+                and self.retention_sweep_interval_seconds > 0
+                and elapsed < self.retention_sweep_interval_seconds
+            ):
+                return {
+                    "authority": "harness.runtime.task_run_lifecycle_retention",
+                    "skipped": True,
+                    "reason": "retention_sweep_interval",
+                    "last_sweep_at": self._last_retention_sweep_at,
+                    "next_sweep_at": self._last_retention_sweep_at + self.retention_sweep_interval_seconds,
+                    "updated_at": now,
+                }
+            sweep = self.lifecycle_retention.sweep_expired_task_runs(now=now, limit=limit)
+            self._last_retention_sweep_at = now
+            self._last_retention_sweep_result = dict(sweep)
         if int(sweep.get("terminal_update_count") or 0) or int(sweep.get("stop_request_count") or 0):
             self.invalidate_global_monitor_cache()
         return sweep

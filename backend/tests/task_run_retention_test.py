@@ -52,6 +52,19 @@ class _RuntimeHost:
         self._background_tasks_by_name = {}
 
 
+class _RetentionSweepProbe:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, float | int]] = []
+
+    def sweep_expired_task_runs(self, *, now: float, limit: int):
+        self.calls.append({"now": now, "limit": limit})
+        return {
+            "authority": "harness.runtime.task_run_lifecycle_retention",
+            "terminal_update_count": 0,
+            "stop_request_count": 0,
+        }
+
+
 def _task_run(task_run_id: str, *, status: str, updated_at: float, diagnostics: dict | None = None) -> TaskRun:
     return TaskRun(
         task_run_id=task_run_id,
@@ -196,3 +209,27 @@ def test_retention_expires_old_waiting_approval(tmp_path: Path) -> None:
     assert current.status == "aborted"
     assert current.terminal_reason == "approval_expired"
     assert current.diagnostics["pending_approval"]["status"] == "expired"
+
+
+def test_monitor_service_throttles_retention_sweep_between_projection_refreshes(tmp_path: Path) -> None:
+    host = _RuntimeHost(tmp_path / "runtime_state")
+    service = RuntimeMonitorService(
+        runtime_host=host,
+        freshness_seconds=300,
+        retention_sweep_interval_seconds=30,
+    )
+    probe = _RetentionSweepProbe()
+    service.lifecycle_retention = probe  # type: ignore[assignment]
+
+    first = service._sweep_expired_task_runs(now=100.0, limit=80)
+    second = service._sweep_expired_task_runs(now=110.0, limit=80)
+    third = service._sweep_expired_task_runs(now=131.0, limit=80)
+
+    assert first.get("skipped") is not True
+    assert second["skipped"] is True
+    assert second["reason"] == "retention_sweep_interval"
+    assert third.get("skipped") is not True
+    assert probe.calls == [
+        {"now": 100.0, "limit": 80},
+        {"now": 131.0, "limit": 80},
+    ]

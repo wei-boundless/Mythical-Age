@@ -18,6 +18,7 @@ import {
 } from "./api";
 import {
   applyRunMonitorSnapshot,
+  allRunMonitorSignals,
   findRunMonitorSignal,
   isStaleRunMonitorRevision,
   runMonitorRevision,
@@ -403,6 +404,7 @@ export class RunMonitorController {
     const sessionId = String(state.currentSessionId || "").trim();
     if (!sessionId) return;
     if (this.currentSessionHasVisibleActiveStream(state, sessionId)) return;
+    if (state.messages.length > 0 && !this.currentSessionHasFormalCloseout(state, sessionId)) return;
     const now = Date.now();
     if (this.lastStreamSessionHydrateId === sessionId && now - this.lastStreamSessionHydrateAt < 3000) {
       return;
@@ -414,6 +416,35 @@ export class RunMonitorController {
 
   private currentSessionHasVisibleActiveStream(state: StoreState, sessionId: string) {
     return state.activeStreamSessionIds.includes(sessionId) && state.messages.length > 0;
+  }
+
+  private currentSessionHasFormalCloseout(state: StoreState, sessionId: string) {
+    return allRunMonitorSignals(state.runMonitor).some((signal) => {
+      const rawSignal = signal as unknown as Record<string, unknown>;
+      const route = rawSignal.route && typeof rawSignal.route === "object" && !Array.isArray(rawSignal.route)
+        ? rawSignal.route as Record<string, unknown>
+        : {};
+      const navigation = rawSignal.navigation_target && typeof rawSignal.navigation_target === "object" && !Array.isArray(rawSignal.navigation_target)
+        ? rawSignal.navigation_target as Record<string, unknown>
+        : {};
+      const signalSessionId = String(rawSignal.session_id || route.session_id || navigation.session_id || "").trim();
+      if (signalSessionId !== sessionId) return false;
+      const projection = rawSignal.task_projection && typeof rawSignal.task_projection === "object" && !Array.isArray(rawSignal.task_projection)
+        ? rawSignal.task_projection as Record<string, unknown>
+        : {};
+      const currentAction = projection.current_action && typeof projection.current_action === "object" && !Array.isArray(projection.current_action)
+        ? projection.current_action as Record<string, unknown>
+        : {};
+      if (String(currentAction.kind || "").trim() === "closeout") return true;
+      return [
+        rawSignal.status,
+        rawSignal.lifecycle,
+        rawSignal.activity_state,
+        rawSignal.state,
+      ]
+        .map((value) => String(value || "").trim().toLowerCase())
+        .some((value) => ["completed", "complete", "success", "succeeded", "stopped", "failed", "error", "aborted", "cancelled", "canceled"].includes(value));
+    });
   }
 
   private scheduleReconnect() {
