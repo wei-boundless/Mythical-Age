@@ -27,7 +27,7 @@ def test_production_harness_does_not_import_test_harness() -> None:
     assert offenders == []
 
 
-def test_legacy_runtime_control_packages_are_removed() -> None:
+def test_obsolete_runtime_control_packages_are_removed() -> None:
     removed_paths = [
         "runtime/agent_runtime",
         "runtime/graph_task_runtime",
@@ -44,7 +44,7 @@ def test_legacy_runtime_control_packages_are_removed() -> None:
     assert [path for path in removed_paths if (BACKEND_DIR / path).exists()] == []
 
 
-def test_legacy_runtime_loop_api_module_is_removed() -> None:
+def test_obsolete_runtime_loop_api_module_is_removed() -> None:
     assert not (BACKEND_DIR / "api" / "orchestration_runtime_loop.py").exists()
 
 

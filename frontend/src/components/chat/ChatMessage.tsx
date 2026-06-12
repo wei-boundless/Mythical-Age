@@ -10,7 +10,7 @@ import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { cleanPublicTimelineText, isPublicTimelineBodyItem, isPublicTimelineStatusBarItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
+import { cleanPublicTimelineText, isPublicTimelineStatusBarItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -78,12 +78,7 @@ export function ChatMessage({
   const taskProjections = isUser
     ? []
     : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
-  const timelineBodyContent = isUser
-    ? ""
-    : publicTimelineBodyContent(runtimeAttachments, runtimePublicTimelineDraft, baseDisplayContent);
-  const messageDisplayContent = isUser
-    ? baseDisplayContent
-    : mergeAssistantDisplayContent(baseDisplayContent, timelineBodyContent);
+  const messageDisplayContent = baseDisplayContent;
   const answerTerminalState = !isUser && messageDisplayContent.trim()
     ? publicTimelineTerminalStateFromAnswer({ answerCanonicalState, answerChannel })
     : "";
@@ -377,66 +372,6 @@ function asTerminalStatusItem(
     phase: "done",
     stream_state: "done",
   };
-}
-
-function publicTimelineBodyContent(
-  attachments: SessionRuntimeAttachment[],
-  runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
-  existingContent: string,
-) {
-  const bodyItems = [
-    ...attachments.flatMap((attachment) => Array.isArray(attachment.public_timeline) ? attachment.public_timeline : []),
-    ...(runtimePublicTimelineDraft ?? []),
-  ].filter(isPublicTimelineBodyItem);
-  const existing = compactContentKey(existingContent);
-  const seen = new Set<string>();
-  const segments: string[] = [];
-  for (const item of bodyItems) {
-    const text = publicTimelineBodyItemText(item);
-    if (!text) {
-      continue;
-    }
-    const key = compactContentKey(text);
-    if (!key || seen.has(key) || (existing && existing.includes(key))) {
-      continue;
-    }
-    seen.add(key);
-    segments.push(text);
-  }
-  return segments.join("\n\n");
-}
-
-function publicTimelineBodyItemText(item: PublicChatTimelineItem) {
-  const kind = cleanPublicTimelineText(item.kind);
-  const candidates = kind === "observation_report"
-    ? [item.detail, item.text, item.public_summary, item.observation]
-    : [item.text, item.detail, item.public_summary, item.observation];
-  for (const candidate of candidates) {
-    const text = cleanPublicTimelineText(candidate);
-    if (!text || isInternalControlProtocolText(text)) {
-      continue;
-    }
-    return text;
-  }
-  return "";
-}
-
-function mergeAssistantDisplayContent(baseContent: string, timelineContent: string) {
-  const base = String(baseContent || "").trim();
-  const timeline = String(timelineContent || "").trim();
-  if (!base) {
-    return timeline;
-  }
-  if (!timeline || compactContentKey(base).includes(compactContentKey(timeline))) {
-    return baseContent;
-  }
-  return `${baseContent.trim()}\n\n${timeline}`;
-}
-
-function compactContentKey(value: unknown) {
-  return cleanPublicTimelineText(value)
-    .replace(/\s+/g, "")
-    .toLowerCase();
 }
 
 function shouldSuppressPublicTimelineAfterFinalAnswer({

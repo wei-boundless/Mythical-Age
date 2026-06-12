@@ -69,7 +69,7 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert contract.capability_intent["needed_capability_groups"] == ["runtime_inspection"]
 
 
-def test_request_task_run_rejects_legacy_handoff_without_capability_intent() -> None:
+def test_request_task_run_rejects_obsolete_handoff_without_capability_intent() -> None:
     contract, errors = contract_from_action_request(
         ModelActionRequest(
             request_id="model-action:legacy-task",

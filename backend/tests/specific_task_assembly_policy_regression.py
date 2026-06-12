@@ -78,7 +78,7 @@ def test_specific_task_assembly_policy_contract_can_choose_environment_but_not_a
     assert "TaskEnvironmentSpec" not in str(payload)
 
 
-def test_specific_task_assembly_policy_does_not_use_legacy_domain_as_environment() -> None:
+def test_specific_task_assembly_policy_does_not_use_obsolete_domain_as_environment() -> None:
     policy = resolve_specific_task_assembly_policy(
         task_record=SpecificTaskRecord(
             task_id="task.legacy.writing",
@@ -124,5 +124,4 @@ def test_specific_task_assembly_policy_accepts_configured_environment(tmp_path: 
     )
 
     assert policy.environment_id == "env.custom.specific"
-
 

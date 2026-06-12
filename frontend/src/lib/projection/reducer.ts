@@ -4,7 +4,7 @@ import type {
   PublicProjectionItem,
   SessionRuntimeAttachment,
 } from "@/lib/api";
-import { mergePublicTimelineItems } from "@/lib/projection/timeline";
+import { isPublicTimelineUserVisibleRuntimeItem, mergePublicTimelineItems } from "@/lib/projection/timeline";
 
 import type { ActiveTurnState, Message, SessionActivityState, StoreState } from "@/lib/store/types";
 
@@ -292,11 +292,7 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (attachment.task_projection) {
     return true;
   }
-  const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
-    const slot = text(item.slot);
-    const surface = text(item.surface);
-    return slot !== "control" && surface !== "control" && surface !== "diagnostics";
-  });
+  const hasPublicTimeline = (attachment.public_timeline ?? []).some(isPublicTimelineUserVisibleRuntimeItem);
   if (hasPublicTimeline) {
     return true;
   }

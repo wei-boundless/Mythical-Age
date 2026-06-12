@@ -157,7 +157,7 @@ def test_project_scoped_graph_binding_defaults_to_graph_task_workspace_without_e
     assert "task_environment_id" not in unit.graph_binding_contract
 
 
-def test_runner_rejects_legacy_active_work_order_without_structure_hash() -> None:
+def test_runner_rejects_obsolete_active_work_order_without_structure_hash() -> None:
     config = _config(config_id="ghcfg:current")
     state = _state(config)
     order = GraphNodeWorkOrder(

@@ -13,7 +13,7 @@ from .sse import ServerSentEvent
 from .state import CliStateStore, DEFAULT_API_BASE
 
 
-CONTENT_EVENTS = {"token", "content_delta", "answer_candidate"}
+CONTENT_EVENTS = {"token", "assistant_text_delta", "assistant_text_final", "answer_candidate"}
 PROGRESS_EVENTS = {
     "input_commit_gate",
     "runtime_assembly_compiled",

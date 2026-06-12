@@ -1969,7 +1969,6 @@ async def _invoke_single_turn_model_with_stream_events(
     tool_streamer = getattr(model_runtime, "astream_messages_with_tools", None)
     plain_streamer = getattr(model_runtime, "astream_messages", None)
     emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False) and bool(allow_assistant_text_delta)
-    emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True) and bool(allow_assistant_text_delta)
     stream_ref = str(accounting_context.get("request_id") or "")
     assistant_normalizer = AssistantStreamNormalizer(
         stream_ref=stream_ref,
@@ -1978,7 +1977,6 @@ async def _invoke_single_turn_model_with_stream_events(
         task_run_id=str(accounting_context.get("task_run_id") or ""),
         answer_source=str(accounting_context.get("source") or "harness.single_agent_turn"),
     ) if emit_assistant_text_delta else None
-    legacy_delta_index = 0
     raw_content = ""
     aggregated_response: Any = None
     try:
@@ -1999,14 +1997,6 @@ async def _invoke_single_turn_model_with_stream_events(
                 if assistant_normalizer is not None:
                     for frame_event in assistant_normalizer.observe_delta(delta_text):
                         yield frame_event
-                if emit_legacy_content_delta and _public_stream_delta_allowed(raw_content):
-                    legacy_delta_index += 1
-                    yield _single_agent_content_delta_event(
-                        delta_text,
-                        delta_index=legacy_delta_index,
-                        raw_content=raw_content,
-                        accounting_context=accounting_context,
-                    )
         elif callable(plain_streamer):
             async for chunk in plain_streamer(
                 model_messages,
@@ -2021,14 +2011,6 @@ async def _invoke_single_turn_model_with_stream_events(
                 if assistant_normalizer is not None:
                     for frame_event in assistant_normalizer.observe_delta(delta_text):
                         yield frame_event
-                if emit_legacy_content_delta and _public_stream_delta_allowed(raw_content):
-                    legacy_delta_index += 1
-                    yield _single_agent_content_delta_event(
-                        delta_text,
-                        delta_index=legacy_delta_index,
-                        raw_content=raw_content,
-                        accounting_context=accounting_context,
-                    )
         else:
             response = await _invoke_single_turn_model(
                 model_runtime=model_runtime,
@@ -2068,38 +2050,6 @@ def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
 
 def _model_stream_chunk_text(chunk: Any) -> str:
     return stringify_content(getattr(chunk, "content", chunk))
-
-
-def _public_stream_delta_allowed(raw_content: str) -> bool:
-    text = str(raw_content or "").lstrip()
-    if not text:
-        return False
-    lowered = text[:80].lower()
-    if lowered.startswith(("{", "[", "```json")):
-        return False
-    if any(marker in lowered for marker in ('"action_type"', '"tool_call"', '"authority"', "model_action_request")):
-        return False
-    return not contains_internal_protocol(text) and not contains_inline_pseudo_tool_call(text)
-
-
-def _single_agent_content_delta_event(
-    content: str,
-    *,
-    delta_index: int,
-    raw_content: str,
-    accounting_context: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "type": "content_delta",
-        "content": content,
-        "delta_index": delta_index,
-        "delta_chars": len(content),
-        "accumulated_chars": len(raw_content),
-        "request_id": str(accounting_context.get("request_id") or ""),
-        "packet_ref": str(accounting_context.get("packet_ref") or ""),
-        "source": str(accounting_context.get("source") or "harness.single_agent_turn"),
-    }
-
 
 async def _repair_single_agent_action_parse(
     action_parse: SingleAgentActionParse,

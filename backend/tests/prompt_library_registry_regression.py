@@ -445,7 +445,7 @@ def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Pat
     assert resource.source_ref == "test.override"
 
 
-def test_prompt_library_storage_migrates_legacy_prompt_refs_without_runtime_alias(tmp_path: Path) -> None:
+def test_prompt_library_storage_migrates_deprecated_prompt_refs_without_runtime_alias(tmp_path: Path) -> None:
     storage_dir = tmp_path / "storage" / "prompt_library"
     storage_dir.mkdir(parents=True)
     resources_path = storage_dir / "prompt_resources.json"

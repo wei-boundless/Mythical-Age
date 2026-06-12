@@ -54,7 +54,7 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
+import { isPublicTimelineUserVisibleRuntimeItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
@@ -3307,7 +3307,6 @@ export class WorkspaceRuntime {
       enabled,
       mode: enabled ? "model_text_stream" : "disabled",
       emit_assistant_text_delta: enabled,
-      legacy_content_delta_public_stream: false,
       source: "frontend.chat_stream_display_toggle",
     };
   }
@@ -4610,11 +4609,7 @@ export class WorkspaceRuntime {
     if (attachment.task_projection) {
       return true;
     }
-    const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
-      const slot = String(item.slot ?? "").trim();
-      const surface = String(item.surface ?? "").trim();
-      return slot !== "control" && surface !== "control" && surface !== "diagnostics";
-    });
+    const hasPublicTimeline = (attachment.public_timeline ?? []).some(isPublicTimelineUserVisibleRuntimeItem);
     if (hasPublicTimeline) {
       return true;
     }

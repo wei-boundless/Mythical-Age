@@ -1,5 +1,6 @@
 import { type ToolCall, type SessionHistory, type SessionRuntimeAttachment } from "@/lib/api";
 import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
+import { isPublicTimelineUserVisibleRuntimeItem } from "@/lib/projection/timeline";
 
 import type { Message, SkillSummary } from "./types";
 
@@ -209,11 +210,7 @@ function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAtt
   if (attachment.task_projection) {
     return true;
   }
-  const hasPublicTimeline = (attachment.public_timeline ?? []).some((item) => {
-    const slot = String(item.slot ?? "").trim();
-    const surface = String(item.surface ?? "").trim();
-    return slot !== "control" && surface !== "control" && surface !== "diagnostics";
-  });
+  const hasPublicTimeline = (attachment.public_timeline ?? []).some(isPublicTimelineUserVisibleRuntimeItem);
   if (hasPublicTimeline) {
     return true;
   }

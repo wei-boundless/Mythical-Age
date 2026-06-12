@@ -1221,7 +1221,7 @@ def test_internal_titles_are_not_exposed_and_route_is_authoritative():
     assert item["route"]["graph_run_id"] == "grun:main"
 
 
-def test_monitor_does_not_promote_legacy_step_summary_without_projection():
+def test_monitor_does_not_promote_unprojected_step_summary():
     event = EventStub(
         event_type="step_summary_recorded",
         created_at=125.0,

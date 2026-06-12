@@ -103,7 +103,7 @@ def test_task_definitions_do_not_declare_skill_authority() -> None:
         assert "default_skill_refs" not in definition.to_dict()
 
 
-def test_legacy_environment_ids_are_not_accepted() -> None:
+def test_obsolete_environment_ids_are_not_accepted() -> None:
     registry = default_task_environment_registry()
 
     for environment_id in (
@@ -1275,7 +1275,7 @@ def test_task_environment_repository_persists_upsert_and_delete(tmp_path: Path) 
     assert registry_after_delete.get("env.custom.repo") is None
 
 
-def test_task_environment_repository_migrates_legacy_prompt_refs_on_load(tmp_path: Path) -> None:
+def test_task_environment_repository_migrates_deprecated_prompt_refs_on_load(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     config_dir = backend_dir / "task_system" / "storage" / "task_environments"
     config_dir.mkdir(parents=True)

@@ -97,6 +97,59 @@ describe("assistant typed stream replay", () => {
     expect(stream?.finalReceived).toBe(true);
   });
 
+  it("appends a repeated final frame with the same stream ref as a new body segment", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      stream_ref: "stream:progressive",
+      content: "第一段完成",
+      content_sha256: "sha256:first",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 2,
+      stream_ref: "stream:progressive",
+      content: "第二段推进",
+      content_sha256: "sha256:second",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("第一段完成\n\n第二段推进");
+    expect(stream?.orderedSegmentIds).toHaveLength(2);
+    expect(stream?.finalReceived).toBe(true);
+  });
+
+  it("only appends the suffix when a repeated final frame sends cumulative content", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      message_ref: "message:progressive",
+      content: "第一段完成",
+      content_sha256: "sha256:first",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 2,
+      message_ref: "message:progressive",
+      content: "第一段完成\n\n第二段推进",
+      content_sha256: "sha256:cumulative",
+      answer_channel: "conversation",
+      answer_canonical_state: "stable_answer",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    const stream = transition.state.assistantTextStreamsByMessageId[transition.session.assistantId];
+    expect(assistant?.content).toBe("第一段完成\n\n第二段推进");
+    expect(stream?.orderedSegmentIds).toHaveLength(2);
+  });
+
   it("applies repair replacement without waiting for legacy done content", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_delta", {

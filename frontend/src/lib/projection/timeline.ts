@@ -126,6 +126,15 @@ export function isPublicTimelineStatusBarItem(item: PublicChatTimelineItem | und
   return slot === "status" || surface === "status_bar";
 }
 
+export function isPublicTimelineUserVisibleRuntimeItem(item: PublicChatTimelineItem | null | undefined) {
+  if (!item) return false;
+  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
+  const surface = cleanPublicTimelineText((item as { surface?: unknown }).surface).toLowerCase();
+  if (slot === "body" || surface === "assistant_body") return false;
+  if (slot === "control" || surface === "control" || surface === "diagnostics") return false;
+  return true;
+}
+
 export function isTaskProjectionCompanionTimelineItem(item: PublicChatTimelineItem | null | undefined) {
   if (!item) return false;
   const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();

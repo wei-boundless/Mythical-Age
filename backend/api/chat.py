@@ -41,7 +41,6 @@ TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
 INTERNAL_STREAM_EVENTS = {
     "debug",
-    "content_delta",
     "runtime_assembly_compiled",
     "runtime_assembly_bound",
     "runtime_invocation_packet",

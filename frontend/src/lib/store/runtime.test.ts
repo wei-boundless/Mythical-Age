@@ -3723,15 +3723,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerLeakFlags).toEqual(["internal_protocol_final_text"]);
   });
 
-  it("does not append legacy content_delta after typed stream cutover", () => {
-    let transition = startStreamingTurn(getDefaultState(), "你好");
-    transition = reduceStreamEvent(transition.state, transition.session, "content_delta", { content: "旧流式内容。" });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.role).toBe("assistant");
-    expect(assistant?.content).toBe("");
-  });
-
   it("keeps streamed deltas out of the visible assistant message when stream display is disabled", () => {
     let transition = startStreamingTurn({
       ...getDefaultState(),
@@ -5772,7 +5763,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: true,
         mode: "model_text_stream",
         emit_assistant_text_delta: true,
-        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5910,7 +5900,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: true,
         mode: "model_text_stream",
         emit_assistant_text_delta: true,
-        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -6000,7 +5989,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: false,
         mode: "disabled",
         emit_assistant_text_delta: false,
-        legacy_content_delta_public_stream: false,
         source: "frontend.chat_stream_display_toggle",
       },
     });

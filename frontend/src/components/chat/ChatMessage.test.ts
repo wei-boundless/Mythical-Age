@@ -380,7 +380,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("data-entry-count=\"1\"");
   });
 
-  it("shows stage feedback from public timeline when message content is non-public", () => {
+  it("keeps stage-feedback body projections out of assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerChannel: "stage_feedback",
@@ -431,9 +431,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("工具结果已返回，我会根据证据继续收口。");
+    expect(html).not.toContain("工具结果已返回，我会根据证据继续收口。");
     expect(html).toContain("正在运行验证");
     expect(html).not.toContain("这段如果只放在 message.content 会被隐藏。");
+    expect(html).not.toContain("复制回复");
   });
 
   it("keeps non-final streamed prose visible even if the live flag drops", () => {
@@ -515,7 +516,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("已清理内部协议");
   });
 
-  it("projects live public timeline into the chat message before runtime attachments arrive", () => {
+  it("keeps live public timeline body text out of assistant prose before runtime attachments arrive", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -550,13 +551,12 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先检查当前目录和关键文件");
+    expect(html).not.toContain("我先检查当前目录和关键文件");
     expect(html).not.toContain("当前判断");
-    expect(html.match(/我先检查当前目录和关键文件/g)?.length ?? 0).toBe(1);
     expect(html).toContain("正在运行验证 前端测试");
     expect(html).toContain("前端测试");
     expect(html).not.toContain("npm test -- --run src/components/chat");
-    expect(html.indexOf("我先检查当前目录和关键文件")).toBeLessThan(html.indexOf("正在运行验证 前端测试"));
+    expect(html).not.toContain("复制回复");
   });
 
   it("keeps task runtime status and tool activity out of the chat body when a task projection exists", () => {
@@ -735,14 +735,14 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先确认任务投影链路");
+    expect(html).not.toContain("我先确认任务投影链路");
     expect(html).toContain("写入修复文档");
     expect(html).toContain("public-run-activity");
     expect(html).not.toContain("搜索证据");
     expect(html).not.toContain("工具调用失败");
   });
 
-  it("renders an explicit opening judgment even before activity rows exist", () => {
+  it("does not render body-only opening judgment projections as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -765,11 +765,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("我先确认现有输出链路");
-    expect(html.match(/我先确认现有输出链路/g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain("我先确认现有输出链路");
     expect(html).not.toContain("开局反馈");
     expect(html).not.toContain("assistant-output-signal");
-    expect(html).toContain("chat-message-shell__content");
+    expect(html).not.toContain("chat-message-shell__content");
     expect(html).not.toContain("public-run-activity");
     expect(html).not.toContain("正在思考");
   });
@@ -894,7 +893,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("public-run-activity__tool-window");
   });
 
-  it("renders final summary as assistant prose instead of leaving only activity feedback", () => {
+  it("does not render final summary body projection as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         answerCanonicalState: "stable_answer",
@@ -930,9 +929,9 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("已经确认问题来自 renderer.ts 的类型导入");
-    expect(html.match(/已经确认问题来自 renderer\.ts 的类型导入/g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain("已经确认问题来自 renderer.ts 的类型导入");
     expect(html).not.toContain("收尾总结");
+    expect(html).not.toContain("复制回复");
   });
 
   it("deduplicates persisted runtime final summaries against canonical assistant prose", () => {
@@ -1298,7 +1297,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("复制回复");
   });
 
-  it("renders model body timeline markdown as assistant prose", () => {
+  it("does not render model body timeline markdown as assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "",
@@ -1320,10 +1319,10 @@ describe("ChatMessage", () => {
       }),
     );
 
-    expect(html).toContain("<p>第一段说明。</p>");
-    expect(html).toContain("<p>第二段说明。</p>");
-    expect(html).toContain("<li>第三段要点</li>");
-    expect(html).toContain("复制回复");
+    expect(html).not.toContain("<p>第一段说明。</p>");
+    expect(html).not.toContain("<p>第二段说明。</p>");
+    expect(html).not.toContain("<li>第三段要点</li>");
+    expect(html).not.toContain("复制回复");
     expect(html).not.toContain("public-run-activity");
   });
 
@@ -1495,7 +1494,7 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("观察：");
   });
 
-  it("renders persisted observation feedback instead of a stale monitor action placeholder", () => {
+  it("keeps persisted observation body projections out of assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, {
         content: "好，我接着处理。",
@@ -1541,7 +1540,7 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("好，我接着处理。");
-    expect(html).toContain("验证已返回，22 tests passed");
+    expect(html).not.toContain("验证已返回，22 tests passed");
     expect(html).not.toContain("下一步会根据测试结果收口");
     expect(html).not.toContain("我正在验证验证结果");
     expect(html).not.toContain("观察报告");

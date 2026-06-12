@@ -118,6 +118,37 @@ describe("toUiMessages runtime attachments", () => {
     expect(messages[0]).toMatchObject({ role: "user", content: "继续旧任务" });
   });
 
+  it("does not create a runtime placeholder from assistant-body public timeline alone", () => {
+    const attachment: SessionRuntimeAttachment = {
+      attachment_id: "runtime-attachment:turnrun:body-only",
+      run_id: "turnrun:body-only",
+      anchor_turn_id: "turn:session-a:3",
+      anchor_role: "assistant",
+      status: "running",
+      public_timeline: [
+        {
+          item_id: "body:progress",
+          kind: "assistant_text",
+          slot: "body",
+          surface: "assistant_body",
+          source_authority: "model",
+          text: "这段运行投影不应生成正文占位。",
+          state: "running",
+        },
+      ],
+    };
+
+    const messages = toUiMessages(
+      [
+        { role: "user", content: "继续旧任务", turn_id: "turn:session-a:3" },
+      ],
+      [attachment],
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "user", content: "继续旧任务" });
+  });
+
   it("does not let task_run_id override the explicit turn/message anchor", () => {
     const taskRunId = "taskrun:turn:session-a:1:abc";
     const attachment: SessionRuntimeAttachment = {

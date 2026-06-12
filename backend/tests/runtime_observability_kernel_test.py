@@ -66,7 +66,7 @@ def test_runtime_observability_kernel_records_trace_and_runtime_event_without_du
     assert runtime_facts[0].refs["trace_id"] == root.trace_id
 
 
-def test_runtime_observability_context_payload_preserves_legacy_runtime_trace_shape(tmp_path) -> None:
+def test_runtime_observability_context_payload_preserves_runtime_trace_projection_shape(tmp_path) -> None:
     host = SingleAgentRuntimeHost(tmp_path)
     root = host.observability.start_run(
         run_kind="turn",

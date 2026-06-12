@@ -1355,7 +1355,7 @@ def test_session_runtime_timeline_leaves_anchor_message_empty_when_original_assi
     assert attachment["anchor_message_id"] == ""
 
 
-def test_session_runtime_timeline_ignores_legacy_child_event_as_control_anchor() -> None:
+def test_session_runtime_timeline_ignores_child_event_as_control_anchor() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
     task_run_id = "taskrun:turn:session-child-anchor:8:abc"

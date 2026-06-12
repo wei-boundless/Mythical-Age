@@ -1009,7 +1009,7 @@ def test_runtime_profile_uses_explicit_runtime_policy_and_environment() -> None:
     assert dict(profile.get("self_review_policy") or {}).get("before_final") == "strict_review"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.coding.vibe_workspace"
 
-def test_turn_packet_does_not_expose_legacy_task_goal_type_from_selection() -> None:
+def test_turn_packet_does_not_expose_obsolete_task_goal_type_from_selection() -> None:
     class CaptureModelRuntime:
         def __init__(self) -> None:
             self.messages: list[object] = []

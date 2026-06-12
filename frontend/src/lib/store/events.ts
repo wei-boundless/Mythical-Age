@@ -173,7 +173,6 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     || event === "retrieval"
     || event.startsWith("worker")
     || event === "token"
-    || event === "content_delta"
     || event === "assistant_text_delta"
     || event === "assistant_text_final"
     || event === "assistant_stream_repair"
@@ -447,6 +446,54 @@ function assistantBodySequence(
   return (current?.orderedSegmentIds?.length ?? 0) + 1;
 }
 
+function hasExplicitAssistantBodySegmentId(data: Record<string, unknown>) {
+  return Boolean(stringValue(data.body_segment_id) || stringValue(data.segment_id));
+}
+
+function assistantProgressiveFinalSegmentId(
+  baseSegmentId: string,
+  current: AssistantTextStreamState | undefined,
+  segments: Record<string, AssistantTextSegmentState>,
+  data: Record<string, unknown>,
+) {
+  const ref = stringValue(data.stream_ref)
+    || stringValue(data.message_ref)
+    || baseSegmentId
+    || "assistant-body";
+  const sequence = numberValue(data.body_sequence) || numberValue(data.sequence) || (current?.orderedSegmentIds?.length ?? Object.keys(segments).length) + 1;
+  let candidate = `${ref}:final:${sequence}`;
+  let duplicate = 2;
+  while (segments[candidate]) {
+    candidate = `${ref}:final:${sequence}:${duplicate}`;
+    duplicate += 1;
+  }
+  return candidate;
+}
+
+function progressiveFinalSegmentContent(previousContent: string, incomingContent: string) {
+  if (!incomingContent) {
+    return "";
+  }
+  if (!previousContent || previousContent === incomingContent) {
+    return previousContent === incomingContent ? "" : incomingContent;
+  }
+  const previousTrimmedEnd = previousContent.trimEnd();
+  if (previousTrimmedEnd && incomingContent.trimEnd() === previousTrimmedEnd) {
+    return "";
+  }
+  if (incomingContent.startsWith(previousContent)) {
+    return trimLeadingSegmentBreak(incomingContent.slice(previousContent.length));
+  }
+  if (previousTrimmedEnd && incomingContent.startsWith(previousTrimmedEnd)) {
+    return trimLeadingSegmentBreak(incomingContent.slice(previousTrimmedEnd.length));
+  }
+  return incomingContent;
+}
+
+function trimLeadingSegmentBreak(value: string) {
+  return value.replace(/^(?:[ \t]*\r?\n){1,2}/, "").replace(/^[ \t]+/, "");
+}
+
 function assistantTextSegments(current: AssistantTextStreamState | undefined): Record<string, AssistantTextSegmentState> {
   if (!current) {
     return {};
@@ -671,22 +718,38 @@ function mergeAssistantTextFinalEvent(
   const sequence = numberValue(data.sequence);
   const current = state.assistantTextStreamsByMessageId[assistantId];
   const segments = assistantTextSegments(current);
-  const segmentId = assistantBodySegmentId(data, current, segments);
-  const currentSegment = segments[segmentId];
+  const initialSegmentId = assistantBodySegmentId(data, current, segments);
+  const currentSegment = segments[initialSegmentId];
+  const shouldAppendProgressiveFinal = Boolean(
+    currentSegment?.finalReceived
+    && !hasExplicitAssistantBodySegmentId(data),
+  );
+  const progressiveContent = shouldAppendProgressiveFinal
+    ? progressiveFinalSegmentContent(currentSegment?.canonicalContent ?? "", content)
+    : content;
+  if (shouldAppendProgressiveFinal && !progressiveContent) {
+    return state;
+  }
+  const segmentId = shouldAppendProgressiveFinal
+    ? assistantProgressiveFinalSegmentId(initialSegmentId, current, segments, data)
+    : initialSegmentId;
+  const targetSegment = shouldAppendProgressiveFinal ? segments[segmentId] : currentSegment;
+  const sourceSegment = targetSegment ?? currentSegment;
+  const usesIncomingWholeContent = progressiveContent === content;
   const segmentState: AssistantTextSegmentState = {
     segmentId,
-    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
+    messageRef: stringValue(data.message_ref) || sourceSegment?.messageRef || current?.messageRef || "",
+    streamRef: stringValue(data.stream_ref) || sourceSegment?.streamRef || current?.streamRef || "",
     bodySequence: assistantBodySequence(current, segmentId, data),
     segmentRole: assistantBodySegmentRole(data),
-    latestSequence: Math.max(sequence, currentSegment?.latestSequence ?? 0),
-    canonicalContent: content,
-    canonicalContentSha256: stringValue(data.content_sha256) || currentSegment?.canonicalContentSha256 || "",
-    accumulatedUtf8Bytes: optionalNumberValue(data.content_utf8_bytes) ?? utf8ByteLength(content),
+    latestSequence: Math.max(sequence, targetSegment?.latestSequence ?? 0),
+    canonicalContent: progressiveContent,
+    canonicalContentSha256: usesIncomingWholeContent ? stringValue(data.content_sha256) || targetSegment?.canonicalContentSha256 || "" : "",
+    accumulatedUtf8Bytes: usesIncomingWholeContent ? optionalNumberValue(data.content_utf8_bytes) ?? utf8ByteLength(progressiveContent) : utf8ByteLength(progressiveContent),
     finalReceived: true,
     terminal: true,
-    repairState: currentSegment?.repairState === "pending" ? "applied" : currentSegment?.repairState ?? "none",
-    displayHintsBySequence: currentSegment?.displayHintsBySequence ?? {},
+    repairState: targetSegment?.repairState === "pending" ? "applied" : targetSegment?.repairState ?? "none",
+    displayHintsBySequence: targetSegment?.displayHintsBySequence ?? {},
   };
   const streamState = assistantTextStreamStateFromSegments(
     current,
@@ -1290,7 +1353,7 @@ function eventNodeId(event: string) {
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "content_delta" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "debug") {
+  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
@@ -1405,7 +1468,6 @@ function publicStreamEventLabel(event: string) {
     assistant_stream_repair: "正在校准回答",
     active_task_steer_accepted: "已收到补充要求",
     behavior_trace: "处理路径已检查",
-    content_delta: "正在生成回答",
     context_management: "上下文已整理",
     debug: "同步状态",
     done: "已收口",
@@ -1574,7 +1636,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "done", TURN_COMPLETED_EVENT].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "done", TURN_COMPLETED_EVENT].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }
@@ -2098,7 +2160,7 @@ export function reduceStreamEvent(
     };
   }
 
-  if (event === "token" || event === "content_delta") {
+  if (event === "token") {
     return {
       state: stateWithTimelineDraft,
       session: boundSession,

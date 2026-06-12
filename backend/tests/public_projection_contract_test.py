@@ -33,7 +33,7 @@ def test_projection_does_not_generate_assistant_body_or_live_tool_items():
     assert envelope["surface"] == "timeline"
 
 
-def test_legacy_done_projection_does_not_create_body_or_terminal_authority():
+def test_done_projection_does_not_create_body_or_terminal_authority():
     projected = project_public_projection_event(
         "done",
         {

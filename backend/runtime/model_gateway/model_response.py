@@ -71,7 +71,6 @@ class ModelResponseRuntimeExecutor:
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
         emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False)
-        emit_legacy_content_delta = bool(stream_policy.get("legacy_content_delta_public_stream") is True)
         accounting_context = _accounting_context_from_directive(
             directive,
             stream_policy=stream_policy,
@@ -98,7 +97,6 @@ class ModelResponseRuntimeExecutor:
             tool_call_options=tool_call_options,
         )
         public_delta_count = 0
-        legacy_delta_index = 0
         raw_content = ""
         partial_timeout_metadata: dict[str, Any] = {}
         response: Any = None
@@ -125,16 +123,6 @@ class ModelResponseRuntimeExecutor:
                         for frame_event in assistant_normalizer.observe_delta(delta_text):
                             public_delta_count += 1
                             yield frame_event
-                    if emit_legacy_content_delta:
-                        legacy_delta_index += 1
-                        yield {
-                            "type": "content_delta",
-                            "content": delta_text,
-                            "delta_index": legacy_delta_index,
-                            "delta_chars": len(delta_text),
-                            "accumulated_chars": len(raw_content),
-                            "stream_ref": stream_ref,
-                        }
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled and callable(plain_streamer):
                 async for chunk in _iterate_stream_with_hard_timeout(
@@ -154,16 +142,6 @@ class ModelResponseRuntimeExecutor:
                         for frame_event in assistant_normalizer.observe_delta(delta_text):
                             public_delta_count += 1
                             yield frame_event
-                    if emit_legacy_content_delta:
-                        legacy_delta_index += 1
-                        yield {
-                            "type": "content_delta",
-                            "content": delta_text,
-                            "delta_index": legacy_delta_index,
-                            "delta_chars": len(delta_text),
-                            "accumulated_chars": len(raw_content),
-                            "stream_ref": stream_ref,
-                        }
                 response = raw_content
             elif tools and callable(tool_invoker):
                 response = await _await_model_invocation(
@@ -401,17 +379,6 @@ class ModelResponseRuntimeExecutor:
             for frame_event in assistant_normalizer.flush():
                 public_delta_count += 1
                 yield frame_event
-        if stream_preview_text and emit_legacy_content_delta:
-            legacy_delta_index += 1
-            yield {
-                "type": "content_delta",
-                "content": stream_preview_text,
-                "delta_index": legacy_delta_index,
-                "delta_chars": len(stream_preview_text),
-                "accumulated_chars": len(stream_preview_text),
-                "stream_ref": stream_ref,
-                "is_final_chunk": bool(tool_calls),
-            }
         if tool_calls and tools:
             for tool_call in tool_calls:
                 tool_name = str(tool_call.get("name") or "")

@@ -124,7 +124,7 @@ describe("streamChat", () => {
     vi.stubGlobal("fetch", mockChatRunFetch([
       streamReader(
         [
-          'id: strun:test:chatrun:test:1\nevent: content_delta\ndata: {"content":"你好","event_offset":1}\n\n',
+          'id: strun:test:chatrun:test:1\nevent: assistant_text_delta\ndata: {"content":"你好","event_offset":1,"sequence":1}\n\n',
           'id: strun:test:chatrun:test:2\nevent: turn_completed\ndata: {"status":"completed","event_offset":2}\n\n',
         ],
         { cancel, openEnded: true },
@@ -145,7 +145,7 @@ describe("streamChat", () => {
       lastEventOffset: 2,
     });
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events.map((item) => item.event)).toEqual(["content_delta", "turn_completed"]);
+    expect(events.map((item) => item.event)).toEqual(["assistant_text_delta", "turn_completed"]);
   });
 
   it("parses CRLF-delimited SSE terminal events", async () => {
@@ -233,7 +233,7 @@ describe("streamChat", () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", {});
     const fetch = mockChatRunFetch([
-      streamReader(['id: strun:test:chatrun:test:1\nevent: content_delta\ndata: {"event_offset":1,"content":"你"}\n\n']),
+      streamReader(['id: strun:test:chatrun:test:1\nevent: assistant_text_delta\ndata: {"event_offset":1,"content":"你","sequence":1}\n\n']),
       streamReader(['id: strun:test:chatrun:test:2\nevent: turn_completed\ndata: {"event_offset":2,"status":"completed"}\n\n']),
     ]);
     vi.stubGlobal("fetch", fetch);
@@ -251,7 +251,7 @@ describe("streamChat", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(String(fetch.mock.calls[2][0])).toContain("after_offset=1");
     expect(events.map((item) => item.event)).toEqual([
-      "content_delta",
+      "assistant_text_delta",
       "stream_reconnecting",
       "stream_reconnected",
       "turn_completed",

@@ -47,7 +47,7 @@ def model_response_protocol_from_response(
     native_tool_calls = tuple(normalize_tool_call_dicts(response, provider=resolved_provider))
     json_payload, parse_diagnostics = parse_json_object_with_diagnostics(content)
     errors: list[str] = []
-    if require_json_action and not json_payload and not (native_tool_calls and allow_native_tool_calls):
+    if require_json_action and not json_payload and not native_tool_calls:
         errors.append("json_action_required")
     if require_json_action and bool(parse_diagnostics.get("unwrapped_markdown_fence") is True):
         errors.append("json_action_must_not_use_markdown_fence")

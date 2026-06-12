@@ -213,7 +213,7 @@ Deliverables:
 
 Completion criteria:
 
-- Simulated stream disconnect after `content_delta` reconnects and replays missed events.
+- Simulated stream disconnect after `assistant_text_delta` reconnects and replays missed transcript events.
 - Stream closure without terminal event no longer forces the user-visible session into false failure while the backend run is still active.
 
 ### Phase 2 - Runtime Run Registry
