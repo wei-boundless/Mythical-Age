@@ -49,12 +49,12 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicChatTimelineItem, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, SingleAgentTaskProjection, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { isPublicTimelineUserVisibleRuntimeItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
+import { publicProjectionFrameFromRecord } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
@@ -85,20 +85,6 @@ const ACTIVE_TURN_STATES = new Set([
   "interrupting",
   "terminal",
 ]);
-
-function recoveredChatRunMessage(streamRunId: string, cursor: ChatStreamCursor | null): PublicChatTimelineItem {
-  return {
-    item_id: `stream-restore:${streamRunId}`,
-    kind: "status_update",
-    slot: "timeline",
-    surface: "status_bar",
-    source_authority: "system",
-    title: "同步运行进度",
-    detail: recoveredChatRunActivityDetail(cursor),
-    state: "running",
-    stream_state: "streaming",
-  };
-}
 
 function recoveredChatRunActivityDetail(cursor: ChatStreamCursor | null) {
   return cursor
@@ -345,6 +331,8 @@ export class WorkspaceRuntime {
   private autoActiveWorkTurnStreamSessionIds = new Set<string>();
   private queuedUserInputsBySession = new Map<string, Array<{ content: string; messageId: string }>>();
   private flushingQueuedUserInputs = new Set<string>();
+  private pendingProjectionCommitHydrates = new Map<string, string>();
+  private hydratedProjectionCommitKeys = new Set<string>();
 
   readonly actions: StoreActions;
 
@@ -1254,10 +1242,7 @@ export class WorkspaceRuntime {
           ? this.permissionModeFromConversationState(history.conversation_state)
           : this.permissionModeForSession(sessionId, prev);
         const refreshedMessages = this.mergeVolatileMessageProgress(
-          toUiMessages(
-            history.messages,
-            "runtime_attachments" in history ? history.runtime_attachments ?? [] : [],
-          ),
+          toUiMessages(history.messages),
           prev.messages,
         );
         const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
@@ -1347,26 +1332,13 @@ export class WorkspaceRuntime {
       if (!current || !this.messageHasRuntimeVolatileState(current)) {
         return message;
       }
-      const runtimeAttachments = this.mergeRuntimeAttachments(
-        message.runtimeAttachments,
-        current.runtimeAttachments ?? [],
-      );
-      const publicSinceOffset = this.runtimeAttachmentsPublicSinceOffset(runtimeAttachments);
-      const persistedPublicTimeline = this.publicTimelineFromRuntimeAttachments(runtimeAttachments);
+      const currentProjectionText = current.publicProjection?.bodyText || "";
       return {
         ...message,
-        runtimeAttachments,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
-        runtimePublicTimelineDraft: mergePublicTimelineItems(
-          persistedPublicTimeline,
-          this.publicTimelineItemsSinceOffset(current.runtimePublicTimelineDraft, publicSinceOffset),
-          {
-            terminalState: publicTimelineTerminalStateFromAnswer({
-              answerCanonicalState: message.answerCanonicalState,
-              answerChannel: message.answerChannel,
-            }),
-          },
-        ),
+        projectionLedger: message.projectionLedger ?? current.projectionLedger,
+        publicProjection: message.publicProjection ?? current.publicProjection,
+        content: message.content || currentProjectionText || current.content,
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
     });
@@ -1376,12 +1348,7 @@ export class WorkspaceRuntime {
       && !this.refreshedMessagesContainRuntimeAnchor(refreshedWithMergedProgress, message)
       && this.refreshedHistoryContainsRuntimeTurn(refreshedMessages, message)
     );
-    const localSteerReceipts = currentMessages.filter((message) =>
-      this.isLocalActiveTurnSteerReceipt(message)
-      && !refreshedMessageIds.has(message.id)
-      && !this.hasEquivalentActiveTurnSteerReceipt(refreshedWithMergedProgress, message)
-    );
-    return [...refreshedWithMergedProgress, ...preservedRuntimeMessages, ...localSteerReceipts]
+    return [...refreshedWithMergedProgress, ...preservedRuntimeMessages]
       .sort((left, right) => {
         const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
         const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
@@ -1392,7 +1359,7 @@ export class WorkspaceRuntime {
   }
 
   private messageHasRuntimeVolatileState(message: Message) {
-    return Boolean(message.runtimeProgress?.length || message.runtimePublicTimelineDraft?.length || message.runtimeAttachments?.length);
+    return Boolean(message.runtimeProgress?.length || message.projectionLedger || message.publicProjection);
   }
 
   private findCurrentRuntimeMessageForRefresh(message: Message, candidates: Message[]) {
@@ -1435,13 +1402,6 @@ export class WorkspaceRuntime {
       if (text) values.add(text);
     };
     add(message.sourceTurnId);
-    for (const attachment of message.runtimeAttachments ?? []) {
-      add(attachment.anchor_turn_id);
-      for (const item of attachment.public_timeline ?? []) {
-        add((item as Record<string, unknown>).anchor_turn_id);
-        add((item as Record<string, unknown>).turn_id);
-      }
-    }
     return values;
   }
 
@@ -1454,18 +1414,6 @@ export class WorkspaceRuntime {
     add(message.sourceRunId);
     add(message.sourceTaskRunId);
     add(message.sourceTurnRunId);
-    for (const attachment of message.runtimeAttachments ?? []) {
-      add(attachment.run_id);
-      add(attachment.task_run_id);
-      add(attachment.turn_run_id);
-      for (const item of attachment.public_timeline ?? []) {
-        add((item as Record<string, unknown>).run_id);
-        add(item.source_run_id);
-        add(item.sourceRunId);
-        add((item as Record<string, unknown>).task_run_id);
-        add((item as Record<string, unknown>).turn_run_id);
-      }
-    }
     return values;
   }
 
@@ -1474,38 +1422,6 @@ export class WorkspaceRuntime {
       if (right.has(item)) return true;
     }
     return false;
-  }
-
-  private isLocalActiveTurnSteerReceipt(message: Message) {
-    return message.role === "assistant"
-      && Boolean(message.runtimePublicTimelineDraft?.some((item) =>
-        String(item.item_id || "").startsWith("active-turn-steer-local:")
-      ));
-  }
-
-  private hasEquivalentActiveTurnSteerReceipt(messages: Message[], receipt: Message) {
-    const receiptText = this.activeTurnSteerReceiptText(receipt);
-    if (!receiptText) {
-      return false;
-    }
-    return messages.some((message) =>
-      message.role === "assistant"
-      && this.activeTurnSteerReceiptText(message) === receiptText
-    );
-  }
-
-  private activeTurnSteerReceiptText(message: Message) {
-    const content = message.content.trim();
-    if (content) {
-      return content;
-    }
-    for (const item of message.runtimePublicTimelineDraft ?? []) {
-      const text = String(item.text || item.detail || item.title || "").trim();
-      if (text) {
-        return text;
-      }
-    }
-    return "";
   }
 
   private mergeMessageRuntimeProgress(
@@ -2467,6 +2383,52 @@ export class WorkspaceRuntime {
     return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
   }
 
+  private recordProjectionCommitAck(sessionId: string, data: Record<string, unknown>) {
+    const frame = publicProjectionFrameFromRecord(data.public_projection_frame);
+    if (frame?.op !== "commit_ack") {
+      return;
+    }
+    const commitKey = this.projectionCommitKey(frame, sessionId);
+    if (!commitKey || this.hydratedProjectionCommitKeys.has(commitKey)) {
+      return;
+    }
+    this.pendingProjectionCommitHydrates.set(sessionId, commitKey);
+    if (!this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      void this.hydrateCommittedProjectionIfPending(sessionId).catch(() => undefined);
+    }
+  }
+
+  private async hydrateCommittedProjectionIfPending(sessionId: string) {
+    const commitKey = this.pendingProjectionCommitHydrates.get(sessionId);
+    if (!commitKey || this.hydratedProjectionCommitKeys.has(commitKey)) {
+      return false;
+    }
+    if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      return false;
+    }
+    if (this.store.getState().currentSessionId !== sessionId) {
+      return false;
+    }
+    await this.refreshSessionDetails(sessionId);
+    this.hydratedProjectionCommitKeys.add(commitKey);
+    if (this.pendingProjectionCommitHydrates.get(sessionId) === commitKey) {
+      this.pendingProjectionCommitHydrates.delete(sessionId);
+    }
+    return true;
+  }
+
+  private projectionCommitKey(frame: PublicProjectionFrame, sessionId: string) {
+    const commit = (frame.commit ?? {}) as Record<string, unknown>;
+    return [
+      String(frame.anchor?.session_id || sessionId || "").trim(),
+      String(frame.anchor?.turn_id || "").trim(),
+      String(frame.anchor?.task_run_id || "").trim(),
+      String(commit.commit_event_offset ?? commit.event_offset ?? "").trim(),
+      String(commit.content_sha256 || "").trim(),
+      String(frame.frame_id || frame.projection_id || "").trim(),
+    ].join("|");
+  }
+
   private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
     if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
       return;
@@ -2477,28 +2439,13 @@ export class WorkspaceRuntime {
     this.stoppedStreamingSessionIds.delete(sessionId);
 
     const assistantId = makeId();
-    const sourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
-    const recoveryMessage = recoveredChatRunMessage(streamRunId, cursor);
     const recoveryActivityDetail = recoveredChatRunActivityDetail(cursor);
     let streamState: StoreState = {
       ...this.store.getState(),
-      messages: [
-        ...this.store.getState().messages,
-        {
-          id: assistantId,
-          role: "assistant",
-          content: "",
-          toolCalls: [],
-          retrievals: [],
-          runtimeProgress: [],
-          runtimePublicTimelineDraft: [recoveryMessage],
-          stageStatus: "接回当前运行",
-          sourceIndex,
-        }
-      ],
+      messages: this.store.getState().messages,
       orchestrationSnapshot: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
@@ -2543,6 +2490,7 @@ export class WorkspaceRuntime {
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
               const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
               const transition = reduceStreamEvent(baseState, transitionSession, event, data);
+              this.recordProjectionCommitAck(sessionId, data);
               transitionSession = transition.session;
               const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
                 ? this.store.getState().activeStreamSessionIds
@@ -2627,13 +2575,15 @@ export class WorkspaceRuntime {
         const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
         this.removedStreamingSessionIds.delete(sessionId);
         this.stoppedStreamingSessionIds.delete(sessionId);
+        if (!streamSessionWasRemoved) {
+          await this.hydrateCommittedProjectionIfPending(sessionId);
+        }
         if (
           !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
           && this.store.getState().currentSessionId === sessionId
         ) {
-          await this.refreshSessionDetails(sessionId);
           await this.hydrateLatestOrchestrationSnapshot(sessionId);
           await this.refreshRunMonitor();
         }
@@ -2809,6 +2759,7 @@ export class WorkspaceRuntime {
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
+            this.recordProjectionCommitAck(sessionId, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
               : [...this.store.getState().activeStreamSessionIds, sessionId];
@@ -2892,6 +2843,9 @@ export class WorkspaceRuntime {
       const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
       this.removedStreamingSessionIds.delete(sessionId);
       this.stoppedStreamingSessionIds.delete(sessionId);
+      if (!streamSessionWasRemoved) {
+        await this.hydrateCommittedProjectionIfPending(sessionId);
+      }
       if (
         !streamSessionWasRemoved
         && !streamSessionWasStopped
@@ -2899,7 +2853,6 @@ export class WorkspaceRuntime {
         && !isImageGenerationTurn
         && this.store.getState().currentSessionId === sessionId
       ) {
-        await this.refreshSessionDetails(sessionId);
         await this.hydrateLatestOrchestrationSnapshot(sessionId);
         await this.refreshRunMonitor();
       }
@@ -3302,11 +3255,11 @@ export class WorkspaceRuntime {
   }
 
   private chatStreamPolicyPayload(state: StoreState) {
-    const enabled = Boolean(state.chatStreamDisplayEnabled);
+    const liveDisplayEnabled = Boolean(state.chatStreamDisplayEnabled);
     return {
-      enabled,
-      mode: enabled ? "model_text_stream" : "disabled",
-      emit_assistant_text_delta: enabled,
+      enabled: true,
+      mode: liveDisplayEnabled ? "model_text_stream" : "public_projection_stream",
+      emit_assistant_text_delta: true,
       source: "frontend.chat_stream_display_toggle",
     };
   }
@@ -4301,10 +4254,7 @@ export class WorkspaceRuntime {
       );
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
-          ...this.patchRuntimeAttachmentFromMonitor(
-            activeTurnSnapshot ? { ...prev, activeTurnSnapshot } : prev,
-            activeMonitor
-          ),
+          ...(activeTurnSnapshot ? { ...prev, activeTurnSnapshot } : prev),
           taskGraphLiveMonitor: activeMonitor,
         }));
       }
@@ -4354,295 +4304,6 @@ export class WorkspaceRuntime {
       return String((control as Record<string, unknown>).state ?? "").trim();
     }
     return "";
-  }
-
-  private publicTimelineFromRuntimeAttachments(runtimeAttachments: SessionRuntimeAttachment[] | undefined) {
-    return (runtimeAttachments ?? []).flatMap((attachment) =>
-      Array.isArray(attachment.public_timeline)
-        ? attachment.public_timeline
-        : [],
-    );
-  }
-
-  private taskProjectionFromRecord(value: unknown): SingleAgentTaskProjection | null {
-    const record = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-    const projection = record.task_projection_delta ?? record.task_projection;
-    if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
-      return null;
-    }
-    return projection as SingleAgentTaskProjection;
-  }
-
-  private taskProjectionVisibleSummary(projection: SingleAgentTaskProjection | null) {
-    if (!projection) {
-      return "";
-    }
-    const currentAction = projection.current_action && typeof projection.current_action === "object" && !Array.isArray(projection.current_action)
-      ? projection.current_action as Record<string, unknown>
-      : {};
-    return this.runtimeVisibleProgressText(
-      currentAction.title
-      ?? (projection as unknown as Record<string, unknown>).summary
-      ?? projection.title
-      ?? "",
-    );
-  }
-
-  private publicProjectionStatusFromRecord(value: unknown) {
-    const record = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-    const status = record.public_projection_status && typeof record.public_projection_status === "object" && !Array.isArray(record.public_projection_status)
-      ? record.public_projection_status as Record<string, unknown>
-      : {};
-    const source = String(status.source ?? "").trim();
-    const diagnostic = String(status.diagnostic ?? "").trim();
-    return {
-      source,
-      diagnostic,
-      missing: status.missing === true || source === "progress_projection_missing" || diagnostic === "progress_projection_missing",
-    };
-  }
-
-  private publicTimelineItemsFromRecord(value: unknown): PublicChatTimelineItem[] {
-    const record = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-    const direct = Array.isArray(record.public_timeline)
-      ? record.public_timeline.filter((item): item is PublicChatTimelineItem =>
-        Boolean(item && typeof item === "object" && !Array.isArray(item))
-      )
-      : [];
-    return mergePublicTimelineItems(direct, undefined, { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES });
-  }
-
-  private publicTimelineSummary(items: PublicChatTimelineItem[]) {
-    for (const item of items) {
-      const surface = String((item as { surface?: unknown }).surface ?? "").trim().toLowerCase();
-      const slot = String((item as { slot?: unknown }).slot ?? "").trim().toLowerCase();
-      if (surface === "status_bar" || surface === "tool_window" || slot === "status" || slot === "tool" || slot === "control") {
-        continue;
-      }
-      const text = String(item.text ?? item.detail ?? item.public_summary ?? item.title ?? "").trim();
-      if (text) {
-        return text;
-      }
-    }
-    return "";
-  }
-
-  private mergeRuntimeAttachments(
-    persisted: SessionRuntimeAttachment[] | undefined,
-    volatile: SessionRuntimeAttachment[],
-  ) {
-    const merged = [...(persisted ?? [])];
-    for (const attachment of volatile) {
-      const runId = this.runtimeAttachmentRunId(attachment);
-      if (!runId) {
-        continue;
-      }
-      const existingIndex = merged.findIndex((item) => this.runtimeAttachmentRunId(item) === runId);
-      if (existingIndex >= 0) {
-        merged[existingIndex] = this.mergeRuntimeAttachment(merged[existingIndex], attachment);
-      } else {
-        merged.push(attachment);
-      }
-    }
-    return merged;
-  }
-
-  private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
-    const publicSinceOffset = Math.max(
-      this.runtimeAttachmentPublicSinceOffset(existing),
-      this.runtimeAttachmentPublicSinceOffset(attachment),
-    );
-    return {
-      ...existing,
-      ...attachment,
-      ...(publicSinceOffset > 0 ? { public_since_offset: publicSinceOffset } : {}),
-      public_timeline: mergePublicTimelineItems(
-        this.publicTimelineItemsSinceOffset(existing?.public_timeline, publicSinceOffset),
-        this.publicTimelineItemsSinceOffset(attachment.public_timeline, publicSinceOffset),
-        {
-        limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
-        },
-      ),
-    };
-  }
-
-  private runtimeAttachmentRunId(attachment: SessionRuntimeAttachment | undefined) {
-    return String(attachment?.run_id ?? attachment?.task_run_id ?? "").trim();
-  }
-
-  private runtimeAttachmentsPublicSinceOffset(attachments: SessionRuntimeAttachment[] | undefined) {
-    return Math.max(0, ...(attachments ?? []).map((attachment) => this.runtimeAttachmentPublicSinceOffset(attachment)));
-  }
-
-  private runtimeAttachmentPublicSinceOffset(attachment: SessionRuntimeAttachment | undefined) {
-    return this.numericRuntimeOffset(attachment?.public_since_offset ?? attachment?.publicSinceOffset) ?? 0;
-  }
-
-  private publicTimelineItemsSinceOffset(items: PublicChatTimelineItem[] | undefined, publicSinceOffset: number) {
-    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
-    const source = Array.isArray(items) ? items : [];
-    if (boundary <= 0) {
-      return source;
-    }
-    return source.filter((item) => this.publicTimelineItemIntersectsOffsetWindow(item, boundary));
-  }
-
-  private publicTimelineItemIntersectsOffsetWindow(item: PublicChatTimelineItem, publicSinceOffset: number) {
-    const boundary = Math.max(0, Number(publicSinceOffset) || 0);
-    if (boundary <= 0) {
-      return true;
-    }
-    const offsets = [
-      item.sequence,
-      item.event_offset,
-      item.eventOffset,
-      item.updated_event_offset,
-    ].map((value) => this.numericRuntimeOffset(value)).filter((value): value is number => value !== undefined);
-    if (offsets.length > 0) {
-      return Math.max(...offsets) >= boundary;
-    }
-    const slot = String(item.slot ?? "").trim().toLowerCase();
-    const surface = String(item.surface ?? "").trim().toLowerCase();
-    return slot === "status" || slot === "control" || surface === "status_bar" || surface === "control";
-  }
-
-  private numericRuntimeOffset(value: unknown) {
-    if (value === null || value === undefined || value === "") {
-      return undefined;
-    }
-    const number = Number(value);
-    return Number.isFinite(number) ? number : undefined;
-  }
-
-  private messageSourceMatchesRuntimeAnchor(
-    message: Message,
-    anchor: { anchorTurnId?: string; runId?: string; taskRunId?: string; turnRunId?: string },
-  ) {
-    const anchorTurnId = String(anchor.anchorTurnId ?? "").trim();
-    if (anchorTurnId && String(message.sourceTurnId ?? "").trim() === anchorTurnId) {
-      return true;
-    }
-    const runIds = [
-      anchor.runId,
-      anchor.taskRunId,
-      anchor.turnRunId,
-    ].map((item) => String(item ?? "").trim()).filter(Boolean);
-    if (!runIds.length) {
-      return false;
-    }
-    return runIds.some((runId) =>
-      String(message.sourceRunId ?? "").trim() === runId
-      || String(message.sourceTaskRunId ?? "").trim() === runId
-      || String(message.sourceTurnRunId ?? "").trim() === runId
-    );
-  }
-
-  private ensureRuntimeProjectionMessage(state: StoreState, attachment: SessionRuntimeAttachment): StoreState {
-    if (!this.runtimeAttachmentHasUserVisibleProjection(attachment)) {
-      return state;
-    }
-    const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
-    if (!anchorTurnId) {
-      return state;
-    }
-    const runId = this.runtimeAttachmentRunId(attachment);
-    const taskRunId = String(attachment.task_run_id ?? "").trim();
-    const turnRunId = String(attachment.turn_run_id ?? "").trim();
-    const existingAssistant = state.messages.some((message) =>
-      message.role === "assistant"
-      && this.messageSourceMatchesRuntimeAnchor(message, {
-        anchorTurnId,
-        runId,
-        taskRunId,
-        turnRunId,
-      })
-    );
-    if (existingAssistant) {
-      return state;
-    }
-    const userIndex = state.messages.findIndex((message) =>
-      message.role === "user" && String(message.sourceTurnId ?? "").trim() === anchorTurnId
-    );
-    if (userIndex < 0) {
-      return state;
-    }
-    const userMessage = state.messages[userIndex];
-    const requestedMessageId = String(attachment.anchor_message_id ?? "").trim();
-    const requestedMessageIdIsAvailable = requestedMessageId
-      && !state.messages.some((message) => message.id === requestedMessageId);
-    const messageId = requestedMessageIdIsAvailable ? requestedMessageId : `history-message:${anchorTurnId}:assistant`;
-    if (state.messages.some((message) => message.id === messageId)) {
-      return state;
-    }
-    const projectionMessage: Message = {
-      id: messageId,
-      role: "assistant",
-      content: "",
-      toolCalls: [],
-      retrievals: [],
-      sourceIndex: typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5,
-      sourceTurnId: anchorTurnId,
-      sourceRunId: runId || undefined,
-      sourceTaskRunId: taskRunId || undefined,
-      sourceTurnRunId: turnRunId || undefined,
-      runtimeAttachments: [],
-    };
-    return {
-      ...state,
-      messages: [...state.messages, projectionMessage].sort((left, right) => {
-        const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
-        const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
-        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-        if (left.role !== right.role) return left.role === "user" ? -1 : 1;
-        return left.id.localeCompare(right.id);
-      }),
-    };
-  }
-
-  private runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAttachment) {
-    if (attachment.task_projection) {
-      return true;
-    }
-    const hasPublicTimeline = (attachment.public_timeline ?? []).some(isPublicTimelineUserVisibleRuntimeItem);
-    if (hasPublicTimeline) {
-      return true;
-    }
-    return false;
-  }
-
-  private runtimeIsInternalToolObservation(value: string) {
-    const text = String(value ?? "").trim();
-    return text.startsWith("{") && text.includes("\"plan_id\"") && text.includes("\"items\"");
-  }
-
-  private runtimeToolObservationBody(value: string) {
-    const text = String(value ?? "").trim();
-    if (!text) return "";
-    if (!this.looksLikeJson(text)) return this.runtimeVisibleProgressText(text);
-    try {
-      const data = JSON.parse(text) as Record<string, unknown>;
-      const structured = data.structured_error && typeof data.structured_error === "object" && !Array.isArray(data.structured_error)
-        ? data.structured_error as Record<string, unknown>
-        : {};
-      const error = String(data.error ?? data.message ?? structured.message ?? structured.error ?? "").trim();
-      if (data.ok === false || error) {
-        const visibleError = this.runtimeVisibleProgressText(error);
-        return visibleError ? `工具返回失败：${visibleError}` : "";
-      }
-      const result = String(data.result ?? data.summary ?? data.output ?? "").trim();
-      if (result) return result;
-      const artifactRefs = Array.isArray(data.artifact_refs) ? data.artifact_refs : [];
-      if (artifactRefs.length) return `产生 ${artifactRefs.length} 个产物引用。`;
-      return "";
-    } catch {
-      return "";
-    }
   }
 
   private runtimeVisibleProgressText(value: unknown) {
@@ -4708,153 +4369,6 @@ export class WorkspaceRuntime {
       "responding",
       "verifying",
     ]).has(normalized);
-  }
-
-  private runtimeObservationLooksFailed(value: string) {
-    const text = String(value ?? "").trim();
-    if (!text) return false;
-    if (text.includes("工具返回失败")) return true;
-    if (!this.looksLikeJson(text)) return false;
-    try {
-      const data = JSON.parse(text) as Record<string, unknown>;
-      return data.ok === false || Boolean(data.error || data.structured_error);
-    } catch {
-      return false;
-    }
-  }
-
-  private looksLikeJson(value: string) {
-    const text = String(value ?? "").trim();
-    return (text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"));
-  }
-
-  private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: HarnessSessionMonitor): StoreState {
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (!taskRunId) {
-      return state;
-    }
-    const taskRunDiagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
-      ? taskRun.diagnostics as Record<string, unknown>
-      : {};
-    const taskIdForAnchor = String(monitor.task_id ?? taskRun.task_id ?? "").trim();
-    const latestInteractionTurnId = String(
-      (monitor as Record<string, unknown>).latest_interaction_turn_id
-      ?? taskRunDiagnostics.latest_interaction_turn_id
-      ?? "",
-    ).trim();
-    const activeTurnId = String(state.activeTurnSnapshot?.turn_id ?? "").trim();
-    const activeTaskRunId = String(state.activeTurnSnapshot?.task_run_id ?? "").trim();
-    const explicitTurnMatches = latestInteractionTurnId.startsWith("turn:")
-      && (!activeTurnId || latestInteractionTurnId === activeTurnId);
-    const activeTaskMatches = Boolean(activeTaskRunId && activeTaskRunId === taskRunId);
-    if (!explicitTurnMatches && !activeTaskMatches) {
-      return state;
-    }
-    const anchorTurnId = latestInteractionTurnId
-      || activeTurnId;
-    if (!anchorTurnId) {
-      return state;
-    }
-    const taskProjection = this.taskProjectionFromRecord(monitor);
-    const projectionSummary = this.taskProjectionVisibleSummary(taskProjection) || this.publicProjectionStatusFromRecord(monitor).diagnostic || "progress_projection_missing";
-    const monitorPublicTimeline = this.publicTimelineItemsFromRecord(monitor);
-    const monitorStatusItem = this.runtimeMonitorStatusTimelineItem(monitor, taskRunId);
-    const publicTimelineItems = mergePublicTimelineItems(
-      monitorPublicTimeline,
-      monitorStatusItem ? [monitorStatusItem] : undefined,
-      { limit: MAX_LIVE_RUNTIME_PROGRESS_ENTRIES },
-    );
-    const attachment: SessionRuntimeAttachment = {
-      attachment_id: `runtime-attachment:${taskRunId}`,
-      run_id: taskRunId,
-      anchor_turn_id: anchorTurnId,
-      anchor_role: "assistant",
-      task_run_id: taskRunId,
-      task_id: String(taskProjection?.task_id ?? taskRun.task_id ?? monitor.task_id ?? ""),
-      status: String(taskProjection?.status ?? monitor.status ?? taskRun.status ?? ""),
-      terminal_reason: String(monitor.terminal_reason ?? taskRun.terminal_reason ?? ""),
-      lifecycle: String(taskProjection?.status ?? (monitor as Record<string, unknown>).lifecycle ?? ""),
-      title: String((monitor as Record<string, unknown>).title ?? "处理进展"),
-      summary: projectionSummary,
-      latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
-      event_count: Number(monitor.event_count ?? 0),
-      public_timeline: publicTimelineItems,
-      task_projection: taskProjection ?? undefined,
-      artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
-      trace_available: true,
-      debug_trace_ref: String(taskProjection?.debug_trace_ref ?? taskRunId),
-      updated_at: Number(taskProjection?.updated_at ?? monitor.updated_at ?? Date.now() / 1000),
-    };
-    const stateWithProjectionMessage = this.ensureRuntimeProjectionMessage(state, attachment);
-    return {
-      ...stateWithProjectionMessage,
-      messages: stateWithProjectionMessage.messages.map((message) => {
-        if (message.role !== "assistant") {
-          return message;
-        }
-        const existing = message.runtimeAttachments ?? [];
-        const hasAttachment = existing.some((item) => this.runtimeAttachmentRunId(item) === taskRunId);
-        const sourceMatches = this.messageSourceMatchesRuntimeAnchor(message, {
-          anchorTurnId: attachment.anchor_turn_id,
-          runId: taskRunId,
-          taskRunId,
-        });
-        if (!hasAttachment && !sourceMatches) {
-          return message;
-        }
-        const anchoredAttachment = {
-          ...attachment,
-          anchor_message_id: attachment.anchor_message_id || message.id,
-        };
-        return {
-          ...message,
-          runtimeAttachments: hasAttachment
-            ? existing.map((item) => this.runtimeAttachmentRunId(item) === taskRunId ? this.mergeRuntimeAttachment(item, anchoredAttachment) : item)
-            : [...existing, anchoredAttachment],
-        };
-      }),
-    };
-  }
-
-  private runtimeMonitorStatusTimelineItem(monitor: HarnessSessionMonitor, taskRunId: string): PublicChatTimelineItem | null {
-    const record = monitor as Record<string, unknown>;
-    const status = String(monitor.status ?? record.status ?? "").trim().toLowerCase();
-    const lifecycle = String(record.lifecycle ?? "").trim().toLowerCase();
-    const bucket = String(record.bucket ?? "").trim().toLowerCase();
-    const stale = record.stale === true || lifecycle === "stale" || bucket === "diagnostics";
-    if (stale) {
-      return {
-        item_id: `live:${taskRunId}:monitor-status`,
-        kind: "status_update",
-        slot: "status",
-        surface: "status_bar",
-        source_authority: "system",
-        title: "等待检查",
-        detail: "运行已经停滞，需要在监控中检查或关闭运行。",
-        text: "运行已经停滞，需要在监控中检查或关闭运行。",
-        state: "stale",
-        phase: "stale",
-        stream_state: "done",
-      };
-    }
-    if (["failed", "error", "blocked"].includes(status)) {
-      const detail = this.taskProjectionVisibleSummary(this.taskProjectionFromRecord(monitor)) || "运行遇到阻塞，需要检查详情。";
-      return {
-        item_id: `live:${taskRunId}:monitor-status`,
-        kind: "status_update",
-        slot: "status",
-        surface: "status_bar",
-        source_authority: "system",
-        title: "处理受阻",
-        detail,
-        text: detail,
-        state: "error",
-        phase: "done",
-        stream_state: "done",
-      };
-    }
-    return null;
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {
@@ -4985,8 +4499,19 @@ export class WorkspaceRuntime {
       : String(monitorRecord.activity_state || activityRecord.activity_state || "").trim();
     const effectiveStatus = projectedActivityState === "waiting" ? "waiting_executor" : projectedActivityState || normalizedStatus;
     const projectedTitle = this.runtimeVisibleProgressText(monitorRecord.activity_label || activityRecord.activity_label);
-    const projectedDetail = this.taskProjectionVisibleSummary(this.taskProjectionFromRecord(monitorRecord))
-      || this.publicProjectionStatusFromRecord(monitorRecord).diagnostic;
+    const latestProgress = monitorRecord.latest_progress && typeof monitorRecord.latest_progress === "object" && !Array.isArray(monitorRecord.latest_progress)
+      ? monitorRecord.latest_progress as Record<string, unknown>
+      : {};
+    const projectedDetail = this.runtimeVisibleProgressText(
+      activityRecord.detail
+      || monitorRecord.activity_detail
+      || monitorRecord.latest_public_progress_note
+      || latestProgress.current_judgment
+      || latestProgress.next_action
+      || latestProgress.summary
+      || monitorRecord.summary
+      || monitorRecord.latest_step_summary,
+    );
     if (effectiveStatus === "stale") {
       this.store.setState((prev) => ({
         ...prev,

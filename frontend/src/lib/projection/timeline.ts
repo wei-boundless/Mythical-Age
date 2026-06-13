@@ -1,10 +1,7 @@
 import type { PublicChatTimelineItem } from "@/lib/api";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 
-export type PublicTimelineTerminalState = "done" | "error" | "stopped" | "";
-
-type MergeOptions = {
-  terminalState?: PublicTimelineTerminalState;
+type NormalizeOptions = {
   limit?: number;
 };
 
@@ -126,21 +123,6 @@ export function isPublicTimelineStatusBarItem(item: PublicChatTimelineItem | und
   return slot === "status" || surface === "status_bar";
 }
 
-export function isPublicTimelineUserVisibleRuntimeItem(item: PublicChatTimelineItem | null | undefined) {
-  if (!item) return false;
-  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  const surface = cleanPublicTimelineText((item as { surface?: unknown }).surface).toLowerCase();
-  if (slot === "body" || surface === "assistant_body") return false;
-  if (slot === "control" || surface === "control" || surface === "diagnostics") return false;
-  return true;
-}
-
-export function isTaskProjectionCompanionTimelineItem(item: PublicChatTimelineItem | null | undefined) {
-  if (!item) return false;
-  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  return ["control", "timeline", "tool", "status", "task"].includes(slot);
-}
-
 export function publicTimelineItemKey(item: PublicChatTimelineItem | undefined, fallbackIndex = 0) {
   if (!item) return "";
   const itemId = cleanPublicTimelineText(item.item_id);
@@ -171,17 +153,9 @@ export function publicTimelineSemanticKey(item: PublicChatTimelineItem | undefin
   return "";
 }
 
-export function mergePublicTimelineItems(
-  existing: PublicChatTimelineItem[] | undefined,
-  incoming: PublicChatTimelineItem[] | undefined,
-  options: MergeOptions = {},
-) {
-  return normalizePublicTimelineItems([...(existing ?? []), ...(incoming ?? [])], options);
-}
-
 export function normalizePublicTimelineItems(
   items: PublicChatTimelineItem[] | undefined,
-  options: MergeOptions = {},
+  options: NormalizeOptions = {},
 ) {
   const result: PublicChatTimelineItem[] = [];
   const indexByKey = new Map<string, number>();
@@ -189,10 +163,8 @@ export function normalizePublicTimelineItems(
   for (const [index, rawItem] of (items ?? []).entries()) {
     if (cleanPublicTimelineText(rawItem.kind) === "todo_plan") continue;
     if (isPublicTimelineBodyItem(rawItem)) continue;
-    if (isPublicTimelineStatusBarItem(rawItem) && !shouldKeepStatusTimelineItem(rawItem, options.terminalState)) continue;
-    const item = options.terminalState
-      ? finalizePublicTimelineItem(sanitizePublicTimelineItem(rawItem), options.terminalState)
-      : sanitizePublicTimelineItem(rawItem);
+    if (isPublicTimelineStatusBarItem(rawItem) && !shouldKeepStatusTimelineItem(rawItem)) continue;
+    const item = sanitizePublicTimelineItem(rawItem);
     if (!publicTimelineItemText(item)) continue;
     const key = publicTimelineItemKey(item, index);
     const semanticKey = publicTimelineSemanticKey(item);
@@ -210,10 +182,7 @@ export function normalizePublicTimelineItems(
   return trimPublicTimelineItems(sortPublicTimelineItems(result), options.limit);
 }
 
-function shouldKeepStatusTimelineItem(item: PublicChatTimelineItem, terminalState: PublicTimelineTerminalState | undefined) {
-  if (terminalState) {
-    return true;
-  }
+function shouldKeepStatusTimelineItem(item: PublicChatTimelineItem) {
   const kind = cleanPublicTimelineText(item.kind).toLowerCase();
   const state = cleanPublicTimelineText(item.state).toLowerCase();
   const phase = cleanPublicTimelineText(item.phase).toLowerCase();
@@ -224,40 +193,12 @@ function shouldKeepStatusTimelineItem(item: PublicChatTimelineItem, terminalStat
     || ["error", "failed", "stopped", "stale", "waiting", "blocked"].includes(phase);
 }
 
-export function publicTimelineTerminalStateFromAnswer({
-  answerCanonicalState,
-  answerChannel,
-}: {
-  answerCanonicalState?: string;
-  answerChannel?: string;
-}): PublicTimelineTerminalState {
-  const canonicalState = cleanPublicTimelineText(answerCanonicalState).toLowerCase();
-  const channel = cleanPublicTimelineText(answerChannel).toLowerCase();
-  if (channel === "task_control" || channel === "opening_judgment") return "";
-  if (channel === "blocked" || canonicalState === "missing_answer") return "error";
-  return ["final", "stable_answer"].includes(canonicalState) ? "done" : "";
-}
-
-export function publicTimelineTerminalStateFromEvent(event: string): PublicTimelineTerminalState {
-  if (event === "done") return "done";
-  if (event === "error") return "error";
-  if (event === "stopped") return "stopped";
-  return "";
-}
-
 function sanitizePublicTimelineItem(item: PublicChatTimelineItem) {
   const next: Record<string, unknown> = { ...item };
   for (const field of TEXT_FIELDS) {
     next[field] = sanitizePublicTimelineText(next[field]);
   }
   return next as PublicChatTimelineItem;
-}
-
-function finalizePublicTimelineItem(item: PublicChatTimelineItem, terminalState: PublicTimelineTerminalState) {
-  if (!terminalState) return item;
-  const currentState = cleanPublicTimelineText(item.state).toLowerCase();
-  if (currentState && !["running", "working", "waiting"].includes(currentState)) return item;
-  return { ...item, state: terminalState === "done" ? "done" : terminalState, stream_state: terminalState === "done" ? "done" : item.stream_state };
 }
 
 function mergePublicTimelineItem(left: PublicChatTimelineItem, right: PublicChatTimelineItem) {

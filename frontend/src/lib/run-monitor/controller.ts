@@ -18,10 +18,7 @@ import {
 } from "./api";
 import {
   applyRunMonitorSnapshot,
-  allRunMonitorSignals,
   findRunMonitorSignal,
-  isStaleRunMonitorRevision,
-  runMonitorRevision,
   selectRunMonitorSignal,
   signalDetailTaskRunId,
 } from "./reducer";
@@ -56,9 +53,6 @@ export class RunMonitorController {
   private reconnectAttempts = 0;
   private graphAutoAdvanceTimer: number | null = null;
   private graphAutoAdvanceInFlight = false;
-  private lastStreamSessionHydrateAt = 0;
-  private lastStreamSessionHydrateId = "";
-  private lastStreamSessionHydrateCommitKey = "";
 
   constructor(
     private readonly store: Store<StoreState>,
@@ -180,16 +174,10 @@ export class RunMonitorController {
 
   applyStreamPayload(payload: RunMonitorEventPayload | null) {
     if (!payload) return;
-    const incomingRevision = payload.monitor ? runMonitorRevision(payload.monitor) : "";
-    const currentRevision = this.store.getState().runMonitorRevision;
-    const stalePayload = Boolean(payload.monitor && isStaleRunMonitorRevision(incomingRevision, currentRevision));
     if (payload.monitor) {
       this.applySnapshot(payload.monitor, {
         selectedSignalId: "",
       });
-      if (!stalePayload) {
-        this.hydrateCurrentSessionFromStream();
-      }
     }
   }
 
@@ -367,7 +355,6 @@ export class RunMonitorController {
       this.reconnectAttempts = 0;
       this.clearTimer();
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected", runMonitorError: "" }));
-      this.hydrateCurrentSessionFromStream();
     };
     source.onerror = () => {
       this.closeStream();
@@ -397,58 +384,6 @@ export class RunMonitorController {
       this.eventSource.close();
       this.eventSource = null;
     }
-  }
-
-  private hydrateCurrentSessionFromStream() {
-    if (typeof window === "undefined") return;
-    const state = this.store.getState();
-    const sessionId = String(state.currentSessionId || "").trim();
-    if (!sessionId) return;
-    if (this.currentSessionHasVisibleActiveStream(state, sessionId)) return;
-    const commitKey = this.currentSessionOutputCommitAckKey(state, sessionId);
-    if (state.messages.length > 0 && !commitKey) return;
-    if (commitKey && this.lastStreamSessionHydrateCommitKey === commitKey) return;
-    const now = Date.now();
-    if (this.lastStreamSessionHydrateId === sessionId && now - this.lastStreamSessionHydrateAt < 3000) {
-      return;
-    }
-    this.lastStreamSessionHydrateId = sessionId;
-    this.lastStreamSessionHydrateAt = now;
-    if (commitKey) {
-      this.lastStreamSessionHydrateCommitKey = commitKey;
-    }
-    void this.host.refreshSessionDetails(sessionId).catch(() => undefined);
-  }
-
-  private currentSessionHasVisibleActiveStream(state: StoreState, sessionId: string) {
-    return state.activeStreamSessionIds.includes(sessionId) && state.messages.length > 0;
-  }
-
-  private currentSessionOutputCommitAckKey(state: StoreState, sessionId: string) {
-    for (const signal of allRunMonitorSignals(state.runMonitor)) {
-      const rawSignal = signal as unknown as Record<string, unknown>;
-      const route = rawSignal.route && typeof rawSignal.route === "object" && !Array.isArray(rawSignal.route)
-        ? rawSignal.route as Record<string, unknown>
-        : {};
-      const navigation = rawSignal.navigation_target && typeof rawSignal.navigation_target === "object" && !Array.isArray(rawSignal.navigation_target)
-        ? rawSignal.navigation_target as Record<string, unknown>
-        : {};
-      const outputCommit = rawSignal.session_output_commit && typeof rawSignal.session_output_commit === "object" && !Array.isArray(rawSignal.session_output_commit)
-        ? rawSignal.session_output_commit as Record<string, unknown>
-        : {};
-      const signalSessionId = String(
-        outputCommit.session_id || rawSignal.session_id || route.session_id || navigation.session_id || "",
-      ).trim();
-      if (signalSessionId !== sessionId) continue;
-      const stateValue = String(outputCommit.state || outputCommit.status || "").trim().toLowerCase();
-      if (stateValue !== "committed") continue;
-      const turnId = String(outputCommit.turn_id || rawSignal.turn_id || "").trim();
-      const taskRunId = String(outputCommit.task_run_id || rawSignal.task_run_id || rawSignal.task_instance_id || "").trim();
-      const eventOffset = String(outputCommit.commit_event_offset ?? outputCommit.event_offset ?? "").trim();
-      const contentHash = String(outputCommit.content_sha256 || "").trim();
-      return [signalSessionId, turnId, taskRunId, eventOffset, contentHash].join("|");
-    }
-    return "";
   }
 
   private scheduleReconnect() {

@@ -1,29 +1,25 @@
 import {
   taskGraphRunIdsFromTrace,
-  type PublicChatTimelineItem,
   type OrchestrationEdge,
   type OrchestrationNode,
   type OrchestrationSnapshot,
   type RetrievalResult,
   type HarnessTaskRunTrace,
-  type SessionRuntimeAttachment,
-  type SingleAgentTaskProjection,
 } from "@/lib/api";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 import { projectRuntimeTransportEvent, type RuntimeTransportProjection } from "@/lib/projection/runtimeTransportProjection";
 import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 import {
-  applyPublicProjectionEnvelope,
-  publicProjectionEnvelopeFromRecord,
-  publicProjectionEnvelopeSuppressesLegacy,
+  applyPublicProjectionFrame,
+  publicProjectionFrameFromRecord,
+  publicProjectionFrameSuppressesLegacy,
 } from "@/lib/projection/reducer";
 
 import type { ActiveTurnState, AssistantTextSegmentState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
   makeId
 } from "./utils";
-import { mergePublicTimelineItems } from "@/lib/projection/timeline";
 
 export type StreamSession = {
   assistantId: string;
@@ -87,52 +83,12 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
-function stoppedPublicTimelineItem(): PublicChatTimelineItem {
-  return {
-    item_id: "stream:stopped",
-    kind: "status_update",
-    slot: "status",
-    surface: "status_bar",
-    source_authority: "system",
-    title: "已停止本轮生成",
-    detail: "你已停止本轮生成，当前运行不会继续推进。",
-    text: "你已停止本轮生成，当前运行不会继续推进。",
-    state: "stopped",
-    phase: "stopped",
-    stream_state: "done",
-  };
-}
-
 function turnCompletedStatus(data: Record<string, unknown>) {
   const status = stringValue(data.status).toLowerCase();
   if (status === "failed" || status === "stopped" || status === "completed") {
     return status;
   }
   return "completed";
-}
-
-function terminalPublicTimelineItemFromTurnCompleted(data: Record<string, unknown>): PublicChatTimelineItem | null {
-  const status = turnCompletedStatus(data);
-  if (status === "stopped") {
-    return stoppedPublicTimelineItem();
-  }
-  if (status !== "failed") {
-    return null;
-  }
-  const detail = stringValue(data.error_summary) || "本轮运行中断，详情已写入会话。";
-  return {
-    item_id: "stream:failed",
-    kind: "status_update",
-    slot: "status",
-    surface: "status_bar",
-    source_authority: "system",
-    title: "运行中断",
-    detail,
-    text: detail,
-    state: "error",
-    phase: "done",
-    stream_state: "done",
-  };
 }
 
 function stageStatusForEvent(event: string, data: Record<string, unknown>) {
@@ -368,8 +324,6 @@ function isTransportStreamEvent(event: string) {
   return event === "stream_reconnecting"
     || event === "stream_reconnected"
     || event === "stream_reconnect_failed"
-    || event === TOOL_ITEM_STARTED_EVENT
-    || event === TOOL_ITEM_COMPLETED_EVENT
     || event === TURN_COMPLETED_EVENT
     || event === "error"
     || event === "stopped";
@@ -800,165 +754,6 @@ function mergeAssistantStreamRepairEvent(
   });
 }
 
-function toolTimelineItemFromEvent(event: string, data: Record<string, unknown>): PublicChatTimelineItem | null {
-  const rawToolCallId = stringValue(data.tool_call_id);
-  const toolLifecycleId = event === TOOL_ITEM_COMPLETED_EVENT
-    ? stringValue(data.tool_lifecycle_id) || rawToolCallId
-    : stringValue(data.tool_lifecycle_id) || rawToolCallId || stringValue(data.item_id);
-  if (!toolLifecycleId) {
-    return null;
-  }
-  const toolCallId = rawToolCallId || toolLifecycleId;
-  const toolName = stringValue(data.tool_name) || "tool";
-  const target = stringValue(data.target);
-  const argumentsPreview = stringValue(data.arguments_preview);
-  const observation = stringValue(data.observation);
-  const error = stringValue(data.error);
-  if (isAgentTodoToolName(toolName)) {
-    return agentTodoTimelineItemFromEvent(event, {
-      toolCallId,
-      state: stringValue(data.state),
-      error,
-      traceRefs: [
-        stringValue(data.runtime_event_id),
-        stringValue(data.turn_run_id),
-        stringValue(data.task_run_id),
-      ].filter(Boolean),
-    });
-  }
-  const actionKind = actionKindForTool(toolName, `${target} ${argumentsPreview}`);
-  const stateValue = stringValue(data.state).toLowerCase();
-  const failed = stateValue === "error" || stateValue === "failed";
-  const state = event === TOOL_ITEM_COMPLETED_EVENT
-    ? failed ? "error" : "done"
-    : "running";
-  const title = event === TOOL_ITEM_STARTED_EVENT
-    ? stringValue(data.title) || `运行工具 ${toolName}`
-    : failed ? "工具执行失败" : "工具已完成";
-  const publicSummary = event === TOOL_ITEM_COMPLETED_EVENT
-    ? error || observation || title
-    : title;
-  const sections = [
-    event === TOOL_ITEM_STARTED_EVENT && argumentsPreview
-      ? { label: "参数", text: argumentsPreview }
-      : null,
-    event === TOOL_ITEM_COMPLETED_EVENT && observation
-      ? { label: failed ? "失败信息" : "结果", text: observation }
-      : null,
-    event === TOOL_ITEM_COMPLETED_EVENT && error && error !== observation
-      ? { label: "错误", text: error }
-      : null,
-  ].filter((section): section is { label: string; text: string } => Boolean(section?.text));
-  const traceRefs = [
-    stringValue(data.runtime_event_id),
-    stringValue(data.turn_run_id),
-    stringValue(data.task_run_id),
-  ].filter(Boolean);
-  const item: PublicChatTimelineItem = {
-    item_id: toolLifecycleId,
-    kind: "work_action",
-    slot: "tool",
-    surface: "tool_window",
-    source_authority: "tool",
-    tool_lifecycle_id: toolLifecycleId,
-    tool_name: toolName,
-    action_kind: actionKind,
-    title,
-    public_summary: publicSummary,
-    phase: state === "running" ? "running" : "done",
-    state,
-    stream_state: state === "running" ? "streaming" : "done",
-    trace_refs: traceRefs,
-    collapse_after_body_feedback: event === TOOL_ITEM_COMPLETED_EVENT && !failed,
-    tool_window: {
-      tool_label: toolName,
-      status: toolTimelineStatusLabel(state),
-      sections,
-    },
-  };
-  if (target) {
-    item.subject_label = target;
-    if (item.tool_window) {
-      item.tool_window.target = target;
-    }
-  }
-  if (rawToolCallId) {
-    item.tool_call_id = rawToolCallId;
-  }
-  if (observation) {
-    item.observation = observation;
-  }
-  if (error) {
-    item.recovery_hint = error;
-  }
-  return item;
-}
-
-function isAgentTodoToolName(toolName: string) {
-  return stringValue(toolName).toLowerCase() === "agent_todo";
-}
-
-function agentTodoTimelineItemFromEvent(
-  event: string,
-  {
-    toolCallId,
-    state,
-    error,
-    traceRefs,
-  }: {
-    toolCallId: string;
-    state: string;
-    error: string;
-    traceRefs: string[];
-  },
-): PublicChatTimelineItem {
-  const normalizedState = stringValue(state).toLowerCase();
-  const failed = normalizedState === "error" || normalizedState === "failed";
-  const running = event !== TOOL_ITEM_COMPLETED_EVENT;
-  const title = running
-    ? "任务清单同步中"
-    : failed ? "任务清单同步失败" : "任务清单已同步";
-  return {
-    item_id: toolCallId,
-    kind: "todo_plan",
-    slot: "task",
-    surface: "status",
-    source_authority: "runtime",
-    tool_lifecycle_id: toolCallId,
-    title,
-    public_summary: title,
-    phase: running ? "running" : "done",
-    state: running ? "running" : failed ? "error" : "done",
-    stream_state: running ? "streaming" : "done",
-    trace_refs: traceRefs,
-    collapse_after_body_feedback: true,
-    recovery_hint: failed && error && !isMachineReference(error) ? error : undefined,
-  };
-}
-
-function actionKindForTool(toolName: string, context: string): NonNullable<PublicChatTimelineItem["action_kind"]> {
-  const value = `${toolName} ${context}`.toLowerCase();
-  if (/(search|grep|ripgrep|\brg\b|find_text|lookup|query)/.test(value)) return "search";
-  if (/(read|get_file|open_file|load_file|cat|fetch_file)/.test(value)) return "read";
-  if (/(write|edit|patch|apply_patch|update|create|delete|remove|move|rename|save)/.test(value)) return "edit";
-  if (/(test|verify|check|lint|typecheck|pytest|vitest|playwright)/.test(value)) return "verify";
-  if (/(shell|command|exec|run|powershell|npm|node|python)/.test(value)) return "run";
-  if (/(browser|web|page|click|navigate|screenshot)/.test(value)) return "browse";
-  if (/(image|vision|render)/.test(value)) return "image";
-  if (/(list|glob|inspect|stat|tree|ls)/.test(value)) return "inspect";
-  return "work";
-}
-
-function toolTimelineStatusLabel(state: string) {
-  if (state === "error") {
-    return "失败";
-  }
-  if (state === "done") {
-    return "已完成";
-  }
-  return "运行中";
-}
-
 function numberValue(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -983,7 +778,7 @@ function bindStreamSessionAnchor(
   session: StreamSession,
   event: string,
   data: Record<string, unknown>,
-  options: { hasPublicProjectionEnvelope?: boolean } = {},
+  options: { hasPublicProjectionFrame?: boolean } = {},
 ): StreamSession {
   let next = session;
   const bind = (field: keyof Pick<StreamSession, "boundTurnId" | "boundRunId" | "boundTaskRunId" | "boundTurnRunId">, value: string) => {
@@ -1031,16 +826,16 @@ function bindStreamSessionAnchor(
     bindTurnRun(stringValue(data.turn_run_id), stringValue(data.turn_id));
     bind("boundTaskRunId", stringValue(data.task_run_id));
   }
-  const envelope = recordValue(data.public_projection_envelope);
-  const envelopeAnchor = recordValue(envelope.anchor);
-  if (envelopeAnchor) {
-    bind("boundTurnId", stringValue(envelopeAnchor.turn_id));
-    bind("boundRunId", stringValue(envelopeAnchor.run_id));
-    bind("boundTaskRunId", stringValue(envelopeAnchor.task_run_id));
-    bind("boundTurnRunId", stringValue(envelopeAnchor.turn_run_id));
+  const frame = recordValue(data.public_projection_frame);
+  const frameAnchor = recordValue(frame.anchor);
+  if (frameAnchor) {
+    bind("boundTurnId", stringValue(frameAnchor.turn_id));
+    bind("boundRunId", stringValue(frameAnchor.run_id));
+    bind("boundTaskRunId", stringValue(frameAnchor.task_run_id));
+    bind("boundTurnRunId", stringValue(frameAnchor.turn_run_id));
   }
   const rawRunId = stringValue(data.run_id);
-  if (!options.hasPublicProjectionEnvelope && rawRunId.startsWith("turnrun:")) {
+  if (!options.hasPublicProjectionFrame && rawRunId.startsWith("turnrun:")) {
     bindTurnRun(rawRunId, stringValue(data.turn_id));
   }
   return next;
@@ -1747,37 +1542,6 @@ function appendAssistantProgress(
   });
 }
 
-function patchAssistantTaskProjectionDraft(
-  state: StoreState,
-  assistantId: string,
-  projection: SingleAgentTaskProjection | null,
-) {
-  const attachment = runtimeAttachmentFromTaskProjection(projection);
-  if (!assistantId || !attachment) {
-    return state;
-  }
-  return patchAssistant(state, assistantId, (message) => {
-    const existing = message.runtimeAttachments ?? [];
-    const runId = runtimeAttachmentRunId(attachment);
-    const next = [...existing];
-    const index = next.findIndex((item) => runtimeAttachmentRunId(item) === runId);
-    if (index >= 0) {
-      const existingAttachment = next[index];
-      next[index] = {
-        ...existingAttachment,
-        ...attachment,
-        public_timeline: mergePublicTimelineItems(existingAttachment.public_timeline, attachment.public_timeline),
-      };
-    } else {
-      next.push(attachment);
-    }
-    return {
-      ...message,
-      runtimeAttachments: next,
-    };
-  });
-}
-
 function terminalProgressEntryForEvent(event: string, data: Record<string, unknown>): RuntimeProgressEntry | undefined {
   const failedTurnCompleted = event === TURN_COMPLETED_EVENT && turnCompletedStatus(data) === "failed";
   if (event !== "error" && !failedTurnCompleted) {
@@ -1802,47 +1566,6 @@ function terminalActivityTitle(event: string, receipt: UserReceipt | null) {
     return receipt?.level === "error" || receipt?.level === "stopped" ? receipt.title || "" : "";
   }
   return event === "error" || event === "stopped" ? receipt?.title || "" : "";
-}
-
-function taskProjectionFromEventData(data: Record<string, unknown>): SingleAgentTaskProjection | null {
-  const value = data.task_projection_delta ?? data.task_projection;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as SingleAgentTaskProjection;
-}
-
-function runtimeAttachmentFromTaskProjection(projection: SingleAgentTaskProjection | null): SessionRuntimeAttachment | null {
-  if (!projection) {
-    return null;
-  }
-  const taskRunId = String(projection.task_run_id ?? "").trim();
-  const projectionId = String(projection.projection_id ?? "").trim();
-  const runId = taskRunId || projectionId;
-  if (!runId) {
-    return null;
-  }
-  const anchorTurnId = String(projection.anchor_turn_id ?? projection.turn_id ?? "").trim();
-  return {
-    attachment_id: `runtime-attachment:${runId}`,
-    run_id: runId,
-    anchor_turn_id: anchorTurnId,
-    anchor_message_id: String(projection.anchor_message_id ?? "").trim() || undefined,
-    anchor_role: "assistant",
-    task_run_id: taskRunId,
-    task_id: String(projection.task_id ?? "").trim() || undefined,
-    status: String(projection.status ?? "").trim(),
-    public_timeline: [],
-    task_projection: projection,
-    trace_available: true,
-    debug_trace_ref: String(projection.debug_trace_ref ?? taskRunId ?? "").trim(),
-    created_at: Number(projection.created_at ?? 0) || undefined,
-    updated_at: Number(projection.updated_at ?? 0) || Date.now() / 1000,
-  };
-}
-
-function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment) {
-  return String(attachment.run_id || attachment.task_run_id || "").trim();
 }
 
 function applyVisibilitySessionActivity(
@@ -1895,7 +1618,6 @@ export function startStreamingTurn(
     toolCalls: [],
     retrievals: [],
     runtimeProgress: [],
-    runtimePublicTimelineDraft: [],
     stageStatus: ""
   };
 
@@ -1943,8 +1665,6 @@ export function startQueuedActiveTurn(
     toolCalls: [],
     retrievals: [],
     runtimeProgress: [],
-    runtimePublicTimelineDraft: [],
-    runtimeAttachments: [],
     stageStatus: "",
     answerChannel: "runtime_control",
     answerCanonicalState: "progress_only",
@@ -1991,12 +1711,11 @@ export function reduceStreamEvent(
   event: string,
   data: Record<string, unknown>
 ): StreamTransition {
-  const publicProjectionEnvelope = publicProjectionEnvelopeFromRecord(data.public_projection_envelope);
-  const suppressLegacyVisibility = publicProjectionEnvelopeSuppressesLegacy(publicProjectionEnvelope);
-  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionEnvelope: suppressLegacyVisibility });
+  const publicProjectionFrame = publicProjectionFrameFromRecord(data.public_projection_frame);
+  const suppressLegacyVisibility = publicProjectionFrameSuppressesLegacy(publicProjectionFrame);
+  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionFrame: suppressLegacyVisibility });
   const allowRawVisibility = isTransportStreamEvent(event);
   const visibility = !suppressLegacyVisibility && allowRawVisibility ? projectRuntimeTransportEvent(event, data) : {};
-  const taskProjectionDelta = suppressLegacyVisibility ? null : taskProjectionFromEventData(data);
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -2040,8 +1759,8 @@ export function reduceStreamEvent(
   const stateWithOrchestrationBase = withOrchestration === stateWithStreamAnchor.orchestrationSnapshot
     ? stateWithStreamAnchor
     : { ...stateWithStreamAnchor, orchestrationSnapshot: withOrchestration };
-  const stateWithPublicProjection = publicProjectionEnvelope
-    ? applyPublicProjectionEnvelope(stateWithOrchestrationBase, publicProjectionEnvelope, {
+  const stateWithPublicProjection = publicProjectionFrame
+    ? applyPublicProjectionFrame(stateWithOrchestrationBase, publicProjectionFrame, {
         assistantId: boundSession.assistantId,
         streamAnchor: streamAnchorFromSession(boundSession),
       })
@@ -2049,7 +1768,7 @@ export function reduceStreamEvent(
   const stateWithStage = patchAssistantStage(
     stateWithPublicProjection,
     boundSession.assistantId,
-    publicProjectionEnvelope ? "" : allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
+    publicProjectionFrame ? "" : allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
   );
   const stateWithLegacyActivity = allowRawVisibility ? patchSessionActivity(stateWithStage, event, data) : stateWithStage;
   const stateWithVisibilityActivity = allowRawVisibility ? applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility) : stateWithLegacyActivity;
@@ -2063,12 +1782,7 @@ export function reduceStreamEvent(
     boundSession.assistantId,
     terminalProgressEntryForEvent(event, data),
   );
-  const stateWithTaskProjection = patchAssistantTaskProjectionDraft(
-    stateWithTerminalProgress,
-    boundSession.assistantId,
-    taskProjectionDelta,
-  );
-  const stateWithTimelineDraft = stateWithTaskProjection;
+  const stateWithTimelineDraft = stateWithTerminalProgress;
 
   if (event === "retrieval") {
     return {
@@ -2081,81 +1795,36 @@ export function reduceStreamEvent(
   }
 
   if (event === "assistant_text_delta") {
-    if (!shouldKeepStreamAssistantText(event, data)) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession
-      };
-    }
     return {
-      state: mergeAssistantTextDeltaEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }
 
   if (event === "assistant_stream_repair") {
-    if (!shouldKeepStreamAssistantText(event, data)) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession
-      };
-    }
     return {
-      state: mergeAssistantStreamRepairEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }
 
   if (event === "assistant_text_final") {
-    if (!shouldKeepStreamAssistantText(event, data)) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession
-      };
-    }
     return {
-      state: mergeAssistantTextFinalEvent(stateWithTimelineDraft, boundSession.assistantId, data),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }
 
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT) {
-    const item = toolTimelineItemFromEvent(event, data);
-    if (!item) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession,
-      };
-    }
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
-        ...message,
-        runtimePublicTimelineDraft: mergePublicTimelineItems(
-          message.runtimePublicTimelineDraft,
-          [item],
-        ),
-      })),
+      state: stateWithTimelineDraft,
       session: boundSession,
     };
   }
 
   if (event === TURN_COMPLETED_EVENT) {
-    const item = terminalPublicTimelineItemFromTurnCompleted(data);
-    if (!item) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession,
-      };
-    }
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
-        ...message,
-        runtimePublicTimelineDraft: mergePublicTimelineItems(
-          message.runtimePublicTimelineDraft,
-          [item],
-          { terminalState: turnCompletedStatus(data) === "stopped" ? "stopped" : "error" },
-        ),
-      })),
+      state: stateWithTimelineDraft,
       session: boundSession,
     };
   }
@@ -2168,12 +1837,6 @@ export function reduceStreamEvent(
   }
 
   if (event === "done") {
-    if (publicProjectionEnvelope?.terminal?.visible === false) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession,
-      };
-    }
     const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const answerMetadata = answerMetadataFromEvent(data);
     return {
@@ -2181,7 +1844,7 @@ export function reduceStreamEvent(
         ({
           ...message,
           ...answerMetadata,
-          stageStatus: publicProjectionEnvelope ? message.stageStatus : partialTimeout ? "部分完成" : "",
+          stageStatus: publicProjectionFrame ? message.stageStatus : partialTimeout ? "部分完成" : "",
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
@@ -2204,46 +1867,19 @@ export function reduceStreamEvent(
   }
 
   if (event === "error") {
-    const errorText = String(data.content ?? data.error ?? "运行中断").trim() || "运行中断";
-    const item = terminalPublicTimelineItemFromTurnCompleted({ status: "failed", error_summary: errorText });
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => {
-        if (!item) {
-          return {
-            ...message,
-            stageStatus: "出错",
-          };
-        }
-        return {
-          ...message,
-          runtimePublicTimelineDraft: mergePublicTimelineItems(
-            message.runtimePublicTimelineDraft,
-            [item],
-            { terminalState: "error" },
-          ),
-          stageStatus: "出错",
-        };
-      }),
+      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
+        ...message,
+        stageStatus: "出错",
+      })),
       session: boundSession
     };
   }
 
   if (event === "stopped") {
-    if (publicProjectionEnvelope) {
-      return {
-        state: stateWithTimelineDraft,
-        session: boundSession,
-      };
-    }
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
         ...message,
-        content: message.content,
-        runtimePublicTimelineDraft: mergePublicTimelineItems(
-          message.runtimePublicTimelineDraft,
-          [stoppedPublicTimelineItem()],
-          { terminalState: "stopped" },
-        ),
         stageStatus: "已停止"
       })),
       session: boundSession

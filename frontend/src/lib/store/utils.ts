@@ -1,6 +1,5 @@
-import { type ToolCall, type SessionHistory, type SessionRuntimeAttachment } from "@/lib/api";
+import { type ToolCall, type SessionHistory } from "@/lib/api";
 import { isInternalActiveWorkControlText } from "@/lib/internalControlText";
-import { isPublicTimelineUserVisibleRuntimeItem } from "@/lib/projection/timeline";
 
 import type { Message, SkillSummary } from "./types";
 
@@ -114,111 +113,7 @@ function historyTaskRunId(message: SessionHistory["messages"][number]) {
   return String(record.task_run_id ?? record.source_task_run_id ?? "").trim();
 }
 
-function runtimeAttachmentRunId(attachment: SessionRuntimeAttachment) {
-  return String(attachment.run_id ?? attachment.task_run_id ?? attachment.turn_run_id ?? "").trim();
-}
-
-function runtimeAttachmentTurnRunId(attachment: SessionRuntimeAttachment) {
-  return String(attachment.turn_run_id ?? "").trim();
-}
-
-function runtimeAttachmentsByAssistantMessageId(
-  history: SessionHistory["messages"],
-  attachments: SessionRuntimeAttachment[],
-) {
-  const buckets = new Map<string, SessionRuntimeAttachment[]>();
-  const assistantRefs = history
-    .map((message, index) => message.role === "assistant"
-      ? { index, id: historyMessageId(message, index), turnId: historyTurnId(message), taskRunId: historyTaskRunId(message) }
-      : null)
-    .filter((item): item is { index: number; id: string; turnId: string; taskRunId: string } => Boolean(item));
-
-  for (const attachment of attachments) {
-    const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
-    const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
-    const taskRunId = String(attachment.task_run_id ?? "").trim();
-    const explicitRef = explicitMessageId
-      ? assistantRefs.find((item) => item.id === explicitMessageId && (!anchorTurnId || !item.turnId || item.turnId === anchorTurnId))
-      : null;
-    const turnRef = anchorTurnId
-      ? assistantRefs.find((item) => item.turnId === anchorTurnId)
-      : null;
-    const taskRunRef = !explicitRef && !turnRef && !anchorTurnId && taskRunId
-      ? assistantRefs.find((item) => item.taskRunId === taskRunId)
-      : null;
-    const assistantRef = explicitRef ?? turnRef ?? taskRunRef;
-    const targetId = assistantRef?.id ?? "";
-    if (!targetId) {
-      continue;
-    }
-    const existing = buckets.get(targetId) ?? [];
-    buckets.set(targetId, [...existing, attachment]);
-  }
-  return buckets;
-}
-
-function syntheticAssistantMessagesForRuntimeAttachments(
-  history: SessionHistory["messages"],
-  attachments: SessionRuntimeAttachment[],
-  existingAssistantIds: Set<string>,
-) {
-  const syntheticById = new Map<string, Message>();
-  for (const attachment of attachments) {
-    const explicitMessageId = String(attachment.anchor_message_id ?? "").trim();
-    const anchorTurnId = String(attachment.anchor_turn_id ?? "").trim();
-    const taskRunId = String(attachment.task_run_id ?? "").trim();
-    const syntheticId = explicitMessageId && !existingAssistantIds.has(explicitMessageId)
-      ? explicitMessageId
-      : anchorTurnId
-        ? `history-message:${anchorTurnId}:assistant`
-        : "";
-    if (!syntheticId || existingAssistantIds.has(syntheticId)) {
-      continue;
-    }
-    const hasVisibleRuntime = runtimeAttachmentHasUserVisibleProjection(attachment);
-    if (!hasVisibleRuntime) {
-      continue;
-    }
-    const anchorIndex = history.findIndex((message) =>
-      message.role === "user" && String(message.turn_id ?? "").trim() === anchorTurnId
-    );
-    if (anchorIndex < 0) {
-      continue;
-    }
-    const sourceIndex = anchorIndex + 0.5;
-    const existing = syntheticById.get(syntheticId);
-    syntheticById.set(syntheticId, {
-      id: syntheticId,
-      role: "assistant",
-      content: "",
-      toolCalls: [],
-      retrievals: [],
-      sourceIndex,
-      sourceTurnId: anchorTurnId || undefined,
-      sourceRunId: runtimeAttachmentRunId(attachment) || undefined,
-      sourceTaskRunId: taskRunId || undefined,
-      sourceTurnRunId: runtimeAttachmentTurnRunId(attachment) || undefined,
-      runtimeAttachments: existing
-        ? [...(existing.runtimeAttachments ?? []), attachment]
-        : [attachment],
-    });
-  }
-  return [...syntheticById.values()];
-}
-
-function runtimeAttachmentHasUserVisibleProjection(attachment: SessionRuntimeAttachment) {
-  if (attachment.task_projection) {
-    return true;
-  }
-  const hasPublicTimeline = (attachment.public_timeline ?? []).some(isPublicTimelineUserVisibleRuntimeItem);
-  if (hasPublicTimeline) {
-    return true;
-  }
-  return false;
-}
-
-export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {
-  const attachmentsByAssistantId = runtimeAttachmentsByAssistantMessageId(history, runtimeAttachments);
+export function toUiMessages(history: SessionHistory["messages"]) {
   const normalized = history
     .map<Message | null>((message, sourceIndex) => {
       if (message.role !== "user" && message.role !== "assistant") {
@@ -261,19 +156,10 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
           ? message.answer_leak_flags.map((item) => String(item ?? "").trim()).filter(Boolean)
           : undefined,
         image: message.image ?? null,
-        runtimeAttachments: attachmentsByAssistantId.get(historyMessageId(message, sourceIndex)) ?? []
       };
     })
     .filter(Boolean) as Message[];
-  const existingAssistantIds = new Set(normalized
-    .filter((message) => message.role === "assistant")
-    .map((message) => message.id));
-  const syntheticRuntimeMessages = syntheticAssistantMessagesForRuntimeAttachments(
-    history,
-    runtimeAttachments,
-    existingAssistantIds,
-  );
-  const ordered = [...normalized, ...syntheticRuntimeMessages].sort((left, right) => {
+  const ordered = [...normalized].sort((left, right) => {
     const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
     const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
     if (leftIndex !== rightIndex) {
@@ -288,9 +174,8 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
   const merged: Message[] = [];
   for (const message of ordered) {
     const previous = merged[merged.length - 1];
-    const hasRuntimeAttachment = Boolean(message.runtimeAttachments?.length || previous?.runtimeAttachments?.length);
     const sameAnswerChannel = (message.answerChannel || "") === (previous?.answerChannel || "");
-    if (message.role === "assistant" && previous?.role === "assistant" && !hasRuntimeAttachment && sameAnswerChannel) {
+    if (message.role === "assistant" && previous?.role === "assistant" && sameAnswerChannel) {
       previous.content = appendMessageContent(previous.content, message.content);
       previous.toolCalls = [...previous.toolCalls, ...message.toolCalls];
       previous.retrievals = [...previous.retrievals, ...message.retrievals];

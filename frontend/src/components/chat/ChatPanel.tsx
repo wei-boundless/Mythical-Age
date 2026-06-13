@@ -7,11 +7,9 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPanel";
-import type { PublicChatTimelineItem } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { isPublicTimelineControlItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 import type { Message, TokenStats } from "@/lib/store/types";
 
@@ -147,10 +145,9 @@ export function ChatPanel() {
               answerSelectedChannel={message.answerSelectedChannel}
               answerSelectedSource={message.answerSelectedSource}
               answerSource={message.answerSource}
+              publicProjection={message.publicProjection}
               retrievals={message.retrievals}
               role={message.role}
-              runtimePublicTimelineDraft={message.runtimePublicTimelineDraft}
-              runtimeAttachments={message.runtimeAttachments}
               runtimeProgress={message.runtimeProgress}
               stageStatus={message.stageStatus}
               streamingContent={chatStreamDisplayEnabled && message.id === liveAssistantMessageId}
@@ -209,23 +206,6 @@ export function ChatPanel() {
 export function shouldSuppressSessionActivityBar(messages: Message[], _active: boolean) {
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!latestAssistant) return false;
-  const persisted = (latestAssistant.runtimeAttachments ?? []).flatMap((attachment) =>
-    Array.isArray(attachment.public_timeline)
-      ? attachment.public_timeline
-      : [],
-  );
-  const hasTaskProjection = (latestAssistant.runtimeAttachments ?? []).some((attachment) => Boolean(attachment.task_projection));
-  const runtimePublicTimelineDraft = latestAssistant.runtimePublicTimelineDraft;
-  const publicTimeline = mergePublicTimelineItems(
-    persisted,
-    runtimePublicTimelineDraft,
-    {
-      terminalState: publicTimelineTerminalStateFromAnswer({
-        answerCanonicalState: latestAssistant.answerCanonicalState,
-        answerChannel: latestAssistant.answerChannel,
-      }),
-    },
-  );
   const visibleAssistantContent = shouldDisplayAssistantContent({
     answerCanonicalState: latestAssistant.answerCanonicalState,
     answerChannel: latestAssistant.answerChannel,
@@ -236,13 +216,15 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
   if (visibleAssistantContent) {
     return true;
   }
-  if (publicTimeline.some(isAskUserQuestionItem)) {
+  if (latestAssistant.publicProjection?.bodyText.trim()) {
     return true;
   }
-  if (hasTaskProjection) {
-    return true;
-  }
-  return false;
+  return Boolean(
+    latestAssistant.publicProjection?.currentAction
+    || latestAssistant.publicProjection?.pinned.length
+    || latestAssistant.publicProjection?.finalResults.length
+    || latestAssistant.publicProjection?.status.length
+  );
 }
 
 export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "sourceIndex">[]) {
@@ -255,9 +237,6 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
   });
 }
 
-function isAskUserQuestionItem(item: PublicChatTimelineItem) {
-  return isPublicTimelineControlItem(item) && Boolean(String(item.detail || item.text || "").trim());
-}
 
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
   const presentation = sessionContextPressurePresentation(tokenStats);

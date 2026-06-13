@@ -5,12 +5,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { looksLikeRawToolOutput } from "@/components/chat/agentRunProjection";
-import type { PublicChatTimelineItem, SingleAgentTaskProjection } from "@/lib/api";
+import type { PublicChatTimelineItem } from "@/lib/api";
 import { cleanPublicTimelineText, isPublicTimelineControlItem, normalizePublicTimelineItems, publicTimelineExplicitOrderValue, sanitizePublicTimelineText } from "@/lib/projection/timeline";
 
 type PublicTimelineActivityProps = {
   items?: PublicChatTimelineItem[] | null;
-  taskProjections?: SingleAgentTaskProjection[] | null;
   compactCompletedTools?: boolean;
 };
 
@@ -20,7 +19,7 @@ type PublicTimelineActivityOptions = {
 
 type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
 
-type ActivityEntrySource = "timeline" | "projection";
+type ActivityEntrySource = "timeline";
 
 type ActivityEntry = {
   collapsed?: boolean;
@@ -56,8 +55,8 @@ type ToolWindowProjection = {
   }>;
 };
 
-export function PublicTimelineActivity({ items, taskProjections, compactCompletedTools = false }: PublicTimelineActivityProps) {
-  const view = publicTimelineActivityView(items, taskProjections, { compactCompletedTools });
+export function PublicTimelineActivity({ items, compactCompletedTools = false }: PublicTimelineActivityProps) {
+  const view = publicTimelineActivityView(items, { compactCompletedTools });
   if (!view) {
     return null;
   }
@@ -81,262 +80,24 @@ export function PublicTimelineActivity({ items, taskProjections, compactComplete
 
 export function publicTimelineHasDisplayableActivity(
   items: PublicChatTimelineItem[] | null | undefined,
-  taskProjections?: SingleAgentTaskProjection[] | null,
   options: PublicTimelineActivityOptions = {},
 ) {
-  return Boolean(publicTimelineActivityView(items, taskProjections, options));
+  return Boolean(publicTimelineActivityView(items, options));
 }
 
 function publicTimelineActivityView(
   items: PublicChatTimelineItem[] | null | undefined,
-  taskProjections?: SingleAgentTaskProjection[] | null,
   options: PublicTimelineActivityOptions = {},
 ): PublicTimelineActivityView | null {
   const normalizedItems = normalizePublicTimelineItems(items ?? []).filter((item) => !isPublicTimelineControlItem(item));
-  const projections = taskProjections ?? [];
-  const projectionTone = taskProjectionTone(projections);
-  const timelineItems = projectionTone && projectionTone !== "running"
-    ? normalizedItems.filter((item) => !isStalePublicTimelineItemForProjectionTone(item, projectionTone))
-    : normalizedItems;
-  const projectionEntries = taskProjectionActivityEntries(projections);
-  const timelineEntries = activityEntries(timelineItems, options);
-  const entries = orderActivityEntries({
-    timelineEntries,
-    projectionEntries,
-  });
+  const entries = mergeAndOrderActivityEntries(activityEntries(normalizedItems, options));
   if (!entries.length) {
     return null;
   }
   return {
     entries,
-    tone: projectionTone || publicTimelineTone(timelineItems),
+    tone: publicTimelineTone(normalizedItems),
   };
-}
-
-function taskProjectionActivityEntries(projections: SingleAgentTaskProjection[]): ActivityEntry[] {
-  const entries: ActivityEntry[] = [];
-  let sourceIndex = 0;
-  const pushEntry = (entry: ActivityEntry | null) => {
-    if (!entry) {
-      return;
-    }
-    entries.push(finalizeActivityEntry(entry, "projection", sourceIndex++));
-  };
-  for (const projection of projections) {
-    const projectionId = cleanPublicTimelineText(projection.projection_id || projection.task_run_id);
-    const projectionTone = taskProjectionStatusTone(projection.status);
-    const lifecycleEntry = taskProjectionLifecycleEntry(projection, projectionId, projectionTone);
-    if (lifecycleEntry) {
-      pushEntry(lifecycleEntry);
-    } else {
-      const currentAction = taskProjectionCurrentActionEntry(projection, projectionId);
-      if (currentAction) {
-        pushEntry(currentAction);
-      } else {
-        const todoEntry = taskProjectionTodoStatusEntry(projection, projectionId);
-        if (todoEntry) {
-          pushEntry(todoEntry);
-        }
-      }
-    }
-    for (const activity of projection.activities ?? []) {
-      const entry = taskProjectionActivityEntry(activity, projectionId, projectionTone);
-      pushEntry(entry);
-    }
-    for (const artifact of projection.artifact_refs ?? []) {
-      const label = sanitizePublicTimelineText(artifact.label ?? artifact.path ?? artifact.href ?? artifact.value);
-      if (!label) continue;
-      pushEntry({
-        id: `${projectionId}:artifact:${label}`,
-        kind: "status",
-        state: "done",
-        text: "产物已更新",
-        detail: label,
-      });
-    }
-  }
-  return entries;
-}
-
-function taskProjectionLifecycleEntry(
-  projection: SingleAgentTaskProjection,
-  projectionId: string,
-  projectionTone: PublicTimelineActivityTone | "",
-): ActivityEntry | null {
-  if (!projectionTone || projectionTone === "running" || projectionTone === "done") {
-    return null;
-  }
-  const status = cleanPublicTimelineText(projection.status).toLowerCase();
-  const current = projection.current_action;
-  const currentRecord = current && typeof current === "object" && !Array.isArray(current)
-    ? current
-    : {};
-  const currentTitle = sanitizePublicTimelineText(currentRecord.title ?? currentRecord.phase);
-  const currentDetail = sanitizePublicTimelineText(currentRecord.detail);
-  const currentState = cleanPublicTimelineText(currentRecord.state).toLowerCase();
-  const title = currentTitle
-    && !isActiveTaskProjectionActivityState(currentState)
-    && !isGenericStatusActivity(currentTitle, currentDetail)
-    ? currentTitle
-    : taskProjectionLifecycleTitle(status);
-  const detail = currentDetail && currentDetail !== title && !isGenericStatusActivity(currentTitle, currentDetail)
-    ? currentDetail
-    : "";
-  return {
-    detail,
-    id: `${projectionId}:lifecycle:${status || projectionTone}`,
-    kind: projectionTone === "waiting" ? "status" : "stopped",
-    state: status || projectionTone,
-    text: title,
-  };
-}
-
-function taskProjectionCurrentActionEntry(projection: SingleAgentTaskProjection, projectionId: string): ActivityEntry | null {
-  const current = projection.current_action;
-  if (!current || typeof current !== "object" || Array.isArray(current)) {
-    return null;
-  }
-  const title = sanitizePublicTimelineText(current.title ?? current.phase);
-  const detail = sanitizePublicTimelineText(current.detail);
-  if (!title && !detail) {
-    return null;
-  }
-  if (isHiddenByTaskProjectionLevel(current)) {
-    return null;
-  }
-  if (isGenericStatusActivity(title, detail)) {
-    return null;
-  }
-  const state = cleanPublicTimelineText(current.state).toLowerCase();
-  const bodyText = taskProjectionStageFeedbackBodyText(current, title, detail);
-  if (bodyText) {
-    return {
-      eventRefs: eventRefsFromUnknown(current.event_ref),
-      id: `${projectionId}:body:${cleanPublicTimelineText(current.event_ref) || bodyText}`,
-      kind: "body",
-      state,
-      text: bodyText,
-    };
-  }
-  if (isTaskProjectionStageFeedback(current)) {
-    return null;
-  }
-  return {
-    eventRefs: eventRefsFromUnknown(current.event_ref),
-    id: `${projectionId}:current:${cleanPublicTimelineText(current.event_ref) || title || detail}`,
-    kind: "status",
-    state,
-    text: title || detail,
-    detail,
-  };
-}
-
-function taskProjectionTodoStatusEntry(projection: SingleAgentTaskProjection, projectionId: string): ActivityEntry | null {
-  const todo = projection.todo;
-  const items = Array.isArray(todo?.items) ? todo.items : [];
-  if (!items.length) {
-    return null;
-  }
-  const completed = Number.isFinite(Number(todo?.completed_count))
-    ? Number(todo?.completed_count)
-    : items.filter((item) => cleanPublicTimelineText(item.status).toLowerCase() === "completed").length;
-  const total = Number.isFinite(Number(todo?.total_count)) && Number(todo?.total_count) > 0
-    ? Number(todo?.total_count)
-    : items.length;
-  const hasActive = Boolean(cleanPublicTimelineText(todo?.active_item_id));
-  const detail = [
-    total ? `${completed}/${total} 已完成` : "",
-    hasActive ? "当前阶段正在推进" : "",
-  ].filter(Boolean).join("；");
-  if (!detail) {
-    return null;
-  }
-  return {
-    detail,
-    eventRefs: eventRefsFromUnknown((todo as Record<string, unknown>)?.trace_refs),
-    id: `${projectionId}:todo:${cleanPublicTimelineText(todo?.plan_id) || detail}`,
-    kind: "status",
-    state: completed >= total ? "completed" : "running",
-    text: "任务进度",
-  };
-}
-
-function taskProjectionActivityEntry(
-  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
-  projectionId: string,
-  projectionTone: PublicTimelineActivityTone | "",
-): ActivityEntry | null {
-  if (!activity || typeof activity !== "object") {
-    return null;
-  }
-  if (isStaleTaskProjectionActivityForProjectionTone(activity, projectionTone)) {
-    return null;
-  }
-  const title = sanitizePublicTimelineText(activity.title);
-  const detail = sanitizePublicTimelineText(activity.detail);
-  if (!title && !detail) {
-    return null;
-  }
-  if (isHiddenByTaskProjectionLevel(activity)) {
-    return null;
-  }
-  if (isLowSignalTaskProjectionActivity(activity, title, detail)) {
-    return null;
-  }
-  const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
-  const state = cleanPublicTimelineText(activity.state).toLowerCase();
-  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  const bodyText = taskProjectionStageFeedbackBodyText(activity, title, detail);
-  if (bodyText) {
-    return {
-      eventRefs: eventRefsFromUnknown(activity.event_ref),
-      id: `${projectionId}:body:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || bodyText}`,
-      kind: "body",
-      state,
-      text: bodyText,
-    };
-  }
-  if (isTaskProjectionStageFeedback(activity)) {
-    return null;
-  }
-  const isObservation = kind === "observation";
-  const entryKind: ActivityEntry["kind"] = displaySurface === "tool_window"
-    ? "tool"
-    : kind === "error" || state === "failed"
-      ? "stopped"
-      : "status";
-  const observationDetail = [title, detail].filter(Boolean).join("\n");
-  const sourceKind = cleanPublicTimelineText(activity.source_kind);
-  const toolName = cleanPublicTimelineText(activity.tool_name);
-  const toolTarget = sanitizePublicTimelineText(activity.tool_target);
-  return {
-    collapsed: entryKind === "tool" ? true : undefined,
-    eventRefs: eventRefsFromUnknown(activity.event_ref),
-    id: `${projectionId}:activity:${cleanPublicTimelineText(activity.activity_id) || cleanPublicTimelineText(activity.event_ref) || title || detail}`,
-    kind: entryKind,
-    actionKind: sourceKind,
-    state,
-    text: isObservation && entryKind !== "tool" ? "任务观察" : title || detail,
-    detail: isObservation && entryKind !== "tool" ? observationDetail : detail && detail !== title ? detail : "",
-    toolName,
-    toolTarget,
-    toolWindow: entryKind === "tool"
-      ? {
-          meta: taskProjectionToolMeta(activity, state),
-          sections: detail && detail !== title ? [{ label: "结果", text: detail }] : [],
-        }
-      : undefined,
-  };
-}
-
-function orderActivityEntries({
-  timelineEntries,
-  projectionEntries,
-}: {
-  timelineEntries: ActivityEntry[];
-  projectionEntries: ActivityEntry[];
-}) {
-  return mergeAndOrderActivityEntries([...timelineEntries, ...projectionEntries]);
 }
 
 function mergeAndOrderActivityEntries(entries: ActivityEntry[]) {
@@ -634,176 +395,8 @@ function normalizedActivityKey(value: unknown) {
     .toLowerCase();
 }
 
-function isHiddenByTaskProjectionLevel(activity: Record<string, unknown>) {
-  const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
-  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  if (["debug", "internal"].includes(level)) {
-    return true;
-  }
-  if (["diagnostics", "debug", "monitor"].includes(displaySurface)) {
-    return true;
-  }
-  return false;
-}
-
-function isTaskProjectionStageFeedback(activity: Record<string, unknown>) {
-  return cleanPublicTimelineText(activity.source_kind).toLowerCase() === "stage_feedback";
-}
-
-function taskProjectionStageFeedbackBodyText(
-  activity: Record<string, unknown>,
-  title: string,
-  detail: string,
-) {
-  if (!isTaskProjectionStageFeedback(activity)) {
-    return "";
-  }
-  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  if (["control", "debug", "diagnostics", "monitor", "tool_window"].includes(displaySurface)) {
-    return "";
-  }
-  const kind = cleanPublicTimelineText(activity.kind).toLowerCase();
-  if (["tool", "tool_activity", "tool_observation", "todo"].includes(kind)) {
-    return "";
-  }
-  const text = [title, detail && detail !== title ? detail : ""].filter(Boolean).join("\n\n");
-  return isNaturalLanguageStageFeedback(text) ? text : "";
-}
-
-function isNaturalLanguageStageFeedback(value: string) {
-  const text = sanitizePublicTimelineText(value);
-  if (!text || looksLikeRawToolOutput(text)) {
-    return false;
-  }
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (compact.length < 14) {
-    return false;
-  }
-  if (!/[\u4e00-\u9fff]/.test(compact)) {
-    return false;
-  }
-  if (/^(dir|file)\s+/i.test(compact)) {
-    return false;
-  }
-  if (/^[a-z_]+(?:_[a-z0-9]+)*_after_\d+s$/i.test(compact)) {
-    return false;
-  }
-  if (/^[\w./\\-]+\.[a-z0-9]+$/i.test(compact)) {
-    return false;
-  }
-  if (/^[\w./\\-]+:\d+:\d+:/i.test(compact)) {
-    return false;
-  }
-  if (/^(search|read|write|edit|tool|command|structured read)\s+(failed|error|returned)/i.test(compact)) {
-    return false;
-  }
-  return true;
-}
-
-function isLowSignalTaskProjectionActivity(
-  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
-  title: string,
-  detail: string,
-) {
-  const sourceKind = cleanPublicTimelineText(activity.source_kind).toLowerCase();
-  const level = cleanPublicTimelineText(activity.visibility_level).toLowerCase();
-  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  if (isEmptyGenericToolWindowActivity(activity, title, detail)) {
-    return true;
-  }
-  if (["primary", "secondary"].includes(level) && !["diagnostics", "debug", "monitor"].includes(displaySurface)) {
-    return false;
-  }
-  const textBlob = `${title}\n${detail}`;
-  if (["inspect_path", "search_text", "verification"].includes(sourceKind)) {
-    return true;
-  }
-  if (sourceKind === "tool_action" && mentionsInternalTool(textBlob)) {
-    return true;
-  }
-  if (isGenericTaskProjectionTitle(title, detail) || hasGenericToolFailure(textBlob)) {
-    return true;
-  }
-  if (sourceKind === "stage" && (isGenericStatusActivity(title, detail) || mentionsInternalTool(textBlob) || isGenericToolCallStage(title, detail))) {
-    return true;
-  }
-  return false;
-}
-
-function isEmptyGenericToolWindowActivity(
-  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
-  title: string,
-  detail: string,
-) {
-  const displaySurface = cleanPublicTimelineText(activity.display_surface).toLowerCase();
-  if (displaySurface !== "tool_window") {
-    return false;
-  }
-  if (sanitizePublicTimelineText(detail) || sanitizePublicTimelineText(activity.tool_target)) {
-    return false;
-  }
-  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
-  return [
-    "正在执行操作",
-    "执行动作",
-    "操作已返回",
-    "结果已返回",
-    "步骤未完成",
-  ].map(compactActivityText).includes(normalizedTitle);
-}
-
-function mentionsInternalTool(value: string) {
-  const normalized = value.toLowerCase().replace(/[-\s]+/g, "_");
-  return [
-    "agent_todo",
-    "list_subagents",
-    "spawn_subagent",
-    "wait_subagent",
-    "send_subagent_message",
-    "close_subagent",
-  ].some((toolName) => normalized.includes(toolName));
-}
-
-function hasGenericToolFailure(value: string) {
-  const normalized = compactActivityText(value);
-  return [
-    "工具调用失败，正在根据失败原因调整处理路径。",
-    "工具返回失败：工具调用失败",
-    "正在根据失败原因调整处理路径",
-  ].some((fragment) => normalized.includes(compactActivityText(fragment)));
-}
-
-function isGenericTaskProjectionTitle(title: string, detail: string) {
-  const normalizedTitle = compactActivityText(title).replace(/[。.]$/g, "");
-  const normalizedDetail = compactActivityText(detail).replace(/[。.]$/g, "");
-  const genericTitles = new Set([
-    "开始处理",
-    "建立处理清单",
-    "更新处理清单",
-    "处理清单",
-    "处理清单已建立",
-    "处理清单已更新",
-    "读取文件内容",
-    "检查路径信息",
-    "确认路径状态",
-    "确认artifact路径",
-    "搜索证据",
-    "补齐验收证据",
-    "正在处理",
-    "正在建立任务运行",
-    "正在思考",
-    "正在整理回复",
-  ].map(compactActivityText));
-  return genericTitles.has(normalizedTitle) && (!normalizedDetail || normalizedDetail === normalizedTitle);
-}
-
 function compactActivityText(value: string) {
   return String(value ?? "").replace(/\s+/g, "").toLowerCase();
-}
-
-function isGenericToolCallStage(title: string, detail: string) {
-  const normalized = `${title}\n${detail}`.toLowerCase();
-  return normalized.includes("工具调用") && (/执行\s*\d+\s*个工具调用/.test(normalized) || normalized.includes("tool call"));
 }
 
 function isGenericStatusActivity(title: string, detail: string) {
@@ -830,28 +423,6 @@ function isGenericStatusActivity(title: string, detail: string) {
     "确认路径状态",
   ].includes(normalizedTitle.replace(/[。.]$/g, ""))
     && (!normalizedDetail || normalizedDetail === normalizedTitle);
-}
-
-function taskProjectionToolMeta(
-  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
-  state: string,
-) {
-  const target = shortText(sanitizePublicTimelineText(activity.tool_target), 90);
-  const toolName = shortText(cleanPublicTimelineText(activity.tool_name), 48);
-  return [
-    target,
-    target ? "" : toolName,
-    readableTaskActivityState(state),
-  ].filter(Boolean);
-}
-
-function readableTaskActivityState(state: string) {
-  if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "已完成";
-  if (["running", "working", "partial", ""].includes(state)) return "运行中";
-  if (["waiting", "waiting_user", "waiting_approval", "waiting_safe_boundary", "queued", "paused"].includes(state)) return "等待中";
-  if (["error", "failed", "blocked", "missing"].includes(state)) return "失败";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "已停止";
-  return shortText(state, 48);
 }
 
 function activityEntries(items: PublicChatTimelineItem[], options: PublicTimelineActivityOptions = {}): ActivityEntry[] {
@@ -944,74 +515,6 @@ function publicTimelineTone(items: PublicChatTimelineItem[]): PublicTimelineActi
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
-}
-
-function taskProjectionTone(projections: SingleAgentTaskProjection[]): PublicTimelineActivityTone | "" {
-  const status = projections.map((projection) => cleanPublicTimelineText(projection.status).toLowerCase()).reverse().find(Boolean) ?? "";
-  return taskProjectionStatusTone(status);
-}
-
-function taskProjectionStatusTone(status: unknown): PublicTimelineActivityTone | "" {
-  const normalized = cleanPublicTimelineText(status).toLowerCase();
-  if (!normalized) return "";
-  if (["failed", "error", "blocked", "missing"].includes(normalized)) return "soft_error";
-  if (["waiting", "waiting_user", "waiting_executor", "waiting_approval", "waiting_safe_boundary", "queued", "paused"].includes(normalized)) return "waiting";
-  if (["completed", "complete", "done", "success"].includes(normalized)) return "done";
-  if (["stopped", "cancelled", "canceled", "aborted"].includes(normalized)) return "stopped";
-  return "running";
-}
-
-function taskProjectionLifecycleTitle(status: string) {
-  if (["stopped", "cancelled", "canceled", "aborted"].includes(status)) return "任务已停止";
-  if (status === "paused") return "任务已暂停";
-  if (["waiting_user", "waiting_executor"].includes(status)) return "等待继续";
-  if (status === "waiting_safe_boundary") return "等待安全边界";
-  if (status === "waiting_approval") return "等待确认";
-  if (status === "queued") return "等待执行";
-  if (["failed", "error", "blocked", "missing"].includes(status)) return "任务执行失败";
-  return "任务状态已更新";
-}
-
-function isActiveTaskProjectionActivityState(state: string) {
-  return ["", "running", "working", "partial"].includes(state);
-}
-
-function isStaleTaskProjectionActivityForProjectionTone(
-  activity: NonNullable<SingleAgentTaskProjection["activities"]>[number],
-  projectionTone: PublicTimelineActivityTone | "",
-) {
-  if (!projectionTone || projectionTone === "running") {
-    return false;
-  }
-  if (cleanPublicTimelineText(activity.kind) === "todo") {
-    return false;
-  }
-  const state = cleanPublicTimelineText(activity.state).toLowerCase();
-  return isActiveTaskProjectionActivityState(state) || ["waiting", "queued", "paused"].includes(state);
-}
-
-function isStalePublicTimelineItemForProjectionTone(
-  item: PublicChatTimelineItem,
-  projectionTone: PublicTimelineActivityTone,
-) {
-  const state = cleanPublicTimelineText(item.state).toLowerCase();
-  if (isActivePublicTimelineItem(item)) {
-    return true;
-  }
-  return ["waiting", "queued", "paused"].includes(state);
-}
-
-function isActivePublicTimelineItem(item: PublicChatTimelineItem) {
-  const state = cleanPublicTimelineText(item.state).toLowerCase();
-  const phase = cleanPublicTimelineText(item.phase).toLowerCase();
-  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  if (item.stream_state === "streaming") return true;
-  if (["running", "working", "partial"].includes(state)) return true;
-  if (["running", "working", "partial", "streaming"].includes(phase)) return true;
-  if (!state && ["tool", "status", "timeline"].includes(slot)) {
-    return true;
-  }
-  return false;
 }
 
 function publicText(item: PublicChatTimelineItem) {

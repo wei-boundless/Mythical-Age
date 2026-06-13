@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.runtime.projection.timeline_builder import (
-    merge_public_timeline_item,
-    project_public_timeline_from_events,
-    public_timeline_order_key,
-)
 from harness.runtime.public_progress import public_runtime_progress_summary
-from harness.runtime.projection.task_projection import build_single_agent_task_projection
 
 
 _SUPPRESSED_PROGRESS_TEXT = {
@@ -57,16 +51,6 @@ _SUPPRESSED_PROGRESS_TEXT = {
 _STRUCTURED_PLAN_TOOL_NAMES = {
     "agent_todo",
 }
-_PUBLIC_TIMELINE_RESET_EVENTS = {
-    "user_work_instruction_recorded",
-    "active_task_steer_recorded",
-    "active_task_steer_accepted",
-    "active_task_steer_included",
-    "active_task_steer_consumed",
-    "task_run_resume_requested",
-}
-
-
 def build_session_runtime_timeline(
     *,
     session_id: str,
@@ -117,34 +101,13 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
     session_output_commit = _session_output_commit_state(events, diagnostics=diagnostics, task_run=task_run)
-    public_since_offset = _public_since_offset(events)
-    public_events = _events_since_offset(events, public_since_offset)
     monitor = runtime_host.monitor_projector.project_task_run(task_run, now=_latest_now(events, task_run))
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
-    anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=public_events or events)
+    anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
-    task_projection = build_single_agent_task_projection(
-        runtime_host,
-        task_run,
-        events=public_events,
-        monitor=monitor,
-        anchor_turn_id=anchor_turn_id,
-        anchor_message_id=anchor_message_id,
-    )
-    public_timeline = _public_timeline_from_task_projection(task_projection, limit=max_timeline_items)
-    public_timeline = _scope_public_timeline_items(
-        public_timeline,
-        session_id=session_id,
-        anchor_turn_id=anchor_turn_id,
-        run_id=task_run_id,
-        task_run_id=task_run_id,
-        turn_run_id="",
-    )
     closeout_summary = _attachment_closeout_summary(task_run=task_run, diagnostics=diagnostics, monitor=monitor)
-    projection_summary = _task_projection_summary(task_projection)
-    projection_missing = not task_projection or not projection_summary
-    visible_summary = closeout_summary or projection_summary or "progress_projection_missing"
+    visible_summary = closeout_summary or _visible_progress_summary(monitor.get("summary")) or ""
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -161,16 +124,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "summary": visible_summary,
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
-        "public_timeline": public_timeline,
-        "public_since_offset": public_since_offset,
-        "public_projection_status": {
-            "authority": "session_runtime_timeline.public_projection_status",
-            "source": "task_projection" if not projection_missing else "progress_projection_missing",
-            "missing": projection_missing,
-            **({"diagnostic": "progress_projection_missing"} if projection_missing else {}),
-        },
         **({"session_output_commit": session_output_commit} if session_output_commit else {}),
-        **({"task_projection": task_projection} if task_projection else {}),
         "artifact_refs": artifact_refs,
         "trace_available": True,
         "debug_trace_ref": task_run_id,
@@ -190,26 +144,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     status = str(getattr(turn_run, "status", "") or "")
     terminal_reason = str(getattr(turn_run, "terminal_reason", "") or "")
-    public_timeline = project_public_timeline_from_events(
-        events,
-        runtime_host=runtime_host,
-        run_id=turn_run_id,
-        turn_run_id=turn_run_id,
-        final_answer="",
-        status=status,
-        limit=max_timeline_items,
-    )
-    public_timeline = _scope_public_timeline_items(
-        public_timeline,
-        session_id=session_id,
-        anchor_turn_id=anchor_turn_id,
-        run_id=turn_run_id,
-        task_run_id="",
-        turn_run_id=turn_run_id,
-    )
-    if not public_timeline:
-        return {}
-    latest_public_text = _latest_public_timeline_text(public_timeline)
     latest_event = events[-1] if events else {}
     latest_event_type = str(latest_event.get("event_type") or "")
     return {
@@ -226,10 +160,9 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "lifecycle": status,
         "bucket": "turn",
         "title": "会话运行",
-        "summary": latest_public_text,
+        "summary": "" if _is_internal_turn_terminal_reason(terminal_reason) else public_runtime_progress_summary(terminal_reason),
         "latest_event_type": latest_event_type,
         "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
-        "public_timeline": public_timeline,
         "artifact_refs": [],
         "trace_available": True,
         "debug_trace_ref": turn_run_id,
@@ -276,185 +209,6 @@ def _attachment_closeout_summary(*, task_run: Any, diagnostics: dict[str, Any], 
         if visible:
             return visible
     return ""
-
-
-def _merge_public_timeline(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    merged_by_key: dict[str, dict[str, Any]] = {}
-    insertion_order: list[str] = []
-    seen: set[str] = set()
-    primary_has_error_item = any(_public_timeline_item_is_error(item) for item in primary)
-    for item in [*list(primary or []), *list(secondary or [])]:
-        payload = dict(item or {})
-        if primary_has_error_item and str(payload.get("kind") or "") == "blocked":
-            continue
-        key = _public_timeline_key(payload)
-        if not key:
-            continue
-        if key in seen:
-            merged_by_key[key] = merge_public_timeline_item(merged_by_key[key], payload)
-            continue
-        seen.add(key)
-        insertion_order.append(key)
-        merged_by_key[key] = payload
-    ordered = sorted(
-        enumerate([merged_by_key[key] for key in insertion_order]),
-        key=lambda item: (*public_timeline_order_key(item[1]), item[0]),
-    )
-    return [item for _, item in ordered][-max(1, int(limit or 24)) :]
-
-
-def _scope_public_timeline_items(
-    items: list[dict[str, Any]],
-    *,
-    session_id: str,
-    anchor_turn_id: str,
-    run_id: str,
-    task_run_id: str,
-    turn_run_id: str,
-) -> list[dict[str, Any]]:
-    scoped: list[dict[str, Any]] = []
-    for item in list(items or []):
-        payload = dict(item or {})
-        turn_id = str(payload.get("turn_id") or payload.get("anchor_turn_id") or anchor_turn_id)
-        scoped.append(
-            {
-                **payload,
-                "session_id": str(payload.get("session_id") or session_id),
-                "anchor_turn_id": turn_id,
-                "turn_id": turn_id,
-                "run_id": str(payload.get("run_id") or payload.get("source_run_id") or run_id),
-                "task_run_id": str(payload.get("task_run_id") or task_run_id),
-                "turn_run_id": str(payload.get("turn_run_id") or turn_run_id),
-            }
-        )
-    return scoped
-
-
-def _public_timeline_item_is_error(item: dict[str, Any]) -> bool:
-    return str(item.get("kind") or "") == "blocked" or str(item.get("state") or "").lower() in {
-        "error",
-        "failed",
-        "blocked",
-    }
-
-
-def _task_projection_summary(projection: dict[str, Any]) -> str:
-    payload = _dict_record(projection)
-    if not payload:
-        return ""
-    current_action = _dict_record(payload.get("current_action"))
-    for value in (
-        current_action.get("title"),
-        current_action.get("detail"),
-        payload.get("summary"),
-        payload.get("title"),
-    ):
-        visible = _visible_progress_summary(value)
-        if visible:
-            return visible
-    return ""
-
-
-def _public_timeline_from_task_projection(projection: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
-    payload = _dict_record(projection)
-    if not payload:
-        return []
-    items: list[dict[str, Any]] = []
-    current_action = _dict_record(payload.get("current_action"))
-    for index, activity in enumerate(list(payload.get("activities") or [])):
-        item = _projection_activity_timeline_item(_dict_record(activity), fallback_index=index)
-        if item:
-            items.append(item)
-    current_item = _projection_activity_timeline_item(
-        current_action,
-        fallback_index=len(items),
-        fallback_item_id=f"task-projection:current:{payload.get('task_run_id') or ''}:{_projection_revision(payload, public_since_offset=0)}",
-        primary=True,
-    )
-    if current_item:
-        items.append(current_item)
-    return _merge_public_timeline(items, [], limit=limit)
-
-
-def _projection_activity_timeline_item(
-    activity: dict[str, Any],
-    *,
-    fallback_index: int,
-    fallback_item_id: str = "",
-    primary: bool = False,
-) -> dict[str, Any]:
-    if not activity:
-        return {}
-    title = _visible_progress_summary(activity.get("title") or activity.get("summary"))
-    detail = _visible_progress_summary(activity.get("detail"))
-    if not title and detail:
-        title, detail = detail, ""
-    if not title:
-        return {}
-    event_ref = str(activity.get("event_ref") or "").strip()
-    item_id = event_ref or fallback_item_id or f"task-projection:activity:{fallback_index}"
-    event_offset = _int_value(activity.get("event_offset") or activity.get("sequence"), fallback=fallback_index)
-    created_at = _float_value(activity.get("created_at"), fallback=0.0)
-    surface = str(activity.get("display_surface") or "").strip()
-    kind = str(activity.get("kind") or "").strip()
-    state = _projection_timeline_state(activity.get("state"))
-    source_kind = str(activity.get("source_kind") or kind or "").strip()
-    base = {
-        "item_id": item_id,
-        "title": title,
-        "detail": detail,
-        "text": detail or title,
-        "state": state,
-        "phase": "done" if state in {"done", "completed", "stopped", "error"} else "running",
-        "stream_state": "done" if state in {"done", "completed", "stopped", "error"} else "streaming",
-        "source_event_id": event_ref,
-        "event_offset": event_offset,
-        "sequence": event_offset,
-        "created_at": created_at,
-        "source_authority": "runtime",
-    }
-    if surface == "tool_window" or "tool" in kind or activity.get("tool_name"):
-        return {
-            **base,
-            "kind": "work_action",
-            "slot": "tool",
-            "surface": "tool_window",
-            "source_authority": "tool",
-            "action_kind": source_kind or "tool",
-            "tool_name": str(activity.get("tool_name") or ""),
-            "subject_label": str(activity.get("tool_target") or ""),
-            "public_summary": detail or title,
-        }
-    return {
-        **base,
-        "kind": "status_update",
-        "slot": "status" if primary else "timeline",
-        "surface": "status_bar" if primary and surface == "status" else "timeline",
-    }
-
-
-def _projection_revision(projection: dict[str, Any], *, public_since_offset: int) -> str:
-    value = projection.get("updated_at") or public_since_offset or projection.get("created_at") or "current"
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return str(value or "current").strip() or "current"
-    if numeric.is_integer():
-        return str(int(numeric))
-    return str(numeric)
-
-
-def _projection_timeline_state(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {"completed", "success"}:
-        return "done"
-    if normalized in {"failed", "error", "blocked"}:
-        return "error"
-    if normalized in {"stopped", "aborted", "cancelled", "canceled"}:
-        return "stopped"
-    if normalized.startswith("wait") or normalized in {"paused", "queued"}:
-        return "waiting"
-    return normalized or "running"
 
 
 def _dict_record(value: Any) -> dict[str, Any]:
@@ -529,65 +283,6 @@ def _float_value(value: Any, *, fallback: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return fallback
-
-
-def _public_timeline_key(item: dict[str, Any]) -> str:
-    for key in ("item_id", "id"):
-        value = str(item.get(key) or "").strip()
-        if value:
-            return value
-    return "|".join(
-        [
-            str(item.get("kind") or ""),
-            str(item.get("text") or item.get("detail") or item.get("public_summary") or ""),
-            str(item.get("title") or ""),
-        ]
-    ).strip("|")
-
-
-def _latest_public_timeline_text(items: list[dict[str, Any]]) -> str:
-    for item in reversed(list(items or [])):
-        text = _public_timeline_item_text(item)
-        if text:
-            return text
-    return ""
-
-
-def _public_timeline_item_text(item: dict[str, Any]) -> str:
-    for key in (
-        "public_summary",
-        "text",
-        "detail",
-        "observation",
-        "title",
-        "subject_label",
-        "path",
-        "href",
-    ):
-        text = str(item.get(key) or "").strip()
-        if text:
-            return public_runtime_progress_summary(text)
-    return ""
-
-
-def _public_since_offset(events: list[dict[str, Any]]) -> int:
-    for event in reversed(sorted(list(events or []), key=lambda item: int(item.get("offset") or 0))):
-        event_type = str(event.get("event_type") or "")
-        if event_type in _PUBLIC_TIMELINE_RESET_EVENTS:
-            return int(event.get("offset") or 0)
-        if event_type == "task_run_executor_scheduled":
-            payload = dict(event.get("payload") or {})
-            scheduler = str(payload.get("scheduler") or "").strip()
-            if scheduler in {"task_run_resume_api", "task_run_approval_resume_api"}:
-                return int(event.get("offset") or 0)
-    return 0
-
-
-def _events_since_offset(events: list[dict[str, Any]], offset: int) -> list[dict[str, Any]]:
-    boundary = int(offset or 0)
-    if boundary <= 0:
-        return list(events or [])
-    return [event for event in list(events or []) if int(event.get("offset") or 0) >= boundary]
 
 
 def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:

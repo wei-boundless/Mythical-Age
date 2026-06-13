@@ -4,55 +4,36 @@ from api.chat import _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import project_public_projection_event
-from harness.runtime.projection.timeline_builder import project_public_event_delta_from_runtime_event
+from runtime.output_stream.public_contract import (
+    SESSION_OUTPUT_COMMIT_ACK_EVENT,
+    SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+    TOOL_CALL_REQUESTED_EVENT,
+    TOOL_ITEM_COMPLETED_EVENT,
+    TOOL_ITEM_STARTED_EVENT,
+    TOOL_PERMISSION_DECIDED_EVENT,
+    TURN_COMPLETED_EVENT,
+)
 from runtime.tool_runtime import ToolObservation
 
 
-def test_projection_does_not_generate_assistant_body_or_live_tool_items():
-    projected = project_public_projection_event(
-        "model_action_admission",
+def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
+    return project_public_projection_event(
+        event_type,
         {
-            "model_action_request": {
-                "request_id": "call:read",
-                "action_type": "tool_call",
-                "public_progress_note": "我先确认投影链路的正文归属。",
-                "tool_call": {
-                    "id": "call:read",
-                    "tool_name": "read_file",
-                    "args": {"path": "backend/harness/runtime/session_timeline.py"},
-                },
+            **data,
+            "public_anchor": {
+                "session_id": "session:test",
+                "turn_id": "turn:test",
+                "task_run_id": "taskrun:turn:test:1",
             },
-            "public_anchor": {"turn_id": "turn:test", "task_run_id": "taskrun:turn:test:abc"},
         },
-        sequence=1,
-    )
-
-    envelope = projected["public_projection_envelope"]
-    assert envelope["authority"] == PUBLIC_PROJECTION_AUTHORITY
-    assert envelope.get("items", []) == []
-    assert envelope["surface"] == "timeline"
+        session_id="session:test",
+        sequence=sequence,
+    )["public_projection_frame"]
 
 
-def test_done_projection_does_not_create_body_or_terminal_authority():
-    projected = project_public_projection_event(
-        "done",
-        {
-            "content": "Done content must not become assistant prose.",
-            "answer_channel": "conversation",
-            "terminal_reason": "completed",
-            "public_anchor": {"turn_id": "turn:test", "task_run_id": "taskrun:turn:test:abc"},
-        },
-        sequence=2,
-    )
-
-    envelope = projected["public_projection_envelope"]
-    assert envelope.get("items", []) == []
-    assert "terminal" not in envelope
-    assert "Done content" not in str(envelope)
-
-
-def test_chat_public_stream_maps_admitted_tool_to_first_class_started_item():
-    projected = _project_public_stream_event(
+def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
+    events = _project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -70,31 +51,145 @@ def test_chat_public_stream_maps_admitted_tool_to_first_class_started_item():
                             "args": {"path": "README.md"},
                         },
                     },
-                    "admission": {"decision": "allow"},
+                    "admission": {"decision": "allow", "decision_id": "permit:read"},
                 },
                 "refs": {"turn_run_ref": "turnrun:turn:test:1"},
             },
         },
     )
 
-    assert projected is not None
-    event_type, data = projected
-    assert event_type == "tool_item_started"
-    assert data["item_id"] == "call:read"
-    assert data["tool_lifecycle_id"] == "call:read"
-    assert data["tool_call_id"] == "call:read"
-    assert data["turn_run_id"] == "turnrun:turn:test:1"
-    assert data["tool_name"] == "read_file"
-    assert data["state"] == "running"
-    assert data["target"] == "README.md"
+    assert [event_type for event_type, _ in events] == [
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+    ]
+    requested = events[0][1]
+    permission = events[1][1]
+    assert requested["tool_call_id"] == "call:read"
+    assert requested["tool_name"] == "read_file"
+    assert requested["target"] == "README.md"
+    assert requested["public_action_state"]["next_action"] == "读取 README.md"
+    assert permission["tool_call_id"] == "call:read"
+    assert permission["permission_decision"] == "allow"
 
 
-def test_chat_public_stream_drops_runtime_private_path_from_started_tool_target():
+def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
+    frame = _frame(
+        TOOL_CALL_REQUESTED_EVENT,
+        {
+            "tool_call_id": "call:read",
+            "tool_lifecycle_id": "call:read",
+            "tool_name": "read_file",
+            "public_action_state": {"next_action": "读取 README.md"},
+            "target": "README.md",
+        },
+    )
+
+    assert frame["authority"] == PUBLIC_PROJECTION_AUTHORITY
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "current_action"
+    assert frame["source_authority"] == "model"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "transient"
+    assert frame["tool_call_id"] == "call:read"
+
+
+def test_raw_tool_started_without_permission_is_hidden_protocol_diagnostic() -> None:
+    frame = _frame(
+        TOOL_ITEM_STARTED_EVENT,
+        {"tool_name": "read_file", "runtime_event_id": "event:tool-start"},
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "system"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["diagnostics"]["code"] == "tool_started_without_request_or_permission"
+
+
+def test_successful_tool_completed_retires_current_action_to_trace() -> None:
+    frame = _frame(
+        TOOL_ITEM_COMPLETED_EVENT,
+        {
+            "tool_call_id": "call:read",
+            "permission_decision_id": "permit:read",
+            "tool_name": "read_file",
+            "state": "done",
+            "observation": "读取完成。",
+        },
+    )
+
+    assert frame["op"] == "item_retire"
+    assert frame["slot"] == "trace"
+    assert frame["main_visibility"] == "trace_only"
+    assert frame["tool_call_id"] == "call:read"
+
+
+def test_failed_tool_completed_is_pinned_until_resolved() -> None:
+    frame = _frame(
+        TOOL_ITEM_COMPLETED_EVENT,
+        {
+            "tool_call_id": "call:read",
+            "permission_decision_id": "permit:read",
+            "tool_name": "read_file",
+            "state": "failed",
+            "error": "文件不存在。",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "pinned"
+    assert frame["main_visibility"] == "pinned"
+    assert frame["retention"] == "pinned_until_resolved"
+    assert frame["pin_reason"] == "failed"
+
+
+def test_turn_completed_has_no_hydrate_or_main_tool_semantics() -> None:
+    frame = _frame(TURN_COMPLETED_EVENT, {"status": "completed", "turn_run_id": "turnrun:test"})
+
+    assert frame["op"] == "turn_terminal"
+    assert frame["slot"] == "trace"
+    assert frame["main_visibility"] == "hidden"
+    assert "commit" not in frame
+    assert "text" not in frame
+
+
+def test_commit_ack_is_hidden_commit_authority() -> None:
+    frame = _frame(
+        SESSION_OUTPUT_COMMIT_ACK_EVENT,
+        {
+            "state": "committed",
+            "message_ref": "history-message:turn:test:assistant",
+            "content_sha256": "sha256:body",
+            "event_offset": 12,
+        },
+    )
+
+    assert frame["op"] == "commit_ack"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["commit"]["state"] == "committed"
+    assert frame["commit"]["content_sha256"] == "sha256:body"
+
+
+def test_commit_failed_is_pinned() -> None:
+    frame = _frame(
+        SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+        {"state": "failed", "reason": "history write failed", "event_offset": 12},
+    )
+
+    assert frame["op"] == "commit_failed"
+    assert frame["slot"] == "pinned"
+    assert frame["main_visibility"] == "pinned"
+    assert frame["pin_reason"] == "commit_failed"
+
+
+def test_private_paths_do_not_project_as_public_text() -> None:
     private_path = (
         "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
         "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
     )
-    projected = _project_public_stream_event(
+
+    assert public_text(private_path) == ""
+    events = _project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -117,85 +212,13 @@ def test_chat_public_stream_drops_runtime_private_path_from_started_tool_target(
         },
     )
 
-    assert projected is not None
-    event_type, data = projected
-    assert event_type == "tool_item_started"
-    assert "target" not in data
-    assert "arguments_preview" not in data
-    assert "replacement_e21050df8baca858bdde6a4d" not in str(data)
+    visible = str(events)
+    assert "replacement_e21050df8baca858bdde6a4d" not in visible
+    assert "target" not in events[0][1]
+    assert "arguments_preview" not in events[0][1]
 
 
-def test_chat_public_stream_maps_tool_observation_to_matching_completed_item():
-    projected = _project_public_stream_event(
-        "turn_tool_observation_recorded",
-        {
-            "event": {
-                "event_id": "event:observation",
-                "payload": {
-                    "turn_id": "turn:test",
-                    "tool_observation": {
-                        "tool_name": "read_file",
-                        "status": "ok",
-                        "caller_ref": "turnrun:turn:test:1",
-                        "result_envelope": {
-                            "tool_name": "read_file",
-                            "tool_call_id": "call:read",
-                            "text": "读取完成。",
-                        },
-                    },
-                },
-                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
-            },
-        },
-    )
-
-    assert projected is not None
-    event_type, data = projected
-    assert event_type == "tool_item_completed"
-    assert data["item_id"] == "call:read"
-    assert data["tool_lifecycle_id"] == "call:read"
-    assert data["tool_call_id"] == "call:read"
-    assert data["turn_run_id"] == "turnrun:turn:test:1"
-    assert data["tool_name"] == "read_file"
-    assert data["state"] == "done"
-    assert data["observation"] == "读取完成。"
-
-
-def test_chat_public_stream_drops_runtime_private_path_from_completed_tool_observation():
-    private_path = (
-        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
-        "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
-    )
-    projected = _project_public_stream_event(
-        "turn_tool_observation_recorded",
-        {
-            "event": {
-                "event_id": "event:observation:private-path",
-                "payload": {
-                    "tool_observation": {
-                        "tool_name": "read_file",
-                        "status": "ok",
-                        "caller_ref": "turnrun:turn:test:private",
-                        "result_envelope": {
-                            "tool_name": "read_file",
-                            "tool_call_id": "call:read-private",
-                            "text": private_path,
-                        },
-                    },
-                },
-                "refs": {"turn_run_ref": "turnrun:turn:test:private"},
-            },
-        },
-    )
-
-    assert projected is not None
-    event_type, data = projected
-    assert event_type == "tool_item_completed"
-    assert "observation" not in data
-    assert "replacement_e21050df8baca858bdde6a4d" not in str(data)
-
-
-def test_tool_observation_promotes_real_tool_call_id_for_public_completion():
+def test_tool_observation_promotes_real_tool_call_id_for_public_completion() -> None:
     observation = ToolObservation(
         observation_id="toolobs:read:1",
         invocation_id="toolinvoke:turnrun:1:read_file:call:read",
@@ -208,173 +231,4 @@ def test_tool_observation_promotes_real_tool_call_id_for_public_completion():
         result_envelope={"tool_name": "read_file", "tool_call_id": "call:read", "text": "读取完成。"},
     )
 
-    payload = observation.to_dict()
-
-    assert payload["tool_call_id"] == "call:read"
-
-
-def test_chat_public_stream_does_not_use_invocation_id_as_completed_item_id():
-    projected = _project_public_stream_event(
-        "turn_tool_observation_recorded",
-        {
-            "event": {
-                "event_id": "event:observation:without-tool-call",
-                "payload": {
-                    "tool_observation": {
-                        "invocation_id": "toolinvoke:turnrun:1:read_file:call:read",
-                        "tool_name": "read_file",
-                        "status": "ok",
-                        "caller_ref": "turnrun:turn:test:1",
-                        "text": "读取完成。",
-                    },
-                },
-                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
-            },
-        },
-    )
-
-    assert projected is None
-
-
-def test_chat_public_stream_maps_internal_done_error_stopped_to_turn_completed():
-    done = _project_public_stream_event(
-        "done",
-        {"turn_run_id": "turnrun:turn:test:1", "message_ref": "msg:final", "completion_state": "completed"},
-    )
-    error = _project_public_stream_event(
-        "error",
-        {"turn_run_id": "turnrun:turn:test:1", "error": "backend failed", "code": "stream_exception"},
-    )
-    stopped = _project_public_stream_event(
-        "stopped",
-        {"turn_run_id": "turnrun:turn:test:1", "reason": "user_stopped"},
-    )
-
-    assert done == (
-        "turn_completed",
-        {
-            "status": "completed",
-            "turn_run_id": "turnrun:turn:test:1",
-            "final_message_ref": "msg:final",
-            "terminal_reason": "completed",
-            "completion_state": "completed",
-        },
-    )
-    assert error is not None
-    assert error[0] == "turn_completed"
-    assert error[1]["status"] == "failed"
-    assert error[1]["error_summary"] == "backend failed"
-    assert stopped is not None
-    assert stopped[0] == "turn_completed"
-    assert stopped[1]["status"] == "stopped"
-    assert stopped[1]["stopped_reason"] == "user_stopped"
-
-
-def test_tool_line_numbered_observation_is_not_promoted_to_projection_body():
-    projected = project_public_projection_event(
-        "task_tool_observation_recorded",
-        {
-            "event": {
-                "event_id": "event:raw-file",
-                "payload": {
-                    "observation": {
-                        "tool_name": "read_file",
-                        "target": "docs/review.md",
-                        "result": "  1 | # LangChain-Agent 项目代码审查报告\n  2 | 工具读取的文件原文。",
-                    }
-                },
-            },
-            "public_anchor": {"turn_id": "turn:test", "task_run_id": "taskrun:turn:test:abc"},
-        },
-        sequence=4,
-    )
-
-    visible = str(projected["public_projection_envelope"])
-    assert "LangChain-Agent" not in visible
-    assert not any(
-        item.get("slot") == "body"
-        for item in projected["public_projection_envelope"].get("items", [])
-    )
-
-
-def test_runtime_private_artifact_paths_do_not_project_as_public_text():
-    private_path = (
-        "backend/mythical-agent/sessions/session-123/environments/coding/vibe-workspace/"
-        "runtime_state/dynamic_context/replacements/replacement_e21050df8baca858bdde6a4d.json"
-    )
-
-    assert public_text(private_path) == ""
-
-    projected = project_public_event_delta_from_runtime_event(
-        {
-            "event_id": "event:private-path",
-            "event_type": "step_summary_recorded",
-            "run_id": "taskrun:turn:test:abc",
-            "offset": 5,
-            "payload": {
-                "step": "tool_result_store",
-                "status": "running",
-                "summary": private_path,
-                "current_judgment": private_path,
-            },
-            "refs": {"turn_ref": "turn:test", "task_run_ref": "taskrun:turn:test:abc"},
-        },
-        runtime_host=None,
-    )
-
-    visible = str(projected["public_projection_envelope"])
-    assert "replacement_e21050df8baca858bdde6a4d" not in visible
-    assert projected.get("public_projection_skip_reason") == "empty_public_delta"
-
-
-def test_runtime_monitor_projection_uses_runtime_status_not_assistant_body():
-    projected = project_public_event_delta_from_runtime_event(
-        {
-            "event_id": "event:summary",
-            "event_type": "step_summary_recorded",
-            "run_id": "taskrun:turn:test:abc",
-            "offset": 4,
-            "payload": {
-                "step": "stage_feedback",
-                "status": "running",
-                "current_judgment": "工具结果已返回，需要让模型给出阶段判断。",
-            },
-            "refs": {"turn_ref": "turn:test", "task_run_ref": "taskrun:turn:test:abc"},
-        },
-        runtime_host=None,
-    )
-
-    envelope = projected["public_projection_envelope"]
-    assert envelope["authority"] == PUBLIC_PROJECTION_AUTHORITY
-    assert envelope["items"][0]["source_authority"] == "runtime"
-    assert envelope["items"][0]["slot"] == "status"
-    assert envelope["items"][0]["surface"] == "timeline"
-    assert envelope["items"][0]["title"] == "工具结果已返回，需要让模型给出阶段判断。"
-
-
-def test_active_task_steer_projection_exposes_queue_transition_as_runtime_control_item():
-    projected = project_public_event_delta_from_runtime_event(
-        {
-            "event_id": "event:steer-included",
-            "event_type": "active_task_steer_included",
-            "run_id": "taskrun:turn:test:abc",
-            "offset": 8,
-            "payload": {
-                "steer": {"steer_id": "steer:test:1", "content": "优先处理新验收要求。"},
-                "steer_transition": {
-                    "title": "正在按补充要求重规划",
-                    "summary": "补充要求已进入下一回合处理队列。",
-                    "status": "running",
-                },
-            },
-            "refs": {"turn_ref": "turn:test", "task_run_ref": "taskrun:turn:test:abc"},
-        },
-        runtime_host=None,
-    )
-
-    envelope = projected["public_projection_envelope"]
-    assert envelope["authority"] == PUBLIC_PROJECTION_AUTHORITY
-    assert envelope["items"][0]["source_authority"] == "runtime"
-    assert envelope["items"][0]["slot"] == "control"
-    assert envelope["items"][0]["title"] == "正在按补充要求重规划"
-    assert envelope["items"][0]["detail"] == "补充要求已进入下一回合处理队列。"
+    assert observation.to_dict()["tool_call_id"] == "call:read"

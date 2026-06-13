@@ -246,86 +246,117 @@ export type PublicChatTimelineItem = {
   completion_ready?: boolean;
 };
 
-export type PublicProjectionItem = PublicChatTimelineItem;
+export type PublicProjectionItem = {
+  itemId: string;
+  slot: "current_action" | "pinned" | "final_result" | "status" | "trace" | string;
+  text?: string;
+  title?: string;
+  detail?: string;
+  state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
+  sourceAuthority?: "model" | "tool" | "runtime" | "system" | string;
+  mainVisibility?: "visible_live" | "visible_final" | "pinned" | "trace_only" | "hidden" | string;
+  retention?: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
+  pinReason?: string;
+  toolCallId?: string;
+  permissionDecisionId?: string;
+  toolName?: string;
+  actionKind?: string;
+  subjectLabel?: string;
+  traceRefs?: string[];
+  artifactRefs?: Array<Record<string, unknown>>;
+  eventOffset?: number;
+  sourceEventId?: string;
+};
 
-export type PublicProjectionEnvelope = {
+export type ProjectionLedger = {
+  body: {
+    text: string;
+    stream_state: "streaming" | "finalized" | "committed";
+    source_offsets: number[];
+  };
+  currentAction?: PublicProjectionItem;
+  pinned: PublicProjectionItem[];
+  finalResults: PublicProjectionItem[];
+  status: PublicProjectionItem[];
+  trace: PublicProjectionItem[];
+  commit: {
+    state: "none" | "checked" | "committed" | "failed" | "skipped";
+    key?: string;
+  };
+  terminal?: {
+    state?: string;
+    eventOffset?: number;
+  };
+};
+
+export type MessagePublicProjection = {
+  bodyText: string;
+  bodyState: "streaming" | "finalized" | "committed";
+  currentAction?: PublicProjectionItem;
+  pinned: PublicProjectionItem[];
+  finalResults: PublicProjectionItem[];
+  status: PublicProjectionItem[];
+  traceAvailable: boolean;
+  traceCount: number;
+  commitState: "none" | "checked" | "committed" | "failed" | "skipped";
+};
+
+export type PublicProjectionFrame = {
   authority: "harness.public_projection" | string;
-  contract_revision?: "20260610-replacement" | string;
-  projection_mode?: "shadow" | "authoritative" | string;
-  projection_id: string;
+  contract_revision?: "20260613-user-first" | string;
+  frame_id: string;
+  projection_id?: string;
+  source_event_id?: string;
+  source_event_type?: string;
   sequence?: number;
+  event_offset?: number;
   created_at?: number;
-  session_id?: string;
   anchor?: {
+    session_id?: string;
     turn_id?: string;
     message_id?: string;
     task_run_id?: string;
     run_id?: string;
     turn_run_id?: string;
-    anchor_role?: "assistant" | "status" | "monitor" | string;
   };
-  lifecycle?: "running" | "waiting" | "done" | "error" | "stopped" | string;
-  source_authority?: "model" | "tool" | "system" | "runtime" | string;
-  surface?: "assistant_body" | "timeline" | "tool_window" | "status_bar" | "task_projection" | "control" | "diagnostics" | string;
-  terminal?: {
-    event?: "turn_completed" | string;
-    visible?: boolean;
-    reason?: string;
-  };
-  items?: PublicProjectionItem[];
-  task_projection?: SingleAgentTaskProjection;
-  active_turn_update?: {
-    turn_id?: string;
-    task_run_id?: string;
-    state?: string;
-  };
-};
-
-export type SingleAgentTaskProjectionTodo = {
-  plan_id?: string;
-  active_item_id?: string;
-  completion_ready?: boolean;
-  completed_count?: number;
-  total_count?: number;
-  authority?: string;
-  items?: PublicTodoItem[];
-};
-
-export type SingleAgentTaskProjectionActivity = {
-  activity_id?: string;
-  kind: "handoff" | "action" | "observation" | "todo" | "status" | "final" | "error" | string;
+  source_item_id?: string;
+  tool_call_id?: string;
+  permission_decision_id?: string;
+  parent_tool_call_id?: string;
+  op:
+    | "body_append"
+    | "body_finalize"
+    | "item_upsert"
+    | "item_retire"
+    | "scope_retire"
+    | "commit_ack"
+    | "commit_failed"
+    | "turn_terminal"
+    | string;
+  slot: "body" | "current_action" | "pinned" | "final_result" | "status" | "trace" | string;
+  source_authority: "model" | "tool" | "runtime" | "system" | string;
+  main_visibility: "visible_live" | "visible_final" | "pinned" | "trace_only" | "hidden" | string;
+  retention: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
+  pin_reason?: string;
+  item_id?: string;
   title?: string;
+  text?: string;
   detail?: string;
-  state?: "running" | "completed" | "failed" | "waiting" | "stopped" | string;
-  event_ref?: string;
-  source_kind?: string;
+  state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
   tool_name?: string;
-  tool_target?: string;
-  display_surface?: "timeline" | "tool_window" | "status" | "diagnostics" | string;
-  visibility_level?: "primary" | "secondary" | "debug" | "internal" | string;
-};
-
-export type SingleAgentTaskProjection = {
-  projection_id: string;
-  authority: string;
-  task_run_id: string;
-  task_id?: string;
-  turn_id?: string;
-  anchor_turn_id?: string;
-  anchor_message_id?: string;
-  status: "queued" | "running" | "waiting_approval" | "waiting_user" | "paused" | "stopped" | "failed" | "completed" | string;
-  raw_status?: string;
-  phase?: "handoff" | "scheduled" | "executing" | "tool_waiting" | "verifying" | "blocked" | "completed" | string;
-  title?: string;
-  user_visible_goal?: string;
-  current_action?: Record<string, unknown>;
-  todo?: SingleAgentTaskProjectionTodo;
-  activities?: SingleAgentTaskProjectionActivity[];
+  tool_lifecycle_id?: string;
+  action_kind?: string;
+  subject_label?: string;
+  arguments_preview?: string;
+  target?: string;
+  trace_refs?: string[];
   artifact_refs?: Array<Record<string, unknown>>;
-  control?: Record<string, unknown>;
-  debug_trace_ref?: string;
-  created_at?: number;
-  updated_at?: number;
+  commit?: {
+    state: "checked" | "committed" | "failed" | "skipped" | string;
+    commit_event_offset?: number;
+    message_id?: string;
+    content_sha256?: string;
+  };
 };
 
 export type PublicChatTimelineDelta = {
@@ -368,10 +399,6 @@ export type SessionRuntimeAttachment = {
   summary?: string;
   latest_event_type?: string;
   event_count?: number;
-  public_timeline?: PublicChatTimelineItem[];
-  public_since_offset?: number;
-  publicSinceOffset?: number;
-  task_projection?: SingleAgentTaskProjection;
   session_output_commit?: RuntimeMonitorSignal["session_output_commit"];
   artifact_refs?: Array<Record<string, unknown>>;
   trace_available?: boolean;
@@ -2740,8 +2767,6 @@ export type HarnessTaskRunLiveMonitor = {
   latest_event?: Record<string, unknown>;
   latest_step?: Record<string, unknown>;
   latest_progress?: Record<string, unknown>;
-  public_timeline?: PublicChatTimelineItem[];
-  task_projection?: SingleAgentTaskProjection;
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;

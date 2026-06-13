@@ -8,9 +8,9 @@ import remarkGfm from "remark-gfm";
 import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/components/chat/PublicTimelineActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
-import type { PublicChatTimelineItem, RetrievalResult, SessionRuntimeAttachment, SingleAgentTaskProjection, ToolCall } from "@/lib/api";
+import type { MessagePublicProjection, PublicChatTimelineItem, PublicProjectionItem, RetrievalResult, ToolCall } from "@/lib/api";
+import { cleanPublicTimelineText } from "@/lib/projection/timeline";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import { cleanPublicTimelineText, isPublicTimelineStatusBarItem, mergePublicTimelineItems, publicTimelineTerminalStateFromAnswer } from "@/lib/projection/timeline";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -19,8 +19,7 @@ export function ChatMessage({
   role,
   content,
   image,
-  runtimeAttachments = [],
-  runtimePublicTimelineDraft,
+  publicProjection,
   answerChannel,
   answerCanonicalState,
   answerPersistPolicy,
@@ -41,8 +40,7 @@ export function ChatMessage({
   } | null;
   stageStatus?: string;
   runtimeProgress?: RuntimeProgressEntry[];
-  runtimeAttachments?: SessionRuntimeAttachment[];
-  runtimePublicTimelineDraft?: PublicChatTimelineItem[];
+  publicProjection?: MessagePublicProjection;
   answerChannel?: string;
   answerCanonicalState?: string;
   answerPersistPolicy?: string;
@@ -68,53 +66,20 @@ export function ChatMessage({
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const baseDisplayContent = isUser
     ? content
-    : assistantDisplayContent(content, {
+    : publicProjection?.bodyText || assistantDisplayContent(content, {
       answerChannel,
       answerCanonicalState,
       answerPersistPolicy,
       answerSource,
       answerLeakFlags,
     });
-  const taskProjections = isUser
-    ? []
-    : taskProjectionsFromRuntimeAttachments(runtimeAttachments);
   const messageDisplayContent = baseDisplayContent;
-  const answerTerminalState = !isUser && messageDisplayContent.trim()
-    ? publicTimelineTerminalStateFromAnswer({ answerCanonicalState, answerChannel })
-    : "";
-  const terminalState = combinedPublicTimelineTerminalState(
-    answerTerminalState,
-    runtimeAttachments,
-    runtimePublicTimelineDraft,
-  );
-  const basePublicTimelineItems = isUser
-    ? []
-    : mergedPublicTimelineItems(
-      runtimeAttachments,
-      runtimePublicTimelineDraft,
-      terminalState,
-    );
   const publicTimelineItems = isUser
     ? []
-    : terminalScopedPublicTimelineItems(
-      basePublicTimelineItems,
-      runtimeAttachments,
-      terminalState,
-      {
-        hasDisplayContent: Boolean(messageDisplayContent.trim()),
-        streamingContent,
-      },
-    );
+    : publicTimelineItemsFromProjection(publicProjection);
+  const terminalState = publicProjection?.commitState === "committed" ? "done" : "";
   const compactCompletedTools = Boolean(messageDisplayContent.trim()) || Boolean(terminalState);
-  const suppressPublicTimelineActivity = shouldSuppressPublicTimelineAfterFinalAnswer({
-    displayContent: messageDisplayContent,
-    hasActiveTaskProjection: hasActiveTaskProjection(taskProjections),
-    isUser,
-    streamingContent,
-    terminalState,
-  });
-  const hasPublicTimelineActivity = !suppressPublicTimelineActivity
-    && publicTimelineHasDisplayableActivity(publicTimelineItems, taskProjections, { compactCompletedTools });
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, { compactCompletedTools });
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -278,7 +243,6 @@ export function ChatMessage({
         <PublicTimelineActivity
           compactCompletedTools={compactCompletedTools}
           items={publicTimelineItems}
-          taskProjections={taskProjections}
         />
       ) : null}
     </article>
@@ -306,196 +270,47 @@ async function writeClipboardText(text: string) {
   document.body.removeChild(textarea);
 }
 
-function mergedPublicTimelineItems(
-  attachments: SessionRuntimeAttachment[],
-  runtimePublicTimelineDraft: PublicChatTimelineItem[] | undefined,
-  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer> = "",
-) {
-  const persisted = attachments.flatMap((attachment) =>
-    Array.isArray(attachment.public_timeline)
-      ? attachment.public_timeline
-      : [],
-  );
-  return mergePublicTimelineItems(persisted, runtimePublicTimelineDraft, { terminalState });
-}
-
-function taskProjectionsFromRuntimeAttachments(attachments: SessionRuntimeAttachment[]): SingleAgentTaskProjection[] {
-  return attachments.flatMap((attachment) =>
-    attachment.task_projection ? [attachment.task_projection] : [],
-  );
-}
-
-function terminalScopedPublicTimelineItems(
-  items: PublicChatTimelineItem[],
-  attachments: SessionRuntimeAttachment[],
-  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>,
-  options: { hasDisplayContent: boolean; streamingContent: boolean },
-) {
-  if (!terminalState || options.streamingContent) {
-    return items;
-  }
-  if (options.hasDisplayContent) {
-    return [];
-  }
-  const statusItems = items.filter(isPublicTimelineStatusBarItem);
-  if (statusItems.length) {
-    return statusItems;
-  }
-  const controlStatus = items.find(isTerminalControlStatusItem);
-  if (controlStatus) {
-    return [asTerminalStatusItem(controlStatus, terminalState)];
-  }
-  return [];
-}
-
-function isTerminalControlStatusItem(item: PublicChatTimelineItem) {
-  const kind = cleanPublicTimelineText(item.kind).toLowerCase();
-  const slot = cleanPublicTimelineText((item as { slot?: unknown }).slot).toLowerCase();
-  const state = cleanPublicTimelineText(item.state).toLowerCase();
-  return slot === "control"
-    && ["error_notice", "control_state", "status_update"].includes(kind)
-    && ["error", "failed", "blocked", "missing", "stopped"].includes(state);
-}
-
-function asTerminalStatusItem(
-  item: PublicChatTimelineItem,
-  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>,
-): PublicChatTimelineItem {
-  const state = terminalState === "stopped" ? "stopped" : terminalState === "done" ? "done" : "error";
-  return {
-    ...item,
-    item_id: cleanPublicTimelineText(item.item_id) || `terminal:${state}`,
-    kind: "status_update",
-    slot: "status",
-    surface: "status_bar",
-    state,
-    phase: "done",
-    stream_state: "done",
-  };
-}
-
-function shouldSuppressPublicTimelineAfterFinalAnswer({
-  displayContent,
-  hasActiveTaskProjection,
-  isUser,
-  streamingContent,
-  terminalState,
-}: {
-  displayContent: string;
-  hasActiveTaskProjection: boolean;
-  isUser: boolean;
-  streamingContent: boolean;
-  terminalState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>;
-}) {
-  if (hasActiveTaskProjection) {
-    return false;
-  }
-  return !isUser
-    && !streamingContent
-    && ["done", "error", "stopped"].includes(terminalState)
-    && Boolean(displayContent.trim());
-}
-
-function hasActiveTaskProjection(taskProjections: SingleAgentTaskProjection[]) {
-  return taskProjections.some((projection) => isNonCloseoutRuntimeState(compactTerminalValue(projection.status)));
-}
-
-function combinedPublicTimelineTerminalState(
-  answerState: ReturnType<typeof publicTimelineTerminalStateFromAnswer>,
-  attachments: SessionRuntimeAttachment[],
-  timelineDraft: PublicChatTimelineItem[] | undefined,
-): ReturnType<typeof publicTimelineTerminalStateFromAnswer> {
-  return answerState || runtimeAttachmentsTerminalState(attachments) || publicTimelineDraftTerminalState(timelineDraft);
-}
-
-function runtimeAttachmentsTerminalState(
-  attachments: SessionRuntimeAttachment[],
-): ReturnType<typeof publicTimelineTerminalStateFromAnswer> {
-  let hasDone = false;
-  for (const attachment of attachments) {
-    const state = compactTerminalValue(attachment.status || attachment.lifecycle);
-    const reason = compactTerminalValue(attachment.terminal_reason);
-    const projectionState = compactTerminalValue(attachment.task_projection?.status);
-    const effectiveState = projectionState || state;
-    const hasExplicitTerminal = Boolean(reason) || isTerminalRuntimeLifecycle(attachment.lifecycle) || isTerminalRuntimeState(projectionState);
-    if (isNonCloseoutRuntimeReason(reason) || isNonCloseoutRuntimeState(effectiveState)) {
-      continue;
-    }
-    if (!hasExplicitTerminal) {
-      continue;
-    }
-    if (["error", "failed", "blocked", "missing"].includes(state) || ["error", "failed", "blocked", "missing"].includes(projectionState)) {
-      return "error";
-    }
-    if (
-      ["stopped", "aborted", "cancelled", "canceled", "user_aborted"].includes(state)
-      || ["stopped", "aborted", "cancelled", "canceled", "user_aborted"].includes(reason)
-      || ["stopped", "aborted", "cancelled", "canceled", "user_aborted"].includes(projectionState)
-    ) {
-      return "stopped";
-    }
-    if (["completed", "complete", "done", "success"].includes(state) || ["completed", "complete", "done", "success"].includes(projectionState)) {
-      hasDone = true;
-    }
-  }
-  return hasDone ? "done" : "";
-}
-
-function isTerminalRuntimeLifecycle(value: unknown) {
-  return isTerminalRuntimeState(compactTerminalValue(value));
-}
-
-function isTerminalRuntimeState(value: string) {
-  return ["completed", "complete", "done", "success", "error", "failed", "blocked", "missing", "stopped", "aborted", "cancelled", "canceled", "user_aborted"].includes(value);
-}
-
-function isNonCloseoutRuntimeReason(value: string) {
+function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
+  if (!projection) return [];
   return [
-    "task_executor_scheduled",
-    "waiting_executor",
-    "waiting_user",
-    "waiting_approval",
-    "waiting_safe_boundary",
-    "append_instruction_to_active_work",
-    "continue_active_work",
-    "answer_then_continue_active_work",
-    "pause_active_work",
-  ].includes(value);
+    projection.currentAction,
+    ...projection.pinned,
+    ...projection.finalResults,
+    ...projection.status,
+  ].filter((item): item is PublicProjectionItem => Boolean(item)).map(projectionItemToTimelineItem);
 }
 
-function isNonCloseoutRuntimeState(value: string) {
-  return ["", "running", "working", "queued", "waiting", "paused", "partial"].includes(value);
-}
-
-function publicTimelineDraftTerminalState(
-  items: PublicChatTimelineItem[] | undefined,
-): ReturnType<typeof publicTimelineTerminalStateFromAnswer> {
-  for (const item of items ?? []) {
-    if (!isPublicTimelineStatusBarItem(item)) {
-      continue;
-    }
-    const state = compactTerminalValue(item.state);
-    const phase = compactTerminalValue(item.phase);
-    const streamState = compactTerminalValue(item.stream_state);
-    const terminalMarker = phase === "done" || streamState === "done";
-    if (!terminalMarker) {
-      continue;
-    }
-    if (["error", "failed", "blocked", "missing"].includes(state)) {
-      return "error";
-    }
-    if (["stopped", "aborted", "cancelled", "canceled", "user_aborted"].includes(state)) {
-      return "stopped";
-    }
-    if (["completed", "complete", "done", "success"].includes(state)) {
-      return "done";
-    }
-  }
-  return "";
-}
-
-function compactTerminalValue(value: unknown) {
-  return cleanPublicTimelineText(value).toLowerCase();
+function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem {
+  const slot = item.slot === "current_action" ? "tool" : item.slot === "pinned" ? "status" : item.slot;
+  const isTool = item.slot === "current_action" || Boolean(item.toolName);
+  return {
+    item_id: item.itemId,
+    kind: isTool ? "work_action" : "status_update",
+    slot,
+    surface: isTool ? "tool_window" : "timeline",
+    source_authority: item.sourceAuthority,
+    title: item.title || item.text,
+    text: item.text || item.title,
+    detail: item.detail,
+    state: item.state,
+    phase: item.state === "running" || item.state === "waiting" ? "running" : "done",
+    stream_state: item.state === "running" || item.state === "waiting" ? "streaming" : "done",
+    tool_call_id: item.toolCallId,
+    tool_name: item.toolName,
+    action_kind: item.actionKind,
+    subject_label: item.subjectLabel,
+    trace_refs: item.traceRefs,
+    artifacts: item.artifactRefs,
+    event_offset: item.eventOffset,
+    source_event_id: item.sourceEventId,
+    public_summary: item.detail || item.text || item.title,
+    tool_window: isTool ? {
+      tool_label: item.toolName,
+      target: item.subjectLabel,
+      status: item.state === "running" ? "运行中" : item.state === "waiting" ? "等待中" : item.state === "failed" ? "失败" : "已记录",
+      sections: item.detail ? [{ label: "说明", text: item.detail }] : [],
+    } : undefined,
+  };
 }
 
 function assistantDisplayContent(

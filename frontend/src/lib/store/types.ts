@@ -2,7 +2,10 @@ import type {
   OrchestrationSnapshot,
   GraphRunMonitorView,
   ModelProviderConfig,
+  MessagePublicProjection,
+  ProjectionLedger,
   PublicChatTimelineItem,
+  PublicProjectionFrame,
   RetrievalResult,
   RuntimeLogScope,
   RuntimeMonitorActionPayload,
@@ -10,7 +13,6 @@ import type {
   RuntimeMonitorEnvelope,
   ImageAssetConfig,
   HarnessTaskRunLiveMonitor,
-  SessionRuntimeAttachment,
   SessionScope,
   SessionSummary,
   TaskEnvironmentCatalog,
@@ -22,8 +24,10 @@ import type {
 } from "@/lib/api";
 
 export type {
+  MessagePublicProjection,
+  ProjectionLedger,
   PublicChatTimelineItem,
-  PublicProjectionEnvelope,
+  PublicProjectionFrame,
   PublicProjectionItem,
 } from "@/lib/api";
 
@@ -34,8 +38,8 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
-  runtimeAttachments?: SessionRuntimeAttachment[];
-  runtimePublicTimelineDraft?: PublicChatTimelineItem[];
+  projectionLedger?: ProjectionLedger;
+  publicProjection?: MessagePublicProjection;
   stageStatus?: string;
   sourceIndex?: number;
   sourceTurnId?: string;
