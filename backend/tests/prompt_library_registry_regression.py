@@ -22,6 +22,7 @@ from prompt_library import (
     SINGLE_AGENT_ADMISSION_REPAIR_PROMPT,
     SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT,
     TASK_ACTION_JSON_REPAIR_PROMPT,
+    build_runtime_prompt_manifest,
 )
 
 
@@ -419,6 +420,77 @@ def test_prompt_library_upsert_does_not_persist_all_default_resources(tmp_path: 
     assert "runtime.single_agent_turn" not in stored_ids
     assert len(stored_ids) == 1
     assert registry.get_resource("runtime.single_agent_turn") is not None
+
+
+def test_prompt_assembly_enforces_authority_precedence_over_requested_order(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+    for resource in (
+        PromptResource(
+            prompt_id="test.project.boundary",
+            resource_id="test.project.boundary",
+            category="project",
+            subtype="instruction",
+            owner_layer="project",
+            resource_type="project.instruction",
+            title="Project boundary",
+            content="project layer",
+            allowed_invocation_kinds=("single_agent_turn",),
+            cache_scope="task_stable",
+        ),
+        PromptResource(
+            prompt_id="test.runtime.protocol",
+            resource_id="test.runtime.protocol",
+            category="runtime",
+            subtype="protocol",
+            owner_layer="runtime",
+            resource_type="runtime.rule",
+            title="Runtime protocol",
+            content="runtime layer",
+            allowed_invocation_kinds=("single_agent_turn",),
+            cache_scope="static",
+        ),
+        PromptResource(
+            prompt_id="test.system.foundation",
+            resource_id="test.system.foundation",
+            category="system",
+            subtype="foundation",
+            owner_layer="system",
+            resource_type="system.foundation",
+            title="System foundation",
+            content="system layer",
+            allowed_invocation_kinds=("single_agent_turn",),
+            cache_scope="static",
+        ),
+    ):
+        registry.upsert_resource(resource)
+
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="single_agent_turn",
+            prompt_refs=(
+                "test.project.boundary",
+                "test.runtime.protocol",
+                "test.system.foundation",
+            ),
+        )
+    )
+    refs = [section.prompt_ref for section in assembly.sections]
+    prompt_manifest = build_runtime_prompt_manifest(
+        invocation_kind="single_agent_turn",
+        assembly=assembly,
+        packet_id="packet:test:prompt-authority",
+    ).to_dict()
+    authority_manifest = prompt_manifest["diagnostics"]["prompt_authority"]
+
+    assert refs == [
+        "test.system.foundation",
+        "test.runtime.protocol",
+        "test.project.boundary",
+    ]
+    assert assembly.manifest["prompt_precedence"]["behavior"] == "enforced_precedence_order"
+    assert authority_manifest["authority"] == "prompt_library.prompt_authority_manifest"
+    assert authority_manifest["segment_order"] == refs
+    assert [item["requested_order"] for item in authority_manifest["entries"]] == [3, 2, 1]
 
 
 def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Path) -> None:

@@ -5,6 +5,9 @@ from pathlib import Path
 
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.task_contract_manifest import build_task_contract_manifest
+from task_system.contracts.execution_obligation import build_execution_obligation
+from task_system.contracts.task_requirement_contracts import build_task_requirement_contract
+from task_system.tasks.definitions import select_runtime_task_definitions
 
 
 def _backend_dir() -> Path:
@@ -117,3 +120,94 @@ def test_single_agent_turn_does_not_attach_task_contract_manifest() -> None:
     assert packet.task_contract_manifest == {}
     assert "task_contract_manifest" not in prompt_manifest
     assert "task_contract_manifest" not in packet.diagnostics
+
+
+def test_task_requirement_contract_ignores_legacy_goal_fields_for_single_agent_authority() -> None:
+    legacy_only = build_task_requirement_contract(
+        session_id="session:contract-authority",
+        task_id="task:legacy-only",
+        user_goal="请分析当前问题。",
+        current_turn_context={
+            "task_goal_spec": {"task_goal_type": "frontend_app_delivery"},
+            "goal_frame": {"task_goal_type": "code_fix_execution"},
+            "semantic_task_type": "material_synthesis",
+        },
+    )
+    canonical = build_task_requirement_contract(
+        session_id="session:contract-authority",
+        task_id="task:canonical",
+        user_goal="请修复代码并验证。",
+        current_turn_context={
+            "task_contract_seed": {
+                "task_goal_type": "code_fix_execution",
+                "working_scope": {"target_objects": ["backend/example.py"]},
+                "capability_intent": {"needed_capability_groups": ["file_work"]},
+                "observation_contract": {"evidence_policy": "verification_required"},
+            },
+            "task_goal_spec": {"task_goal_type": "frontend_app_delivery"},
+            "semantic_task_type": "material_synthesis",
+        },
+    )
+
+    assert legacy_only.task_goal_type == "general"
+    assert legacy_only.diagnostics["legacy_goal_fields"]["fields"]["task_goal_spec"]["runtime_authority"] == "ignored"
+    assert canonical.task_goal_type == "code_fix_execution"
+    assert canonical.diagnostics["canonical_task_contract_seed"]["task_goal_type"] == "code_fix_execution"
+    assert canonical.diagnostics["legacy_goal_fields"]["fields"]["semantic_task_type"]["runtime_authority"] == "ignored"
+
+
+def test_execution_obligation_ignores_legacy_goal_fields_for_single_agent_authority() -> None:
+    legacy_only = build_execution_obligation(
+        session_id="session:obligation-authority",
+        task_id="task:legacy-only",
+        user_goal="请分析当前问题。",
+        current_turn_context={
+            "task_goal_spec": {
+                "task_goal_type": "code_fix_execution",
+                "forbidden_actions": ["modify_code"],
+            },
+            "goal_frame": {"explicit_constraints": ["不要修改源项目"]},
+        },
+    ).to_dict()
+    canonical = build_execution_obligation(
+        session_id="session:obligation-authority",
+        task_id="task:canonical",
+        user_goal="请分析当前问题。",
+        current_turn_context={
+            "task_contract_seed": {"forbidden_actions": ["modify_code"]},
+            "task_goal_spec": {"forbidden_actions": []},
+        },
+    ).to_dict()
+
+    assert legacy_only["forbidden_actions"] == []
+    assert legacy_only["extraction_evidence"]["legacy_goal_fields"]["fields"]["task_goal_spec"]["runtime_authority"] == "ignored"
+    assert set(canonical["forbidden_actions"]) == {"modify_code", "write_file", "edit_file"}
+
+
+def test_runtime_task_definition_selection_ignores_legacy_task_goal_spec() -> None:
+    legacy_only = select_runtime_task_definitions(
+        "请分析这份材料。",
+        query_understanding={"task_goal_spec": {"task_goal_type": "external_research"}},
+    )
+    canonical = select_runtime_task_definitions(
+        "请实现并验证。",
+        query_understanding={
+            "agent_turn_action_request": {
+                "action_type": "request_task_run",
+                "task_contract_seed": {
+                    "task_goal_type": "frontend_app_delivery",
+                    "capability_intent": {"needed_capability_groups": ["artifact_generation"]},
+                },
+            },
+            "task_goal_spec": {"task_goal_type": "inspection"},
+        },
+    )
+
+    assert [item.definition_id for item in legacy_only] == [
+        "task.task_execution",
+        "task.inspection_and_correction",
+    ]
+    assert [item.definition_id for item in canonical] == [
+        "task.task_execution",
+        "task.inspection_and_correction",
+    ]

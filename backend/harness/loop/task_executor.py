@@ -1775,6 +1775,7 @@ async def _process_task_tool_call_batch(
         },
     )
     invocation_rows: list[dict[str, Any]] = []
+    tool_turn_id = str(dict(getattr(current_task, "diagnostics", {}) or {}).get("turn_id") or current_task.task_id or "")
     for child_request in child_requests:
         admission = admit_model_action(
             child_request,
@@ -1794,6 +1795,10 @@ async def _process_task_tool_call_batch(
             allowed_tool_names=allowed_tool_names,
             permission_mode=runtime_permission_mode,
             side_effect_policy="runtime_authorized",
+            session_id=current_task.session_id,
+            turn_id=tool_turn_id,
+            task_run_id=current_task.task_run_id,
+            grant_scope="task_run",
         )
         runtime_host.event_log.append(
             current_task.task_run_id,
@@ -3356,6 +3361,7 @@ async def _execute_task_tool_call(
     tool_args = _runtime_bound_tool_args(tool_name, tool_args, task_run=task_run)
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
     operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+    tool_turn_id = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or task_run.task_id or "")
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
     file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy)
     runtime_permission_mode = _task_runtime_permission_mode(
@@ -3385,6 +3391,11 @@ async def _execute_task_tool_call(
         allowed_tool_names=set(getattr(runtime_tool_plan, "dispatchable_tool_names", ()) or ()),
         permission_mode=runtime_permission_mode,
         side_effect_policy="runtime_authorized",
+        session_id=task_run.session_id,
+        turn_id=tool_turn_id,
+        task_run_id=task_run.task_run_id,
+        grant_scope="task_run",
+        resource_scope={"approval_risk_fingerprint": approval_risk_fingerprint},
     )
     invocation_id = build_tool_invocation_id(
         caller_ref=task_run.task_run_id,
@@ -3397,7 +3408,7 @@ async def _execute_task_tool_call(
         caller_kind="task_run",
         caller_ref=task_run.task_run_id,
         session_id=task_run.session_id,
-        turn_id=str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or task_run.task_id or ""),
+        turn_id=tool_turn_id,
         task_run_id=task_run.task_run_id,
         agent_run_id=str(getattr(agent_run, "agent_run_id", "") or ""),
         action_request_ref=action_request.request_id,

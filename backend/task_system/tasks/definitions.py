@@ -150,10 +150,15 @@ def select_runtime_task_definitions(
     definitions = default_task_definitions()
     understanding = dict(query_understanding or {})
     action_request = dict(understanding.get("agent_turn_action_request") or {})
-    task_contract_seed = dict(understanding.get("task_contract_seed") or {})
+    task_contract_seed = dict(
+        understanding.get("task_contract_seed")
+        or action_request.get("task_contract_seed")
+        or dict(understanding.get("model_turn_decision") or {}).get("task_contract_seed")
+        or {}
+    )
     task_goal_type = str(
-        dict(understanding.get("task_goal_spec") or {}).get("task_goal_type")
-        or task_contract_seed.get("task_goal_type")
+        task_contract_seed.get("task_goal_type")
+        or dict(understanding.get("task_requirement_contract") or {}).get("task_goal_type")
         or ""
     ).strip()
     needs = capability_needs(understanding)

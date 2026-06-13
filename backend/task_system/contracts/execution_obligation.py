@@ -103,9 +103,9 @@ def build_execution_obligation(
     reads = contract_reads
     if not reads:
         reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
-    goal_frame = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
+    canonical_goal_spec = _canonical_task_goal_spec_from_current_turn(current_turn)
     profile_obligation = _profile_obligation_requirements(
-        task_goal_spec=goal_frame,
+        task_goal_spec=canonical_goal_spec,
         current_turn=current_turn,
     )
     contract_writes = _collect_required_writes_from_canonical_scope(canonical_scope)
@@ -197,6 +197,7 @@ def build_execution_obligation(
                 else ()
             ),
         ],
+        "legacy_goal_fields": _legacy_goal_field_diagnostics(current_turn),
     }
     confidence = 0.35
     if reads:
@@ -484,12 +485,76 @@ def _structured_write_forbidden(current_turn: dict[str, Any]) -> bool:
             *list(model_decision.get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_requirement_contract") or {}).get("forbidden_actions") or []),
-            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
             *list(current_turn.get("forbidden_actions") or []),
         ]
         if str(item).strip()
     }
     return bool(forbidden.intersection({"modify_code", "write_file", "edit_file", "edit_workspace"}))
+
+
+def _canonical_task_goal_spec_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
+    seed = _canonical_task_contract_seed(current_turn)
+    requirement_contract = dict(current_turn.get("task_requirement_contract") or {})
+    task_goal_type = str(seed.get("task_goal_type") or requirement_contract.get("task_goal_type") or "").strip()
+    capability_intent = dict(seed.get("capability_intent") or {})
+    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
+    return {
+        "task_goal_type": task_goal_type,
+        "required_capabilities": [
+            str(item).strip()
+            for item in list(capability_intent.get("needed_capability_groups") or [])
+            if str(item).strip()
+        ],
+        "required_verifications": _canonical_required_verifications(seed),
+        "authority": "task_system.canonical_task_contract.execution_obligation_goal_spec",
+    }
+
+
+def _canonical_task_contract_seed(current_turn: dict[str, Any]) -> dict[str, Any]:
+    for candidate in (
+        current_turn.get("task_contract_seed"),
+        dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed"),
+        dict(current_turn.get("agent_turn_action_request") or {}).get("task_contract_seed"),
+    ):
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
+
+
+def _canonical_required_verifications(seed: dict[str, Any]) -> list[dict[str, Any]]:
+    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
+    result: list[dict[str, Any]] = []
+    for item in list(acceptance_contract.get("required_verifications") or []):
+        if isinstance(item, dict):
+            result.append({**dict(item), "source": "canonical_task_contract_seed"})
+        elif str(item).strip():
+            result.append(
+                {
+                    "kind": "evidence",
+                    "title": str(item).strip(),
+                    "required": True,
+                    "source": "canonical_task_contract_seed",
+                }
+            )
+    return result
+
+
+def _legacy_goal_field_diagnostics(current_turn: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        key: {
+            "present": True,
+            "runtime_authority": "ignored",
+            "migration_target": "task_contract_seed",
+        }
+        for key in ("goal_frame", "task_goal_spec", "semantic_task_type")
+        if current_turn.get(key) not in ("", None, {}, [])
+    }
+    if not fields:
+        return {}
+    return {
+        "authority": "task_system.legacy_goal_field_diagnostics",
+        "fields": fields,
+    }
 
 
 def _scoped_write_constraints(
@@ -509,8 +574,6 @@ def _scoped_write_constraints(
             *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_requirement_contract") or {}).get("constraints") or []),
             *list(dict(current_turn.get("task_requirement_contract") or {}).get("forbidden_actions") or []),
-            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("explicit_constraints") or []),
-            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
         ]
         if str(item or "").strip()
     ]
@@ -551,13 +614,12 @@ def _profile_obligation_requirements(
 ) -> dict[str, Any]:
     model_decision = dict(current_turn.get("model_turn_decision") or {})
     explicit_task_goal_type = str(
-        current_turn.get("semantic_task_type")
-        or current_turn.get("task_goal_type")
-        or dict(current_turn.get("task_requirement_contract") or {}).get("task_goal_type")
+        dict(current_turn.get("task_requirement_contract") or {}).get("task_goal_type")
         or model_decision.get("task_goal_type")
+        or task_goal_spec.get("task_goal_type")
         or ""
     ).strip()
-    task_goal_type = str(explicit_task_goal_type or task_goal_spec.get("task_goal_type") or "").strip()
+    task_goal_type = str(explicit_task_goal_type or "").strip()
     profile = get_task_goal_profile(task_goal_type)
     structured_verification = _structured_verification_from_completion_criteria(current_turn)
     if profile is None:
@@ -602,15 +664,11 @@ def _profile_obligation_requirements(
         )
     commands.extend(structured_verification["commands"])
     verifications.extend(structured_verification["verifications"])
-    required_verifications = (
-        []
-        if explicit_task_goal_type
-        else [
-            dict(item)
-            for item in list(task_goal_spec.get("required_verifications") or [])
-            if isinstance(item, dict)
-        ]
-    )
+    required_verifications = [
+        dict(item)
+        for item in list(task_goal_spec.get("required_verifications") or [])
+        if isinstance(item, dict)
+    ]
     for item in required_verifications:
         verifications.append(
             {
@@ -618,7 +676,7 @@ def _profile_obligation_requirements(
                 "criterion_id": str(item.get("criterion_id") or ""),
                 "title": str(item.get("title") or ""),
                 "required": item.get("required") is not False,
-                "source": "task_goal_spec",
+                "source": "canonical_task_contract_seed",
             }
         )
     return {
@@ -632,7 +690,7 @@ def _profile_obligation_requirements(
             "profile_id": profile.task_goal_type,
             "required_actions": sorted(actions),
             "explicit_task_goal_type": explicit_task_goal_type,
-            "task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
+            "canonical_task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
             "structured_completion_criteria": structured_verification["criteria"],
         },
     }

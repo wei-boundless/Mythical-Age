@@ -68,8 +68,8 @@ def build_task_execution_assembly_bundle(
         current_turn_payload=current_turn_payload,
         registered_task=registered_task,
     )
-    if not dict(current_turn_payload.get("task_goal_spec") or current_turn_payload.get("goal_frame") or {}):
-        raise RuntimeError("Task goal projection must be produced from admitted task contract before task assembly")
+    if not _has_canonical_task_contract(current_turn_payload):
+        raise RuntimeError("Canonical task contract seed must be produced from admitted model action before task assembly")
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
@@ -496,6 +496,21 @@ def _normalize_current_turn_for_registered_task(
     payload.setdefault("task_goal_type", "task_graph_node_execution")
     payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
     return payload
+
+
+def _has_canonical_task_contract(current_turn_payload: dict[str, Any]) -> bool:
+    payload = dict(current_turn_payload or {})
+    if payload.get("task_graph_node_runtime") is True or payload.get("suppress_bundle_projection") is True:
+        return True
+    for candidate in (
+        payload.get("task_contract_seed"),
+        dict(payload.get("model_turn_decision") or {}).get("task_contract_seed"),
+        dict(payload.get("agent_turn_action_request") or {}).get("task_contract_seed"),
+        payload.get("task_requirement_contract"),
+    ):
+        if isinstance(candidate, dict) and candidate:
+            return True
+    return False
 
 
 def _apply_specific_task_policy_to_binding(

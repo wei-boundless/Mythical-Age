@@ -37,6 +37,8 @@ def test_action_schema_manifest_renders_task_execution_model_visible_payload() -
     assert manifest.source_ref == "task_execution_action_schema"
     assert manifest.schema_hash.startswith("sha256:")
     assert manifest.allowed_action_types == ("respond", "ask_user", "tool_call", "block")
+    assert "必须回应用户当前输入本身" in str(schema["public_response_obligation"]["rule"])
+    assert "must_explain_when" in schema["public_response_obligation"]["tool_observation_reporting"]
     assert manifest.to_model_visible_payload() == {"schema": schema}
 
 

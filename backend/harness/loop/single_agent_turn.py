@@ -1098,6 +1098,8 @@ async def run_single_agent_turn(
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                     permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
+                    session_id=session_id,
+                    grant_scope="turn",
                 )
                 if runtime_host is not None and turn_run is not None:
                     event = _record_model_action_admission(

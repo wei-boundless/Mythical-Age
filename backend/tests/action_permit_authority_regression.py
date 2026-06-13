@@ -40,11 +40,53 @@ def test_action_admission_emits_permit_for_allowed_tool_call() -> None:
     assert payload["permit_id"] == f"action-permit:{action.request_id}"
     assert payload["action_request_ref"] == action.request_id
     assert payload["action_type"] == "tool_call"
+    assert payload["grant_scope"] == "turn"
+    assert payload["turn_id"] == action.turn_id
     assert payload["tool_name"] == "read_file"
     assert payload["operation_id"] == "op.read_file"
+    assert payload["risk_fingerprint"].startswith("permit-risk:")
     assert payload["read_only"] is True
     assert payload["allowed_tool_names"] == ["read_file"]
     assert payload["action_issue"] == {}
+
+
+def test_action_permit_carries_explicit_resource_scope() -> None:
+    action = ModelActionRequest(
+        request_id="model-action:test:write",
+        turn_id="turn:test:write",
+        action_type="tool_call",
+        tool_call={"tool_name": "write_file", "args": {"path": "out.md", "content": "done"}},
+    )
+    admission = admit_model_action(
+        action,
+        packet_allowed_action_types=("respond", "tool_call", "block"),
+        invocation_kind="task_execution",
+        definitions_by_name={"write_file": SimpleNamespace(operation_id="op.write_file", is_read_only=False)},
+        allowed_tool_names={"write_file"},
+        permission_mode="default",
+        side_effect_policy="runtime_authorized",
+    )
+
+    permit = action_permit_from_admission(
+        action,
+        admission,
+        invocation_kind="task_execution",
+        packet_allowed_action_types=("respond", "tool_call", "block"),
+        allowed_tool_names={"write_file"},
+        permission_mode="default",
+        side_effect_policy="runtime_authorized",
+        session_id="session:test",
+        turn_id="turn:outer",
+        task_run_id="taskrun:test",
+        grant_scope="task_run",
+        resource_scope={"approval_risk_fingerprint": "approval-risk:test"},
+    ).to_dict()
+
+    assert permit["grant_scope"] == "task_run"
+    assert permit["session_id"] == "session:test"
+    assert permit["turn_id"] == "turn:outer"
+    assert permit["task_run_id"] == "taskrun:test"
+    assert permit["resource_scope"]["approval_risk_fingerprint"] == "approval-risk:test"
 
 
 def test_action_admission_routes_task_memory_tool_to_task_run() -> None:
@@ -118,8 +160,11 @@ def test_tool_invocation_permit_validation_rejects_mismatched_tool() -> None:
         "action_type": "tool_call",
         "decision": "allow",
         "invocation_kind": "agent_turn",
+        "grant_scope": "turn",
+        "turn_id": "turn:test:1",
         "tool_name": "read_file",
         "operation_id": "op.read_file",
+        "risk_fingerprint": "permit-risk:test",
         "authority": "harness.loop.action_permit",
     }
 
@@ -129,6 +174,67 @@ def test_tool_invocation_permit_validation_rejects_mismatched_tool() -> None:
         invocation_kind="agent_turn",
         tool_name="write_file",
         operation_id="op.write_file",
+        turn_id="turn:test:1",
     )
 
     assert reason == "action_permit_tool_name_mismatch"
+
+
+def test_tool_invocation_permit_validation_rejects_turn_scope_mismatch() -> None:
+    permit = {
+        "permit_id": "action-permit:model-action:test:read",
+        "action_request_ref": "model-action:test:read",
+        "action_type": "tool_call",
+        "decision": "allow",
+        "invocation_kind": "agent_turn",
+        "grant_scope": "turn",
+        "turn_id": "turn:test:1",
+        "tool_name": "read_file",
+        "operation_id": "op.read_file",
+        "risk_fingerprint": "permit-risk:test",
+        "authority": "harness.loop.action_permit",
+    }
+
+    reason = validate_tool_invocation_permit(
+        action_permit=permit,
+        action_request_ref="model-action:test:read",
+        invocation_kind="agent_turn",
+        tool_name="read_file",
+        operation_id="op.read_file",
+        turn_id="turn:test:2",
+    )
+
+    assert reason == "action_permit_turn_id_mismatch"
+
+
+def test_tool_invocation_permit_validation_rejects_approval_risk_mismatch() -> None:
+    permit = {
+        "permit_id": "action-permit:model-action:test:browser",
+        "action_request_ref": "model-action:test:browser",
+        "action_type": "tool_call",
+        "decision": "allow",
+        "invocation_kind": "task_execution",
+        "grant_scope": "task_run",
+        "session_id": "session:test",
+        "turn_id": "turn:test:1",
+        "task_run_id": "taskrun:test",
+        "tool_name": "browser_control",
+        "operation_id": "op.browser_control",
+        "risk_fingerprint": "permit-risk:test",
+        "resource_scope": {"approval_risk_fingerprint": "approval-risk:old"},
+        "authority": "harness.loop.action_permit",
+    }
+
+    reason = validate_tool_invocation_permit(
+        action_permit=permit,
+        action_request_ref="model-action:test:browser",
+        invocation_kind="task_execution",
+        tool_name="browser_control",
+        operation_id="op.browser_control",
+        session_id="session:test",
+        turn_id="turn:test:1",
+        task_run_id="taskrun:test",
+        approval_risk_fingerprint="approval-risk:new",
+    )
+
+    assert reason == "action_permit_approval_risk_fingerprint_mismatch"

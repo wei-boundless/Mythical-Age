@@ -471,6 +471,11 @@ def _action_permit_denial(request: ToolInvocationRequest) -> str:
         invocation_kind="task_execution" if request.caller_kind == "task_run" else str(request.caller_kind or ""),
         tool_name=request.tool_name,
         operation_id=_request_operation_id(request),
+        session_id=request.session_id,
+        turn_id=request.turn_id,
+        task_run_id=request.task_run_id,
+        approval_risk_fingerprint=request.approval_risk_fingerprint,
+        now=time.time(),
     )
 
 

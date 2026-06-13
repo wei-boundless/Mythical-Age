@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +111,8 @@ class PromptAssemblyService:
                     "reason": "contract_sections_require_task_prompt_contract_invocation",
                 }
             )
+        sections = list(enforce_prompt_authority_order(tuple(sections)))
+        prompt_authority_manifest = build_prompt_authority_manifest(tuple(sections))
         assembly_seed = {
             "invocation_kind": request.invocation_kind,
             "pack_refs": list(pack_refs),
@@ -134,7 +137,8 @@ class PromptAssemblyService:
             "cache_scope_order": [item.cache_scope for item in sections],
             "cache_boundary": _assembly_cache_boundary_report(tuple(sections)),
             "layer_summary": _assembly_layer_summary(tuple(sections)),
-            "prompt_precedence": _prompt_precedence_report(tuple(sections)),
+            "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
+            "prompt_authority": prompt_authority_manifest,
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
@@ -204,7 +208,8 @@ def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> 
 
 
 _PROMPT_LAYER_PRECEDENCE = {
-    "override": 0,
+    "system": 0,
+    "override": 5,
     "coordinator": 10,
     "agent": 20,
     "personality": 25,
@@ -219,7 +224,34 @@ _PROMPT_LAYER_PRECEDENCE = {
 }
 
 
-def _prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
+def enforce_prompt_authority_order(sections: tuple[PromptSection, ...]) -> tuple[PromptSection, ...]:
+    ordered = sorted(
+        enumerate(sections),
+        key=lambda item: (
+            _PROMPT_LAYER_PRECEDENCE.get(_prompt_section_layer(item[1]), _PROMPT_LAYER_PRECEDENCE["unknown"]),
+            int(getattr(item[1], "order", 0) or 0),
+            item[0],
+        ),
+    )
+    result: list[PromptSection] = []
+    for order, (_, section) in enumerate(ordered, start=1):
+        metadata = {
+            **dict(section.metadata or {}),
+            "requested_order": int(getattr(section, "order", 0) or 0),
+            "authority_layer": _prompt_section_layer(section),
+        }
+        result.append(
+            replace(
+                section,
+                section_id=f"{section.category}.{section.subtype}:{order}",
+                order=order,
+                metadata=metadata,
+            )
+        )
+    return tuple(result)
+
+
+def build_prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     for section in sections:
         layer = _prompt_section_layer(section)
@@ -232,26 +264,68 @@ def _prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[str, 
                 "assembly_layer": layer,
                 "precedence": _PROMPT_LAYER_PRECEDENCE.get(layer, _PROMPT_LAYER_PRECEDENCE["unknown"]),
                 "order": section.order,
+                "requested_order": int(dict(section.metadata or {}).get("requested_order") or section.order or 0),
                 "source_ref": section.source_ref,
             }
         )
     return {
-        "policy": "override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
-        "behavior": "diagnostic_only_preserves_requested_order",
+        "policy": "system>override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
+        "behavior": "enforced_precedence_order",
         "entries": entries,
         "authority": "prompt_library.prompt_assembly_precedence",
+    }
+
+
+def build_prompt_authority_manifest(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    rejected_sections: list[dict[str, Any]] = []
+    for section in sections:
+        layer = _prompt_section_layer(section)
+        precedence = _PROMPT_LAYER_PRECEDENCE.get(layer, _PROMPT_LAYER_PRECEDENCE["unknown"])
+        entry = {
+            "section_id": section.section_id,
+            "prompt_ref": section.prompt_ref,
+            "source_ref": section.source_ref,
+            "authority_layer": layer,
+            "owner_layer": section.owner_layer,
+            "cache_scope": section.cache_scope,
+            "enforced_order": section.order,
+            "requested_order": int(dict(section.metadata or {}).get("requested_order") or section.order or 0),
+            "precedence": precedence,
+        }
+        entries.append(entry)
+        if layer == "unknown":
+            rejected_sections.append({**entry, "reason": "unknown_prompt_authority_layer"})
+    return {
+        "authority": "prompt_library.prompt_authority_manifest",
+        "generation_id": _stable_payload_hash(_section_fingerprint_payload(sections)) if sections else "",
+        "enforcement_mode": "enforced_precedence",
+        "enforced_precedence": dict(_PROMPT_LAYER_PRECEDENCE),
+        "segment_order": [
+            str(section.prompt_ref or section.source_ref or section.section_id)
+            for section in sections
+        ],
+        "entries": entries,
+        "rejected_sections": rejected_sections,
     }
 
 
 def _prompt_section_layer(section: PromptSection) -> str:
     category = str(section.category or "").strip()
     subtype = str(section.subtype or "").strip()
+    owner_layer = str(section.owner_layer or "").strip()
     resource_type = str(dict(section.metadata or {}).get("resource_type") or "").strip()
     prompt_ref = str(section.prompt_ref or "").strip()
     if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref):
         return "lifecycle"
+    if category in {"task", "graph_node"}:
+        return "contract"
+    if category in {"utility", "mcp"}:
+        return "runtime"
     if category in _PROMPT_LAYER_PRECEDENCE:
         return category
+    if owner_layer in _PROMPT_LAYER_PRECEDENCE:
+        return owner_layer
     if resource_type == "tool_guidance":
         return "tool"
     if resource_type == "worker_prompt":

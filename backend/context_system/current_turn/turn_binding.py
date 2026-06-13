@@ -66,7 +66,6 @@ class TurnBinding:
     followup_target_refs: tuple[str, ...] = ()
     restore_candidates_used: tuple[str, ...] = ()
     unresolved_ambiguities: tuple[str, ...] = ()
-    task_goal_spec: dict[str, Any] = field(default_factory=dict)
     continuation_candidates: tuple[dict[str, Any], ...] = ()
     continuation_decision: dict[str, Any] = field(default_factory=dict)
     context_recall_candidates: tuple[dict[str, Any], ...] = ()

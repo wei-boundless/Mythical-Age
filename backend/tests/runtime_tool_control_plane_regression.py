@@ -524,6 +524,44 @@ def test_runtime_tool_control_plane_denies_missing_action_permit_before_membersh
     assert observation.text == "action_permit_missing"
 
 
+def test_runtime_tool_control_plane_denies_approval_risk_not_bound_to_permit() -> None:
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(available_tools=[{"name": "browser_control", "operation_id": "op.browser_control"}]),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={"browser_control": SimpleNamespace(operation_id="op.browser_control", is_read_only=False)},
+    )
+    request = ToolInvocationRequest(
+        invocation_id="toolinvoke:task:approval-risk-mismatch",
+        caller_kind="task_run",
+        caller_ref="taskrun:approval-risk",
+        session_id="session:approval-risk",
+        turn_id="turn:approval-risk:1",
+        task_run_id="taskrun:approval-risk",
+        action_request_ref="action:browser",
+        tool_name="browser_control",
+        tool_call_id="call:browser",
+        operation_id="op.browser_control",
+        action_permit=_permit(
+            action_request_ref="action:browser",
+            invocation_kind="task_execution",
+            tool_name="browser_control",
+            operation_id="op.browser_control",
+            read_only=False,
+            session_id="session:approval-risk",
+            turn_id="turn:approval-risk:1",
+            task_run_id="taskrun:approval-risk",
+            approval_risk_fingerprint="approval-risk:old",
+        ),
+        approval_risk_fingerprint="approval-risk:new",
+    )
+
+    observation = asyncio.run(RuntimeToolControlPlane().invoke(request, tool_plan=plan))
+
+    assert observation.status == "denied"
+    assert observation.diagnostics["stage"] == "action_permit"
+    assert observation.text == "action_permit_approval_risk_fingerprint_mismatch"
+
+
 def test_runtime_tool_control_plane_dispatches_task_run_through_gate_and_executor() -> None:
     gate = _AllowingGate()
     executor = _RecordingToolExecutor()
@@ -613,6 +651,7 @@ def test_runtime_tool_control_plane_allows_managed_artifact_write_without_sandbo
             tool_name="write_file",
             operation_id="op.write_file",
             read_only=False,
+            task_run_id="taskrun:artifact-write",
         ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
@@ -675,6 +714,7 @@ def test_runtime_tool_control_plane_keeps_project_workspace_write_approval_witho
             tool_name="write_file",
             operation_id="op.write_file",
             read_only=False,
+            task_run_id="taskrun:project-write",
         ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
@@ -726,6 +766,9 @@ def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state
             tool_name="browser_control",
             operation_id="op.browser_control",
             read_only=False,
+            session_id="session:approval",
+            turn_id="turn:approval:1",
+            task_run_id="taskrun:approval",
         ),
         requested_constraints={
             "runtime_host": SimpleNamespace(
@@ -775,6 +818,17 @@ def test_runtime_tool_control_plane_requires_and_accepts_task_run_approval_state
                         ]
                     },
                     "approval_risk_fingerprint": fingerprint,
+                    "action_permit": _permit(
+                        action_request_ref="action:browser",
+                        invocation_kind="task_execution",
+                        tool_name="browser_control",
+                        operation_id="op.browser_control",
+                        read_only=False,
+                        session_id="session:approval",
+                        turn_id="turn:approval:1",
+                        task_run_id="taskrun:approval",
+                        approval_risk_fingerprint=fingerprint,
+                    ),
                 }
             ),
             tool_plan=plan,
@@ -813,6 +867,10 @@ def test_runtime_tool_control_plane_rejects_mismatched_approval_token() -> None:
             tool_name="browser_control",
             operation_id="op.browser_control",
             read_only=False,
+            session_id="session:approval",
+            turn_id="turn:approval:1",
+            task_run_id="taskrun:approval",
+            approval_risk_fingerprint="expected-fingerprint",
         ),
         approval_token={
             "token_id": "approval-token:wrong",
@@ -921,6 +979,10 @@ def test_runtime_tool_control_plane_consumes_task_run_approval_after_executor_er
             tool_name="browser_control",
             operation_id="op.browser_control",
             read_only=False,
+            session_id="session:approval-error",
+            turn_id="turn:approval-error:1",
+            task_run_id=task_run_id,
+            approval_risk_fingerprint=fingerprint,
         ),
         approval_state=approval_state_for_task_run(task_run).to_dict(),
         approval_risk_fingerprint=fingerprint,
@@ -1086,6 +1148,9 @@ def test_runtime_tool_control_plane_routes_task_subagent_by_reserved_tool_name()
             tool_name="list_subagents",
             operation_id="op.subagent_list",
             read_only=True,
+            session_id=task_run.session_id,
+            turn_id="turn:subagent",
+            task_run_id=task_run.task_run_id,
         ),
         requested_constraints={
             "runtime_host": runtime_host,
@@ -1142,6 +1207,8 @@ def test_runtime_tool_control_plane_does_not_dispatch_agent_turn_subagent_to_cor
             tool_name="spawn_subagent",
             operation_id="op.subagent_spawn",
             read_only=False,
+            session_id="session:subagent",
+            turn_id="turn:subagent",
         ),
         requested_constraints={"runtime_host": runtime_host, "runtime_assembly": {}, "backend_dir": str(BACKEND_DIR)},
     )
@@ -1490,18 +1557,40 @@ def _permit(
     tool_name: str,
     operation_id: str,
     read_only: bool = True,
+    session_id: str = "session:one",
+    turn_id: str = "turn:one:1",
+    task_run_id: str = "",
+    grant_scope: str | None = None,
+    approval_risk_fingerprint: str = "",
 ) -> dict[str, object]:
+    resolved_scope = grant_scope or ("task_run" if invocation_kind == "task_execution" else "turn")
+    resolved_task_run_id = task_run_id or ("taskrun:one" if resolved_scope == "task_run" else "")
+    resource_scope = (
+        {"approval_risk_fingerprint": approval_risk_fingerprint}
+        if approval_risk_fingerprint
+        else {}
+    )
     return {
         "permit_id": f"action-permit:{action_request_ref}",
         "action_request_ref": action_request_ref,
         "action_type": "tool_call",
         "decision": "allow",
         "invocation_kind": invocation_kind,
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "task_run_id": resolved_task_run_id,
+        "grant_scope": resolved_scope,
         "tool_name": tool_name,
         "operation_id": operation_id,
         "read_only": read_only,
         "permission_mode": "default",
         "side_effect_policy": "runtime_authorized",
+        "risk_fingerprint": f"permit-risk:test:{action_request_ref}",
+        "strict_review": False,
+        "approval_ref": "",
+        "resource_scope": resource_scope,
+        "expires_at": 0.0,
+        "consumed_at": 0.0,
         "allowed_action_types": ["respond", "ask_user", "tool_call", "block"],
         "allowed_tool_names": [tool_name],
         "authority": "harness.loop.action_permit",

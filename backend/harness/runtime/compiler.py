@@ -13,6 +13,11 @@ from prompt_library import (
     build_runtime_prompt_manifest,
     default_pack_ref_for_invocation,
 )
+from prompt_library.assembly import (
+    build_prompt_authority_manifest,
+    build_prompt_precedence_report,
+    enforce_prompt_authority_order,
+)
 from prompt_library.rules import build_rule_diagnostics
 from prompt_composition import (
     PromptCompositionContentFragment,
@@ -2065,13 +2070,45 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|block",
         "action_selection_rules": [
+            "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
             "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+            "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
             "如果运行边界允许 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
             "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
             "只有用户只是询问概念、要求解释、要求状态说明，或明确要求一次性读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。",
         ],
-        "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 以及进入持续执行流程时，用它表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”“正在建立任务运行”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_response_obligation": {
+            "authority": "model_semantic_response",
+            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
+            "first_visible_response": [
+                "如果已经足以回答，使用 respond/final_answer。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 或 public_action_state.current_judgment 中说明要查证的公开事实和为什么它关系到用户问题；不要写工具名、协议字段或隐藏推理。",
+                "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
+                "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以用 active_work_control 或 request_task_run 承接执行。"
+            ],
+            "tool_observation_reporting": {
+                "must_explain_when": [
+                    "观察结果回答了用户问题，或改变了你对用户问题的判断。",
+                    "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
+                    "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
+                    "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
+                    "观察结果推翻了你先前的公开判断或暴露出不确定性。"
+                ],
+                "may_keep_internal_when": [
+                    "观察只是低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
+                    "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
+                ],
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。"
+            },
+            "non_response_examples": [
+                "只输出 tool_call、request_task_run 或 active_work_control，没有解释用户当前问题。",
+                "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
+                "把工具名、内部协议或执行步骤列表当成给用户的回答。"
+            ]
+        },
+        "public_progress_note": "一句用户可理解的公开语义回应；用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -2159,7 +2196,37 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
-        "public_progress_note": "一句用户可理解的公开正文反馈；respond/ask_user/block 时用于表达你要公开告诉用户的状态。action_type=tool_call 时不要用它描述工具状态、工具意图或第一人称前置话术；工具调用的用户可见进度由 tool_call/tool_calls 的结构化工具事件投影。只有存在独立于工具状态的公开语义判断时才填写。不得写“开始处理”“正在处理”“处理完成”等泛化状态词；不得预测工具结果，不得把尚未完成的工具动作说成已经完成；不包含内部编号、系统结构、协议字段或隐藏推理。",
+        "public_response_obligation": {
+            "authority": "model_semantic_response",
+            "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
+            "first_visible_response": [
+                "如果已经足以回答，使用 respond/final_answer。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 或 public_action_state.current_judgment 中说明要查证的公开事实和为什么它关系到用户问题；不要写工具名、协议字段或隐藏推理。",
+                "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
+                "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以只承接执行。"
+            ],
+            "tool_observation_reporting": {
+                "must_explain_when": [
+                    "观察结果回答了用户问题，或改变了你对用户问题的判断。",
+                    "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
+                    "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
+                    "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
+                    "观察结果推翻了你先前的公开判断或暴露出不确定性。"
+                ],
+                "may_keep_internal_when": [
+                    "观察只是低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
+                    "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
+                ],
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。"
+            },
+            "non_response_examples": [
+                "只输出 tool_call 或 block，没有解释用户当前问题。",
+                "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
+                "把工具名、内部协议或执行步骤列表当成给用户的回答。"
+            ]
+        },
+        "public_progress_note": "一句用户可理解的公开语义回应；用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -3334,6 +3401,7 @@ def _merge_prompt_assemblies(
         sections.extend(assembly.sections)
         pack_refs.extend(assembly.prompt_pack_refs)
         rejected_refs.extend(dict(item) for item in assembly.rejected_refs)
+    sections = list(enforce_prompt_authority_order(tuple(sections)))
     rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=invocation_kind)
     rejected_refs.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
     if rule_diagnostics.get("rejected_rules"):
@@ -3358,7 +3426,8 @@ def _merge_prompt_assemblies(
             "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
             "rejected_refs": rejected_refs,
             "prompt_rules": rule_diagnostics,
-            "prompt_precedence": _runtime_prompt_precedence_report(tuple(sections)),
+            "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
+            "prompt_authority": build_prompt_authority_manifest(tuple(sections)),
             "authority": "prompt_library.prompt_assembly_manifest",
         },
     )
@@ -3397,8 +3466,8 @@ def _runtime_prompt_precedence_report(sections: tuple[Any, ...]) -> dict[str, An
             }
         )
     return {
-        "policy": "override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
-        "behavior": "diagnostic_only_preserves_requested_order",
+        "policy": "system>override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
+        "behavior": "enforced_precedence_order",
         "entries": entries,
         "authority": "harness.runtime.prompt_precedence_report",
     }

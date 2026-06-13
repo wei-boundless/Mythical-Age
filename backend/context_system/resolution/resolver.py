@@ -30,7 +30,7 @@ class ContextResolver:
     ) -> TurnBinding:
         memory_view = dict(memory_runtime_view or {})
         understanding = dict(query_understanding or {})
-        task_goal_spec_payload = dict(task_goal_spec or understanding.get("task_goal_spec") or {})
+        legacy_task_goal_spec_payload = dict(task_goal_spec or understanding.get("task_goal_spec") or {})
         continuation_candidate_payloads = [
             dict(item)
             for item in list(continuation_candidates or [])
@@ -43,9 +43,17 @@ class ContextResolver:
             memory_runtime_view=memory_view,
             ordinals=ordinal_followups,
         )
+        structural_signals = turn_signals(understanding)
+        if legacy_task_goal_spec_payload:
+            structural_signals["legacy_task_goal_spec_candidate"] = {
+                "present": True,
+                "runtime_authority": "ignored",
+                "migration_target": "model_action_request.task_contract_seed",
+                "authority": "context.current_turn.legacy_goal_diagnostics",
+            }
         bindings = self._resolved_bindings(
             explicit_inputs=explicit_inputs,
-            structural_signals=turn_signals(understanding),
+            structural_signals=structural_signals,
         )
         if bundle_bindings:
             bindings = [*bundle_bindings, *bindings]
@@ -106,11 +114,10 @@ class ContextResolver:
             bundle_items=tuple(bundle_items),
             followup_target_refs=followup_target_refs,
             restore_candidates_used=restore_candidate_refs,
-            task_goal_spec=task_goal_spec_payload,
             continuation_candidates=tuple(continuation_candidate_payloads),
             continuation_decision=continuation_decision_payload,
             context_recall_candidates=tuple(context_recall_candidates),
-            structural_signals=turn_signals(understanding),
+            structural_signals=structural_signals,
             confidence=float(understanding.get("confidence") or 0.0),
         )
 

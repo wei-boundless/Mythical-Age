@@ -73,13 +73,15 @@ def build_task_requirement_contract(
         **dict(current_turn.get("explicit_inputs") or {}),
     }
     obligation = dict(execution_obligation or current_turn.get("execution_obligation") or {})
-    task_goal_spec = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
+    canonical_seed = _canonical_task_contract_seed(current_turn)
+    canonical_goal_spec = _canonical_goal_profile_spec(canonical_seed=canonical_seed, current_turn=current_turn)
+    legacy_goal_diagnostics = _legacy_goal_field_diagnostics(current_turn)
     task_goal_type = _resolve_task_goal_type(
         user_goal=user_goal,
         materials=(),
         query_understanding=understanding,
         current_turn_context=current_turn,
-        task_goal_spec=task_goal_spec,
+        task_contract_seed=canonical_seed,
     )
     materials = tuple(
         _filter_output_materials(
@@ -93,7 +95,10 @@ def build_task_requirement_contract(
                 [dict(item) for item in list(obligation.get("required_reads") or []) if isinstance(item, dict)],
             ),
             execution_obligation=obligation,
-            semantic_contract_outputs=_structured_output_paths_from_goal_spec(task_goal_spec),
+            semantic_contract_outputs=_structured_output_paths_from_canonical_contract(
+                canonical_seed=canonical_seed,
+                current_turn=current_turn,
+            ),
         )
     )
     goal_profile = get_task_goal_profile(task_goal_type)
@@ -101,7 +106,7 @@ def build_task_requirement_contract(
         session_id=session_id,
         task_id=task_id,
         task_goal_type=task_goal_type,
-        task_goal_spec=task_goal_spec,
+        task_goal_spec=canonical_goal_spec,
     )
     profile = str(getattr(goal_profile, "professional_profile_id", "") or _professional_profile_id(task_goal_type))
     prototype = strategy_prototype_for_task_goal(task_goal_type)
@@ -151,24 +156,9 @@ def build_task_requirement_contract(
         validation_schema=_validation_schema_for_goal_type(task_goal_type, execution_obligation=obligation),
         professional_profile_id=profile,
         diagnostics={
-            "task_goal_spec": task_goal_spec,
+            "canonical_task_contract_seed": canonical_seed,
+            "legacy_goal_fields": legacy_goal_diagnostics,
             **({"task_domain_binding": task_domain_binding} if task_domain_binding else {}),
-            "goal_hypothesis_set": dict(dict(task_goal_spec.get("evidence") or {}).get("goal_hypothesis_set") or {}),
-            "rejected_goal_candidates": [
-                dict(item)
-                for item in list(task_goal_spec.get("rejected_goal_candidates") or [])
-                if isinstance(item, dict)
-            ],
-            "unacceptable_outcomes": [
-                str(item).strip()
-                for item in list(task_goal_spec.get("unacceptable_outcomes") or [])
-                if str(item).strip()
-            ],
-            "ambiguity_points": [
-                str(item).strip()
-                for item in list(task_goal_spec.get("ambiguity_points") or [])
-                if str(item).strip()
-            ],
             "task_goal_profile_binding": goal_profile_binding.to_dict(),
             "material_count": len(materials),
             "material_kinds": sorted({str(item.get("kind") or "") for item in materials if item.get("kind")}),
@@ -229,31 +219,108 @@ def _system_task_domain_binding(
     return {}
 
 
+def _canonical_task_contract_seed(current_turn: dict[str, Any]) -> dict[str, Any]:
+    for candidate in (
+        current_turn.get("task_contract_seed"),
+        dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed"),
+        dict(current_turn.get("agent_turn_action_request") or {}).get("task_contract_seed"),
+    ):
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
+
+
+def _canonical_goal_profile_spec(
+    *,
+    canonical_seed: dict[str, Any],
+    current_turn: dict[str, Any],
+) -> dict[str, Any]:
+    seed = dict(canonical_seed or {})
+    requirement_contract = dict(current_turn.get("task_requirement_contract") or {})
+    task_goal_type = str(seed.get("task_goal_type") or requirement_contract.get("task_goal_type") or "").strip()
+    capability_intent = dict(seed.get("capability_intent") or {})
+    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
+    completion_criteria = [
+        str(item).strip()
+        for item in [
+            *list(seed.get("completion_criteria") or []),
+            *list(acceptance_contract.get("completion_criteria") or []),
+        ]
+        if str(item).strip()
+    ]
+    return {
+        "task_goal_type": task_goal_type,
+        "required_capabilities": [
+            str(item).strip()
+            for item in list(capability_intent.get("needed_capability_groups") or [])
+            if str(item).strip()
+        ],
+        "success_criteria": [{"title": item, "source": "canonical_task_contract_seed"} for item in completion_criteria],
+        "required_verifications": _canonical_required_verifications(seed),
+        "authority": "task_system.canonical_task_contract.goal_profile_spec",
+    }
+
+
+def _canonical_required_verifications(seed: dict[str, Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
+    for item in list(acceptance_contract.get("required_verifications") or []):
+        if isinstance(item, dict):
+            result.append({**dict(item), "source": "canonical_task_contract_seed"})
+        elif str(item).strip():
+            result.append(
+                {
+                    "kind": "evidence",
+                    "title": str(item).strip(),
+                    "required": True,
+                    "source": "canonical_task_contract_seed",
+                }
+            )
+    return result
+
+
+def _legacy_goal_field_diagnostics(current_turn: dict[str, Any]) -> dict[str, Any]:
+    legacy: dict[str, Any] = {}
+    for key in ("goal_frame", "task_goal_spec", "semantic_task_type"):
+        value = current_turn.get(key)
+        if value in ("", None, {}, []):
+            continue
+        legacy[key] = {
+            "present": True,
+            "runtime_authority": "ignored",
+            "migration_target": "task_contract_seed",
+        }
+    if not legacy:
+        return {}
+    return {
+        "authority": "task_system.legacy_goal_field_diagnostics",
+        "fields": legacy,
+    }
+
+
 def _resolve_task_goal_type(
     *,
     user_goal: str,
     materials: tuple[dict[str, Any], ...],
     query_understanding: dict[str, Any],
     current_turn_context: dict[str, Any],
-    task_goal_spec: dict[str, Any] | None = None,
+    task_contract_seed: dict[str, Any] | None = None,
 ) -> str:
     if _is_task_graph_node_runtime_context(current_turn_context):
         return "task_graph_node_execution"
-    goal_frame = dict(task_goal_spec or {})
-    framed_type = str(goal_frame.get("task_goal_type") or "").strip()
-    if framed_type:
-        return framed_type
+    seed_goal_type = str(dict(task_contract_seed or {}).get("task_goal_type") or "").strip()
+    if seed_goal_type:
+        return seed_goal_type
+    model_decision = dict(current_turn_context.get("model_turn_decision") or {})
+    decision_goal_type = str(model_decision.get("task_goal_type") or "").strip()
+    if decision_goal_type:
+        return decision_goal_type
     explicit = str(
-        current_turn_context.get("semantic_task_type")
-        or current_turn_context.get("task_goal_type")
-        or dict(current_turn_context.get("task_requirement_contract") or {}).get("task_goal_type")
+        dict(current_turn_context.get("task_requirement_contract") or {}).get("task_goal_type")
         or ""
     ).strip()
     if explicit:
         return explicit
-    seed_goal_type = str(dict(current_turn_context.get("task_contract_seed") or {}).get("task_goal_type") or "").strip()
-    if seed_goal_type:
-        return seed_goal_type
     return "general"
 
 
@@ -387,22 +454,28 @@ def _filter_output_materials(
     ]
 
 
-def _structured_output_paths_from_goal_spec(task_goal_spec: dict[str, Any]) -> list[str]:
+def _structured_output_paths_from_canonical_contract(
+    *,
+    canonical_seed: dict[str, Any],
+    current_turn: dict[str, Any],
+) -> list[str]:
     paths: list[str] = []
-    for key in ("core_deliverables", "supporting_deliverables"):
-        for item in list(task_goal_spec.get(key) or []):
-            if not isinstance(item, dict):
-                continue
-            metadata = dict(item.get("metadata") or {})
-            for value in list(metadata.get("paths") or []):
-                if str(value).strip():
-                    paths.append(str(value).strip())
-    constraints = [
-        str(item).removeprefix("path:").strip()
-        for item in list(task_goal_spec.get("explicit_constraints") or [])
-        if str(item).startswith("path:")
-    ]
-    paths.extend(constraints)
+    for item in list(dict(canonical_seed or {}).get("required_artifacts") or []):
+        if not isinstance(item, dict):
+            continue
+        for key in ("path", "artifact_path", "target_path", "output_path"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                paths.append(value)
+        metadata = dict(item.get("metadata") or {})
+        for value in list(metadata.get("paths") or []):
+            if str(value).strip():
+                paths.append(str(value).strip())
+    requirement_contract = dict(current_turn.get("task_requirement_contract") or {})
+    output_schema = dict(requirement_contract.get("output_schema") or {})
+    for item in list(output_schema.get("artifact_paths") or output_schema.get("required_artifact_paths") or []):
+        if str(item).strip():
+            paths.append(str(item).strip())
     return _dedupe([_normalize_path(path) for path in paths if path])
 
 

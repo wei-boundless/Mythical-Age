@@ -554,6 +554,27 @@ class HarnessRuntimeFacade:
                     return
                 if runtime_branch.get("branch_kind") == "blocked_runtime":
                     blocked_content = "当前运行环境未能完成装配，本轮无法继续。"
+                    commit_result = self._apply_assistant_message_commit(
+                        request.session_id,
+                        {
+                            "role": "assistant",
+                            "content": blocked_content,
+                            "turn_id": turn_id,
+                            "completion_state": "blocked",
+                            "terminal_reason": str(runtime_branch.get("reason") or "runtime_assembly_blocked"),
+                            "answer_channel": "final",
+                            "answer_source": "harness.entrypoint.blocked_runtime",
+                            "answer_canonical_state": "blocked_runtime",
+                            "answer_persist_policy": "commit_visible_fail_closed_message",
+                            "answer_finalization_policy": "fail_closed_without_model_call",
+                        },
+                    )
+                    yield {
+                        "type": "session_output_commit_ack",
+                        "session_id": request.session_id,
+                        "turn_id": turn_id,
+                        **dict(commit_result or {}),
+                    }
                     yield error_event(
                         content=blocked_content,
                         code="blocked_runtime",

@@ -65,6 +65,7 @@ def build_runtime_prompt_manifest(
     assembly_manifest = dict(assembly.manifest or {})
     assembly_cache_boundary = dict(assembly_manifest.get("cache_boundary") or {})
     assembly_layer_summary = dict(assembly_manifest.get("layer_summary") or {})
+    prompt_authority = dict(assembly_manifest.get("prompt_authority") or {})
     assembly_request_fingerprint = str(assembly_manifest.get("assembly_request_fingerprint") or "")
     section_fingerprint = str(assembly_manifest.get("section_fingerprint") or "")
     prompt_rules = dict(assembly.manifest.get("prompt_rules") or {})
@@ -102,6 +103,7 @@ def build_runtime_prompt_manifest(
             "assembly_request_fingerprint": assembly_request_fingerprint,
             "section_fingerprint": section_fingerprint,
             "assembly_layer_summary": assembly_layer_summary,
+            "prompt_authority": prompt_authority,
             "prompt_precedence": dict(assembly.manifest.get("prompt_precedence") or {}),
         },
     )
