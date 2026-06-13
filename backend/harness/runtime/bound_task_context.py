@@ -319,7 +319,7 @@ def _restore_policy(*, enabled: bool) -> dict[str, Any]:
         "mode": "task_bound_context_restore",
         "compact_resume": "Restore bound plan refs and context refs before relying on older transcript summaries.",
         "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries; known_task_files only carries file identity and recovery hints.",
-        "file_precision": "For a known path, use read_file or path_exists directly before line-level edits or exact claims. For unknown location, use search_files for filename/path keywords, glob_paths for wildcard path patterns, and search_text for file contents.",
+        "file_precision": "Known bound/editor file paths are already located; do not use search_files/search_text just to rediscover them. For a known path, use read_file or path_exists directly before line-level edits or exact claims, prefer next_suggested_read for missing windows, and do not repeat already listed read_ranges unless the file is stale or changed. For unknown location, use search_files for filename/path keywords, glob_paths for wildcard path patterns, and search_text for file contents.",
     }
 
 

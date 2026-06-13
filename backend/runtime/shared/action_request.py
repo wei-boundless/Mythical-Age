@@ -305,7 +305,11 @@ def build_recoverable_tool_invocation_observation(
     if missing_inputs:
         repair_lines.append("Missing required input(s): " + ", ".join(missing_inputs) + ".")
     if required_inputs:
-        repair_lines.append("Retry the same tool using exactly these argument names: " + ", ".join(required_inputs) + ".")
+        repair_lines.append(
+            "Retry the same tool with required argument(s) present: "
+            + ", ".join(required_inputs)
+            + ". Optional arguments may be included when they are exposed by the tool schema."
+        )
     repair_lines.append("Do not finish the task until the corrected tool call succeeds or a non-recoverable blocker is observed.")
     receipt = dict(execution_receipt or {})
     return RuntimeObservation(

@@ -7,7 +7,6 @@ import {
   createSession,
   deleteSession,
   getChatRun,
-  getLatestChatRunForSession,
   getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
   getImageAssetConfig,
@@ -86,10 +85,8 @@ const ACTIVE_TURN_STATES = new Set([
   "terminal",
 ]);
 
-function recoveredChatRunActivityDetail(cursor: ChatStreamCursor | null) {
-  return cursor
-    ? "已拿到上次进度，继续同步后续结果。"
-    : "正在同步这个会话里仍在运行的进度。";
+function recoveredChatRunActivityDetail() {
+  return "检测到同一会话的流式 cursor，正在从上次事件后继续同步。";
 }
 
 function sessionTaskEnvironmentId(session: SessionSummary) {
@@ -2297,33 +2294,24 @@ export class WorkspaceRuntime {
     try {
       let cursor = readChatStreamCursor(sessionId);
       let streamRunId = cursor?.streamRunId || "";
-      if (streamRunId) {
-        const cursorRun = await getChatRun(streamRunId).catch(() => null);
-        if (
-          !cursorRun
-          || cursorRun.session_id !== sessionId
-          || cursorRun.is_reconnectable === false
-        ) {
-          clearChatStreamCursor(sessionId);
-          cursor = null;
-          streamRunId = "";
-        } else if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, cursor)) {
-          clearChatStreamCursor(sessionId);
-          cursor = null;
-          await this.refreshSessionDetails(sessionId).catch(() => undefined);
-          return false;
-        } else {
-          this.applyActiveTurnSnapshotFromChatRun(cursorRun);
-        }
-      }
-      if (!streamRunId) {
-        const latestRun = await getLatestChatRunForSession(sessionId, true, this.sessionScopeForSession(sessionId)).catch(() => null);
-        this.applyActiveTurnSnapshotFromChatRun(latestRun);
-        streamRunId = String(latestRun?.stream_run_id || "");
-      }
       if (!streamRunId) {
         return false;
       }
+      const cursorRun = await getChatRun(streamRunId).catch(() => null);
+      if (
+        !cursorRun
+        || cursorRun.session_id !== sessionId
+        || cursorRun.is_reconnectable === false
+      ) {
+        clearChatStreamCursor(sessionId);
+        return false;
+      }
+      if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, cursor)) {
+        clearChatStreamCursor(sessionId);
+        await this.refreshSessionDetails(sessionId).catch(() => undefined);
+        return false;
+      }
+      this.applyActiveTurnSnapshotFromChatRun(cursorRun);
       await this.refreshSessionDetails(sessionId).catch(() => undefined);
       this.startRecoveredChatRunStream(sessionId, streamRunId, cursor);
       return true;
@@ -2442,7 +2430,7 @@ export class WorkspaceRuntime {
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
-    const recoveryActivityDetail = recoveredChatRunActivityDetail(cursor);
+    const recoveryActivityDetail = recoveredChatRunActivityDetail();
     let streamState: StoreState = {
       ...this.store.getState(),
       messages: this.store.getState().messages,
@@ -2451,14 +2439,14 @@ export class WorkspaceRuntime {
       isStreaming: activeStreamSessionIds.length > 0,
       sessionActivity: {
         level: "running",
-        title: "接回当前运行",
+        title: "恢复输出流",
         detail: recoveryActivityDetail,
-        event: "stream_restore_started",
+        event: "stream_cursor_restore_started",
         receipt: {
           level: "running",
-          title: "接回当前运行",
+          title: "恢复输出流",
           body: recoveryActivityDetail,
-          debug: { event: "stream_restore_started" },
+          debug: { event: "stream_cursor_restore_started" },
         },
         updatedAt: Date.now(),
       },
@@ -3393,12 +3381,12 @@ export class WorkspaceRuntime {
       ...(context?.openFilePaths ?? []),
       ...(activePath ? [activePath] : []),
     ]).slice(0, 20);
+    if (!activePath && !openFilePaths.length) {
+      return undefined;
+    }
     const workspaceRoots = this.uniqueFilePaths([
       this.sessionProjectRoot(state, sessionId),
     ]);
-    if (!activePath && !openFilePaths.length && !workspaceRoots.length) {
-      return undefined;
-    }
     const activeFileLoaded = Boolean(activePath && context?.inspectorPath === activePath);
     const activeText = activeFileLoaded ? String(context?.inspectorContent || "") : "";
     const previewText = activeText.slice(0, FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT);

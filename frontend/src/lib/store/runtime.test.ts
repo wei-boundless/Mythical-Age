@@ -11,7 +11,6 @@ const api = vi.hoisted(() => ({
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getProjectWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
-  getLatestChatRunForSession: vi.fn(),
   getRunMonitor: vi.fn(),
   executeRunMonitorAction: vi.fn(),
   preflightRunMonitorAction: vi.fn(),
@@ -65,7 +64,6 @@ vi.mock("@/lib/api", () => ({
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getProjectWorkspaceTree: api.getProjectWorkspaceTree,
   getChatRun: api.getChatRun,
-  getLatestChatRunForSession: api.getLatestChatRunForSession,
   getRunMonitor: api.getRunMonitor,
   executeRunMonitorAction: api.executeRunMonitorAction,
   preflightRunMonitorAction: api.preflightRunMonitorAction,
@@ -625,8 +623,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
     api.getChatRun.mockReset();
     api.getChatRun.mockRejectedValue(new Error("no chat run"));
-    api.getLatestChatRunForSession.mockReset();
-    api.getLatestChatRunForSession.mockRejectedValue(new Error("no active chat run"));
     api.pauseOrchestrationHarnessTaskRun.mockReset();
     api.pauseOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.pauseGraphRun.mockReset();
@@ -1441,6 +1437,39 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }],
     });
     expect((api.streamChat.mock.calls[0]?.[0]?.editor_context as Record<string, any>)?.active_file?.selection).toBeUndefined();
+  });
+
+  it("does not send a workspace-only editor context that would hide VS Code active file fallback", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:bound-without-file",
+      sessions: [{
+        id: "session:bound-without-file",
+        title: "Bound",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+        conversation_state: {
+          authority: "sessions.conversation_state",
+          project_binding: {
+            workspace_root: "D:/repo",
+            source: "vscode",
+            bound_at: 1,
+            last_seen_at: 1,
+            immutable: true,
+            authority: "sessions.project_binding",
+          },
+        },
+      }],
+      sessionEditorContexts: {},
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("继续修复当前绑定文件。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.editor_context).toBeUndefined();
   });
 
   it("does not send the host project root as editor workspace root for unbound sessions", async () => {
@@ -4659,7 +4688,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
-    expect(api.getLatestChatRunForSession).not.toHaveBeenCalled();
     expect(api.streamExistingChatRun).toHaveBeenCalledWith(
       "session:existing",
       "strun:resume",
@@ -4673,14 +4701,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
     expect(recoveryActivityDuringAttach).toMatchObject({
       level: "running",
-      title: "接回当前运行",
-      detail: "已拿到上次进度，继续同步后续结果。",
-      event: "stream_restore_started",
+      title: "恢复输出流",
+      detail: "检测到同一会话的流式 cursor，正在从上次事件后继续同步。",
+      event: "stream_cursor_restore_started",
     });
     expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");
   });
 
-  it("reattaches the latest active chat run without a cursor by replaying from the beginning", async () => {
+  it("does not reattach the latest active chat run without a cursor", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([{
       id: "session:latest",
@@ -4690,16 +4718,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(null);
-    api.getLatestChatRunForSession.mockResolvedValue({
-      stream_run_id: "strun:latest",
-      session_id: "session:latest",
-      event_log_id: "chatrun:latest",
-      root_request_ref: "chatreq:latest",
-      status: "running",
-      latest_event_offset: 7,
-      is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:latest/events",
-    });
     api.getSessionTimeline.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
@@ -4707,39 +4725,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
-    let recoveryActivityDuringAttach: unknown;
-    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
-      recoveryActivityDuringAttach = store.getState().sessionActivity;
-      handlers.onEvent("assistant_text_delta", { sequence: 1, content: "恢复", content_utf8_start: 0, event_offset: 1 });
-      handlers.onEvent("assistant_text_final", { sequence: 2, content: "恢复完成", content_sha256: "sha256:latest", event_offset: 2 });
-      handlers.onEvent("done", { content: "恢复完成", event_offset: 2 });
-      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:latest", eventLogId: "chatrun:latest", lastEventOffset: 2 };
-    });
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
     await Promise.resolve();
 
     expect(api.streamChat).not.toHaveBeenCalled();
-    expect(api.getLatestChatRunForSession).toHaveBeenCalledWith("session:latest", true, undefined);
-    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
-      "session:latest",
-      "strun:latest",
-      expect.any(Object),
-      expect.objectContaining({
-        initialCursor: null,
-        replayFromStart: true,
-      }),
-    );
-    expect(recoveryActivityDuringAttach).toMatchObject({
-      level: "running",
-      title: "接回当前运行",
-      detail: "正在同步这个会话里仍在运行的进度。",
-      event: "stream_restore_started",
-    });
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
   });
 
-  it("drops an invalid persisted cursor before reattaching the latest active chat run", async () => {
+  it("drops an invalid persisted cursor without reattaching a latest active chat run", async () => {
     vi.useRealTimers();
     const staleCursor = {
       streamRunId: "strun:stale",
@@ -4765,16 +4761,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       is_reconnectable: true,
       stream_url: "/api/chat/runs/strun:stale/events",
     });
-    api.getLatestChatRunForSession.mockResolvedValue({
-      stream_run_id: "strun:fresh",
-      session_id: "session:latest-after-stale",
-      event_log_id: "chatrun:fresh",
-      root_request_ref: "chatreq:fresh",
-      status: "running",
-      latest_event_offset: 4,
-      is_reconnectable: true,
-      stream_url: "/api/chat/runs/strun:fresh/events",
-    });
     api.getSessionTimeline.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
@@ -4782,33 +4768,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
-    let recoveryActivityDuringAttach: unknown;
-    api.streamExistingChatRun.mockImplementation(async (_sessionId, _streamRunId, handlers) => {
-      recoveryActivityDuringAttach = store.getState().sessionActivity;
-      handlers.onEvent("done", { content: "已接回", event_offset: 5 });
-      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:fresh", eventLogId: "chatrun:fresh", lastEventOffset: 5 };
-    });
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.initialize();
     await Promise.resolve();
 
     expect(api.clearChatStreamCursor).toHaveBeenCalledWith("session:latest-after-stale");
-    expect(api.streamExistingChatRun).toHaveBeenCalledWith(
-      "session:latest-after-stale",
-      "strun:fresh",
-      expect.any(Object),
-      expect.objectContaining({
-        initialCursor: null,
-        replayFromStart: true,
-      }),
-    );
-    expect(recoveryActivityDuringAttach).toMatchObject({
-      level: "running",
-      title: "接回当前运行",
-      detail: "正在同步这个会话里仍在运行的进度。",
-      event: "stream_restore_started",
-    });
+    expect(api.streamExistingChatRun).not.toHaveBeenCalled();
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
   });
 
   it("does not reattach a terminal chat run when the persisted cursor already reached the final event", async () => {

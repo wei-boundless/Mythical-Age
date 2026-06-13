@@ -570,14 +570,133 @@ def _effective_editor_context(
     session_manager: Any | None = None,
     allow_vscode_fallback: bool = False,
 ) -> dict[str, Any]:
-    if payload_editor_context:
-        return dict(payload_editor_context)
+    payload_context = dict(payload_editor_context or {})
     if not allow_vscode_fallback:
-        return {}
-    return get_vscode_connection_store().latest_editor_context(
+        return payload_context
+    vscode_context = get_vscode_connection_store().latest_editor_context(
         session_id,
         session_manager=session_manager,
     )
+    if not payload_context:
+        return vscode_context
+    if not vscode_context:
+        return payload_context
+    return _merge_editor_contexts(payload_context, vscode_context)
+
+
+def _merge_editor_contexts(payload_context: dict[str, Any], vscode_context: dict[str, Any]) -> dict[str, Any]:
+    payload_active = dict(payload_context.get("active_file") or {})
+    vscode_active = dict(vscode_context.get("active_file") or {})
+    payload_visible = _editor_visible_file_list(payload_context)
+    vscode_visible = _editor_visible_file_list(vscode_context)
+    merged: dict[str, Any] = dict(payload_context)
+    merged["workspace_roots"] = _dedupe_editor_context_values(
+        list(payload_context.get("workspace_roots") or []) + list(vscode_context.get("workspace_roots") or [])
+    )
+    active_file = _merge_active_editor_file(payload_active, vscode_active)
+    if active_file:
+        merged["active_file"] = active_file
+    elif "active_file" in merged:
+        merged.pop("active_file", None)
+    visible_files = _merge_visible_editor_files(payload_visible, vscode_visible)
+    if visible_files:
+        merged["visible_files"] = visible_files
+    elif "visible_files" in merged:
+        merged.pop("visible_files", None)
+    diagnostics = _merge_editor_diagnostics(
+        list(payload_context.get("diagnostics") or []),
+        list(vscode_context.get("diagnostics") or []),
+    )
+    if diagnostics:
+        merged["diagnostics"] = diagnostics
+    elif "diagnostics" in merged:
+        merged.pop("diagnostics", None)
+    sources = _dedupe_editor_context_values([payload_context.get("source"), vscode_context.get("source")])
+    if sources:
+        merged["source"] = "+".join(str(item) for item in sources)
+    merged["authority"] = "api.chat.effective_editor_context"
+    merged["merge_reason"] = _editor_context_merge_reason(payload_active, vscode_active, payload_visible, vscode_visible)
+    return {key: value for key, value in merged.items() if value not in (None, "", [], {})}
+
+
+def _editor_visible_file_list(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [dict(item) for item in list(context.get("visible_files") or []) if isinstance(item, dict)]
+
+
+def _merge_active_editor_file(payload_active: dict[str, Any], vscode_active: dict[str, Any]) -> dict[str, Any]:
+    payload_path = str(payload_active.get("path") or payload_active.get("uri") or "").strip()
+    vscode_path = str(vscode_active.get("path") or vscode_active.get("uri") or "").strip()
+    if not payload_path:
+        return dict(vscode_active)
+    if not vscode_path or _normalized_editor_path(payload_path) != _normalized_editor_path(vscode_path):
+        return dict(payload_active)
+    merged = dict(vscode_active)
+    merged.update(payload_active)
+    for key in ("selection", "content_preview", "visible_ranges"):
+        if not merged.get(key) and vscode_active.get(key):
+            merged[key] = vscode_active.get(key)
+    if vscode_active.get("dirty") is True:
+        merged["dirty"] = True
+    return {key: value for key, value in merged.items() if value not in (None, "", [], {})}
+
+
+def _merge_visible_editor_files(payload_visible: list[dict[str, Any]], vscode_visible: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*payload_visible, *vscode_visible]:
+        path = str(item.get("path") or item.get("uri") or "").strip()
+        key = _normalized_editor_path(path)
+        if not path or key in seen:
+            continue
+        seen.add(key)
+        result.append({field: value for field, value in dict(item).items() if value not in (None, "", [], {})})
+    return result[:20]
+
+
+def _merge_editor_diagnostics(payload_diagnostics: list[Any], vscode_diagnostics: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    seen: set[str] = set()
+    for item in [*payload_diagnostics, *vscode_diagnostics]:
+        marker = repr(item)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(item)
+    return result[:50]
+
+
+def _editor_context_merge_reason(
+    payload_active: dict[str, Any],
+    vscode_active: dict[str, Any],
+    payload_visible: list[dict[str, Any]],
+    vscode_visible: list[dict[str, Any]],
+) -> str:
+    if not payload_active and not payload_visible and (vscode_active or vscode_visible):
+        return "payload_workspace_only_vscode_file_focus"
+    payload_path = str(payload_active.get("path") or payload_active.get("uri") or "").strip()
+    vscode_path = str(vscode_active.get("path") or vscode_active.get("uri") or "").strip()
+    if payload_path and vscode_path and _normalized_editor_path(payload_path) == _normalized_editor_path(vscode_path):
+        return "payload_active_file_enriched_from_vscode"
+    return "payload_editor_context_preferred"
+
+
+def _dedupe_editor_context_values(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        key = text.replace("\\", "/").rstrip("/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def _normalized_editor_path(value: str) -> str:
+    return str(value or "").replace("\\", "/").rstrip("/").lower()
 
 
 def _bind_or_validate_editor_project(runtime: Any, session_id: str, editor_context: dict[str, Any]) -> None:

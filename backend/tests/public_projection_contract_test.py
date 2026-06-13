@@ -93,6 +93,44 @@ def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
     assert frame["tool_call_id"] == "call:read"
 
 
+def test_runtime_context_rehydration_tool_stays_trace_only() -> None:
+    frame = _frame(
+        TOOL_CALL_REQUESTED_EVENT,
+        {
+            "tool_call_id": "call:rehydrate",
+            "tool_lifecycle_id": "call:rehydrate",
+            "tool_name": "read_persisted_tool_result",
+            "target": "storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "model"
+    assert frame["main_visibility"] == "trace_only"
+    assert frame["retention"] == "trace"
+    assert frame["tool_call_id"] == "call:rehydrate"
+
+
+def test_system_tool_batch_step_summary_stays_trace_only() -> None:
+    frame = _frame(
+        "runtime_step_summary",
+        {
+            "runtime_event_id": "event:tool-status",
+            "step": "task_tool_batch_started:1",
+            "status": "running",
+            "presentation_source": "system.tool_call_status",
+            "summary": "执行 2 个工具调用：读取文件 README.md、读取文件 package.json。",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
+
+
 def test_raw_tool_started_without_permission_is_hidden_protocol_diagnostic() -> None:
     frame = _frame(
         TOOL_ITEM_STARTED_EVENT,
@@ -141,6 +179,26 @@ def test_failed_tool_completed_is_pinned_until_resolved() -> None:
     assert frame["main_visibility"] == "pinned"
     assert frame["retention"] == "pinned_until_resolved"
     assert frame["pin_reason"] == "failed"
+
+
+def test_failed_runtime_context_rehydration_tool_retires_any_visible_card() -> None:
+    frame = _frame(
+        TOOL_ITEM_COMPLETED_EVENT,
+        {
+            "tool_call_id": "call:rehydrate",
+            "permission_decision_id": "permit:rehydrate",
+            "tool_name": "read_persisted_tool_result",
+            "state": "failed",
+            "error": "Read persisted tool result failed: hidden path",
+        },
+    )
+
+    assert frame["op"] == "item_retire"
+    assert frame["slot"] == "status"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "transient"
+    assert frame["tool_call_id"] == "call:rehydrate"
+    assert "read_persisted_tool_result" not in frame["title"]
 
 
 def test_turn_completed_has_no_hydrate_or_main_tool_semantics() -> None:

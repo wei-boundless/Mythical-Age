@@ -5871,12 +5871,6 @@ export async function resumeChatRun(streamRunId: string) {
   });
 }
 
-export async function getLatestChatRunForSession(sessionId: string, activeOnly = true, scope?: Partial<SessionScope>) {
-  const params = sessionScopeQuery(scope);
-  params.set("active_only", activeOnly ? "true" : "false");
-  return request<ChatRun | null>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
-}
-
 function parseSseBlock(block: string): { id: string; event: string; data: Record<string, unknown> } | null {
   const lines = block.split(/\r?\n|\r/);
   let id = "";

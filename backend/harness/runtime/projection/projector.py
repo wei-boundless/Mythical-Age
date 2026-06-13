@@ -24,6 +24,10 @@ from runtime.output_stream.public_contract import (
 )
 
 
+_TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
+_TRACE_ONLY_RUNTIME_STEP_SOURCES = {"system.tool_call_status", "tool_observation.summary"}
+
+
 class ProjectionLifecycleState:
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
@@ -275,10 +279,99 @@ def _assistant_repair_spec(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_trace_only_tool(tool_name: str) -> bool:
+    return text(tool_name).lower() in _TRACE_ONLY_TOOL_NAMES
+
+
+def _trace_only_tool_request_spec(
+    data: dict[str, Any],
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    action_kind: str,
+) -> dict[str, Any]:
+    return {
+        "op": "item_upsert",
+        "slot": "trace",
+        "source_authority": "model",
+        "main_visibility": "trace_only",
+        "retention": "trace",
+        "item_id": tool_call_id,
+        "source_item_id": text(data.get("request_id")) or tool_call_id,
+        "tool_call_id": tool_call_id,
+        "tool_name": tool_name,
+        "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+        "action_kind": action_kind,
+        "title": _trace_only_tool_title(tool_name, failed=False),
+        "text": _trace_only_tool_title(tool_name, failed=False),
+        "state": "running",
+        "trace_refs": _trace_refs(data),
+    }
+
+
+def _trace_only_tool_completed_spec(
+    data: dict[str, Any],
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    permission_decision_id: str,
+    failed: bool,
+) -> dict[str, Any]:
+    tool_lifecycle_id = text(data.get("tool_lifecycle_id")) or tool_call_id
+    if failed:
+        return {
+            "op": "item_retire",
+            "slot": "status",
+            "source_authority": "tool",
+            "main_visibility": "visible_live",
+            "retention": "transient",
+            "item_id": tool_call_id,
+            "tool_call_id": tool_call_id,
+            "permission_decision_id": permission_decision_id,
+            "tool_name": tool_name,
+            "tool_lifecycle_id": tool_lifecycle_id,
+            "title": _trace_only_tool_title(tool_name, failed=True),
+            "text": _trace_only_tool_title(tool_name, failed=True),
+            "detail": "相关缓存内容没有取回，已作为工具失败观察返回给模型。",
+            "state": "failed",
+            "trace_refs": _trace_refs(data),
+        }
+    return {
+        "op": "item_retire",
+        "slot": "trace",
+        "source_authority": "tool",
+        "main_visibility": "trace_only",
+        "retention": "trace",
+        "item_id": tool_call_id,
+        "tool_call_id": tool_call_id,
+        "permission_decision_id": permission_decision_id,
+        "tool_name": tool_name,
+        "tool_lifecycle_id": tool_lifecycle_id,
+        "title": _trace_only_tool_title(tool_name, failed=False),
+        "text": _trace_only_tool_title(tool_name, failed=False),
+        "state": "done",
+        "trace_refs": _trace_refs(data),
+        "collapsed": True,
+    }
+
+
+def _trace_only_tool_title(tool_name: str, *, failed: bool) -> str:
+    if text(tool_name).lower() == "read_persisted_tool_result":
+        return "上下文缓存补读失败" if failed else "补读上下文缓存"
+    return "内部工具执行失败" if failed else "内部工具执行"
+
+
 def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
     action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    if _is_trace_only_tool(tool_name):
+        return _trace_only_tool_request_spec(
+            data,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            action_kind=action_kind,
+        )
     subject = public_text(data.get("target") or data.get("arguments_preview"), limit=180)
     title = _tool_request_text(data, tool_name=tool_name, subject=subject)
     return {
@@ -386,6 +479,14 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
     failed = raw_state in {"error", "failed", "blocked"}
     detail = public_text(data.get("error") or data.get("observation"), limit=360)
     title = _tool_completed_text(data, tool_name=tool_name, failed=failed)
+    if _is_trace_only_tool(tool_name):
+        return _trace_only_tool_completed_spec(
+            data,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            permission_decision_id=permission_decision_id,
+            failed=failed,
+        )
     if failed:
         return {
             "op": "item_upsert",
@@ -558,6 +659,26 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
         or public_text(data.get("agent_brief_output"), limit=220)
     )
     presentation_source = text(data.get("presentation_source"))
+    if presentation_source in _TRACE_ONLY_RUNTIME_STEP_SOURCES:
+        return {
+            "op": "item_upsert",
+            "slot": "trace",
+            "source_authority": "runtime",
+            "main_visibility": "hidden",
+            "retention": "trace",
+            "item_id": stable_id(
+                "runtime-step",
+                data.get("runtime_event_id"),
+                data.get("source_task_event_id"),
+                data.get("source_task_event_offset"),
+                data.get("step"),
+            ),
+            "title": title,
+            "text": title,
+            "detail": detail,
+            "state": text(data.get("status")) or "running",
+            "trace_refs": _trace_refs(data),
+        }
     return {
         "op": "item_upsert",
         "slot": "status",

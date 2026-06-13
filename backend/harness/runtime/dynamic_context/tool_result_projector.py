@@ -332,18 +332,17 @@ def _build_rehydration_plan(
         )
     content_range = dict(normalized.get("content_range") or {})
     if content_range:
+        coverage = _read_file_coverage(content_range)
         capabilities.append(
             drop_empty(
                 {
                     "capability": "read_file_range",
                     "source": "workspace.read_file",
                     "content_range": content_range,
+                    "coverage": coverage,
+                    "full_file_window": coverage == "full_file",
                     "next_request": _next_read_file_request(content_range),
-                    "instruction": (
-                        "This read_file result is a line window, not proof that the whole file is in prompt. "
-                        "Use next_request only if later lines are needed. For code edits or error localization, "
-                        "read the exact current target line window before acting."
-                    ),
+                    "instruction": _read_file_range_instruction(content_range),
                 }
             )
         )
@@ -391,20 +390,19 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             content_range=content_range,
             content_replacements=content_replacements,
         )
+        coverage = _read_file_coverage(content_range)
         return drop_empty(
             {
                 "source_kind": "code_evidence",
                 "source_authority": "read_file_line_window",
                 "visible_content_authority": "preview_of_line_window" if content_replacements else "exact_visible_line_window",
+                "coverage": coverage,
+                "full_file_window": coverage == "full_file",
                 "candidate_only": bool(content_replacements),
                 "usable_as_evidence_for": _read_file_usable_as_evidence_for(fresh_read_conditions),
                 "fresh_read_conditions": fresh_read_conditions,
                 "rehydration_preference": "read_file_range_for_code_edits",
-                "instruction": (
-                    "This describes the exact read_file line window represented in the prompt. "
-                    "Use fresh_read_conditions to decide whether another read_file call is needed; "
-                    "persisted output only restores omitted bytes from the prior tool result."
-                ),
+                "instruction": _read_file_evidence_instruction(content_range),
             }
         )
     if tool_name in _CODE_LOCATOR_TOOL_NAMES or normalized.get("code_structure"):
@@ -442,6 +440,49 @@ def _fresh_read_conditions_for_read_file(
     return conditions
 
 
+def _read_file_coverage(content_range: dict[str, Any]) -> str:
+    return "full_file" if _read_file_window_covers_full_file(content_range) else "partial_file_window"
+
+
+def _read_file_window_covers_full_file(content_range: dict[str, Any]) -> bool:
+    start_line = _int_or_none(content_range.get("start_line"))
+    end_line = _int_or_none(content_range.get("end_line"))
+    total_lines = _int_or_none(content_range.get("total_lines"))
+    if start_line != 1 or end_line is None or total_lines is None:
+        return False
+    if bool(content_range.get("has_more") or content_range.get("truncated")):
+        return False
+    return end_line >= total_lines
+
+
+def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
+    if _read_file_window_covers_full_file(content_range):
+        return (
+            "This read_file result covers the full current file: start_line is 1, end_line reaches total_lines, "
+            "and has_more is false. Reuse this observation for planning unless a later write/edit makes the file "
+            "state stale; read again only when current changed content is needed."
+        )
+    return (
+        "This read_file result is a line window, not proof that the whole file is in prompt. "
+        "Use next_request only if later lines are needed. For code edits or error localization, "
+        "read the exact current target line window before acting."
+    )
+
+
+def _read_file_evidence_instruction(content_range: dict[str, Any]) -> str:
+    if _read_file_window_covers_full_file(content_range):
+        return (
+            "This describes an exact read_file window that covers the full current file. "
+            "No additional read is needed for the same unchanged file content; use fresh_read_conditions "
+            "to detect whether a later edit/write requires a new current read."
+        )
+    return (
+        "This describes the exact read_file line window represented in the prompt. "
+        "Use fresh_read_conditions to decide whether another read_file call is needed; "
+        "persisted output only restores omitted bytes from the prior tool result."
+    )
+
+
 def _read_file_usable_as_evidence_for(fresh_read_conditions: list[str]) -> list[str]:
     base = ["line_reference", "architecture_planning", "symbol_location"]
     if not fresh_read_conditions:
@@ -464,6 +505,8 @@ def _evidence_confidence(
                 "source_kind": "read_file_line_window",
                 "tool_name": tool_name,
                 "confidence": "preview_truncated" if content_replacements else "current_line_window",
+                "coverage": _read_file_coverage(content_range),
+                "full_file_window": _read_file_window_covers_full_file(content_range),
                 "files": [
                     drop_empty(
                         {
@@ -471,6 +514,8 @@ def _evidence_confidence(
                             "start_line": content_range.get("start_line"),
                             "end_line": content_range.get("end_line"),
                             "line_count": content_range.get("line_count"),
+                            "coverage": _read_file_coverage(content_range),
+                            "full_file_window": _read_file_window_covers_full_file(content_range),
                             "content_sha256": str(content_range.get("content_sha256") or ""),
                             "fresh_read_conditions": list(evidence_policy.get("fresh_read_conditions") or []),
                             "usable_as_evidence_for": list(evidence_policy.get("usable_as_evidence_for") or []),

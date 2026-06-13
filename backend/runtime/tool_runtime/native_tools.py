@@ -272,13 +272,18 @@ class NativeReadFileTool(_NativeToolBase):
         allowed = {"path", "start_line", "line_count", "read_intent"}
         unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
         if unexpected:
+            alias_hint = (
+                " Use line_count instead of max_results to choose how many lines to return."
+                if "max_results" in unexpected
+                else ""
+            )
             return ToolValidationResult(
                 allowed=False,
                 reason="unexpected_tool_inputs",
                 repair_instruction=(
-                    "read_file accepts only path, start_line, and line_count. "
+                    "read_file accepts only path, start_line, line_count, and read_intent. "
                     "start_line is a one-based line number and line_count is the number of lines to return. "
-                    "Remove unsupported argument(s): " + ", ".join(unexpected) + "."
+                    "Remove unsupported argument(s): " + ", ".join(unexpected) + "." + alias_hint
                 ),
                 normalized_args=payload,
                 diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
@@ -2074,16 +2079,53 @@ def _sha256_text(value: str) -> str:
 def _runtime_context_storage_roots(context: ToolUseContext) -> tuple[Path, ...]:
     roots: list[Path] = []
     project_root = _real_workspace_root(context)
-    storage = dict(context.file_management_policy.get("storage_space") or {})
-    for key in ("runtime_state_root", "cache_root", "environment_storage_root"):
-        text = str(storage.get(key) or "").strip()
-        if not text:
-            continue
-        candidate = Path(text)
-        root = candidate.resolve() if candidate.is_absolute() else (project_root / candidate).resolve()
+    for storage in _runtime_context_storage_refs(context):
+        for key in ("runtime_state_root", "dynamic_context_root", "cache_root", "environment_storage_root"):
+            text = str(storage.get(key) or "").strip()
+            if not text:
+                continue
+            candidate = Path(text)
+            root = candidate.resolve() if candidate.is_absolute() else (project_root / candidate).resolve()
+            if root not in roots:
+                roots.append(root)
+    for root in _runtime_context_storage_fallbacks(context, project_root=project_root):
         if root not in roots:
             roots.append(root)
     return tuple(roots)
+
+
+def _runtime_context_storage_refs(context: ToolUseContext) -> tuple[dict[str, Any], ...]:
+    refs: list[dict[str, Any]] = []
+    file_policy = dict(context.file_management_policy or {})
+    if isinstance(file_policy.get("storage_space"), dict):
+        refs.append(dict(file_policy.get("storage_space") or {}))
+    runtime_assembly = dict(context.runtime_assembly or {})
+    for key in ("runtime_storage_ref", "runtime_storage"):
+        value = runtime_assembly.get(key)
+        if isinstance(value, dict):
+            refs.append(dict(value))
+    task_environment = dict(runtime_assembly.get("task_environment") or {})
+    if isinstance(task_environment.get("storage_space"), dict):
+        refs.append(dict(task_environment.get("storage_space") or {}))
+    return tuple(ref for ref in refs if ref)
+
+
+def _runtime_context_storage_fallbacks(context: ToolUseContext, *, project_root: Path) -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    for raw in (
+        project_root / "storage" / "runtime_state",
+        project_root / "runtime_state",
+        Path(str(context.runtime_base_dir or "")).resolve() / "runtime_state" if str(context.runtime_base_dir or "").strip() else None,
+    ):
+        if raw is None:
+            continue
+        try:
+            resolved = Path(raw).resolve()
+        except Exception:
+            continue
+        if resolved.exists() and resolved not in candidates:
+            candidates.append(resolved)
+    return tuple(candidates)
 
 
 def _sandbox_root_from_policy(context: ToolUseContext) -> Path | None:
