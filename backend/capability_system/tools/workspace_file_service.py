@@ -12,10 +12,27 @@ from project_layout import ProjectLayout
 DEFAULT_SEARCH_ROOTS: tuple[str, ...] = ("docs", "backend", "frontend", "knowledge")
 DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
     ".git",
+    ".codex",
+    ".codex-run-logs",
+    ".codex_runtime_logs",
+    ".cache",
+    ".next",
+    ".playwright-cli",
     ".pytest_cache",
+    ".runtime",
+    ".tmp",
+    ".turbo",
     ".tmp-tests-runtime",
+    ".venv",
     "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "logs",
     "node_modules",
+    "output",
+    "runtime_logs",
+    "venv",
 )
 DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "backend/knowledge",

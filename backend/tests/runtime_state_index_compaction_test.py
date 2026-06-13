@@ -70,6 +70,42 @@ def test_state_index_compacts_current_graph_harness_diagnostics_only_on_task_run
     assert diagnostics["graph_harness_config_summary"]["module_count"] == 1
 
 
+def test_state_index_compacts_graph_result_diagnostics_to_runtime_object(tmp_path) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:graph-result",
+            session_id="session",
+            task_id="task.graph",
+            diagnostics={
+                "graph_result": {
+                    "result_id": "result:graph",
+                    "graph_run_id": "grun:graph",
+                    "task_run_id": "taskrun:graph-result",
+                    "graph_id": "graph.heavy",
+                    "config_id": "ghcfg:graph.heavy:test",
+                    "status": "completed",
+                    "outputs": {"chapter": {"text": "large"}},
+                    "artifact_refs": ["artifact:a"],
+                    "node_result_refs": ["node:a", "node:b"],
+                    "terminal_reason": "completed",
+                    "diagnostics": {"large": ["x"] * 20},
+                    "created_at": 10,
+                },
+            },
+        )
+    )
+
+    stored = state_index.read_snapshot()["task_runs"]["taskrun:graph-result"]
+    diagnostics = stored["diagnostics"]
+
+    assert "graph_result" not in diagnostics
+    assert diagnostics["graph_result_ref"].startswith("rtobj:graph_results:")
+    assert diagnostics["graph_result_summary"]["graph_run_id"] == "grun:graph"
+    assert diagnostics["graph_result_summary"]["node_result_ref_count"] == 2
+    assert state_index.runtime_objects.get_object(diagnostics["graph_result_ref"])["result_id"] == "result:graph"
+
+
 def test_state_index_update_task_run_applies_single_locked_record_update(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
     state_index.upsert_task_run(
@@ -133,6 +169,40 @@ def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> N
     assert state_index.get_task_run("taskrun:delete") is None
     assert state_index.list_task_agent_runs("taskrun:delete") == []
     assert state_index.list_task_agent_run_results("taskrun:delete") == []
+
+
+def test_state_index_prune_task_runs_uses_incremental_indexes(tmp_path, monkeypatch) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index.upsert_task_run(TaskRun(task_run_id="taskrun:keep", session_id="session", task_id="task.keep", updated_at=20))
+    state_index.upsert_task_run(TaskRun(task_run_id="taskrun:delete", session_id="session", task_id="task.delete", updated_at=30))
+    state_index.upsert_agent_run(AgentRun(agent_run_id="agentrun:delete", task_run_id="taskrun:delete", agent_id="agent:0", agent_profile_id="main"))
+    state_index.upsert_agent_run_result(AgentRunResult(agent_run_result_id="agresult:delete", agent_run_id="agentrun:delete", task_run_id="taskrun:delete", agent_id="agent:0", status="completed"))
+    state_index.upsert_project_runtime_status(
+        ProjectRuntimeStatus(
+            project_id="project:delete",
+            session_id="session",
+            graph_id="graph:delete",
+            active_task_run_id="taskrun:delete",
+            active_run_status="running",
+            project_runtime_status="watching",
+        )
+    )
+
+    def _fail_full_snapshot_read() -> dict[str, object]:
+        raise AssertionError("prune_task_runs must not read the full state index snapshot")
+
+    monkeypatch.setattr(state_index, "_read", _fail_full_snapshot_read)
+
+    result = state_index.prune_task_runs({"taskrun:delete"})
+
+    assert result["deleted_task_run_ids"] == ["taskrun:delete"]
+    assert state_index.get_task_run("taskrun:delete") is None
+    assert [item.task_run_id for item in state_index.list_session_task_runs("session")] == ["taskrun:keep"]
+    assert state_index.list_task_agent_runs("taskrun:delete") == []
+    assert state_index.list_task_agent_run_results("taskrun:delete") == []
+    status = state_index.get_project_runtime_status("project:delete")
+    assert status is not None
+    assert status.active_task_run_id == ""
 
 
 def test_state_index_indexed_lookups_do_not_load_full_record_buckets(tmp_path, monkeypatch) -> None:

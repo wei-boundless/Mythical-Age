@@ -3811,6 +3811,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:general");
   });
 
+  it("removes a session from the local list before the delete request settles", async () => {
+    vi.useRealTimers();
+    let resolveDelete: ((value: { ok: boolean }) => void) | null = null;
+    api.deleteSession.mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => {
+      resolveDelete = resolve;
+    }));
+    api.listSessions.mockResolvedValue([{
+      id: "session:keep",
+      title: "Keep",
+      created_at: 1,
+      updated_at: 5,
+      message_count: 0,
+    }]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:keep",
+      sessions: [
+        {
+          id: "session:delete",
+          title: "Delete me",
+          created_at: 1,
+          updated_at: 6,
+          message_count: 0,
+        },
+        {
+          id: "session:keep",
+          title: "Keep",
+          created_at: 1,
+          updated_at: 5,
+          message_count: 0,
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const deletion = runtime.actions.removeSession({
+      sessionId: "session:delete",
+      poolKey: "main-chat",
+    });
+
+    expect(api.deleteSession).toHaveBeenCalledWith("session:delete", undefined);
+    expect(store.getState().sessions.map((session) => session.id)).toEqual(["session:keep"]);
+
+    resolveDelete?.({ ok: true });
+    await deletion;
+    expect(api.listSessions).toHaveBeenCalled();
+  });
+
   it("keeps scoped session index when deleting the selected task-environment session", async () => {
     vi.useRealTimers();
     const poolKey = "task_environment:env.development.code:project:code" as const;

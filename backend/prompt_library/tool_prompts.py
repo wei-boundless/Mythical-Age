@@ -91,6 +91,18 @@ TOOL_PERSISTED_TOOL_RESULT_GUIDANCE = """
 """.strip()
 
 
+TOOL_LOCAL_SEARCH_GUIDANCE = """
+使用本地搜索工具时，你是在为当前判断取得工作区事实；工具只返回候选路径、命中文本或匹配结果，不能替你决定任务目标。
+如果已经知道准确路径，直接用 read_file、path_exists、stat_path 或 list_dir，不要先搜索。
+如果目标是文件名或路径关键词，例如 mario、计划书、task_understanding.py，使用 search_files。
+如果目标包含明确通配符，例如 *.html、**/*.py、backend/**/*.ts，使用 glob_paths。
+如果目标是文件内容、函数名、报错文本、标题或引用片段，使用 search_text；已知具体文件时把文件放进 paths，目录范围放进 roots，文件类型范围放进 glob。
+search_text.paths 只能放具体文件，不能放目录；如果手上是 frontend/src、backend/harness 这类目录，必须放 roots，或先用 glob_paths/search_files 定位文件。
+roots 只放目录，不放文件路径；一般先留空使用默认工作目录，或给已知窄目录。只有需要搜索项目根目录下的文件时，才使用 roots=["."]。
+搜索结果只是定位线索；修改、逐行引用或验收前，仍要读取目标文件的当前内容窗口。
+""".strip()
+
+
 @dataclass(frozen=True, slots=True)
 class ToolGuidanceItem:
     prompt_ref: str
@@ -163,6 +175,11 @@ def list_builtin_tool_prompt_resources() -> tuple[PromptResource, ...]:
             prompt_id="tool.guidance.read_persisted_tool_result",
             title="Persisted tool result guidance",
             content=TOOL_PERSISTED_TOOL_RESULT_GUIDANCE,
+        ),
+        _tool_guidance_resource(
+            prompt_id="tool.guidance.local_search",
+            title="Local search tool guidance",
+            content=TOOL_LOCAL_SEARCH_GUIDANCE,
         ),
     )
 
@@ -324,10 +341,14 @@ _SUBAGENT_TOOL_REFS = ("tool.guidance.subagent",)
 _GIT_READ_TOOL_REFS = ("tool.guidance.git_read",)
 _GIT_WRITE_TOOL_REFS = ("tool.guidance.git_write",)
 _PERSISTED_TOOL_RESULT_REFS = ("tool.guidance.read_persisted_tool_result",)
+_LOCAL_SEARCH_TOOL_REFS = ("tool.guidance.local_search",)
 
 _TOOL_GUIDANCE_REFS_BY_NAME: dict[str, tuple[str, ...]] = {
     "read_file": ("tool.guidance.read_file",),
     "read_persisted_tool_result": _PERSISTED_TOOL_RESULT_REFS,
+    "glob_paths": _LOCAL_SEARCH_TOOL_REFS,
+    "search_files": _LOCAL_SEARCH_TOOL_REFS,
+    "search_text": _LOCAL_SEARCH_TOOL_REFS,
     "edit_file": ("tool.guidance.edit_file",),
     "write_file": ("tool.guidance.write_file",),
     "terminal": ("tool.guidance.terminal_powershell",),

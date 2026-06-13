@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from harness.graph.lifecycle_manager import GraphTaskLifecycleManager
@@ -15,31 +16,30 @@ class SessionRuntimeLifecycleManager:
         self.runtime = runtime
         self.host = runtime.harness_runtime.single_agent_runtime_host
 
-    async def detach_session_runtime(self, session_id: str) -> dict[str, Any]:
+    async def detach_session_runtime(self, session_id: str, *, session_history: dict[str, Any] | None = None) -> dict[str, Any]:
         normalized = str(session_id or "").strip()
         if not normalized:
             raise ValueError("session_id is required")
-        history = self._session_history(normalized)
+        history = dict(session_history) if session_history is not None else await asyncio.to_thread(self._session_history, normalized)
         binding = dict(history.get("task_binding") or {})
-        task_run_ids = self._session_task_run_ids(normalized)
-        turn_run_ids = self._session_turn_run_ids(normalized)
-        runtime_runs = list(self.host.run_registry.list_session_runs(normalized))
+        refs = await asyncio.to_thread(self._session_runtime_refs, normalized)
+        task_run_ids = set(refs["task_run_ids"])
+        turn_run_ids = set(refs["turn_run_ids"])
+        runtime_runs = list(refs["runtime_runs"])
         executor_stop_effect = self._request_executor_stop(task_run_ids=task_run_ids)
-        tombstone_effect = self.host.state_index.mark_session_deleted(normalized)
+        tombstone_effect = await asyncio.to_thread(self.host.state_index.mark_session_deleted, normalized)
         cancel_effect = await self.host.cancel_background_tasks(
             names=self._background_task_names(task_run_ids=task_run_ids, runtime_runs=runtime_runs),
             reason="session_deleted",
         )
-        late_task_run_ids = self._session_task_run_ids(normalized) - task_run_ids
-        late_runtime_runs = [
-            item
-            for item in self.host.run_registry.list_session_runs(normalized)
-            if str(getattr(item, "stream_run_id", "") or "").strip()
-            not in {
-                str(getattr(run, "stream_run_id", "") or "").strip()
-                for run in runtime_runs
-            }
-        ]
+        late_refs = await asyncio.to_thread(
+            self._late_runtime_refs,
+            normalized,
+            task_run_ids,
+            runtime_runs,
+        )
+        late_task_run_ids = set(late_refs["task_run_ids"])
+        late_runtime_runs = list(late_refs["runtime_runs"])
         late_cancel_effect = {
             "authority": "single_agent_runtime_host.cancel_background_tasks",
             "requested_names": [],
@@ -60,15 +60,15 @@ class SessionRuntimeLifecycleManager:
             )
             task_run_ids |= late_task_run_ids
             runtime_runs.extend(late_runtime_runs)
-        turn_run_ids |= self._session_turn_run_ids(normalized)
+        turn_run_ids |= await asyncio.to_thread(self._session_turn_run_ids, normalized)
         active_turn_effect = self.host.active_turn_registry.clear_session(normalized, reason="session_deleted")
-        runtime_run_effect = self.host.run_registry.delete_session_runs(normalized)
-        graph_task_effect = self._delete_bound_graph_task(binding)
-        state_effect = {
-            "task_runs": self.host.state_index.prune_task_runs(task_run_ids),
-            "turn_runs": self.host.state_index.prune_turn_runs(turn_run_ids),
-        }
-        maintenance_effect = self._mark_project_maintenance_ended(binding=binding)
+        storage_effect = await asyncio.to_thread(
+            self._detach_session_runtime_storage,
+            normalized,
+            binding,
+            task_run_ids,
+            turn_run_ids,
+        )
         return {
             "authority": self.authority,
             "session_id": normalized,
@@ -82,10 +82,10 @@ class SessionRuntimeLifecycleManager:
                 "late_executor_stop": late_executor_stop_effect,
                 "session_deletion_tombstone": tombstone_effect,
                 "active_turn": active_turn_effect,
-                "runtime_runs": runtime_run_effect,
-                "graph_task": graph_task_effect,
-                "state_index": state_effect,
-                "project_maintenance": maintenance_effect,
+                "runtime_runs": storage_effect["runtime_runs"],
+                "graph_task": storage_effect["graph_task"],
+                "state_index": storage_effect["state_index"],
+                "project_maintenance": storage_effect["project_maintenance"],
             },
         }
 
@@ -96,6 +96,45 @@ class SessionRuntimeLifecycleManager:
             if str(exc) == "Unknown session_id":
                 return {}
             raise
+
+    def _session_runtime_refs(self, session_id: str) -> dict[str, Any]:
+        return {
+            "task_run_ids": self._session_task_run_ids(session_id),
+            "turn_run_ids": self._session_turn_run_ids(session_id),
+            "runtime_runs": list(self.host.run_registry.list_session_runs(session_id)),
+        }
+
+    def _late_runtime_refs(self, session_id: str, task_run_ids: set[str], runtime_runs: list[Any]) -> dict[str, Any]:
+        known_stream_run_ids = {
+            str(getattr(run, "stream_run_id", "") or "").strip()
+            for run in runtime_runs
+            if str(getattr(run, "stream_run_id", "") or "").strip()
+        }
+        return {
+            "task_run_ids": self._session_task_run_ids(session_id) - set(task_run_ids),
+            "runtime_runs": [
+                item
+                for item in self.host.run_registry.list_session_runs(session_id)
+                if str(getattr(item, "stream_run_id", "") or "").strip() not in known_stream_run_ids
+            ],
+        }
+
+    def _detach_session_runtime_storage(
+        self,
+        session_id: str,
+        binding: dict[str, Any],
+        task_run_ids: set[str],
+        turn_run_ids: set[str],
+    ) -> dict[str, Any]:
+        return {
+            "runtime_runs": self.host.run_registry.delete_session_runs(session_id),
+            "graph_task": self._delete_bound_graph_task(binding),
+            "state_index": {
+                "task_runs": self.host.state_index.prune_task_runs(task_run_ids),
+                "turn_runs": self.host.state_index.prune_turn_runs(turn_run_ids),
+            },
+            "project_maintenance": self._mark_project_maintenance_ended(binding=binding),
+        }
 
     def _session_task_run_ids(self, session_id: str) -> set[str]:
         return {

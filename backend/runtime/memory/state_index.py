@@ -458,14 +458,7 @@ class RuntimeStateIndex:
             }
         now = time.time()
         with _STATE_INDEX_WRITE_LOCK:
-            existing = self._read_json(self._deleted_task_run_path(normalized), {})
-            payload = {
-                "task_run_id": normalized,
-                "deleted_at": float(existing.get("deleted_at") or now),
-                "updated_at": now,
-                "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
-            }
-            self._atomic_write_path(self._deleted_task_run_path(normalized), payload)
+            payload = self._mark_task_run_deleted_unlocked(normalized, now=now)
             self._touch_meta(updated_at=now)
         return {
             "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
@@ -484,25 +477,32 @@ class RuntimeStateIndex:
                 "deleted_counts": {},
             }
         with _STATE_INDEX_WRITE_LOCK:
+            now = time.time()
+            deleted_task_run_ids: list[str] = []
+            deleted_counts: dict[str, int] = {}
+            affected_sessions: set[str] = set()
             for task_run_id in sorted(targets):
-                self.mark_task_run_deleted(task_run_id)
-            snapshot = self._read()
-            existing = targets.intersection(set(dict(snapshot.get("task_runs") or {}).keys()))
-            if not existing:
-                return {
-                    "authority": "orchestration.runtime_state_index.prune_task_runs",
-                    "requested_task_run_ids": sorted(targets),
-                    "deleted_task_run_ids": [],
-                    "deleted_counts": {},
-                }
-            pruned, counts = self._snapshot_without_task_runs(snapshot, existing)
-            pruned["updated_at"] = time.time()
-            self.replace_snapshot(pruned)
+                self._mark_task_run_deleted_unlocked(task_run_id, now=now)
+                payload = self._read_record("task_runs", task_run_id)
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    affected_sessions.add(session_id)
+                    self._remove_index_id("sessions", session_id, task_run_id)
+                if payload and self._delete_record("task_runs", task_run_id):
+                    deleted_task_run_ids.append(task_run_id)
+                    deleted_counts["task_runs"] = deleted_counts.get("task_runs", 0) + 1
+                    self._delete_runtime_object_refs(payload, deleted_counts)
+                    self._remove_global_task_refs(task_run_id, payload)
+                self._delete_task_scoped_records(task_run_id, deleted_counts)
+                self._reset_project_runtime_status_for_task(task_run_id, deleted_counts)
+            for session_id in sorted(affected_sessions):
+                self._refresh_session_task_indexes(session_id)
+            self._touch_meta(updated_at=time.time())
             return {
                 "authority": "orchestration.runtime_state_index.prune_task_runs",
                 "requested_task_run_ids": sorted(targets),
-                "deleted_task_run_ids": sorted(existing),
-                "deleted_counts": counts,
+                "deleted_task_run_ids": sorted(deleted_task_run_ids),
+                "deleted_counts": deleted_counts,
             }
 
     def prune_turn_runs(self, turn_run_ids: set[str]) -> dict[str, Any]:
@@ -515,23 +515,26 @@ class RuntimeStateIndex:
                 "deleted_counts": {},
             }
         with _STATE_INDEX_WRITE_LOCK:
-            snapshot = self._read()
-            existing = targets.intersection(set(dict(snapshot.get("turn_runs") or {}).keys()))
-            if not existing:
-                return {
-                    "authority": "orchestration.runtime_state_index.prune_turn_runs",
-                    "requested_turn_run_ids": sorted(targets),
-                    "deleted_turn_run_ids": [],
-                    "deleted_counts": {},
-                }
-            pruned, counts = self._snapshot_without_turn_runs(snapshot, existing)
-            pruned["updated_at"] = time.time()
-            self.replace_snapshot(pruned)
+            deleted_turn_run_ids: list[str] = []
+            deleted_counts: dict[str, int] = {}
+            affected_sessions: set[str] = set()
+            for turn_run_id in sorted(targets):
+                payload = self._read_record("turn_runs", turn_run_id)
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    affected_sessions.add(session_id)
+                    self._remove_index_id("session_turn_runs", session_id, turn_run_id)
+                if payload and self._delete_record("turn_runs", turn_run_id):
+                    deleted_turn_run_ids.append(turn_run_id)
+                    deleted_counts["turn_runs"] = deleted_counts.get("turn_runs", 0) + 1
+            for session_id in sorted(affected_sessions):
+                self._refresh_session_turn_indexes(session_id)
+            self._touch_meta(updated_at=time.time())
             return {
                 "authority": "orchestration.runtime_state_index.prune_turn_runs",
                 "requested_turn_run_ids": sorted(targets),
-                "deleted_turn_run_ids": sorted(existing),
-                "deleted_counts": counts,
+                "deleted_turn_run_ids": sorted(deleted_turn_run_ids),
+                "deleted_counts": deleted_counts,
             }
 
     def prune_session_runtime_records(self, session_id: str) -> dict[str, Any]:
@@ -556,6 +559,146 @@ class RuntimeStateIndex:
                 "turn_runs": turn_effect,
             },
         }
+
+    def _mark_task_run_deleted_unlocked(self, task_run_id: str, *, now: float) -> dict[str, Any]:
+        existing = self._read_json(self._deleted_task_run_path(task_run_id), {})
+        payload = {
+            "task_run_id": task_run_id,
+            "deleted_at": float(existing.get("deleted_at") or now),
+            "updated_at": now,
+            "authority": "orchestration.runtime_state_index.task_run_deletion_tombstone",
+        }
+        self._atomic_write_path(self._deleted_task_run_path(task_run_id), payload)
+        return payload
+
+    def _delete_task_scoped_records(self, task_run_id: str, counts: dict[str, int]) -> None:
+        scoped_record_indexes = (
+            ("task_agent_runs", "agent_runs"),
+            ("task_agent_run_results", "agent_run_results"),
+            ("task_worker_spawn_requests", "worker_spawn_requests"),
+            ("task_worker_spawn_results", "worker_spawn_results"),
+        )
+        for index_bucket, record_bucket in scoped_record_indexes:
+            record_ids = self._read_index_ids(index_bucket, task_run_id)
+            for record_id in record_ids:
+                if self._delete_record(record_bucket, record_id):
+                    counts[record_bucket] = counts.get(record_bucket, 0) + 1
+            self._delete_index_value(index_bucket, task_run_id)
+
+        message_ids = self._read_index_ids("task_subagent_messages", task_run_id)
+        for message_id in message_ids:
+            payload = self._read_record("subagent_messages", message_id)
+            subagent_run_ref = str(payload.get("subagent_run_ref") or "").strip()
+            if subagent_run_ref:
+                self._remove_index_id("subagent_run_messages", subagent_run_ref, message_id)
+            if self._delete_record("subagent_messages", message_id):
+                counts["subagent_messages"] = counts.get("subagent_messages", 0) + 1
+        self._delete_index_value("task_subagent_messages", task_run_id)
+
+        supervision_ids = self._read_index_ids("task_supervision_records", task_run_id)
+        for supervision_id in supervision_ids:
+            payload = self._read_record("supervision_records", supervision_id)
+            project_id = str(payload.get("project_id") or "").strip()
+            if project_id:
+                self._remove_index_id("project_supervision_records", project_id, supervision_id)
+            if self._delete_record("supervision_records", supervision_id):
+                counts["supervision_records"] = counts.get("supervision_records", 0) + 1
+        self._delete_index_value("task_supervision_records", task_run_id)
+
+    def _remove_global_task_refs(self, task_run_id: str, payload: dict[str, Any]) -> None:
+        self._remove_index_id("global_recent_task_runs", GLOBAL_RECENT_TASK_RUN_INDEX_ID, task_run_id)
+        self._remove_index_id("active_executor_task_runs", ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID, task_run_id)
+        identity = _graph_node_task_identity(payload)
+        graph_run_id = str(identity.get("graph_run_id") or "").strip()
+        work_order_id = str(identity.get("work_order_id") or "").strip()
+        if graph_run_id:
+            self._remove_index_id("graph_node_task_runs_by_graph_run", graph_run_id, task_run_id)
+        if work_order_id and str(self._read_index_value("graph_node_task_run_by_work_order", work_order_id) or "") == task_run_id:
+            self._delete_index_value("graph_node_task_run_by_work_order", work_order_id)
+
+    def _reset_project_runtime_status_for_task(self, task_run_id: str, counts: dict[str, int]) -> None:
+        project_id = str(self._read_index_value("task_project_status", task_run_id) or "").strip()
+        if not project_id:
+            return
+        payload = self._read_record("project_runtime_statuses", project_id)
+        if str(payload.get("active_task_run_id") or "").strip() == task_run_id:
+            updated = {
+                **payload,
+                "active_task_run_id": "",
+                "active_run_status": "",
+                "project_runtime_status": "watching",
+                "active_blocker": {},
+                "recovery_state": {},
+                "updated_at": time.time(),
+            }
+            self._write_record("project_runtime_statuses", project_id, updated)
+            counts["project_runtime_status_task_refs"] = counts.get("project_runtime_status_task_refs", 0) + 1
+        self._delete_index_value("task_project_status", task_run_id)
+
+    def _delete_runtime_object_refs(self, payload: dict[str, Any], counts: dict[str, int]) -> None:
+        diagnostics = dict(payload.get("diagnostics") or {})
+        for key in ("graph_result_ref", "graph_harness_config_ref"):
+            ref = str(diagnostics.get(key) or "").strip()
+            if not ref:
+                continue
+            try:
+                deleted = self.runtime_objects.delete_ref(ref)
+            except ValueError:
+                deleted = False
+            if deleted:
+                counts["runtime_objects"] = counts.get("runtime_objects", 0) + 1
+
+    def _refresh_session_task_indexes(self, session_id: str) -> None:
+        task_ids = []
+        task_payloads: list[dict[str, Any]] = []
+        for task_run_id in self._read_index_ids("sessions", session_id):
+            payload = self._read_record("task_runs", task_run_id)
+            if not payload:
+                continue
+            task_ids.append(task_run_id)
+            task_payloads.append(payload)
+        self._write_or_delete_index_ids("sessions", session_id, task_ids)
+        latest = self._latest_record(task_payloads, id_field="task_run_id")
+        if latest:
+            latest_id = str(latest.get("task_run_id") or "")
+            self._write_index_value("session_latest_task_runs", session_id, latest_id)
+            self._upsert_session_live_view(
+                session_id=session_id,
+                task_run_id=latest_id,
+                updated_at=float(latest.get("updated_at") or latest.get("created_at") or time.time()),
+            )
+            return
+        self._delete_index_value("session_latest_task_runs", session_id)
+        self._delete_session_live_view(session_id)
+
+    def _refresh_session_turn_indexes(self, session_id: str) -> None:
+        turn_ids = []
+        turn_payloads: list[dict[str, Any]] = []
+        for turn_run_id in self._read_index_ids("session_turn_runs", session_id):
+            payload = self._read_record("turn_runs", turn_run_id)
+            if not payload:
+                continue
+            turn_ids.append(turn_run_id)
+            turn_payloads.append(payload)
+        self._write_or_delete_index_ids("session_turn_runs", session_id, turn_ids)
+        latest = self._latest_record(turn_payloads, id_field="turn_run_id")
+        if latest:
+            self._write_index_value("session_latest_turn_runs", session_id, str(latest.get("turn_run_id") or ""))
+            return
+        self._delete_index_value("session_latest_turn_runs", session_id)
+
+    @staticmethod
+    def _latest_record(payloads: list[dict[str, Any]], *, id_field: str) -> dict[str, Any]:
+        candidates = [payload for payload in payloads if str(payload.get(id_field) or "").strip()]
+        if not candidates:
+            return {}
+        return max(
+            candidates,
+            key=lambda payload: (
+                float(payload.get("updated_at") or 0.0),
+                float(payload.get("created_at") or 0.0),
+            ),
+        )
 
     def _snapshot_without_task_runs(self, snapshot: dict[str, Any], task_run_ids: set[str]) -> tuple[dict[str, Any], dict[str, int]]:
         pruned = self._empty_snapshot()
@@ -709,6 +852,14 @@ class RuntimeStateIndex:
             diagnostics["graph_harness_config_summary"] = _graph_harness_config_summary(graph_config)
             diagnostics.pop("graph_harness_config", None)
             diagnostics.pop("graph_harness_config_payload", None)
+        if graph_result := dict(diagnostics.get("graph_result") or {}):
+            diagnostics["graph_result_ref"] = self.runtime_objects.put_json_once(
+                "graph_results",
+                object_id,
+                graph_result,
+            )
+            diagnostics["graph_result_summary"] = _graph_result_summary(graph_result)
+            diagnostics.pop("graph_result", None)
         compacted["diagnostics"] = diagnostics
         return compacted
 
@@ -814,6 +965,13 @@ class RuntimeStateIndex:
     def _write_record(self, bucket: str, record_id: str, payload: dict[str, Any]) -> None:
         self._atomic_write_path(self._bucket_record_path(bucket, record_id), payload)
 
+    def _delete_record(self, bucket: str, record_id: str) -> bool:
+        path = self._bucket_record_path(bucket, record_id)
+        if not path.exists():
+            return False
+        path.unlink(missing_ok=True)
+        return True
+
     def _read_index_ids(self, bucket: str, index_id: str) -> list[str]:
         value = self._read_index_value(bucket, index_id)
         return [str(item) for item in list(value or []) if str(item)]
@@ -824,6 +982,13 @@ class RuntimeStateIndex:
             items.append(value)
         self._write_index_value(bucket, index_id, items)
 
+    def _write_or_delete_index_ids(self, bucket: str, index_id: str, values: list[str]) -> None:
+        deduped = [item for item in dict.fromkeys(str(value).strip() for value in values) if item]
+        if deduped:
+            self._write_index_value(bucket, index_id, deduped)
+            return
+        self._delete_index_value(bucket, index_id)
+
     def _remove_index_id(self, bucket: str, index_id: str, value: str) -> None:
         normalized = str(value or "").strip()
         if not normalized:
@@ -831,7 +996,14 @@ class RuntimeStateIndex:
         items = self._read_index_ids(bucket, index_id)
         next_items = [item for item in items if item != normalized]
         if next_items != items:
-            self._write_index_value(bucket, index_id, next_items)
+            self._write_or_delete_index_ids(bucket, index_id, next_items)
+
+    def _delete_index_value(self, bucket: str, index_id: str) -> bool:
+        path = self._bucket_record_path(bucket, index_id)
+        if not path.exists():
+            return False
+        path.unlink(missing_ok=True)
+        return True
 
     def _sync_active_executor_task_run_id(self, task_run_id: str, payload: dict[str, Any]) -> None:
         if _is_active_executor_task_run_payload(payload):
@@ -957,6 +1129,13 @@ class RuntimeStateIndex:
 
     def _read_session_live_view(self, session_id: str) -> dict[str, Any]:
         return self._read_json(self._session_live_view_path(session_id), {})
+
+    def _delete_session_live_view(self, session_id: str) -> bool:
+        path = self._session_live_view_path(session_id)
+        if not path.exists():
+            return False
+        path.unlink(missing_ok=True)
+        return True
 
     def _upsert_session_live_view(
         self,
@@ -1228,6 +1407,27 @@ def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "module_count": len(modules),
         "content_hash": str(payload.get("content_hash") or ""),
         "status": str(payload.get("status") or ""),
+    }
+
+
+def _graph_result_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    outputs = dict(payload.get("outputs") or {})
+    artifact_refs = list(payload.get("artifact_refs") or [])
+    node_result_refs = list(payload.get("node_result_refs") or [])
+    diagnostics = dict(payload.get("diagnostics") or {})
+    return {
+        "result_id": str(payload.get("result_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "output_count": len(outputs),
+        "artifact_ref_count": len(artifact_refs),
+        "node_result_ref_count": len(node_result_refs),
+        "diagnostic_keys": sorted(str(key) for key in diagnostics.keys())[:20],
+        "created_at": float(payload.get("created_at") or 0.0),
     }
 
 

@@ -71,6 +71,8 @@ _STEER_ACTIVE_WORK_ACTIONS = {
 }
 _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 8
 _MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 32
+_DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
+_TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 
 
 def _configured_single_turn_tool_iterations() -> int:
@@ -2647,10 +2649,23 @@ def _single_agent_action_request_from_response(
         return SingleAgentActionParse(action_request=None, native_tool_calls=[])
     allowed_set = set(allowed_action_types or ())
     if "tool_call" not in allowed_set:
+        native_respond_actions: list[ModelActionRequest] = []
         native_errors: list[dict[str, Any]] = []
         for call in native_tool_calls:
             tool_name = str(dict(call or {}).get("name") or "").strip()
-            if tool_name in _CONTROL_ACTION_NAMES:
+            if tool_name == "respond":
+                action, error = _respond_action_request_from_native_tool_call(
+                    dict(call or {}),
+                    turn_id=turn_id,
+                    packet_ref=packet_ref,
+                    iteration=iteration,
+                    allowed_action_types=allowed_action_types,
+                )
+                if action is not None:
+                    native_respond_actions.append(action)
+                elif error is not None:
+                    native_errors.append(error)
+            elif tool_name in _CONTROL_ACTION_NAMES:
                 action_issue = _protocol_action_issue(
                     category="protocol_violation",
                     code="control_action_requires_json_action",
@@ -2692,6 +2707,12 @@ def _single_agent_action_request_from_response(
                         },
                     }
                 )
+        if native_respond_actions and not native_errors:
+            return SingleAgentActionParse(
+                action_request=native_respond_actions[0] if len(native_respond_actions) == 1 else None,
+                native_tool_calls=native_tool_calls,
+                control_action=native_respond_actions[0] if len(native_respond_actions) == 1 else None,
+            )
         reasons = [
             str(error.get("reason") or error.get("code") or "").strip()
             for error in native_errors
@@ -2717,6 +2738,7 @@ def _single_agent_action_request_from_response(
         turn_id=turn_id,
         packet_ref=packet_ref,
         iteration=iteration,
+        allowed_action_types=allowed_action_types,
     )
     native_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -2829,6 +2851,7 @@ def _action_requests_from_native_tool_calls(
     turn_id: str,
     packet_ref: str,
     iteration: int,
+    allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -2836,6 +2859,7 @@ def _action_requests_from_native_tool_calls(
             turn_id=turn_id,
             packet_ref=packet_ref,
             iteration=iteration,
+            allowed_action_types=allowed_action_types,
         ).actions
     )
 
@@ -2846,6 +2870,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     turn_id: str,
     packet_ref: str,
     iteration: int,
+    allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
@@ -2867,7 +2892,18 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 }
             )
             continue
-        if tool_name in _CONTROL_ACTION_NAMES:
+        if tool_name == "respond":
+            action, error = _respond_action_request_from_native_tool_call(
+                call,
+                turn_id=turn_id,
+                packet_ref=packet_ref,
+                iteration=iteration,
+                allowed_action_types=allowed_action_types,
+            )
+            if error is not None:
+                errors.append(error)
+                continue
+        elif tool_name in _CONTROL_ACTION_NAMES:
             errors.append(
                 {
                     "authority": "harness.loop.single_agent_turn.native_action_parser",
@@ -2919,6 +2955,70 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
             continue
         actions.append(action)
     return NativeActionRequestParse(actions=tuple(actions), errors=tuple(errors))
+
+
+def _respond_action_request_from_native_tool_call(
+    call: dict[str, Any],
+    *,
+    turn_id: str,
+    packet_ref: str,
+    iteration: int,
+    allowed_action_types: tuple[str, ...],
+) -> tuple[ModelActionRequest | None, dict[str, Any] | None]:
+    allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
+    args = dict(call.get("args") or {})
+    call_id = str(call.get("id") or f"call:respond:{iteration}")
+    final_answer = str(args.get("final_answer") or "").strip()
+    if "respond" not in allowed:
+        return None, {
+            "authority": "harness.loop.single_agent_turn.native_action_parser",
+            "code": "native_respond_not_allowed_for_context",
+            "reason": "native_respond_not_allowed_for_context",
+            "native_tool_call": _native_tool_call_diagnostics(call),
+            "action_issue": _protocol_action_issue(
+                category="protocol_violation",
+                code="respond_not_allowed_for_context",
+                requested_action_type="respond",
+                requested_tool_name="respond",
+                repair_instruction="当前阶段不允许直接回答；请按本轮允许动作重新提交。",
+            ),
+            "repairable": True,
+            "repair_contract": {"allowed_action_types": list(allowed_action_types or ())},
+        }
+    if not final_answer:
+        return None, {
+            "authority": "harness.loop.single_agent_turn.native_action_parser",
+            "code": "native_respond_final_answer_required",
+            "reason": "native_respond_final_answer_required",
+            "native_tool_call": _native_tool_call_diagnostics(call),
+            "action_issue": _protocol_action_issue(
+                category="protocol_violation",
+                code="final_answer_required_for_respond",
+                requested_action_type="respond",
+                requested_tool_name="respond",
+                repair_instruction="respond 动作必须提供 final_answer；请保留原回答意图并补齐 final_answer。",
+            ),
+            "repairable": True,
+            "repair_contract": {"required_transport": "native_respond", "required_args": ["final_answer"]},
+        }
+    return ModelActionRequest(
+        request_id=f"model-action:{turn_id}:native-respond:{iteration}:{_stable_action_suffix(call_id or final_answer)}",
+        turn_id=turn_id,
+        action_type="respond",
+        final_answer=final_answer,
+        public_progress_note=public_runtime_progress_summary(args.get("public_progress_note") or "").strip(),
+        public_action_state={},
+        diagnostics={
+            "origin_kind": "single_agent_turn_native_respond",
+            "origin_authority": "harness.loop.single_agent_turn",
+            "packet_ref": packet_ref,
+            "native_tool_call": {
+                "id": call_id,
+                "name": "respond",
+                "source": str(call.get("source") or ""),
+            },
+        },
+    ), None
 
 
 def _native_tool_call_diagnostics(call: dict[str, Any]) -> dict[str, Any]:
@@ -3313,7 +3413,7 @@ async def _execute_tool_batch_group(
         if pending:
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            await _drain_cancelled_tool_tasks(pending)
         results_by_index: dict[int, Any] = {}
         for task in done:
             row_index = tasks[task]
@@ -3382,6 +3482,23 @@ async def _execute_tool_batch_group(
     return observations
 
 
+async def _drain_cancelled_tool_tasks(tasks: set[asyncio.Task[Any]]) -> None:
+    if not tasks:
+        return
+    done, still_pending = await asyncio.wait(tasks, timeout=_TOOL_BATCH_CANCEL_DRAIN_SECONDS)
+    for task in done:
+        _consume_tool_task_result(task)
+    for task in still_pending:
+        task.add_done_callback(_consume_tool_task_result)
+
+
+def _consume_tool_task_result(task: asyncio.Task[Any]) -> None:
+    try:
+        task.exception()
+    except BaseException:
+        return
+
+
 def _tool_batch_group_timeout_seconds(runtime_assembly: Any) -> float:
     assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
     environment = dict(assembly_payload.get("task_environment") or {})
@@ -3397,7 +3514,7 @@ def _tool_batch_group_timeout_seconds(runtime_assembly: Any) -> float:
             continue
         if value > 0:
             return max(1.0, value)
-    return 300.0
+    return _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS
 
 
 async def _invoke_turn_tool_for_batch_row(

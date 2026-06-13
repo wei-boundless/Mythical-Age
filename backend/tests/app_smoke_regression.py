@@ -142,6 +142,25 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
                 client.delete(f"/api/sessions/{session_id}")
 
 
+def test_delete_session_queues_runtime_cleanup_and_removes_session_immediately() -> None:
+    with isolated_app_client(app) as client:
+        created = client.post("/api/sessions", json={"title": "Delete quickly"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        response = client.delete(f"/api/sessions/{session_id}")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["cleanup"]["mode"] == "queued_runtime_cleanup"
+        assert payload["cleanup"]["queued"] is True
+        assert payload["cleanup"]["session_deletion_tombstone"]["recorded"] is True
+        sessions = client.get("/api/sessions")
+        assert sessions.status_code == 200
+        assert session_id not in {item["id"] for item in sessions.json()}
+
+
 def test_api_smoke_flow() -> None:
     with isolated_app_client(app) as client:
         runtime = app_runtime.require_ready()

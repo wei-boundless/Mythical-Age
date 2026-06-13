@@ -78,6 +78,11 @@ _ACTIVE_WORK_CONTROL_KEY_RE = re.compile(
     r'"(?:active_work_control|relation_to_current_work|continuation_strategy|turn_response_policy|answer_obligation|appended_instruction|user_turn_kind)"\s*:',
     re.IGNORECASE,
 )
+_MODEL_ACTION_PROTOCOL_RE = re.compile(
+    r'"authority"\s*:\s*"harness\.loop\.model_action_request"|'
+    r'"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"',
+    re.IGNORECASE,
+)
 
 _DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call\b[^>]*>[\s\S]*?(?:</tool_call>|\Z)", re.IGNORECASE)
@@ -160,6 +165,7 @@ def contains_internal_protocol(text: str) -> bool:
     lowered = normalized.lower()
     return (
         any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
+        or bool(_MODEL_ACTION_PROTOCOL_RE.search(normalized))
         or _looks_like_active_work_control_protocol(normalized)
         or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
         or bool(_SEARCH_PROTOCOL_BLOCK_RE.search(normalized))
@@ -485,16 +491,7 @@ def canonical_output_decision_for_final_text(
             leak_flags=leak_flags,
         )
     if leak_flags:
-        canonical_visible = _canonical_visible_final_text(
-            visible_text,
-            route=route,
-            source=normalized_source,
-            execution_posture=execution_posture,
-            user_message=user_message,
-            tool_name=tool_name,
-            retrieval_results=retrieval_results,
-            has_tool_receipt=has_tool_receipt,
-        )
+        canonical_visible = visible_text.strip() or salvage_visible_assistant_content(raw_text).strip()
         return CanonicalFinalTextDecision(
             content=canonical_visible,
             answer_channel=normalized_channel,
@@ -508,40 +505,31 @@ def canonical_output_decision_for_final_text(
             leak_flags=leak_flags,
         )
 
-    candidates: list[OutputCandidate] = []
-    candidate = classify_output_candidate(
-        text=visible_text or raw_text,
-        route=route,
-        source=normalized_source,
-        tool_name=tool_name,
-        has_tool_receipt=has_tool_receipt,
-    )
-    if candidate is not None:
-        candidates.append(candidate)
-    decision = build_output_decision(
-        candidates=candidates,
-        route=route,
-        execution_posture=execution_posture,
-        user_message=user_message,
-        tool_name=tool_name,
-        retrieval_results=retrieval_results,
-        leak_flags=leak_flags,
-        has_tool_receipt=has_tool_receipt,
-    )
-    canonical_content = sanitize_visible_assistant_content(decision.canonical_answer).strip()
-    if not canonical_content and visible_text.strip():
-        canonical_content = visible_text.strip()
+    canonical_content = visible_text.strip()
+    if not canonical_content:
+        return CanonicalFinalTextDecision(
+            content="",
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel="fallback_answer",
+            selected_source="runtime.output_boundary.empty_final_text",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="none",
+            fallback_reason=str(terminal_reason or completion_state or "empty_final_text").strip(),
+            leak_flags=[],
+        )
     return CanonicalFinalTextDecision(
         content=canonical_content,
         answer_channel=normalized_channel,
         answer_source=normalized_source,
-        selected_channel=decision.selected_channel,
-        selected_source=decision.selected_source,
-        canonical_state=decision.canonical_state,
-        persist_policy=decision.persist_policy,
-        finalization_policy=decision.finalization_policy,
-        fallback_reason=str(decision.fallback_reason or terminal_reason or completion_state or "").strip(),
-        leak_flags=list(decision.leak_flags),
+        selected_channel="answer_candidate",
+        selected_source=normalized_source,
+        canonical_state="stable_answer",
+        persist_policy="persist_canonical",
+        finalization_policy="route_optional",
+        fallback_reason=str(terminal_reason or completion_state or "").strip(),
+        leak_flags=[],
     )
 
 

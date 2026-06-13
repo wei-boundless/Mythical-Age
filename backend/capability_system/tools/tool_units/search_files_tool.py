@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import os
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Literal, Type
 
@@ -18,14 +20,20 @@ from capability_system.tools.workspace_file_service import (
     WorkspaceFileService,
 )
 
+_PATH_SEARCH_SCAN_LIMIT = 25000
+_PATH_SEARCH_TIME_BUDGET_SECONDS = 5.0
+
 
 class SearchFilesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(..., description="文件名或路径关键词，例如 OpenClaw、计划书、task_understanding.py")
+    query: str = Field(
+        ...,
+        description="文件名或路径关键词，例如 OpenClaw、计划书、task_understanding.py；通配符路径如 *.html 或 **/*.py 用 glob_paths，文件内容关键词用 search_text",
+    )
     roots: list[str] = Field(
         default_factory=list,
-        description="可选搜索根目录，默认搜索 docs/backend/frontend；路径必须在项目根目录内",
+        description="可选目录 roots，默认搜索 docs/backend/frontend；只放目录，不放文件路径；一般先留空或给窄目录，只有需要项目根目录文件时才传 [\".\"]",
     )
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
 
@@ -33,16 +41,19 @@ class SearchFilesInput(BaseModel):
 class SearchTextInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(..., description="要在文件内容里搜索的文本或正则关键词")
+    query: str = Field(
+        ...,
+        description="要在文件内容里搜索的文本或正则关键词；只找文件名/路径用 search_files，通配符路径匹配用 glob_paths",
+    )
     roots: list[str] = Field(
         default_factory=list,
-        description="可选搜索根目录，默认搜索 docs/backend/frontend；路径必须在项目根目录内",
+        description="可选目录 roots，默认搜索 docs/backend/frontend；只放目录，不放文件路径；已知具体文件放 paths",
     )
     paths: list[str] = Field(
         default_factory=list,
-        description="可选具体文件路径；当只想在一个或多个已知文件里搜索时使用，不要放入 roots",
+        description="可选具体文件路径；当只想在一个或多个已知文件里搜索内容时使用；只能放文件，目录必须放 roots",
     )
-    glob: str = Field(default="", description="可选 glob，例如 **/*.md 或 backend/**/*.py")
+    glob: str = Field(default="", description="可选文件范围过滤 glob，例如 **/*.md 或 backend/**/*.py；它过滤搜索文件，不是内容 query")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
     output_mode: Literal["content", "files_with_matches", "count"] = Field(default="content", description="输出模式：content、files_with_matches 或 count")
     context: int = Field(default=0, ge=0, le=20, description="推荐读取窗口时每个命中行前后包含的上下文行数")
@@ -117,18 +128,74 @@ def _query_terms(query: str) -> list[str]:
     return deduped
 
 
-def _normalize_workspace_path(value: str) -> str:
-    path = str(value or "").strip().replace("\\", "/")
-    while path.startswith("./"):
-        path = path[2:]
-    return path
+def _search_path_matches(
+    files: WorkspaceFileService,
+    *,
+    safe_roots: list[Path],
+    query: str,
+    terms: list[str],
+    limit: int,
+    using_default_roots: bool,
+) -> tuple[list[str], dict[str, Any]]:
+    matches: list[str] = []
+    seen: set[str] = set()
+    scanned = 0
+    deadline = time.monotonic() + _PATH_SEARCH_TIME_BUDGET_SECONDS
+    for root in safe_roots:
+        for path in _iter_search_files(files, root=root, include_default_search_excludes=using_default_roots):
+            scanned += 1
+            rel = files.relative_path(path)
+            if rel in seen or not _path_matches_query(rel, query=query, terms=terms):
+                if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
+                    return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
+                continue
+            seen.add(rel)
+            matches.append(rel)
+            if len(matches) >= limit:
+                return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
+            if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
+                return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
+    return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
+
+
+def _path_search_meta(*, scanned: int, truncated: bool) -> dict[str, Any]:
+    return {
+        "scanned_paths": int(scanned),
+        "truncated": bool(truncated),
+        "scan_limit": _PATH_SEARCH_SCAN_LIMIT,
+        "time_budget_seconds": _PATH_SEARCH_TIME_BUDGET_SECONDS,
+    }
+
+
+def _iter_search_files(files: WorkspaceFileService, *, root: Path, include_default_search_excludes: bool):
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if not files.is_excluded(Path(directory) / dirname, include_default_search_excludes=include_default_search_excludes)
+        ]
+        for filename in filenames:
+            path = Path(directory) / filename
+            if path.is_file() and not files.is_excluded(path, include_default_search_excludes=include_default_search_excludes):
+                yield path
+
+
+def _path_matches_query(path: str, *, query: str, terms: list[str]) -> bool:
+    normalized_path = str(path or "").replace("\\", "/").lower()
+    if any(term and term in normalized_path for term in terms):
+        return True
+    raw_query = str(query or "").strip().replace("\\", "/").lower()
+    if not any(ch in raw_query for ch in "*?[]"):
+        return False
+    return fnmatch.fnmatch(normalized_path, raw_query) or fnmatch.fnmatch(Path(normalized_path).name, raw_query)
 
 
 class SearchFilesTool(BaseTool):
     name: str = "search_files"
     description: str = (
-        "Search local workspace file paths before reading files. Use this when a filename or path is uncertain; "
-        "returns safe project-relative paths that can be passed to read_file or the appropriate MCP route."
+        "Find workspace file paths by filename/path keywords when the exact path is unknown. "
+        "Use glob_paths for wildcard patterns such as *.html or **/*.py; use search_text for file contents. "
+        "Returns safe project-relative paths for read_file or other file tools."
     )
     args_schema: Type[BaseModel] = SearchFilesInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -155,30 +222,17 @@ class SearchFilesTool(BaseTool):
             return "Search failed: no safe search roots."
 
         limit = max(1, min(int(max_results or 20), 100))
-        completed = None
-        if self._files.search_root_args_are_workspace_relative(safe_roots):
-            root_args = [self._files.relative_path(root) for root in safe_roots]
-            completed = _run_rg(
-                ["--files", *_runtime_private_exclude_args(), *_default_search_exclude_args(using_default_roots), *root_args],
-                cwd=self._files.workspace_root,
-            )
-        paths: list[str] = []
-        if completed is not None and completed.returncode in {0, 1}:
-            paths = [_normalize_workspace_path(line) for line in completed.stdout.splitlines() if line.strip()]
-        else:
-            for root in safe_roots:
-                for path in root.rglob("*"):
-                    if path.is_file() and not self._files.is_excluded(
-                        path,
-                        include_default_search_excludes=using_default_roots,
-                    ):
-                        paths.append(self._files.relative_path(path))
-
         terms = _query_terms(normalized_query)
-        matches = [path for path in paths if any(term in path.lower() for term in terms)]
-        matches = sorted(dict.fromkeys(matches))[:limit]
+        matches, search_meta = _search_path_matches(
+            self._files,
+            safe_roots=safe_roots,
+            query=normalized_query,
+            terms=terms,
+            limit=limit,
+            using_default_roots=using_default_roots,
+        )
         if not matches:
-            return _format_no_results(
+            text = _format_no_results(
                 normalized_query,
                 search_boundary=_path_search_boundary(
                     self._files,
@@ -186,7 +240,11 @@ class SearchFilesTool(BaseTool):
                     using_default_roots=using_default_roots,
                 ),
             )
-        return "\n".join(f"[{index}] {path}" for index, path in enumerate(matches, start=1))
+            if search_meta.get("truncated"):
+                text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
+            return text
+        suffix = "\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。" if search_meta.get("truncated") else ""
+        return "\n".join(f"[{index}] {path}" for index, path in enumerate(matches, start=1)) + suffix
 
     async def _arun(
         self,
@@ -201,8 +259,9 @@ class SearchFilesTool(BaseTool):
 class SearchTextTool(BaseTool):
     name: str = "search_text"
     description: str = (
-        "Search local workspace file contents with ripgrep-style matching. Use this to locate code, docs, headings, "
-        "or references before choosing a file to read."
+        "Search workspace file contents with ripgrep-style matching. Use this for code, docs, headings, or references. "
+        "Use search_files for filename/path keywords and glob_paths for wildcard path discovery. "
+        "Put known files in paths and directories in roots; paths never accepts directories."
     )
     args_schema: Type[BaseModel] = SearchTextInput
     model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -32,10 +32,6 @@ export function publicProjectionFrameFromRecord(value: unknown): PublicProjectio
   return record as PublicProjectionFrame;
 }
 
-export function publicProjectionFrameSuppressesLegacy(frame: PublicProjectionFrame | null): boolean {
-  return Boolean(frame);
-}
-
 export function applyPublicProjectionFrame(
   state: StoreState,
   frame: PublicProjectionFrame | null,
@@ -232,7 +228,16 @@ function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: Pu
       const retireId = item?.itemId || text(frame.item_id || frame.tool_call_id);
       if (!retireId) return sortLedger(ledger);
       if (ledger.currentAction && itemMatchesRetireId(ledger.currentAction, retireId)) {
-        ledger.trace = upsertProjectionItem(ledger.trace, { ...ledger.currentAction, ...item, mainVisibility: "trace_only", retention: "trace" });
+        const retiredAction = { ...ledger.currentAction, ...item };
+        ledger.trace = upsertProjectionItem(ledger.trace, { ...retiredAction, mainVisibility: "trace_only", retention: "trace" });
+        if (item && itemIsMainVisible(item)) {
+          ledger.status = upsertProjectionItem(ledger.status, {
+            ...retiredAction,
+            slot: "status",
+            mainVisibility: item.mainVisibility,
+            retention: item.retention,
+          });
+        }
         ledger.currentAction = undefined;
       }
       ledger.pinned = retireItems(ledger.pinned, retireId, item, ledger);

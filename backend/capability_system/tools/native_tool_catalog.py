@@ -361,7 +361,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_path_search", "glob_search"],
             safe_for_auto_route=True,
             schema_identity="local.tools/glob_paths",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -384,7 +384,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_path_search", "file_search"],
             safe_for_auto_route=True,
             schema_identity="local.tools/search_files",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(
@@ -418,7 +418,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_text_search", "text_search", "code_search"],
             safe_for_auto_route=True,
             schema_identity="local.tools/search_text",
-            prompt_exposure_policy="schema_only",
+            prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="explicit_resource",
         ),
         ToolDefinition(

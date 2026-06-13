@@ -53,6 +53,9 @@ export function isInternalControlProtocolText(value: unknown) {
   if (containsInternalControlProtocolObject(parseJsonLike(text))) {
     return true;
   }
+  if (looksLikeEmbeddedModelActionProtocol(text)) {
+    return true;
+  }
   return looksLikeWholeInternalContractPrompt(text);
 }
 
@@ -99,6 +102,12 @@ function containsInternalControlProtocolObject(value: unknown): boolean {
     || record.task_contract_seed
     || record.active_work_control
   );
+}
+
+function looksLikeEmbeddedModelActionProtocol(value: string) {
+  return /"authority"\s*:\s*"harness\.loop\.model_action_request"/i.test(value)
+    || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"/i.test(value)
+    && /"(?:public_action_state|task_contract_seed|tool_call|final_answer|user_question|blocking_reason|active_work_control)"\s*:/i.test(value);
 }
 
 function looksLikeWholeInternalContractPrompt(value: string) {

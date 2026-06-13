@@ -104,6 +104,8 @@ _REPEATED_ADMISSION_GUARD_COUNT = 2
 _REPEATED_ADMISSION_PAUSE_COUNT = 3
 _REPEATED_TOOL_FAILURE_OBSERVATION_COUNT = 3
 _REPEATED_TOOL_FAILURE_BLOCK_COUNT = 4
+_DEFAULT_TASK_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
+_TASK_TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
 _TASK_RUN_CONTROL_KEY = "runtime_control"
 _TASK_RUN_PAUSE_REQUESTED = "pause_requested"
@@ -2852,7 +2854,7 @@ async def _execute_task_tool_batch_group(
         if pending:
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            await _drain_cancelled_task_tool_tasks(pending)
         results_by_index: dict[int, Any] = {}
         interrupt: TaskRunExecutorInterrupted | None = None
         for task in done:
@@ -2947,7 +2949,24 @@ def _task_tool_batch_group_timeout_seconds(runtime_assembly: Any) -> float:
             continue
         if value > 0:
             return max(1.0, value)
-    return 300.0
+    return _DEFAULT_TASK_TOOL_BATCH_TIMEOUT_SECONDS
+
+
+async def _drain_cancelled_task_tool_tasks(tasks: set[asyncio.Task[Any]]) -> None:
+    if not tasks:
+        return
+    done, still_pending = await asyncio.wait(tasks, timeout=_TASK_TOOL_BATCH_CANCEL_DRAIN_SECONDS)
+    for task in done:
+        _consume_task_tool_task_result(task)
+    for task in still_pending:
+        task.add_done_callback(_consume_task_tool_task_result)
+
+
+def _consume_task_tool_task_result(task: asyncio.Task[Any]) -> None:
+    try:
+        task.exception()
+    except BaseException:
+        return
 
 
 def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> list[TaskExecutionModelActionRequest]:

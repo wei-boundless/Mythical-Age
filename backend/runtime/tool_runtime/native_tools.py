@@ -4,9 +4,11 @@ import asyncio
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +77,9 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "python_repl",
     "memory_search",
 }
+
+_PATH_SEARCH_SCAN_LIMIT = 25000
+_PATH_SEARCH_TIME_BUDGET_SECONDS = 5.0
 
 def build_native_runtime_tool(
     *,
@@ -1188,12 +1193,13 @@ class NativeSearchFilesTool(_NativeToolBase):
         if not safe_roots:
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
         limit = max(1, min(int(args.get("max_results") or 20), 100))
-        paths = _workspace_files(files, safe_roots=safe_roots, using_default_roots=using_default_roots)
         terms = _query_terms(query)
-        matches = [path for path in paths if any(term in path.lower() for term in terms)]
-        matched = tuple(sorted(dict.fromkeys(matches))[:limit])
+        matches, search_meta = _search_path_matches(files, safe_roots=safe_roots, query=query, terms=terms, limit=limit, using_default_roots=using_default_roots)
+        matched = tuple(matches)
         boundary = _path_search_boundary(files, safe_roots=safe_roots, using_default_roots=using_default_roots)
         text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, boundary)
+        if search_meta.get("truncated"):
+            text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -1203,6 +1209,7 @@ class NativeSearchFilesTool(_NativeToolBase):
                     "kind": "path_search",
                     "query": query,
                     "matches": list(matched),
+                    "search_meta": search_meta,
                     **boundary,
                 }
             },
@@ -2104,13 +2111,66 @@ def _runtime_output_root(context: ToolUseContext, managed_storage_root: Path) ->
     return (managed_storage_root / "runtime").resolve()
 
 
-def _workspace_files(files: WorkspaceFileService, *, safe_roots: list[Path], using_default_roots: bool) -> list[str]:
-    paths: list[str] = []
+def _search_path_matches(
+    files: WorkspaceFileService,
+    *,
+    safe_roots: list[Path],
+    query: str,
+    terms: list[str],
+    limit: int,
+    using_default_roots: bool,
+) -> tuple[list[str], dict[str, Any]]:
+    matches: list[str] = []
+    seen: set[str] = set()
+    scanned = 0
+    deadline = time.monotonic() + _PATH_SEARCH_TIME_BUDGET_SECONDS
     for root in safe_roots:
-        for path in root.rglob("*"):
-            if path.is_file() and not files.is_excluded(path, include_default_search_excludes=using_default_roots):
-                paths.append(files.relative_path(path))
-    return sorted(dict.fromkeys(paths))
+        for path in _iter_search_files(files, root=root, include_default_search_excludes=using_default_roots):
+            scanned += 1
+            rel = files.relative_path(path)
+            if rel in seen or not _path_matches_query(rel, query=query, terms=terms):
+                if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
+                    return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
+                continue
+            seen.add(rel)
+            matches.append(rel)
+            if len(matches) >= limit:
+                return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
+            if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
+                return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
+    return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
+
+
+def _path_search_meta(*, scanned: int, truncated: bool) -> dict[str, Any]:
+    return {
+        "scanned_paths": int(scanned),
+        "truncated": bool(truncated),
+        "scan_limit": _PATH_SEARCH_SCAN_LIMIT,
+        "time_budget_seconds": _PATH_SEARCH_TIME_BUDGET_SECONDS,
+    }
+
+
+def _iter_search_files(files: WorkspaceFileService, *, root: Path, include_default_search_excludes: bool):
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if not files.is_excluded(Path(directory) / dirname, include_default_search_excludes=include_default_search_excludes)
+        ]
+        for filename in filenames:
+            path = Path(directory) / filename
+            if path.is_file() and not files.is_excluded(path, include_default_search_excludes=include_default_search_excludes):
+                yield path
+
+
+def _path_matches_query(path: str, *, query: str, terms: list[str]) -> bool:
+    normalized_path = str(path or "").replace("\\", "/").lower()
+    if any(term and term in normalized_path for term in terms):
+        return True
+    raw_query = str(query or "").strip().replace("\\", "/").lower()
+    if not any(ch in raw_query for ch in "*?[]"):
+        return False
+    return fnmatch.fnmatch(normalized_path, raw_query) or fnmatch.fnmatch(Path(normalized_path).name, raw_query)
 
 
 def _path_search_boundary(

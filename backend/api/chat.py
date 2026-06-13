@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -21,18 +21,19 @@ from runtime.output_boundary import (
     sanitize_visible_assistant_content,
 )
 from runtime.model_gateway.assistant_stream_frame import (
-    allows_assistant_body_projection,
     assistant_message_ref,
-    assistant_text_final_event,
 )
 from runtime.output_stream.public_contract import (
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
+    CHAT_TURN_BOUND_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    TASK_BRIDGE_STARTED_EVENT,
+    TASK_BRIDGE_TERMINAL_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
     TOOL_ITEM_COMPLETED_EVENT,
     TOOL_ITEM_STARTED_EVENT,
@@ -49,6 +50,37 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
+TASK_EXECUTOR_HANDOFF_REASONS = {"task_executor_scheduled"}
+TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
+    ASSISTANT_STREAM_REPAIR_EVENT,
+    ASSISTANT_TEXT_DELTA_EVENT,
+    ASSISTANT_TEXT_FINAL_EVENT,
+    "step_summary_recorded",
+    "model_action_admission_checked",
+    "tool_item_started",
+    "tool_observation",
+    "task_tool_observation_recorded",
+    "turn_tool_observation_recorded",
+    "session_output_commit_checked",
+    "session_output_commit_ack",
+    "session_output_commit_failed",
+    "session_output_commit_skipped",
+}
+TASK_BRIDGE_TERMINAL_EVENT_TYPES = {"task_run_lifecycle_finished", "task_run_terminal_observed"}
+TASK_TERMINAL_STATUSES = {"completed", "failed", "blocked", "aborted", "cancelled", "canceled", "stopped"}
+TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS = {
+    ASSISTANT_STREAM_REPAIR_EVENT,
+    ASSISTANT_TEXT_DELTA_EVENT,
+    ASSISTANT_TEXT_FINAL_EVENT,
+    SESSION_OUTPUT_COMMIT_ACK_EVENT,
+    SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
+    SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+    SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    TOOL_CALL_REQUESTED_EVENT,
+    TOOL_ITEM_COMPLETED_EVENT,
+    TOOL_ITEM_STARTED_EVENT,
+    TOOL_PERMISSION_DECIDED_EVENT,
+}
 INTERNAL_STREAM_EVENTS = {
     "debug",
     "runtime_assembly_compiled",
@@ -66,6 +98,62 @@ INTERNAL_PUBLIC_DATA_KEYS = {
 }
 PUBLIC_EVENT_DATA_ALLOWLIST = {
     "chat_run_started": {"status"},
+    CHAT_TURN_BOUND_EVENT: {
+        "context_id",
+        "status",
+        "stream_run_id",
+        "session_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "message_id",
+        "message_ref",
+        "source_turn_event_id",
+        "source_turn_event_offset",
+        "runtime_event_id",
+        "public_sequence_started_at",
+        "created_at",
+    },
+    TASK_BRIDGE_STARTED_EVENT: {
+        "bridge_id",
+        "status",
+        "stream_run_id",
+        "event_log_id",
+        "session_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "task_run_id",
+        "runtime_task_run_id",
+        "message_id",
+        "message_ref",
+        "source_handoff_event_id",
+        "source_handoff_event_offset",
+        "runtime_event_id",
+        "task_event_start_offset",
+        "public_sequence_base",
+        "created_at",
+    },
+    TASK_BRIDGE_TERMINAL_EVENT: {
+        "bridge_id",
+        "status",
+        "stream_run_id",
+        "session_id",
+        "turn_id",
+        "active_turn_id",
+        "turn_run_id",
+        "task_run_id",
+        "runtime_task_run_id",
+        "message_id",
+        "message_ref",
+        "terminal_reason",
+        "completion_state",
+        "source_task_event_id",
+        "source_task_event_offset",
+        "runtime_event_id",
+        "commit_observed",
+        "created_at",
+    },
     "input_commit_gate": {"status", "message_ref"},
     "runtime_branch_decided": {"runtime_branch"},
     "single_agent_turn_started": {"runtime_branch", "allowed_action_types"},
@@ -239,6 +327,10 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "completion_state",
         "error_summary",
         "stopped_reason",
+        "runtime_event_id",
+        "source_task_event_id",
+        "source_task_event_offset",
+        "source_event_type",
     },
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT: {
         "state",
@@ -293,6 +385,58 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "runtime_event_id",
     },
 }
+
+
+@dataclass(frozen=True, slots=True)
+class PublicTurnOutputContext:
+    context_id: str
+    stream_run_id: str
+    session_id: str
+    turn_id: str
+    turn_run_id: str
+    assistant_message_ref: str
+    source_turn_event_id: str
+    source_turn_event_offset: int
+    public_sequence_started_at: int
+    created_at: float
+
+    def anchor(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "turn_run_id": self.turn_run_id,
+            "message_id": self.assistant_message_ref,
+            "message_ref": self.assistant_message_ref,
+            "run_id": self.stream_run_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ChatTaskBridgeContext:
+    bridge_id: str
+    stream_run_id: str
+    event_log_id: str
+    session_id: str
+    turn_id: str
+    turn_run_id: str
+    task_run_id: str
+    assistant_message_ref: str
+    source_handoff_event_id: str
+    source_handoff_event_offset: int
+    task_event_start_offset: int
+    public_sequence_base: int
+    created_at: float
+
+    def anchor(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "turn_run_id": self.turn_run_id,
+            "task_run_id": self.task_run_id,
+            "message_id": self.assistant_message_ref,
+            "message_ref": self.assistant_message_ref,
+            "run_id": self.stream_run_id,
+        }
 
 
 class ChatRequest(BaseModel):
@@ -509,6 +653,8 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     registry = host.run_registry
     replay = host.stream_replay
     terminal_event = ""
+    bridge_context: ChatTaskBridgeContext | None = None
+    turn_context: PublicTurnOutputContext | None = None
     projection_lifecycle = ProjectionLifecycleState()
     current = _safe_mark_run_running(registry, run)
     try:
@@ -527,54 +673,158 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         current = _safe_mark_run_event(registry, current, latest_event_offset=start_event.offset, status="running")
         async for event in runtime.harness_runtime.astream(request):
             event_type = str(event.get("type", "message") or "message")
+            raw_refs = _runtime_run_refs_from_event(event)
             runtime_refs = _runtime_run_refs_for_public_event(runtime, request.session_id, event)
-            runtime_task_run_id = runtime_refs.get("task_run_id", "")
-            runtime_turn_run_id = runtime_refs.get("turn_run_id", "")
-            runtime_active_turn_id = runtime_refs.get("active_turn_id", "")
+            event_task_run_id = raw_refs.get("task_run_id", "")
+            runtime_turn_run_id = raw_refs.get("turn_run_id", "") or runtime_refs.get("turn_run_id", "")
+            runtime_active_turn_id = raw_refs.get("active_turn_id", "") or runtime_refs.get("active_turn_id", "")
+            if turn_context is None:
+                created_turn_context = _public_turn_context_from_event(
+                    run=run,
+                    request=request,
+                    event=event,
+                    fallback_turn_run_id=runtime_turn_run_id,
+                    fallback_turn_id=runtime_active_turn_id,
+                    public_sequence_started_at=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+                )
+                if created_turn_context is not None:
+                    turn_context = created_turn_context
+                    current = _append_chat_public_event(
+                        registry=registry,
+                        replay=replay,
+                        current=current,
+                        public_event_type=CHAT_TURN_BOUND_EVENT,
+                        data=_public_turn_context_event_data(turn_context),
+                        session_id=request.session_id,
+                        projection_lifecycle=projection_lifecycle,
+                        runtime_turn_run_id=turn_context.turn_run_id,
+                        runtime_active_turn_id=turn_context.turn_id,
+                        public_anchor=turn_context.anchor(),
+                    )
             projections = _project_public_stream_event(event_type, event)
             if not projections:
                 continue
             for public_event_type, data in projections:
-                if runtime_task_run_id:
-                    data.setdefault("runtime_task_run_id", runtime_task_run_id)
+                if turn_context is not None:
+                    _apply_turn_context_to_public_data(data, turn_context)
+                if event_task_run_id:
+                    data.setdefault("runtime_task_run_id", event_task_run_id)
+                    data.setdefault("task_run_id", event_task_run_id)
                 if runtime_turn_run_id:
                     data.setdefault("turn_run_id", runtime_turn_run_id)
                 if runtime_active_turn_id:
                     data.setdefault("active_turn_id", runtime_active_turn_id)
-                next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
-                if event_requires_public_projection(public_event_type):
-                    _attach_public_projection_frame(
-                        public_event_type,
-                        data,
+                if turn_context is None and public_event_type in TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS:
+                    current = _append_chat_public_event(
+                        registry=registry,
+                        replay=replay,
+                        current=current,
+                        public_event_type="runtime_status",
+                        data={
+                            "title": "公开投影缺少本轮锚点",
+                            "detail": "正文、工具或提交事件在 PublicTurnOutputContext 建立前到达，已拒绝进入主视图。",
+                            "state": "failed",
+                            "runtime_event_id": _stream_event_id(event),
+                            "source_event_type": event_type,
+                        },
                         session_id=request.session_id,
-                        sequence=next_sequence,
-                        lifecycle_state=projection_lifecycle,
+                        projection_lifecycle=projection_lifecycle,
+                        runtime_task_run_id=event_task_run_id,
+                        runtime_turn_run_id=runtime_turn_run_id,
+                        runtime_active_turn_id=runtime_active_turn_id,
                     )
-                logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
-                terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
-                diagnostics = {
-                    key: value
-                    for key, value in {
-                        "runtime_task_run_id": runtime_task_run_id,
-                        "runtime_turn_run_id": runtime_turn_run_id,
-                        "active_turn_id": runtime_active_turn_id,
-                    }.items()
-                    if value
-                }
-                if public_event_type != "error":
-                    diagnostics.update({"orphaned_by": None, "reason": None, "cancelled": None})
-                current = _safe_mark_run_event(
-                    registry,
-                    current,
-                    latest_event_offset=logged.offset,
-                    status=_status_for_public_event(public_event_type, data),
-                    terminal_event=public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else "",
-                    diagnostics=diagnostics or None,
+                    continue
+                if _is_task_executor_handoff_terminal(public_event_type, data):
+                    bridged_task_run_id = _task_run_id_from_public_data(data) or runtime_refs.get("task_run_id", "")
+                    if turn_context is None:
+                        current = _append_chat_public_event(
+                            registry=registry,
+                            replay=replay,
+                            current=current,
+                            public_event_type=TURN_COMPLETED_EVENT,
+                            data=_turn_completed_data(
+                                "error",
+                                {
+                                    "status": "failed",
+                                    "turn_run_id": runtime_turn_run_id,
+                                    "task_run_id": bridged_task_run_id,
+                                    "error": "Task bridge handoff arrived before a public turn context was available.",
+                                    "code": "task_bridge_context_missing",
+                                },
+                            ),
+                            session_id=request.session_id,
+                            projection_lifecycle=projection_lifecycle,
+                            runtime_task_run_id=bridged_task_run_id,
+                            runtime_turn_run_id=runtime_turn_run_id,
+                            runtime_active_turn_id=runtime_active_turn_id,
+                        )
+                        terminal_event = TURN_COMPLETED_EVENT
+                        break
+                    bridge_context = _chat_task_bridge_context_from_handoff(
+                        run=run,
+                        request=request,
+                        turn_context=turn_context,
+                        public_data=data,
+                        source_event=event,
+                        task_run_id=bridged_task_run_id,
+                        public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
+                    )
+                    current = _append_chat_public_event(
+                        registry=registry,
+                        replay=replay,
+                        current=current,
+                        public_event_type=TASK_BRIDGE_STARTED_EVENT,
+                        data=_task_bridge_started_event_data(bridge_context),
+                        session_id=request.session_id,
+                        projection_lifecycle=projection_lifecycle,
+                        runtime_task_run_id=bridge_context.task_run_id,
+                        runtime_turn_run_id=bridge_context.turn_run_id,
+                        runtime_active_turn_id=bridge_context.turn_id,
+                        public_anchor=bridge_context.anchor(),
+                    )
+                    current = _safe_update_run(
+                        registry,
+                        run.stream_run_id,
+                        fallback=current,
+                        status="running",
+                        terminal_event="",
+                        diagnostics={
+                            "runtime_task_run_id": bridge_context.task_run_id,
+                            "runtime_turn_run_id": bridge_context.turn_run_id,
+                            "active_turn_id": bridge_context.turn_id,
+                            "task_bridge_id": bridge_context.bridge_id,
+                            "chat_stream_bridge": "task_run",
+                        },
+                    )
+                    break
+                current = _append_chat_public_event(
+                    registry=registry,
+                    replay=replay,
+                    current=current,
+                    public_event_type=public_event_type,
+                    data=data,
+                    session_id=request.session_id,
+                    projection_lifecycle=projection_lifecycle,
+                    runtime_task_run_id=event_task_run_id,
+                    runtime_turn_run_id=runtime_turn_run_id or (turn_context.turn_run_id if turn_context else ""),
+                    runtime_active_turn_id=runtime_active_turn_id or (turn_context.turn_id if turn_context else ""),
+                    public_anchor=turn_context.anchor() if turn_context is not None else None,
                 )
+                terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
                 if public_event_type in TERMINAL_STREAM_EVENTS:
                     break
-            if terminal_event:
+            if terminal_event or bridge_context is not None:
                 break
+        if bridge_context is not None and not terminal_event:
+            current = await _bridge_task_run_to_chat_stream(
+                runtime,
+                run,
+                current,
+                request=request,
+                bridge_context=bridge_context,
+                projection_lifecycle=projection_lifecycle,
+            )
+            terminal_event = str(getattr(current, "terminal_event", "") or "")
     except asyncio.CancelledError:
         logger.info("Chat run background task was cancelled.", extra={"stream_run_id": run.stream_run_id})
         current = _safe_update_run(
@@ -630,6 +880,687 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="missing_terminal_event",
             reason="Chat stream ended without a terminal event.",
         )
+
+
+def _append_chat_public_event(
+    *,
+    registry: Any,
+    replay: Any,
+    current: RuntimeRun,
+    public_event_type: str,
+    data: dict[str, Any],
+    session_id: str,
+    projection_lifecycle: ProjectionLifecycleState,
+    runtime_task_run_id: str = "",
+    runtime_turn_run_id: str = "",
+    runtime_active_turn_id: str = "",
+    public_anchor: dict[str, Any] | None = None,
+) -> RuntimeRun:
+    payload = dict(data or {})
+    payload.setdefault("runtime_run_id", current.stream_run_id)
+    anchor = dict(public_anchor or {})
+    if anchor:
+        payload.setdefault("session_id", str(anchor.get("session_id") or session_id))
+        payload.setdefault("turn_id", str(anchor.get("turn_id") or ""))
+        payload.setdefault("active_turn_id", str(anchor.get("turn_id") or ""))
+        payload.setdefault("turn_run_id", str(anchor.get("turn_run_id") or ""))
+        payload.setdefault("message_id", str(anchor.get("message_id") or anchor.get("message_ref") or ""))
+        payload.setdefault("message_ref", str(anchor.get("message_ref") or anchor.get("message_id") or ""))
+        if str(anchor.get("task_run_id") or "").strip():
+            runtime_task_run_id = runtime_task_run_id or str(anchor.get("task_run_id") or "").strip()
+    if runtime_task_run_id:
+        payload.setdefault("runtime_task_run_id", runtime_task_run_id)
+        payload.setdefault("task_run_id", runtime_task_run_id)
+    if runtime_turn_run_id:
+        payload.setdefault("turn_run_id", runtime_turn_run_id)
+    if runtime_active_turn_id:
+        payload.setdefault("active_turn_id", runtime_active_turn_id)
+        payload.setdefault("turn_id", runtime_active_turn_id)
+    next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
+    if event_requires_public_projection(public_event_type):
+        _attach_public_projection_frame(
+            public_event_type,
+            payload,
+            session_id=session_id,
+            sequence=next_sequence,
+            lifecycle_state=projection_lifecycle,
+            public_anchor=public_anchor,
+        )
+    logged = replay.append_public_event(current, public_event_type=public_event_type, data=payload)
+    diagnostics = {
+        key: value
+        for key, value in {
+            "runtime_task_run_id": runtime_task_run_id,
+            "runtime_turn_run_id": runtime_turn_run_id,
+            "active_turn_id": runtime_active_turn_id,
+            "public_anchor_turn_id": str(anchor.get("turn_id") or ""),
+            "public_anchor_task_run_id": str(anchor.get("task_run_id") or ""),
+        }.items()
+        if value
+    }
+    if public_event_type != "error":
+        diagnostics.update({"orphaned_by": None, "reason": None, "cancelled": None})
+    return _safe_mark_run_event(
+        registry,
+        current,
+        latest_event_offset=logged.offset,
+        status=_status_for_public_event(public_event_type, payload),
+        terminal_event=public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else "",
+        diagnostics=diagnostics or None,
+    )
+
+
+def _public_turn_context_from_event(
+    *,
+    run: RuntimeRun,
+    request: HarnessRuntimeRequest,
+    event: dict[str, Any],
+    fallback_turn_run_id: str = "",
+    fallback_turn_id: str = "",
+    public_sequence_started_at: int = 0,
+) -> PublicTurnOutputContext | None:
+    event_type = str(event.get("type") or "").strip()
+    if event_type not in {"harness_run_started", "single_agent_turn_started"}:
+        return None
+    refs = _runtime_run_refs_from_event(event)
+    turn_run_id = str(refs.get("turn_run_id") or fallback_turn_run_id or "").strip()
+    turn_id = str(refs.get("active_turn_id") or fallback_turn_id or _turn_id_from_turn_run_id(turn_run_id)).strip()
+    if not turn_run_id or not turn_id:
+        return None
+    stream_ref = f"chat-turn:{run.stream_run_id}:{turn_run_id}"
+    message_ref = assistant_message_ref(turn_id=turn_id, stream_ref=stream_ref)
+    source_offset = _stream_event_offset(event)
+    return PublicTurnOutputContext(
+        context_id=f"public-turn:{run.stream_run_id}:{turn_run_id}",
+        stream_run_id=run.stream_run_id,
+        session_id=request.session_id,
+        turn_id=turn_id,
+        turn_run_id=turn_run_id,
+        assistant_message_ref=message_ref,
+        source_turn_event_id=_stream_event_id(event),
+        source_turn_event_offset=source_offset,
+        public_sequence_started_at=public_sequence_started_at,
+        created_at=_stream_event_created_at(event),
+    )
+
+
+def _public_turn_context_event_data(context: PublicTurnOutputContext) -> dict[str, Any]:
+    return {
+        "context_id": context.context_id,
+        "status": "bound",
+        "stream_run_id": context.stream_run_id,
+        "session_id": context.session_id,
+        "turn_id": context.turn_id,
+        "active_turn_id": context.turn_id,
+        "turn_run_id": context.turn_run_id,
+        "message_id": context.assistant_message_ref,
+        "message_ref": context.assistant_message_ref,
+        "source_turn_event_id": context.source_turn_event_id,
+        "source_turn_event_offset": context.source_turn_event_offset,
+        "runtime_event_id": context.source_turn_event_id,
+        "public_sequence_started_at": context.public_sequence_started_at,
+        "created_at": context.created_at,
+    }
+
+
+def _apply_turn_context_to_public_data(data: dict[str, Any], context: PublicTurnOutputContext) -> None:
+    data.setdefault("session_id", context.session_id)
+    data.setdefault("turn_id", context.turn_id)
+    data.setdefault("active_turn_id", context.turn_id)
+    data.setdefault("turn_run_id", context.turn_run_id)
+    data.setdefault("message_id", context.assistant_message_ref)
+    data.setdefault("message_ref", context.assistant_message_ref)
+
+
+def _chat_task_bridge_context_from_handoff(
+    *,
+    run: RuntimeRun,
+    request: HarnessRuntimeRequest,
+    turn_context: PublicTurnOutputContext,
+    public_data: dict[str, Any],
+    source_event: dict[str, Any],
+    task_run_id: str,
+    public_sequence_base: int,
+) -> ChatTaskBridgeContext:
+    normalized_task_run_id = str(task_run_id or "").strip()
+    source_offset = _stream_event_offset(source_event)
+    return ChatTaskBridgeContext(
+        bridge_id=f"task-bridge:{run.stream_run_id}:{normalized_task_run_id}",
+        stream_run_id=run.stream_run_id,
+        event_log_id=normalized_task_run_id,
+        session_id=request.session_id,
+        turn_id=turn_context.turn_id,
+        turn_run_id=turn_context.turn_run_id,
+        task_run_id=normalized_task_run_id,
+        assistant_message_ref=turn_context.assistant_message_ref,
+        source_handoff_event_id=_stream_event_id(source_event) or str(public_data.get("runtime_event_id") or ""),
+        source_handoff_event_offset=source_offset,
+        task_event_start_offset=0,
+        public_sequence_base=public_sequence_base,
+        created_at=_stream_event_created_at(source_event),
+    )
+
+
+def _task_bridge_started_event_data(context: ChatTaskBridgeContext) -> dict[str, Any]:
+    return {
+        "bridge_id": context.bridge_id,
+        "status": "bound",
+        "stream_run_id": context.stream_run_id,
+        "event_log_id": context.event_log_id,
+        "session_id": context.session_id,
+        "turn_id": context.turn_id,
+        "active_turn_id": context.turn_id,
+        "turn_run_id": context.turn_run_id,
+        "task_run_id": context.task_run_id,
+        "runtime_task_run_id": context.task_run_id,
+        "message_id": context.assistant_message_ref,
+        "message_ref": context.assistant_message_ref,
+        "source_handoff_event_id": context.source_handoff_event_id,
+        "source_handoff_event_offset": context.source_handoff_event_offset,
+        "runtime_event_id": context.source_handoff_event_id,
+        "task_event_start_offset": context.task_event_start_offset,
+        "public_sequence_base": context.public_sequence_base,
+        "created_at": context.created_at,
+    }
+
+
+async def _bridge_task_run_to_chat_stream(
+    runtime: Any,
+    run: RuntimeRun,
+    current: RuntimeRun,
+    *,
+    request: HarnessRuntimeRequest,
+    bridge_context: ChatTaskBridgeContext,
+    projection_lifecycle: ProjectionLifecycleState,
+) -> RuntimeRun:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
+    replay = host.stream_replay
+    normalized_task_run_id = str(bridge_context.task_run_id or "").strip()
+    if not normalized_task_run_id:
+        return current
+    subscription = host.event_log.subscribe(run_id=normalized_task_run_id)
+    latest_task_offset = int(bridge_context.task_event_start_offset or 0) - 1
+    output_observed = False
+    commit_observed = False
+    try:
+        current = _safe_update_run(
+            registry,
+            run.stream_run_id,
+            fallback=current,
+            status="running",
+            terminal_event="",
+            diagnostics={
+                "runtime_task_run_id": normalized_task_run_id,
+                "runtime_turn_run_id": bridge_context.turn_run_id,
+                "active_turn_id": bridge_context.turn_id,
+                "task_bridge_id": bridge_context.bridge_id,
+                "chat_stream_bridge": "task_run",
+            },
+        )
+        while True:
+            progressed = False
+            for task_event in host.event_log.list_events(normalized_task_run_id):
+                if int(getattr(task_event, "offset", -1) or -1) <= latest_task_offset:
+                    continue
+                latest_task_offset = int(getattr(task_event, "offset", -1) or -1)
+                progressed = True
+                current, terminal, terminal_output_state = _project_task_runtime_event_to_chat(
+                    runtime,
+                    run,
+                    current,
+                    request=request,
+                    task_event=task_event,
+                    bridge_context=bridge_context,
+                    projection_lifecycle=projection_lifecycle,
+                    output_observed=output_observed,
+                    commit_observed=commit_observed,
+                )
+                output_observed = output_observed or terminal_output_state.get("output_observed", False)
+                commit_observed = commit_observed or terminal_output_state.get("commit_observed", False)
+                if terminal:
+                    return current
+            if _task_run_snapshot_is_terminal(host, normalized_task_run_id):
+                current = _append_task_bridge_terminal_from_snapshot(
+                    runtime,
+                    run,
+                    current,
+                    request=request,
+                    bridge_context=bridge_context,
+                    projection_lifecycle=projection_lifecycle,
+                    output_observed=output_observed,
+                    commit_observed=commit_observed,
+                )
+                return current
+            if progressed:
+                continue
+            try:
+                event = await asyncio.wait_for(subscription.queue.get(), timeout=15.0)
+            except asyncio.TimeoutError:
+                current = _safe_update_run(
+                    registry,
+                    run.stream_run_id,
+                    fallback=current,
+                    status="running",
+                    terminal_event="",
+                    diagnostics={
+                        "runtime_task_run_id": normalized_task_run_id,
+                        "runtime_turn_run_id": bridge_context.turn_run_id,
+                        "active_turn_id": bridge_context.turn_id,
+                        "task_bridge_id": bridge_context.bridge_id,
+                        "chat_stream_bridge": "task_run",
+                        "bridged_task_event_offset": latest_task_offset,
+                    },
+                )
+                continue
+            if str(getattr(event, "run_id", "") or "") != normalized_task_run_id:
+                continue
+    finally:
+        host.event_log.unsubscribe(subscription)
+
+
+def _project_task_runtime_event_to_chat(
+    runtime: Any,
+    run: RuntimeRun,
+    current: RuntimeRun,
+    *,
+    request: HarnessRuntimeRequest,
+    task_event: Any,
+    bridge_context: ChatTaskBridgeContext,
+    projection_lifecycle: ProjectionLifecycleState,
+    output_observed: bool = False,
+    commit_observed: bool = False,
+) -> tuple[RuntimeRun, bool, dict[str, bool]]:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
+    replay = host.stream_replay
+    stream_event = _runtime_event_to_stream_event(host, task_event)
+    event_type = str(stream_event.get("type") or "").strip()
+    event_run_id = str(getattr(task_event, "run_id", "") or "").strip()
+    terminal_output_state = {"output_observed": bool(output_observed), "commit_observed": bool(commit_observed)}
+    if event_run_id and event_run_id != bridge_context.task_run_id:
+        current = _append_chat_public_event(
+            registry=registry,
+            replay=replay,
+            current=current,
+            public_event_type="runtime_status",
+            data={
+                "title": "任务桥接事件被拒绝",
+                "detail": "task event run_id 与当前桥接上下文不一致，已作为协议诊断记录。",
+                "state": "failed",
+                "runtime_event_id": str(getattr(task_event, "event_id", "") or ""),
+                "source_task_event_id": str(getattr(task_event, "event_id", "") or ""),
+                "source_task_event_offset": int(getattr(task_event, "offset", -1) or -1),
+                "source_task_event_type": event_type,
+            },
+            session_id=request.session_id,
+            projection_lifecycle=projection_lifecycle,
+            runtime_task_run_id=bridge_context.task_run_id,
+            runtime_turn_run_id=bridge_context.turn_run_id,
+            runtime_active_turn_id=bridge_context.turn_id,
+            public_anchor=bridge_context.anchor(),
+        )
+        return current, False, terminal_output_state
+    if event_type in TASK_BRIDGE_PUBLIC_EVENT_TYPES:
+        for public_event_type, data in _project_public_stream_event(event_type, stream_event):
+            _apply_bridge_context_to_public_data(data, bridge_context, task_event=task_event, source_event_type=event_type)
+            if public_event_type in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
+                terminal_output_state["output_observed"] = True
+            if public_event_type in {
+                SESSION_OUTPUT_COMMIT_ACK_EVENT,
+                SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+                SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+            }:
+                terminal_output_state["commit_observed"] = True
+            current = _append_chat_public_event(
+                registry=registry,
+                replay=replay,
+                current=current,
+                public_event_type=public_event_type,
+                data=data,
+                session_id=request.session_id,
+                projection_lifecycle=projection_lifecycle,
+                runtime_task_run_id=bridge_context.task_run_id,
+                runtime_turn_run_id=bridge_context.turn_run_id,
+                runtime_active_turn_id=bridge_context.turn_id,
+                public_anchor=bridge_context.anchor(),
+            )
+    if event_type in TASK_BRIDGE_TERMINAL_EVENT_TYPES:
+        current = _append_task_bridge_terminal_from_event(
+            runtime,
+            run,
+            current,
+            request=request,
+            stream_event=stream_event,
+            projection_lifecycle=projection_lifecycle,
+            bridge_context=bridge_context,
+            task_event=task_event,
+            output_observed=terminal_output_state["output_observed"],
+            commit_observed=terminal_output_state["commit_observed"],
+        )
+        return current, True, terminal_output_state
+    return current, False, terminal_output_state
+
+
+def _append_task_bridge_terminal_from_event(
+    runtime: Any,
+    run: RuntimeRun,
+    current: RuntimeRun,
+    *,
+    request: HarnessRuntimeRequest,
+    stream_event: dict[str, Any],
+    projection_lifecycle: ProjectionLifecycleState,
+    bridge_context: ChatTaskBridgeContext,
+    task_event: Any,
+    output_observed: bool,
+    commit_observed: bool,
+) -> RuntimeRun:
+    context = _task_terminal_context_from_stream_event(stream_event, fallback_task_run_id=bridge_context.task_run_id)
+    return _append_task_bridge_terminal(
+        runtime,
+        run,
+        current,
+        request=request,
+        context=context,
+        projection_lifecycle=projection_lifecycle,
+        bridge_context=bridge_context,
+        task_event=task_event,
+        output_observed=output_observed,
+        commit_observed=commit_observed,
+    )
+
+
+def _append_task_bridge_terminal_from_snapshot(
+    runtime: Any,
+    run: RuntimeRun,
+    current: RuntimeRun,
+    *,
+    request: HarnessRuntimeRequest,
+    bridge_context: ChatTaskBridgeContext,
+    projection_lifecycle: ProjectionLifecycleState,
+    output_observed: bool,
+    commit_observed: bool,
+) -> RuntimeRun:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    task_run = _task_run_snapshot(host, bridge_context.task_run_id)
+    context = _task_terminal_context_from_task_run(task_run, fallback_task_run_id=bridge_context.task_run_id)
+    return _append_task_bridge_terminal(
+        runtime,
+        run,
+        current,
+        request=request,
+        context=context,
+        projection_lifecycle=projection_lifecycle,
+        bridge_context=bridge_context,
+        task_event=None,
+        output_observed=output_observed,
+        commit_observed=commit_observed,
+    )
+
+
+def _append_task_bridge_terminal(
+    runtime: Any,
+    run: RuntimeRun,
+    current: RuntimeRun,
+    *,
+    request: HarnessRuntimeRequest,
+    context: dict[str, Any],
+    projection_lifecycle: ProjectionLifecycleState,
+    bridge_context: ChatTaskBridgeContext,
+    task_event: Any | None,
+    output_observed: bool,
+    commit_observed: bool,
+) -> RuntimeRun:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = host.run_registry
+    replay = host.stream_replay
+    task_run_id = bridge_context.task_run_id
+    turn_run_id = bridge_context.turn_run_id
+    active_turn_id = bridge_context.turn_id
+    source_task_event_id = str(getattr(task_event, "event_id", "") or "").strip()
+    source_task_event_offset = int(getattr(task_event, "offset", -1) or -1) if task_event is not None else -1
+    final_answer = _safe_visible_final_answer(context.get("final_answer"))
+    if final_answer and (not output_observed or not commit_observed):
+        current = _append_chat_public_event(
+            registry=registry,
+            replay=replay,
+            current=current,
+            public_event_type=SESSION_OUTPUT_COMMIT_FAILED_EVENT,
+            data={
+                "state": "failed",
+                "status": "failed",
+                "turn_id": active_turn_id,
+                "turn_run_id": turn_run_id,
+                "task_run_id": task_run_id,
+                "message_id": bridge_context.assistant_message_ref,
+                "message_ref": bridge_context.assistant_message_ref,
+                "reason": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
+                "error": "Task terminal carried final_answer without a preceding assistant output and commit receipt.",
+                "summary": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
+                "runtime_event_id": source_task_event_id,
+                "source_task_event_id": source_task_event_id,
+                "source_task_event_offset": source_task_event_offset,
+            },
+            session_id=request.session_id,
+            projection_lifecycle=projection_lifecycle,
+            runtime_task_run_id=task_run_id,
+            runtime_turn_run_id=turn_run_id,
+            runtime_active_turn_id=active_turn_id,
+            public_anchor=bridge_context.anchor(),
+        )
+    terminal_bridge_data = {
+        "bridge_id": bridge_context.bridge_id,
+        "status": str(context.get("status") or "completed").strip() or "completed",
+        "stream_run_id": bridge_context.stream_run_id,
+        "session_id": bridge_context.session_id,
+        "turn_id": active_turn_id,
+        "active_turn_id": active_turn_id,
+        "turn_run_id": turn_run_id,
+        "task_run_id": task_run_id,
+        "runtime_task_run_id": task_run_id,
+        "message_id": bridge_context.assistant_message_ref,
+        "message_ref": bridge_context.assistant_message_ref,
+        "terminal_reason": str(context.get("terminal_reason") or context.get("status") or "completed"),
+        "completion_state": str(context.get("status") or ""),
+        "source_task_event_id": source_task_event_id,
+        "source_task_event_offset": source_task_event_offset,
+        "runtime_event_id": source_task_event_id,
+        "commit_observed": bool(commit_observed),
+        "created_at": time.time(),
+    }
+    current = _append_chat_public_event(
+        registry=registry,
+        replay=replay,
+        current=current,
+        public_event_type=TASK_BRIDGE_TERMINAL_EVENT,
+        data=terminal_bridge_data,
+        session_id=request.session_id,
+        projection_lifecycle=projection_lifecycle,
+        runtime_task_run_id=task_run_id,
+        runtime_turn_run_id=turn_run_id,
+        runtime_active_turn_id=active_turn_id,
+        public_anchor=bridge_context.anchor(),
+    )
+    status = _public_turn_status_for_task_status(context.get("status"))
+    terminal_data = _turn_completed_data(
+        "task_run_lifecycle_finished",
+        {
+            "status": status,
+            "turn_run_id": turn_run_id,
+            "task_run_id": task_run_id,
+            "terminal_reason": str(context.get("terminal_reason") or context.get("status") or "completed"),
+            "completion_state": str(context.get("status") or ""),
+            "error": str(context.get("error_summary") or ""),
+            "runtime_event_id": source_task_event_id,
+            "source_task_event_id": source_task_event_id,
+            "source_task_event_offset": source_task_event_offset,
+        },
+    )
+    if active_turn_id:
+        terminal_data["active_turn_id"] = active_turn_id
+        terminal_data["turn_id"] = active_turn_id
+    return _append_chat_public_event(
+        registry=registry,
+        replay=replay,
+        current=current,
+        public_event_type=TURN_COMPLETED_EVENT,
+        data=terminal_data,
+        session_id=request.session_id,
+        projection_lifecycle=projection_lifecycle,
+        runtime_task_run_id=task_run_id,
+        runtime_turn_run_id=turn_run_id,
+        runtime_active_turn_id=active_turn_id,
+        public_anchor=bridge_context.anchor(),
+    )
+
+
+def _runtime_event_to_stream_event(host: Any, event: Any) -> dict[str, Any]:
+    raw = event.to_dict() if hasattr(event, "to_dict") else dict(event or {})
+    try:
+        hydrated = host.event_log.payload_store.hydrate_event_payload(raw)
+    except Exception:
+        hydrated = raw
+    event_type = str(hydrated.get("event_type") or getattr(event, "event_type", "") or "").strip()
+    return {"type": event_type, "event": hydrated}
+
+
+def _apply_bridge_context_to_public_data(
+    data: dict[str, Any],
+    context: ChatTaskBridgeContext,
+    *,
+    task_event: Any,
+    source_event_type: str,
+) -> None:
+    source_task_event_id = str(getattr(task_event, "event_id", "") or "").strip()
+    source_task_event_offset = int(getattr(task_event, "offset", -1) or -1)
+    data["session_id"] = context.session_id
+    data["turn_id"] = context.turn_id
+    data["active_turn_id"] = context.turn_id
+    data["turn_run_id"] = context.turn_run_id
+    data["task_run_id"] = context.task_run_id
+    data["runtime_task_run_id"] = context.task_run_id
+    data["message_id"] = context.assistant_message_ref
+    data["message_ref"] = context.assistant_message_ref
+    data.setdefault("runtime_event_id", source_task_event_id)
+    data["source_task_event_id"] = source_task_event_id
+    data["source_task_event_offset"] = source_task_event_offset
+    data["source_task_event_type"] = str(source_event_type or "").strip()
+    data["bridge_id"] = context.bridge_id
+
+
+def _task_run_snapshot_is_terminal(host: Any, task_run_id: str) -> bool:
+    task_run = _task_run_snapshot(host, task_run_id)
+    return str(task_run.get("status") or "").strip().lower() in TASK_TERMINAL_STATUSES
+
+
+def _task_run_snapshot(host: Any, task_run_id: str) -> dict[str, Any]:
+    try:
+        task_run = host.state_index.get_task_run(task_run_id)
+    except Exception:
+        return {}
+    if task_run is None:
+        return {}
+    if hasattr(task_run, "to_dict"):
+        return dict(task_run.to_dict())
+    return dict(task_run or {}) if isinstance(task_run, dict) else {}
+
+
+def _task_terminal_context_from_stream_event(stream_event: dict[str, Any], *, fallback_task_run_id: str = "") -> dict[str, Any]:
+    raw_event = _record(stream_event.get("event"))
+    payload = _record(raw_event.get("payload"))
+    task_run = _record(payload.get("task_run"))
+    lifecycle = _record(payload.get("lifecycle"))
+    return _task_terminal_context_from_task_run(
+        task_run,
+        lifecycle=lifecycle,
+        fallback_task_run_id=fallback_task_run_id or str(raw_event.get("run_id") or ""),
+    )
+
+
+def _task_terminal_context_from_task_run(
+    task_run: dict[str, Any],
+    *,
+    lifecycle: dict[str, Any] | None = None,
+    fallback_task_run_id: str = "",
+) -> dict[str, Any]:
+    task = _record(task_run)
+    lifecycle_payload = _record(lifecycle)
+    diagnostics = _record(task.get("diagnostics"))
+    output_commit = _record(diagnostics.get("output_commit"))
+    task_run_id = str(task.get("task_run_id") or lifecycle_payload.get("task_run_id") or fallback_task_run_id or "").strip()
+    status = str(task.get("status") or lifecycle_payload.get("status") or "").strip().lower()
+    terminal_reason = str(task.get("terminal_reason") or lifecycle_payload.get("terminal_reason") or status or "completed").strip()
+    return {
+        "task_run_id": task_run_id,
+        "turn_id": str(diagnostics.get("turn_id") or _turn_id_from_task_run_id(task_run_id) or "").strip(),
+        "turn_run_id": str(diagnostics.get("turn_run_id") or "").strip(),
+        "status": status,
+        "terminal_reason": terminal_reason,
+        "final_answer": diagnostics.get("final_answer") or "",
+        "message_ref": str(
+            output_commit.get("anchor_message_id")
+            or output_commit.get("message_ref")
+            or output_commit.get("message_id")
+            or ""
+        ).strip(),
+        "answer_source": str(diagnostics.get("answer_source") or "harness.loop.task_executor.completed"),
+        "error_summary": terminal_reason if status in {"failed", "blocked"} else "",
+    }
+
+
+def _safe_visible_final_answer(value: Any) -> str:
+    content = sanitize_visible_assistant_content(str(value or "")).strip()
+    if not content:
+        return ""
+    if contains_internal_protocol(content) or contains_inline_pseudo_tool_call(content):
+        return ""
+    return content
+
+
+def _public_turn_status_for_task_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status == "completed":
+        return "completed"
+    if status in {"aborted", "cancelled", "canceled", "stopped", "blocked"}:
+        return "stopped"
+    return "failed" if status else "failed"
+
+
+def _is_task_executor_handoff_terminal(public_event_type: str, data: dict[str, Any]) -> bool:
+    if public_event_type != TURN_COMPLETED_EVENT:
+        return False
+    reason = str(data.get("terminal_reason") or data.get("completion_state") or "").strip().lower()
+    return reason in TASK_EXECUTOR_HANDOFF_REASONS and bool(_task_run_id_from_public_data(data))
+
+
+def _task_run_id_from_public_data(data: dict[str, Any]) -> str:
+    for value in (data.get("task_run_id"), data.get("runtime_task_run_id")):
+        normalized = str(value or "").strip()
+        if normalized.startswith("taskrun:"):
+            return normalized
+    return ""
+
+
+def _turn_id_from_task_run_id(task_run_id: str) -> str:
+    normalized = str(task_run_id or "").strip()
+    if not normalized.startswith("taskrun:"):
+        return ""
+    candidate = normalized[len("taskrun:"):]
+    if not candidate.startswith("turn:"):
+        return ""
+    parts = candidate.split(":")
+    for index in range(len(parts) - 1, 1, -1):
+        if parts[index].isdigit():
+            return ":".join(parts[: index + 1])
+    return candidate
+
+
+def _turn_id_from_turn_run_id(turn_run_id: str) -> str:
+    normalized = str(turn_run_id or "").strip()
+    if not normalized.startswith("turnrun:"):
+        return ""
+    candidate = normalized[len("turnrun:"):]
+    return candidate if candidate.startswith("turn:") else ""
 
 
 def _safe_mark_run_running(registry: Any, run: RuntimeRun) -> RuntimeRun:
@@ -797,25 +1728,16 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     raw_data = {key: value for key, value in dict(event).items() if key != "type"}
+    if normalized == "step_summary_recorded":
+        data = _runtime_step_summary_data(raw_data)
+        return [("runtime_step_summary", data)] if data else []
+    if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
+        data = _assistant_stream_public_data(normalized, raw_data)
+        return [(normalized, data)] if data else []
     if normalized in {"done", "error", "stopped"}:
         return [(TURN_COMPLETED_EVENT, _turn_completed_data(normalized, raw_data))]
-    if normalized in {"answer_candidate", "assistant_text"}:
-        data = _legacy_assistant_text_final_data(normalized, raw_data)
-        return [(ASSISTANT_TEXT_FINAL_EVENT, data)] if data else []
-    if normalized == "token":
-        content = str(raw_data.get("content") or "")
-        if not content:
-            return []
-        return [
-            (
-                ASSISTANT_TEXT_DELTA_EVENT,
-                {
-                    "content": content,
-                    "answer_source": "legacy_token_stream",
-                    "visibility": "assistant_body",
-                },
-            )
-        ]
+    if normalized in {"answer_candidate", "assistant_text", "token"}:
+        return [(_legacy_body_signal_ignored_event_type(normalized), _legacy_body_signal_ignored_data(normalized, raw_data))]
     if normalized in {"model_action_admission", "model_action_admission_checked"}:
         return _tool_action_public_events(raw_data)
     if normalized == TOOL_ITEM_STARTED_EVENT:
@@ -859,60 +1781,41 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     return [(normalized, data)]
 
 
-def _legacy_assistant_text_final_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
+def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
     raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data)
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
     refs = _record(raw_event.get("refs"))
-    content = sanitize_visible_assistant_content(
-        payload.get("content")
-        or payload.get("text")
-        or payload.get("final_answer")
-        or payload.get("answer_candidate")
-        or ""
-    ).strip()
-    if not content:
+    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get(event_type, set())
+    data: dict[str, Any] = {}
+    for key in allowed:
+        value = payload.get(key)
+        if value in ("", None):
+            value = raw_data.get(key)
+        if value not in ("", None):
+            data[key] = value
+    data.setdefault("turn_run_id", str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""))
+    data.setdefault("task_run_id", str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""))
+    data.setdefault("runtime_event_id", str(raw_event.get("event_id") or raw_data.get("event_id") or ""))
+    if event_type in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT} and not str(data.get("content") or ""):
         return {}
-    stream_ref = str(
-        payload.get("stream_ref")
-        or payload.get("request_id")
-        or payload.get("directive_ref")
-        or raw_event.get("event_id")
-        or f"legacy:{source_event_type}"
-    ).strip()
-    turn_id = str(payload.get("turn_id") or refs.get("turn_ref") or "").strip()
-    message_ref = str(payload.get("message_ref") or "").strip() or assistant_message_ref(
-        turn_id=turn_id,
-        stream_ref=stream_ref,
-    )
-    answer_channel = str(payload.get("answer_channel") or payload.get("channel") or "conversation")
-    answer_canonical_state = str(payload.get("answer_canonical_state") or "stable_answer")
-    answer_persist_policy = str(payload.get("answer_persist_policy") or "persist_canonical")
-    if not allows_assistant_body_projection(
-        answer_channel=answer_channel,
-        answer_canonical_state=answer_canonical_state,
-        answer_persist_policy=answer_persist_policy,
-    ):
+    if event_type == ASSISTANT_STREAM_REPAIR_EVENT and not str(data.get("replacement_content") or ""):
         return {}
-    event = assistant_text_final_event(
-        content=content,
-        stream_ref=stream_ref,
-        message_ref=message_ref,
-        turn_run_id=str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        sequence=_int_value(payload.get("sequence"), fallback=1),
-        answer_channel=answer_channel,
-        answer_source=str(payload.get("answer_source") or payload.get("source") or f"legacy:{source_event_type}"),
-        answer_canonical_state=answer_canonical_state,
-        answer_persist_policy=answer_persist_policy,
-        terminal_reason=str(payload.get("terminal_reason") or "completed"),
-    )
-    return _redact_public_stream_data(
-        {
-            key: value
-            for key, value in event.items()
-            if key not in {"type"}
-        }
-    )
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _legacy_body_signal_ignored_event_type(source_event_type: str) -> str:
+    return f"legacy_{str(source_event_type or 'body').strip() or 'body'}_ignored"
+
+
+def _legacy_body_signal_ignored_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    return {
+        "status": "ignored",
+        "state": "ignored",
+        "reason": "legacy_body_signal_not_projected",
+        "source_event_type": str(source_event_type or "").strip(),
+        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
+    }
 
 
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
@@ -939,6 +1842,10 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
         "completion_state": str(raw_data.get("completion_state") or ""),
         "error_summary": _safe_public_action_text(raw_data.get("error") or raw_data.get("content") or raw_data.get("message")) if status == "failed" else "",
         "stopped_reason": _safe_public_action_text(raw_data.get("reason") or raw_data.get("content")) if status == "stopped" else "",
+        "runtime_event_id": str(raw_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
+        "source_task_event_id": str(raw_data.get("source_task_event_id") or ""),
+        "source_task_event_offset": raw_data.get("source_task_event_offset"),
+        "source_event_type": str(raw_data.get("source_event_type") or ""),
     }
     return {key: value for key, value in payload.items() if value not in ("", None)}
 
@@ -1142,6 +2049,31 @@ def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> di
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
+def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    visible_fields = {
+        "summary": _safe_public_action_text(payload.get("summary")),
+        "public_progress_note": _safe_public_action_text(payload.get("public_progress_note")),
+        "agent_brief_output": _safe_public_action_text(payload.get("agent_brief_output")),
+        "current_judgment": _safe_public_action_text(payload.get("current_judgment")),
+        "next_action": _safe_public_action_text(payload.get("next_action")),
+        "completion_status": _safe_public_action_text(payload.get("completion_status")),
+    }
+    if not any(visible_fields.values()):
+        return {}
+    data: dict[str, Any] = {
+        "step": str(payload.get("step") or "").strip(),
+        "status": str(payload.get("status") or "running").strip() or "running",
+        "presentation_source": str(payload.get("presentation_source") or "").strip(),
+        **{key: value for key, value in visible_fields.items() if value},
+    }
+    event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()
+    if event_id:
+        data["runtime_event_id"] = event_id
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
 def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     raw_event = _record(raw_data.get("event"))
     payload = _record(raw_event.get("payload") or raw_data.get("payload"))
@@ -1289,12 +2221,14 @@ def _attach_public_projection_frame(
     session_id: str,
     sequence: int = 0,
     lifecycle_state: ProjectionLifecycleState | None = None,
+    public_anchor: dict[str, Any] | None = None,
 ) -> None:
     attach_public_projection_event(
         public_event_type,
         data,
         session_id=session_id,
         sequence=sequence,
+        public_anchor=public_anchor,
         lifecycle_state=lifecycle_state,
     )
 
@@ -1310,6 +2244,47 @@ def _redact_public_stream_data(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact_public_stream_data(item) for item in value]
     return value
+
+
+def _stream_event_id(event: dict[str, Any]) -> str:
+    raw_event = _record(event.get("event"))
+    return str(
+        event.get("runtime_event_id")
+        or event.get("event_id")
+        or raw_event.get("event_id")
+        or ""
+    ).strip()
+
+
+def _stream_event_offset(event: dict[str, Any]) -> int:
+    raw_event = _record(event.get("event"))
+    for value in (
+        event.get("event_offset"),
+        event.get("offset"),
+        raw_event.get("offset"),
+    ):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return -1
+
+
+def _stream_event_created_at(event: dict[str, Any]) -> float:
+    raw_event = _record(event.get("event"))
+    for value in (
+        event.get("created_at"),
+        raw_event.get("created_at"),
+        event.get("updated_at"),
+        raw_event.get("updated_at"),
+    ):
+        try:
+            numeric = float(value)
+            if numeric > 0:
+                return numeric
+        except (TypeError, ValueError):
+            continue
+    return time.time()
 
 
 def _runtime_run_refs_for_public_event(runtime: Any, session_id: str, event: dict[str, Any]) -> dict[str, str]:

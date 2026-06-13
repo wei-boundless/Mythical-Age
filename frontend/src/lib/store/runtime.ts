@@ -3490,10 +3490,12 @@ export class WorkspaceRuntime {
     }
     const deletedSessionScope = normalized.scope;
     const poolKey = normalized.poolKey ?? sessionPoolKeyForScope(deletedSessionScope);
-    const wasCurrentSession = this.store.getState().currentSessionId === sessionId;
-    await deleteSession(sessionId, deletedSessionScope);
-    clearRememberedSessionRef(sessionId);
-    this.clearPersistedCurrentSessionRef(sessionId);
+    const beforeDelete = this.store.getState();
+    const wasCurrentSession = beforeDelete.currentSessionId === sessionId;
+    const deletedSession = beforeDelete.sessions.find((session) => session.id === sessionId) ?? null;
+    const deletedProjectSession = beforeDelete.projectSessions.find((session) => session.id === sessionId) ?? null;
+    const deletedActivity = beforeDelete.sessionActivitiesById[sessionId] ?? null;
+    const deletedEditorContext = beforeDelete.sessionEditorContexts[sessionId] ?? null;
     this.streamingSessionCache.delete(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
@@ -3505,11 +3507,31 @@ export class WorkspaceRuntime {
       return {
         ...next,
         sessions: next.sessions.filter((session) => session.id !== sessionId),
+        projectSessions: next.projectSessions.filter((session) => session.id !== sessionId),
         sessionActivitiesById,
         sessionEditorContexts,
         sessionActivity: next.currentSessionId === sessionId ? createIdleSessionActivity(Date.now()) : next.sessionActivity,
       };
     });
+    try {
+      await deleteSession(sessionId, deletedSessionScope);
+    } catch (error) {
+      this.removedStreamingSessionIds.delete(sessionId);
+      this.store.setState((prev) => ({
+        ...prev,
+        sessions: deletedSession ? mergeSessionSummaries(prev.sessions, [deletedSession]) : prev.sessions,
+        projectSessions: deletedProjectSession ? mergeSessionSummaries(prev.projectSessions, [deletedProjectSession]) : prev.projectSessions,
+        sessionActivitiesById: deletedActivity
+          ? { ...prev.sessionActivitiesById, [sessionId]: deletedActivity }
+          : prev.sessionActivitiesById,
+        sessionEditorContexts: deletedEditorContext
+          ? { ...prev.sessionEditorContexts, [sessionId]: deletedEditorContext }
+          : prev.sessionEditorContexts,
+      }));
+      throw error;
+    }
+    clearRememberedSessionRef(sessionId);
+    this.clearPersistedCurrentSessionRef(sessionId);
 
     if (poolKey === MAIN_CHAT_POOL_KEY) {
       const refreshedSessions = await this.refreshMainSessionPool().catch((error) => {

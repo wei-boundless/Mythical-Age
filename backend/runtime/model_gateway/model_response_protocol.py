@@ -97,14 +97,23 @@ def parse_json_object_with_diagnostics(content: Any) -> tuple[dict[str, Any], di
     except json.JSONDecodeError as exc:
         repaired = _parse_json_object_prefix_with_ignorable_trailing_text(text)
         if repaired is None:
-            diagnostics["parse_error"] = exc.__class__.__name__
-            diagnostics["parse_error_message"] = str(exc)
-            diagnostics["starts_with"] = text[:24]
-            diagnostics["ends_with"] = text[-24:] if text else ""
-            return {}, diagnostics
-        parsed, trailing = repaired
-        diagnostics["parsed_with_trailing_repair"] = True
-        diagnostics["ignored_trailing_text"] = trailing
+            embedded = _parse_single_embedded_json_object(text)
+            if embedded is None:
+                diagnostics["parse_error"] = exc.__class__.__name__
+                diagnostics["parse_error_message"] = str(exc)
+                diagnostics["starts_with"] = text[:24]
+                diagnostics["ends_with"] = text[-24:] if text else ""
+                return {}, diagnostics
+            parsed, leading, trailing = embedded
+            diagnostics["parsed_with_embedded_object_repair"] = True
+            diagnostics["ignored_leading_text"] = _compact_text(leading, limit=240)
+            if trailing:
+                diagnostics["ignored_trailing_text"] = _compact_text(trailing, limit=240)
+            diagnostics["embedded_json_repair_authority"] = "runtime.model_gateway.model_response_protocol"
+        if repaired is not None:
+            parsed, trailing = repaired
+            diagnostics["parsed_with_trailing_repair"] = True
+            diagnostics["ignored_trailing_text"] = trailing
     except Exception as exc:
         diagnostics["parse_error"] = exc.__class__.__name__
         diagnostics["starts_with"] = text[:24]
@@ -133,6 +142,43 @@ def _parse_json_object_prefix_with_ignorable_trailing_text(text: str) -> tuple[d
     if trailing.strip("`").strip() in {'"', "'"}:
         return parsed, trailing
     return None
+
+
+def _parse_single_embedded_json_object(text: str) -> tuple[dict[str, Any], str, str] | None:
+    decoder = json.JSONDecoder()
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            candidates.append((index, index + end, dict(parsed)))
+    action_like = [
+        candidate
+        for candidate in candidates
+        if _looks_like_model_action_object(candidate[2])
+    ]
+    selected = action_like if action_like else candidates
+    if len(selected) != 1:
+        return None
+    start, end, payload = selected[0]
+    leading = text[:start].strip()
+    trailing = text[end:].strip()
+    return payload, leading, trailing
+
+
+def _looks_like_model_action_object(payload: dict[str, Any]) -> bool:
+    keys = {str(key) for key in payload.keys()}
+    return bool(
+        "action_type" in keys
+        or "authority" in keys
+        or "tool_call" in keys
+        or "task_contract_seed" in keys
+        or "active_work_control" in keys
+    )
 
 
 def response_protocol_diagnostics(response: Any) -> dict[str, Any]:

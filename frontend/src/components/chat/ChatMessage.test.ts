@@ -177,4 +177,21 @@ describe("ChatMessage", () => {
     expect(html).not.toContain("continue_active_work");
     expect(html).not.toContain("复制回复");
   });
+
+  it("hides internal model action protocol content from projection body", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, assistantProps({
+        content: "",
+        publicProjection: projection({
+          bodyText: '已确认材料。\n{"authority":"harness.loop.model_action_request","action_type":"request_task_run","task_contract_seed":{"user_visible_goal":"继续修复"}}',
+          bodyState: "finalized",
+        }),
+      })),
+    );
+
+    expect(html).not.toContain("harness.loop.model_action_request");
+    expect(html).not.toContain("request_task_run");
+    expect(html).not.toContain("继续修复");
+    expect(html).not.toContain("复制回复");
+  });
 });

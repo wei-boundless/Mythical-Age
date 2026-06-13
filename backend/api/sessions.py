@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.session_scope import assert_optional_session_scope, normalize_session_scope, request_scope_from_query
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION_TITLE = "New Session"
 
@@ -152,23 +154,60 @@ async def delete_session(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     missing_session = False
+    session_history: dict[str, Any] = {}
+    requested_scope = request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id)
     try:
-        assert_optional_session_scope(
+        await asyncio.to_thread(
+            assert_optional_session_scope,
             runtime.session_manager,
             session_id,
-            request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+            requested_scope,
         )
+        session_history = await asyncio.to_thread(runtime.session_manager.get_history, session_id)
     except ValueError as exc:
         if str(exc) != "Unknown session_id":
             raise
         missing_session = True
-    try:
-        cleanup = await SessionRuntimeLifecycleManager(runtime).detach_session_runtime(session_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    tombstone = await asyncio.to_thread(
+        runtime.harness_runtime.single_agent_runtime_host.state_index.mark_session_deleted,
+        session_id,
+    )
     if not missing_session:
-        runtime.session_manager.delete_session(session_id)
+        await asyncio.to_thread(runtime.session_manager.delete_session, session_id)
+    cleanup = _queue_session_runtime_cleanup(runtime, session_id=session_id, session_history=session_history)
+    cleanup["session_deletion_tombstone"] = tombstone
     return {"ok": True, "cleanup": cleanup, "session_missing_before_delete": missing_session}
+
+
+def _queue_session_runtime_cleanup(runtime: Any, *, session_id: str, session_history: dict[str, Any]) -> dict[str, Any]:
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        return {
+            "authority": "api.sessions.delete_session",
+            "mode": "queued_runtime_cleanup",
+            "queued": False,
+            "reason": "missing_session_id",
+        }
+    host = runtime.harness_runtime.single_agent_runtime_host
+    task_name = f"session-runtime-cleanup:{normalized}"
+
+    async def _cleanup() -> None:
+        try:
+            await SessionRuntimeLifecycleManager(runtime).detach_session_runtime(
+                normalized,
+                session_history=dict(session_history or {}),
+            )
+        except Exception:
+            logger.exception("Session runtime cleanup failed for %s", normalized)
+
+    host.spawn_background_task(_cleanup(), name=task_name)
+    return {
+        "authority": "api.sessions.delete_session",
+        "mode": "queued_runtime_cleanup",
+        "queued": True,
+        "session_id": normalized,
+        "task_name": task_name,
+    }
 
 
 @router.get("/sessions/{session_id}/messages")

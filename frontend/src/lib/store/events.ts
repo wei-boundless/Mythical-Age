@@ -10,10 +10,9 @@ import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 import {
   applyPublicProjectionFrame,
   publicProjectionFrameFromRecord,
-  publicProjectionFrameSuppressesLegacy,
 } from "@/lib/projection/reducer";
 
-import type { ActiveTurnState, AssistantTextSegmentState, AssistantTextStreamState, Message, StoreState } from "./types";
+import type { AssistantTextSegmentState, AssistantTextStreamState, Message, StoreState } from "./types";
 import {
   makeId
 } from "./utils";
@@ -94,41 +93,10 @@ function rawStringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
-function activeTurnStateValue(value: unknown): ActiveTurnState | undefined {
-  const normalized = stringValue(value);
-  return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
-}
-
-const ACTIVE_TURN_STATES = new Set([
-  "starting",
-  "model_turn",
-  "running_task",
-  "waiting_executor",
-  "waiting_user",
-  "waiting_approval",
-  "waiting_safe_boundary",
-  "interrupting",
-  "terminal",
-]);
-
 function stringArrayValue(value: unknown) {
   if (!Array.isArray(value)) return undefined;
   const values = value.map((item) => String(item ?? "").trim()).filter(Boolean);
   return values.length ? values : undefined;
-}
-
-function isTaskRunHandoffEvent(data: Record<string, unknown>) {
-  const taskRunId = stringValue(
-    data.runtime_task_run_id
-    ?? recordValue(data.task_run).task_run_id,
-  );
-  if (!taskRunId) {
-    return false;
-  }
-  const reason = stringValue(data.terminal_reason);
-  const channel = stringValue(data.answer_channel);
-  return reason === "task_executor_scheduled"
-    || channel === "task_control";
 }
 
 function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message> {
@@ -559,9 +527,7 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function bindStreamSessionAnchor(
   session: StreamSession,
-  event: string,
   data: Record<string, unknown>,
-  options: { hasPublicProjectionFrame?: boolean } = {},
 ): StreamSession {
   let next = session;
   const bind = (field: keyof Pick<StreamSession, "boundTurnId" | "boundRunId" | "boundTaskRunId" | "boundTurnRunId">, value: string) => {
@@ -578,37 +544,6 @@ function bindStreamSessionAnchor(
     }
     next[field] = normalized;
   };
-  const bindTurnRun = (turnRunId: string, turnId = "") => {
-    const normalizedTurnRunId = stringValue(turnRunId);
-    if (!normalizedTurnRunId) {
-      return;
-    }
-    bind("boundTurnRunId", normalizedTurnRunId);
-    bind("boundRunId", normalizedTurnRunId);
-    bind("boundTurnId", stringValue(turnId) || turnIdFromRuntimeRunId(normalizedTurnRunId));
-  };
-  if (event === "harness_run_started") {
-    const turnRun = recordValue(data.turn_run);
-    bindTurnRun(stringValue(turnRun.turn_run_id), stringValue(turnRun.turn_id));
-    const taskRun = recordValue(data.task_run);
-    const taskRunId = stringValue(taskRun.task_run_id);
-    if (taskRunId) {
-      bind("boundTaskRunId", taskRunId);
-      bind("boundRunId", taskRunId);
-      bind("boundTurnId", turnIdFromRuntimeRunId(taskRunId));
-    }
-  }
-  if (
-    event === "assistant_text_delta"
-    || event === "assistant_text_final"
-    || event === "assistant_stream_repair"
-    || event === TOOL_ITEM_STARTED_EVENT
-    || event === TOOL_ITEM_COMPLETED_EVENT
-    || event === TURN_COMPLETED_EVENT
-  ) {
-    bindTurnRun(stringValue(data.turn_run_id), stringValue(data.turn_id));
-    bind("boundTaskRunId", stringValue(data.task_run_id));
-  }
   const frame = recordValue(data.public_projection_frame);
   const frameAnchor = recordValue(frame.anchor);
   if (frameAnchor) {
@@ -616,10 +551,6 @@ function bindStreamSessionAnchor(
     bind("boundRunId", stringValue(frameAnchor.run_id));
     bind("boundTaskRunId", stringValue(frameAnchor.task_run_id));
     bind("boundTurnRunId", stringValue(frameAnchor.turn_run_id));
-  }
-  const rawRunId = stringValue(data.run_id);
-  if (!options.hasPublicProjectionFrame && rawRunId.startsWith("turnrun:")) {
-    bindTurnRun(rawRunId, stringValue(data.turn_id));
   }
   return next;
 }
@@ -647,25 +578,6 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
     sourceTaskRunId: message.sourceTaskRunId || stringValue(session.boundTaskRunId) || undefined,
     sourceTurnRunId: message.sourceTurnRunId || stringValue(session.boundTurnRunId) || undefined,
   }));
-}
-
-function turnIdFromRuntimeRunId(runId: string) {
-  const normalized = stringValue(runId);
-  const candidate = normalized.startsWith("turnrun:")
-    ? normalized.slice("turnrun:".length)
-    : normalized.startsWith("taskrun:")
-      ? normalized.slice("taskrun:".length)
-      : "";
-  if (!candidate.startsWith("turn:")) {
-    return "";
-  }
-  const parts = candidate.split(":");
-  for (let index = parts.length - 1; index >= 2; index -= 1) {
-    if (/^\d+$/.test(parts[index])) {
-      return parts.slice(0, index + 1).join(":");
-    }
-  }
-  return candidate;
 }
 
 function isMachineReference(value: string) {
@@ -1233,47 +1145,8 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const publicProjectionFrame = publicProjectionFrameFromRecord(data.public_projection_frame);
-  const hasPublicProjectionFrame = publicProjectionFrameSuppressesLegacy(publicProjectionFrame);
-  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionFrame });
-  const activeTurnId = String(data.active_turn_id ?? "").trim();
-  const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
-    ? data.active_turn as Record<string, unknown>
-    : {};
-  const taskRunHandoffId = isTaskRunHandoffEvent(data)
-    ? String(data.runtime_task_run_id ?? recordValue(data.task_run).task_run_id ?? "").trim()
-    : "";
-  const activeTurnSnapshot = activeTurnId || String(activeTurn.turn_id ?? "").trim()
-    ? {
-        turn_id: activeTurnId || String(activeTurn.turn_id ?? "").trim(),
-        turn_run_id: String(activeTurn.turn_run_id ?? "").trim() || undefined,
-        task_run_id: String(
-          activeTurn.task_run_id
-          ?? activeTurn.bound_task_run_id
-          ?? data.runtime_task_run_id
-          ?? data.task_run_id
-          ?? recordValue(data.task_run).task_run_id
-          ?? "",
-        ).trim() || undefined,
-        state: activeTurnStateValue(activeTurn.state) || (taskRunHandoffId ? "waiting_executor" : undefined),
-        updated_at: Number(activeTurn.updated_at ?? 0) || undefined,
-      }
-    : null;
-  const taskRunHandoffSnapshot = taskRunHandoffId
-    ? {
-        turn_id: state.activeTurnSnapshot?.turn_id || "",
-        task_run_id: taskRunHandoffId,
-        state: "waiting_executor" as ActiveTurnState,
-        updated_at: Date.now() / 1000,
-      }
-    : null;
-  const stateWithActiveTurn = activeTurnSnapshot
-    ? { ...state, activeTurnSnapshot }
-    : taskRunHandoffSnapshot
-      ? { ...state, activeTurnSnapshot: taskRunHandoffSnapshot }
-    : event === "done" || event === "error" || event === "stopped" || event === TURN_COMPLETED_EVENT
-      ? { ...state, activeTurnSnapshot: null }
-      : state;
-  const stateWithStreamAnchor = patchAssistantStreamAnchor(stateWithActiveTurn, boundSession);
+  const boundSession = bindStreamSessionAnchor(session, data);
+  const stateWithStreamAnchor = patchAssistantStreamAnchor(state, boundSession);
   const withOrchestration = updateOrchestrationSnapshot(stateWithStreamAnchor.orchestrationSnapshot, event, data);
   const stateWithOrchestrationBase = withOrchestration === stateWithStreamAnchor.orchestrationSnapshot
     ? stateWithStreamAnchor

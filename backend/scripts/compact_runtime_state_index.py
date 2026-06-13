@@ -84,6 +84,7 @@ def _forbidden_field_counts(payload: dict[str, Any]) -> dict[str, int]:
         "task_graph_definition": 0,
         "graph_harness_config_payload": 0,
         "graph_harness_config": 0,
+        "graph_result": 0,
     }
     for item in dict(payload.get("task_runs") or {}).values():
         diagnostics = dict(dict(item or {}).get("diagnostics") or {}) if isinstance(item, dict) else {}

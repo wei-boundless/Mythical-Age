@@ -104,11 +104,19 @@ class GraphTaskLifecycleManager:
 
     def _collect_task_run_ids(self, *, graph_run_id: str, root_task_run_id: str, state: dict[str, Any]) -> set[str]:
         task_ids = {root_task_run_id} if root_task_run_id else set()
-        for task_run in self.services.state_index.list_task_runs():
-            payload = task_run.to_dict() if hasattr(task_run, "to_dict") else {}
-            diagnostics = dict(payload.get("diagnostics") or {})
-            if str(diagnostics.get("graph_run_id") or "") == graph_run_id:
-                task_ids.add(str(payload.get("task_run_id") or ""))
+        indexed_task_runs = []
+        list_graph_node_task_runs = getattr(self.services.state_index, "list_graph_node_task_runs", None)
+        if callable(list_graph_node_task_runs):
+            indexed_task_runs = list(list_graph_node_task_runs(graph_run_id=graph_run_id) or [])
+        if indexed_task_runs:
+            for task_run in indexed_task_runs:
+                task_ids.add(str(getattr(task_run, "task_run_id", "") or ""))
+        else:
+            for task_run in self.services.state_index.list_task_runs():
+                payload = task_run.to_dict() if hasattr(task_run, "to_dict") else {}
+                diagnostics = dict(payload.get("diagnostics") or {})
+                if str(diagnostics.get("graph_run_id") or "") == graph_run_id:
+                    task_ids.add(str(payload.get("task_run_id") or ""))
         for payload in dict(state.get("node_states") or {}).values():
             result_ref = str(dict(payload or {}).get("result_ref") or "")
             if not result_ref:

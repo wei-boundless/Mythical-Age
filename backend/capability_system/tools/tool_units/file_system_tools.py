@@ -124,13 +124,19 @@ class PathExistsTool(_WorkspacePathMixin, BaseTool):
 
 
 class GlobPathsInput(BaseModel):
-    pattern: str = Field(..., description="Glob pattern relative to the project root, such as docs/**/*.md")
+    pattern: str = Field(
+        ...,
+        description="Explicit wildcard path pattern relative to the project root, such as *.html, **/*.py, or docs/**/*.md; for filename keywords use search_files, for content use search_text",
+    )
     max_results: int = Field(default=80, ge=1, le=300, description="Maximum matched paths to return")
 
 
 class GlobPathsTool(_WorkspacePathMixin, BaseTool):
     name: str = "glob_paths"
-    description: str = "Find workspace paths by an explicit glob pattern. Use for path discovery, not content search."
+    description: str = (
+        "Find workspace paths by an explicit wildcard glob pattern such as *.html or backend/**/*.py. "
+        "Use search_files for filename/path keywords and search_text for file contents."
+    )
     args_schema: Type[BaseModel] = GlobPathsInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _root_dir: Path = PrivateAttr()

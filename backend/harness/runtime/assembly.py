@@ -35,6 +35,7 @@ _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
     "tool.guidance.git_read": "tool.guidance.git_read",
     "tool.guidance.git_write": "tool.guidance.git_write",
     "tool.guidance.todo": "tool.guidance.todo",
+    "tool.guidance.local_search": "tool.guidance.local_search",
     "tool.guidance.subagent": "tool.guidance.subagent",
     "tool.guidance.browser": "tool.guidance.browser",
     "tool.guidance.web_fetch": "tool.guidance.web_fetch",
@@ -92,7 +93,7 @@ _CAPABILITY_GROUP_CATALOG: dict[str, dict[str, str]] = {
     },
     "file_work": {
         "title": "文件与代码工作",
-        "use_when": "用于列目录、查找路径、搜索文本、读取文件、分析代码和编辑文件。",
+        "use_when": "用于列目录、按关键词查路径、按 glob 匹配路径、搜索文本、读取文件、分析代码和编辑文件。",
     },
     "web_research": {
         "title": "网络研究",

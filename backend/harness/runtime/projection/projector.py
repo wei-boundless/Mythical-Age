@@ -9,10 +9,13 @@ from runtime.output_stream.public_contract import (
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
+    CHAT_TURN_BOUND_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    TASK_BRIDGE_STARTED_EVENT,
+    TASK_BRIDGE_TERMINAL_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
     TOOL_ITEM_COMPLETED_EVENT,
     TOOL_ITEM_STARTED_EVENT,
@@ -102,6 +105,16 @@ class ProjectionLifecycleState:
             tool_call_id = text(data.get("tool_call_id"))
             permission_decision_id = text(data.get("permission_decision_id"))
             record = self._tool_record(data, tool_call_id=tool_call_id)
+            recorded_permission_decision_id = text(record.get("permission_decision_id")) if record else ""
+            if (
+                record
+                and permission_decision_id
+                and recorded_permission_decision_id
+                and permission_decision_id != recorded_permission_decision_id
+                and permission_decision_id == f"admission:{tool_call_id}"
+            ):
+                data["permission_decision_id"] = recorded_permission_decision_id
+                permission_decision_id = recorded_permission_decision_id
             if (
                 not tool_call_id
                 or not permission_decision_id
@@ -209,6 +222,8 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _tool_started_spec(data)
     if event_type == TOOL_ITEM_COMPLETED_EVENT:
         return _tool_completed_spec(data)
+    if event_type == "tool_batch_group_started":
+        return _tool_batch_group_started_spec(data)
     if event_type in {
         SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
         SESSION_OUTPUT_COMMIT_ACK_EVENT,
@@ -218,8 +233,12 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _commit_spec(event_type, data)
     if event_type == TURN_COMPLETED_EVENT:
         return _turn_terminal_spec(data)
+    if event_type in {CHAT_TURN_BOUND_EVENT, TASK_BRIDGE_STARTED_EVENT, TASK_BRIDGE_TERMINAL_EVENT}:
+        return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_status":
         return _status_spec(data)
+    if event_type == "runtime_step_summary":
+        return _runtime_step_summary_spec(data)
     if event_type == "active_task_steer_accepted":
         return _hidden_trace_spec(event_type, data)
     if event_type in {"error", "stopped"}:
@@ -260,8 +279,8 @@ def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
     action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
-    title = _tool_request_text(data, tool_name=tool_name)
     subject = public_text(data.get("target") or data.get("arguments_preview"), limit=180)
+    title = _tool_request_text(data, tool_name=tool_name, subject=subject)
     return {
         "op": "item_upsert",
         "slot": "current_action",
@@ -366,6 +385,7 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
     raw_state = text(data.get("state")).lower()
     failed = raw_state in {"error", "failed", "blocked"}
     detail = public_text(data.get("error") or data.get("observation"), limit=360)
+    title = _tool_completed_text(data, tool_name=tool_name, failed=failed)
     if failed:
         return {
             "op": "item_upsert",
@@ -379,8 +399,8 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
             "permission_decision_id": permission_decision_id,
             "tool_name": tool_name,
             "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
-            "title": public_text(data.get("title") or data.get("summary"), limit=120),
-            "text": public_text(data.get("title") or data.get("summary"), limit=120),
+            "title": title,
+            "text": title,
             "detail": detail,
             "state": "failed",
             "trace_refs": _trace_refs(data),
@@ -396,10 +416,38 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+        "title": title,
+        "text": title,
         "detail": detail,
         "state": "done",
         "trace_refs": _trace_refs(data),
         "collapsed": True,
+    }
+
+
+def _tool_batch_group_started_spec(data: dict[str, Any]) -> dict[str, Any]:
+    group = record(data.get("tool_batch_group"))
+    item_indexes = list(group.get("item_indexes") or [])
+    count = len(item_indexes)
+    execution_class = text(group.get("execution_class"))
+    title = f"正在执行 {count} 个工具" if count > 1 else "正在执行工具"
+    detail_parts = []
+    if execution_class:
+        detail_parts.append(execution_class)
+    if count > 0:
+        detail_parts.append(f"items={count}")
+    return {
+        "op": "item_upsert",
+        "slot": "trace",
+        "source_authority": "runtime",
+        "main_visibility": "hidden",
+        "retention": "trace",
+        "item_id": text(data.get("tool_batch_ref")) or stable_id("tool-batch", data.get("runtime_event_id"), data.get("event_id")),
+        "title": title,
+        "text": title,
+        "detail": " / ".join(detail_parts),
+        "state": "running",
+        "trace_refs": _trace_refs(data),
     }
 
 
@@ -499,6 +547,38 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
     }
 
 
+def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
+    title = (
+        public_text(data.get("current_judgment"), limit=180)
+        or public_text(data.get("public_progress_note"), limit=180)
+        or public_text(data.get("summary"), limit=180)
+    )
+    detail = (
+        public_text(data.get("next_action"), limit=220)
+        or public_text(data.get("agent_brief_output"), limit=220)
+    )
+    presentation_source = text(data.get("presentation_source"))
+    return {
+        "op": "item_upsert",
+        "slot": "status",
+        "source_authority": "model" if presentation_source.startswith("model_action.") else "runtime",
+        "main_visibility": "visible_live" if title or detail else "hidden",
+        "retention": "transient",
+        "item_id": stable_id(
+            "runtime-step",
+            data.get("runtime_event_id"),
+            data.get("source_task_event_id"),
+            data.get("source_task_event_offset"),
+            data.get("step"),
+        ),
+        "title": title,
+        "text": title,
+        "detail": detail,
+        "state": text(data.get("status")) or "running",
+        "trace_refs": _trace_refs(data),
+    }
+
+
 def _terminal_status_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     failed = event_type == "error"
     return {
@@ -547,15 +627,50 @@ def _protocol_diagnostic_spec(data: dict[str, Any], *, code: str, detail: str) -
     }
 
 
-def _tool_request_text(data: dict[str, Any], *, tool_name: str) -> str:
+def _tool_request_text(data: dict[str, Any], *, tool_name: str, subject: str = "") -> str:
     action_state = record(data.get("public_action_state"))
-    subject = public_text(data.get("target") or data.get("arguments_preview"), limit=180)
+    visible_subject = subject or public_text(data.get("target") or data.get("arguments_preview"), limit=180)
+    structured = _structured_tool_action_text(tool_name=tool_name, subject=visible_subject)
     return (
         public_text(action_state.get("next_action"), limit=180)
         or public_text(data.get("public_progress_note"), limit=180)
-        or subject
+        or structured
+        or visible_subject
         or text(tool_name)
     )
+
+
+def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
+    visible_subject = public_text(subject, limit=140)
+    if tool_name in {"search_files", "search_text", "glob_paths"}:
+        verb = {
+            "search_files": "搜索文件",
+            "search_text": "搜索文本",
+            "glob_paths": "匹配路径",
+        }.get(tool_name, "搜索")
+        return f"{verb}：{visible_subject}" if visible_subject else verb
+    if tool_name in {"read_file", "read_files"}:
+        return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
+    if tool_name in {"write_file", "edit_file"}:
+        return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
+    if visible_subject:
+        return f"{tool_name}：{visible_subject}"
+    return text(tool_name)
+
+
+def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) -> str:
+    explicit = public_text(data.get("title") or data.get("summary"), limit=120)
+    if explicit:
+        return explicit
+    if failed:
+        return "工具执行失败"
+    if tool_name in {"search_files", "search_text", "glob_paths"}:
+        return "搜索完成"
+    if tool_name in {"read_file", "read_files"}:
+        return "文件读取完成"
+    if tool_name in {"write_file", "edit_file"}:
+        return "文件更新完成"
+    return "工具执行完成"
 
 
 def _body_item_id(data: dict[str, Any]) -> str:
@@ -569,6 +684,10 @@ def _trace_refs(data: dict[str, Any]) -> list[str]:
         data.get("runtime_event_id"),
         data.get("event_id"),
         event.get("event_id"),
+        data.get("source_turn_event_id"),
+        data.get("source_handoff_event_id"),
+        data.get("source_task_event_id"),
+        data.get("source_task_event_offset"),
         data.get("turn_run_id"),
         data.get("task_run_id"),
         data.get("debug_trace_ref"),

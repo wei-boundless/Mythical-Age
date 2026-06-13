@@ -13,6 +13,8 @@ _SPECIAL_CONTRACT_TOOL_NAMES = {
     "write_file",
     "edit_file",
     "spawn_subagent",
+    "glob_paths",
+    "search_files",
     "read_file",
     "search_text",
 }
@@ -382,16 +384,39 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "file_unchanged"],
             }
         )
+    elif name == "glob_paths":
+        summary.update(
+            {
+                "critical_fields": {"pattern": dict(field_paths.get("pattern") or {})},
+                "usage_hint": "Use for explicit wildcard path patterns such as *.html, **/*.py, or backend/**/*.ts. It returns paths, not file contents.",
+                "output_facts": ["pattern", "matches"],
+            }
+        )
+    elif name == "search_files":
+        summary.update(
+            {
+                "critical_fields": {
+                    "query": dict(field_paths.get("query") or {}),
+                    "roots": dict(field_paths.get("roots") or {}),
+                },
+                "usage_hint": "Use for filename or path keywords when the exact path is unknown. Use glob_paths for wildcard patterns and search_text for content.",
+                "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],
+            }
+        )
     elif name == "search_text":
         summary.update(
             {
                 "critical_fields": {
                     "query": dict(field_paths.get("query") or {}),
+                    "roots": dict(field_paths.get("roots") or {}),
+                    "paths": dict(field_paths.get("paths") or {}),
+                    "glob": dict(field_paths.get("glob") or {}),
                     "output_mode": dict(field_paths.get("output_mode") or {}),
                     "context": dict(field_paths.get("context") or {}),
                     "head_limit": dict(field_paths.get("head_limit") or {}),
                     "offset": dict(field_paths.get("offset") or {}),
                 },
+                "usage_hint": "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. paths accepts files only; directories must go in roots.",
                 "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
             }
         )

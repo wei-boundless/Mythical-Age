@@ -2,7 +2,7 @@ from __future__ import annotations
 
 TOOL_READ_FILE_GUIDANCE = """
 使用 read_file 时，你是在读取工作区文件的当前真实内容。
-已知路径时直接读取具体文件；不知道位置时先用 search_files、glob_paths、list_dir、search_text 或其它可见定位工具找到候选路径。
+已知路径时直接读取具体文件；不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。
 读取结果可能只是文件窗口。根据 start_line、end_line、next_start_line、line_count、total_lines、has_more、truncated 或 content_range 判断是否需要继续。
 不要重复读取相同行窗口；如果工具返回 file_unchanged 或系统提示重复只读调用，请使用已有 observation 作为证据，或改用搜索、更小行范围、下一个目标窗口、编辑、验证或收口。

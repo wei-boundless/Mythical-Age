@@ -60,9 +60,12 @@ export function ChatMessage({
   const [copiedReply, setCopiedReply] = useState(false);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
+  const projectionBodyText = publicProjection?.bodyText && !isInternalControlProtocolText(publicProjection.bodyText)
+    ? publicProjection.bodyText
+    : "";
   const baseDisplayContent = isUser
     ? content
-    : publicProjection?.bodyText || assistantDisplayContent(content, {
+    : projectionBodyText || assistantDisplayContent(content, {
       answerChannel,
       answerCanonicalState,
       answerPersistPolicy,
