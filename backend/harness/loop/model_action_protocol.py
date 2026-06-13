@@ -86,6 +86,7 @@ def model_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = False,
     require_public_action_state: bool = False,
+    public_response_required: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
@@ -139,13 +140,22 @@ def model_action_request_from_payload(
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     public_action_state = _public_action_state(raw.get("public_action_state"))
+    if public_response_required and not _has_model_public_response(
+        action_type=action_type,
+        public_progress_note=public_progress_note,
+        public_action_state=public_action_state,
+        final_answer=final_answer,
+        user_question=user_question,
+        blocking_reason=blocking_reason,
+    ):
+        errors.append("public_response_required")
     if require_public_progress_note and not public_progress_note:
-        if action_type == "tool_call":
+        if action_type == "tool_call" and not public_response_required:
             contract_gaps.append("public_progress_note_missing_for_tool_call")
         else:
             errors.append("public_progress_note_required")
     if require_public_action_state and not _has_public_action_state(public_action_state):
-        if action_type == "tool_call":
+        if action_type == "tool_call" and not public_response_required:
             contract_gaps.append("public_action_state_missing_for_tool_call")
         else:
             errors.append("public_action_state_required")
@@ -226,6 +236,7 @@ def task_execution_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = True,
     require_public_action_state: bool = True,
+    public_response_required: bool = True,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
@@ -242,6 +253,7 @@ def task_execution_action_request_from_payload(
         turn_id=turn_id,
         require_public_progress_note=require_public_progress_note,
         require_public_action_state=require_public_action_state,
+        public_response_required=public_response_required,
         allowed_action_types=tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block")),
     )
     if forbidden_errors:
@@ -461,6 +473,28 @@ def _has_public_action_state(state: dict[str, Any]) -> bool:
             "next_action",
         )
     )
+
+
+def _has_model_public_response(
+    *,
+    action_type: str,
+    public_progress_note: str,
+    public_action_state: dict[str, Any],
+    final_answer: str,
+    user_question: str,
+    blocking_reason: str,
+) -> bool:
+    if public_progress_note:
+        return True
+    if str(dict(public_action_state or {}).get("current_judgment") or "").strip():
+        return True
+    if action_type == "respond":
+        return bool(str(final_answer or "").strip())
+    if action_type == "ask_user":
+        return bool(str(user_question or "").strip())
+    if action_type == "block":
+        return bool(str(blocking_reason or "").strip())
+    return False
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

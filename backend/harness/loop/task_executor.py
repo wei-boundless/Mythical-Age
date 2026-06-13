@@ -614,7 +614,7 @@ def append_user_work_instruction(
                 reason=intent,
                 latest_step="task_run_replan_requested",
                 latest_step_status="running",
-                latest_step_summary="已收到新的补充要求，正在中断当前步骤并重新规划。",
+                latest_step_summary="",
             ),
         )
         runtime_host.state_index.upsert_task_run(updated)
@@ -623,7 +623,8 @@ def append_user_work_instruction(
         task_run_id=task_run_id,
         step="active_task_steer_recorded",
         status=str(getattr(updated, "status", "") or "running"),
-        summary="已收到你的补充说明，会在后续处理里优先纳入。",
+        summary="",
+        presentation_source="system.user_steer_status",
         refs={"steer_ref": steer_ref},
     )
     return {**result, "task_run": updated.to_dict()}
@@ -837,6 +838,7 @@ async def _replay_approved_pending_tool_call(
         turn_id=current_task.task_run_id,
         require_public_progress_note=False,
         require_public_action_state=False,
+        public_response_required=False,
         allowed_action_types=("tool_call",),
     )
     if action_request is None:
@@ -3088,6 +3090,7 @@ async def _invoke_task_model_action(
         turn_id=task_run_id,
         require_public_progress_note=True,
         require_public_action_state=True,
+        public_response_required=True,
         allowed_action_types=tuple(getattr(packet, "allowed_action_types", ()) or ()),
     )
     if action_request is None:
@@ -7960,7 +7963,7 @@ def _step_summary_diagnostics_update(
         "latest_step_status": status,
         "latest_step_summary": summary,
     }
-    if source in {"tool_observation.summary", "system.tool_call_status"}:
+    if source in {"tool_observation.summary", "system.tool_call_status", "system.user_steer_status"}:
         trace = public_progress_note or agent_brief_output or summary
         if trace:
             update["latest_tool_observation_trace"] = trace

@@ -111,6 +111,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
+                "content": "我先读取 requirements.txt，再回答依赖状态。",
                 "additional_kwargs": {"reasoning_content": "I should read requirements before answering."},
                 "tool_calls": [
                     {
@@ -285,6 +286,7 @@ def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_packag
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
+                "content": "我先读取依赖文件，确认恢复后的上下文没有丢。",
                 "tool_calls": [
                     {
                         "id": "call-read-requirements",
@@ -355,6 +357,7 @@ def test_single_agent_turn_batches_multiple_read_only_tools_before_followup_answ
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
+                "content": "我先并行检查依赖文件和路径存在性。",
                 "tool_calls": [
                     {"id": "call-read-requirements", "name": "read_file", "args": {"path": "requirements.txt", "line_count": 20}},
                     {"id": "call-path-exists", "name": "path_exists", "args": {"path": "requirements.txt"}},
@@ -408,6 +411,7 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
             super().__init__(
                 [
                     {
+                        **({"content": "我先检查文件是否存在，再判断是否需要继续。"} if index == 1 else {}),
                         "tool_calls": [
                             {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
                         ]

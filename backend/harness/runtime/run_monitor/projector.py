@@ -27,6 +27,7 @@ from .lifecycle import (
 
 TRACE_ONLY_PRESENTATION_SOURCES = {
     "system.tool_call_status",
+    "system.user_steer_status",
     "tool_observation.summary",
 }
 

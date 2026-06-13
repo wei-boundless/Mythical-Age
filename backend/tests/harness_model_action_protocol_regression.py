@@ -175,6 +175,7 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
             super().__init__(
                 [
                     {
+                        "content": "我先检查文件是否存在，再判断下一步。",
                         "tool_calls": [
                             {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
                         ]
@@ -587,7 +588,7 @@ def test_task_model_action_request_requires_public_progress_note_for_public_resp
     assert diagnostics["status"] == "invalid"
     assert "public_progress_note_required" in diagnostics["validation_errors"]
 
-def test_task_model_action_request_does_not_require_public_text_for_tool_call() -> None:
+def test_public_response_required_rejects_tool_call_without_model_response() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -601,6 +602,31 @@ def test_task_model_action_request_does_not_require_public_text_for_tool_call() 
         turn_id="taskrun:test:progress-report-required",
         require_public_progress_note=True,
         require_public_action_state=True,
+        public_response_required=True,
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "public_response_required" in diagnostics["validation_errors"]
+    assert "public_progress_note_required" in diagnostics["validation_errors"]
+    assert "public_action_state_required" in diagnostics["validation_errors"]
+
+
+def test_internal_tool_call_can_keep_public_response_empty() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:internal-tool",
+            "turn_id": "taskrun:test:internal-tool",
+            "action_type": "tool_call",
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        turn_id="taskrun:test:internal-tool",
+        require_public_progress_note=True,
+        require_public_action_state=True,
+        public_response_required=False,
     )
 
     assert action is not None
@@ -612,6 +638,64 @@ def test_task_model_action_request_does_not_require_public_text_for_tool_call() 
     assert action.public_progress_note == ""
     assert action.public_action_state == {}
     assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
+
+
+def test_single_agent_parser_rejects_initial_native_tool_call_without_model_preamble() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {"id": "call-read", "name": "read_file", "args": {"path": "README.md"}},
+            ],
+        ),
+        request_id="model-response:test:native-tool-public-response",
+        turn_id="turn:test:native-tool-public-response",
+        packet_ref="packet:test:native-tool-public-response",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "tool_call"),
+        phase="tool_loop",
+        public_response_required=True,
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
+    diagnostics = parsed.error["diagnostics"]
+    assert diagnostics["action_issue"]["code"] == "public_response_required"
+    assert diagnostics["native_action_errors"][0]["code"] == "public_response_required_for_native_tool_call"
+
+
+def test_single_agent_parser_uses_native_tool_preamble_as_model_response() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content="我先读取 README 来确认项目状态，再回答你的问题。",
+            tool_calls=[
+                {"id": "call-read", "name": "read_file", "args": {"path": "README.md"}},
+            ],
+        ),
+        request_id="model-response:test:native-tool-preamble",
+        turn_id="turn:test:native-tool-preamble",
+        packet_ref="packet:test:native-tool-preamble",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "tool_call"),
+        phase="tool_loop",
+        public_response_required=True,
+    )
+
+    assert parsed.error is None
+    assert parsed.tool_actions
+    action = parsed.tool_actions[0]
+    assert action.public_progress_note == "我先读取 README 来确认项目状态，再回答你的问题。"
+    assert action.public_action_state["current_judgment"] == action.public_progress_note
+    assert action.tool_call["args"] == {"path": "README.md"}
 
 def test_task_model_action_request_rejects_action_outside_packet_contract() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload

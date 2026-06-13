@@ -42,6 +42,13 @@ _GENERIC_PUBLIC_PROGRESS = {
     "结果已返回",
     "上下文已返回",
     "读取未完成，需要重新确认读取范围后继续。",
+    "已收到补充要求",
+    "收到补充要求",
+    "已加入当前工作队列",
+    "补充要求已进入当前工作队列",
+    "补充要求已排队，当前步骤结束后会在下一回合处理",
+    "已收到你的补充说明，会在后续处理里优先纳入",
+    "已收到新的补充要求，正在中断当前步骤并重新规划",
 }
 
 _MACHINE_STATUS_VALUES = {
@@ -190,7 +197,7 @@ def public_runtime_progress_title(*, step: Any = "", status: Any = "", fallback:
     if step_text.startswith(("runtime_invocation_packet", "task_execution_packet_compiled")):
         return "整理上下文"
     if step_text.startswith(("model_action_waiting", "task_model_action_waiting")):
-        return "等待模型输出"
+        return ""
     if step_text.startswith(("model_action_invocation_started", "model_action_received", "task_model_action_invocation_started")):
         return ""
     if step_text.startswith(("task_tool_", "tool_", "executor_observation", "bounded_observation")):

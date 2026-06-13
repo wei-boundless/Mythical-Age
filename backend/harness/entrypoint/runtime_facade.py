@@ -2715,8 +2715,8 @@ def _active_turn_steer_status_projection(
     if reason == "continue_active_work":
         return "继续当前工作", detail or "当前工作已进入继续处理流程。", "running", "work_control"
     if normalized_status == "queued" or reason == "append_instruction_to_active_work":
-        return "已加入当前工作队列", detail or "补充要求已排队，当前步骤结束后会在下一回合处理。", "waiting", "active_turn_steer"
-    return "已收到补充要求", detail or "补充要求已进入当前工作队列。", "running", "active_turn_steer"
+        return "用户补充要求", detail, "waiting", "active_turn_steer"
+    return "用户补充要求", detail, "running", "active_turn_steer"
 
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:

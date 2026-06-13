@@ -32,6 +32,28 @@ def test_task_execution_accepts_canonical_tool_calls_array() -> None:
     assert len(action.to_dict()["tool_calls"]) == 2
 
 
+def test_task_execution_rejects_tool_calls_without_model_public_response() -> None:
+    action, diagnostics = task_execution_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:batch-no-public-response",
+            "turn_id": "taskrun:test:batch-no-public-response",
+            "action_type": "tool_call",
+            "tool_calls": [
+                {"tool_name": "read_file", "args": {"path": "README.md"}},
+            ],
+        },
+        turn_id="taskrun:test:batch-no-public-response",
+        allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "public_response_required" in diagnostics["validation_errors"]
+    assert "public_progress_note_required" in diagnostics["validation_errors"]
+    assert "public_action_state_required" in diagnostics["validation_errors"]
+
+
 def test_task_execution_rejects_single_tool_call_without_tool_calls_array() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {

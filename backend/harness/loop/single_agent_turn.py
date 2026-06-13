@@ -673,6 +673,7 @@ async def run_single_agent_turn(
                     allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
                     phase="tool_limit_closeout",
                     require_json_action=True,
+                    public_response_required=False,
                 )
                 if closeout_parse.error:
                     closeout_parse = await _repair_single_agent_action_parse(
@@ -825,6 +826,7 @@ async def run_single_agent_turn(
                 allowed_action_types=current_allowed_action_types,
                 phase="tool_loop",
                 require_json_action=current_requires_json_action,
+                public_response_required=tool_iteration == 0,
             )
             if action_parse.error:
                 action_parse = await _repair_single_agent_action_parse(
@@ -849,6 +851,7 @@ async def run_single_agent_turn(
                     iteration=tool_iteration + 1,
                     allowed_action_types=current_allowed_action_types,
                     phase="tool_loop",
+                    public_response_required=tool_iteration == 0,
                 )
             if action_parse.error:
                 async for event in emit_agent_authored_closeout(
@@ -1493,6 +1496,7 @@ async def run_single_agent_turn(
                 allowed_action_types=current_allowed_action_types,
                 phase="final",
                 require_json_action=current_requires_json_action,
+                public_response_required=False,
             )
         if action_parse.error:
             action_parse = await _repair_single_agent_action_parse(
@@ -2082,6 +2086,7 @@ async def _repair_single_agent_action_parse(
     iteration: int,
     allowed_action_types: tuple[str, ...],
     phase: str,
+    public_response_required: bool = False,
 ) -> SingleAgentActionParse:
     error = dict(action_parse.error or {})
     code = str(error.get("code") or "")
@@ -2094,6 +2099,7 @@ async def _repair_single_agent_action_parse(
         turn_id=turn_id,
         allowed_action_types=allowed_action_types,
         phase=phase,
+        public_response_required=public_response_required,
     )
     repair_response = await _invoke_single_turn_model(
         model_runtime=model_runtime,
@@ -2135,6 +2141,7 @@ async def _repair_single_agent_action_parse(
         allowed_action_types=allowed_action_types,
         phase=f"{phase}_protocol_repair",
         require_json_action=True,
+        public_response_required=public_response_required,
     )
     if repaired.error:
         return SingleAgentActionParse(
@@ -2320,6 +2327,7 @@ def _single_agent_protocol_repair_messages(
     turn_id: str,
     allowed_action_types: tuple[str, ...],
     phase: str,
+    public_response_required: bool = False,
 ) -> list[dict[str, Any]]:
     diagnostics = dict(error.get("diagnostics") or {})
     repair_payload = {
@@ -2337,6 +2345,7 @@ def _single_agent_protocol_repair_messages(
             "action_types": list(diagnostics.get("action_types") or []),
         },
         "required_protocol": _single_agent_protocol_repair_contract(allowed_action_types),
+        "public_response_required": bool(public_response_required),
     }
     tool_repair_allowed = "tool_call" in set(allowed_action_types or ())
     repair_target_text = "一个合法的控制裁决或一个合法工具调用" if tool_repair_allowed else "一个合法的最终控制裁决"
@@ -2352,6 +2361,12 @@ def _single_agent_protocol_repair_messages(
         f"{SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT}\n\n"
         f"你只负责把上一轮模型输出修复为{repair_target_text}。\n"
         "系统没有执行上一轮违规输出；这是一条发给你的协议修复信号，不是给用户的正文。\n"
+        + (
+            "本次修复仍处在用户输入回应义务内；如果输出 tool_call、request_task_run 或 active_work_control，必须写入 public_progress_note 或 public_action_state.current_judgment，用自然语言回应用户当前输入本身。\n"
+            if public_response_required
+            else ""
+        )
+        +
         "如果需要控制裁决，只能选择一个 action_type。\n"
         f"{tool_repair_instruction}"
         "必须只输出一个 JSON 对象；不要使用 Markdown 代码块；不要输出 provider-native tool_calls；"
@@ -2530,6 +2545,7 @@ def _single_agent_action_request_from_response(
     allowed_action_types: tuple[str, ...],
     phase: str,
     require_json_action: bool = False,
+    public_response_required: bool = False,
 ) -> SingleAgentActionParse:
     protocol = model_response_protocol_from_response(
         response,
@@ -2589,6 +2605,7 @@ def _single_agent_action_request_from_response(
         action_request, diagnostics = model_action_request_from_payload(
             json_payload,
             turn_id=turn_id,
+            public_response_required=public_response_required,
             allowed_action_types=allowed_action_types,
         )
         if action_request is None:
@@ -2741,6 +2758,8 @@ def _single_agent_action_request_from_response(
         packet_ref=packet_ref,
         iteration=iteration,
         allowed_action_types=allowed_action_types,
+        public_response_required=public_response_required,
+        public_preamble=protocol.content,
     )
     native_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -2854,6 +2873,8 @@ def _action_requests_from_native_tool_calls(
     packet_ref: str,
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
+    public_response_required: bool = False,
+    public_preamble: str = "",
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -2862,6 +2883,8 @@ def _action_requests_from_native_tool_calls(
             packet_ref=packet_ref,
             iteration=iteration,
             allowed_action_types=allowed_action_types,
+            public_response_required=public_response_required,
+            public_preamble=public_preamble,
         ).actions
     )
 
@@ -2873,6 +2896,8 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     packet_ref: str,
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
+    public_response_required: bool = False,
+    public_preamble: str = "",
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
@@ -2933,6 +2958,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 turn_id=turn_id,
                 packet_ref=packet_ref,
                 iteration=iteration,
+                public_preamble=public_preamble,
             )
             error = None
         if error is not None:
@@ -2952,6 +2978,29 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                         repair_instruction="请重新提交一个可解析的工具调用或 JSON action。",
                     ),
                     "repairable": True,
+                }
+            )
+            continue
+        if public_response_required and not _model_action_request_has_public_response(action):
+            tool_name = str(dict(action.tool_call or {}).get("tool_name") or dict(action.tool_call or {}).get("name") or "").strip()
+            errors.append(
+                {
+                    "authority": "harness.loop.single_agent_turn.native_action_parser",
+                    "code": "public_response_required_for_native_tool_call",
+                    "reason": "public_response_required_for_native_tool_call",
+                    "native_tool_call": _native_tool_call_diagnostics(call),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="public_response_required",
+                        requested_action_type="tool_call",
+                        requested_tool_name=tool_name,
+                        repair_instruction="请保留工具意图，但必须先用模型正文或 public_progress_note/current_judgment 回应用户当前输入本身。",
+                    ),
+                    "repairable": True,
+                    "repair_contract": {
+                        "required_public_response": True,
+                        "allowed_response_fields": ["assistant_content_preamble", "public_progress_note", "public_action_state.current_judgment"],
+                    },
                 }
             )
             continue
@@ -3103,6 +3152,7 @@ def _tool_action_request_from_native_tool_calls(
     turn_id: str,
     packet_ref: str,
     iteration: int,
+    public_preamble: str = "",
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
@@ -3110,7 +3160,7 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
-        public_note = _native_tool_public_note(args)
+        public_note = _native_tool_public_note(args) or public_runtime_progress_summary(public_preamble)
         public_action_state = {"completion_status": "waiting_for_tool"}
         diagnostics: dict[str, Any] = {
             "origin_kind": "single_agent_turn_native_tool_call",
@@ -3136,6 +3186,20 @@ def _tool_action_request_from_native_tool_calls(
             diagnostics=diagnostics,
         )
     return None
+
+
+def _model_action_request_has_public_response(action_request: ModelActionRequest) -> bool:
+    if str(action_request.public_progress_note or "").strip():
+        return True
+    if str(dict(action_request.public_action_state or {}).get("current_judgment") or "").strip():
+        return True
+    if action_request.action_type == "respond":
+        return bool(str(action_request.final_answer or "").strip())
+    if action_request.action_type == "ask_user":
+        return bool(str(action_request.user_question or "").strip())
+    if action_request.action_type == "block":
+        return bool(str(action_request.blocking_reason or "").strip())
+    return False
 
 
 def _native_tool_public_note(args: dict[str, Any]) -> str:
@@ -4071,7 +4135,7 @@ def _active_work_control_status_projection(
     if action == "stop_active_work":
         return "停止当前工作", "停止请求已记录。", "stopped"
     if action == "append_instruction_to_active_work":
-        return "已收到补充要求", "补充要求已进入当前工作队列。", "running"
+        return "用户补充要求", "", "running"
     if action in {"answer_about_active_work", "answer_then_continue_active_work"}:
         return "查看当前进展", str(content or "").strip() or "当前工作进展已同步。", "done"
     return "当前工作控制", "当前工作控制状态已更新。", "done"
