@@ -54,6 +54,19 @@ class ReadPersistedToolResultTool(BaseTool):
         max_bytes: int = DEFAULT_REHYDRATION_SIZE_BYTES,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
+        if replacement_id and not replacement_id.startswith("tool_result:"):
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "replacement_id must start with tool_result:",
+                    "structured_error": {
+                        "code": "invalid_rehydration_replacement_id",
+                        "message": "replacement_id must start with tool_result:",
+                        "retryable": False,
+                    },
+                },
+                ensure_ascii=False,
+            )
         result = read_persisted_tool_result(
             root_dir=self._root_dir,
             replacement_id=replacement_id,

@@ -83,7 +83,8 @@ def build_bound_task_context(
         state_payload.get("artifact_evidence"),
         tuple(getattr(dynamic_context, "artifact_refs", ()) or ()),
     )
-    task_files = _task_files(state_payload.get("file_state"))
+    file_evidence_decisions = _file_evidence_decisions_by_path(state_payload.get("file_evidence_decisions"))
+    task_files = _task_files(state_payload.get("file_state"), file_evidence_decisions=file_evidence_decisions)
     known_task_files = _known_task_files(task_files)
     rehydration_refs = _rehydration_refs(task_files=task_files, replay_entries=replay_entries)
     edit_targets = _edit_targets(task_files)
@@ -155,8 +156,9 @@ def _task_state_payload(value: Any) -> dict[str, Any]:
     return payload
 
 
-def _task_files(value: Any) -> list[dict[str, Any]]:
+def _task_files(value: Any, *, file_evidence_decisions: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
+    decisions_by_path = dict(file_evidence_decisions or {})
     for item in list(value or []):
         if not isinstance(item, dict):
             continue
@@ -164,11 +166,13 @@ def _task_files(value: Any) -> list[dict[str, Any]]:
         if not path:
             continue
         read_windows = _read_windows(item.get("read_ranges"))
+        evidence_decision = dict(decisions_by_path.get(path) or {})
         projected = _drop_empty_payload(
             {
                 "path": path,
                 "status": str(item.get("status") or "").strip(),
                 "read_windows": read_windows[-8:],
+                "file_evidence_decision": _bound_file_evidence_decision(evidence_decision),
                 "coverage": dict(item.get("coverage") or {}),
                 "total_lines": item.get("total_lines") if isinstance(item.get("total_lines"), int) else None,
                 "content_sha256": str(item.get("content_sha256") or "").strip(),
@@ -182,6 +186,58 @@ def _task_files(value: Any) -> list[dict[str, Any]]:
         if projected:
             result.append(projected)
     return result[-20:]
+
+
+def _file_evidence_decisions_by_path(value: Any) -> dict[str, dict[str, Any]]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in list(payload.get("files") or []):
+        if not isinstance(item, dict):
+            continue
+        path = _clean_path(item.get("path"))
+        if path:
+            result[path] = dict(item)
+    return result
+
+
+def _bound_file_evidence_decision(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return _drop_empty_payload(
+        {
+            "current_read_evidence": value.get("current_read_evidence")
+            if isinstance(value.get("current_read_evidence"), bool)
+            else None,
+            "reuse_current_windows": _bounded_decision_windows(value.get("reuse_current_windows")),
+            "rehydrate_existing_windows": _bounded_decision_windows(value.get("rehydrate_existing_windows")),
+            "read_missing_windows": _bounded_decision_windows(value.get("read_missing_windows")),
+            "read_after_stale_windows": _bounded_decision_windows(value.get("read_after_stale_windows")),
+            "do_not_repeat_read_ranges": _bounded_decision_windows(value.get("do_not_repeat_read_ranges")),
+            "authority": str(value.get("authority") or ""),
+        }
+    )
+
+
+def _bounded_decision_windows(value: Any) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for item in list(value or [])[-4:]:
+        if not isinstance(item, dict):
+            continue
+        windows.append(
+            _drop_empty_payload(
+                {
+                    "decision": str(item.get("decision") or ""),
+                    "path": _clean_path(item.get("path")),
+                    "start_line": _int_or_none(item.get("start_line")),
+                    "end_line": _int_or_none(item.get("end_line")),
+                    "line_count": _int_or_none(item.get("line_count")),
+                    "observation_ref": str(item.get("observation_ref") or "").strip(),
+                    "reusable_result_ref": str(item.get("reusable_result_ref") or "").strip(),
+                    "reason": str(item.get("reason") or "").strip(),
+                }
+            )
+        )
+    return [item for item in windows if item]
 
 
 def _known_task_files(task_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -279,16 +335,14 @@ def _rehydration_refs(*, task_files: list[dict[str, Any]], replay_entries: tuple
     for entry in replay_entries:
         plan = dict(entry.get("rehydration_plan") or {})
         content_range = dict(entry.get("content_range") or {})
-        replacement_ref = str(entry.get("replacement_ref") or "").strip()
         path = _clean_path(entry.get("path") or content_range.get("path"))
-        if not (plan or content_range or replacement_ref):
+        if not (plan or content_range):
             continue
         refs.append(
             _drop_empty_payload(
                 {
                     "source": "task_state_replay",
                     "path": path,
-                    "replacement_ref": replacement_ref,
                     "content_range": _content_range(content_range),
                     "instruction": str(plan.get("instruction") or "").strip(),
                 }
@@ -317,7 +371,7 @@ def _restore_policy(*, enabled: bool) -> dict[str, Any]:
         "mode": "task_bound_context_restore",
         "compact_resume": "Restore bound plan refs and context refs before relying on older transcript summaries.",
         "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries; known_task_files only carries file identity and recovery hints.",
-        "file_precision": "Known bound/editor file paths are already located; do not use search_files/search_text just to rediscover them. For a known path, use read_file or path_exists directly before line-level edits or exact claims, prefer next_suggested_read for missing windows, and do not repeat already listed read_ranges unless the file is stale or changed. For unknown location, use search_files for filename/path keywords, glob_paths for wildcard path patterns, and search_text for file contents.",
+        "file_precision": "Known bound/editor file paths are already located; do not use search_files/search_text just to rediscover them. For line-level edits or exact claims, rely on current valid read-window evidence from file_evidence_decisions. Reuse covered non-stale read ranges, rehydrate omitted tool_result bytes only when exact omitted content is needed, and call read_file only for missing target lines, stale/changed files, missing hashes, or uncovered windows. For unknown location, use search_files for filename/path keywords, glob_paths for wildcard path patterns, and search_text for file contents.",
     }
 
 

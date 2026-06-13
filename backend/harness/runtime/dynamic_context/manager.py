@@ -115,7 +115,7 @@ class DynamicContextManager:
             task_state_replay_entries=task_state_replay_entries,
             volatile_request_projection=volatile_request,
             volatile_state_projection=volatile_state,
-            tool_result_refs=tuple(str(item.get("tool_result_ref") or item.get("replacement_ref") or "") for item in tool_results if item),
+            tool_result_refs=tuple(str(item.get("tool_result_ref") or "") for item in tool_results if item),
             observation_refs=tuple(ref for ref in observation_refs if ref),
             context_refs=tuple(ref for ref in context_refs if ref),
             artifact_refs=tuple(artifact_ref_value(item) for item in artifact_refs if artifact_ref_value(item)),

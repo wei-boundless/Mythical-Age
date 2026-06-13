@@ -6,14 +6,14 @@ TOOL_READ_FILE_GUIDANCE = """
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。
 读取结果可能只是文件窗口。根据 start_line、end_line、next_start_line、line_count、total_lines、has_more、truncated 或 content_range 判断是否需要继续。
 不要重复读取相同行窗口；如果工具返回 file_unchanged 或系统提示重复只读调用，请使用已有 observation 作为证据，或改用搜索、更小行范围、下一个目标窗口、编辑、验证或收口。
-修改、逐行引用、错误定位和验收判断前，必须读取目标区域当前精确行窗口。
+修改、逐行引用、错误定位和验收判断前，必须具备目标区域的当前有效读窗证据。已覆盖目标行且未过期的 read_file 窗口可以复用；只有窗口缺失、过期、文件已变化、目标行未覆盖或 hash/证据冲突时，才读取最小必要窗口。
 写入、编辑、命令或外部动作可能让相关文件窗口过期。只有当下一步依赖当前精确文本、行号、diff 或失败位置时，才重新读取相关最小窗口；如果工具返回已确认写入成功，优先进入验证或下一步，不要把重读作为默认确认动作。
 """.strip()
 
 
 TOOL_EDIT_FILE_GUIDANCE = """
 使用 edit_file 时，你是在对当前文件内容做一次精确局部替换。
-调用前必须已经读取过目标文件当前内容；old_text 必须来自这次读取结果，并且在文件中足够唯一。
+调用前必须具备目标文件当前有效读窗证据；old_text 必须来自已覆盖且未过期的读取窗口，并且在文件中足够唯一。
 old_text 和 new_text 要保持原有缩进、换行、局部结构和必要上下文；不要让替换意图依赖模型猜测。
 优先做最小必要修改，不要用 edit_file 承担整文件重写。
 如果编辑失败、old_text not found、路径不存在或文件已变化，先重新读取目标局部或确认路径，再修正 old_text；不要原样重复失败编辑。

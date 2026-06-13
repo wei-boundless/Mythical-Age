@@ -74,7 +74,6 @@ class ToolResultProjector:
             projector_version=PROJECTOR_VERSION,
             projection=projection,
         )
-        projection = {**projection, "replacement_ref": record.replacement_key}
         return projection, record.to_dict()
 
     def _build_projection(
@@ -372,8 +371,9 @@ def _build_rehydration_plan(
     if content_replacements:
         request = _persisted_tool_result_request(content_replacements, task_run_id=task_run_id)
         persisted_instruction = (
-            "This restores omitted bytes from this read_file result. For code edits, prefer a fresh read_file "
-            "call for the exact target line range so current source and line numbers are controlled."
+            "This restores omitted bytes from this read_file result. For code edits, reuse the restored "
+            "window when file_state says the file is unchanged; call read_file again only if the file is "
+            "stale/changed or the target lines are outside known coverage."
             if _is_read_file_window(normalized)
             else (
                 "The prompt contains only a preview of this tool output. "
@@ -426,7 +426,8 @@ def _build_rehydration_plan(
             "capabilities": capabilities,
             "instruction": (
                 "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content. "
-                "For code edits, read_file the exact current target lines before editing."
+                "For code edits, use current read_file evidence or restored omitted read_file bytes when the "
+                "file is unchanged; call read_file only for stale files, changed files, or missing target lines."
             ),
         }
     )
@@ -465,7 +466,11 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
                 "candidate_only": bool(content_replacements),
                 "usable_as_evidence_for": _read_file_usable_as_evidence_for(fresh_read_conditions),
                 "fresh_read_conditions": fresh_read_conditions,
-                "rehydration_preference": "read_file_range_for_code_edits",
+                "rehydration_preference": (
+                    "read_persisted_tool_result_for_omitted_read_file"
+                    if content_replacements
+                    else "reuse_visible_read_file_window"
+                ),
                 "instruction": _read_file_evidence_instruction(content_range),
             }
         )
@@ -528,8 +533,9 @@ def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
         )
     return (
         "This read_file result is a line window, not proof that the whole file is in prompt. "
-        "Use next_request only if later lines are needed. For code edits or error localization, "
-        "read the exact current target line window before acting."
+        "Use next_request only if later lines are needed. For code edits or error localization, reuse "
+        "this window when it covers the target and the file is unchanged; read_file again only for "
+        "stale files, changed files, or target lines outside this window."
     )
 
 

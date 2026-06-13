@@ -474,6 +474,18 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
         payload = dict(args or {})
         replacement_id = str(payload.get("replacement_id") or "").strip()
         path = str(payload.get("path") or "").strip()
+        if replacement_id and not replacement_id.startswith("tool_result:"):
+            return ToolValidationResult(
+                allowed=False,
+                reason="invalid_rehydration_replacement_id",
+                repair_instruction=(
+                    "read_persisted_tool_result only accepts replacement_id values that start with tool_result:. "
+                    "Use the replacement_id/path from rehydration_plan.content_replacements; do not pass internal "
+                    "dynamic-context replacement refs."
+                ),
+                normalized_args=payload,
+                diagnostics={"invalid_inputs": ["replacement_id"]},
+            )
         if not replacement_id and not path:
             return ToolValidationResult(
                 allowed=False,

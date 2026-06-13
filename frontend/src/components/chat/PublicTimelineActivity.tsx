@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import type { PublicChatTimelineItem } from "@/lib/api";
 
 type PublicTimelineActivityProps = {
+  ariaLabel?: string;
   items?: PublicChatTimelineItem[] | null;
 };
 
@@ -23,7 +24,7 @@ type ActivityEntry = {
   text: string;
 };
 
-export function PublicTimelineActivity({ items }: PublicTimelineActivityProps) {
+export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: PublicTimelineActivityProps) {
   const view = publicTimelineActivityView(items);
   if (!view.entries.length) {
     return null;
@@ -32,7 +33,7 @@ export function PublicTimelineActivity({ items }: PublicTimelineActivityProps) {
   return (
     <div
       className={`public-run-activity public-run-activity--${view.tone}`}
-      aria-label="处理进展"
+      aria-label={ariaLabel}
       data-entry-count={view.entries.length}
     >
       {view.entries.map((entry) => (

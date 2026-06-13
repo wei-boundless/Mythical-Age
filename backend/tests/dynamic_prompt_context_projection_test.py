@@ -175,6 +175,8 @@ def test_task_observation_large_tool_result_exposes_rehydration_address(tmp_path
 
     assert persisted["tool_name"] == "read_persisted_tool_result"
     assert persisted["args"]["path"]
+    assert persisted["args"]["replacement_id"].startswith("tool_result:")
+    assert "replacement:" not in model_text
     assert path.exists()
 
 
@@ -297,6 +299,89 @@ def test_read_file_content_windows_survive_task_state_projection() -> None:
         {"start_line": 1, "end_line": 10, "observation_ref": "obs:window:1"},
         {"start_line": 11, "end_line": 20, "observation_ref": "obs:window:11"},
     ]
+    decisions = volatile_payload["task_state"]["file_evidence_decisions"]
+    file_decision = decisions["files"][0]
+    assert file_decision["path"] == "docs/long.md"
+    assert file_decision["current_read_evidence"] is True
+    assert [item["decision"] for item in file_decision["reuse_current_windows"]] == [
+        "reuse_current_window",
+        "reuse_current_window",
+    ]
+    assert file_decision["read_missing_windows"] == [
+        {"decision": "read_missing_window", "path": "docs/long.md", "start_line": 21, "line_count": 10, "reason": "target may be outside current read coverage"}
+    ]
+    assert file_decision["do_not_repeat_read_ranges"] == [
+        {"path": "docs/long.md", "start_line": 1, "end_line": 10, "observation_ref": "obs:window:1", "reason": "covered_by_current_non_stale_read_window"},
+        {"path": "docs/long.md", "start_line": 11, "end_line": 20, "observation_ref": "obs:window:11", "reason": "covered_by_current_non_stale_read_window"},
+    ]
+    assert volatile_payload["task_state"]["read_resource_state"]["file_evidence_decision_ref"] == "file_evidence_decisions"
+    assert "model remains responsible for deciding whether more context is needed" not in json.dumps(
+        volatile_payload["task_state"]["read_resource_state"],
+        ensure_ascii=False,
+    )
+
+
+def test_file_evidence_decisions_project_rehydrate_and_stale_boundaries() -> None:
+    projection = TaskStateProjector().project(
+        execution_projection={
+            "file_state": [
+                {
+                    "path": "src/reuse.py",
+                    "status": "partial",
+                    "read_ranges": [
+                        {
+                            "start_line": 10,
+                            "end_line": 30,
+                            "observation_ref": "obs:reuse",
+                            "content_omitted": True,
+                            "file_unchanged": True,
+                            "reusable_result_ref": "tool_result:reuse",
+                        }
+                    ],
+                    "coverage": {
+                        "merged_ranges": [{"start_line": 10, "end_line": 30}],
+                        "missing_ranges": [{"start_line": 1, "end_line": 9}],
+                    },
+                    "content_sha256": "sha256:reuse",
+                },
+                {
+                    "path": "src/stale.py",
+                    "status": "stale",
+                    "read_ranges": [
+                        {
+                            "start_line": 1,
+                            "end_line": 20,
+                            "observation_ref": "obs:stale",
+                            "stale": True,
+                        }
+                    ],
+                    "write_event_count": 1,
+                    "next_suggested_read": {"start_line": 1, "line_count": 240, "reason": "file state is stale or unread"},
+                },
+            ]
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+    )
+
+    decisions = {item["path"]: item for item in projection["file_evidence_decisions"]["files"]}
+
+    assert decisions["src/reuse.py"]["rehydrate_existing_windows"] == [
+        {
+            "decision": "rehydrate_existing_window",
+            "path": "src/reuse.py",
+            "start_line": 10,
+            "end_line": 30,
+            "observation_ref": "obs:reuse",
+            "reusable_result_ref": "tool_result:reuse",
+            "instruction": "Restore omitted bytes from the existing read_file result only if exact content is needed; do not call read_file again for this unchanged covered range.",
+        }
+    ]
+    assert decisions["src/reuse.py"]["read_missing_windows"][0]["start_line"] == 1
+    assert "reuse_current_windows" not in decisions["src/stale.py"]
+    assert decisions["src/stale.py"]["read_after_stale_windows"][0]["decision"] == "read_after_stale"
 
 
 def test_code_read_preview_survives_current_fact_dedupe() -> None:
@@ -1842,7 +1927,11 @@ def test_single_agent_turn_projects_large_provider_tool_output_to_persisted_prev
     assert persisted_path.exists()
     assert projection["projected_tool_output_count"] == 1
     assert projection["persisted_tool_replacement_count"] == 1
+    assert projection["compacted_message_count"] == 1
     assert projection["output_chars"] < projection["input_chars"]
+    assert "Provider protocol replay evidence only" in tool_content
+    assert "Do not repeat unchanged covered read ranges" in tool_content
+    assert "replacement:" not in model_text
 
 
 def test_provider_protocol_projection_preserves_stable_prefix_hashes(tmp_path: Path) -> None:

@@ -75,7 +75,7 @@ export function ChatMessage({
   const messageDisplayContent = baseDisplayContent;
   const publicTimelineItems = isUser
     ? []
-    : publicTimelineItemsFromProjection(publicProjection);
+    : publicSystemNoticeItemsFromProjection(publicProjection);
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
@@ -238,6 +238,7 @@ export function ChatMessage({
       ) : null}
       {!isUser && hasPublicTimelineActivity ? (
         <PublicTimelineActivity
+          ariaLabel="系统提示"
           items={publicTimelineItems}
         />
       ) : null}
@@ -266,24 +267,19 @@ async function writeClipboardText(text: string) {
   document.body.removeChild(textarea);
 }
 
-function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
+function publicSystemNoticeItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
   if (!projection) return [];
-  return [
-    projection.currentAction,
-    ...projection.pinned,
-    ...projection.finalResults,
-    ...projection.status,
-  ].filter((item): item is PublicProjectionItem => Boolean(item)).map(projectionItemToTimelineItem);
+  return projection.pinned
+    .filter(isProjectionSystemNoticeItem)
+    .map(projectionSystemNoticeToTimelineItem);
 }
 
-function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem {
-  const slot = item.slot === "current_action" ? "tool" : item.slot === "pinned" ? "status" : item.slot;
-  const isTool = item.slot === "current_action" || Boolean(item.toolName);
+function projectionSystemNoticeToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem {
   return {
     item_id: item.itemId,
-    kind: isTool ? "work_action" : "status_update",
-    slot,
-    surface: isTool ? "tool_window" : "timeline",
+    kind: "status_update",
+    slot: "status",
+    surface: "timeline",
     source_authority: item.sourceAuthority,
     title: item.title || item.text,
     text: item.text || item.title,
@@ -301,12 +297,17 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     event_offset: item.eventOffset,
     source_event_id: item.sourceEventId,
     public_summary: item.detail || item.text || item.title,
-    tool_window: isTool ? {
-      tool_label: item.toolName,
-      target: item.subjectLabel,
-      sections: [],
-    } : undefined,
   };
+}
+
+function isProjectionSystemNoticeItem(item: PublicProjectionItem) {
+  const state = cleanText(item.state).toLowerCase();
+  const pinReason = cleanText(item.pinReason).toLowerCase();
+  const sourceAuthority = cleanText(item.sourceAuthority).toLowerCase();
+  const systemOwned = sourceAuthority === "runtime" || sourceAuthority === "system";
+  const terminalError = ["failed", "error", "blocked", "stopped", "aborted", "cancelled", "canceled"].includes(state)
+    || ["failed", "blocked", "commit_failed", "stream_error", "connection_lost"].includes(pinReason);
+  return systemOwned && terminalError;
 }
 
 function assistantDisplayContent(

@@ -49,6 +49,14 @@ function splitDiffLines(value: string) {
   return normalized.length ? normalized.split("\n") : [""];
 }
 
+type DiffLineState = "context" | "deleted" | "added";
+
+type DiffLine = {
+  text: string;
+  lineNumber: number;
+  state: DiffLineState;
+};
+
 export function FileChangesPanel() {
   const confirm = useConfirmDialog();
   const { activeStreamSessionIds, currentSessionId, sessions } = useAppStore();
@@ -182,8 +190,8 @@ export function FileChangesPanel() {
             </div>
           ) : null}
           <div className="file-diff-preview__grid">
-            <DiffPane label={diffPreview.diff.before_exists ? "修改前" : "新增前"} lines={splitDiffLines(diffPreview.diff.before_content)} tone="before" />
-            <DiffPane label={diffPreview.diff.after_exists ? "修改后" : "删除后"} lines={splitDiffLines(diffPreview.diff.after_content)} tone="after" />
+            <DiffPane label={diffPreview.diff.before_exists ? "修改前" : "新增前"} lines={markDiffLines(splitDiffLines(diffPreview.diff.before_content), diffPreview.diff.before_exists ? "deleted" : "context")} tone="before" />
+            <DiffPane label={diffPreview.diff.after_exists ? "修改后" : "删除后"} lines={markDiffLines(splitDiffLines(diffPreview.diff.after_content), diffPreview.diff.after_exists ? "added" : "context")} tone="after" />
           </div>
         </section>
       ) : null}
@@ -239,15 +247,20 @@ export function FileChangesPanel() {
   );
 }
 
-function DiffPane({ label, lines, tone }: { label: string; lines: string[]; tone: "before" | "after" }) {
+function markDiffLines(lines: string[], state: DiffLineState): DiffLine[] {
+  return lines.map((line, index) => ({ text: line, lineNumber: index + 1, state }));
+}
+
+function DiffPane({ label, lines, tone }: { label: string; lines: DiffLine[]; tone: "before" | "after" }) {
   return (
     <div className={`file-diff-pane file-diff-pane--${tone}`}>
       <header>{label}</header>
       <pre>
         {lines.map((line, index) => (
-          <span key={`${tone}-${index}`}>
-            <em>{index + 1}</em>
-            <code>{line || " "}</code>
+          <span className={`file-diff-pane__line file-diff-pane__line--${line.state}`} key={`${tone}-${line.lineNumber}-${index}`}>
+            <b aria-hidden="true">{line.state === "deleted" ? "-" : line.state === "added" ? "+" : ""}</b>
+            <em>{line.lineNumber}</em>
+            <code>{line.text || " "}</code>
           </span>
         ))}
       </pre>

@@ -73,7 +73,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
-  it("renders current action and pinned items from publicProjection only", () => {
+  it("keeps tool projection activity out of the assistant message surface", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, assistantProps({
         publicProjection: projection({
@@ -92,6 +92,30 @@ describe("ChatMessage", () => {
             toolName: "read_file",
             subjectLabel: "frontend/src/lib/projection/reducer.ts",
           },
+          finalResults: [
+            {
+              itemId: "result:tool",
+              slot: "final_result",
+              text: "工具执行完成",
+              title: "工具执行完成",
+              state: "done",
+              sourceAuthority: "tool",
+              mainVisibility: "visible_final",
+              retention: "final",
+            },
+          ],
+          status: [
+            {
+              itemId: "status:runtime",
+              slot: "status",
+              text: "准备读取绘制函数当前内容",
+              title: "准备读取绘制函数当前内容",
+              state: "running",
+              sourceAuthority: "runtime",
+              mainVisibility: "visible_live",
+              retention: "transient",
+            },
+          ],
           pinned: [
             {
               itemId: "tool:failed",
@@ -111,13 +135,44 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("读取投影 reducer");
-    expect(html).toContain("模型请求读取 reducer.ts");
+    expect(html).toContain("系统提示");
     expect(html).toContain("提交失败");
     expect(html).toContain("commit_ack 未返回");
+    expect(html).not.toContain("读取投影 reducer");
+    expect(html).not.toContain("模型请求读取 reducer.ts");
+    expect(html).not.toContain("工具执行完成");
+    expect(html).not.toContain("准备读取绘制函数当前内容");
+    expect(html).not.toContain("public-run-activity__tool-window");
   });
 
-  it("shows a thinking placeholder only when streaming has no body or projected activity", () => {
+  it("does not surface tool-owned failures as assistant feedback", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatMessage, assistantProps({
+        publicProjection: projection({
+          pinned: [
+            {
+              itemId: "tool:failed",
+              slot: "pinned",
+              text: "读取文件失败",
+              title: "读取文件失败",
+              detail: "read_file 返回错误。",
+              state: "failed",
+              sourceAuthority: "tool",
+              mainVisibility: "pinned",
+              retention: "pinned_until_resolved",
+              toolName: "read_file",
+            },
+          ],
+        }),
+      })),
+    );
+
+    expect(html).not.toContain("public-run-activity");
+    expect(html).not.toContain("读取文件失败");
+    expect(html).not.toContain("read_file 返回错误");
+  });
+
+  it("shows a thinking placeholder while streaming has no model body", () => {
     const thinking = renderToStaticMarkup(
       React.createElement(ChatMessage, assistantProps({
         streamingContent: true,
@@ -142,8 +197,8 @@ describe("ChatMessage", () => {
     );
 
     expect(thinking).toContain("正在思考");
-    expect(active).not.toContain("正在思考");
-    expect(active).toContain("运行验证");
+    expect(active).toContain("正在思考");
+    expect(active).not.toContain("运行验证");
   });
 
   it("hides completed transient tools after commit when the ledger has retired them", () => {

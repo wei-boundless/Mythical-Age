@@ -58,7 +58,12 @@ class TaskStateProjector:
         current_facts = _drop_superseded_missing_path_probes(current_facts, positive_paths=positive_paths)
         latest_results = _drop_superseded_missing_path_probes(latest_results, positive_paths=positive_paths)
         file_state = _file_state_projection(execution_projection.get("file_state"))
-        task_progress_facts = _task_progress_facts_projection(file_state=file_state, latest_results=latest_results)
+        file_evidence_decisions = _file_evidence_decisions_projection(file_state)
+        task_progress_facts = _task_progress_facts_projection(
+            file_state=file_state,
+            latest_results=latest_results,
+            file_evidence_decisions=file_evidence_decisions,
+        )
         evidence_confidence = _evidence_confidence_projection(latest_results)
         material_progress = _material_progress_projection(latest_results)
         payload = {
@@ -66,8 +71,12 @@ class TaskStateProjector:
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
             "file_state": file_state,
+            "file_evidence_decisions": file_evidence_decisions,
             "task_progress_facts": task_progress_facts,
-            "read_resource_state": _read_resource_state_projection(file_state),
+            "read_resource_state": _read_resource_state_projection(
+                file_state,
+                file_evidence_decisions=file_evidence_decisions,
+            ),
             "file_state_source": str(execution_projection.get("file_state_source") or ""),
             "latest_tool_results": latest_results,
             "evidence_confidence": evidence_confidence,
@@ -220,7 +229,6 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
             "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
-            "replacement_ref": str(item.get("replacement_ref") or ""),
             "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
@@ -245,7 +253,6 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "error": _replay_safe_value(error),
             "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
             "artifact_refs": _replay_artifact_refs(item.get("artifact_refs")),
-            "replacement_ref": str(item.get("replacement_ref") or ""),
             "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
@@ -453,7 +460,7 @@ def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _replay_preview(item: dict[str, Any]) -> str:
-    if item.get("replacement_ref") or dict(item.get("content_range") or {}):
+    if dict(item.get("content_range") or {}):
         return ""
     return compact_text(item.get("preview") or "", limit=180)
 
@@ -477,7 +484,6 @@ def _replay_rehydration_plan(value: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
             "prompt_status": str(value.get("prompt_status") or ""),
-            "replacement_ref": str(value.get("replacement_ref") or ""),
             "content_hash": str(value.get("content_hash") or ""),
             "capabilities": [item for item in capabilities if item],
             "authority": str(value.get("authority") or "harness.runtime.dynamic_context.rehydration_plan"),
@@ -537,6 +543,7 @@ def _task_progress_facts_projection(
     *,
     file_state: list[dict[str, Any]],
     latest_results: list[dict[str, Any]],
+    file_evidence_decisions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     files = [_task_progress_file_fact(item) for item in list(file_state or [])]
     todos = _task_progress_todo_facts(latest_results)
@@ -545,6 +552,7 @@ def _task_progress_facts_projection(
         {
             "authority": "harness.runtime.dynamic_context.task_progress_facts",
             "files": [item for item in files if item][-12:],
+            "file_evidence": _task_progress_file_evidence_facts(dict(file_evidence_decisions or {})),
             "todos": todos,
             "recent_tool_observations": recent_tool_observations,
         }
@@ -584,6 +592,32 @@ def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
                 )
                 for segment in dict_tuple(item.get("read_ranges"))[-8:]
             ],
+        }
+    )
+
+
+def _task_progress_file_evidence_facts(file_evidence_decisions: dict[str, Any]) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    for item in dict_tuple(file_evidence_decisions.get("files")):
+        files.append(
+            drop_empty(
+                {
+                    "path": str(item.get("path") or ""),
+                    "current_read_evidence": item.get("current_read_evidence")
+                    if isinstance(item.get("current_read_evidence"), bool)
+                    else None,
+                    "reuse_window_count": len(dict_tuple(item.get("reuse_current_windows"))),
+                    "rehydrate_window_count": len(dict_tuple(item.get("rehydrate_existing_windows"))),
+                    "missing_window_count": len(dict_tuple(item.get("read_missing_windows"))),
+                    "stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
+                    "do_not_repeat_read_ranges": dict_tuple(item.get("do_not_repeat_read_ranges"))[-4:],
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "authority": str(file_evidence_decisions.get("authority") or ""),
+            "files": [item for item in files if item][-8:],
         }
     )
 
@@ -800,7 +834,6 @@ def _current_fact_projection(items: list[dict[str, Any]] | tuple[dict[str, Any],
                 "reason": str(item.get("reason") or ""),
                 "summary": compact_text(item.get("summary") or "", limit=140),
                 "content_range": _replay_content_range(dict(item.get("content_range") or {})),
-                "replacement_ref": str(item.get("replacement_ref") or ""),
             }
         )
         if projected:
@@ -898,7 +931,6 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "summary": compact_text(item.get("summary") or tool_result.get("preview") or "", limit=300),
             "structured_error": structured_error,
             "artifact_refs": list(dict_tuple(item.get("artifact_refs") or tool_result.get("artifact_refs"))),
-            "replacement_ref": str(tool_result.get("replacement_ref") or ""),
             "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or tool_result.get("todo_plan") or {})),
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
@@ -915,7 +947,7 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "created_at": item.get("created_at") or tool_result.get("created_at"),
         }
     )
-    if set(projected).issubset({"observation_ref", "replacement_ref"}):
+    if set(projected).issubset({"observation_ref"}):
         return {}
     return projected
 
@@ -1192,10 +1224,210 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
         payload["source"] = source
     if isinstance(segment.get("truncated"), bool):
         payload["truncated"] = segment.get("truncated")
+    if isinstance(segment.get("stale"), bool):
+        payload["stale"] = segment.get("stale")
     return payload
 
 
-def _read_resource_state_projection(file_state: list[dict[str, Any]]) -> dict[str, Any]:
+def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    for item in list(file_state or []):
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        ranges = dict_tuple(item.get("read_ranges"))
+        active_ranges = [segment for segment in ranges if not bool(segment.get("stale") is True) and status not in {"stale", "missing"}]
+        stale_ranges = [segment for segment in ranges if bool(segment.get("stale") is True) or status == "stale"]
+        reuse_windows = [_reuse_current_window_decision(path=path, segment=segment) for segment in active_ranges]
+        rehydrate_windows = [
+            _rehydrate_existing_window_decision(path=path, segment=segment)
+            for segment in active_ranges
+            if bool(segment.get("content_omitted") is True) or str(segment.get("reusable_result_ref") or "").strip()
+        ]
+        missing_windows = _read_missing_window_decisions(item, active_ranges=active_ranges)
+        stale_read_windows = [_read_after_stale_window_decision(path=path, segment=segment) for segment in stale_ranges]
+        projected = drop_empty(
+            {
+                "path": path,
+                "status": str(item.get("status") or ""),
+                "content_sha256": str(item.get("content_sha256") or ""),
+                "current_read_evidence": bool(reuse_windows),
+                "coverage": dict(item.get("coverage") or {}),
+                "reuse_current_windows": [window for window in reuse_windows if window][-8:],
+                "rehydrate_existing_windows": [window for window in rehydrate_windows if window][-8:],
+                "read_missing_windows": [window for window in missing_windows if window][-4:],
+                "read_after_stale_windows": [window for window in stale_read_windows if window][-6:],
+                "do_not_repeat_read_ranges": [
+                    _do_not_repeat_read_range(path=path, segment=segment)
+                    for segment in active_ranges
+                    if _do_not_repeat_read_range(path=path, segment=segment)
+                ][-8:],
+                "decision_boundary": (
+                    "Reuse unchanged covered read_file windows. Rehydrate omitted bytes only when exact omitted content is needed. "
+                    "Call read_file only for stale files, changed files, missing target lines, missing hashes, or uncovered ranges."
+                ),
+                "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
+            }
+        )
+        if projected:
+            files.append(projected)
+    return drop_empty(
+        {
+            "kind": "file_evidence_decisions",
+            "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
+            "files": files[-10:],
+        }
+    )
+
+
+def _reuse_current_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "decision": "reuse_current_window",
+            "path": path,
+            "start_line": segment.get("start_line"),
+            "end_line": segment.get("end_line"),
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "reusable_result_ref": str(segment.get("reusable_result_ref") or segment.get("previous_observation_ref") or ""),
+            "content_omitted": segment.get("content_omitted") if isinstance(segment.get("content_omitted"), bool) else None,
+            "file_unchanged": segment.get("file_unchanged") if isinstance(segment.get("file_unchanged"), bool) else None,
+            "read_intent": str(segment.get("read_intent") or ""),
+            "instruction": "This unchanged covered read_file window is current evidence; do not repeat the same range.",
+        }
+    )
+
+
+def _rehydrate_existing_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+    reusable_ref = str(segment.get("reusable_result_ref") or segment.get("previous_observation_ref") or "").strip()
+    return drop_empty(
+        {
+            "decision": "rehydrate_existing_window",
+            "path": path,
+            "start_line": segment.get("start_line"),
+            "end_line": segment.get("end_line"),
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "reusable_result_ref": reusable_ref,
+            "instruction": (
+                "Restore omitted bytes from the existing read_file result only if exact content is needed; "
+                "do not call read_file again for this unchanged covered range."
+            ),
+        }
+    )
+
+
+def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    status = str(item.get("status") or "").strip().lower()
+    if status in {"stale", "missing"}:
+        return []
+    path = str(item.get("path") or "")
+    coverage = dict(item.get("coverage") or {})
+    missing = [dict(segment) for segment in list(coverage.get("missing_ranges") or []) if isinstance(segment, dict)]
+    if not missing:
+        missing = _missing_ranges_from_active_windows(active_ranges, total_lines=_safe_int(item.get("total_lines")))
+    windows: list[dict[str, Any]] = []
+    for segment in missing[:4]:
+        start_line = _safe_int(segment.get("start_line"))
+        end_line = _safe_int(segment.get("end_line"))
+        if start_line <= 0:
+            continue
+        line_count = 240
+        if end_line >= start_line:
+            line_count = max(1, min(240, end_line - start_line + 1))
+        windows.append(
+            drop_empty(
+                {
+                    "decision": "read_missing_window",
+                    "path": path,
+                    "start_line": start_line,
+                    "line_count": line_count,
+                    "reason": "target may be outside current read coverage",
+                }
+            )
+        )
+    if windows or active_ranges:
+        return windows
+    next_read = dict(item.get("next_suggested_read") or {})
+    if not next_read:
+        return []
+    return [
+        drop_empty(
+            {
+                "decision": "read_missing_window",
+                "path": path,
+                "start_line": next_read.get("start_line"),
+                "line_count": next_read.get("line_count"),
+                "reason": str(next_read.get("reason") or "no active current read window"),
+            }
+        )
+    ]
+
+
+def _missing_ranges_from_active_windows(active_ranges: list[dict[str, Any]], *, total_lines: int) -> list[dict[str, int]]:
+    if total_lines <= 0 or not active_ranges:
+        return []
+    ranges: list[tuple[int, int]] = []
+    for item in active_ranges:
+        start_line = _safe_int(item.get("start_line"))
+        end_line = _safe_int(item.get("end_line"))
+        if start_line > 0 and end_line >= start_line:
+            ranges.append((start_line, end_line))
+    if not ranges:
+        return []
+    ranges.sort()
+    merged: list[tuple[int, int]] = []
+    for start_line, end_line in ranges:
+        if not merged or start_line > merged[-1][1] + 1:
+            merged.append((start_line, end_line))
+            continue
+        merged[-1] = (merged[-1][0], max(merged[-1][1], end_line))
+    missing: list[dict[str, int]] = []
+    cursor = 1
+    for start_line, end_line in merged:
+        if start_line > cursor:
+            missing.append({"start_line": cursor, "end_line": min(start_line - 1, total_lines)})
+        cursor = max(cursor, end_line + 1)
+        if cursor > total_lines:
+            break
+    if cursor <= total_lines:
+        missing.append({"start_line": cursor, "end_line": total_lines})
+    return missing
+
+
+def _read_after_stale_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "decision": "read_after_stale",
+            "path": path,
+            "start_line": segment.get("start_line"),
+            "end_line": segment.get("end_line"),
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "reason": "A later write/edit made this read window historical; read the minimal current target window if exact current content is needed.",
+        }
+    )
+
+
+def _do_not_repeat_read_range(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
+    start_line = segment.get("start_line")
+    end_line = segment.get("end_line")
+    if start_line in (None, "") or end_line in (None, ""):
+        return {}
+    return drop_empty(
+        {
+            "path": path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "observation_ref": str(segment.get("observation_ref") or ""),
+            "reason": "covered_by_current_non_stale_read_window",
+        }
+    )
+
+
+def _read_resource_state_projection(
+    file_state: list[dict[str, Any]],
+    *,
+    file_evidence_decisions: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     active_files = [
         item
         for item in list(file_state or [])
@@ -1216,7 +1448,8 @@ def _read_resource_state_projection(file_state: list[dict[str, Any]]) -> dict[st
                 "stale": True,
                 "stale_range_count": sum(len(dict_tuple(item.get("read_ranges"))) for item in stale_files),
                 "available_evidence_refs": _read_resource_evidence_refs(stale_files),
-                "reliability_note": "Previously read ranges are stale after a write or edit event; use them only as history, not as current file content.",
+                "file_evidence_decision_ref": "file_evidence_decisions",
+                "reliability_note": "Previously read ranges are stale after a write or edit event; use them only as history. Use file_evidence_decisions for the minimal current read boundary.",
                 "authority": "harness.runtime.dynamic_context.read_resource_state",
             }
         )
@@ -1246,10 +1479,19 @@ def _read_resource_state_projection(file_state: list[dict[str, Any]]) -> dict[st
             "coverage": dict(latest.get("coverage") or {}),
             "has_more": latest.get("has_more") if isinstance(latest.get("has_more"), bool) else None,
             "content_sha256": str(latest.get("content_sha256") or ""),
-            "reliability_note": "These are resource facts about previously returned read windows. The model remains responsible for deciding whether more context is needed.",
+            "file_evidence_decision_ref": "file_evidence_decisions",
+            "do_not_repeat_read_ranges": _read_resource_do_not_repeat_ranges(file_evidence_decisions),
+            "reliability_note": "These are current read resource facts. Use file_evidence_decisions to reuse, rehydrate, or read only missing/stale windows.",
             "authority": "harness.runtime.dynamic_context.read_resource_state",
         }
     )
+
+
+def _read_resource_do_not_repeat_ranges(file_evidence_decisions: dict[str, Any] | None) -> list[dict[str, Any]]:
+    ranges: list[dict[str, Any]] = []
+    for item in dict_tuple(dict(file_evidence_decisions or {}).get("files")):
+        ranges.extend(dict_tuple(item.get("do_not_repeat_read_ranges")))
+    return ranges[-8:]
 
 
 def _read_resource_evidence_refs(file_state: list[dict[str, Any]]) -> list[str]:

@@ -148,7 +148,7 @@ export function ChatPanel() {
               publicProjection={message.publicProjection}
               retrievals={message.retrievals}
               role={message.role}
-              streamingContent={chatStreamDisplayEnabled && message.id === liveAssistantMessageId}
+              streamingContent={message.id === liveAssistantMessageId}
               toolCalls={message.toolCalls}
             />
           ))}
@@ -201,7 +201,7 @@ export function ChatPanel() {
   );
 }
 
-export function shouldSuppressSessionActivityBar(messages: Message[], _active: boolean) {
+export function shouldSuppressSessionActivityBar(messages: Message[], active: boolean) {
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!latestAssistant) return false;
   const visibleAssistantContent = shouldDisplayAssistantContent({
@@ -215,6 +215,9 @@ export function shouldSuppressSessionActivityBar(messages: Message[], _active: b
     return true;
   }
   if (latestAssistant.publicProjection?.bodyText.trim()) {
+    return true;
+  }
+  if (active) {
     return true;
   }
   return Boolean(

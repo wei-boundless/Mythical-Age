@@ -74,9 +74,11 @@ _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_LIMIT = 12
 _PROVIDER_PROTOCOL_DEFAULT_CHAR_BUDGET = 24_000
 _PROVIDER_PROTOCOL_DEFAULT_MESSAGE_CHARS = 2_400
 _PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
+    "Provider protocol replay evidence only. This preserves tool-call continuity; it is not a request to repeat the tool. "
     "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
     "or final factual judgments. For non-code omitted output, call read_persisted_tool_result first when exact content matters. "
-    "For code edits, read the exact current target line window with read_file before editing."
+    "For read_file content, use file_evidence_decisions to reuse current windows, rehydrate omitted bytes, or read only missing/stale windows. "
+    "Do not repeat unchanged covered read ranges."
 )
 
 
@@ -2720,6 +2722,7 @@ def _project_provider_protocol_messages(
                     item["content"] = _with_provider_protocol_rehydration_note(replacement_content)
                     projected_tool_outputs += 1
                     persisted_replacements += len(replacements)
+                    compacted_messages += 1
         elif content and len(content) > message_chars:
             item["content"] = _provider_protocol_bounded_message_preview(content, limit=message_chars)
             compacted_messages += 1

@@ -30,17 +30,19 @@ def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp
     assert projection["artifact_refs"] == [{"path": "artifacts/report.txt"}]
     assert projection["content_replacements"]
     assert Path(projection["content_replacements"][0]["path"]).exists()
-    assert projection["replacement_ref"] == record["replacement_key"]
+    assert "replacement_ref" not in projection
     assert large_text not in json.dumps(projection, ensure_ascii=False)
 
     plan = projection["rehydration_plan"]
     assert plan["authority"] == "harness.runtime.dynamic_context.rehydration_plan"
     assert plan["prompt_status"] == "preview_only"
-    assert plan["replacement_ref"] == record["replacement_key"]
+    assert "replacement_ref" not in plan
     assert record["rehydration_plan"] == plan
     persisted = plan["capabilities"][0]
     assert persisted["capability"] == "read_persisted_tool_result"
     assert persisted["tool_name"] == "read_persisted_tool_result"
+    assert persisted["args"]["replacement_id"].startswith("tool_result:")
+    assert not persisted["args"]["replacement_id"].startswith("replacement:")
     assert persisted["args"] == {
         "replacement_id": projection["content_replacements"][0]["replacement_id"],
         "path": projection["content_replacements"][0]["path"],
@@ -86,7 +88,7 @@ def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_wind
     assert plan["prompt_status"] == "file_window_only"
     assert projection["evidence_policy"]["source_kind"] == "code_evidence"
     assert projection["evidence_policy"]["visible_content_authority"] == "exact_visible_line_window"
-    assert projection["evidence_policy"]["rehydration_preference"] == "read_file_range_for_code_edits"
+    assert projection["evidence_policy"]["rehydration_preference"] == "reuse_visible_read_file_window"
     range_capability = plan["capabilities"][0]
     assert range_capability["capability"] == "read_file_range"
     assert range_capability["content_range"]["content_sha256"] == "sha256:long-md"

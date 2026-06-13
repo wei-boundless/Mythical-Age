@@ -49,8 +49,12 @@ function tokenStats(patch: Partial<TokenStats>): TokenStats {
 }
 
 describe("ChatPanel", () => {
-  it("keeps footer activity available when no message-level public projection exists", () => {
-    expect(shouldSuppressSessionActivityBar([message({})], true)).toBe(false);
+  it("hides footer activity during an active assistant turn before model prose arrives", () => {
+    expect(shouldSuppressSessionActivityBar([message({})], true)).toBe(true);
+  });
+
+  it("keeps footer activity available for an idle assistant message without visible feedback", () => {
+    expect(shouldSuppressSessionActivityBar([message({})], false)).toBe(false);
   });
 
   it("hides footer activity once assistant prose owns visible turn feedback", () => {
@@ -70,7 +74,7 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("hides footer activity when publicProjection action owns visible feedback", () => {
+  it("hides footer activity when projection activity exists without promoting it to prose", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
         publicProjection: publicProjection({

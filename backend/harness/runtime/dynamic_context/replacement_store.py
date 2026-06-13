@@ -100,10 +100,10 @@ class ReplacementStore:
             projector_version=projector_version,
         )
         existing = self.get(replacement_key)
-        selected_projection = json_clone(existing or projection)
+        selected_projection = _strip_internal_replacement_refs(json_clone(existing or projection))
         rehydration_plan = _rehydration_plan_from_projection(selected_projection)
         if rehydration_plan:
-            rehydration_plan.setdefault("replacement_ref", replacement_key)
+            rehydration_plan.pop("replacement_ref", None)
             rehydration_plan.setdefault("content_hash", content_hash)
             selected_projection["rehydration_plan"] = rehydration_plan
         record = ReplacementRecord(
@@ -236,6 +236,20 @@ class MemoryReplacementStore(ReplacementStore):
 def _rehydration_plan_from_projection(projection: dict[str, Any]) -> dict[str, Any]:
     value = projection.get("rehydration_plan")
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _strip_internal_replacement_refs(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _strip_internal_replacement_refs(item)
+            for key, item in value.items()
+            if str(key) != "replacement_ref"
+        }
+    if isinstance(value, list):
+        return [_strip_internal_replacement_refs(item) for item in value]
+    if isinstance(value, tuple):
+        return [_strip_internal_replacement_refs(item) for item in value]
+    return value
 
 
 def _record_matches_task_run(payload: dict[str, Any], targets: set[str]) -> bool:
