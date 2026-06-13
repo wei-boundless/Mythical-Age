@@ -4694,7 +4694,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.any(Object),
       expect.objectContaining({
         initialCursor: cursor,
-        replayFromStart: false,
+        replayFromStart: true,
       }),
     );
     expect(store.getState().currentSessionId).toBe("session:existing");
@@ -4702,7 +4702,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(recoveryActivityDuringAttach).toMatchObject({
       level: "running",
       title: "恢复输出流",
-      detail: "检测到同一会话的流式 cursor，正在从上次事件后继续同步。",
+      detail: "检测到同一会话的流式 cursor，正在按事件时序重放公开投影。",
       event: "stream_cursor_restore_started",
     });
     expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");

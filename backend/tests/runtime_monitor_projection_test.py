@@ -349,6 +349,70 @@ def test_run_monitor_projects_active_turn_as_primary_signal():
     assert delete_action["enabled"] is False
 
 
+def test_run_monitor_active_turn_replaces_stale_task_from_same_session(tmp_path):
+    now = time.time()
+    stale_task = task_run(
+        task_run_id="taskrun:turn:session-dev:1:old",
+        session_id="session-dev",
+        task_id="task:turn:session-dev:1",
+        status="running",
+        created_at=now - 600,
+        updated_at=now - 600,
+        diagnostics={"latest_step_summary": "旧任务停滞记录。"},
+    )
+    current_turn = turn_run(
+        turn_run_id="turnrun:session-dev:2",
+        session_id="session-dev",
+        turn_id="turn:session-dev:2",
+        created_at=now - 2,
+        updated_at=now - 1,
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub(
+            task_runs=[stale_task],
+            turn_runs=[current_turn],
+        ),
+        event_log=EventLogStub(),
+        backend_dir=tmp_path / "backend",
+        run_registry=RunRegistryStub([
+            runtime_run(
+                session_id="session-dev",
+                status="running",
+                created_at=now - 2,
+                updated_at=now - 1,
+            )
+        ]),
+        active_turn_registry=ActiveTurnRegistryStub(
+            ActiveTurnRecordStub(
+                session_id="session-dev",
+                turn_id="turn:session-dev:2",
+                turn_run_id="turnrun:session-dev:2",
+                bound_task_run_id="",
+                stream_run_id="strun:session-dev:2",
+                state="model_turn",
+                started_at=now - 2,
+                updated_at=now - 1,
+            )
+        ),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=60.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+    signal_ids = {item["signal_id"] for item in monitor["signals"]}
+    lane_ids = {
+        item["signal_id"]
+        for lane in dict(monitor["management"]["lanes"]).values()
+        for item in lane
+    }
+
+    assert "turnrun:session-dev:2" in signal_ids
+    assert "taskrun:turn:session-dev:1:old" not in signal_ids
+    assert "taskrun:turn:session-dev:1:old" not in lane_ids
+    assert monitor["summary"]["active"] == 1
+    assert monitor["summary"]["attention"] == 0
+    assert monitor["management"]["lanes"]["current"][0]["signal_id"] == "turnrun:session-dev:2"
+
+
 def test_run_monitor_global_collection_uses_state_index_summaries():
     now = time.time()
 

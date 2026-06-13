@@ -546,7 +546,24 @@ def canonical_output_decision_for_final_text(
             leak_flags=leak_flags,
         )
 
-    canonical_content = visible_text.strip()
+    candidate = classify_output_candidate(
+        text=visible_text,
+        route=route,
+        source=normalized_source,
+        tool_name=tool_name,
+        has_tool_receipt=has_tool_receipt,
+    )
+    output_decision = build_output_decision(
+        candidates=[candidate] if candidate is not None else [],
+        route=route,
+        execution_posture=execution_posture,
+        user_message=user_message,
+        tool_name=tool_name,
+        retrieval_results=retrieval_results,
+        leak_flags=[],
+        has_tool_receipt=has_tool_receipt,
+    )
+    canonical_content = sanitize_visible_assistant_content(output_decision.canonical_answer).strip()
     if not canonical_content:
         return CanonicalFinalTextDecision(
             content="",
@@ -564,12 +581,12 @@ def canonical_output_decision_for_final_text(
         content=canonical_content,
         answer_channel=normalized_channel,
         answer_source=normalized_source,
-        selected_channel="answer_candidate",
-        selected_source=normalized_source,
-        canonical_state="stable_answer",
-        persist_policy="persist_canonical",
-        finalization_policy="route_optional",
-        fallback_reason=str(terminal_reason or completion_state or "").strip(),
+        selected_channel=output_decision.selected_channel,
+        selected_source=output_decision.selected_source,
+        canonical_state=output_decision.canonical_state,
+        persist_policy=output_decision.persist_policy,
+        finalization_policy=output_decision.finalization_policy,
+        fallback_reason=str(output_decision.fallback_reason or terminal_reason or completion_state or "").strip(),
         leak_flags=[],
     )
 

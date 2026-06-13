@@ -360,6 +360,58 @@ def test_invalid_json_action_text_repairs_without_leaking_protocol() -> None:
     assert any(event.get("type") == "done" and "协议修复后完成" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
+
+def test_protocol_repair_respond_with_runtime_protocol_disclosure_is_not_committed() -> None:
+    leaked_answer = (
+        "没有真的断开。上一轮输出因为格式协议问题被系统拦截了——这是会话框架的刚性约束，不是服务崩溃或代码报错。\n\n"
+        "你当前打开的 `mario.html` 已经有一些落地改动。"
+    )
+
+    class PlainTextThenLeakyRepairRuntime:
+        def __init__(self) -> None:
+            self.invocation_count = 0
+
+        async def invoke_messages(self, _messages, **_kwargs):
+            self.invocation_count += 1
+            if self.invocation_count == 1:
+                return SimpleNamespace(content="我先说明一下当前情况。")
+            return SimpleNamespace(
+                content=json.dumps(
+                    _action_request(action_type="respond", final_answer=leaked_answer),
+                    ensure_ascii=False,
+                )
+            )
+
+    session_id = "session-turn-protocol-repair-leak"
+    runtime = build_harness_runtime(model_runtime=PlainTextThenLeakyRepairRuntime())
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id=session_id, message="为什么你又断开了")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    admissions = _admission_payloads(events)
+    checked = next(event for event in events if event.get("type") == "session_output_commit_checked")
+    skipped = next(event for event in events if event.get("type") == "session_output_commit_skipped")
+    checked_payload = dict(dict(checked.get("event") or {}).get("payload") or {})
+    skipped_payload = dict(dict(skipped.get("event") or {}).get("payload") or {})
+    checked_gate = dict(checked_payload.get("commit_gate") or {})
+    checked_candidate = dict(dict(checked_gate.get("commit_candidate") or {}).get("payload") or {})
+    messages = runtime.session_manager.load_session(session_id)
+    done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
+
+    assert admissions
+    assert dict(dict(admissions[0].get("model_action_request") or {}).get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_reason") == "json_action_required"
+    assert checked_payload["commit_allowed"] is False
+    assert checked_payload["reason"] == "answer_leak_not_committable"
+    assert skipped_payload["reason"] == "answer_leak_not_committable"
+    assert "runtime_protocol_disclosure_final_text" in checked_candidate["answer_leak_flags"]
+    assert "格式协议问题被系统拦截" not in done_text
+    assert not any(leaked_answer in str(message.get("content") or "") for message in messages)
+
+
 def test_single_agent_turn_native_control_actions_repair_to_json_action() -> None:
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[

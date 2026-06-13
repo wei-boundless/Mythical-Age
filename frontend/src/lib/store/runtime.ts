@@ -86,7 +86,7 @@ const ACTIVE_TURN_STATES = new Set([
 ]);
 
 function recoveredChatRunActivityDetail() {
-  return "检测到同一会话的流式 cursor，正在从上次事件后继续同步。";
+  return "检测到同一会话的流式 cursor，正在按事件时序重放公开投影。";
 }
 
 function sessionTaskEnvironmentId(session: SessionSummary) {
@@ -2503,7 +2503,7 @@ export class WorkspaceRuntime {
           {
             signal: abortController.signal,
             initialCursor: cursor,
-            replayFromStart: !cursor,
+            replayFromStart: true,
           }
         );
         streamEndedWithError = streamResult.terminalStatus === "failed";

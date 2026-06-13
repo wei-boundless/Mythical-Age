@@ -312,7 +312,7 @@ class RuntimeMonitorProjector:
             for task_run in candidates
         ]
         items = self._current_graph_items_by_scope(
-            self._current_items_by_session([item for item in projected if self._is_global_live_item(item)])
+            self.select_current_items_by_session([item for item in projected if self._is_global_live_item(item)])
         )
         return build_envelope(scope="global", items=items, now=now, limit=limit)
 
@@ -325,7 +325,7 @@ class RuntimeMonitorProjector:
             item = self.project_task_run(task_run, now=now, include_runtime_details=False, include_graph_runtime=False)
             task_runs_by_id[str(item.get("task_run_id") or "")] = task_run
             items.append(item)
-        active_items = self._current_items_by_session([item for item in items if activity_is_monitor_visible(item)])
+        active_items = self.select_current_items_by_session([item for item in items if activity_is_monitor_visible(item)])
         visible = active_items[: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
@@ -543,7 +543,7 @@ class RuntimeMonitorProjector:
             now=now,
         )
 
-    def _current_items_by_session(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def select_current_items_by_session(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         selected_by_session: dict[str, dict[str, Any]] = {}
         unscoped: list[dict[str, Any]] = []
         for item in items:

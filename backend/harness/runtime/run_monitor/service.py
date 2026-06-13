@@ -169,10 +169,10 @@ class RuntimeMonitorService:
         active_turn_items = self._global_active_turn_items(now=now, visible_items=base_items)
         if not active_turn_items:
             return base_items
-        return [
+        return self.projector.select_current_items_by_session([
             *base_items,
             *active_turn_items,
-        ]
+        ])
 
     def _recent_terminal_items(
         self,

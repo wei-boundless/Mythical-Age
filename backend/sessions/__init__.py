@@ -173,7 +173,7 @@ class SessionManager:
             for item in list(payload.get("api_transcript") or [])
             if isinstance(item, dict)
         ]
-        transcript = _suppress_superseded_stream_failure_boundaries([item for item in transcript if item is not None])
+        transcript = _suppress_stream_failure_boundaries([item for item in transcript if item is not None])
         if transcript:
             return transcript
         return self.load_session_for_agent(session_id)
@@ -850,7 +850,7 @@ _PUBLIC_MESSAGE_PROTOCOL_KEYS = {
 
 
 def _public_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    return _suppress_superseded_stream_failure_boundaries([
+    return _suppress_stream_failure_boundaries([
         message
         for _, message in _public_messages_with_raw_index(messages)
     ])
@@ -864,7 +864,7 @@ def _public_message_count(messages: list[Any]) -> int:
         for message in [_public_message(item)]
         if message is not None
     ]
-    return len(_suppress_superseded_stream_failure_boundaries(public_messages))
+    return len(_suppress_stream_failure_boundaries(public_messages))
 
 
 def _public_messages_with_raw_index(messages: list[Any]) -> list[tuple[int, dict[str, Any]]]:
@@ -914,38 +914,9 @@ _STREAM_FAILURE_BOUNDARY_MARKERS = (
 )
 
 
-def _suppress_superseded_stream_failure_boundaries(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _suppress_stream_failure_boundaries(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
-    result: list[dict[str, Any]] = []
-    for index, message in enumerate(normalized):
-        turn_id = str(message.get("turn_id") or "").strip()
-        if (
-            turn_id
-            and _is_stream_failure_boundary_message(message)
-            and _has_later_non_boundary_assistant_for_turn(normalized, start_index=index + 1, turn_id=turn_id)
-        ):
-            continue
-        result.append(message)
-    return result
-
-
-def _has_later_non_boundary_assistant_for_turn(messages: list[dict[str, Any]], *, start_index: int, turn_id: str) -> bool:
-    target_turn_id = str(turn_id or "").strip()
-    if not target_turn_id:
-        return False
-    for item in messages[start_index:]:
-        if str(item.get("turn_id") or "").strip() != target_turn_id:
-            continue
-        if str(item.get("role") or "").strip() != "assistant":
-            continue
-        if _is_stream_failure_boundary_message(item):
-            continue
-        content = str(item.get("content") or "").strip()
-        image = item.get("image")
-        has_image = isinstance(image, dict) and bool(str(image.get("src") or "").strip())
-        if content or has_image:
-            return True
-    return False
+    return [message for message in normalized if not _is_stream_failure_boundary_message(message)]
 
 
 def _remove_stream_failure_boundary_messages_for_turn(messages: list[Any], *, turn_id: str) -> tuple[list[Any], int]:

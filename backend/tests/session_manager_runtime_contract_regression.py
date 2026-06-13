@@ -230,6 +230,38 @@ def test_session_manager_hides_superseded_stream_failure_boundary(tmp_path: Path
     assert [item["content"] for item in agent_history] == ["查一下", final]
 
 
+def test_session_manager_hides_unsuperseded_stream_failure_boundary(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    session_id = manager.create_session(title="Boundary is not public answer")["id"]
+    turn_id = f"turn:{session_id}:1"
+    boundary = "本轮执行流因运行进程重启中断，工具结果没有交回模型完成收口。请重新发送或继续说明要做什么。"
+    manager.append_messages(
+        session_id,
+        [
+            {"role": "user", "content": "继续", "turn_id": turn_id},
+            {
+                "role": "assistant",
+                "content": boundary,
+                "turn_id": turn_id,
+                "answer_source": "harness.runtime.stream_failure_reconciliation",
+            },
+        ],
+    )
+    manager.append_api_messages(
+        session_id,
+        [
+            {"role": "user", "content": "继续", "turn_id": turn_id},
+            {"role": "assistant", "content": boundary, "turn_id": turn_id},
+        ],
+    )
+
+    assert [item["content"] for item in manager.get_history(session_id)["messages"]] == ["继续"]
+    assert [item["content"] for item in manager.load_session_for_api(session_id)] == ["继续"]
+    assert [item["content"] for item in manager.load_session_for_agent(session_id)] == ["继续"]
+
+
 def test_session_manager_removes_stream_failure_boundary_before_late_commit(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
@@ -416,6 +448,5 @@ def test_session_manager_public_history_filters_structured_tool_protocol_message
     truncated = manager.truncate_messages_from(session_id, 1)
 
     assert truncated["messages"] == [{"role": "user", "content": "修复 bug", "turn_id": "turn:1"}]
-
 
 
