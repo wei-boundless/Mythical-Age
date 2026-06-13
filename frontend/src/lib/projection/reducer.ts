@@ -27,7 +27,7 @@ export function publicProjectionFrameFromRecord(value: unknown): PublicProjectio
   const record = value as Partial<PublicProjectionFrame>;
   if (!ACCEPTED_PUBLIC_PROJECTION_AUTHORITIES.has(text(record.authority))) return null;
   if (!text(record.frame_id || record.projection_id)) return null;
-  if (!Number.isFinite(Number(record.event_offset ?? record.sequence ?? 0))) return null;
+  if (!Number.isFinite(Number(record.event_offset))) return null;
   if (REQUIRED_FRAME_KEYS.some((key) => !text(record[key]))) return null;
   return record as PublicProjectionFrame;
 }
@@ -106,7 +106,6 @@ function patchProjectionMessage(
     projectionLedger: ledger,
     publicProjection,
     content: publicProjection.bodyText || message.content,
-    stageStatus: publicProjection.currentAction?.text || publicProjection.pinned[0]?.text || message.stageStatus,
   };
   return { ...stateWithProjectionMessage, messages: nextMessages };
 }
@@ -209,7 +208,13 @@ function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: Pu
       const item = projectionItemFromFrame(frame);
       if (!item) return sortLedger(ledger);
       if (frame.slot === "current_action") {
-        if (!text(frame.tool_call_id)) return addTrace(ledger, item);
+        if (
+          !text(frame.tool_call_id)
+          || text(frame.source_authority) !== "model"
+          || text(frame.source_event_type) !== "tool_call_requested"
+        ) {
+          return addTrace(ledger, item);
+        }
         if (ledger.currentAction && ledger.currentAction.itemId !== item.itemId) {
           ledger.trace = upsertProjectionItem(ledger.trace, { ...ledger.currentAction, mainVisibility: "trace_only", retention: "trace" });
         }
@@ -310,6 +315,7 @@ function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjection
     toolName: text(frame.tool_name),
     actionKind: text(frame.action_kind),
     subjectLabel: text(frame.subject_label || frame.target),
+    collapsed: typeof frame.collapsed === "boolean" ? frame.collapsed : undefined,
     traceRefs: Array.isArray(frame.trace_refs) ? frame.trace_refs.map(text).filter(Boolean) : [],
     artifactRefs: Array.isArray(frame.artifact_refs) ? frame.artifact_refs : [],
     eventOffset: frameOffset(frame),

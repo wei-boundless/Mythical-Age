@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from runtime.model_gateway.assistant_stream_frame import assistant_message_ref, assistant_text_final_event
+from runtime.model_gateway.assistant_stream_frame import (
+    allows_assistant_body_projection,
+    assistant_message_ref,
+    assistant_text_final_event,
+)
 from runtime.output_boundary import canonical_output_decision_for_final_text, sanitize_visible_assistant_content
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
 
@@ -65,6 +69,12 @@ def assistant_body_final_event(
         execution_posture=execution_posture,
     )
     if not str(decision.content or "").strip():
+        return {}
+    if not allows_assistant_body_projection(
+        answer_channel=decision.answer_channel,
+        answer_canonical_state=decision.canonical_state,
+        answer_persist_policy=decision.persist_policy,
+    ):
         return {}
     resolved_stream_ref = str(stream_ref or f"assistant-body:{turn_id or task_run_id or answer_channel}:{body_sequence}").strip()
     resolved_message_ref = str(message_ref or assistant_message_ref(turn_id=turn_id, stream_ref=resolved_stream_ref)).strip()

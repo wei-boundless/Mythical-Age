@@ -19,7 +19,7 @@ function projection(patch: Partial<MessagePublicProjection>): MessagePublicProje
   };
 }
 
-function assistantProps(patch: Record<string, unknown> = {}) {
+function assistantProps(patch: Partial<React.ComponentProps<typeof ChatMessage>> = {}): React.ComponentProps<typeof ChatMessage> {
   return {
     content: "",
     id: "assistant:test",

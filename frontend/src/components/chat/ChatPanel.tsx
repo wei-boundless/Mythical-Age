@@ -148,8 +148,6 @@ export function ChatPanel() {
               publicProjection={message.publicProjection}
               retrievals={message.retrievals}
               role={message.role}
-              runtimeProgress={message.runtimeProgress}
-              stageStatus={message.stageStatus}
               streamingContent={chatStreamDisplayEnabled && message.id === liveAssistantMessageId}
               toolCalls={message.toolCalls}
             />

@@ -2078,7 +2078,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
     expect(store.getState().runMonitor).not.toBeNull();
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("does not hydrate the current session from monitor snapshots before output commit ack", async () => {
@@ -2157,7 +2157,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           task_projection: {
             current_action: {
               kind: "closeout",
-              title: "结果收口",
+              title: "输出记录",
               state: "completed",
             },
           },
@@ -2275,7 +2275,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(store.getState().runMonitorRevision).toBe("rtmon:2:test");
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("ignores raw tool observation runtime_event payloads from the monitor stream", () => {
@@ -2325,7 +2325,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("does not project system tool step summaries from the legacy monitor stream", () => {
@@ -2382,7 +2382,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       });
     }
 
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("does not synthesize generic successful tool observation feedback", () => {
@@ -2428,7 +2428,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("ignores public projection envelopes carried by legacy monitor events", () => {
@@ -2475,7 +2475,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toEqual([]);
+    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
   });
 
   it("does not hydrate session details from monitor snapshots while a chat stream is active", async () => {
@@ -2549,13 +2549,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
     const visibleState = JSON.stringify({
-      runtimeAttachments: store.getState().messages[1]?.runtimeAttachments ?? [],
-      runtimePublicTimelineDraft: store.getState().messages[1]?.runtimePublicTimelineDraft ?? [],
+      publicProjection: store.getState().messages[1]?.publicProjection,
+      projectionLedger: store.getState().messages[1]?.projectionLedger,
     });
     expect(visibleState).not.toContain("agent-todo:test");
-    expect(JSON.stringify(attachment ?? {})).not.toContain("progress_entries");
   });
 
   it("does not start TaskGraph detail polling while a chat stream is active", async () => {
@@ -3346,7 +3344,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       accumulated_utf8_bytes: 18,
       accumulated_sha256: "sha256:partial-2",
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", { content: "候选答案不应覆盖已有流式内容。" });
+    transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", { content: "旧正文事件不应覆盖已有流式内容。" });
     transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
       sequence: 3,
       content: "你好，我在。",
@@ -3390,7 +3388,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     transition = reduceStreamEvent(transition.state, transition.session, "token", { content: "旧 token 不应显示。" });
     transition = reduceStreamEvent(transition.state, transition.session, "answer_candidate", {
-      content: "提前候选答案不应显示。",
+      content: "提前旧正文事件不应显示。",
       answer_channel: "conversation",
       answer_canonical_state: "stable_answer",
       answer_persist_policy: "persist_canonical",
@@ -3956,7 +3954,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages).toEqual([]);
   });
 
-  it("keeps stopped activity scoped to the session that was stopped", async () => {
+  it("does not synthesize stopped projection from a local abort", async () => {
     vi.useRealTimers();
     api.listSessions.mockResolvedValue([
       {
@@ -4009,13 +4007,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.sendMessage("停一下");
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "stopped",
-      title: "已停止本轮生成",
-      event: "stopped",
+      level: "idle",
+      title: "",
+      event: "",
     });
     expect(store.getState().sessionActivitiesById["session:stopped"]).toMatchObject({
-      level: "stopped",
-      title: "已停止本轮生成",
+      level: "idle",
+      title: "",
     });
 
     await runtime.actions.createNewSession();
@@ -4033,9 +4031,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.selectSession({ sessionId: "session:stopped", poolKey: "main-chat" });
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "stopped",
-      title: "已停止本轮生成",
-      event: "stopped",
+      level: "idle",
+      title: "",
+      event: "",
     });
   });
 
@@ -4465,25 +4463,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           retrievals: [],
           sourceIndex: 1,
           sourceTurnId: "turn:session:source-index-noise:1",
-          runtimeAttachments: [{
-            attachment_id: "runtime-attachment:old",
-            run_id: "taskrun:turn:session:source-index-noise:1:abc",
-            anchor_turn_id: "turn:session:source-index-noise:1",
-            anchor_role: "assistant",
-            task_run_id: "taskrun:turn:session:source-index-noise:1:abc",
-            status: "running",
-            public_timeline: [{
-              item_id: "tool:old-read",
-              kind: "work_action",
-              slot: "tool",
-              surface: "tool_window",
-              source_authority: "tool",
-              title: "已读取 backend/old_context.py",
-              subject_label: "backend/old_context.py",
-              state: "done",
-              event_offset: 3,
-            }],
-          }],
         },
       ],
     });
@@ -4537,7 +4516,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           toolCalls: [],
           retrievals: [],
           runtimeProgress: [],
-          runtimePublicTimelineDraft: [],
           sourceIndex: 1,
         },
       ],
@@ -5376,7 +5354,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages.at(-1)?.image?.src).toBe("/api/image-assets/files/chat-turn.png");
   });
 
-  it("keeps image turn errors visible instead of replacing them with refreshed empty history", async () => {
+  it("does not synthesize image transport errors as assistant projection", async () => {
     vi.useRealTimers();
     api.getSessionHistory.mockResolvedValue({
       messages: [
@@ -5413,13 +5391,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getSessionHistory).not.toHaveBeenCalled();
     expect(lastMessage?.role).toBe("assistant");
     expect(lastMessage?.content).toBe("");
-    expect(lastMessage?.runtimePublicTimelineDraft).toBeUndefined();
-    expect(lastMessage?.runtimeProgress?.[0]).toMatchObject({
-      title: "运行中断",
-      body: "Image API failed with status 400",
-      level: "error",
-    });
-    expect(store.getState().sessionActivity.level).toBe("error");
+    expect(lastMessage?.publicProjection).toBeUndefined();
+    expect(lastMessage?.runtimeProgress ?? []).toEqual([]);
+    expect(store.getState().sessionActivity.level).toBe("idle");
   });
 
   it("uses the conversation active environment for ordinary main-chat turns", async () => {
@@ -5805,9 +5779,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       selected_task_id: "task.dev.frontend_ui",
     });
     const assistant = store.getState().messages.at(-1);
-    expect(assistant?.runtimeProgress ?? []).not.toContainEqual(
-      expect.objectContaining({ title: "正式任务已创建" }),
-    );
+    expect(assistant?.publicProjection).toBeUndefined();
   });
 
   it("ignores raw formal task lifecycle signals without a public projection envelope", () => {
@@ -5863,8 +5835,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress ?? []).toEqual([]);
-    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
+    expect(assistant?.publicProjection).toBeUndefined();
     expect(assistant?.stageStatus).toBe("");
   });
 
@@ -5909,8 +5880,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress ?? []).toEqual([]);
-    expect(assistant?.runtimePublicTimelineDraft ?? []).toEqual([]);
+    expect(assistant?.publicProjection).toBeUndefined();
   });
 
   it("ignores raw single-agent turn tool events without a public projection envelope", () => {
@@ -5974,7 +5944,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       level: "idle",
       title: "",
     });
-    expect(assistant?.runtimeProgress ?? []).toEqual([]);
+    expect(assistant?.publicProjection).toBeUndefined();
   });
 
   it("does not attach permission gate checks to the assistant task flow", () => {
@@ -5998,7 +5968,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.stageStatus).toBe("");
-    expect(assistant?.runtimeProgress).toEqual([]);
+    expect(assistant?.publicProjection).toBeUndefined();
   });
 
   it("writes terminal error detail into timeline status without changing assistant prose", () => {
@@ -6010,17 +5980,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.runtimePublicTimelineDraft).toBeUndefined();
-    expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
-      title: "运行中断",
-      body: "当前环境的写入权限不足，且创建文件的工具不可见。",
-      kind: "terminal",
-      level: "error",
-    });
+    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.runtimeProgress ?? []).toEqual([]);
     expect(transition.state.sessionActivity).toMatchObject({
-      level: "error",
-      title: "运行中断",
-      detail: "详情已写入会话。",
+      level: "idle",
+      title: "",
+      detail: "",
     });
   });
 
@@ -6042,7 +6007,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.stageStatus).toBe("");
-    expect(assistant?.runtimeProgress).toEqual([]);
+    expect(assistant?.publicProjection).toBeUndefined();
   });
 
   it("keeps raw tool lifecycle events out of the assistant main projection", () => {
@@ -6073,7 +6038,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimePublicTimelineDraft).toBeUndefined();
     expect(assistant?.publicProjection).toBeUndefined();
     expect(assistant?.stageStatus).toBe("");
     expect(transition.state.sessionActivity.event).toBe("");
@@ -6107,8 +6071,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().activeStreamSessionIds).toEqual([]);
     expect(store.getState().isStreaming).toBe(false);
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "error",
-      event: "error",
+      level: "idle",
+      event: "",
     });
   });
 });

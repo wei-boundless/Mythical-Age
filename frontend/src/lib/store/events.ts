@@ -6,17 +6,14 @@ import {
   type RetrievalResult,
   type HarnessTaskRunTrace,
 } from "@/lib/api";
-import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
-import { projectRuntimeTransportEvent, type RuntimeTransportProjection } from "@/lib/projection/runtimeTransportProjection";
-import { shouldDisplayAssistantStreamContent } from "./assistantContentVisibility";
 import {
   applyPublicProjectionFrame,
   publicProjectionFrameFromRecord,
   publicProjectionFrameSuppressesLegacy,
 } from "@/lib/projection/reducer";
 
-import type { ActiveTurnState, AssistantTextSegmentState, AssistantTextStreamState, Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
+import type { ActiveTurnState, AssistantTextSegmentState, AssistantTextStreamState, Message, StoreState } from "./types";
 import {
   makeId
 } from "./utils";
@@ -36,23 +33,21 @@ type StreamTransition = {
   session: StreamSession;
 };
 
-const MAX_MESSAGE_PROGRESS_ENTRIES = 12;
-const MAX_PROGRESS_BODY_CHARS = 360;
-const MAX_PROGRESS_ARTIFACTS = 6;
-const INTERNAL_STREAM_EVENTS = new Set([
-  "runtime_assembly_compiled",
-  "runtime_invocation_packet",
-]);
-const INTERNAL_RUNTIME_STEP_SUMMARIES = new Set([
-  "turn_started",
-  "runtime_packet_compiled",
-  "model_action_received",
-  "action_admission_checked",
-  "bounded_observation_recorded",
-]);
 const TOOL_ITEM_STARTED_EVENT = "tool_item_started";
 const TOOL_ITEM_COMPLETED_EVENT = "tool_item_completed";
 const TURN_COMPLETED_EVENT = "turn_completed";
+
+const PROJECTION_OWNED_ORCHESTRATION_EVENTS = new Set([
+  "token",
+  "assistant_text_delta",
+  "assistant_text_final",
+  "assistant_stream_repair",
+  "active_task_steer_accepted",
+  "done",
+  TURN_COMPLETED_EVENT,
+  TOOL_ITEM_STARTED_EVENT,
+  TOOL_ITEM_COMPLETED_EVENT,
+]);
 
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
@@ -64,7 +59,7 @@ const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: strin
   { id: "prompt", label: "Prompt 装配", description: "组合身份、准则、记忆、skill 和本轮提示。" },
   { id: "model", label: "模型行动", description: "模型生成回复或发出结构化行动请求。" },
   { id: "tool", label: "工具与观察", description: "执行获准工具调用并记录观察、失败和产物。" },
-  { id: "output", label: "结果收口", description: "形成用户可见回复、进度摘要或任务交接信息。" },
+  { id: "output", label: "输出记录", description: "记录公开投影、提交状态或任务交接事实。" },
   { id: "persistence", label: "写回状态", description: "写回会话、运行事件、任务状态和产物引用。" }
 ];
 
@@ -77,206 +72,22 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
   { id: "context-memory", from: "context", to: "memory", label: "读取状态" },
   { id: "memory-prompt", from: "memory", to: "prompt", label: "注入上下文" },
   { id: "prompt-model", from: "prompt", to: "model", label: "模型行动" },
-  { id: "model-tool", from: "model", to: "tool", label: "请求工具" },
-  { id: "model-output", from: "model", to: "output", label: "候选答案" },
+  { id: "model-tool", from: "model", to: "tool", label: "行动申请" },
+  { id: "model-output", from: "model", to: "output", label: "公开输出" },
   { id: "tool-output", from: "tool", to: "output", label: "结果返回" },
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
-function turnCompletedStatus(data: Record<string, unknown>) {
-  const status = stringValue(data.status).toLowerCase();
-  if (status === "failed" || status === "stopped" || status === "completed") {
-    return status;
-  }
-  return "completed";
-}
-
-function stageStatusForEvent(event: string, data: Record<string, unknown>) {
-  if (INTERNAL_STREAM_EVENTS.has(event)) {
-    return "";
-  }
-  if (event === "runtime_step_summary" && INTERNAL_RUNTIME_STEP_SUMMARIES.has(String(data.step ?? "").trim())) {
-    return "";
-  }
-  if (event === "debug") {
-    return "";
-  }
-  if (event === "stream_reconnecting") {
-    const attempt = String(data.attempt ?? "").trim();
-    const maxAttempts = String(data.max_attempts ?? "").trim();
-    return attempt && maxAttempts ? `正在续接当前运行 ${attempt}/${maxAttempts}` : "正在续接当前运行";
-  }
-  if (event === "stream_reconnected") {
-    return "已接回当前运行";
-  }
-  if (event === "stream_reconnect_failed") {
-    return "需要重新接回会话";
-  }
-  if (
-    event === "harness_loop_event"
-    || event === "runtime_directive"
-    || event === "operation_gate"
-    || event === "runtime_commit_gate"
-  ) {
-    const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
-    return stageStatusForRuntimeEvent(eventType);
-  }
-  if (
-    event === "input_commit_gate"
-    || event === "context_management"
-    || event === "memory_context"
-    || event === "prompt_manifest"
-    || event === "retrieval"
-    || event.startsWith("worker")
-    || event === "token"
-    || event === "assistant_text_delta"
-    || event === "assistant_text_final"
-    || event === "assistant_stream_repair"
-    || event === "output_boundary"
-  ) {
-    return "";
-  }
-  if (event === "done") {
-    return "";
-  }
-  if (event === TURN_COMPLETED_EVENT) {
-    const status = turnCompletedStatus(data);
-    if (status === "failed") {
-      return "出错";
-    }
-    if (status === "stopped") {
-      return "已停止";
-    }
-    return "";
-  }
-  if (event === TOOL_ITEM_STARTED_EVENT) {
-    return stringValue(data.title) || `运行工具 ${stringValue(data.tool_name) || "tool"}`;
-  }
-  if (event === TOOL_ITEM_COMPLETED_EVENT) {
-    const state = stringValue(data.state).toLowerCase();
-    return state === "error" || state === "failed" ? "工具执行失败" : "工具已返回";
-  }
-  if (event === "error") {
-    return "出错";
-  }
-  return "";
-}
-
-function activityLevelForEvent(event: string, data: Record<string, unknown>) {
-  if (event === TURN_COMPLETED_EVENT) {
-    const status = turnCompletedStatus(data);
-    if (status === "failed") {
-      return "error" as const;
-    }
-    if (status === "stopped") {
-      return "stopped" as const;
-    }
-    return "success" as const;
-  }
-  if (event === TOOL_ITEM_COMPLETED_EVENT) {
-    const state = stringValue(data.state).toLowerCase();
-    return state === "error" || state === "failed" ? "error" as const : "success" as const;
-  }
-  if (event === TOOL_ITEM_STARTED_EVENT) {
-    return "running" as const;
-  }
-  if (event === "done") {
-    if (isTaskRunHandoffEvent(data)) {
-      return "waiting" as const;
-    }
-    if (stringValue(data.completion_state) === "partial_timeout") {
-      return "warning" as const;
-    }
-    return "success" as const;
-  }
-  if (event === "error") {
-    return "error" as const;
-  }
-  if (event === "stopped") {
-    return "stopped" as const;
-  }
-  if (event === "stream_reconnect_failed") {
-    return "warning" as const;
-  }
-  if (event === "operation_gate") {
-    const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
-    if (eventType.includes("approval") || eventType.includes("gate")) {
-      return "waiting" as const;
-    }
-  }
-  return "running" as const;
-}
-
-function activityDetailForEvent(event: string, data: Record<string, unknown>) {
-  if (event === "stream_reconnecting") {
-    return "连接短暂中断，已保留当前进度。";
-  }
-  if (event === "stream_reconnected") {
-    return "后续进度会继续在这里同步。";
-  }
-  if (event === "stream_reconnect_failed") {
-    return "自动续接没有成功，刷新或重新打开会话会继续查找可接回的运行。";
-  }
-  if (event === "active_task_steer_accepted") {
-    return stringValue(data.summary) || "已收到你的补充要求。";
-  }
-  if (event === "done") {
-    return "";
-  }
-  if (event === TURN_COMPLETED_EVENT) {
-    const status = turnCompletedStatus(data);
-    if (status === "failed") {
-      return stringValue(data.error_summary) || "详情已写入会话。";
-    }
-    if (status === "stopped") {
-      return stringValue(data.stopped_reason) || "已按你的操作停止本轮生成";
-    }
-    return "";
-  }
-  if (event === TOOL_ITEM_STARTED_EVENT) {
-    return stringValue(data.target) || stringValue(data.arguments_preview);
-  }
-  if (event === TOOL_ITEM_COMPLETED_EVENT) {
-    return stringValue(data.error) || stringValue(data.observation);
-  }
-  if (event === "error") {
-    return "详情已写入会话。";
-  }
-  if (event === "stopped") {
-    return "已按你的操作停止本轮生成";
-  }
-  return "";
-}
-
-function activeTaskSteerTitle(data: Record<string, unknown>) {
-  const summary = stringValue(data.summary ?? data.message ?? data.content);
-  const terminalReason = stringValue(data.terminal_reason);
-  if (terminalReason === "pause_active_work" || textIndicatesPauseActiveWork(summary)) {
-    return "已暂停当前工作";
-  }
-  if (terminalReason === "stop_active_work" || textIndicatesStopActiveWork(summary)) {
-    return "已停止当前工作";
-  }
-  if (terminalReason === "continue_active_work" || terminalReason === "answer_then_continue_active_work" || textIndicatesContinueActiveWork(summary)) {
-    return "继续当前工作";
-  }
-  return "已收到补充要求";
-}
-
-function textIndicatesPauseActiveWork(value: string) {
-  return ["暂停", "先停", "停在这里", "停一下", "暂停一下"].some((marker) => value.includes(marker));
-}
-
-function textIndicatesStopActiveWork(value: string) {
-  return ["停止", "终止", "取消", "不用继续", "别继续"].some((marker) => value.includes(marker));
-}
-
-function textIndicatesContinueActiveWork(value: string) {
-  return ["继续", "接着", "恢复", "接着处理", "继续处理"].some((marker) => value.includes(marker));
-}
-
 function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isProjectionOwnedOrchestrationEvent(event: string) {
+  const normalized = stringValue(event);
+  return PROJECTION_OWNED_ORCHESTRATION_EVENTS.has(normalized)
+    || normalized === "tool_call"
+    || normalized === "tool_result"
+    || normalized.startsWith("tool_");
 }
 
 function rawStringValue(value: unknown) {
@@ -320,15 +131,6 @@ function isTaskRunHandoffEvent(data: Record<string, unknown>) {
     || channel === "task_control";
 }
 
-function isTransportStreamEvent(event: string) {
-  return event === "stream_reconnecting"
-    || event === "stream_reconnected"
-    || event === "stream_reconnect_failed"
-    || event === TURN_COMPLETED_EVENT
-    || event === "error"
-    || event === "stopped";
-}
-
 function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message> {
   return {
     answerChannel: stringValue(data.answer_channel) || undefined,
@@ -341,25 +143,6 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
     answerSelectedSource: stringValue(data.answer_selected_source) || undefined,
     answerLeakFlags: stringArrayValue(data.answer_leak_flags),
   };
-}
-
-function shouldKeepStreamAssistantText(event: string, data: Record<string, unknown>) {
-  const metadata = answerMetadataFromEvent(data);
-  const content = assistantStreamContentForEvent(event, data);
-  if (content && isInternalControlProtocolText(content)) {
-    return false;
-  }
-  return shouldDisplayAssistantStreamContent(metadata);
-}
-
-function assistantStreamContentForEvent(event: string, data: Record<string, unknown>) {
-  if (event === "assistant_stream_repair") {
-    return rawStringValue(data.replacement_content);
-  }
-  if (event === "assistant_text_delta" || event === "assistant_text_final") {
-    return rawStringValue(data.content);
-  }
-  return "";
 }
 
 function assistantBodySegmentId(
@@ -909,135 +692,6 @@ function isRawToolOutputText(value: string) {
     || ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")));
 }
 
-function extractArtifactPaths(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (typeof item === "string") return item.trim();
-      if (item && typeof item === "object") {
-        const record = item as Record<string, unknown>;
-        return stringValue(record.path ?? record.file ?? record.file_path ?? record.artifact_path);
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .slice(0, 5);
-}
-
-function userReceiptForEvent(event: string, data: Record<string, unknown>): UserReceipt | null {
-  if (event === "retrieval") {
-    const results = Array.isArray(data.results) ? data.results.length : 0;
-    return {
-      level: "running",
-      title: results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据",
-      body: "检索结果会用于本轮回答。",
-      debug: { event },
-    };
-  }
-  if (event === "done") {
-    const paths = extractArtifactPaths(data.files ?? data.paths ?? data.artifacts ?? data.artifact_refs);
-    const answerSource = stringValue(data.answer_source);
-    const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
-    const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
-    const taskSteerAccepted = stringValue(data.completion_state) === "task_steer_accepted";
-    const taskRunHandoff = isTaskRunHandoffEvent(data);
-    if (taskRunHandoff) {
-      return null;
-    }
-    return {
-      level: partialTimeout ? "warning" : "success",
-      title: taskSteerAccepted ? activeTaskSteerTitle(data) : partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
-      body: taskSteerAccepted
-        ? body && !isMachineReference(body) ? body : "当前任务会在后续步骤中处理这次输入。"
-        : partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
-      artifacts: paths.map((path) => ({ label: "文件已更新", path })),
-      debug: {
-        event,
-        ...(answerSource ? { answerSource } : {}),
-      },
-    };
-  }
-  if (event === TURN_COMPLETED_EVENT) {
-    const status = turnCompletedStatus(data);
-    if (status === "failed") {
-      return {
-        level: "error",
-        title: "运行中断",
-        body: stringValue(data.error_summary) || "详情已写入会话。",
-        debug: { event },
-      };
-    }
-    if (status === "stopped") {
-      return {
-        level: "stopped",
-        title: "已停止本轮生成",
-        body: stringValue(data.stopped_reason) || "这轮生成已停止。",
-        debug: { event },
-      };
-    }
-    return {
-      level: "success",
-      title: "已收口",
-      body: "结果已写回会话。",
-      debug: { event },
-    };
-  }
-  if (event === "error") {
-    return {
-      level: "error",
-      title: "运行中断",
-      body: "详情已写入会话。",
-      debug: { event },
-    };
-  }
-  if (event === "stopped") {
-    return {
-      level: "stopped",
-      title: "已停止本轮生成",
-      body: "这轮生成已停止。",
-      debug: { event },
-    };
-  }
-  const title = stageStatusForEvent(event, data);
-  if (!title) return null;
-  const detail = activityDetailForEvent(event, data);
-  return {
-    level: activityLevelForEvent(event, data),
-    title,
-    body: detail && !isMachineReference(detail) ? detail : undefined,
-    debug: { event },
-  };
-}
-
-function patchSessionActivity(
-  state: StoreState,
-  event: string,
-  data: Record<string, unknown>,
-  fallbackTitle = ""
-): StoreState {
-  if (event === "done" && isTaskRunHandoffEvent(data)) {
-    return state;
-  }
-  const receipt = userReceiptForEvent(event, data);
-  const title = terminalActivityTitle(event, receipt) || stageStatusForEvent(event, data) || fallbackTitle || receipt?.title || "";
-  if (!title) {
-    return state;
-  }
-  const detail = activityDetailForEvent(event, data);
-  return {
-    ...state,
-    sessionActivity: {
-      level: receipt?.level || activityLevelForEvent(event, data),
-      title,
-      detail,
-      event,
-      toolName: event.startsWith("tool") ? String(data.tool_name ?? data.tool ?? "").trim() || undefined : undefined,
-      receipt,
-      updatedAt: Date.now()
-    }
-  };
-}
-
 function stageStatusForRuntimeEvent(eventType: string) {
   if (!eventType) {
     return "";
@@ -1058,16 +712,16 @@ function stageStatusForRuntimeEvent(eventType: string) {
     return "权限已检查";
   }
   if (eventType === "executor_started" || eventType === "executor_observation_received") {
-    return "生成回答";
+    return "执行阶段";
   }
   if (eventType === "output_boundary_applied") {
-    return "整理输出";
+    return "输出记录";
   }
   if (eventType === "commit_gate_checked" || eventType === "checkpoint_written") {
     return "写入状态";
   }
   if (eventType === "loop_terminal") {
-    return "完成";
+    return "运行结束";
   }
   return "";
 }
@@ -1193,6 +847,9 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
 }
 
 function eventSummary(event: string, data: Record<string, unknown>) {
+  if (isProjectionOwnedOrchestrationEvent(event)) {
+    return "";
+  }
   if (event === "orchestration_plan") {
     return "已形成处理计划。";
   }
@@ -1214,27 +871,6 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     const snapshot = (data.snapshot ?? {}) as Record<string, unknown>;
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
-  if (event === "done") {
-    if (isTaskRunHandoffEvent(data)) {
-      return "";
-    }
-    if (stringValue(data.completion_state) === "task_steer_accepted") {
-      const summary = stringValue(data.summary ?? data.message);
-      return summary && !isMachineReference(summary) ? summary.slice(0, 220) : activeTaskSteerTitle(data);
-    }
-    const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
-    return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
-  }
-  if (event === TURN_COMPLETED_EVENT) {
-    const status = turnCompletedStatus(data);
-    if (status === "failed") {
-      return stringValue(data.error_summary) || "执行失败";
-    }
-    if (status === "stopped") {
-      return stringValue(data.stopped_reason) || "已停止";
-    }
-    return "完成输出";
-  }
   if (event === "error") {
     return String(data.error ?? "执行失败");
   }
@@ -1243,9 +879,6 @@ function eventSummary(event: string, data: Record<string, unknown>) {
   }
   if (event.startsWith("worker")) {
     return String(data.worker ?? data.task_status ?? "worker");
-  }
-  if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
-    return String(data.tool_name ?? data.tool ?? "tool");
   }
   if (event === "memory_context") {
     return "状态记忆与长期记忆上下文已读取。";
@@ -1258,33 +891,22 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 
 function publicStreamEventLabel(event: string) {
   const map: Record<string, string> = {
-    assistant_text_delta: "正在生成回答",
-    assistant_text_final: "正在整理回答",
-    assistant_stream_repair: "正在校准回答",
-    active_task_steer_accepted: "已收到补充要求",
     behavior_trace: "处理路径已检查",
     context_management: "上下文已整理",
     debug: "同步状态",
-    done: "已收口",
     error: "运行中断",
-    [TURN_COMPLETED_EVENT]: "已收口",
-    [TOOL_ITEM_STARTED_EVENT]: "正在调用工具",
-    [TOOL_ITEM_COMPLETED_EVENT]: "工具结果已返回",
-    harness_loop_event: "处理进展更新",
+    harness_loop_event: "运行事件已记录",
     memory_context: "已读取相关记忆",
     orchestration_diff: "处理计划已更新",
     orchestration_plan: "已形成处理计划",
     orchestration_runtime_control: "处理流程已更新",
-    output_boundary: "整理输出",
+    output_boundary: "输出边界已检查",
     prompt_manifest: "上下文已整理",
     retrieval: "检索证据",
-    token: "正在生成回答",
-    tool_call: "正在调用工具",
-    tool_result: "工具结果已返回",
     worker_end: "子任务已完成",
     worker_start: "子任务已开始",
   };
-  return map[event] || "处理进展更新";
+  return map[event] || "";
 }
 
 function runtimeControlWarningLabel(warning: string) {
@@ -1322,7 +944,7 @@ function summarizeRuntimeEvent(eventType: string, data: Record<string, unknown>)
     return stage;
   }
   const summaryByEventType = eventSummary("harness_loop_event", { event_type: eventType, ...data });
-  return summaryByEventType !== "harness_loop_event" ? summaryByEventType : eventType;
+  return summaryByEventType || eventType;
 }
 
 function makeRuntimeTraceSnapshot(sessionId: string): OrchestrationSnapshot {
@@ -1363,7 +985,13 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
       _runtime_offset: runtimeEvent.offset,
       _runtime_refs: runtimeEvent.refs ?? {},
     };
-    snapshot = updateOrchestrationSnapshot(snapshot, uiEvent, eventData) ?? snapshot;
+    const previousEventCount = snapshot.events.length;
+    const nextSnapshot = updateOrchestrationSnapshot(snapshot, uiEvent, eventData) ?? snapshot;
+    if (nextSnapshot.events.length === previousEventCount) {
+      snapshot = nextSnapshot;
+      continue;
+    }
+    snapshot = nextSnapshot;
     snapshot = {
       ...snapshot,
       events: [
@@ -1419,6 +1047,9 @@ function updateOrchestrationSnapshot(
     };
   }
   const nodeId = resolveSnapshotNodeId(snapshot, event);
+  if (isProjectionOwnedOrchestrationEvent(event)) {
+    return snapshot;
+  }
   const summary = eventSummary(event, data);
   const events = [
     ...snapshot.events,
@@ -1431,23 +1062,19 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["runtime", "agent-turn"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "assistant_text_delta", "assistant_text_final", "assistant_stream_repair", "done", TURN_COMPLETED_EVENT].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start"].includes(event)) {
     autoVisited.add("runtime");
     autoVisited.add("agent-turn");
   }
-  const turnCompletedStatusValue = event === TURN_COMPLETED_EVENT ? turnCompletedStatus(data) : "";
   const nodes = snapshot.nodes.map((node) => {
-    if ((event === "error" || turnCompletedStatusValue === "failed") && node.id === nodeId) {
+    if (event === "error" && node.id === nodeId) {
       return { ...node, status: "failed" as const, summary, source_event: event };
-    }
-    if (node.id === "persistence" && (event === "done" || turnCompletedStatusValue === "completed")) {
-      return { ...node, status: "success" as const, summary: "会话与运行状态等待后处理写回。", source_event: event };
     }
     if (node.id === nodeId || autoVisited.has(node.id)) {
       return {
         ...node,
         status: "success" as const,
-        summary: node.id === nodeId ? summary : node.summary || "已进入该编排阶段。",
+        summary: node.id === nodeId ? summary : node.summary,
         source_event: node.id === nodeId ? event : node.source_event
       };
     }
@@ -1465,13 +1092,11 @@ function updateOrchestrationSnapshot(
     ...snapshot,
     execution_mode: executionMode === "undefined" ? snapshot.execution_mode : executionMode,
     route: route === "undefined" ? snapshot.route : route,
-    status: event === "error" || turnCompletedStatusValue === "failed" ? "failed" : event === "done" || turnCompletedStatusValue === "completed" ? "success" : "running",
-    summary: event === "done" || turnCompletedStatusValue === "completed"
-      ? "编排完成"
-      : event === "error" || turnCompletedStatusValue === "failed"
+    status: event === "error" ? "failed" : "running",
+    summary: event === "error"
         ? `编排失败：${String(data.error_summary ?? data.error ?? "unknown")}`
-        : publicStreamEventLabel(event),
-    problem_node_id: event === "error" || turnCompletedStatusValue === "failed" ? nodeId : snapshot.problem_node_id,
+        : summary || snapshot.summary,
+    problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,
     edges: snapshot.edges?.length ? snapshot.edges : deriveOrchestrationEdges(nextNodes),
     events
@@ -1491,110 +1116,6 @@ function patchAssistant(
     messages: state.messages.map((message) =>
       message.id === assistantId ? updater(message) : message
     )
-  };
-}
-
-function patchAssistantStage(
-  state: StoreState,
-  assistantId: string,
-  stageStatus: string
-): StoreState {
-  if (!stageStatus) {
-    return state;
-  }
-  return patchAssistant(state, assistantId, (message) => ({
-    ...message,
-    stageStatus
-  }));
-}
-
-function normalizeProgressEntry(entry: RuntimeProgressEntry): RuntimeProgressEntry {
-  const body = entry.body
-    ? entry.body.length > MAX_PROGRESS_BODY_CHARS
-      ? `${entry.body.slice(0, MAX_PROGRESS_BODY_CHARS - 1)}...`
-      : entry.body
-    : undefined;
-  return {
-    ...entry,
-    body,
-    artifacts: entry.artifacts?.slice(0, MAX_PROGRESS_ARTIFACTS),
-  };
-}
-
-function appendAssistantProgress(
-  state: StoreState,
-  assistantId: string,
-  entry: RuntimeProgressEntry | undefined,
-): StoreState {
-  if (!entry?.title) {
-    return state;
-  }
-  const normalized = normalizeProgressEntry(entry);
-  return patchAssistant(state, assistantId, (message) => {
-    const existing = message.runtimeProgress ?? [];
-    if (existing.some((item) => item.id === normalized.id)) {
-      return message;
-    }
-    return {
-      ...message,
-      runtimeProgress: [...existing, normalized].slice(-MAX_MESSAGE_PROGRESS_ENTRIES),
-    };
-  });
-}
-
-function terminalProgressEntryForEvent(event: string, data: Record<string, unknown>): RuntimeProgressEntry | undefined {
-  const failedTurnCompleted = event === TURN_COMPLETED_EVENT && turnCompletedStatus(data) === "failed";
-  if (event !== "error" && !failedTurnCompleted) {
-    return undefined;
-  }
-  const body = failedTurnCompleted
-    ? stringValue(data.error_summary) || "运行中断"
-    : stringValue(data.content ?? data.error) || "运行中断";
-  return {
-    id: `terminal:${event}`,
-    level: "error",
-    title: "运行中断",
-    body,
-    eventType: event,
-    kind: "terminal",
-    completedAt: Date.now() / 1000,
-  };
-}
-
-function terminalActivityTitle(event: string, receipt: UserReceipt | null) {
-  if (event === TURN_COMPLETED_EVENT) {
-    return receipt?.level === "error" || receipt?.level === "stopped" ? receipt.title || "" : "";
-  }
-  return event === "error" || event === "stopped" ? receipt?.title || "" : "";
-}
-
-function applyVisibilitySessionActivity(
-  state: StoreState,
-  event: string,
-  visibility: RuntimeTransportProjection,
-): StoreState {
-  const title = visibility.activityTitle || visibility.stageStatus || "";
-  if (!title) {
-    return state;
-  }
-  const progressEntry = visibility.progressEntry;
-  return {
-    ...state,
-    sessionActivity: {
-      level: visibility.level || "running",
-      title,
-      detail: visibility.activityDetail || "",
-      event,
-      toolName: progressEntry?.toolName,
-      receipt: {
-        level: visibility.level || "running",
-        title,
-        body: visibility.activityDetail || undefined,
-        artifacts: progressEntry?.artifacts,
-        debug: { event },
-      },
-      updatedAt: Date.now(),
-    },
   };
 }
 
@@ -1712,10 +1233,8 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const publicProjectionFrame = publicProjectionFrameFromRecord(data.public_projection_frame);
-  const suppressLegacyVisibility = publicProjectionFrameSuppressesLegacy(publicProjectionFrame);
-  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionFrame: suppressLegacyVisibility });
-  const allowRawVisibility = isTransportStreamEvent(event);
-  const visibility = !suppressLegacyVisibility && allowRawVisibility ? projectRuntimeTransportEvent(event, data) : {};
+  const hasPublicProjectionFrame = publicProjectionFrameSuppressesLegacy(publicProjectionFrame);
+  const boundSession = bindStreamSessionAnchor(session, event, data, { hasPublicProjectionFrame });
   const activeTurnId = String(data.active_turn_id ?? "").trim();
   const activeTurn = data.active_turn && typeof data.active_turn === "object" && !Array.isArray(data.active_turn)
     ? data.active_turn as Record<string, unknown>
@@ -1765,24 +1284,7 @@ export function reduceStreamEvent(
         streamAnchor: streamAnchorFromSession(boundSession),
       })
     : stateWithOrchestrationBase;
-  const stateWithStage = patchAssistantStage(
-    stateWithPublicProjection,
-    boundSession.assistantId,
-    publicProjectionFrame ? "" : allowRawVisibility ? visibility.stageStatus || stageStatusForEvent(event, data) : ""
-  );
-  const stateWithLegacyActivity = allowRawVisibility ? patchSessionActivity(stateWithStage, event, data) : stateWithStage;
-  const stateWithVisibilityActivity = allowRawVisibility ? applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility) : stateWithLegacyActivity;
-  const stateWithOrchestration = appendAssistantProgress(
-    stateWithVisibilityActivity,
-    boundSession.assistantId,
-    visibility.progressEntry,
-  );
-  const stateWithTerminalProgress = appendAssistantProgress(
-    stateWithOrchestration,
-    boundSession.assistantId,
-    terminalProgressEntryForEvent(event, data),
-  );
-  const stateWithTimelineDraft = stateWithTerminalProgress;
+  const stateWithTimelineDraft = stateWithPublicProjection;
 
   if (event === "retrieval") {
     return {
@@ -1837,14 +1339,13 @@ export function reduceStreamEvent(
   }
 
   if (event === "done") {
-    const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     const answerMetadata = answerMetadataFromEvent(data);
     return {
       state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) =>
         ({
           ...message,
           ...answerMetadata,
-          stageStatus: publicProjectionFrame ? message.stageStatus : partialTimeout ? "部分完成" : "",
+          stageStatus: message.stageStatus,
           image: (data.image as Message["image"]) ?? message.image ?? null
         })
       ),
@@ -1868,20 +1369,14 @@ export function reduceStreamEvent(
 
   if (event === "error") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
-        ...message,
-        stageStatus: "出错",
-      })),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }
 
   if (event === "stopped") {
     return {
-      state: patchAssistant(stateWithTimelineDraft, boundSession.assistantId, (message) => ({
-        ...message,
-        stageStatus: "已停止"
-      })),
+      state: stateWithTimelineDraft,
       session: boundSession
     };
   }

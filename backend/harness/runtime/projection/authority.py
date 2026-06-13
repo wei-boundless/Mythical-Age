@@ -40,11 +40,18 @@ def build_public_projection_frame(
     anchor = projection_anchor(payload)
     source_event_id = _source_event_id(payload)
     event_offset = _int_value(payload.get("event_offset") or payload.get("offset") or sequence)
-    op = _valid_value(frame_spec.get("op"), VALID_OPS, "item_upsert")
-    slot = _valid_value(frame_spec.get("slot"), VALID_SLOTS, "trace")
-    source_authority = _valid_value(frame_spec.get("source_authority"), VALID_SOURCES, "runtime")
-    main_visibility = _valid_value(frame_spec.get("main_visibility"), VALID_VISIBILITY, "hidden")
-    retention = _valid_value(frame_spec.get("retention"), VALID_RETENTION, "trace")
+    invalid_fields = _invalid_spec_fields(frame_spec)
+    if invalid_fields:
+        frame_spec = _protocol_diagnostic_frame_spec(
+            public_event_type,
+            frame_spec,
+            invalid_fields=invalid_fields,
+        )
+    op = _required_value(frame_spec.get("op"), VALID_OPS)
+    slot = _required_value(frame_spec.get("slot"), VALID_SLOTS)
+    source_authority = _required_value(frame_spec.get("source_authority"), VALID_SOURCES)
+    main_visibility = _required_value(frame_spec.get("main_visibility"), VALID_VISIBILITY)
+    retention = _required_value(frame_spec.get("retention"), VALID_RETENTION)
     frame_id = text(frame_spec.get("frame_id")) or stable_id(
         "publicframe",
         public_event_type,
@@ -92,6 +99,7 @@ def build_public_projection_frame(
         "subject_label",
         "arguments_preview",
         "target",
+        "collapsed",
     ):
         value = frame_spec.get(key)
         if value not in ("", None, [], {}):
@@ -147,9 +155,53 @@ def _source_event_id(data: dict[str, Any]) -> str:
     )
 
 
-def _valid_value(value: Any, allowed: set[str], fallback: str) -> str:
+def _required_value(value: Any, allowed: set[str]) -> str:
     normalized = text(value)
-    return normalized if normalized in allowed else fallback
+    if normalized not in allowed:
+        raise ValueError(f"invalid public projection frame field: {normalized}")
+    return normalized
+
+
+def _invalid_spec_fields(frame_spec: dict[str, Any]) -> dict[str, str]:
+    invalid: dict[str, str] = {}
+    for key, allowed in {
+        "op": VALID_OPS,
+        "slot": VALID_SLOTS,
+        "source_authority": VALID_SOURCES,
+        "main_visibility": VALID_VISIBILITY,
+        "retention": VALID_RETENTION,
+    }.items():
+        value = text(frame_spec.get(key))
+        if value not in allowed:
+            invalid[key] = value
+    return invalid
+
+
+def _protocol_diagnostic_frame_spec(
+    public_event_type: str,
+    frame_spec: dict[str, Any],
+    *,
+    invalid_fields: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "op": "item_upsert",
+        "slot": "trace",
+        "source_authority": "system",
+        "main_visibility": "hidden",
+        "retention": "trace",
+        "item_id": stable_id("projection-invalid-spec", public_event_type, invalid_fields),
+        "title": "公开投影协议诊断",
+        "text": "公开投影协议诊断",
+        "detail": "public_projection_frame spec 包含非法字段，已拒绝进入主视图。",
+        "state": "failed",
+        "diagnostics": {
+            "code": "invalid_projection_frame_spec",
+            "invalid_fields": dict(invalid_fields),
+            "source_event_type": text(public_event_type),
+            "original_op": text(frame_spec.get("op")),
+            "original_slot": text(frame_spec.get("slot")),
+        },
+    }
 
 
 def _int_value(value: Any) -> int:

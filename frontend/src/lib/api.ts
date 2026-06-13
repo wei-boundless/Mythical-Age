@@ -264,6 +264,7 @@ export type PublicProjectionItem = {
   subjectLabel?: string;
   traceRefs?: string[];
   artifactRefs?: Array<Record<string, unknown>>;
+  collapsed?: boolean;
   eventOffset?: number;
   sourceEventId?: string;
 };
@@ -349,6 +350,7 @@ export type PublicProjectionFrame = {
   subject_label?: string;
   arguments_preview?: string;
   target?: string;
+  collapsed?: boolean;
   trace_refs?: string[];
   artifact_refs?: Array<Record<string, unknown>>;
   commit?: {

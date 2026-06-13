@@ -2926,7 +2926,7 @@ export class WorkspaceRuntime {
       taskRunId,
       level: "running",
       title: "正在停止",
-      detail: "停止请求已发送，当前步骤收口后会结束。",
+      detail: "停止请求已发送，当前步骤到达运行边界后会结束。",
       event: "active_task_stop_requested",
     });
     try {
@@ -4191,7 +4191,7 @@ export class WorkspaceRuntime {
         reason: "task_graph_interaction_resume",
       });
     } else if (controlState === "pause_requested" || controlState === "stop_requested") {
-      throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
+      throw new Error(controlState === "pause_requested" ? "暂停请求正在等待运行边界，等状态变为已暂停后再续跑。" : "停止请求正在等待运行边界，不能继续派发。");
     }
     await submitGraphRunUntilIdle(runId, {
       graph_harness_config_id: graphHarnessConfigId,
@@ -4568,12 +4568,12 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "running",
           title: stopping ? "正在停止" : "正在暂停",
-          detail: stopping ? "停止请求已记录，当前步骤收口后结束" : "暂停请求已记录，当前步骤收口后暂停",
+          detail: stopping ? "停止请求已记录，当前步骤到达运行边界后结束" : "暂停请求已记录，当前步骤到达运行边界后暂停",
           event: "runtime_live_monitor",
           receipt: {
             level: "running",
             title: stopping ? "正在停止" : "正在暂停",
-            body: stopping ? "停止请求已记录，当前步骤收口后结束。" : "暂停请求已记录，当前步骤收口后暂停。",
+            body: stopping ? "停止请求已记录，当前步骤到达运行边界后结束。" : "暂停请求已记录，当前步骤到达运行边界后暂停。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -4588,7 +4588,7 @@ export class WorkspaceRuntime {
     }
     if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "waiting_safe_boundary" || effectiveStatus === "blocked") {
       const title = projectedTitle || (effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
-      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会收口。" : "当前处理受阻。");
+      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会暂停或结束。" : "当前处理受阻。");
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {

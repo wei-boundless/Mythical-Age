@@ -554,13 +554,6 @@ class HarnessRuntimeFacade:
                     return
                 if runtime_branch.get("branch_kind") == "blocked_runtime":
                     blocked_content = "当前运行环境未能完成装配，本轮无法继续。"
-                    await self._commit_entrypoint_fail_closed_message(
-                        session_id=request.session_id,
-                        turn_id=turn_id,
-                        content=blocked_content,
-                        answer_source="harness.entrypoint.blocked_runtime",
-                        terminal_reason="blocked_runtime",
-                    )
                     yield error_event(
                         content=blocked_content,
                         code="blocked_runtime",
@@ -569,13 +562,6 @@ class HarnessRuntimeFacade:
                     return
 
                 unhandled_content = "当前请求没有匹配到可执行的单 agent 入口。"
-                await self._commit_entrypoint_fail_closed_message(
-                    session_id=request.session_id,
-                    turn_id=turn_id,
-                    content=unhandled_content,
-                    answer_source="harness.entrypoint.runtime_branch_unhandled",
-                    terminal_reason="runtime_branch_unhandled",
-                )
                 yield error_event(
                     content=unhandled_content,
                     code="runtime_branch_unhandled",
@@ -590,13 +576,6 @@ class HarnessRuntimeFacade:
                 terminal_reason="harness.entrypoint_error",
             )
             failure_text = self._user_visible_error(exc)
-            await self._commit_entrypoint_fail_closed_message(
-                session_id=request.session_id,
-                turn_id=turn_id,
-                content=failure_text,
-                answer_source="harness.entrypoint.exception",
-                terminal_reason="harness.entrypoint_error",
-            )
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
@@ -608,54 +587,6 @@ class HarnessRuntimeFacade:
                     turn_id=started_active_turn_id,
                     terminal_reason="turn_stream_closed",
                 )
-
-    async def _commit_entrypoint_fail_closed_message(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        content: str,
-        answer_source: str,
-        terminal_reason: str,
-    ) -> bool:
-        if self._session_has_assistant_message_for_turn(session_id=session_id, turn_id=turn_id):
-            return False
-        decision = canonical_output_decision_for_final_text(
-            content,
-            answer_channel="orchestration_fail_closed",
-            answer_source=answer_source,
-            execution_posture="runtime_entrypoint",
-            terminal_reason=terminal_reason,
-        )
-        try:
-            await self._apply_assistant_message_commit_async(
-                session_id,
-                {
-                    "role": "assistant",
-                    "content": decision.content,
-                    "turn_id": turn_id,
-                    **decision.to_payload(),
-                },
-            )
-            return True
-        except Exception:
-            logger.debug("failed to commit entrypoint fail-closed assistant message", exc_info=True)
-            return False
-
-    def _session_has_assistant_message_for_turn(self, *, session_id: str, turn_id: str) -> bool:
-        try:
-            loaded = self.session_manager.load_session(session_id)
-        except Exception:
-            return False
-        messages = list(loaded.get("messages") or []) if isinstance(loaded, dict) else list(loaded or [])
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-            if str(message.get("role") or "") != "assistant":
-                continue
-            if str(message.get("turn_id") or "") == str(turn_id or ""):
-                return True
-        return False
 
     async def _run_single_agent_turn(
         self,
@@ -993,22 +924,6 @@ class HarnessRuntimeFacade:
         )
         if contract is None:
             content = "显式任务合同缺少必要目标或验收边界，系统已停止启动任务。"
-            decision = canonical_output_decision_for_final_text(
-                content,
-                answer_channel="task_control",
-                answer_source="harness.explicit_contract_task.invalid_contract",
-                execution_posture="explicit_contract_task",
-                terminal_reason="explicit_contract_invalid",
-            )
-            await self._apply_assistant_message_commit_async(
-                request.session_id,
-                {
-                    "role": "assistant",
-                    "content": decision.content,
-                    "turn_id": turn_id,
-                    **decision.to_payload(),
-                },
-            )
             yield error_event(
                 content=content,
                 code="explicit_contract_invalid",
@@ -1310,13 +1225,13 @@ class HarnessRuntimeFacade:
         )
         latest_step = dict(monitor.get("latest_step") or {})
         latest_progress = _public_status_text(
-            monitor.get("latest_public_progress_note")
-            or monitor.get("latest_step_summary")
-            or monitor.get("summary")
+            diagnostics.get("latest_public_progress_note")
             or latest_step.get("public_progress_note")
-            or diagnostics.get("latest_public_progress_note")
+            or monitor.get("latest_public_progress_note")
             or diagnostics.get("latest_step_summary")
+            or monitor.get("latest_step_summary")
             or diagnostics.get("summary")
+            or monitor.get("summary")
             or terminal_reason
             or status
         )

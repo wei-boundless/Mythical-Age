@@ -39,23 +39,10 @@ class _StateIndex:
         return [run for run in self._turn_runs if run.session_id == session_id]
 
 
-class _MonitorProjector:
-    def project_task_run(self, task_run: SimpleNamespace, *, now: float, **_kwargs) -> dict:
-        return {
-            "title": "执行状态",
-            "summary": "执行状态已同步。",
-            "status": task_run.status,
-            "lifecycle": task_run.status,
-            "bucket": "terminal" if task_run.status == "completed" else "active",
-            "latest_event_type": "session_output_commit_ack",
-        }
-
-
 def _runtime_host(*, task_runs: list[SimpleNamespace], events_by_run: dict[str, list[dict]], turn_runs: list[SimpleNamespace] | None = None):
     return SimpleNamespace(
         state_index=_StateIndex(task_runs=task_runs, turn_runs=turn_runs),
         event_log=_EventLog(events_by_run),
-        monitor_projector=_MonitorProjector(),
     )
 
 

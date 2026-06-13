@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -18,7 +19,7 @@ from harness.loop.active_work import active_work_action_from_payload
 from harness.loop.action_permit import action_permit_from_admission
 from harness.loop.model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from harness.loop.model_action_runtime import call_model_invoker
-from harness.loop.presentation import assistant_body_final_event, error_event, final_answer_event
+from harness.loop.presentation import error_event, final_answer_event
 from harness.runtime import RuntimeCompiler, ToolBatchGroup, build_runtime_tool_plan, build_tool_batch_plan
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.file_management_policy import compile_tool_file_management_policy
@@ -51,6 +52,7 @@ from runtime.output_boundary import (
 from runtime.shared.models import TurnRun
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
+from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
 from prompt_library import SINGLE_AGENT_ADMISSION_REPAIR_PROMPT, SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT
 
@@ -101,6 +103,13 @@ _INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
 class NativeActionRequestParse:
     actions: tuple[ModelActionRequest, ...] = ()
     errors: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FinalMessageCommit:
+    decision: CanonicalFinalTextDecision
+    events: tuple[dict[str, Any], ...] = ()
+    receipt: dict[str, Any] | None = None
 
 
 def _meaningful_visible_answer(content: str) -> bool:
@@ -365,6 +374,9 @@ async def run_single_agent_turn(
             "runtime_branch": dict(runtime_branch or {}),
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
+            "turn_id": turn_id,
+            "turn_run_id": turn_run.turn_run_id if turn_run is not None else "",
+            "active_turn_id": turn_id,
         }
         tool_definitions_by_name = dict(getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}) or {})
         runtime_tool_plan = build_runtime_tool_plan(
@@ -394,16 +406,19 @@ async def run_single_agent_turn(
             final_extra: dict[str, Any] | None = None,
             has_tool_receipt: bool = False,
             terminal_payload: dict[str, Any] | None = None,
-            commit_decision: CanonicalFinalTextDecision | None = None,
+            commit_decision: FinalMessageCommit | CanonicalFinalTextDecision | None = None,
         ) -> AsyncIterator[dict[str, Any]]:
             nonlocal terminal_recorded, assistant_stream_normalizer
-            decision = commit_decision or canonical_output_decision_for_final_text(
-                content,
-                answer_channel=answer_channel,
-                answer_source=answer_source,
-                execution_posture="single_agent_turn",
-                has_tool_receipt=has_tool_receipt,
-                terminal_reason=terminal_reason,
+            commit_result = commit_decision if isinstance(commit_decision, FinalMessageCommit) else None
+            decision = commit_result.decision if commit_result is not None else (
+                commit_decision if isinstance(commit_decision, CanonicalFinalTextDecision) else canonical_output_decision_for_final_text(
+                    content,
+                    answer_channel=answer_channel,
+                    answer_source=answer_source,
+                    execution_posture="single_agent_turn",
+                    has_tool_receipt=has_tool_receipt,
+                    terminal_reason=terminal_reason,
+                )
             )
             for frame_event in assistant_final_stream_events(
                 assistant_stream_normalizer,
@@ -422,13 +437,22 @@ async def run_single_agent_turn(
                 },
             ):
                 yield frame_event
+            for commit_event in tuple(commit_result.events if commit_result is not None else ()):
+                yield dict(commit_event)
+            effective_terminal_status = terminal_status
+            effective_terminal_reason = terminal_reason
+            commit_receipt = dict(commit_result.receipt or {}) if commit_result is not None else {}
+            commit_state = str(commit_receipt.get("state") or commit_receipt.get("status") or "").strip()
+            if commit_state and commit_state not in {"committed"}:
+                effective_terminal_status = "failed"
+                effective_terminal_reason = str(commit_receipt.get("reason") or "session_output_commit_not_committed")
             if runtime_host is not None and turn_run is not None:
                 terminal = _record_turn_terminal(
                     runtime_host,
                     turn_run=turn_run,
                     turn_id=turn_id,
-                    status=terminal_status,
-                    terminal_reason=terminal_reason,
+                    status=effective_terminal_status,
+                    terminal_reason=effective_terminal_reason,
                     payload=terminal_payload,
                 )
                 terminal_recorded = True
@@ -436,7 +460,8 @@ async def run_single_agent_turn(
             yield {
                 "type": "done",
                 **decision.to_payload(),
-                "terminal_reason": terminal_reason,
+                "status": effective_terminal_status,
+                "terminal_reason": effective_terminal_reason,
                 **dict(final_extra or {}),
             }
 
@@ -503,6 +528,8 @@ async def run_single_agent_turn(
                 ):
                     commit_decision = await _commit_final_message(
                         commit_assistant_message,
+                        runtime_host=runtime_host,
+                        turn_run=turn_run,
                         session_id=session_id,
                         turn_id=turn_id,
                         content=content,
@@ -729,6 +756,8 @@ async def run_single_agent_turn(
             protocol_final = _assistant_protocol_message_from_content(content, turn_id=turn_id)
             commit_decision = await _commit_final_message(
                 commit_assistant_message,
+                runtime_host=runtime_host,
+                turn_run=turn_run,
                 session_id=session_id,
                 turn_id=turn_id,
                 content=content,
@@ -781,7 +810,6 @@ async def run_single_agent_turn(
             yield model_event
         tool_iteration = 0
         tool_observation_payloads: list[dict[str, Any]] = []
-        emitted_feedback_segments: set[str] = set()
         repaired_or_parsed_final_action: SingleAgentActionParse | None = None
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
@@ -843,17 +871,6 @@ async def run_single_agent_turn(
                     return
                 tool_iteration += 1
                 control_action = action_parse.action_request
-                async for event in _action_feedback_segment_events(
-                    action_request=control_action,
-                    response=response,
-                    assistant_stream_normalizer=assistant_stream_normalizer,
-                    turn_id=turn_id,
-                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-                    phase="active_work_control",
-                    iteration=tool_iteration,
-                    emitted_feedback_segments=emitted_feedback_segments,
-                ):
-                    yield event
                 admission = admit_model_action(
                     control_action,
                     packet_allowed_action_types=current_allowed_action_types,
@@ -1059,19 +1076,6 @@ async def run_single_agent_turn(
                     yield event
                 return
             tool_iteration += 1
-            feedback_action = tool_actions[0] if tool_actions else action_parse.action_request
-            if feedback_action is not None:
-                async for event in _action_feedback_segment_events(
-                    action_request=feedback_action,
-                    response=response,
-                    assistant_stream_normalizer=assistant_stream_normalizer,
-                    turn_id=turn_id,
-                    turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-                    phase="tool_call",
-                    iteration=tool_iteration,
-                    emitted_feedback_segments=emitted_feedback_segments,
-                ):
-                    yield event
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
                 admission = admit_model_action(
@@ -1184,6 +1188,14 @@ async def run_single_agent_turn(
                     "tool_batch_group": group_payload,
                     **({"event": started_event} if started_event else {}),
                 }
+                for started_tool_event in _tool_item_started_events_for_group(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    group=group,
+                    invocation_rows=invocation_rows,
+                ):
+                    yield started_tool_event
                 group_observations = await _execute_tool_batch_group(
                     group,
                     invocation_rows=invocation_rows,
@@ -1595,6 +1607,8 @@ async def run_single_agent_turn(
                 content = admission.user_visible_reason or "本轮动作没有通过运行时准入，运行时未执行该动作。"
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
+                    runtime_host=runtime_host,
+                    turn_run=turn_run,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
@@ -1626,6 +1640,8 @@ async def run_single_agent_turn(
                     content = "模型选择直接回答，但没有提供可用回答内容。"
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
+                    runtime_host=runtime_host,
+                    turn_run=turn_run,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
@@ -1689,6 +1705,8 @@ async def run_single_agent_turn(
                 content = action_request.blocking_reason or "当前请求无法继续处理。"
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
+                    runtime_host=runtime_host,
+                    turn_run=turn_run,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
@@ -1718,6 +1736,8 @@ async def run_single_agent_turn(
                 content = action_request.user_question or "我需要你补充一点信息。"
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
+                    runtime_host=runtime_host,
+                    turn_run=turn_run,
                     session_id=session_id,
                     turn_id=turn_id,
                     content=content,
@@ -1800,6 +1820,8 @@ async def run_single_agent_turn(
             return
         commit_decision = await _commit_final_message(
             commit_assistant_message,
+            runtime_host=runtime_host,
+            turn_run=turn_run,
             session_id=session_id,
             turn_id=turn_id,
             content=content,
@@ -1812,15 +1834,6 @@ async def run_single_agent_turn(
             if api_protocol_messages
             else None,
         )
-        yield {
-            "type": "assistant_message_committed",
-            "answer_channel": commit_decision.answer_channel,
-            "answer_source": commit_decision.answer_source,
-            "answer_canonical_state": commit_decision.canonical_state,
-            "answer_persist_policy": commit_decision.persist_policy,
-            "answer_finalization_policy": commit_decision.finalization_policy,
-            "answer_fallback_reason": commit_decision.fallback_reason,
-        }
         async for event in emit_terminal_then_final(
             content=content,
             answer_channel="conversation",
@@ -2947,125 +2960,6 @@ def _single_agent_protocol_error(*, code: str, reason: str, diagnostics: dict[st
             **dict(diagnostics or {}),
         },
     }
-
-
-async def _action_feedback_segment_events(
-    *,
-    action_request: ModelActionRequest,
-    response: Any,
-    assistant_stream_normalizer: AssistantStreamNormalizer | None,
-    turn_id: str,
-    turn_run_id: str,
-    phase: str,
-    iteration: int,
-    emitted_feedback_segments: set[str],
-) -> AsyncIterator[dict[str, Any]]:
-    content = _action_feedback_segment_text(action_request, response=response)
-    if not content:
-        return
-    segment_key = f"{phase}:{iteration}:{content}"
-    if segment_key in emitted_feedback_segments:
-        return
-    emitted_feedback_segments.add(segment_key)
-    body_sequence = max(1, int(iteration) * 2 - 1)
-    stream_ref = str(
-        getattr(assistant_stream_normalizer, "stream_ref", "")
-        or f"assistant-body:{turn_id}:{phase}:{iteration}"
-    )
-    extra = {
-        "body_segment_id": stream_ref,
-        "body_sequence": body_sequence,
-        "segment_role": "stage_feedback",
-    }
-    if assistant_stream_normalizer is not None:
-        for event in assistant_final_stream_events(
-            assistant_stream_normalizer,
-            content=content,
-            answer_channel="stage_feedback",
-            answer_source=f"harness.single_agent_turn.{phase}.feedback",
-            terminal_reason="stage_feedback",
-            answer_canonical_state="stable_feedback",
-            answer_persist_policy="persist_canonical",
-            turn_run_id=turn_run_id,
-            extra=extra,
-        ):
-            yield event
-        return
-    event = assistant_body_final_event(
-        content=content,
-        answer_channel="stage_feedback",
-        answer_source=f"harness.single_agent_turn.{phase}.feedback",
-        turn_id=turn_id,
-        turn_run_id=turn_run_id,
-        stream_ref=stream_ref,
-        body_sequence=body_sequence,
-        terminal_reason="stage_feedback",
-        execution_posture="single_agent_turn",
-        extra=extra,
-    )
-    if event:
-        yield event
-
-
-def _action_feedback_segment_text(action_request: ModelActionRequest, *, response: Any) -> str:
-    state = dict(action_request.public_action_state or {})
-    candidates: list[Any] = [
-        state.get("current_judgment"),
-        action_request.public_progress_note,
-    ]
-    if action_request.action_type == "tool_call":
-        candidates.append(_response_content_public_feedback(response))
-    for candidate in candidates:
-        text = public_runtime_progress_summary(candidate or "").strip()
-        if _is_public_feedback_segment(text):
-            return text[:220].rstrip()
-    return ""
-
-
-def _response_content_public_feedback(response: Any) -> str:
-    text = stringify_content(getattr(response, "content", response)).strip()
-    if not text:
-        return ""
-    stripped = text.lstrip()
-    if stripped.startswith(("{", "[", "```json")):
-        return ""
-    if not _meaningful_visible_answer(text):
-        return ""
-    return text
-
-
-def _is_public_feedback_segment(text: str) -> bool:
-    value = sanitize_visible_assistant_content(str(text or "")).strip()
-    if not value or not _meaningful_visible_answer(value):
-        return False
-    normalized = " ".join(value.split()).strip()
-    generic_values = {
-        "开始处理",
-        "开始处理。",
-        "正在处理",
-        "正在处理。",
-        "处理完成",
-        "处理完成。",
-        "正在思考",
-        "正在思考。",
-        "正在调用工具",
-        "正在调用工具。",
-        "已发起工具调用",
-        "已发起工具调用。",
-        "需要用户补充信息后才能继续。",
-        "当前请求无法继续执行。",
-    }
-    if normalized in generic_values:
-        return False
-    generic_prefixes = (
-        "我会开始处理",
-        "我将调用工具",
-        "我正在调用",
-        "正在运行工具",
-        "运行工具 ",
-        "已发起工具调用，正在等待工具返回",
-    )
-    return not any(normalized.startswith(prefix) for prefix in generic_prefixes)
 
 
 def _native_tools_for_packet(allowed_action_types: tuple[str, ...], *, available_tools: tuple[dict[str, Any], ...] = ()) -> list[dict[str, Any]]:
@@ -4303,13 +4197,15 @@ def _segment_model_message_index(segment: dict[str, Any]) -> int:
 async def _commit_final_message(
     commit_assistant_message: CommitAssistantMessage,
     *,
+    runtime_host: Any | None = None,
+    turn_run: TurnRun | None = None,
     session_id: str,
     turn_id: str,
     content: str,
     answer_channel: str,
     answer_source: str,
     api_protocol_messages: list[dict[str, Any]] | None = None,
-) -> CanonicalFinalTextDecision:
+) -> FinalMessageCommit:
     sanitized_protocol_messages = _sanitize_model_messages(
         [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
         turn_id=turn_id,
@@ -4322,17 +4218,236 @@ async def _commit_final_message(
         execution_posture="single_agent_turn",
         has_tool_receipt=any(str(item.get("role") or "") == "tool" for item in sanitized_protocol_messages),
     )
-    await commit_assistant_message(
-        session_id,
-        {
-            "role": "assistant",
-            "content": decision.content,
-            "turn_id": turn_id,
-            **decision.to_payload(),
-            "api_protocol_messages": sanitized_protocol_messages,
-        },
+    commit_gate = build_assistant_session_message_commit_decision(
+        session_id=session_id,
+        task_run_id="",
+        task_id="",
+        turn_id=turn_id,
+        content=decision.content,
+        answer_channel=decision.answer_channel,
+        answer_source=decision.answer_source,
+        answer_canonical_state=decision.canonical_state,
+        answer_persist_policy=decision.persist_policy,
+        answer_finalization_policy=decision.finalization_policy,
+        answer_fallback_reason=decision.fallback_reason,
+        answer_selected_channel=decision.selected_channel,
+        answer_selected_source=decision.selected_source,
+        answer_leak_flags=decision.leak_flags,
+        source="harness.loop.single_agent_turn",
     )
-    return decision
+    commit_gate_payload = commit_gate.to_dict()
+    checked_event: dict[str, Any] = {}
+    checked_offset = -1
+    if runtime_host is not None and turn_run is not None:
+        checked = runtime_host.event_log.append(
+            turn_run.turn_run_id,
+            "session_output_commit_checked",
+            payload={
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "turn_run_id": turn_run.turn_run_id,
+                "commit_allowed": bool(commit_gate.commit_allowed),
+                "reason": str(commit_gate.reason or ""),
+                "answer_channel": decision.answer_channel,
+                "answer_source": decision.answer_source,
+                "answer_canonical_state": decision.canonical_state,
+                "answer_persist_policy": decision.persist_policy,
+                "answer_finalization_policy": decision.finalization_policy,
+                "content_sha256": _text_sha256(decision.content),
+                "commit_gate": commit_gate_payload,
+                "authority": "harness.session_output_commit",
+            },
+            refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
+        )
+        checked_event = _stream_event_from_runtime_event("session_output_commit_checked", checked)
+        checked_offset = _event_offset(checked)
+        _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=checked)
+
+    if not commit_gate.commit_allowed:
+        receipt = _record_single_turn_session_output_commit_terminal(
+            runtime_host,
+            turn_run=turn_run,
+            event_type="session_output_commit_skipped",
+            status="skipped",
+            session_id=session_id,
+            turn_id=turn_id,
+            content=decision.content,
+            commit_allowed=False,
+            reason=str(commit_gate.reason or "commit_gate_blocked"),
+            commit_gate=commit_gate_payload,
+            checked_event_offset=checked_offset,
+        )
+        return FinalMessageCommit(
+            decision=decision,
+            events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
+            receipt=receipt,
+        )
+
+    commit_payload = dict(commit_gate.commit_candidate.payload)
+    commit_payload["api_protocol_messages"] = sanitized_protocol_messages
+    try:
+        maybe_result = commit_assistant_message(session_id, commit_payload)
+        committer_result = await maybe_result if inspect.isawaitable(maybe_result) else maybe_result
+    except Exception as exc:
+        logger.exception("single agent final message commit failed")
+        receipt = _record_single_turn_session_output_commit_terminal(
+            runtime_host,
+            turn_run=turn_run,
+            event_type="session_output_commit_failed",
+            status="failed",
+            session_id=session_id,
+            turn_id=turn_id,
+            content=decision.content,
+            commit_allowed=True,
+            reason=str(exc) or "assistant_message_commit_failed",
+            commit_gate=commit_gate_payload,
+            checked_event_offset=checked_offset,
+        )
+        return FinalMessageCommit(
+            decision=decision,
+            events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
+            receipt=receipt,
+        )
+
+    receipt = _record_single_turn_session_output_commit_terminal(
+        runtime_host,
+        turn_run=turn_run,
+        event_type="session_output_commit_ack",
+        status="committed",
+        session_id=session_id,
+        turn_id=turn_id,
+        content=decision.content,
+        commit_allowed=True,
+        reason="committed",
+        commit_gate=commit_gate_payload,
+        checked_event_offset=checked_offset,
+        committer_result=committer_result,
+    )
+    return FinalMessageCommit(
+        decision=decision,
+        events=tuple(item for item in (checked_event, _commit_receipt_stream_event(receipt)) if item),
+        receipt=receipt,
+    )
+
+
+def _record_single_turn_session_output_commit_terminal(
+    runtime_host: Any | None,
+    *,
+    turn_run: TurnRun | None,
+    event_type: str,
+    status: str,
+    session_id: str,
+    turn_id: str,
+    content: str,
+    commit_allowed: bool,
+    reason: str,
+    commit_gate: dict[str, Any],
+    checked_event_offset: int = -1,
+    committer_result: Any = None,
+) -> dict[str, Any]:
+    normalized_status = str(status or "").strip() or "failed"
+    normalized_reason = str(reason or normalized_status).strip()
+    turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "")
+    payload = {
+        "session_id": str(session_id or ""),
+        "turn_id": str(turn_id or ""),
+        "turn_run_id": turn_run_id,
+        "state": normalized_status,
+        "status": normalized_status,
+        "commit_allowed": bool(commit_allowed),
+        "reason": normalized_reason,
+        "content_sha256": _text_sha256(content),
+        "anchor_message_id": _assistant_anchor_message_id(turn_id=turn_id, committer_result=committer_result),
+        "checked_event_offset": checked_event_offset,
+        "committer_result": _public_committer_result(committer_result),
+        "commit_gate": dict(commit_gate or {}),
+        "authority": "harness.session_output_commit",
+    }
+    event_payload = {
+        **payload,
+        "event_type": event_type,
+    }
+    if runtime_host is None or turn_run is None:
+        return event_payload
+    event = runtime_host.event_log.append(
+        turn_run.turn_run_id,
+        event_type,
+        payload=payload,
+        refs={"turn_ref": turn_id, "turn_run_ref": turn_run.turn_run_id},
+    )
+    _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
+    return {
+        **event_payload,
+        "event_id": str(getattr(event, "event_id", "") or ""),
+        "event_offset": _event_offset(event),
+        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+        "event": event.to_dict() if hasattr(event, "to_dict") else {},
+    }
+
+
+def _commit_receipt_stream_event(receipt: dict[str, Any] | None) -> dict[str, Any]:
+    data = dict(receipt or {})
+    event_type = str(data.get("event_type") or "").strip()
+    if not event_type:
+        return {}
+    event = data.get("event")
+    if isinstance(event, dict) and event:
+        return {"type": event_type, "event": dict(event)}
+    payload = {key: value for key, value in data.items() if key not in {"event_type", "event"}}
+    return {"type": event_type, **payload}
+
+
+def _stream_event_from_runtime_event(event_type: str, event: Any) -> dict[str, Any]:
+    payload = event.to_dict() if hasattr(event, "to_dict") else {}
+    return {"type": event_type, "event": payload} if payload else {}
+
+
+def _update_turn_run_event_offset(runtime_host: Any, *, turn_run: TurnRun, event: Any) -> None:
+    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    runtime_host.state_index.upsert_turn_run(
+        replace(
+            current,
+            updated_at=float(getattr(event, "created_at", 0.0) or getattr(current, "updated_at", 0.0) or 0.0),
+            latest_event_offset=_event_offset(event),
+        )
+    )
+
+
+def _assistant_anchor_message_id(*, turn_id: str, committer_result: Any = None) -> str:
+    result = dict(committer_result or {}) if isinstance(committer_result, dict) else {}
+    appended = list(result.get("appended_messages") or [])
+    for item in reversed(appended):
+        if not isinstance(item, dict):
+            continue
+        explicit = str(item.get("id") or item.get("message_id") or "").strip()
+        if explicit:
+            return explicit
+    return f"history-message:{turn_id}:assistant" if str(turn_id or "").strip() else ""
+
+
+def _public_committer_result(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    return {
+        key: payload.get(key)
+        for key in ("file_work_context_writeback", "memory_maintenance_enqueued", "memory_commit_state")
+        if key in payload
+    }
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _event_offset(event: Any) -> int:
+    if isinstance(event, dict):
+        try:
+            return int(event.get("offset", -1))
+        except (TypeError, ValueError):
+            return -1
+    try:
+        return int(getattr(event, "offset", -1))
+    except (TypeError, ValueError):
+        return -1
 
 
 def _active_work_payload(active_work_context: Any | None) -> dict[str, Any]:
@@ -4537,6 +4652,68 @@ def _record_turn_tool_batch_event(
         )
     )
     return event.to_dict()
+
+
+def _tool_item_started_events_for_group(
+    runtime_host: Any | None,
+    *,
+    turn_run: TurnRun | None,
+    turn_id: str,
+    group: ToolBatchGroup,
+    invocation_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if runtime_host is None or turn_run is None:
+        return []
+    events: list[dict[str, Any]] = []
+    for raw_index in tuple(group.item_indexes or ()):
+        try:
+            row_index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if row_index < 0 or row_index >= len(invocation_rows):
+            continue
+        row = invocation_rows[row_index]
+        admission = row.get("admission")
+        if str(getattr(admission, "decision", "") or "").strip() != "allow":
+            continue
+        action_request = row.get("action_request")
+        if action_request is None:
+            continue
+        tool_call = dict(row.get("tool_call") or _tool_call_from_action_request(action_request))
+        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        tool_call_id = str(tool_call.get("id") or getattr(action_request, "request_id", "") or "").strip()
+        if not tool_name or not tool_call_id:
+            continue
+        permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{tool_call_id}").strip()
+        tool_lifecycle_id = build_tool_invocation_id(
+            caller_ref=turn_run.turn_run_id,
+            action_request_ref=str(getattr(action_request, "request_id", "") or tool_call_id),
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        event = runtime_host.event_log.append(
+            turn_run.turn_run_id,
+            "tool_item_started",
+            payload={
+                "turn_id": turn_id,
+                "turn_run_id": turn_run.turn_run_id,
+                "tool_lifecycle_id": tool_lifecycle_id,
+                "tool_call_id": tool_call_id,
+                "permission_decision_id": permission_decision_id,
+                "tool_name": tool_name,
+                "state": "running",
+                "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
+            },
+            refs={
+                "turn_ref": turn_id,
+                "turn_run_ref": turn_run.turn_run_id,
+                "action_request_ref": str(getattr(action_request, "request_id", "") or ""),
+                "tool_invocation_ref": tool_lifecycle_id,
+            },
+        )
+        _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
+        events.append({"type": "tool_item_started", "event": event.to_dict()})
+    return events
 
 
 def _record_turn_terminal(

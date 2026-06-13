@@ -10,6 +10,14 @@ ASSISTANT_TEXT_DELTA_EVENT = "assistant_text_delta"
 ASSISTANT_TEXT_FINAL_EVENT = "assistant_text_final"
 ASSISTANT_STREAM_REPAIR_EVENT = "assistant_stream_repair"
 
+_BODY_BLOCKED_ANSWER_CHANNELS = {
+    "active_work_control",
+    "opening_judgment",
+    "orchestration_fail_closed",
+    "runtime_control",
+    "task_control",
+}
+
 
 def utf8_byte_length(value: str) -> int:
     return len(str(value or "").encode("utf-8"))
@@ -155,6 +163,12 @@ def assistant_final_stream_events(
     extra: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     text = str(content or "")
+    if not allows_assistant_body_projection(
+        answer_channel=answer_channel,
+        answer_canonical_state=answer_canonical_state,
+        answer_persist_policy=answer_persist_policy,
+    ):
+        return []
     resolved_stream_ref = str(stream_ref or getattr(normalizer, "stream_ref", "") or "")
     resolved_message_ref = str(
         message_ref
@@ -204,3 +218,21 @@ def assistant_final_stream_events(
         )
     )
     return events
+
+
+def allows_assistant_body_projection(
+    *,
+    answer_channel: str,
+    answer_canonical_state: str,
+    answer_persist_policy: str,
+) -> bool:
+    channel = str(answer_channel or "").strip()
+    canonical_state = str(answer_canonical_state or "").strip()
+    persist_policy = str(answer_persist_policy or "").strip()
+    if channel in _BODY_BLOCKED_ANSWER_CHANNELS:
+        return False
+    if persist_policy in {"persist_debug_only", "do_not_persist"}:
+        return False
+    if canonical_state in {"progress_only", "missing_answer"}:
+        return False
+    return True

@@ -238,23 +238,37 @@ def build_assistant_session_message_commit_decision(
     normalized_state = str(answer_canonical_state or "").strip()
     normalized_persist_policy = str(answer_persist_policy or "").strip()
     normalized_terminal_reason = str(terminal_reason or "").strip()
+    control_only_channel = normalized_channel in {
+        "active_work_control",
+        "opening_judgment",
+        "orchestration_fail_closed",
+        "runtime_control",
+        "task_control",
+    }
+    debug_only_output = normalized_persist_policy == "persist_debug_only" or normalized_state == "progress_only"
     replacement_stop = normalized_terminal_reason == "user_aborted" and source == "harness.loop.task_executor.replacement_stop"
     is_missing_fallback = (
         normalized_channel == "fallback_answer"
         or normalized_state == "missing_answer"
         or normalized_persist_policy == "do_not_persist"
     )
-    is_visible_progress = (
-        normalized_channel == "answer_candidate"
-        and normalized_state == "progress_only"
-        and normalized_persist_policy == "persist_debug_only"
+    allowed = (
+        bool(normalized)
+        and bool(normalized_turn_id)
+        and not is_missing_fallback
+        and not debug_only_output
+        and not control_only_channel
+        and not replacement_stop
     )
-    allowed = bool(normalized) and bool(normalized_turn_id) and (not is_missing_fallback or is_visible_progress) and not replacement_stop
     reason = "assistant_session_message_allowed"
     if not normalized:
         reason = "empty_assistant_message_blocked"
     elif not normalized_turn_id:
         reason = "assistant_session_message_missing_turn_id"
+    elif control_only_channel:
+        reason = "control_channel_not_committable"
+    elif debug_only_output:
+        reason = "debug_only_output_not_committable"
     elif is_missing_fallback:
         reason = "missing_answer_not_committable"
     elif replacement_stop:

@@ -9,9 +9,7 @@ import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
 import type { MessagePublicProjection, PublicChatTimelineItem, PublicProjectionItem, RetrievalResult, ToolCall } from "@/lib/api";
-import { cleanPublicTimelineText } from "@/lib/projection/timeline";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
-import type { RuntimeProgressEntry } from "@/lib/store/types";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
 export function ChatMessage({
@@ -38,8 +36,6 @@ export function ChatMessage({
     alt?: string;
     caption?: string;
   } | null;
-  stageStatus?: string;
-  runtimeProgress?: RuntimeProgressEntry[];
   publicProjection?: MessagePublicProjection;
   answerChannel?: string;
   answerCanonicalState?: string;
@@ -77,9 +73,7 @@ export function ChatMessage({
   const publicTimelineItems = isUser
     ? []
     : publicTimelineItemsFromProjection(publicProjection);
-  const terminalState = publicProjection?.commitState === "committed" ? "done" : "";
-  const compactCompletedTools = Boolean(messageDisplayContent.trim()) || Boolean(terminalState);
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems, { compactCompletedTools });
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -241,7 +235,6 @@ export function ChatMessage({
       ) : null}
       {!isUser && hasPublicTimelineActivity ? (
         <PublicTimelineActivity
-          compactCompletedTools={compactCompletedTools}
           items={publicTimelineItems}
         />
       ) : null}
@@ -299,6 +292,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     tool_name: item.toolName,
     action_kind: item.actionKind,
     subject_label: item.subjectLabel,
+    collapsed: item.collapsed,
     trace_refs: item.traceRefs,
     artifacts: item.artifactRefs,
     event_offset: item.eventOffset,
@@ -307,8 +301,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     tool_window: isTool ? {
       tool_label: item.toolName,
       target: item.subjectLabel,
-      status: item.state === "running" ? "运行中" : item.state === "waiting" ? "等待中" : item.state === "failed" ? "失败" : "已记录",
-      sections: item.detail ? [{ label: "说明", text: item.detail }] : [],
+      sections: [],
     } : undefined,
   };
 }
@@ -318,8 +311,8 @@ function assistantDisplayContent(
   metadata: Parameters<typeof shouldDisplayAssistantContent>[0],
 ) {
   const normalized = String(content || "").trim();
-  const answerChannel = cleanPublicTimelineText(metadata.answerChannel).toLowerCase();
-  const answerSource = cleanPublicTimelineText(metadata.answerSource).toLowerCase();
+  const answerChannel = cleanText(metadata.answerChannel).toLowerCase();
+  const answerSource = cleanText(metadata.answerSource).toLowerCase();
   if (answerChannel === "blocked" && answerSource === "harness.single_agent_turn.tool_loop") {
     return "";
   }
@@ -330,4 +323,8 @@ function assistantDisplayContent(
     return "";
   }
   return content;
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
 }

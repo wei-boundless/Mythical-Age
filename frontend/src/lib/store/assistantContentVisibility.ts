@@ -17,6 +17,7 @@ const NON_PUBLIC_POLICIES = new Set(["do_not_persist", "persist_debug_only"]);
 const CONTROL_CHANNELS = new Set([
   "active_work_control",
   "fallback_answer",
+  "opening_judgment",
   "orchestration_fail_closed",
   "runtime_control",
   "task_control",

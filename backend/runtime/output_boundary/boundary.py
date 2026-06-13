@@ -378,6 +378,7 @@ class CanonicalFinalTextDecision:
 
 _DEBUG_ONLY_FINAL_TEXT_CHANNELS = {
     "active_work_control",
+    "opening_judgment",
     "task_control",
     "orchestration_fail_closed",
     "runtime_control",

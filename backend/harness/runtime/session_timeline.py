@@ -2,55 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.runtime.public_progress import public_runtime_progress_summary
 
-
-_SUPPRESSED_PROGRESS_TEXT = {
-    "",
-    "开始处理",
-    "处理完成",
-    "处理已完成",
-    "处理结束",
-    "正在处理",
-    "正在处理当前请求",
-    "正在处理任务",
-    "正在思考",
-    "正在思考。",
-    "等待模型输出",
-    "等待模型输出。",
-    "已开始处理",
-    "已开始处理。",
-    "已开始处理当前请求",
-    "已开始处理当前请求。",
-    "已同步最新进展。",
-    "已接上当前工作，正在同步最新进展。",
-    "已开始继续处理；接下来会持续汇报正在推进的步骤。",
-    "已把任务目标转成可跟踪的待办清单。",
-    "已把任务目标转成可跟踪的处理清单。",
-    "处理清单已建立",
-    "处理清单已更新。",
-    "工具调用已完成，正在根据结果继续。",
-    "工具返回成功，正在根据结果继续。",
-    "工具返回了结构化结果，正在根据结果继续。",
-    "正在判断下一步动作。",
-    "等待结果返回",
-    "结果已返回",
-    "上下文已返回",
-    "读取未完成，需要重新确认读取范围后继续。",
-    "waiting_for_tool",
-    "tool_returned",
-    "ready_to_finish",
-    "responding",
-    "verifying",
-    "completed",
-    "done",
-    "running",
-    "working",
-    "success",
-}
-_STRUCTURED_PLAN_TOOL_NAMES = {
-    "agent_todo",
-}
 def build_session_runtime_timeline(
     *,
     session_id: str,
@@ -101,13 +53,10 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
     session_output_commit = _session_output_commit_state(events, diagnostics=diagnostics, task_run=task_run)
-    monitor = runtime_host.monitor_projector.project_task_run(task_run, now=_latest_now(events, task_run))
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
     anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
-    closeout_summary = _attachment_closeout_summary(task_run=task_run, diagnostics=diagnostics, monitor=monitor)
-    visible_summary = closeout_summary or _visible_progress_summary(monitor.get("summary")) or ""
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -117,12 +66,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
-        "terminal_reason": _visible_progress_summary(getattr(task_run, "terminal_reason", "") or ""),
-        "lifecycle": str(monitor.get("lifecycle") or ""),
-        "bucket": str(monitor.get("bucket") or ""),
-        "title": str(monitor.get("title") or ""),
-        "summary": visible_summary,
-        "latest_event_type": str(monitor.get("latest_event_type") or ""),
+        "latest_event_type": _latest_event_type(events),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         **({"session_output_commit": session_output_commit} if session_output_commit else {}),
         "artifact_refs": artifact_refs,
@@ -143,9 +87,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     status = str(getattr(turn_run, "status", "") or "")
-    terminal_reason = str(getattr(turn_run, "terminal_reason", "") or "")
-    latest_event = events[-1] if events else {}
-    latest_event_type = str(latest_event.get("event_type") or "")
     return {
         "attachment_id": f"runtime-attachment:{turn_run_id}",
         "run_id": turn_run_id,
@@ -156,12 +97,7 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "task_run_id": "",
         "task_id": "",
         "status": status,
-        "terminal_reason": "" if _is_internal_turn_terminal_reason(terminal_reason) else public_runtime_progress_summary(terminal_reason),
-        "lifecycle": status,
-        "bucket": "turn",
-        "title": "会话运行",
-        "summary": "" if _is_internal_turn_terminal_reason(terminal_reason) else public_runtime_progress_summary(terminal_reason),
-        "latest_event_type": latest_event_type,
+        "latest_event_type": _latest_event_type(events),
         "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
         "artifact_refs": [],
         "trace_available": True,
@@ -170,45 +106,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
         "authority": "session_runtime_timeline.turn_attachment",
     }
-
-
-def _is_internal_turn_terminal_reason(reason: str) -> bool:
-    normalized = str(reason or "").strip().lower()
-    return normalized in {
-        "active_work_control",
-        "ask_user",
-        "assistant_message",
-        "block",
-        "stream_cancelled",
-        "turn_stream_closed",
-        "harness.entrypoint_error",
-    }
-
-
-def _attachment_closeout_summary(*, task_run: Any, diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
-    status = str(getattr(task_run, "status", "") or monitor.get("status") or "").strip().lower()
-    if status not in {"completed", "failed", "stopped", "aborted", "cancelled", "canceled"}:
-        return ""
-    for value in (
-        diagnostics.get("closeout_summary"),
-        diagnostics.get("final_answer"),
-        monitor.get("closeout_summary"),
-        monitor.get("final_answer"),
-    ):
-        visible = _visible_progress_summary(value)
-        if visible:
-            return visible
-    if status == "completed":
-        return "结果收口"
-    for value in (
-        getattr(task_run, "terminal_reason", ""),
-        monitor.get("diagnostic_summary"),
-        monitor.get("summary"),
-    ):
-        visible = _visible_progress_summary(value)
-        if visible:
-            return visible
-    return ""
 
 
 def _dict_record(value: Any) -> dict[str, Any]:
@@ -335,6 +232,11 @@ def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:
     return max(event_time, float(getattr(task_run, "updated_at", 0.0) or 0.0))
 
 
+def _latest_event_type(events: list[dict[str, Any]]) -> str:
+    latest_event = events[-1] if events else {}
+    return str(latest_event.get("event_type") or "")
+
+
 def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: list[dict[str, Any]]) -> str:
     return (
         _latest_interaction_turn_id(events)
@@ -435,23 +337,3 @@ def _turn_id_from_turn_run_id(turn_run_id: str) -> str:
     if candidate.startswith(prefix):
         candidate = candidate[len(prefix) :]
     return candidate if candidate.startswith("turn:") else ""
-
-
-def _looks_like_raw_json(value: str) -> bool:
-    text = str(value or "").strip()
-    if not text:
-        return False
-    return (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")
-    )
-
-
-def _visible_progress_summary(value: Any) -> str:
-    text = public_runtime_progress_summary(value).strip()
-    if not text:
-        return ""
-    compact = "".join(text.split()).strip("。.!！?？,，;；:：").lower()
-    suppressed = {
-        "".join(item.split()).strip("。.!！?？,，;；:：").lower()
-        for item in _SUPPRESSED_PROGRESS_TEXT
-    }
-    return "" if compact in suppressed else text

@@ -50,7 +50,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
     if (payload.action === "stop_task") {
       const approved = await confirm({
         title: "停止运行",
-        body: "停止会让任务在运行边界收口，已产生的记录仍会保留。",
+        body: "停止会让任务在运行边界结束，已产生的记录仍会保留。",
         confirmLabel: "停止",
         tone: "warning",
       });

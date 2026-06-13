@@ -463,13 +463,6 @@ class ModelResponseRuntimeExecutor:
             output_response=output_response,
         )
         yield {
-            "type": "answer_candidate",
-            "content": content,
-            "source": "runtime_directive:model_response",
-            "directive_ref": directive.directive_id,
-            **partial_timeout_metadata,
-        }
-        yield {
             "type": "output_boundary",
             "output": {
                 "visible_text": output_response.visible_text,

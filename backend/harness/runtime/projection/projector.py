@@ -21,6 +21,125 @@ from runtime.output_stream.public_contract import (
 )
 
 
+class ProjectionLifecycleState:
+    def __init__(self) -> None:
+        self._tools: dict[str, dict[str, Any]] = {}
+
+    def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
+        event_type = text(public_event_type)
+        offset = _event_offset(data, sequence=sequence)
+        if event_type == TOOL_CALL_REQUESTED_EVENT:
+            spec = _tool_call_requested_spec(data)
+            tool_call_id = text(spec.get("tool_call_id"))
+            if not tool_call_id:
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_call_requested_without_tool_call_id",
+                    detail="tool_call_requested 缺少 tool_call_id，不能进入公开工具生命周期。",
+                )
+            tool_key = _tool_lifecycle_key(data, tool_call_id=tool_call_id)
+            self._tools[tool_key] = {
+                **dict(self._tools.get(tool_key) or {}),
+                "tool_call_id": tool_call_id,
+                "scope": _tool_lifecycle_scope(data),
+                "requested_offset": offset,
+                "item_id": text(spec.get("item_id")) or tool_call_id,
+            }
+            return spec
+        if event_type == TOOL_PERMISSION_DECIDED_EVENT:
+            tool_call_id = text(data.get("tool_call_id"))
+            record = self._tool_record(data, tool_call_id=tool_call_id)
+            if not tool_call_id or not record:
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_permission_without_model_request",
+                    detail="tool_permission_decided 没有绑定已存在的 ToolCallRequest，不能进入公开工具生命周期。",
+                )
+            if offset <= int(record.get("requested_offset") or -1):
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_permission_before_model_request",
+                    detail="tool_permission_decided 的 event_offset 不晚于 tool_call_requested，不能进入公开工具生命周期。",
+                )
+            spec = _tool_permission_decided_spec(data)
+            decision = text(data.get("permission_decision") or data.get("decision")).lower()
+            if decision in {"allow", "allowed", "auto_allow"}:
+                record.update(
+                    {
+                        "permission_offset": offset,
+                        "permission_decision_id": text(data.get("permission_decision_id")) or text(spec.get("permission_decision_id")),
+                        "permission_allowed": True,
+                    }
+                )
+            return spec
+        if event_type == TOOL_ITEM_STARTED_EVENT:
+            tool_call_id = text(data.get("tool_call_id"))
+            permission_decision_id = text(data.get("permission_decision_id"))
+            record = self._tool_record(data, tool_call_id=tool_call_id)
+            if (
+                not tool_call_id
+                or not permission_decision_id
+                or not record
+                or record.get("permission_allowed") is not True
+                or permission_decision_id != text(record.get("permission_decision_id"))
+            ):
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_started_without_allowed_permission",
+                    detail="tool_item_started 没有绑定已允许的 PermissionDecision，不能进入公开工具生命周期。",
+                )
+            permission_offset = int(record.get("permission_offset") or -1)
+            if offset <= permission_offset:
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_started_before_permission",
+                    detail="tool_item_started 的 event_offset 不晚于 tool_permission_decided，不能进入公开工具生命周期。",
+                )
+            spec = _tool_started_spec(data)
+            record.update({"started_offset": offset, "started": True})
+            return spec
+        if event_type == TOOL_ITEM_COMPLETED_EVENT:
+            tool_call_id = text(data.get("tool_call_id"))
+            permission_decision_id = text(data.get("permission_decision_id"))
+            record = self._tool_record(data, tool_call_id=tool_call_id)
+            if (
+                not tool_call_id
+                or not permission_decision_id
+                or not record
+                or record.get("started") is not True
+                or permission_decision_id != text(record.get("permission_decision_id"))
+            ):
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_completed_without_started_lifecycle",
+                    detail="tool_item_completed 没有绑定已开始的 ToolExecution，不能进入公开工具生命周期。",
+                )
+            started_offset = int(record.get("started_offset") or -1)
+            if offset <= started_offset:
+                return _protocol_diagnostic_spec(
+                    data,
+                    code="tool_completed_before_started",
+                    detail="tool_item_completed 的 event_offset 不晚于 tool_item_started，不能进入公开工具生命周期。",
+                )
+            spec = _tool_completed_spec(data)
+            record.update({"completed_offset": offset, "completed": True})
+            return spec
+        return projection_spec_for_event(public_event_type, data)
+
+    def _tool_record(self, data: dict[str, Any], *, tool_call_id: str) -> dict[str, Any] | None:
+        if not tool_call_id:
+            return None
+        exact = self._tools.get(_tool_lifecycle_key(data, tool_call_id=tool_call_id))
+        if exact:
+            return exact
+        matches = [
+            record
+            for record in self._tools.values()
+            if text(record.get("tool_call_id")) == tool_call_id
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+
 def project_public_projection_event(
     public_event_type: str,
     data: dict[str, Any],
@@ -28,12 +147,17 @@ def project_public_projection_event(
     session_id: str = "",
     sequence: int = 0,
     public_anchor: dict[str, Any] | None = None,
+    lifecycle_state: ProjectionLifecycleState | None = None,
 ) -> dict[str, Any]:
     payload = dict(data or {})
     payload.setdefault("sequence", int(sequence or payload.get("sequence") or 0))
     if public_anchor:
         payload["public_anchor"] = dict(public_anchor)
-    spec = projection_spec_for_event(public_event_type, payload)
+    spec = (
+        lifecycle_state.spec_for_event(public_event_type, payload, sequence=sequence)
+        if lifecycle_state is not None
+        else projection_spec_for_event(public_event_type, payload)
+    )
     frame = build_public_projection_frame(
         public_event_type,
         payload,
@@ -52,6 +176,7 @@ def attach_public_projection_event(
     session_id: str = "",
     sequence: int = 0,
     public_anchor: dict[str, Any] | None = None,
+    lifecycle_state: ProjectionLifecycleState | None = None,
 ) -> None:
     projection = project_public_projection_event(
         public_event_type,
@@ -59,6 +184,7 @@ def attach_public_projection_event(
         session_id=session_id,
         sequence=sequence,
         public_anchor=public_anchor,
+        lifecycle_state=lifecycle_state,
     )
     data["public_projection_frame"] = projection["public_projection_frame"]
     data.pop("public_projection_envelope", None)
@@ -95,7 +221,7 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
     if event_type == "runtime_status":
         return _status_spec(data)
     if event_type == "active_task_steer_accepted":
-        return _status_spec(data, title="已收到补充要求")
+        return _hidden_trace_spec(event_type, data)
     if event_type in {"error", "stopped"}:
         return _terminal_status_spec(event_type, data)
     return _hidden_trace_spec(event_type, data)
@@ -163,7 +289,7 @@ def _tool_permission_decided_spec(data: dict[str, Any]) -> dict[str, Any]:
     decision = text(data.get("permission_decision") or data.get("decision")).lower()
     tool_call_id = text(data.get("tool_call_id"))
     permission_decision_id = text(data.get("permission_decision_id"))
-    if decision in {"allow", "allowed"}:
+    if decision in {"allow", "allowed", "auto_allow"}:
         slot = "trace"
         main_visibility = "trace_only"
         retention = "trace"
@@ -222,8 +348,6 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
-        "title": "工具开始执行",
-        "text": "工具开始执行",
         "state": "running",
         "trace_refs": _trace_refs(data),
     }
@@ -255,8 +379,8 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
             "permission_decision_id": permission_decision_id,
             "tool_name": tool_name,
             "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
-            "title": "工具执行失败",
-            "text": "工具执行失败",
+            "title": public_text(data.get("title") or data.get("summary"), limit=120),
+            "text": public_text(data.get("title") or data.get("summary"), limit=120),
             "detail": detail,
             "state": "failed",
             "trace_refs": _trace_refs(data),
@@ -272,11 +396,10 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
-        "title": "工具已完成",
-        "text": "工具已完成",
         "detail": detail,
         "state": "done",
         "trace_refs": _trace_refs(data),
+        "collapsed": True,
     }
 
 
@@ -367,7 +490,7 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
         "source_authority": "runtime",
         "main_visibility": "visible_live" if visible_title or visible_detail else "hidden",
         "retention": "transient",
-        "item_id": stable_id("status", data.get("runtime_event_id"), visible_title, visible_detail),
+        "item_id": text(data.get("item_id")) or stable_id("status", data.get("runtime_event_id"), visible_title, visible_detail),
         "title": visible_title,
         "text": visible_title,
         "detail": visible_detail,
@@ -426,10 +549,12 @@ def _protocol_diagnostic_spec(data: dict[str, Any], *, code: str, detail: str) -
 
 def _tool_request_text(data: dict[str, Any], *, tool_name: str) -> str:
     action_state = record(data.get("public_action_state"))
+    subject = public_text(data.get("target") or data.get("arguments_preview"), limit=180)
     return (
         public_text(action_state.get("next_action"), limit=180)
         or public_text(data.get("public_progress_note"), limit=180)
-        or f"运行工具 {tool_name}"
+        or subject
+        or text(tool_name)
     )
 
 
@@ -451,3 +576,31 @@ def _trace_refs(data: dict[str, Any]) -> list[str]:
         if text(value):
             refs.append(text(value))
     return refs
+
+
+def _event_offset(data: dict[str, Any], *, sequence: int = 0) -> int:
+    for value in (data.get("event_offset"), data.get("offset"), data.get("sequence"), sequence):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _tool_lifecycle_key(data: dict[str, Any], *, tool_call_id: str) -> str:
+    scope = _tool_lifecycle_scope(data)
+    return stable_id("tool-lifecycle", scope, tool_call_id) if scope else text(tool_call_id)
+
+
+def _tool_lifecycle_scope(data: dict[str, Any]) -> str:
+    anchor = record(data.get("public_anchor"))
+    return (
+        text(data.get("turn_run_id"))
+        or text(anchor.get("turn_run_id"))
+        or text(data.get("task_run_id"))
+        or text(data.get("runtime_task_run_id"))
+        or text(anchor.get("task_run_id"))
+        or text(data.get("turn_id"))
+        or text(data.get("active_turn_id"))
+        or text(anchor.get("turn_id"))
+    )

@@ -977,7 +977,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         session_scope: graphTaskScope(selectedInstance.graph_task_instance_id),
         reason: "graph_task_foreground_pause",
       });
-      setNotice("暂停请求已提交，当前节点收口后会停在可续跑状态。");
+      setNotice("暂停请求已提交，当前节点到达运行边界后会停在可续跑状态。");
       await refreshProjectRuntime(selectedInstance.graph_task_instance_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "暂停图任务运行失败");
@@ -1175,7 +1175,7 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
   const nextAction = !selectedInstance
     ? "先选择或创建项目实例。"
     : activeGraphPausePending
-      ? "正在暂停，等待当前节点收口。"
+      ? "正在暂停，等待当前节点到达运行边界。"
     : activeGraphIsPaused
       ? "项目已暂停，可以续跑。"
     : humanActionCount

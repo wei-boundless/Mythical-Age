@@ -1402,7 +1402,11 @@ async def _execute_claimed_task_run(
         runtime_host.event_log.append(
             current_task.task_run_id,
             "model_action_admission_checked",
-            payload={"admission": admission.to_dict()},
+            payload={
+                "task_run_id": current_task.task_run_id,
+                "model_action_request": action_request.to_dict(),
+                "admission": admission.to_dict(),
+            },
             refs={"task_run_ref": current_task.task_run_id, "action_request_ref": action_request.request_id},
         )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -1793,6 +1797,8 @@ async def _process_task_tool_call_batch(
             current_task.task_run_id,
             "model_action_admission_checked",
             payload={
+                "task_run_id": current_task.task_run_id,
+                "model_action_request": child_request.to_dict(),
                 "admission": admission.to_dict(),
                 "batch_action_request_ref": action_request.request_id,
             },
@@ -2919,6 +2925,9 @@ def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_re
         directive_ref=packet_ref,
         tool_name=tool_name,
         tool_args=tool_args,
+        tool_call_id=str(tool_call.get("id") or action_request.request_id),
+        admission_ref=str(getattr(row.get("admission"), "admission_id", "") or f"admission:{action_request.request_id}"),
+        action_request=action_request,
         error=str(error),
     )
 
@@ -3245,6 +3254,51 @@ async def _await_task_model_action_with_status(
         clear_model_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, model_task=task)
 
 
+def _record_task_tool_item_started(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    action_request: AnyModelActionRequest,
+    admission: Any,
+    invocation_id: str,
+    tool_name: str,
+    packet_ref: str,
+) -> Any:
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    tool_call_id = str(tool_call.get("id") or action_request.request_id or "").strip()
+    permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}").strip()
+    event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "tool_item_started",
+        payload={
+            "task_run_id": task_run.task_run_id,
+            "turn_id": str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or getattr(task_run, "task_id", "") or ""),
+            "tool_lifecycle_id": invocation_id,
+            "tool_call_id": tool_call_id,
+            "permission_decision_id": permission_decision_id,
+            "tool_name": tool_name,
+            "state": "running",
+            "action_request_ref": action_request.request_id,
+            "packet_ref": packet_ref,
+        },
+        refs={
+            "task_run_ref": task_run.task_run_id,
+            "action_request_ref": action_request.request_id,
+            "tool_invocation_ref": invocation_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    current = runtime_host.state_index.get_task_run(task_run.task_run_id) or task_run
+    runtime_host.state_index.upsert_task_run(
+        replace(
+            current,
+            updated_at=event.created_at or time.time(),
+            latest_event_offset=event.offset,
+        )
+    )
+    return event
+
+
 async def _execute_task_tool_call(
     runtime_host: Any,
     *,
@@ -3356,6 +3410,15 @@ async def _execute_task_tool_call(
             "backend_dir": str(runtime_host.backend_dir),
         },
     )
+    _record_task_tool_item_started(
+        runtime_host,
+        task_run=task_run,
+        action_request=action_request,
+        admission=admission,
+        invocation_id=invocation_id,
+        tool_name=tool_name,
+        packet_ref=packet_ref,
+    )
     tool_control_plane = getattr(services, "tool_control_plane", None) or getattr(runtime_host, "tool_control_plane", None)
     if tool_control_plane is None:
         return _executor_error_observation(
@@ -3364,6 +3427,9 @@ async def _execute_task_tool_call(
             directive_ref=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
             tool_name=tool_name,
             tool_args=tool_args,
+            tool_call_id=str(action_request.tool_call.get("id") or action_request.request_id),
+            admission_ref=str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}"),
+            action_request=action_request,
             error="runtime_tool_control_plane_unavailable",
         )
     observation_result = await tool_control_plane.invoke(request, tool_plan=runtime_tool_plan)
@@ -7315,7 +7381,23 @@ def _model_protocol_repair_count(observations: list[dict[str, Any]]) -> int:
     return sum(1 for item in observations if str(item.get("source") or "") == "system:model_action_protocol")
 
 
-def _executor_error_observation(*, task_run_id: str, request_ref: str, directive_ref: str, tool_name: str, tool_args: dict[str, Any], error: str) -> dict[str, Any]:
+def _executor_error_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    error: str,
+    tool_call_id: str = "",
+    admission_ref: str = "",
+    action_request: AnyModelActionRequest | None = None,
+) -> dict[str, Any]:
+    normalized_tool_call_id = str(tool_call_id or request_ref or "").strip()
+    normalized_admission_ref = str(admission_ref or (f"admission:{request_ref}" if request_ref else "")).strip()
+    diagnostics: dict[str, Any] = {}
+    if action_request is not None:
+        diagnostics["action_request"] = action_request.to_dict()
     return {
         "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         "task_run_id": task_run_id,
@@ -7323,8 +7405,16 @@ def _executor_error_observation(*, task_run_id: str, request_ref: str, directive
         "source": f"tool:{tool_name}",
         "request_ref": request_ref,
         "directive_ref": directive_ref,
+        "tool_name": tool_name,
+        "tool_call_id": normalized_tool_call_id,
+        "execution_receipt": {
+            "task_run_id": task_run_id,
+            "tool_call_id": normalized_tool_call_id,
+            "admission_ref": normalized_admission_ref,
+        },
         "content_chars": len(error),
         "payload": {"tool_name": tool_name, "tool_args": tool_args, "error": error},
+        "diagnostics": diagnostics,
         "needs_model_followup": False,
         "created_at": time.time(),
         "authority": "orchestration.runtime_observation",

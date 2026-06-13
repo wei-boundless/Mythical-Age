@@ -320,7 +320,7 @@ export class RunMonitorController {
           reason: "run_monitor_continue_graph_run",
         });
       } else if (controlState === "pause_requested" || controlState === "stop_requested") {
-        throw new Error(controlState === "pause_requested" ? "暂停请求正在收口，等状态变为已暂停后再续跑。" : "停止请求正在收口，不能继续派发。");
+        throw new Error(controlState === "pause_requested" ? "暂停请求正在等待运行边界，等状态变为已暂停后再续跑。" : "停止请求正在等待运行边界，不能继续派发。");
       }
       await submitGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,

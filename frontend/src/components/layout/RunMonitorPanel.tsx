@@ -63,7 +63,7 @@ export function RunMonitorPanel() {
     if (action === "stop_task") {
       const approved = await confirm({
         title: "停止当前运行",
-        body: "停止请求会让当前任务在运行边界收口，不会清除已经产生的记录。",
+        body: "停止请求会让当前任务在运行边界结束，不会清除已经产生的记录。",
         confirmLabel: "停止",
         tone: "warning",
       });

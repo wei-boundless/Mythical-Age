@@ -364,7 +364,7 @@ export function TaskGraphPublishRunPage({
     if (!bindCurrentRunForControl()) return;
     setRunControlNotice("正在向 root TaskRun 发送暂停请求。");
     await pauseBoundTaskGraphRun();
-    setRunControlNotice("暂停请求已发送，等待当前步骤收口。");
+    setRunControlNotice("暂停请求已发送，等待当前步骤到达运行边界。");
     if (taskRunId.trim()) {
       await loadRunTrace();
     }
@@ -374,7 +374,7 @@ export function TaskGraphPublishRunPage({
     if (!bindCurrentRunForControl()) return;
     setRunControlNotice("正在向 root TaskRun 发送停止请求。");
     await stopBoundTaskGraphRun();
-    setRunControlNotice("停止请求已发送，等待当前步骤收口。");
+    setRunControlNotice("停止请求已发送，等待当前步骤到达运行边界。");
     if (taskRunId.trim()) {
       await loadRunTrace();
     }

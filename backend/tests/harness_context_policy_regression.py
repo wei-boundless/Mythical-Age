@@ -79,7 +79,7 @@ def test_explicit_capability_boundary_uses_single_agent_turn_without_task_run() 
     assert "runtime_branch_decided" in stream_types
     assert branch_events and branch_events[0].get("branch_kind") == "single_agent_turn"
     assert "single_agent_turn_started" in stream_types
-    assert "assistant_message_committed" in stream_types
+    assert "session_output_commit_ack" in stream_types
     assert "runtime_invocation_packet" not in stream_types
     assert "harness_run_started" in stream_types
     assert "model_action_request" not in stream_types
@@ -245,8 +245,13 @@ def test_single_agent_turn_receives_recent_terminal_task_outcome_from_state_inde
 
     asyncio.run(_collect())
     payload = "\n".join(str(message.get("content") or "") for message in model.last_messages)
+    current_request_message = next(
+        str(message.get("content") or "")
+        for message in reversed(model.last_messages)
+        if str(message.get("content") or "").startswith("Single agent turn current request\n")
+    )
     current_request_payload = _packet_payload_after_title(
-        str(model.last_messages[-1].get("content") or ""),
+        current_request_message,
         "Single agent turn current request",
     )
 

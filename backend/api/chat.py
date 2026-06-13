@@ -12,13 +12,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
-from harness.runtime.projection.projector import attach_public_projection_event
+from harness.runtime.projection.projector import ProjectionLifecycleState, attach_public_projection_event
 from harness.runtime.public_progress import public_runtime_progress_summary
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
     sanitize_visible_assistant_content,
+)
+from runtime.model_gateway.assistant_stream_frame import (
+    allows_assistant_body_projection,
+    assistant_message_ref,
+    assistant_text_final_event,
 )
 from runtime.output_stream.public_contract import (
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -64,11 +69,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "input_commit_gate": {"status", "message_ref"},
     "runtime_branch_decided": {"runtime_branch"},
     "single_agent_turn_started": {"runtime_branch", "allowed_action_types"},
-    "assistant_message_committed": {
-        "answer_channel",
-        "answer_source",
-        "answer_canonical_state",
-    },
     "active_task_steer_accepted": {
         "summary",
         "status",
@@ -509,6 +509,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     registry = host.run_registry
     replay = host.stream_replay
     terminal_event = ""
+    projection_lifecycle = ProjectionLifecycleState()
     current = _safe_mark_run_running(registry, run)
     try:
         start_data = {"status": "running"}
@@ -547,6 +548,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         data,
                         session_id=request.session_id,
                         sequence=next_sequence,
+                        lifecycle_state=projection_lifecycle,
                     )
                 logged = replay.append_public_event(current, public_event_type=public_event_type, data=data)
                 terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
@@ -790,7 +792,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     normalized = str(event_type or "message").strip() or "message"
     if normalized in INTERNAL_STREAM_EVENTS:
         return []
-    if normalized in {"model_action_request", "model_action_admission_checked", "agent_turn_terminal"}:
+    if normalized in {"model_action_request", "agent_turn_terminal"}:
         return []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
@@ -798,7 +800,8 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized in {"done", "error", "stopped"}:
         return [(TURN_COMPLETED_EVENT, _turn_completed_data(normalized, raw_data))]
     if normalized in {"answer_candidate", "assistant_text"}:
-        return []
+        data = _legacy_assistant_text_final_data(normalized, raw_data)
+        return [(ASSISTANT_TEXT_FINAL_EVENT, data)] if data else []
     if normalized == "token":
         content = str(raw_data.get("content") or "")
         if not content:
@@ -813,8 +816,11 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
                 },
             )
         ]
-    if normalized == "model_action_admission":
+    if normalized in {"model_action_admission", "model_action_admission_checked"}:
         return _tool_action_public_events(raw_data)
+    if normalized == TOOL_ITEM_STARTED_EVENT:
+        data = _tool_item_started_data(raw_data)
+        return [(TOOL_ITEM_STARTED_EVENT, data)] if data else []
     if normalized in {"turn_tool_observation_recorded", "task_tool_observation_recorded", "tool_observation"}:
         data = _tool_item_completed_data(raw_data)
         return [(TOOL_ITEM_COMPLETED_EVENT, data)] if data else []
@@ -846,13 +852,73 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
         data = {
             "runtime_branch": _public_runtime_branch(branch),
             "allowed_action_types": list(data.get("allowed_action_types") or []),
+            "turn_id": str(raw_data.get("turn_id") or ""),
+            "turn_run_id": str(raw_data.get("turn_run_id") or ""),
+            "active_turn_id": str(raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
         }
     return [(normalized, data)]
 
 
+def _legacy_assistant_text_final_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    content = sanitize_visible_assistant_content(
+        payload.get("content")
+        or payload.get("text")
+        or payload.get("final_answer")
+        or payload.get("answer_candidate")
+        or ""
+    ).strip()
+    if not content:
+        return {}
+    stream_ref = str(
+        payload.get("stream_ref")
+        or payload.get("request_id")
+        or payload.get("directive_ref")
+        or raw_event.get("event_id")
+        or f"legacy:{source_event_type}"
+    ).strip()
+    turn_id = str(payload.get("turn_id") or refs.get("turn_ref") or "").strip()
+    message_ref = str(payload.get("message_ref") or "").strip() or assistant_message_ref(
+        turn_id=turn_id,
+        stream_ref=stream_ref,
+    )
+    answer_channel = str(payload.get("answer_channel") or payload.get("channel") or "conversation")
+    answer_canonical_state = str(payload.get("answer_canonical_state") or "stable_answer")
+    answer_persist_policy = str(payload.get("answer_persist_policy") or "persist_canonical")
+    if not allows_assistant_body_projection(
+        answer_channel=answer_channel,
+        answer_canonical_state=answer_canonical_state,
+        answer_persist_policy=answer_persist_policy,
+    ):
+        return {}
+    event = assistant_text_final_event(
+        content=content,
+        stream_ref=stream_ref,
+        message_ref=message_ref,
+        turn_run_id=str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        task_run_id=str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        sequence=_int_value(payload.get("sequence"), fallback=1),
+        answer_channel=answer_channel,
+        answer_source=str(payload.get("answer_source") or payload.get("source") or f"legacy:{source_event_type}"),
+        answer_canonical_state=answer_canonical_state,
+        answer_persist_policy=answer_persist_policy,
+        terminal_reason=str(payload.get("terminal_reason") or "completed"),
+    )
+    return _redact_public_stream_data(
+        {
+            key: value
+            for key, value in event.items()
+            if key not in {"type"}
+        }
+    )
+
+
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
     source = str(source_event_type or "").strip().lower()
-    status = "completed"
+    requested_status = str(raw_data.get("status") or "").strip().lower()
+    status = requested_status if requested_status in {"completed", "failed", "stopped"} else "completed"
     if source == "error":
         status = "failed"
     elif source == "stopped":
@@ -896,8 +962,6 @@ def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     if not request:
         return {}
     if str(request.get("action_type") or "").strip().lower() != "tool_call":
-        return {}
-    if _admission_is_blocked(payload):
         return {}
     tool = _record(request.get("tool_call"))
     tool_name = str(tool.get("tool_name") or tool.get("name") or request.get("tool_name") or "").strip()
@@ -949,6 +1013,34 @@ def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dic
         "permission_decision": decision,
         "permission_reason": _safe_public_action_text(admission.get("user_visible_reason")),
         "system_reason": _safe_public_action_text(admission.get("system_reason")),
+    }
+    event_id = str(raw_event.get("event_id") or "").strip()
+    if event_id:
+        data["runtime_event_id"] = event_id
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    tool_call_id = str(payload.get("tool_call_id") or "").strip()
+    permission_decision_id = str(payload.get("permission_decision_id") or "").strip()
+    tool_name = str(payload.get("tool_name") or "").strip()
+    if not tool_call_id or not permission_decision_id or not tool_name:
+        return {}
+    data: dict[str, Any] = {
+        "item_id": str(payload.get("item_id") or payload.get("tool_lifecycle_id") or tool_call_id),
+        "tool_lifecycle_id": str(payload.get("tool_lifecycle_id") or payload.get("item_id") or tool_call_id),
+        "tool_call_id": tool_call_id,
+        "permission_decision_id": permission_decision_id,
+        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "tool_name": tool_name,
+        "title": _safe_public_action_text(payload.get("title")),
+        "target": _safe_public_action_text(payload.get("target")),
+        "arguments_preview": _safe_public_action_text(payload.get("arguments_preview")),
+        "state": str(payload.get("state") or "running"),
     }
     event_id = str(raw_event.get("event_id") or "").strip()
     if event_id:
@@ -1036,8 +1128,8 @@ def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> di
         "turn_id": str(payload.get("turn_id") or refs.get("turn_ref") or raw_data.get("turn_id") or ""),
         "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "message_id": str(payload.get("message_id") or payload.get("message_ref") or refs.get("message_ref") or ""),
-        "message_ref": str(payload.get("message_ref") or refs.get("message_ref") or ""),
+        "message_id": str(payload.get("message_id") or payload.get("anchor_message_id") or payload.get("message_ref") or refs.get("message_ref") or ""),
+        "message_ref": str(payload.get("message_ref") or payload.get("anchor_message_id") or refs.get("message_ref") or ""),
         "content_sha256": str(payload.get("content_sha256") or payload.get("sha256") or ""),
         "commit_event_offset": payload.get("commit_event_offset") or raw_event.get("offset") or raw_data.get("event_offset"),
         "reason": _safe_public_action_text(payload.get("reason")),
@@ -1048,12 +1140,6 @@ def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> di
     if event_id:
         data["runtime_event_id"] = event_id
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _admission_is_blocked(payload: dict[str, Any]) -> bool:
-    admission = _record(payload.get("admission") or payload.get("admission_decision"))
-    decision = str(admission.get("decision") or "").strip().lower()
-    return decision in {"deny", "denied", "invalid", "needs_contract", "needs_task_run", "blocked"}
 
 
 def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1147,6 +1233,13 @@ def _record(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _int_value(value: Any, *, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _safe_public_action_text(value: Any) -> str:
     text = sanitize_visible_assistant_content(str(value or "")).strip()
     if not text:
@@ -1195,12 +1288,14 @@ def _attach_public_projection_frame(
     *,
     session_id: str,
     sequence: int = 0,
+    lifecycle_state: ProjectionLifecycleState | None = None,
 ) -> None:
     attach_public_projection_event(
         public_event_type,
         data,
         session_id=session_id,
         sequence=sequence,
+        lifecycle_state=lifecycle_state,
     )
 
 
@@ -1248,7 +1343,7 @@ def _bound_active_task_refs_for_session(runtime: Any, session_id: str) -> dict[s
         return {}
     task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
     active_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
-    if not task_run_id or not active_turn_id:
+    if not active_turn_id:
         return {}
     return {
         "task_run_id": task_run_id,
@@ -1261,6 +1356,7 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
     task_run_id = ""
     turn_run_id = ""
     active_turn_id = str(event.get("active_turn_id") or "").strip()
+    turn_run_payload = dict(event.get("turn_run") or {}) if isinstance(event.get("turn_run"), dict) else {}
     runtime_event = dict(event.get("event") or {}) if isinstance(event.get("event"), dict) else {}
     runtime_payload = dict(runtime_event.get("payload") or {}) if isinstance(runtime_event.get("payload"), dict) else {}
     runtime_refs = dict(runtime_event.get("refs") or {}) if isinstance(runtime_event.get("refs"), dict) else {}
@@ -1286,6 +1382,8 @@ def _runtime_run_refs_from_event(event: dict[str, Any]) -> dict[str, str]:
         if normalized.startswith("turnrun:"):
             turn_run_id = normalized
             break
+    if not active_turn_id:
+        active_turn_id = str(event.get("turn_id") or turn_run_payload.get("turn_id") or "").strip()
     if not active_turn_id:
         active_turn = event.get("active_turn")
         if isinstance(active_turn, dict):

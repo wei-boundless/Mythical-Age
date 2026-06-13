@@ -6,11 +6,9 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 from runtime.shared.models import AgentRun, TaskRun
-from runtime.output_boundary import canonical_output_decision_for_final_text
-
 from harness.task_contract_normalization import contract_string_tuple
 
-from .presentation import assistant_body_final_event, error_event, turn_completed_event
+from .presentation import error_event, turn_completed_event
 from .model_action_protocol import ModelActionRequest
 
 
@@ -620,14 +618,6 @@ async def start_task_lifecycle_from_action_request(
     )
     if contract is None:
         content = "任务目标或验收边界还不完整，当前不能启动持续处理。"
-        await commit_task_control_message(
-            commit_assistant_message,
-            session_id=session_id,
-            turn_id=turn_id,
-            content=content,
-            answer_source=f"{answer_source}.invalid_contract",
-            api_protocol_prefix_messages=_api_protocol_prefix_from_action_request(action_request),
-        )
         yield error_event(
             content=content,
             code="task_contract_invalid",
@@ -677,32 +667,7 @@ async def start_task_lifecycle_from_contract(
     schedule_task_run_executor: ScheduleTaskRunExecutor,
     editor_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
-    opening_content = task_run_opening_message(
-        action_request=action_request,
-    )
-    if opening_content:
-        await commit_task_opening_message(
-            commit_assistant_message,
-            session_id=session_id,
-            turn_id=turn_id,
-            content=opening_content,
-            answer_source=f"{answer_source}.opening_judgment",
-            api_protocol_prefix_messages=api_protocol_prefix_messages,
-        )
-        opening_event = assistant_body_final_event(
-            content=opening_content,
-            answer_channel="opening_judgment",
-            answer_source=f"{answer_source}.opening_judgment",
-            turn_id=turn_id,
-            stream_ref=f"assistant-body:{turn_id}:task-opening",
-            body_sequence=1,
-            terminal_reason="task_opening",
-            execution_posture="task_opening",
-        )
-        if opening_event:
-            yield opening_event
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
         runtime_host,
         session_id=session_id,
@@ -775,14 +740,6 @@ async def start_task_lifecycle_from_contract(
         )
         yield {"type": "task_run_lifecycle_event", "event": failed_event}
         content = f"任务已经建立，但启动处理时失败：{_public_schedule_failure_reason(reason)}"
-        await commit_task_control_message(
-            commit_assistant_message,
-            session_id=session_id,
-            turn_id=turn_id,
-            content=content,
-            answer_source=f"{answer_source}.schedule_failed",
-            api_protocol_prefix_messages=api_protocol_prefix_messages,
-        )
         yield error_event(
             content=content,
             code="task_executor_schedule_failed",
@@ -831,68 +788,6 @@ def runtime_task_permission_mode(runtime_assembly: Any) -> str:
     return str(payload.get("permission_mode") or "full_access").strip() or "full_access"
 
 
-async def commit_task_control_message(
-    commit_assistant_message: CommitAssistantMessage,
-    *,
-    session_id: str,
-    turn_id: str,
-    content: str,
-    answer_source: str,
-    api_protocol_prefix_messages: list[dict[str, Any]] | None = None,
-) -> None:
-    protocol_messages = [dict(item) for item in list(api_protocol_prefix_messages or []) if isinstance(item, dict)]
-    if protocol_messages:
-        protocol_messages.append({"role": "assistant", "content": content, "turn_id": turn_id})
-    decision = canonical_output_decision_for_final_text(
-        content,
-        answer_channel="task_control",
-        answer_source=answer_source,
-        execution_posture="task_control",
-    )
-    await commit_assistant_message(
-        session_id,
-        {
-            "role": "assistant",
-            "content": decision.content,
-            "turn_id": turn_id,
-            **decision.to_payload(),
-            "api_protocol_messages": protocol_messages,
-        },
-    )
-
-
-async def commit_task_opening_message(
-    commit_assistant_message: CommitAssistantMessage,
-    *,
-    session_id: str,
-    turn_id: str,
-    content: str,
-    answer_source: str,
-    api_protocol_prefix_messages: list[dict[str, Any]] | None = None,
-) -> None:
-    if not str(content or "").strip():
-        return
-    protocol_messages = [dict(item) for item in list(api_protocol_prefix_messages or []) if isinstance(item, dict)]
-    if protocol_messages:
-        protocol_messages.append({"role": "assistant", "content": content, "turn_id": turn_id})
-    decision = canonical_output_decision_for_final_text(
-        content,
-        answer_channel="opening_judgment",
-        answer_source=answer_source,
-        execution_posture="task_opening",
-    )
-    await commit_assistant_message(
-        session_id,
-        {
-            "role": "assistant",
-            "content": decision.content,
-            "turn_id": turn_id,
-            **decision.to_payload(),
-            "api_protocol_messages": protocol_messages,
-        },
-    )
-
-
 def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     return [
@@ -900,30 +795,6 @@ def _api_protocol_prefix_from_action_request(action_request: ModelActionRequest)
         for item in list(diagnostics.get("api_protocol_prefix_messages") or [])
         if isinstance(item, dict)
     ]
-
-
-def task_run_opening_message(*, action_request: ModelActionRequest) -> str:
-    """Return the user-visible assistant prose for a task handoff."""
-
-    action_state = dict(getattr(action_request, "public_action_state", {}) or {})
-    for candidate in (
-        action_state.get("current_judgment"),
-        getattr(action_request, "public_progress_note", ""),
-    ):
-        note = _first_text(candidate)
-        if note and not _is_generic_task_opening(note):
-            return note
-    return ""
-
-
-def _is_generic_task_opening(value: str) -> bool:
-    normalized = " ".join(str(value or "").split()).strip()
-    return normalized in {
-        "正在建立任务运行。",
-        "正在处理当前请求。",
-        "已接收明确任务合同，正在启动任务。",
-    } or normalized.startswith("我会开始处理")
-
 
 def _normalize_task_launch_supervision_policy(policy: dict[str, Any], *, default_enabled: bool) -> dict[str, Any]:
     enabled = bool(policy.get("enabled", default_enabled))
