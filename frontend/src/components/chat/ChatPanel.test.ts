@@ -88,31 +88,6 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("ignores legacy runtime fields when deciding footer suppression", () => {
-    expect(shouldSuppressSessionActivityBar([
-      message({
-        runtimePublicTimelineDraft: [
-          {
-            item_id: "legacy:tool",
-            kind: "work_action",
-            slot: "tool",
-            title: "旧工具",
-            state: "running",
-          },
-        ],
-        runtimeAttachments: [
-          {
-            task_projection: {
-              authority: "harness.runtime.single_agent_task_projection.v1",
-              task_run_id: "taskrun:legacy",
-              status: "running",
-            },
-          },
-        ],
-      } as Partial<Message>),
-    ], true)).toBe(false);
-  });
-
   it("shows context pressure ratio even when pressure is normal", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {

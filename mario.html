@@ -5,968 +5,707 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Super Mario Bros - World 1-1</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #6b8cff; display: block; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+canvas { image-rendering: pixelated; image-rendering: crisp-edges; width: 768px; height: 672px; }
+@media (max-width: 768px) { canvas { width: 100vw; height: auto; } }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <script>
-// ======================== CONFIGURATION ========================
-const TILE_SIZE = 16;
-const WORLD_WIDTH = 211; // columns
-const WORLD_HEIGHT = 13;  // visible rows
-const MAP_DATA_ROWS = WORLD_HEIGHT + 1; // one extra row below for ground thickness
-const GRAVITY = 0.45;
-const JUMP_FORCE = -7.5;
-const MAX_SPEED = 3.5;
-const MOVE_ACC = 0.4;
-const FRICTION = 0.75;
-const ENEMY_SPEED = 1.2;
-const SCALE = 3;
-const LOGICAL_WIDTH = 256;
-const LOGICAL_HEIGHT = 240;
-
-// Canvas setup
+// ─── CANVAS ───
 const canvas = document.getElementById('game');
-canvas.width = LOGICAL_WIDTH;
-canvas.height = LOGICAL_HEIGHT;
-canvas.style.width = LOGICAL_WIDTH * SCALE + 'px';
-canvas.style.height = LOGICAL_HEIGHT * SCALE + 'px';
 const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = false;
+canvas.width = 256;
+canvas.height = 224;
 
-// Audio context
-let audioCtx = null;
-function getAudioCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  return audioCtx;
+// ─── CONSTANTS ───
+const TILE = 16;
+const GRAVITY = 0.6;
+const FRICTION = 0.8;
+const MAX_SPEED = 2.5;
+const JUMP_FORCE = -6.5;
+const MARIO_WIDTH = 16;
+const MARIO_HEIGHT_SMALL = 16;
+const MARIO_HEIGHT_BIG = 32;
+const SCREEN_WIDTH = canvas.width;
+const SCREEN_HEIGHT = canvas.height;
+const LEVEL_LENGTH = 212; // tiles horizontally
+
+// ─── LEVEL MAP (Super Mario Bros 1-1, 16x13 grid truncated to 14 rows, index y=13 is ground top) ───
+// 0=empty, 1=ground (not used in map, ground auto-filled), 2=brick, 3=question, 4=empty (air), 5=pipe-top-left, 6=pipe-top-right,
+// 7=pipe-body-left, 8=pipe-body-right, 9=flagpole, 10=flag, 11=hard-block
+
+// Predefined map data (ground layer generated separately)
+const MAP_COLS = LEVEL_LENGTH;
+const MAP_ROWS = 13; // rows above ground
+let map = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+
+// Helper to set blocks
+function setBlock(col, row, type) {
+  if (col >= 0 && col < MAP_COLS && row >= 0 && row < MAP_ROWS) map[row][col] = type;
 }
 
-// ======================== INPUT ========================
+// Ground tiles (auto from col 0 to LEVEL_LENGTH - 2, then gap from 69-71 is pit, 86-88 pit, 153-155 pit)
+// Hard-coded ground is at y=13 (screen coordinate y=208)
+const GROUND_Y = 13;
+
+// Build map manually per SMB 1-1
+// Row indices: 0 = top, 12 = just above ground
+
+// Brick rows (row 9 = y=144) and ? blocks
+// First section (question blocks)
+setBlock(16, 9, 3);
+setBlock(20, 9, 3);
+setBlock(21, 9, 2);
+setBlock(22, 9, 2);
+setBlock(23, 9, 2);
+setBlock(24, 9, 2);
+setBlock(25, 9, 3);
+
+// Second question
+setBlock(77, 9, 3);
+setBlock(78, 9, 2);
+setBlock(79, 9, 2);
+
+// high bricks at row 5
+setBlock(94, 5, 2);
+setBlock(95, 5, 2);
+setBlock(100, 5, 2);
+setBlock(101, 5, 2);
+
+// more bricks
+for (let i = 106; i <= 110; i++) setBlock(i, 5, 2);
+setBlock(106, 9, 2);
+setBlock(109, 9, 2);
+setBlock(118, 5, 2);
+setBlock(119, 5, 2);
+setBlock(120, 5, 2);
+setBlock(121, 5, 2);
+setBlock(122, 9, 2);
+setBlock(123, 9, 2);
+setBlock(124, 5, 2);
+setBlock(125, 5, 2);
+setBlock(126, 5, 2);
+setBlock(127, 5, 2);
+
+// Question block with mushroom
+setBlock(128, 9, 3);
+setBlock(129, 9, 3);
+
+// More bricks
+setBlock(131, 9, 2);
+setBlock(132, 9, 3);
+setBlock(133, 9, 2);
+setBlock(134, 9, 3);
+setBlock(135, 9, 2);
+
+// Staircase
+setBlock(140, 12, 2);
+setBlock(141, 11, 2); setBlock(141, 12, 2);
+setBlock(142, 10, 2); setBlock(142, 11, 2); setBlock(142, 12, 2);
+setBlock(143, 9, 2); setBlock(143, 10, 2); setBlock(143, 11, 2); setBlock(143, 12, 2);
+setBlock(148, 12, 2);
+setBlock(149, 11, 2); setBlock(149, 12, 2);
+setBlock(150, 10, 2); setBlock(150, 11, 2); setBlock(150, 12, 2);
+setBlock(151, 9, 2); setBlock(151, 10, 2); setBlock(151, 11, 2); setBlock(151, 12, 2);
+
+// More ?
+setBlock(154, 9, 3);
+setBlock(155, 9, 3);
+setBlock(156, 9, 2);
+
+// high bricks
+for (let i = 168; i <= 172; i++) setBlock(i, 5, 2);
+setBlock(168, 9, 3);
+setBlock(169, 9, 2);
+setBlock(170, 9, 2);
+setBlock(171, 9, 2);
+setBlock(172, 9, 3);
+
+// flagpole
+setBlock(198, 12, 9); // flagpole base
+// flag on top
+setBlock(196, 9, 11); // top block
+
+// Pipes
+// First pipe (cols 28-29)
+setBlock(28, 12, 5); setBlock(29, 12, 6);
+setBlock(28, 11, 7); setBlock(29, 11, 8);
+// Second pipe (cols 38-40)
+setBlock(37, 12, 5); setBlock(38, 12, 6);
+setBlock(37, 11, 7); setBlock(38, 11, 8);
+setBlock(37, 10, 7); setBlock(38, 10, 8);
+// Third pipe (cols 46-48)
+setBlock(46, 12, 5); setBlock(47, 12, 6);
+setBlock(46, 11, 7); setBlock(47, 11, 8);
+setBlock(46, 10, 7); setBlock(47, 10, 8);
+setBlock(46, 9, 7); setBlock(47, 9, 8);
+// Fourth pipe (cols 57-59)
+setBlock(57, 12, 5); setBlock(58, 12, 6);
+setBlock(57, 11, 7); setBlock(58, 11, 8);
+// Fifth pipe (cols 163-164)
+setBlock(163, 12, 5); setBlock(164, 12, 6);
+setBlock(163, 11, 7); setBlock(164, 11, 8);
+setBlock(163, 10, 7); setBlock(164, 10, 8);
+// Sixth pipe (cols 179-180)
+setBlock(179, 12, 5); setBlock(180, 12, 6);
+setBlock(179, 11, 7); setBlock(180, 11, 8);
+
+// Ground holes (pit)
+const PITS = [
+  {start: 69, end: 71},
+  {start: 86, end: 88},
+  {start: 153, end: 155}
+];
+
+// Enemies list (x in tiles)
+let enemySpawns = [
+  {type: 'goomba', x: 22, y: 12},
+  {type: 'goomba', x: 40, y: 12},
+  {type: 'goomba', x: 51, y: 12},
+  {type: 'goomba', x: 56, y: 12},
+  {type: 'goomba', x: 65, y: 12},
+  {type: 'koopa', x: 82, y: 12},
+  {type: 'goomba', x: 97, y: 12},
+  {type: 'goomba', x: 103, y: 12},
+  {type: 'goomba', x: 114, y: 12},
+  {type: 'goomba', x: 130, y: 12},
+  {type: 'goomba', x: 140, y: 12},
+  {type: 'goomba', x: 150, y: 12},
+  {type: 'goomba', x: 174, y: 12},
+  {type: 'koopa', x: 185, y: 12},
+];
+
+// ─── GAME STATE ───
+let timeLeft = 400; // seconds
+let coins = 0;
+let score = 0;
+let lives = 3;
+let gameState = 'playing'; // playing, win, dead
+
+// Mario
+let mario = {
+  x: 32, y: 176,
+  vx: 0, vy: 0,
+  width: MARIO_WIDTH,
+  height: MARIO_HEIGHT_SMALL,
+  onGround: false,
+  big: false,
+  invincible: 0,
+  direction: 1, // 1:right, -1:left
+  animFrame: 0,
+};
+
+// Enemies
+let enemies = [];
+
+// Items
+let items = [];
+
+// Camera
+let cameraX = 0;
+
+// ─── INPUT ───
 const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
 window.addEventListener('keyup', e => { keys[e.code] = false; e.preventDefault(); });
 
-// ======================== SOUND EFFECTS ========================
-function playTone(freq, duration, type = 'square', vol = 0.08) {
-  try {
-    const ac = getAudioCtx();
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(vol, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(ac.destination);
-    osc.start();
-    osc.stop(ac.currentTime + duration);
-  } catch (e) {}
+// ─── INIT ───
+function initEnemies() {
+  enemies = enemySpawns.map(s => ({
+    type: s.type,
+    x: s.x * TILE,
+    y: (s.y) * TILE,
+    vx: -0.8,
+    vy: 0,
+    alive: true,
+    width: 16,
+    height: s.type === 'koopa' ? 24 : 16,
+    onGround: false,
+    direction: -1,
+    animFrame: 0,
+    shellMoving: false,
+    timer: 0,
+  }));
 }
-function playJump() { playTone(400, 0.12, 'square', 0.06); playTone(600, 0.12, 'square', 0.06); }
-function playCoin() { playTone(988, 0.05, 'square', 0.07); playTone(1319, 0.15, 'square', 0.07); }
-function playStomp() { playTone(200, 0.08, 'triangle', 0.06); }
-function playPowerUp() { playTone(523, 0.1, 'square', 0.07); playTone(659, 0.1, 'square', 0.07); playTone(784, 0.1, 'square', 0.07); playTone(1047, 0.2, 'square', 0.07); }
-function playDie() { playTone(200, 0.2, 'square', 0.08); playTone(150, 0.3, 'square', 0.08); }
-function playFlag() { playTone(523, 0.15, 'square', 0.08); playTone(659, 0.15, 'square', 0.08); playTone(784, 0.15, 'square', 0.08); playTone(1047, 0.4, 'square', 0.08); }
+initEnemies();
 
-// ======================== MAP DATA ========================
-// Tile types: 0=empty, 1=ground, 2=brick, 3=question, 4=pipe, 5=hard block
-// The map is read row by row, top to bottom, left to right.
-const map = [];
-for (let row = 0; row < MAP_DATA_ROWS; row++) {
-  map[row] = new Array(WORLD_WIDTH).fill(0);
-}
-
-// Helper to set blocks
-function setBlock(col, row, type, w = 1, h = 1) {
-  for (let r = row; r < row + h && r < MAP_DATA_ROWS; r++) {
-    for (let c = col; c < col + w && c < WORLD_WIDTH; c++) {
-      map[r][c] = type;
+// ─── COLLISION HELPER ───
+function getTileAt(x, y) {
+  const col = Math.floor(x / TILE);
+  const row = Math.floor(y / TILE);
+  if (col < 0 || col >= MAP_COLS || row < 0 || row > GROUND_Y) return 0;
+  if (row === GROUND_Y) {
+    // Check if pit
+    for (let p of PITS) {
+      if (col >= p.start && col <= p.end) return 0;
     }
+    return 1; // ground
   }
-}
-
-// Ground (bottom row)
-for (let c = 0; c < 68; c++) setBlock(c, MAP_DATA_ROWS - 1, 1);
-for (let c = 71; c < 86; c++) setBlock(c, MAP_DATA_ROWS - 1, 1);
-for (let c = 89; c < 153; c++) setBlock(c, MAP_DATA_ROWS - 1, 1);
-for (let c = 156; c < 180; c++) setBlock(c, MAP_DATA_ROWS - 1, 1);
-
-// Ground top row (surface)
-for (let c = 0; c < 68; c++) setBlock(c, MAP_DATA_ROWS - 2, 1);
-for (let c = 71; c < 86; c++) setBlock(c, MAP_DATA_ROWS - 2, 1);
-for (let c = 89; c < 153; c++) setBlock(c, MAP_DATA_ROWS - 2, 1);
-for (let c = 156; c < 180; c++) setBlock(c, MAP_DATA_ROWS - 2, 1);
-
-// Some bricks and question blocks
-// Row above ground: row = MAP_DATA_ROWS - 3
-const groundRow = MAP_DATA_ROWS - 3;
-setBlock(16, groundRow, 3); // question
-setBlock(20, groundRow, 2);
-setBlock(21, groundRow, 2);
-setBlock(22, groundRow, 3);
-setBlock(23, groundRow, 2);
-setBlock(24, groundRow, 3);
-
-setBlock(77, groundRow, 3);
-setBlock(80, groundRow, 2);
-setBlock(81, groundRow, 2);
-setBlock(82, groundRow, 2);
-
-setBlock(100, groundRow, 3);
-setBlock(106, groundRow, 2);
-setBlock(107, groundRow, 2);
-setBlock(108, groundRow, 2);
-setBlock(109, groundRow, 3);
-setBlock(110, groundRow, 2);
-setBlock(111, groundRow, 3);
-
-setBlock(130, groundRow, 3);
-setBlock(131, groundRow, 3);
-setBlock(132, groundRow, 2);
-setBlock(133, groundRow, 2);
-setBlock(134, groundRow, 3);
-
-// Higher blocks
-setBlock(20, groundRow - 3, 2);
-setBlock(21, groundRow - 3, 2);
-setBlock(22, groundRow - 3, 2);
-setBlock(23, groundRow - 3, 2);
-
-setBlock(100, groundRow - 4, 3);
-
-// Pipes
-setBlock(28, groundRow - 1, 4, 2, 2);  // pipe 1
-setBlock(38, groundRow - 2, 4, 2, 3);  // pipe 2
-setBlock(46, groundRow - 1, 4, 2, 2);  // pipe 3
-setBlock(57, groundRow - 3, 4, 2, 4);  // pipe 4 (tall)
-
-setBlock(135, groundRow - 1, 4, 2, 2); // pipe near end
-setBlock(145, groundRow - 2, 4, 2, 3); // pipe near end
-
-// Stair blocks at the end
-const stairRow = MAP_DATA_ROWS - 3;
-for (let step = 0; step < 4; step++) {
-  for (let y = 0; y <= step; y++) {
-    setBlock(165 + step, stairRow - y, 5);
-  }
-}
-for (let step = 0; step < 4; step++) {
-  for (let y = 0; y <= step; y++) {
-    setBlock(172 + step, stairRow - y, 5);
-  }
-}
-
-// Flat block area near flag
-for (let c = 180; c < 185; c++) setBlock(c, stairRow, 5);
-
-// ======================== GAME STATE ========================
-let score = 0;
-let coins = 0;
-let lives = 3;
-let timeLeft = 400; // seconds * 60? we'll decrement per frame at roughly 60fps, so 400 frames ~ 6.7s, too short. Use decimal.
-let timeElapsed = 0;
-let levelComplete = false;
-let gameOver = false;
-let mario;
-let enemies = [];
-let dynamicItems = []; // coins popped up, mushrooms, etc.
-let blockBounce = {}; // { "col,row": {timer, offset} } for question block bounce animation
-let cameraX = 0;
-
-// ======================== ENTITY CLASSES ========================
-class Mario {
-  constructor(x, y) {
-    this.x = x;
-    this.y = y;
-    this.vx = 0;
-    this.vy = 0;
-    this.width = 14;
-    this.height = 16;
-    this.smallHeight = 16;
-    this.bigHeight = 32;
-    this.isBig = false;
-    this.isInvincible = false;
-    this.invincibleTimer = 0;
-    this.facingRight = true;
-    this.animFrame = 0;
-    this.animTimer = 0;
-    this.onGround = false;
-    this.dead = false;
-    this.deathTimer = 0;
-  }
-
-  getRect() {
-    return {
-      x: this.x,
-      y: this.y,
-      w: this.width,
-      h: this.height
-    };
-  }
-
-  update() {
-    if (this.dead) {
-      this.deathTimer++;
-      this.vy += GRAVITY;
-      this.y += this.vy;
-      if (this.deathTimer > 50 && this.y > LOGICAL_HEIGHT + 40) {
-        if (lives > 0) {
-          lives--;
-          respawnMario();
-        } else {
-          gameOver = true;
-        }
-      }
-      return;
-    }
-
-    // Input
-    if (keys['ArrowLeft'] || keys['KeyA']) {
-      this.vx -= MOVE_ACC;
-      this.facingRight = false;
-    }
-    if (keys['ArrowRight'] || keys['KeyD']) {
-      this.vx += MOVE_ACC;
-      this.facingRight = true;
-    }
-    if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && this.onGround) {
-      this.vy = JUMP_FORCE;
-      this.onGround = false;
-      playJump();
-    }
-
-    // Friction
-    this.vx *= FRICTION;
-    if (Math.abs(this.vx) < 0.05) this.vx = 0;
-
-    // Clamp speed
-    if (Math.abs(this.vx) > MAX_SPEED) {
-      this.vx = this.vx > 0 ? MAX_SPEED : -MAX_SPEED;
-    }
-
-    // Gravity
-    this.vy += GRAVITY;
-    if (this.vy > 12) this.vy = 12;
-
-    // Apply movement with collision
-    this.applyMovement();
-
-    // Adjust height based on big/small
-    if (this.isBig) {
-      this.height = this.bigHeight;
-    } else {
-      this.height = this.smallHeight;
-    }
-
-    // Animation
-    if (Math.abs(this.vx) > 0.1) {
-      this.animTimer++;
-      if (this.animTimer > 8) {
-        this.animTimer = 0;
-        this.animFrame = (this.animFrame + 1) % 3;
-      }
-    } else {
-      this.animFrame = 0;
-    }
-
-    // Invincibility timer
-    if (this.isInvincible) {
-      this.invincibleTimer--;
-      if (this.invincibleTimer <= 0) {
-        this.isInvincible = false;
-      }
-    }
-
-    // Check fall death
-    if (this.y > LOGICAL_HEIGHT + 20) {
-      this.dead = true;
-      playDie();
-    }
-  }
-
-  applyMovement() {
-    // Horizontal movement with collision
-    let newX = this.x + this.vx;
-    let collisionX = false;
-    // Check tiles
-    const tiles = getTilesInRect(newX, this.y, this.width, this.height);
-    for (let t of tiles) {
-      const tile = getTile(t.col, t.row);
-      if (isSolid(tile) && tile !== 3) { // question block not solid from top? Actually it's solid.
-        const tileRect = getTileRect(t.col, t.row);
-        if (this.vx > 0) {
-          newX = tileRect.x - this.width;
-          collisionX = true;
-        } else if (this.vx < 0) {
-          newX = tileRect.x + TILE_SIZE;
-          collisionX = true;
-        }
-        this.vx = 0;
-      }
-    }
-    if (collisionX) this.vx = 0;
-    this.x = newX;
-
-    // Vertical movement
-    let newY = this.y + this.vy;
-    this.onGround = false;
-    const vertTiles = getTilesInRect(this.x, newY, this.width, this.height);
-    for (let t of vertTiles) {
-      const tile = getTile(t.col, t.row);
-      if (isSolid(tile)) {
-        const tileRect = getTileRect(t.col, t.row);
-        if (this.vy > 0) { // falling
-          newY = tileRect.y - this.height;
-          this.vy = 0;
-          this.onGround = true;
-        } else if (this.vy < 0) { // jumping up
-          // Hit block from below?
-          if (tile === 3) { // question block
-            handleQuestionBlock(t.col, t.row);
-          }
-          if (tile === 2) { // brick
-            handleBrickBlock(t.col, t.row);
-          }
-          newY = tileRect.y + TILE_SIZE;
-          this.vy = 0;
-        }
-      }
-    }
-    this.y = newY;
-  }
-
-  getHit() {
-    if (this.isInvincible || this.dead) return;
-    if (this.isBig) {
-      this.isBig = false;
-      this.isInvincible = true;
-      this.invincibleTimer = 120;
-      this.height = this.smallHeight;
-      playDie();
-    } else {
-      this.dead = true;
-      this.vy = -6;
-      playDie();
-    }
-  }
-
-  draw(ctx, camX) {
-    if (this.isInvincible && Math.floor(Date.now() / 100) % 2 === 0) return;
-    const sx = this.x - camX;
-    const sy = this.y;
-    ctx.save();
-    if (!this.facingRight) {
-      ctx.translate(sx + this.width / 2, sy + this.height / 2);
-      ctx.scale(-1, 1);
-      ctx.translate(-(sx + this.width / 2), -(sy + this.height / 2));
-    }
-    drawMarioSprite(ctx, sx, sy, this.isBig, this.animFrame);
-    ctx.restore();
-  }
-}
-
-class Enemy {
-  constructor(x, y, type = 'goomba') {
-    this.x = x;
-    this.y = y;
-    this.vx = -ENEMY_SPEED;
-    this.vy = 0;
-    this.width = 14;
-    this.height = 14;
-    this.type = type;
-    this.alive = true;
-    this.dead = false;
-    this.deathTimer = 0;
-    this.animTimer = 0;
-    this.onGround = false;
-  }
-
-  update() {
-    if (!this.alive) {
-      this.deathTimer++;
-      if (this.deathTimer > 20) {
-        this.dead = true;
-      }
-      return;
-    }
-
-    // Simple AI: walk back and forth, detect edges
-    this.x += this.vx;
-    // Check if about to fall (ground below)
-    const belowRect = { x: this.x, y: this.y + this.height, w: this.width, h: 4 };
-    const tiles = getTilesInRect(this.x, this.y + this.height, this.width, 4);
-    let hasGround = false;
-    for (let t of tiles) {
-      if (isSolid(getTile(t.col, t.row))) {
-        hasGround = true;
-        break;
-      }
-    }
-    if (!hasGround && this.onGround) {
-      // Reverse direction
-      this.vx = -this.vx;
-      this.x += this.vx;
-    }
-
-    // Horizontal collision
-    const horTiles = getTilesInRect(this.x, this.y, this.width, this.height);
-    for (let t of horTiles) {
-      if (isSolid(getTile(t.col, t.row))) {
-        const tileRect = getTileRect(t.col, t.row);
-        if (this.vx > 0) {
-          this.x = tileRect.x - this.width;
-        } else {
-          this.x = tileRect.x + TILE_SIZE;
-        }
-        this.vx = -this.vx;
-      }
-    }
-
-    // Gravity & vertical collision
-    this.vy += GRAVITY;
-    this.y += this.vy;
-    this.onGround = false;
-    const vertTiles = getTilesInRect(this.x, this.y, this.width, this.height);
-    for (let t of vertTiles) {
-      if (isSolid(getTile(t.col, t.row))) {
-        const tileRect = getTileRect(t.col, t.row);
-        if (this.vy > 0) {
-          this.y = tileRect.y - this.height;
-          this.vy = 0;
-          this.onGround = true;
-        } else {
-          this.y = tileRect.y + TILE_SIZE;
-          this.vy = 0;
-        }
-      }
-    }
-
-    if (this.y > LOGICAL_HEIGHT + 20) {
-      this.dead = true;
-    }
-  }
-
-  stomp() {
-    this.alive = false;
-    this.dead = false;
-    this.deathTimer = 0;
-    this.vy = 0;
-    this.height = 8;
-    score += 100;
-    playStomp();
-  }
-
-  draw(ctx, camX) {
-    const sx = this.x - camX;
-    const sy = this.y;
-    if (!this.alive) {
-      // flattened
-      ctx.fillStyle = '#b06000';
-      ctx.fillRect(sx, sy + this.height - 4, this.width, 4);
-      return;
-    }
-    drawGoomba(ctx, sx, sy);
-  }
-}
-
-class DynamicItem {
-  constructor(x, y, type = 'coin') {
-    this.x = x;
-    this.y = y;
-    this.type = type; // 'coin', 'mushroom'
-    this.vy = -4;
-    this.alive = true;
-    this.timer = 0;
-  }
-
-  update() {
-    this.timer++;
-    if (this.type === 'coin') {
-      this.vy += GRAVITY;
-      this.y += this.vy;
-      if (this.timer > 30) {
-        this.alive = false;
-      }
-    } else if (this.type === 'mushroom') {
-      this.vy += GRAVITY;
-      this.y += this.vy;
-      // Collision with ground
-      const tiles = getTilesInRect(this.x, this.y, 14, 14);
-      for (let t of tiles) {
-        if (isSolid(getTile(t.col, t.row))) {
-          const tileRect = getTileRect(t.col, t.row);
-          if (this.vy > 0) {
-            this.y = tileRect.y - 14;
-            this.vy = 0;
-          } else {
-            this.y = tileRect.y + TILE_SIZE;
-            this.vy = 0;
-          }
-        }
-      }
-    }
-  }
-
-  draw(ctx, camX) {
-    const sx = this.x - camX;
-    if (this.type === 'coin') {
-      ctx.fillStyle = '#ffd700';
-      ctx.fillRect(sx + 4, this.y + 2, 8, 12);
-      ctx.fillStyle = '#ffea00';
-      ctx.fillRect(sx + 2, this.y + 4, 12, 8);
-    } else if (this.type === 'mushroom') {
-      ctx.fillStyle = '#e04040';
-      ctx.fillRect(sx + 2, this.y + 2, 10, 10);
-      ctx.fillStyle = '#c0c0c0';
-      ctx.fillRect(sx + 1, this.y, 12, 6);
-    }
-  }
-}
-
-// ======================== MAP HELPER FUNCTIONS ========================
-function getTile(col, row) {
-  if (col < 0 || col >= WORLD_WIDTH || row < 0 || row >= MAP_DATA_ROWS) return 0;
-  return map[row][col];
+  return (map[row] && map[row][col]) || 0;
 }
 
 function isSolid(tile) {
-  return tile !== 0; // tile 0 is air, all others solid
+  return tile !== 0 && tile !== 9 && tile !== 10; // flagpole/flag not solid
 }
 
-function getTileRect(col, row) {
-  return {
-    x: col * TILE_SIZE,
-    y: row * TILE_SIZE,
-    w: TILE_SIZE,
-    h: TILE_SIZE
-  };
-}
-
-function getTilesInRect(x, y, w, h) {
-  const startCol = Math.floor(x / TILE_SIZE);
-  const endCol = Math.floor((x + w - 0.01) / TILE_SIZE);
-  const startRow = Math.floor(y / TILE_SIZE);
-  const endRow = Math.floor((y + h - 0.01) / TILE_SIZE);
-  const tiles = [];
-  for (let row = startRow; row <= endRow; row++) {
-    for (let col = startCol; col <= endCol; col++) {
-      tiles.push({ col, row });
-    }
-  }
-  return tiles;
-}
-
-// ======================== BLOCK INTERACTIONS ========================
-function handleQuestionBlock(col, row) {
-  if (getTile(col, row) !== 3) return;
-  // Change to empty or used block
-  map[row][col] = 5; // make it hard block (used)
-  // Determine reward (alternating)
-  const reward = (col % 2 === 0) ? 'coin' : 'mushroom';
-  if (reward === 'coin') {
-    coins++;
-    score += 200;
-    // spawn coin popup
-    dynamicItems.push(new DynamicItem(col * TILE_SIZE, row * TILE_SIZE - 16, 'coin'));
-    playCoin();
-  } else {
-    // mushroom appears from top
-    dynamicItems.push(new DynamicItem(col * TILE_SIZE, row * TILE_SIZE - 16, 'mushroom'));
-    playPowerUp();
-  }
-}
-
-function handleBrickBlock(col, row) {
-  if (getTile(col, row) !== 2) return;
-  if (mario.isBig) {
-    // Break the brick
-    map[row][col] = 0;
-    score += 50;
-    // maybe spawn debris
-  } else {
-    // Just bump
-  }
-}
-
-// ======================== COLLISION BETWEEN ENTITIES ========================
-function handleMarioEnemyCollision() {
-  for (let enemy of enemies) {
-    if (!enemy.alive) continue;
-    const mRect = mario.getRect();
-    const eRect = { x: enemy.x, y: enemy.y, w: enemy.width, h: enemy.height };
-    if (rectOverlap(mRect, eRect)) {
-      // Check if Mario is falling onto enemy
-      if (mario.vy > 0 && mario.y + mario.height - enemy.y < 10) {
-        // Stomp
-        enemy.stomp();
-        mario.vy = -5; // bounce
-        break;
-      } else {
-        // Mario takes damage
-        mario.getHit();
-      }
-    }
-  }
-}
-
-function handleMarioItemCollision() {
-  for (let item of dynamicItems) {
-    if (!item.alive) continue;
-    const mRect = mario.getRect();
-    const iRect = { x: item.x, y: item.y, w: 14, h: 14 };
-    if (rectOverlap(mRect, iRect)) {
-      if (item.type === 'coin') {
-        // coin already collected via question block
-      } else if (item.type === 'mushroom') {
-        if (!mario.isBig) {
-          mario.isBig = true;
-          score += 1000;
-          item.alive = false;
-          playPowerUp();
+function resolveCollision(rect, prevY) {
+  // Check horizontal collisions
+  const left = Math.floor(rect.x / TILE);
+  const right = Math.floor((rect.x + rect.width - 1) / TILE);
+  const top = Math.floor(rect.y / TILE);
+  const bottom = Math.floor((rect.y + rect.height - 1) / TILE);
+  
+  for (let row = top; row <= bottom; row++) {
+    for (let col = left; col <= right; col++) {
+      const tile = getTileAt(col * TILE, row * TILE);
+      if (isSolid(tile)) {
+        const tileLeft = col * TILE;
+        const tileRight = tileLeft + TILE;
+        const tileTop = row * TILE;
+        const tileBottom = tileTop + TILE;
+        
+        // Overlap
+        const overlapLeft = rect.x + rect.width - tileLeft;
+        const overlapRight = tileRight - rect.x;
+        const overlapTop = rect.y + rect.height - tileTop;
+        const overlapBottom = tileBottom - rect.y;
+        
+        // Determine direction
+        if (overlapLeft < overlapRight && overlapLeft < overlapTop && overlapLeft < overlapBottom) {
+          // Hit from right side of entity
+          rect.x = tileLeft - rect.width;
+          rect.vx = 0;
+        } else if (overlapRight < overlapLeft && overlapRight < overlapTop && overlapRight < overlapBottom) {
+          rect.x = tileRight;
+          rect.vx = 0;
+        } else if (overlapTop < overlapBottom && overlapTop < overlapLeft && overlapTop < overlapRight) {
+          // Hit from below
+          rect.y = tileTop - rect.height;
+          rect.vy = 0;
+          rect.onGround = true;
+        } else if (overlapBottom < overlapTop && overlapBottom < overlapLeft && overlapBottom < overlapRight) {
+          rect.y = tileBottom;
+          rect.vy = 0;
         }
       }
     }
   }
 }
 
-function rectOverlap(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// ─── UPDATE ───
+let lastTime = performance.now();
+function update(dt) {
+  if (gameState !== 'playing') return;
+  
+  // Time limit
+  timeLeft -= dt;
+  if (timeLeft <= 0) {
+    timeLeft = 0;
+    gameState = 'dead';
+  }
+  
+  // Mario input
+  if (keys['ArrowRight'] || keys['KeyD']) {
+    mario.vx += 0.4;
+    mario.direction = 1;
+  }
+  if (keys['ArrowLeft'] || keys['KeyA']) {
+    mario.vx -= 0.4;
+    mario.direction = -1;
+  }
+  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && mario.onGround) {
+    mario.vy = JUMP_FORCE;
+    mario.onGround = false;
+  }
+  
+  // Friction
+  mario.vx *= FRICTION;
+  if (Math.abs(mario.vx) < 0.05) mario.vx = 0;
+  if (Math.abs(mario.vx) > MAX_SPEED) mario.vx = Math.sign(mario.vx) * MAX_SPEED;
+  
+  // Gravity
+  mario.vy += GRAVITY;
+  
+  // Update position
+  const prevY = mario.y;
+  mario.x += mario.vx;
+  mario.y += mario.vy;
+  mario.onGround = false;
+  
+  // Clamp left
+  if (mario.x < 0) mario.x = 0;
+  
+  // Collision
+  resolveCollision(mario, prevY);
+  
+  // Fall into pit
+  if (mario.y > SCREEN_HEIGHT) {
+    gameState = 'dead';
+  }
+  
+  // Enemies
+  for (let e of enemies) {
+    if (!e.alive) continue;
+    e.vy += GRAVITY;
+    e.x += e.vx;
+    e.y += e.vy;
+    e.onGround = false;
+    
+    // Simple enemy collision with ground
+    const col = Math.floor(e.x / TILE);
+    const row = Math.floor((e.y + e.height) / TILE);
+    if (getTileAt(col * TILE, row * TILE) === 0) {
+      // No ground below, fall
+    } else {
+      // Snap to ground
+      e.y = row * TILE - e.height;
+      e.vy = 0;
+      e.onGround = true;
+    }
+    
+    // Edge detection: turn around at edges or walls
+    if (e.vx !== 0) {
+      const nextX = e.x + Math.sign(e.vx);
+      const nextCol = Math.floor(nextX / TILE);
+      const frontRow = Math.floor(e.y / TILE);
+      const tileFront = getTileAt(nextCol * TILE, frontRow * TILE);
+      if (isSolid(tileFront)) {
+        e.vx *= -1;
+        e.direction *= -1;
+      }
+      // Check for cliff
+      const belowCol = Math.floor((nextX + e.width/2) / TILE);
+      const belowRow = Math.floor((e.y + e.height + 2) / TILE);
+      if (getTileAt(belowCol * TILE, belowRow * TILE) === 0) {
+        // Reverse if on edge
+        e.vx *= -1;
+        e.direction *= -1;
+      }
+    }
+    
+    // Die if fallen off
+    if (e.y > SCREEN_HEIGHT + 50) e.alive = false;
+    
+    e.timer++;
+  }
+  
+  // Mario-enemy collision
+  for (let e of enemies) {
+    if (!e.alive) continue;
+    if (mario.invincible > 0) continue;
+    const overlap = mario.x < e.x + e.width && mario.x + mario.width > e.x &&
+                    mario.y < e.y + e.height && mario.y + mario.height > e.y;
+    if (!overlap) continue;
+    
+    // Check if Mario is falling onto enemy
+    if (mario.vy > 0 && mario.y + mario.height - e.y < 10) {
+      // Stomp enemy
+      if (e.type === 'koopa' && !e.shellMoving) {
+        e.shellMoving = true;
+        e.vx = 0;
+        e.height = 16;
+        e.y += 8;
+        e.type = 'koopa-shell';
+      } else if (e.type === 'koopa-shell' && e.vx === 0) {
+        e.vx = mario.vx >= 0 ? 4 : -4;
+        e.shellMoving = true;
+      } else {
+        e.alive = false;
+        score += 100;
+      }
+      mario.vy = -4; // bounce
+    } else {
+      // Mario hit
+      if (mario.big) {
+        mario.big = false;
+        mario.height = MARIO_HEIGHT_SMALL;
+        mario.y += 16; // shrink down
+        mario.invincible = 60;
+      } else {
+        gameState = 'dead';
+      }
+    }
+  }
+  
+  // Items (coins, mushrooms)
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.vy += GRAVITY;
+    it.x += it.vx;
+    it.y += it.vy;
+    
+    const overlap = mario.x < it.x + 16 && mario.x + mario.width > it.x &&
+                    mario.y < it.y + 16 && mario.y + mario.height > it.y;
+    if (overlap) {
+      if (it.type === 'coin') {
+        coins++;
+        score += 200;
+      } else if (it.type === 'mushroom') {
+        if (!mario.big) {
+          mario.big = true;
+          // Adjust position: move up so feet stay same
+          mario.y -= 16;
+          mario.height = MARIO_HEIGHT_BIG;
+        }
+        score += 1000;
+      }
+      items.splice(i, 1);
+      continue;
+    }
+    // Remove off-screen
+    if (it.y > SCREEN_HEIGHT + 20) items.splice(i, 1);
+  }
+  
+  // Break bricks (Mario big and hitting from below)
+  if (mario.big && mario.vy < 0) {
+    const checkCol = Math.floor((mario.x + mario.width/2) / TILE);
+    const checkRow = Math.floor((mario.y - 2) / TILE);
+    const tile = getTileAt(checkCol * TILE, checkRow * TILE);
+    if (tile === 2) {
+      map[checkRow][checkCol] = 0;
+      items.push({type: 'coin', x: checkCol * TILE, y: checkRow * TILE, vx: 0, vy: -3});
+    }
+  }
+  
+  // Hit ? block
+  if (mario.vy < 0) {
+    const checkCol = Math.floor((mario.x + mario.width/2) / TILE);
+    const checkRow = Math.floor((mario.y - 2) / TILE);
+    const tile = getTileAt(checkCol * TILE, checkRow * TILE);
+    if (tile === 3) {
+      map[checkRow][checkCol] = 2; // turn to empty brick
+      // Spawn item
+      if (checkCol === 128 || checkCol === 168) {
+        items.push({type: 'mushroom', x: checkCol * TILE, y: checkRow * TILE - 16, vx: 2, vy: -3});
+      } else {
+        items.push({type: 'coin', x: checkCol * TILE, y: checkRow * TILE - 16, vx: 0, vy: -4});
+      }
+    }
+  }
+  
+  // Invincibility timer
+  if (mario.invincible > 0) mario.invincible--;
+  
+  // Camera
+  cameraX = mario.x - SCREEN_WIDTH / 3;
+  if (cameraX < 0) cameraX = 0;
+  if (cameraX > (MAP_COLS * TILE) - SCREEN_WIDTH) cameraX = (MAP_COLS * TILE) - SCREEN_WIDTH;
+  
+  // Win condition (reaching flagpole)
+  if (mario.x > 195 * TILE) {
+    gameState = 'win';
+    score += Math.floor(timeLeft) * 50;
+  }
 }
 
-// ======================== DRAWING FUNCTIONS ========================
-function drawMarioSprite(ctx, x, y, big, frame) {
-  // Simple pixel Mario
-  // Colors
-  const hatColor = '#e00000';
-  const skinColor = '#ffb88c';
-  const shirtColor = '#e00000';
-  const overallsColor = '#0000c0';
-  const shoeColor = '#603000';
-  const w = 14, h = big ? 30 : 16;
-  // Hat
-  ctx.fillStyle = hatColor;
-  ctx.fillRect(x + 2, y, 10, 3);
-  ctx.fillRect(x + 1, y + 3, 12, 2);
-  // Face
-  ctx.fillStyle = skinColor;
-  ctx.fillRect(x + 2, y + 5, 10, 3);
-  // Eyes
-  ctx.fillStyle = '#000';
-  ctx.fillRect(x + 6, y + 6, 2, 2);
-  // Shirt
-  ctx.fillStyle = shirtColor;
-  ctx.fillRect(x + 2, y + 8, 10, 4);
-  if (!big) {
-    // Overalls (bottom)
-    ctx.fillStyle = overallsColor;
-    ctx.fillRect(x + 2, y + 12, 4, 4);
-    ctx.fillRect(x + 8, y + 12, 4, 4);
-    // Shoes
-    ctx.fillStyle = shoeColor;
-    ctx.fillRect(x + 1, y + 14, 5, 2);
-    ctx.fillRect(x + 8, y + 14, 5, 2);
+// ─── RENDER ───
+function draw() {
+  ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  
+  // Sky
+  ctx.fillStyle = '#5c94fc';
+  ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  
+  // Draw tiles
+  for (let col = Math.floor(cameraX / TILE); col <= Math.floor((cameraX + SCREEN_WIDTH) / TILE); col++) {
+    for (let row = 0; row <= GROUND_Y; row++) {
+      const tile = getTileAt(col * TILE, row * TILE);
+      if (tile === 0) continue;
+      const screenX = col * TILE - cameraX;
+      const screenY = row * TILE;
+      drawTile(tile, screenX, screenY);
+    }
+  }
+  
+  // Draw items
+  for (let it of items) {
+    const sx = it.x - cameraX;
+    if (it.type === 'coin') {
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(sx + 4, it.y + 4, 8, 8);
+    } else if (it.type === 'mushroom') {
+      ctx.fillStyle = '#e06060';
+      ctx.fillRect(sx + 2, it.y, 12, 12);
+      ctx.fillStyle = '#f0d0b0';
+      ctx.fillRect(sx + 2, it.y + 12, 12, 4);
+    }
+  }
+  
+  // Draw enemies
+  for (let e of enemies) {
+    if (!e.alive) continue;
+    const sx = e.x - cameraX;
+    if (e.type === 'goomba') {
+      ctx.fillStyle = '#a86020';
+      ctx.fillRect(sx, e.y, 16, 16);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(sx + 4, e.y + 4, 3, 3);
+      ctx.fillRect(sx + 10, e.y + 4, 3, 3);
+      ctx.fillRect(sx + 2, e.y + 8, 3, 2);
+      ctx.fillRect(sx + 12, e.y + 8, 2, 2);
+    } else if (e.type === 'koopa') {
+      ctx.fillStyle = '#70b050';
+      ctx.fillRect(sx, e.y, 16, 24);
+      ctx.fillStyle = '#e0b040';
+      ctx.fillRect(sx + 2, e.y + 4, 12, 8);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(sx + 4, e.y + 6, 3, 3);
+      ctx.fillRect(sx + 10, e.y + 6, 3, 3);
+      // Feet
+      ctx.fillStyle = '#e0b040';
+      ctx.fillRect(sx + 2, e.y + 18, 5, 6);
+      ctx.fillRect(sx + 9, e.y + 18, 5, 6);
+    } else if (e.type === 'koopa-shell') {
+      ctx.fillStyle = '#70b050';
+      ctx.fillRect(sx, e.y, 16, 16);
+      ctx.fillStyle = '#e0b040';
+      ctx.fillRect(sx + 2, e.y + 2, 12, 4);
+    }
+  }
+  
+  // Draw Mario
+  const mx = mario.x - cameraX;
+  const my = mario.y;
+  if (!mario.big) {
+    ctx.fillStyle = '#e04040';
+    ctx.fillRect(mx, my, 16, 16);
+    ctx.fillStyle = '#f0a060';
+    ctx.fillRect(mx + 2, my + 4, 12, 8);
+    ctx.fillStyle = '#805030';
+    ctx.fillRect(mx + 4, my + 12, 3, 4);
+    ctx.fillRect(mx + 9, my + 12, 3, 4);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(mx + 4, my + 6, 2, 2);
+    ctx.fillRect(mx + 10, my + 6, 2, 2);
   } else {
-    // Overalls larger
-    ctx.fillStyle = overallsColor;
-    ctx.fillRect(x + 2, y + 12, 5, 10);
-    ctx.fillRect(x + 7, y + 12, 5, 10);
-    // Shoes
-    ctx.fillStyle = shoeColor;
-    ctx.fillRect(x + 2, y + 22, 5, 4);
-    ctx.fillRect(x + 7, y + 22, 5, 4);
-    // Body details
-    ctx.fillStyle = '#ffd700'; // buttons
-    ctx.fillRect(x + 6, y + 12, 2, 2);
-    ctx.fillRect(x + 6, y + 16, 2, 2);
+    ctx.fillStyle = '#e04040';
+    ctx.fillRect(mx, my, 16, 32);
+    ctx.fillStyle = '#f0a060';
+    ctx.fillRect(mx + 2, my + 4, 12, 12);
+    ctx.fillStyle = '#805030';
+    ctx.fillRect(mx + 4, my + 28, 4, 4);
+    ctx.fillRect(mx + 9, my + 28, 4, 4);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(mx + 4, my + 8, 3, 3);
+    ctx.fillRect(mx + 10, my + 8, 3, 3);
+    // Mustache
+    ctx.fillStyle = '#6b3a1f';
+    ctx.fillRect(mx + 2, my + 16, 12, 2);
   }
-  // Walking animation: move legs
-  // Actually we just use frame for slight offset
-  if (frame === 1 && !big) {
-    ctx.fillStyle = shoeColor;
-    ctx.fillRect(x + 1, y + 14, 5, 2); // left shoe
-    ctx.fillRect(x + 6, y + 14, 5, 2); // right
-  } else if (frame === 2 && !big) {
-    // swap
-  }
-  // For big Mario, adjust overalls
-  if (frame === 1 && big) {
-    ctx.fillStyle = overallsColor;
-    ctx.fillRect(x + 2, y + 14, 5, 8);
-    ctx.fillRect(x + 7, y + 14, 5, 8);
-  }
-}
-
-function drawGoomba(ctx, x, y) {
-  // Simple goomba
-  ctx.fillStyle = '#603000';
-  ctx.fillRect(x + 2, y, 10, 4); // head
-  ctx.fillRect(x + 1, y + 4, 12, 10); // body
+  
+  // UI
   ctx.fillStyle = '#000';
-  ctx.fillRect(x + 4, y + 2, 2, 2); // eyes
-  ctx.fillRect(x + 8, y + 2, 2, 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x + 5, y + 2, 1, 1);
-  ctx.fillRect(x + 9, y + 2, 1, 1);
-  ctx.fillStyle = '#603000';
-  ctx.fillRect(x + 1, y + 12, 3, 4); // feet
-  ctx.fillRect(x + 10, y + 12, 3, 4);
+  ctx.font = '8px monospace';
+  ctx.fillText(`MARIO`, 8, 14);
+  ctx.fillText(String(score).padStart(6, '0'), 8, 24);
+  
+  ctx.fillText(`COINS`, 64, 14);
+  ctx.fillText(`x${String(coins).padStart(2, '0')}`, 64, 24);
+  
+  ctx.fillText(`WORLD`, 136, 14);
+  ctx.fillText(`1-1`, 136, 24);
+  
+  ctx.fillText(`TIME`, 200, 14);
+  ctx.fillText(Math.ceil(Math.max(0, timeLeft)), 200, 24);
+  
+  // Game over / win
+  if (gameState === 'dead') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.fillText('GAME OVER', 80, 110);
+  } else if (gameState === 'win') {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.fillText('YOU WIN!', 90, 110);
+  }
 }
 
-function drawTile(ctx, tile, x, y) {
-  switch (tile) {
+function drawTile(type, x, y) {
+  switch (type) {
     case 1: // ground
       ctx.fillStyle = '#c84c0c';
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      ctx.fillRect(x, y, TILE, TILE);
       ctx.fillStyle = '#e87830';
-      ctx.fillRect(x, y, TILE_SIZE, 2);
-      // grid
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(x + 0.5, y + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+      ctx.fillRect(x, y, TILE, 2);
       break;
     case 2: // brick
       ctx.fillStyle = '#c84c0c';
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = '#e87830';
-      ctx.fillRect(x, y, TILE_SIZE, 2);
-      ctx.fillRect(x, y + TILE_SIZE - 2, TILE_SIZE, 2);
-      // mortar lines
-      ctx.fillStyle = '#a04010';
-      ctx.fillRect(x + 8, y, 1, TILE_SIZE);
-      ctx.fillRect(x, y + 8, TILE_SIZE, 1);
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#e0a060';
+      ctx.fillRect(x, y, TILE, 2);
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(x, y + 8, TILE, 2);
       break;
-    case 3: // question block
-      ctx.fillStyle = '#f0b028';
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = '#c08000';
-      ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      ctx.fillStyle = '#fff';
-      ctx.font = '10px monospace';
-      ctx.fillText('?', x + 5, y + 12);
+    case 3: // question
+      ctx.fillStyle = '#e0a030';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#f0d060';
+      ctx.fillRect(x + 2, y + 2, 12, 12);
+      ctx.fillStyle = '#000';
+      ctx.fillText('?', x + 4, y + 12);
       break;
-    case 4: // pipe
-      ctx.fillStyle = '#00a800';
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = '#00ff00';
-      ctx.fillRect(x + 2, y, TILE_SIZE - 4, TILE_SIZE);
-      ctx.fillStyle = '#005000';
-      ctx.fillRect(x + 4, y, TILE_SIZE - 8, TILE_SIZE);
+    case 5: // pipe top left
+      ctx.fillStyle = '#20a020';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#30f030';
+      ctx.fillRect(x, y, TILE, 4);
+      ctx.fillStyle = '#104010';
+      ctx.fillRect(x, y, 4, TILE);
       break;
-    case 5: // hard/used block
+    case 6: // pipe top right
+      ctx.fillStyle = '#20a020';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#30f030';
+      ctx.fillRect(x, y, TILE, 4);
+      break;
+    case 7: // pipe body left
+      ctx.fillStyle = '#20a020';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#104010';
+      ctx.fillRect(x, y, 4, TILE);
+      break;
+    case 8: // pipe body right
+      ctx.fillStyle = '#20a020';
+      ctx.fillRect(x, y, TILE, TILE);
+      break;
+    case 9: // flagpole
       ctx.fillStyle = '#808080';
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(x + 0.5, y + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+      ctx.fillRect(x + 6, y - TILE*3, 4, TILE*3);
+      ctx.fillStyle = '#40e040';
+      ctx.fillRect(x + 2, y - TILE*3, 12, 8); // flag
+      break;
+    case 11: // hard block
+      ctx.fillStyle = '#808080';
+      ctx.fillRect(x, y, TILE, TILE);
       break;
     default:
+      // empty
       break;
   }
 }
 
-function drawBackground(ctx, camX) {
-  // Simple sky gradient already background, we can draw hills/clouds
-  // Clouds
-  ctx.fillStyle = '#fff';
-  const clouds = [[50, 30], [150, 50], [280, 40], [400, 60]];
-  for (let [cx, cy] of clouds) {
-    const sx = cx * TILE_SIZE - camX;
-    ctx.beginPath();
-    ctx.ellipse(sx, cy, 24, 12, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(sx + 14, cy - 4, 18, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(sx - 10, cy - 6, 20, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Hills
-  ctx.fillStyle = '#00a000';
-  ctx.beginPath();
-  ctx.moveTo(100 * TILE_SIZE - camX, LOGICAL_HEIGHT - 32);
-  ctx.lineTo(120 * TILE_SIZE - camX, LOGICAL_HEIGHT - 128);
-  ctx.lineTo(140 * TILE_SIZE - camX, LOGICAL_HEIGHT - 32);
-  ctx.fill();
-  ctx.fillStyle = '#00c000';
-  ctx.beginPath();
-  ctx.moveTo(180 * TILE_SIZE - camX, LOGICAL_HEIGHT - 32);
-  ctx.lineTo(200 * TILE_SIZE - camX, LOGICAL_HEIGHT - 80);
-  ctx.lineTo(220 * TILE_SIZE - camX, LOGICAL_HEIGHT - 32);
-  ctx.fill();
-}
-
-// ======================== GAME LOOP ========================
-function resetGame() {
-  score = 0;
-  coins = 0;
-  timeElapsed = 0;
-  levelComplete = false;
-  gameOver = false;
-  mario = new Mario(32, LOGICAL_HEIGHT - 32);
-  enemies = [];
-  dynamicItems = [];
-  cameraX = 0;
-
-  // Spawn enemies at predefined positions
-  enemies.push(new Enemy(22 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-  enemies.push(new Enemy(40 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-  enemies.push(new Enemy(51 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-  enemies.push(new Enemy(82 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-  enemies.push(new Enemy(120 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-  enemies.push(new Enemy(150 * TILE_SIZE, LOGICAL_HEIGHT - 32));
-}
-
-function checkFlagPole() {
-  // Flag pole at around column 190
-  const flagX = 192 * TILE_SIZE;
-  const mRect = mario.getRect();
-  if (mRect.x + mRect.w > flagX - 8 && mRect.x < flagX + 8 && mRect.y > 0) {
-    levelComplete = true;
-    playFlag();
-    score += 5000;
-  }
-}
-
-function update() {
-  if (levelComplete || gameOver) return;
-
-  // Update Mario
-  mario.update();
-
-  // Update enemies
-  for (let enemy of enemies) {
-    enemy.update();
-  }
-  // Remove dead enemies
-  enemies = enemies.filter(e => !e.dead);
-
-  // Update dynamic items
-  for (let item of dynamicItems) {
-    item.update();
-  }
-  dynamicItems = dynamicItems.filter(i => i.alive);
-
-  // Collisions
-  handleMarioEnemyCollision();
-  handleMarioItemCollision();
-
-  // Check flag
-  checkFlagPole();
-
-  // Time
-  timeElapsed++;
-  if (timeElapsed % 30 === 0 && !levelComplete && !gameOver) {
-    timeLeft = Math.max(0, timeLeft - 1);
-    if (timeLeft <= 0) {
-      mario.dead = true;
-      gameOver = true;
-    }
-  }
-
-  // Camera
-  if (mario.x > LOGICAL_WIDTH / 2) {
-    cameraX = Math.min(mario.x - LOGICAL_WIDTH / 2, WORLD_WIDTH * TILE_SIZE - LOGICAL_WIDTH);
-  } else {
-    cameraX = 0;
-  }
-}
-
-function render() {
-  ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-
-  // Draw background
-  drawBackground(ctx, cameraX);
-
-  // Draw tiles
-  for (let row = 0; row < MAP_DATA_ROWS; row++) {
-    for (let col = 0; col < WORLD_WIDTH; col++) {
-      const tile = map[row][col];
-      if (tile === 0) continue;
-      const sx = col * TILE_SIZE - cameraX;
-      const sy = row * TILE_SIZE;
-      if (sx + TILE_SIZE < 0 || sx > LOGICAL_WIDTH) continue;
-      drawTile(ctx, tile, sx, sy);
-    }
-  }
-
-  // Draw dynamic items
-  for (let item of dynamicItems) {
-    item.draw(ctx, cameraX);
-  }
-
-  // Draw enemies
-  for (let enemy of enemies) {
-    enemy.draw(ctx, cameraX);
-  }
-
-  // Draw Mario
-  mario.draw(ctx, cameraX);
-
-  // Draw flag pole
-  const flagX = 192 * TILE_SIZE - cameraX;
-  ctx.fillStyle = '#888';
-  ctx.fillRect(flagX + 4, 80, 4, LOGICAL_HEIGHT - 80);
-  ctx.fillStyle = '#0f0';
-  ctx.beginPath();
-  ctx.moveTo(flagX + 8, 80);
-  ctx.lineTo(flagX - 8, 92);
-  ctx.lineTo(flagX + 8, 104);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(flagX + 6, 82, 6, 6);
-
-  // UI
-  ctx.fillStyle = '#fff';
-  ctx.font = '8px monospace';
-  ctx.fillText('MARIO', 24, 12);
-  ctx.fillText(score.toString().padStart(6, '0'), 24, 22);
-  ctx.fillText('x' + coins.toString().padStart(2, '0'), 120, 22);
-  ctx.fillText('WORLD', 180, 12);
-  ctx.fillText('1-1', 180, 22);
-  ctx.fillText('TIME', 220, 12);
-  ctx.fillText(timeLeft.toString().padStart(3, '0'), 220, 22);
-
-  if (levelComplete) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-    ctx.fillStyle = '#fff';
-    ctx.font = '16px monospace';
-    ctx.fillText('LEVEL COMPLETE!', 60, 120);
-    ctx.font = '10px monospace';
-    ctx.fillText('Press R to restart', 90, 150);
-  }
-  if (gameOver) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-    ctx.fillStyle = '#fff';
-    ctx.font = '16px monospace';
-    ctx.fillText('GAME OVER', 80, 120);
-    ctx.font = '10px monospace';
-    ctx.fillText('Press R to restart', 90, 150);
-  }
-}
-
-function gameLoop() {
-  update();
-  render();
+// ─── GAME LOOP ───
+function gameLoop(now) {
+  const dt = (now - lastTime) / 1000; // seconds
+  lastTime = now;
+  // Clamp dt to avoid huge jumps
+  const clampedDt = Math.min(dt, 0.05);
+  update(clampedDt);
+  draw();
   requestAnimationFrame(gameLoop);
 }
 
-// Restart key
-window.addEventListener('keydown', function(e) {
-  if (e.code === 'KeyR' && (levelComplete || gameOver)) {
-    resetGame();
-  }
+requestAnimationFrame((t) => {
+  lastTime = t;
+  gameLoop(t);
 });
-
-// Start
-resetGame();
-gameLoop();
 </script>
 </body>
 </html>

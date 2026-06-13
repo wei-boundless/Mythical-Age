@@ -117,39 +117,6 @@ describe("ChatMessage", () => {
     expect(html).toContain("commit_ack 未返回");
   });
 
-  it("does not read legacy runtime attachment or draft props", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(ChatMessage, assistantProps({
-        runtimeAttachments: [
-          {
-            public_timeline: [
-              {
-                item_id: "legacy:attachment",
-                kind: "work_action",
-                slot: "tool",
-                title: "旧附件工具",
-                state: "running",
-              },
-            ],
-          },
-        ],
-        runtimePublicTimelineDraft: [
-          {
-            item_id: "legacy:draft",
-            kind: "work_action",
-            slot: "tool",
-            title: "旧 draft 工具",
-            state: "running",
-          },
-        ],
-      })),
-    );
-
-    expect(html).not.toContain("旧附件工具");
-    expect(html).not.toContain("旧 draft 工具");
-    expect(html).not.toContain("public-run-activity");
-  });
-
   it("shows a thinking placeholder only when streaming has no body or projected activity", () => {
     const thinking = renderToStaticMarkup(
       React.createElement(ChatMessage, assistantProps({

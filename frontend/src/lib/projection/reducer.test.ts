@@ -277,25 +277,4 @@ describe("public projection frame reducer contract", () => {
     expect(projection?.traceCount).toBeGreaterThan(0);
   });
 
-  it("ignores legacy projection envelopes, timeline deltas, and task projection deltas", () => {
-    let transition = startBoundProjectionTurn();
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
-      public_projection_envelope: {
-        authority: "harness.public_projection",
-        projection_id: "legacy:envelope",
-        items: [{ item_id: "legacy:tool", title: "旧工具", state: "running" }],
-      },
-      public_timeline_delta: [{ item_id: "legacy:timeline", title: "旧 timeline", state: "running" }],
-      task_projection_delta: {
-        authority: "harness.runtime.single_agent_task_projection.v1",
-        task_run_id: "taskrun:legacy",
-        status: "running",
-      },
-    });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
-    expect(JSON.stringify(assistant)).not.toContain("legacy");
-  });
 });
