@@ -7902,6 +7902,19 @@ def _record_task_step_summary(
     )
     current = runtime_host.state_index.get_task_run(task_run_id)
     if current is not None:
+        diagnostics_update = _step_summary_diagnostics_update(
+            step=step,
+            status=status,
+            summary=visible_summary,
+            public_progress_note=visible_note,
+            agent_brief_output=visible_brief,
+            public_action_state=public_action_state,
+            current_judgment=visible_judgment,
+            next_action=visible_next_action,
+            completion_status=visible_completion_status,
+            presentation_source=presentation_source,
+            tool_name=tool_name,
+        )
         runtime_host.state_index.upsert_task_run(
             replace(
                 current,
@@ -7909,19 +7922,62 @@ def _record_task_step_summary(
                 latest_event_offset=event.offset,
                 diagnostics={
                     **dict(current.diagnostics or {}),
-                    "latest_step": step,
-                    "latest_step_status": status,
-                    "latest_step_summary": visible_summary,
-                    **({"latest_public_progress_note": visible_note or visible_summary} if (visible_note or visible_summary) else {}),
-                    **({"agent_brief_output": visible_brief} if visible_brief else {}),
-                    **({"latest_public_action_state": public_action_state} if public_action_state else {}),
-                    **({"latest_current_judgment": visible_judgment} if visible_judgment else {}),
-                    **({"latest_next_action": visible_next_action} if visible_next_action else {}),
-                    **({"latest_completion_status": visible_completion_status} if visible_completion_status else {}),
+                    **diagnostics_update,
                 },
             )
         )
     return event.to_dict()
+
+
+def _step_summary_diagnostics_update(
+    *,
+    step: str,
+    status: str,
+    summary: str,
+    public_progress_note: str,
+    agent_brief_output: str,
+    public_action_state: dict[str, Any],
+    current_judgment: str,
+    next_action: str,
+    completion_status: str,
+    presentation_source: str,
+    tool_name: str,
+) -> dict[str, Any]:
+    source = str(presentation_source or "").strip()
+    update: dict[str, Any] = {
+        "latest_step": step,
+        "latest_step_status": status,
+        "latest_step_summary": summary,
+    }
+    if source in {"tool_observation.summary", "system.tool_call_status"}:
+        trace = public_progress_note or agent_brief_output or summary
+        if trace:
+            update["latest_tool_observation_trace"] = trace
+        return update
+    if str(status or "").strip().lower() in {"error", "failed", "blocked", "denied", "canceled", "cancelled", "aborted"}:
+        diagnostic = public_progress_note or agent_brief_output or summary
+        if diagnostic:
+            update["latest_failure_diagnostic"] = diagnostic
+    public_status = public_progress_note or current_judgment or summary
+    if public_status:
+        update["latest_public_status"] = public_status
+        update["latest_public_progress_note"] = public_status
+    if agent_brief_output and tool_name != "agent_todo":
+        update["agent_brief_output"] = agent_brief_output
+    if public_action_state:
+        update["latest_public_action_state"] = public_action_state
+    if current_judgment:
+        update["latest_model_judgment"] = current_judgment
+        update["latest_current_judgment"] = current_judgment
+    if next_action:
+        update["latest_next_action"] = next_action
+    if completion_status:
+        update["latest_completion_status"] = completion_status
+    if tool_name and tool_name not in {"read_file", "search_text", "search_files", "agent_todo", "read_persisted_tool_result"}:
+        material = public_progress_note or agent_brief_output or summary
+        if material:
+            update["latest_material_progress"] = material
+    return update
 
 
 def _model_action_response_diagnostics(response: Any, *, model_selection: dict[str, Any]) -> dict[str, Any]:

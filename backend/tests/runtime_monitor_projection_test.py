@@ -52,7 +52,13 @@ class StateIndexStub:
     def list_recent_task_runs(self, *, limit=80):
         return list(self._task_runs)[: max(1, int(limit or 80))]
 
+    def list_recent_task_run_summaries(self, *, limit=80):
+        return list(self._task_runs)[: max(1, int(limit or 80))]
+
     def list_session_task_runs(self, session_id):
+        return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
+
+    def list_session_task_run_summaries(self, session_id):
         return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
 
     def get_task_run(self, task_run_id):
@@ -341,6 +347,39 @@ def test_run_monitor_projects_active_turn_as_primary_signal():
     delete_action = next(item for item in monitor["primary"][0]["actions"] if item["action"] == "delete_record")
     assert clear_action["enabled"] is False
     assert delete_action["enabled"] is False
+
+
+def test_run_monitor_global_collection_uses_state_index_summaries():
+    now = time.time()
+
+    class SummaryOnlyStateIndex:
+        def list_recent_task_run_summaries(self, *, limit=80):
+            return [
+                task_run(
+                    task_run_id="taskrun:summary",
+                    session_id="session-summary",
+                    task_id="task.summary",
+                    status="running",
+                    created_at=now - 5,
+                    updated_at=now,
+                    diagnostics={"latest_step_summary": "轻量摘要"},
+                )
+            ][:limit]
+
+        def list_recent_task_runs(self, *, limit=80):
+            raise AssertionError("global monitor must read task run summaries, not full task runs")
+
+    runtime_host = SimpleNamespace(
+        state_index=SummaryOnlyStateIndex(),
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.collect_global_runtime_monitor(limit=20)
+
+    assert monitor["signals"][0]["signal_id"] == "taskrun:summary"
+    assert monitor["signals"][0]["line"] == "运行中"
 
 
 def test_run_monitor_waiting_state_wins_over_running_bucket_residue():
@@ -1258,6 +1297,78 @@ def test_project_task_run_exposes_monitor_progress_without_backend_public_timeli
     assert item["latest_progress"]["summary"] == "我先确认当前反馈链路，再收敛到单一页面投影。"
     assert "public_timeline" not in item
     assert "task_projection" not in item
+
+
+def test_system_tool_status_does_not_become_monitor_public_progress():
+    event = EventStub(
+        event_type="step_summary_recorded",
+        created_at=125.0,
+        payload={
+            "step": "task_tool_batch_started:1",
+            "status": "running",
+            "summary": "执行 2 个工具调用：搜索文件 mario、读取文件 mario.html。",
+            "presentation_source": "system.tool_call_status",
+            "tool_status": "执行 2 个工具调用：搜索文件 mario、读取文件 mario.html。",
+        },
+    )
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": [event]}))
+
+    item = projector.project_task_run(task_run(), now=150.0)
+
+    assert item["latest_public_progress_note"] == ""
+    assert item["latest_step_summary"] == ""
+    assert item["latest_progress"]["summary"] == ""
+    assert item["latest_progress"]["tool_status"] == "执行 2 个工具调用：搜索文件 mario、读取文件 mario.html。"
+    assert item["latest_step"]["summary"] == "执行 2 个工具调用：搜索文件 mario、读取文件 mario.html。"
+    assert item["latest_step"]["presentation_source"] == "system.tool_call_status"
+
+
+def test_tool_observation_trace_does_not_replace_previous_public_monitor_progress():
+    events = [
+        EventStub(
+            event_type="step_summary_recorded",
+            created_at=120.0,
+            offset=1,
+            payload={
+                "step": "model_action_received:2",
+                "status": "running",
+                "summary": "已确认修复计划，下一步开始修改 mario.html。",
+                "presentation_source": "model_action.public_action_state",
+                "public_action_state": {
+                    "current_judgment": "已确认修复计划，下一步开始修改 mario.html。",
+                    "next_action": "执行第一项火球机制修复。",
+                    "completion_status": "working",
+                },
+            },
+        ),
+        EventStub(
+            event_type="step_summary_recorded",
+            created_at=125.0,
+            offset=2,
+            payload={
+                "step": "task_tool_observation_recorded:2",
+                "status": "running",
+                "summary": "File unchanged for storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md:1-48; content omitted.",
+                "agent_brief_output": "File unchanged for storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md:1-48; content omitted.",
+                "presentation_source": "tool_observation.summary",
+            },
+        ),
+    ]
+    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
+
+    item = projector.project_task_run(task_run(updated_at=125.0), now=150.0)
+
+    assert item["latest_public_progress_note"] == "已确认修复计划，下一步开始修改 mario.html。"
+    assert item["latest_step_summary"] == "已确认修复计划，下一步开始修改 mario.html。"
+    assert item["latest_progress"]["summary"] == "已确认修复计划，下一步开始修改 mario.html。"
+    assert item["latest_progress"]["current_judgment"] == "已确认修复计划，下一步开始修改 mario.html。"
+    assert item["latest_progress"]["next_action"] == "执行第一项火球机制修复。"
+    assert item["latest_progress"]["completion_status"] == "working"
+    assert item["latest_progress"]["agent_brief"] == ""
+    assert item["agent_brief_output"] == ""
+    assert item["latest_step"]["presentation_source"] == "tool_observation.summary"
+    assert item["latest_step"]["agent_brief_output"] == ""
+    assert item["latest_step"]["summary"].startswith("File unchanged for")
 
 
 def test_project_task_run_exposes_session_output_commit_ack_from_event_log():

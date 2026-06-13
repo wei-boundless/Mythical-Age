@@ -34,10 +34,15 @@ const TOTAL_TIME = 250; // seconds
 // Game state
 let coins = 0;
 let score = 0;
+let lives = 3;
 let timeLeft = TOTAL_TIME;
 let gameStartTime = Date.now();
 let levelComplete = false;
 let gameOver = false;
+let deathAnimating = false;
+let deathTimer = 0;
+const DEATH_BOUNCE_VY = -5;
+const DEATH_DURATION = 90;
 
 // Mario
 let mario = {
@@ -57,6 +62,12 @@ let enemies = [];
 
 // Particles / effects
 let effects = [];
+
+// Bouncing blocks animation
+let bouncingBlocks = [];
+
+// Brick break particles
+let brickParticles = [];
 
 // Flag
 let flagPole = { x: 0, y: 0, reached: false };
@@ -348,49 +359,66 @@ function checkTileCollision(entity) {
 
 // Question block hit
 function hitBlock(col, row, fromBelow) {
-  const tile = levelData[row][col];
-  if (tile === QUESTION || tile === HIDDEN_BRICK) {
-    levelData[row][col] = BRICK; // become used block
-    // Spawn coin or powerup
-    if (tile === HIDDEN_BRICK) {
-      // Hidden block gives coin
-      coins++;
-      score += 200;
-      effects.push({ x: col * TILE + TILE/2, y: row * TILE - 8, vy: -2, life: 20, text: '200' });
-    } else if (col === 16 || col === 106 || col === 109 || col === 131 || col === 168 || col === 169 || col === 170) {
-      // Coin
-      coins++;
-      score += 200;
-      effects.push({ x: col * TILE + TILE/2, y: row * TILE - 8, vy: -2, life: 20, text: '200' });
-    } else {
-      // Mushroom (makes Mario big)
-      if (!mario.big) {
-        // Spawn mushroom item
-        enemies.push(createMushroom(col * TILE, row * TILE - 16));
-      } else {
-        // Give coin if already big
-        coins++;
-        score += 200;
-        effects.push({ x: col * TILE + TILE/2, y: row * TILE - 8, vy: -2, life: 20, text: '200' });
-      }
-    }
+  const tile = levelData[row] ? levelData[row][col] : EMPTY;
+  if (tile !== QUESTION && tile !== HIDDEN_BRICK) return false;
+  
+  // Mark as used
+  levelData[row][col] = BRICK;
+  
+  // Bounce animation (#10)
+  bouncingBlocks.push({
+    col, row,
+    baseY: row * TILE,
+    bounceY: 0,
+    bounceVy: -3,
+    bounceTimer: 15
+  });
+  
+  const cx = col * TILE + TILE / 2;
+  const cy = row * TILE;
+  
+  if (tile === HIDDEN_BRICK) {
+    // Hidden block always gives coin
+    coins++;
+    score += 200;
+    effects.push({ x: cx, y: cy - 8, vy: -2, life: 20, text: '200' });
     return true;
   }
-  return false;
+  
+  // Random reward (#5): coin 40%, mushroom 50%, 1-UP 10%
+  const roll = Math.random();
+  
+  if (roll < 0.4) {
+    // Coin
+    coins++;
+    score += 200;
+    effects.push({ x: cx, y: cy - 8, vy: -2, life: 20, text: '200' });
+  } else if (roll < 0.9) {
+    // Mushroom (red) - with bounce physics (#4)
+    spawnMushroom(col, row, 'red');
+  } else {
+    // 1-UP Mushroom (green)
+    spawnMushroom(col, row, '1up');
+  }
+  return true;
 }
 
-function createMushroom(x, y) {
-  return {
-    type: 'mushroom',
-    x, y,
+function spawnMushroom(col, row, kind) {
+  const cx = col * TILE + TILE / 2;
+  const cy = row * TILE - 16;
+  enemies.push({
+    type: kind === '1up' ? 'oneUpMushroom' : 'mushroom',
+    x: cx - 8, y: cy,
     vx: 1.2,
-    vy: -3,
+    vy: -4,
     width: 16, height: 16,
     alive: true,
     onGround: false,
     direction: 1,
-    animTimer: 0
-  };
+    animTimer: 0,
+    spawnY: cy,
+    bouncing: true
+  });
 }
 
 // Update
@@ -500,8 +528,8 @@ function update() {
   // Bounds
   if (mario.x < 0) { mario.x = 0; mario.vx = 0; }
   if (mario.x > (LEVEL_WIDTH * TILE) - mario.width) mario.x = (LEVEL_WIDTH * TILE) - mario.width;
-  if (mario.y > H) {
-    gameOver = true; // Fallen off
+  if (mario.y > H && !deathAnimating) {
+    startDeath(); // Fallen off (#11)
   }
   
   // Camera follow

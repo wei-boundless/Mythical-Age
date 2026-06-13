@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from harness.loop.presentation import final_answer_event
 from harness.loop.task_executor import _commit_task_run_final_message
 from memory_system.continuity import MemoryMessageAdapter
+from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from runtime.output_boundary import canonical_output_decision_for_final_text
 
 
@@ -42,6 +43,42 @@ def test_final_text_boundary_blocks_active_work_control_json() -> None:
     assert decision.canonical_state == "missing_answer"
     assert decision.persist_policy == "do_not_persist"
     assert "internal_protocol_final_text" in decision.leak_flags
+
+
+def test_final_text_boundary_blocks_runtime_protocol_disclosure() -> None:
+    decision = canonical_output_decision_for_final_text(
+        (
+            "没有真的断开。上一轮输出因为格式协议问题被系统拦截了——这是会话框架的刚性约束，不是服务崩溃或代码报错。\n\n"
+            "你当前打开的 `mario.html` 已经有一些落地改动。"
+        ),
+        answer_channel="conversation",
+        answer_source="test.final_text",
+    )
+
+    assert decision.canonical_state == "missing_answer"
+    assert decision.persist_policy == "do_not_persist"
+    assert "runtime_protocol_disclosure_final_text" in decision.leak_flags
+    assert "internal_protocol_final_text" in decision.leak_flags
+
+
+def test_commit_gate_blocks_answer_with_leak_flags_even_if_marked_stable() -> None:
+    decision = build_assistant_session_message_commit_decision(
+        session_id="session:test",
+        task_run_id="",
+        task_id="",
+        turn_id="turn:session:test:1",
+        content="用户可见文本。",
+        answer_channel="conversation",
+        answer_source="test",
+        answer_canonical_state="stable_answer",
+        answer_persist_policy="persist_canonical",
+        answer_leak_flags=["runtime_protocol_disclosure_final_text"],
+    )
+
+    assert decision.commit_allowed is False
+    assert decision.reason == "answer_leak_not_committable"
+    assert decision.commit_candidate.payload["answer_leak_flags"] == ["runtime_protocol_disclosure_final_text"]
+    assert decision.diagnostics["answer_leak_blocked"] is True
 
 
 def test_task_control_text_is_debug_only_not_canonical_memory() -> None:

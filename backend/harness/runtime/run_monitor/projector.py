@@ -25,6 +25,12 @@ from .lifecycle import (
 )
 
 
+TRACE_ONLY_PRESENTATION_SOURCES = {
+    "system.tool_call_status",
+    "tool_observation.summary",
+}
+
+
 class RuntimeMonitorProjector:
     def __init__(
         self,
@@ -63,6 +69,7 @@ class RuntimeMonitorProjector:
         session_output_commit = _session_output_commit_state(events, diagnostics=diagnostics, task_run=task_run)
         latest_event = _public_runtime_event(events[-1]) if events else {}
         latest_step = self._latest_step_summary(events) if include_runtime_details else self._latest_step_from_diagnostics(diagnostics)
+        latest_public_step = self._latest_public_step_summary(events) if include_runtime_details else latest_step
         latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=diagnostics) if include_runtime_details else str(diagnostics.get("latest_interaction_turn_id") or diagnostics.get("turn_id") or "")
         event_count = self._event_count(task_run_id, events=events) if include_runtime_details else int(diagnostics.get("event_count") or 0)
         created_at = float(getattr(task_run, "created_at", 0.0) or 0.0)
@@ -119,15 +126,32 @@ class RuntimeMonitorProjector:
             latest_step=latest_step,
             last_activity_age_seconds=last_activity_age_seconds,
         )
-        agent_brief = public_runtime_progress_summary(latest_step.get("agent_brief_output") or diagnostics.get("agent_brief_output") or "")
+        agent_brief = public_runtime_progress_summary(latest_public_step.get("agent_brief_output") or "")
         artifact_refs = dedupe_artifact_refs(
             [
                 *[dict(item) for item in list(diagnostics.get("artifact_refs") or []) if isinstance(item, dict)],
                 *(_artifact_refs_from_event_log(self.event_log, task_run_id) if include_runtime_details else []),
             ]
         )
-        summary = diagnostic_summary or agent_brief or public_runtime_progress_summary(latest_step.get("summary") or diagnostics.get("latest_step_summary") or "")
-        latest_public_progress_note = summary
+        diagnostic_public_progress = public_runtime_progress_summary(
+            diagnostics.get("latest_public_progress_note")
+            or diagnostics.get("latest_current_judgment")
+            or ""
+        )
+        public_step_summary = public_runtime_progress_summary(
+            latest_public_step.get("summary")
+            or latest_public_step.get("public_progress_note")
+            or latest_public_step.get("current_judgment")
+            or ""
+        )
+        public_step_note = public_runtime_progress_summary(
+            latest_public_step.get("public_progress_note")
+            or latest_public_step.get("current_judgment")
+            or latest_public_step.get("summary")
+            or ""
+        )
+        summary = diagnostic_summary or agent_brief or public_step_summary or diagnostic_public_progress
+        latest_public_progress_note = diagnostic_summary or public_step_note or diagnostic_public_progress or summary
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
@@ -160,9 +184,13 @@ class RuntimeMonitorProjector:
         latest_progress = {
             "tool_status": str(latest_step.get("tool_status") or diagnostics.get("latest_tool_status") or ""),
             "observation": "",
-            "current_judgment": public_runtime_progress_summary("" if diagnostic_summary else latest_step.get("current_judgment") or ""),
-            "next_action": public_runtime_progress_summary("" if diagnostic_summary else latest_step.get("next_action") or ""),
-            "completion_status": str(latest_step.get("completion_status") or ""),
+            "current_judgment": public_runtime_progress_summary(
+                "" if diagnostic_summary else latest_public_step.get("current_judgment") or diagnostics.get("latest_current_judgment") or ""
+            ),
+            "next_action": public_runtime_progress_summary(
+                "" if diagnostic_summary else latest_public_step.get("next_action") or diagnostics.get("latest_next_action") or ""
+            ),
+            "completion_status": str(latest_public_step.get("completion_status") or diagnostics.get("latest_completion_status") or ""),
             "open_risks": [],
             "evidence_refs": [],
             "summary": summary,
@@ -1007,34 +1035,16 @@ class RuntimeMonitorProjector:
         for event in reversed(events):
             if str(getattr(event, "event_type", "") or "") != "step_summary_recorded":
                 continue
-            payload = dict(getattr(event, "payload", {}) or {})
-            public_action_state = dict(payload.get("public_action_state") or {})
-            return {
-                "step": str(payload.get("step") or ""),
-                "status": str(payload.get("status") or ""),
-                "summary": public_runtime_progress_summary(payload.get("summary") or ""),
-                "public_progress_note": public_runtime_progress_summary(payload.get("public_progress_note") or payload.get("summary") or ""),
-                "agent_brief_output": public_runtime_progress_summary(payload.get("agent_brief_output") or ""),
-                "tool_status": public_runtime_progress_summary(payload.get("tool_status") or ""),
-                "observation": public_runtime_progress_summary(payload.get("observation") or ""),
-                "current_judgment": public_runtime_progress_summary(
-                    payload.get("current_judgment")
-                    or public_action_state.get("current_judgment")
-                    or ""
-                ),
-                "next_action": public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or ""),
-                "completion_status": str(
-                    payload.get("completion_status")
-                    or public_action_state.get("completion_status")
-                    or ""
-                ).strip(),
-                "open_risks": list(public_action_state.get("open_risks") or []),
-                "evidence_refs": list(public_action_state.get("evidence_refs") or []),
-                "presentation_source": str(payload.get("presentation_source") or ""),
-                "event_id": str(getattr(event, "event_id", "") or ""),
-                "offset": int(getattr(event, "offset", -1) or -1),
-                "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
-            }
+            return _step_summary_from_event(event)
+        return {}
+
+    def _latest_public_step_summary(self, events: list[Any]) -> dict[str, Any]:
+        for event in reversed(events):
+            if str(getattr(event, "event_type", "") or "") != "step_summary_recorded":
+                continue
+            step = _step_summary_from_event(event)
+            if _is_public_progress_step(step):
+                return step
         return {}
 
     def _latest_step_from_diagnostics(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -1045,8 +1055,6 @@ class RuntimeMonitorProjector:
             "public_progress_note": public_runtime_progress_summary(
                 diagnostics.get("latest_public_progress_note")
                 or diagnostics.get("public_progress_note")
-                or diagnostics.get("latest_step_summary")
-                or diagnostics.get("summary")
                 or ""
             ),
             "agent_brief_output": public_runtime_progress_summary(diagnostics.get("agent_brief_output") or ""),
@@ -1472,6 +1480,54 @@ def _public_runtime_event(event: Any) -> dict[str, Any]:
         "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
         **({"payload": public_payload} if public_payload else {}),
     }
+
+
+def _step_summary_from_event(event: Any) -> dict[str, Any]:
+    payload = dict(getattr(event, "payload", {}) or {})
+    public_action_state = dict(payload.get("public_action_state") or {})
+    presentation_source = str(payload.get("presentation_source") or "")
+    trace_only = presentation_source in TRACE_ONLY_PRESENTATION_SOURCES
+    public_summary = "" if presentation_source in TRACE_ONLY_PRESENTATION_SOURCES else payload.get("summary")
+    return {
+        "step": str(payload.get("step") or ""),
+        "status": str(payload.get("status") or ""),
+        "summary": public_runtime_progress_summary(payload.get("summary") or ""),
+        "public_progress_note": public_runtime_progress_summary(payload.get("public_progress_note") or public_summary or ""),
+        "agent_brief_output": "" if trace_only else public_runtime_progress_summary(payload.get("agent_brief_output") or ""),
+        "tool_status": public_runtime_progress_summary(payload.get("tool_status") or ""),
+        "observation": public_runtime_progress_summary(payload.get("observation") or ""),
+        "current_judgment": public_runtime_progress_summary(
+            payload.get("current_judgment")
+            or public_action_state.get("current_judgment")
+            or ""
+        ),
+        "next_action": public_runtime_progress_summary(payload.get("next_action") or public_action_state.get("next_action") or ""),
+        "completion_status": str(
+            payload.get("completion_status")
+            or public_action_state.get("completion_status")
+            or ""
+        ).strip(),
+        "open_risks": list(public_action_state.get("open_risks") or []),
+        "evidence_refs": list(public_action_state.get("evidence_refs") or []),
+        "presentation_source": presentation_source,
+        "event_id": str(getattr(event, "event_id", "") or ""),
+        "offset": int(getattr(event, "offset", -1) or -1),
+        "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+    }
+
+
+def _is_public_progress_step(step: dict[str, Any]) -> bool:
+    if str(step.get("presentation_source") or "") in TRACE_ONLY_PRESENTATION_SOURCES:
+        return False
+    return bool(
+        public_runtime_progress_summary(
+            step.get("public_progress_note")
+            or step.get("current_judgment")
+            or step.get("next_action")
+            or step.get("summary")
+            or ""
+        )
+    )
 
 
 def _public_event_payload(payload: dict[str, Any]) -> dict[str, Any]:

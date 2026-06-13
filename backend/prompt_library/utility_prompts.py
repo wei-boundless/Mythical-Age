@@ -77,6 +77,8 @@ SINGLE_AGENT_PROTOCOL_REPAIR_PROMPT = (
     "你只负责把上一轮模型输出修复为当前允许的合法动作。\n"
     "你不能执行动作，不能扩写用户目标，不能引入新需求。\n"
     "上一轮输出违反了运行协议。请根据用户当前请求、运行边界和允许动作，只输出一个 JSON 对象。\n"
+    "协议错误、修复原因、错误码、JSON/action schema、工具传输方式、系统拦截或会话框架约束只用于你修复动作，不能写入 final_answer、user_question、blocking_reason、public_progress_note 或 public_action_state。\n"
+    "如果选择 respond、ask_user 或 block，用户可见字段只能自然说明用户目标、问题、阻塞或下一步选择，不得解释协议修复过程。\n"
     "禁止输出解释文字，禁止 Markdown，禁止多个控制动作。"
 )
 

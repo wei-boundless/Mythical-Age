@@ -131,6 +131,39 @@ def test_system_tool_batch_step_summary_stays_trace_only() -> None:
     assert frame["retention"] == "trace"
 
 
+def test_runtime_stage_status_uses_stable_task_item_id() -> None:
+    first = _frame(
+        "runtime_step_summary",
+        {
+            "runtime_event_id": "event:stage:1",
+            "source_task_event_offset": 10,
+            "task_run_id": "taskrun:stage",
+            "step": "model_action_received:1",
+            "status": "running",
+            "presentation_source": "model_action.current_judgment",
+            "current_judgment": "已确认目标文件完整可用。",
+        },
+    )
+    second = _frame(
+        "runtime_step_summary",
+        {
+            "runtime_event_id": "event:stage:2",
+            "source_task_event_offset": 20,
+            "task_run_id": "taskrun:stage",
+            "step": "model_action_received:2",
+            "status": "running",
+            "presentation_source": "model_action.current_judgment",
+            "current_judgment": "开始执行精确修改。",
+        },
+    )
+
+    assert first["op"] == "item_upsert"
+    assert first["slot"] == "status"
+    assert first["status_kind"] == "public_stage_status"
+    assert second["item_id"] == first["item_id"]
+    assert second["trace_refs"]
+
+
 def test_raw_tool_started_without_permission_is_hidden_protocol_diagnostic() -> None:
     frame = _frame(
         TOOL_ITEM_STARTED_EVENT,

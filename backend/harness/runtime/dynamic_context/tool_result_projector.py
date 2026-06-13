@@ -119,9 +119,12 @@ class ToolResultProjector:
             {
                 "tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
                 "tool_name": str(normalized.get("tool_name") or ""),
+                "tool_call_id": str(normalized.get("tool_call_id") or ""),
+                "action_request_id": str(normalized.get("action_request_id") or ""),
                 "status": str(normalized.get("status") or ("error" if error else "ok")),
                 "preview": preview,
                 "result_ref": result_ref,
+                "todo_plan": _todo_plan_projection(normalized),
                 "structured_error": structured_error_projection(structured_error),
                 "error": compact_text(error, limit=500),
                 "artifact_refs": model_visible_artifact_refs(normalized.get("artifact_refs")),
@@ -221,6 +224,8 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
             "tool_result_ref": str(item.get("tool_result_ref") or item.get("observation_id") or ""),
             "envelope_id": str(envelope.get("envelope_id") or ""),
             "tool_name": _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or ""),
+            "tool_call_id": str(envelope.get("tool_call_id") or item.get("tool_call_id") or parsed_text.get("tool_call_id") or ""),
+            "action_request_id": str(envelope.get("action_request_id") or item.get("action_request_id") or parsed_text.get("action_request_id") or ""),
             "tool_args": dict(envelope.get("tool_args") or item.get("tool_args") or {}),
             "status": status or ("error" if error or structured_error else "ok"),
             "text": str(text or ""),
@@ -239,6 +244,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
             "result_ref": str(envelope.get("result_ref") or item.get("result_ref") or parsed_text.get("result_ref") or ""),
             "code_structure": dict(envelope.get("code_structure") or item.get("code_structure") or parsed_text.get("code_structure") or structured.get("code_structure") or {}),
             "content_range": dict(result_metadata.get("content_range") or {}),
+            "todo_plan": _todo_plan_from_parsed_text(parsed_text, envelope=envelope, item=item),
             "error": error,
         }
     )
@@ -290,11 +296,69 @@ def _read_file_metadata_from_structured(
             "has_more": bool(source.get("has_more") or source.get("truncated")),
             "truncated": bool(source.get("truncated") or source.get("has_more")),
             "content_sha256": str(source.get("content_sha256") or "").strip(),
+            "file_unchanged": source.get("file_unchanged") if isinstance(source.get("file_unchanged"), bool) else None,
+            "content_omitted": source.get("content_omitted") if isinstance(source.get("content_omitted"), bool) else None,
+            "previous_observation_ref": str(source.get("previous_observation_ref") or "").strip(),
+            "reusable_result_ref": str(source.get("reusable_result_ref") or source.get("previous_observation_ref") or "").strip(),
         }
     )
     if not content_range:
         return {}
     return {"content_range": content_range}
+
+
+def _todo_plan_from_parsed_text(
+    parsed_text: dict[str, Any],
+    *,
+    envelope: dict[str, Any],
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    tool_name = _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or "")
+    if tool_name != "agent_todo":
+        return {}
+    if str(parsed_text.get("status") or "") == "error":
+        return {}
+    if not isinstance(parsed_text.get("items"), list):
+        return {}
+    return _todo_plan_projection({"todo_plan": parsed_text})
+
+
+def _todo_plan_projection(normalized: dict[str, Any]) -> dict[str, Any]:
+    source = dict(normalized.get("todo_plan") or {})
+    if not source and _normalized_tool_name(normalized.get("tool_name")) == "agent_todo":
+        parsed = _parse_json_object(normalized.get("text"))
+        if isinstance(parsed.get("items"), list):
+            source = parsed
+    if not source:
+        return {}
+    items: list[dict[str, Any]] = []
+    for item in dict_tuple(source.get("items"))[:40]:
+        todo_id = str(item.get("todo_id") or "").strip()
+        if not todo_id:
+            continue
+        items.append(
+            drop_empty(
+                {
+                    "todo_id": todo_id,
+                    "content": compact_text(item.get("content") or "", limit=180),
+                    "active_form": compact_text(item.get("active_form") or "", limit=120),
+                    "status": str(item.get("status") or ""),
+                    "notes": compact_text(item.get("notes") or "", limit=180),
+                    "evidence_expectations": [str(value) for value in list(item.get("evidence_expectations") or []) if str(value).strip()],
+                    "contract_refs": [str(value) for value in list(item.get("contract_refs") or []) if str(value).strip()],
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "plan_id": str(source.get("plan_id") or ""),
+            "active_item_id": str(source.get("active_item_id") or ""),
+            "completion_ready": source.get("completion_ready") if isinstance(source.get("completion_ready"), bool) else None,
+            "items": items,
+            "allowed_operations": ["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"],
+            "authority": "agent.todo_plan",
+        }
+    )
 
 
 def _build_rehydration_plan(

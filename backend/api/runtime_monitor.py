@@ -51,6 +51,14 @@ async def _collect_global_runtime_monitor(service: Any, *, limit: int) -> dict[s
     return await asyncio.to_thread(service.collect_global_runtime_monitor, limit=limit)
 
 
+def _stream_poll_interval(value: float | int | None) -> float:
+    try:
+        parsed = float(value if value is not None else 2.0)
+    except (TypeError, ValueError):
+        parsed = 2.0
+    return max(0.5, min(parsed, 15.0))
+
+
 @router.get("/orchestration/runtime-monitor")
 async def list_runtime_monitor(limit: int = 30) -> dict[str, Any]:
     return await _collect_global_runtime_monitor(_service(), limit=limit)
@@ -78,40 +86,59 @@ async def execute_runtime_monitor_action(payload: RuntimeMonitorActionRequest) -
 
 
 @router.get("/orchestration/runtime-monitor/events")
-async def stream_runtime_monitor_events(request: Request, limit: int = 40):
+async def stream_runtime_monitor_events(request: Request, limit: int = 40, poll_interval_seconds: float = 2.0):
     service = _service()
     requested_limit = max(1, min(int(limit or 40), 100))
-    initial_monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
-    initial_updated_at = time.time()
+    poll_interval = _stream_poll_interval(poll_interval_seconds)
 
     async def event_generator():
         yield _sse(
-            "runtime_monitor_snapshot",
+            "runtime_monitor_heartbeat",
             {
-                "monitor": initial_monitor,
-                "source": "initial",
-                "updated_at": initial_updated_at,
+                "updated_at": time.time(),
+                "source": "connected",
             },
         )
+        last_revision = ""
+        snapshot_source = "initial"
         while not await request.is_disconnected():
-            await asyncio.sleep(15.0)
-            if await request.is_disconnected():
-                break
-            yield _sse(
-                "runtime_monitor_snapshot",
-                {
-                    "monitor": await _collect_global_runtime_monitor(service, limit=requested_limit),
-                    "source": "poll",
-                    "updated_at": time.time(),
-                },
-            )
-            yield _sse(
-                "runtime_monitor_heartbeat",
-                {
-                    "updated_at": time.time(),
-                    "source": "heartbeat",
-                },
-            )
+            started_at = time.time()
+            try:
+                monitor = await _collect_global_runtime_monitor(service, limit=requested_limit)
+            except Exception as exc:
+                yield _sse(
+                    "runtime_monitor_error",
+                    {
+                        "updated_at": time.time(),
+                        "source": "poll",
+                        "error": str(exc),
+                    },
+                )
+                await _sleep_until_next_poll(request, poll_interval=poll_interval, started_at=started_at)
+                continue
+            revision = str(monitor.get("revision") or monitor.get("updated_at") or "")
+            if revision and revision == last_revision:
+                yield _sse(
+                    "runtime_monitor_heartbeat",
+                    {
+                        "updated_at": time.time(),
+                        "source": "unchanged",
+                        "revision": revision,
+                    },
+                )
+            else:
+                last_revision = revision
+                yield _sse(
+                    "runtime_monitor_snapshot",
+                    {
+                        "monitor": monitor,
+                        "source": snapshot_source,
+                        "updated_at": time.time(),
+                    },
+                    event_id=revision,
+                )
+                snapshot_source = "poll"
+            await _sleep_until_next_poll(request, poll_interval=poll_interval, started_at=started_at)
 
     return StreamingResponse(
         event_generator(),
@@ -122,6 +149,16 @@ async def stream_runtime_monitor_events(request: Request, limit: int = 40):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _sleep_until_next_poll(request: Request, *, poll_interval: float, started_at: float) -> None:
+    remaining = max(0.0, float(poll_interval) - (time.time() - float(started_at)))
+    while remaining > 0:
+        if await request.is_disconnected():
+            return
+        delay = min(0.25, remaining)
+        await asyncio.sleep(delay)
+        remaining -= delay
 
 
 @router.get("/orchestration/runtime-monitor/sessions/{session_id}")

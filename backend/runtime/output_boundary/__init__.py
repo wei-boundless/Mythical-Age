@@ -6,6 +6,7 @@ from .boundary import (
     canonical_output_decision_for_final_text,
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
+    contains_runtime_protocol_disclosure,
     sanitize_visible_assistant_content,
 )
 from .classifier import (
@@ -41,6 +42,7 @@ __all__ = [
     "classify_output_candidate",
     "contains_inline_pseudo_tool_call",
     "contains_internal_protocol",
+    "contains_runtime_protocol_disclosure",
     "looks_like_procedural_promise_text",
     "looks_like_progress_text",
     "looks_like_tool_claim_without_receipt",

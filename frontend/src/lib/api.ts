@@ -253,6 +253,7 @@ export type PublicProjectionItem = {
   title?: string;
   detail?: string;
   state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
+  statusKind?: string;
   sourceAuthority?: "model" | "tool" | "runtime" | "system" | string;
   mainVisibility?: "visible_live" | "visible_final" | "pinned" | "trace_only" | "hidden" | string;
   retention?: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
@@ -344,6 +345,7 @@ export type PublicProjectionFrame = {
   text?: string;
   detail?: string;
   state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
+  status_kind?: string;
   tool_name?: string;
   tool_lifecycle_id?: string;
   action_kind?: string;

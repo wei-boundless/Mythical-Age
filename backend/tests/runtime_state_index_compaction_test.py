@@ -134,6 +134,43 @@ def test_state_index_update_task_run_applies_single_locked_record_update(tmp_pat
     assert stored.diagnostics["approval_state"]["status"] == "consumed"
 
 
+def test_state_index_monitor_summaries_do_not_load_heavy_task_records(tmp_path, monkeypatch) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:heavy-monitor",
+            session_id="session:monitor",
+            task_id="task.monitor",
+            status="waiting_executor",
+            updated_at=20,
+            diagnostics={
+                "contract": {
+                    "user_visible_goal": "保留给 monitor 的公开目标",
+                    "large_private_contract": ["x"] * 10000,
+                },
+                "latest_step_summary": "等待继续",
+                "runtime_control": {"state": "paused", "reason": "user"},
+            },
+        )
+    )
+
+    original_read_record = state_index._read_record
+
+    def fail_heavy_task_read(bucket: str, record_id: str) -> dict[str, object]:
+        if bucket == "task_runs":
+            raise AssertionError("monitor summary path must not load full task_run records")
+        return original_read_record(bucket, record_id)
+
+    monkeypatch.setattr(state_index, "_read_record", fail_heavy_task_read)
+
+    [summary] = state_index.list_recent_task_run_summaries(limit=10)
+
+    assert summary.task_run_id == "taskrun:heavy-monitor"
+    assert summary.diagnostics["contract"] == {"user_visible_goal": "保留给 monitor 的公开目标"}
+    assert "large_private_contract" not in str(summary.diagnostics)
+    assert summary.diagnostics["latest_step_summary"] == "等待继续"
+
+
 def test_state_index_prunes_task_run_records_and_rebuilds_indexes(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
     state_index.upsert_task_run(TaskRun(task_run_id="taskrun:keep", session_id="session", task_id="task.keep", updated_at=20))

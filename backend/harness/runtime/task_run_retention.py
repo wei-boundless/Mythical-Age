@@ -58,7 +58,7 @@ class TaskRunLifecycleRetention:
         if state_index is None or not callable(getattr(state_index, "update_task_run", None)):
             return self._empty_result(reason="state_index_update_unavailable")
         current_time = time.time() if now is None else float(now)
-        task_runs = list(getattr(state_index, "list_recent_task_runs", lambda **_: [])(limit=max(1, int(limit or 240))) or [])
+        task_runs = self._recent_task_runs_for_sweep(state_index, limit=max(1, int(limit or 240)))
         results: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
         for task_run in task_runs:
@@ -347,6 +347,9 @@ class TaskRunLifecycleRetention:
             "skipped_reasons": [{"reason": reason}],
             "updated_at": time.time(),
         }
+
+    def _recent_task_runs_for_sweep(self, state_index: Any, *, limit: int) -> list[Any]:
+        return list(state_index.list_recent_task_run_summaries(limit=limit) or [])
 
 
 class EphemeralRuntimeCacheReleaser:

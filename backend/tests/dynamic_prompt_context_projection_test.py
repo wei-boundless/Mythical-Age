@@ -617,6 +617,107 @@ def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path)
     assert file_state[0]["status"] == "partial"
     assert file_state[0]["next_suggested_read"]["start_line"] == 16
     assert file_state[0]["evidence_refs"] == ["obs:read-native", "obs:read-native"]
+    progress_facts = volatile_payload["task_state"]["task_progress_facts"]
+    assert progress_facts["files"][0]["path"] == "backend/runtime/tool_runtime/native_tools.py"
+    assert progress_facts["files"][0]["next_missing_ranges"][0] == {"start_line": 1, "end_line": 10}
+    assert progress_facts["files"][0]["next_suggested_read"]["start_line"] == 16
+
+
+def test_task_execution_evidence_ledger_marks_full_file_complete_after_local_reread(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    store = FileStateAuthorityStore(storage_root)
+    for index, (start, end) in enumerate(((1, 200), (201, 440), (441, 680), (681, 957)), start=1):
+        envelope = build_tool_result_envelope(
+            tool_name="read_file",
+            tool_args={"path": "mario.html", "start_line": start, "line_count": end - start + 1},
+            result={
+                "text": f"{start} | window",
+                "structured_payload": {
+                    "observed_paths": ["mario.html"],
+                    "tool_result": {
+                        "kind": "text_file",
+                        "path": "mario.html",
+                        "start_line": start,
+                        "end_line": end,
+                        "returned_lines": end - start + 1,
+                        "line_count": end - start + 1,
+                        "total_lines": 957,
+                        "next_start_line": end + 1 if end < 957 else None,
+                        "has_more": end < 957,
+                        "content_sha256": "sha256:mario",
+                    },
+                },
+            },
+            tool_call_id=f"call:read:{index}",
+            action_request_id=f"rtact:read:{index}",
+            caller_kind="task_run",
+            caller_ref="taskrun:mario-ledger",
+        )
+        store.apply_observation(
+            "taskrun:mario-ledger",
+            {"observation_id": f"obs:read:{index}", "payload": {"result_envelope": envelope.to_dict()}},
+        )
+    local_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "mario.html", "start_line": 320, "line_count": 90},
+        result={
+            "text": "320 | local",
+            "structured_payload": {
+                "observed_paths": ["mario.html"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "mario.html",
+                    "start_line": 320,
+                    "end_line": 409,
+                    "returned_lines": 90,
+                    "line_count": 90,
+                    "total_lines": 957,
+                    "next_start_line": 410,
+                    "has_more": True,
+                    "content_sha256": "sha256:mario",
+                },
+            },
+        },
+        tool_call_id="call:read:local",
+        action_request_id="rtact:read:local",
+        caller_kind="task_run",
+        caller_ref="taskrun:mario-ledger",
+    )
+    store.apply_observation(
+        "taskrun:mario-ledger",
+        {"observation_id": "obs:read:local", "payload": {"result_envelope": local_envelope.to_dict()}},
+    )
+
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:mario-ledger",
+        task_run={"task_run_id": "taskrun:mario-ledger", "diagnostics": {"executor_status": "running"}},
+        contract={"task_run_goal": "修复 mario.html", "completion_criteria": ["完整文件事实可见"]},
+        observations=[],
+        execution_state={
+            "system_projection": {
+                "runtime_status": "running",
+                "file_state": store.snapshot("taskrun:mario-ledger"),
+                "file_state_source": "runtime.memory.file_state_store",
+            }
+        },
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "operation_authorization": {"allowed_operations": ["op.read_file"]},
+        },
+    )
+
+    volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Task execution current state")
+    file_fact = volatile_payload["task_state"]["task_progress_facts"]["files"][0]
+    read_resource = volatile_payload["task_state"]["read_resource_state"]["files"][0]
+
+    assert file_fact["status"] == "complete"
+    assert file_fact["has_more"] is False
+    assert file_fact["coverage"]["complete"] is True
+    assert "next_suggested_read" not in file_fact
+    assert "next_missing_ranges" not in file_fact
+    assert read_resource["coverage"]["complete"] is True
+    assert read_resource["has_more"] is False
 
 
 def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> None:
@@ -693,7 +794,8 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
 
     assert bound["plan_refs"] == ["plan:bound-context"]
     assert bound["known_task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
-    assert bound["known_task_files"][0]["next_suggested_read"]["start_line"] == 31
+    assert "next_suggested_read" not in bound["known_task_files"][0]
+    assert "last_observation_ref" not in bound["known_task_files"][0]
     assert "read_windows" not in bound["known_task_files"][0]
     assert "task_files" not in bound
     assert "rehydration_refs" not in bound
@@ -724,7 +826,7 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
                     "total_lines": 3000,
                     "next_start_line": 41,
                     "has_more": True,
-                    "content_sha256": "sha256:compiler-window-2",
+                    "content_sha256": "sha256:compiler-window",
                 },
             },
         },
@@ -781,9 +883,9 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
         item for item in result_after_replay_growth.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable"
     )
 
-    assert second_bound["known_task_files"][0]["next_suggested_read"]["start_line"] == 41
-    assert second_bound["context_hash"] != bound["context_hash"]
-    assert second_bound_segment["model_message_hash"] != bound_segment["model_message_hash"]
+    assert "next_suggested_read" not in second_bound["known_task_files"][0]
+    assert second_bound["context_hash"] == bound["context_hash"]
+    assert second_bound_segment["model_message_hash"] == bound_segment["model_message_hash"]
     assert second_manifest["diagnostics"]["runtime_state_hash"] != manifest["diagnostics"]["runtime_state_hash"]
     assert second_manifest["task_files"][0]["next_suggested_read"]["start_line"] == 41
 

@@ -552,6 +552,10 @@ function bindStreamSessionAnchor(
     bind("boundTaskRunId", stringValue(frameAnchor.task_run_id));
     bind("boundTurnRunId", stringValue(frameAnchor.turn_run_id));
   }
+  bind("boundTurnId", stringValue(data.active_turn_id) || stringValue(data.turn_id));
+  bind("boundRunId", stringValue(data.runtime_run_id) || stringValue(data.run_id));
+  bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id) || stringValue(data.bound_task_run_id));
+  bind("boundTurnRunId", stringValue(data.turn_run_id));
   return next;
 }
 
@@ -578,6 +582,33 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
     sourceTaskRunId: message.sourceTaskRunId || stringValue(session.boundTaskRunId) || undefined,
     sourceTurnRunId: message.sourceTurnRunId || stringValue(session.boundTurnRunId) || undefined,
   }));
+}
+
+function patchActiveTaskTurnGate(
+  state: StoreState,
+  session: StreamSession,
+  data: Record<string, unknown>,
+): StoreState {
+  const turnId = stringValue(session.boundTurnId) || stringValue(data.active_turn_id) || stringValue(data.turn_id);
+  const taskRunId = stringValue(session.boundTaskRunId) || stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id);
+  if (!turnId && !taskRunId) {
+    return state;
+  }
+  const terminalReason = stringValue(data.terminal_reason);
+  const nextState = stringValue(data.active_turn_state)
+    || (terminalReason === "task_executor_scheduled" ? "waiting_executor" : "")
+    || state.activeTurnSnapshot?.state
+    || "running_task";
+  return {
+    ...state,
+    activeTurnSnapshot: {
+      turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
+      task_run_id: taskRunId || state.activeTurnSnapshot?.task_run_id,
+      state: nextState as NonNullable<StoreState["activeTurnSnapshot"]>["state"],
+      turn_run_id: stringValue(session.boundTurnRunId) || state.activeTurnSnapshot?.turn_run_id,
+      updated_at: Date.now() / 1000,
+    },
+  };
 }
 
 function isMachineReference(value: string) {
@@ -1157,7 +1188,7 @@ export function reduceStreamEvent(
         streamAnchor: streamAnchorFromSession(boundSession),
       })
     : stateWithOrchestrationBase;
-  const stateWithTimelineDraft = stateWithPublicProjection;
+  const stateWithTimelineDraft = patchActiveTaskTurnGate(stateWithPublicProjection, boundSession, data);
 
   if (event === "retrieval") {
     return {

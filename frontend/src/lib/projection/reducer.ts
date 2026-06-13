@@ -311,6 +311,7 @@ function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjection
     title: text(frame.title),
     detail: text(frame.detail),
     state: text(frame.state),
+    statusKind: text(frame.status_kind),
     sourceAuthority: text(frame.source_authority),
     mainVisibility: text(frame.main_visibility),
     retention: text(frame.retention),

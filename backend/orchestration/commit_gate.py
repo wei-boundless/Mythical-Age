@@ -238,6 +238,12 @@ def build_assistant_session_message_commit_decision(
     normalized_state = str(answer_canonical_state or "").strip()
     normalized_persist_policy = str(answer_persist_policy or "").strip()
     normalized_terminal_reason = str(terminal_reason or "").strip()
+    normalized_leak_flags = [
+        str(flag or "").strip()
+        for flag in list(answer_leak_flags or [])
+        if str(flag or "").strip()
+    ]
+    answer_leak_blocked = bool(normalized_leak_flags)
     control_only_channel = normalized_channel in {
         "active_work_control",
         "opening_judgment",
@@ -259,12 +265,15 @@ def build_assistant_session_message_commit_decision(
         and not debug_only_output
         and not control_only_channel
         and not replacement_stop
+        and not answer_leak_blocked
     )
     reason = "assistant_session_message_allowed"
     if not normalized:
         reason = "empty_assistant_message_blocked"
     elif not normalized_turn_id:
         reason = "assistant_session_message_missing_turn_id"
+    elif answer_leak_blocked:
+        reason = "answer_leak_not_committable"
     elif control_only_channel:
         reason = "control_channel_not_committable"
     elif debug_only_output:
@@ -291,11 +300,7 @@ def build_assistant_session_message_commit_decision(
             "answer_fallback_reason": str(answer_fallback_reason or ""),
             "answer_selected_channel": str(answer_selected_channel or ""),
             "answer_selected_source": str(answer_selected_source or ""),
-            "answer_leak_flags": [
-                str(flag or "").strip()
-                for flag in list(answer_leak_flags or [])
-                if str(flag or "").strip()
-            ],
+            "answer_leak_flags": list(normalized_leak_flags),
             "completion_state": str(completion_state or ""),
             "terminal_reason": normalized_terminal_reason,
             "timeout_seconds": str(timeout_seconds or ""),
@@ -326,6 +331,8 @@ def build_assistant_session_message_commit_decision(
             "artifact_write_allowed": False,
             "filesystem_write_allowed": False,
             "replacement_stop": replacement_stop,
+            "answer_leak_blocked": answer_leak_blocked,
+            "answer_leak_flags": list(normalized_leak_flags),
         },
     )
 

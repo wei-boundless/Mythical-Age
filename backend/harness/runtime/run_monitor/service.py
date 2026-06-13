@@ -149,7 +149,7 @@ class RuntimeMonitorService:
         return sweep
 
     def _global_live_items(self, *, requested_limit: int, now: float, include_recent_terminal: bool = False) -> list[dict[str, Any]]:
-        task_runs = self.runtime_host.state_index.list_recent_task_runs(limit=max(requested_limit * 4, 80))
+        task_runs = self._recent_task_run_summaries(limit=max(requested_limit * 4, 80))
         base_monitor = self.projector.build_global_monitor(
             task_runs,
             now=now,
@@ -217,7 +217,7 @@ class RuntimeMonitorService:
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
         self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
-            self.runtime_host.state_index.list_session_task_runs(session_id),
+            self._session_task_run_summaries(session_id),
             key=lambda item: item.updated_at,
             reverse=True,
         )
@@ -258,7 +258,7 @@ class RuntimeMonitorService:
         task_runs = sorted(
             [
                 item
-                for item in self.runtime_host.state_index.list_session_task_runs(session_id)
+                for item in self._session_task_run_summaries(session_id)
                 if self.projector.is_top_level_task_run(item)
             ],
             key=lambda item: float(getattr(item, "updated_at", 0.0) or getattr(item, "created_at", 0.0) or 0.0),
@@ -450,3 +450,9 @@ class RuntimeMonitorService:
             except Exception:
                 return None
         return None
+
+    def _recent_task_run_summaries(self, *, limit: int) -> list[Any]:
+        return list(self.runtime_host.state_index.list_recent_task_run_summaries(limit=limit) or [])
+
+    def _session_task_run_summaries(self, session_id: str) -> list[Any]:
+        return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id) or [])

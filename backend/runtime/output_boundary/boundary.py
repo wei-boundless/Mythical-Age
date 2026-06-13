@@ -83,6 +83,36 @@ _MODEL_ACTION_PROTOCOL_RE = re.compile(
     r'"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"',
     re.IGNORECASE,
 )
+_RUNTIME_PROTOCOL_DISCLOSURE_MARKERS = (
+    "json_action_required",
+    "single_agent_turn_json_action_required",
+    "single_agent_turn_model_protocol_error",
+    "single_agent_turn_invalid_json_action",
+    "single_agent_turn_invalid_native_action",
+    "tool_loop_protocol_repair",
+    "protocol_repair",
+    "model_action_protocol_repair_required",
+    "harness.loop.single_agent_turn.protocol_repair",
+    "harness.loop.model_action_request",
+    "assistant_session_message_allowed",
+    "runtime_commit_gate",
+    "model-response-protocol:",
+)
+_RUNTIME_PROTOCOL_DISCLOSURE_RE = re.compile(
+    r"(?:上一轮|上轮|本轮|当前轮|模型输出|输出|回复)[^\n。！？]{0,50}"
+    r"(?:格式协议|运行协议|动作协议|输出协议|JSON\s*action|json_action|action\s+schema)[^\n。！？]{0,90}"
+    r"(?:拦截|拒绝|阻止|修复|违规|违反|未执行|约束|刚性约束)"
+    r"|(?:格式协议|运行协议|动作协议|输出协议)[^\n。！？]{0,70}"
+    r"(?:系统|会话框架|runtime|运行边界|提交门)[^\n。！？]{0,50}"
+    r"(?:拦截|拒绝|阻止|修复|未执行|约束|刚性约束)"
+    r"|(?:系统|会话框架|runtime|运行边界|提交门)[^\n。！？]{0,60}"
+    r"(?:拦截|拒绝|阻止|修复|未执行|约束|刚性约束)[^\n。！？]{0,60}"
+    r"(?:格式协议|运行协议|动作协议|输出协议|JSON\s*action|json_action|action\s+schema)"
+    r"|(?:previous|last)\s+(?:model\s+)?(?:response|output|message)[^\n.?!]{0,80}"
+    r"(?:protocol|json\s*action|action\s+schema)[^\n.?!]{0,80}"
+    r"(?:blocked|rejected|intercepted|repair|repaired|violated)",
+    re.IGNORECASE,
+)
 
 _DSML_TOKEN_RE = r"(?:[｜|]\s*){2}\s*DSML\s*(?:[｜|]\s*){2}"
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call\b[^>]*>[\s\S]*?(?:</tool_call>|\Z)", re.IGNORECASE)
@@ -165,6 +195,7 @@ def contains_internal_protocol(text: str) -> bool:
     lowered = normalized.lower()
     return (
         any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
+        or contains_runtime_protocol_disclosure(normalized)
         or bool(_MODEL_ACTION_PROTOCOL_RE.search(normalized))
         or _looks_like_active_work_control_protocol(normalized)
         or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
@@ -174,6 +205,14 @@ def contains_internal_protocol(text: str) -> bool:
         or bool(_DSML_TAG_FRAGMENT_RE.search(normalized))
         or bool(_PROTO_ARG_LINE_RE.search(normalized))
         or bool(_INVOKE_TAIL_RE.search(normalized))
+    )
+
+
+def contains_runtime_protocol_disclosure(text: str) -> bool:
+    normalized = str(text or "")
+    lowered = normalized.lower()
+    return any(marker.lower() in lowered for marker in _RUNTIME_PROTOCOL_DISCLOSURE_MARKERS) or bool(
+        _RUNTIME_PROTOCOL_DISCLOSURE_RE.search(normalized)
     )
 
 
@@ -457,6 +496,8 @@ def canonical_output_decision_for_final_text(
     raw_text = str(content or "")
     visible_text = sanitize_visible_assistant_content(raw_text)
     leak_flags: list[str] = []
+    if contains_runtime_protocol_disclosure(raw_text):
+        leak_flags.append("runtime_protocol_disclosure_final_text")
     if contains_internal_protocol(raw_text):
         leak_flags.append("internal_protocol_final_text")
     if contains_inline_pseudo_tool_call(raw_text):

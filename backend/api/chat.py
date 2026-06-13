@@ -2182,6 +2182,7 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     if not any(visible_fields.values()):
         return {}
     data: dict[str, Any] = {
+        "task_run_id": str(payload.get("task_run_id") or raw_event.get("task_run_id") or raw_data.get("task_run_id") or "").strip(),
         "step": str(payload.get("step") or "").strip(),
         "status": str(payload.get("status") or "running").strip() or "running",
         "presentation_source": str(payload.get("presentation_source") or "").strip(),
@@ -2190,6 +2191,12 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()
     if event_id:
         data["runtime_event_id"] = event_id
+    source_offset = raw_event.get("offset") or raw_data.get("source_task_event_offset") or raw_data.get("event_offset")
+    if source_offset not in (None, ""):
+        data["source_task_event_offset"] = source_offset
+    source_event_id = str(raw_event.get("event_id") or raw_data.get("source_task_event_id") or "").strip()
+    if source_event_id:
+        data["source_task_event_id"] = source_event_id
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 

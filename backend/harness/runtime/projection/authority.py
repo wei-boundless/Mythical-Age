@@ -93,6 +93,7 @@ def build_public_projection_frame(
         "text",
         "detail",
         "state",
+        "status_kind",
         "tool_name",
         "tool_lifecycle_id",
         "action_kind",

@@ -26,6 +26,86 @@ _STATE_INDEX_WRITE_LOCK = threading.RLock()
 GLOBAL_RECENT_TASK_RUN_INDEX_ID = "default"
 GLOBAL_RECENT_TASK_RUN_LIMIT = 240
 ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID = "default"
+TASK_RUN_SUMMARY_AUTHORITY = "orchestration.task_run.monitor_summary"
+
+
+TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS = {
+    "active_contract_revision_count",
+    "active_node_id",
+    "active_node_work_order_count",
+    "agent_brief_output",
+    "completion_status",
+    "config_snapshot_hash",
+    "config_snapshot_id",
+    "coordination_stage_id",
+    "current_judgment",
+    "executor_epoch",
+    "executor_status",
+    "goal",
+    "graph_harness_config_hash",
+    "graph_harness_config_id",
+    "graph_id",
+    "graph_node_id",
+    "graph_result_ref",
+    "graph_result_summary",
+    "graph_run_id",
+    "graph_structure_hash",
+    "graph_structure_version",
+    "graph_work_order_id",
+    "latest_completion_status",
+    "latest_contract_revision_ref",
+    "latest_current_judgment",
+    "latest_event_at",
+    "latest_interaction_turn_id",
+    "latest_next_action",
+    "latest_observation",
+    "latest_public_progress_note",
+    "latest_step",
+    "latest_step_at",
+    "latest_step_status",
+    "latest_step_summary",
+    "latest_tool_status",
+    "latest_user_steer_ref",
+    "next_action",
+    "next_invocation_index",
+    "node_id",
+    "origin_authority",
+    "origin_kind",
+    "origin_ref",
+    "parent_run_ref",
+    "pending_user_steer_count",
+    "project_id",
+    "project_title",
+    "public_progress_note",
+    "recovery_action",
+    "runner_blocked_reason",
+    "runner_budget_exhausted",
+    "runner_dispatch_count",
+    "runner_executed_work_order_count",
+    "runner_status",
+    "runner_terminal_reason",
+    "session_scope_key",
+    "source",
+    "stage_idempotency_key",
+    "stage_request_id",
+    "summary",
+    "task_environment_id",
+    "task_goal",
+    "task_graph_id",
+    "task_graph_title",
+    "title",
+    "workspace_view",
+}
+
+TASK_RUN_SUMMARY_DIAGNOSTIC_DICT_KEYS = {
+    "contract",
+    "origin",
+    "pending_approval",
+    "runtime_contract",
+    "runtime_control",
+    "runtime_scope",
+    "session_scope",
+}
 
 
 class RuntimeStateIndex:
@@ -93,6 +173,7 @@ class RuntimeStateIndex:
             return None
         payload = self._compact_task_run_payload(task_run.to_dict())
         self._write_record("task_runs", task_run.task_run_id, payload)
+        self._write_record("task_run_summaries", task_run.task_run_id, _task_run_monitor_summary_payload(payload))
         self._append_index_id("sessions", task_run.session_id, task_run.task_run_id)
         self._upsert_global_recent_task_run(
             task_run.task_run_id,
@@ -271,10 +352,26 @@ class RuntimeStateIndex:
             self._write_global_recent_task_run_ids([str(item.get("task_run_id") or "") for item in payloads])
         return [_task_run_from_payload(item) for item in payloads if isinstance(item, dict)]
 
+    def list_recent_task_run_summaries(self, *, limit: int = 80) -> list[TaskRun]:
+        requested = max(1, min(int(limit or 80), GLOBAL_RECENT_TASK_RUN_LIMIT))
+        ids = self._read_index_ids("global_recent_task_runs", GLOBAL_RECENT_TASK_RUN_INDEX_ID)
+        if not ids:
+            ids = self._rebuild_global_recent_task_run_index(limit=max(requested, GLOBAL_RECENT_TASK_RUN_LIMIT))
+        payloads = self._read_task_run_summary_payloads(ids[:requested])
+        if len(payloads) != len(ids[:requested]):
+            self._write_global_recent_task_run_ids([str(item.get("task_run_id") or "") for item in payloads])
+        return [_task_run_from_payload(item) for item in payloads if isinstance(item, dict)]
+
     def list_session_task_runs(self, session_id: str) -> list[TaskRun]:
         ids = self._read_index_ids("sessions", session_id)
         task_runs = self._read_selected_records("task_runs", ids)
         return [_task_run_from_payload(task_runs[item]) for item in ids if item in task_runs]
+
+    def list_session_task_run_summaries(self, session_id: str) -> list[TaskRun]:
+        ids = self._read_index_ids("sessions", session_id)
+        payloads = self._read_task_run_summary_payloads(ids)
+        payload_index = {str(item.get("task_run_id") or ""): item for item in payloads if isinstance(item, dict)}
+        return [_task_run_from_payload(payload_index[item]) for item in ids if item in payload_index]
 
     def list_session_turn_runs(self, session_id: str) -> list[TurnRun]:
         ids = self._read_index_ids("session_turn_runs", session_id)
@@ -493,6 +590,8 @@ class RuntimeStateIndex:
                     deleted_counts["task_runs"] = deleted_counts.get("task_runs", 0) + 1
                     self._delete_runtime_object_refs(payload, deleted_counts)
                     self._remove_global_task_refs(task_run_id, payload)
+                if self._delete_record("task_run_summaries", task_run_id):
+                    deleted_counts["task_run_summaries"] = deleted_counts.get("task_run_summaries", 0) + 1
                 self._delete_task_scoped_records(task_run_id, deleted_counts)
                 self._reset_project_runtime_status_for_task(task_run_id, deleted_counts)
             for session_id in sorted(affected_sessions):
@@ -711,6 +810,7 @@ class RuntimeStateIndex:
             "worker_spawn_requests",
             "worker_spawn_results",
             "supervision_records",
+            "task_run_summaries",
         }
         for bucket in self._record_buckets():
             source = dict(snapshot.get(bucket) or {})
@@ -879,6 +979,9 @@ class RuntimeStateIndex:
             for key, value in dict(payload.get(bucket) or {}).items():
                 if isinstance(value, dict):
                     self._write_record(bucket, str(key), value)
+        for key, value in dict(payload.get("task_runs") or {}).items():
+            if isinstance(value, dict):
+                self._write_record("task_run_summaries", str(key), _task_run_monitor_summary_payload(value))
         for bucket in self._list_index_buckets():
             for key, value in dict(payload.get(bucket) or {}).items():
                 if isinstance(value, list):
@@ -948,6 +1051,25 @@ class RuntimeStateIndex:
             for record_id in record_ids
             if (payload := self._read_record(bucket, record_id))
         }
+
+    def _read_task_run_summary_payloads(self, task_run_ids: list[str]) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for task_run_id in task_run_ids:
+            normalized = str(task_run_id or "").strip()
+            if not normalized:
+                continue
+            summary = self._read_record("task_run_summaries", normalized)
+            if summary:
+                payloads.append(summary)
+                continue
+            source = self._read_record("task_runs", normalized)
+            if not source:
+                continue
+            summary = _task_run_monitor_summary_payload(source)
+            if summary:
+                self._write_record("task_run_summaries", normalized, summary)
+                payloads.append(summary)
+        return payloads
 
     def _read_record_bucket(self, bucket: str) -> dict[str, Any]:
         base = self.index_dir / bucket
@@ -1174,6 +1296,7 @@ class RuntimeStateIndex:
             "project_progress_ledgers": "project_id",
             "supervision_records": "supervision_record_id",
             "project_runtime_statuses": "project_id",
+            "task_run_summaries": "task_run_id",
         }
         field = key_field_by_bucket.get(bucket, "")
         return str(payload.get(field) or fallback)
@@ -1191,6 +1314,7 @@ class RuntimeStateIndex:
             "project_progress_ledgers",
             "supervision_records",
             "project_runtime_statuses",
+            "task_run_summaries",
         )
 
     @staticmethod
@@ -1248,6 +1372,7 @@ class RuntimeStateIndex:
             "project_progress_ledgers": {},
             "supervision_records": {},
             "project_runtime_statuses": {},
+            "task_run_summaries": {},
             "session_projects": {},
             "global_recent_task_runs": {},
             "active_executor_task_runs": {},
@@ -1325,6 +1450,101 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         terminal_reason=payload.get("terminal_reason", ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
+
+
+def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = _task_run_monitor_diagnostics(dict(payload.get("diagnostics") or {}))
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_id": str(payload.get("task_id") or ""),
+        "task_contract_ref": str(payload.get("task_contract_ref") or ""),
+        "owner_agent_seat_id": str(payload.get("owner_agent_seat_id") or "main"),
+        "agent_id": str(payload.get("agent_id") or "agent:0"),
+        "agent_profile_id": str(payload.get("agent_profile_id") or "main_interactive_agent"),
+        "execution_runtime_kind": str(payload.get("execution_runtime_kind") or ""),
+        "status": payload.get("status", "created"),
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+        "latest_event_offset": int(payload.get("latest_event_offset", -1)),
+        "latest_checkpoint_ref": str(payload.get("latest_checkpoint_ref") or ""),
+        "terminal_reason": payload.get("terminal_reason", ""),
+        "diagnostics": diagnostics,
+        "authority": str(payload.get("authority") or "orchestration.task_run"),
+        "summary_authority": TASK_RUN_SUMMARY_AUTHORITY,
+    }
+
+
+def _task_run_monitor_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in sorted(TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS):
+        if key in diagnostics:
+            result[key] = _monitor_summary_value(diagnostics.get(key))
+    for key in sorted(TASK_RUN_SUMMARY_DIAGNOSTIC_DICT_KEYS):
+        if key not in diagnostics:
+            continue
+        if key == "contract":
+            value = _monitor_contract_summary(dict(diagnostics.get(key) or {}))
+        else:
+            value = _monitor_summary_dict(dict(diagnostics.get(key) or {}))
+        if value:
+            result[key] = value
+    return result
+
+
+def _monitor_contract_summary(contract: dict[str, Any]) -> dict[str, Any]:
+    allowed = ("user_visible_goal", "task_run_goal", "goal", "title")
+    return {
+        key: _monitor_summary_text(contract.get(key), limit=800)
+        for key in allowed
+        if _monitor_summary_text(contract.get(key), limit=800)
+    }
+
+
+def _monitor_summary_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in payload.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        compacted = _monitor_summary_value(value)
+        if compacted in ("", None, [], {}):
+            continue
+        result[normalized_key] = compacted
+        if len(result) >= 40:
+            break
+    return result
+
+
+def _monitor_summary_value(value: Any) -> Any:
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        return _monitor_summary_text(value, limit=1200)
+    if isinstance(value, dict):
+        return _monitor_summary_dict(value)
+    if isinstance(value, (list, tuple)):
+        result: list[Any] = []
+        for item in value[:20]:
+            compacted = _monitor_summary_value(item)
+            if compacted not in ("", None, [], {}):
+                result.append(compacted)
+        return result
+    return _monitor_summary_text(value, limit=400)
+
+
+def _monitor_summary_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _is_active_executor_task_run_payload(payload: dict[str, Any]) -> bool:

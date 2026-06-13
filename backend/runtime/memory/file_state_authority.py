@@ -14,6 +14,11 @@ class FileReadRange:
     content_sha256: str = ""
     read_intent: str = ""
     file_unchanged: bool = False
+    content_omitted: bool = False
+    previous_observation_ref: str = ""
+    reusable_result_ref: str = ""
+    next_start_line: int | None = None
+    has_more: bool | None = None
     stale: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,7 +85,7 @@ class TaskFileState:
         payload["read_ranges"] = [item.to_dict() for item in self.read_ranges]
         payload["search_hits"] = [item.to_dict() for item in self.search_hits]
         payload["write_events"] = [item.to_dict() for item in self.write_events]
-        payload["coverage"] = _coverage_payload(self.read_ranges)
+        payload["coverage"] = _coverage_payload(self.read_ranges, total_lines=self.total_lines)
         next_read = _next_suggested_read(self)
         if next_read:
             payload["next_suggested_read"] = next_read
@@ -201,20 +206,32 @@ def _apply_file_event(
                 content_sha256=str(event.get("content_sha256") or ""),
                 read_intent=str(event.get("read_intent") or ""),
                 file_unchanged=bool(event.get("file_unchanged") is True),
+                content_omitted=bool(event.get("content_omitted") is True),
+                previous_observation_ref=str(event.get("previous_observation_ref") or ""),
+                reusable_result_ref=str(event.get("reusable_result_ref") or event.get("previous_observation_ref") or ""),
+                next_start_line=_int_or_none(event.get("next_start_line")),
+                has_more=event.get("has_more") if isinstance(event.get("has_more"), bool) else None,
                 stale=False,
             )
             if not any(item.start_line == candidate.start_line and item.end_line == candidate.end_line and item.stale is False for item in ranges):
                 ranges.append(candidate)
         total_lines = _int_or_none(event.get("total_lines"))
-        status = "complete"
-        has_more = event.get("has_more") if isinstance(event.get("has_more"), bool) else None
-        if has_more is True or _has_partial_coverage(tuple(ranges), total_lines):
+        if total_lines is None:
+            total_lines = current.total_lines
+        latest_has_more = event.get("has_more") if isinstance(event.get("has_more"), bool) else None
+        ordered_ranges = tuple(sorted(ranges, key=lambda item: (item.start_line, item.end_line)))
+        aggregate_complete = _has_complete_coverage(ordered_ranges, total_lines)
+        if aggregate_complete:
+            status = "complete"
+            has_more = False
+        else:
             status = "partial"
+            has_more = True if total_lines is not None else latest_has_more
         return replace(
             current,
             status=status,
-            read_ranges=tuple(sorted(ranges, key=lambda item: (item.start_line, item.end_line)))[-24:],
-            total_lines=total_lines if total_lines is not None else current.total_lines,
+            read_ranges=ordered_ranges,
+            total_lines=total_lines,
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
             has_more=has_more,
             last_observation_ref=observation_ref,
@@ -316,6 +333,11 @@ def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
         content_sha256=str(payload.get("content_sha256") or ""),
         read_intent=str(payload.get("read_intent") or ""),
         file_unchanged=bool(payload.get("file_unchanged") is True),
+        content_omitted=bool(payload.get("content_omitted") is True),
+        previous_observation_ref=str(payload.get("previous_observation_ref") or ""),
+        reusable_result_ref=str(payload.get("reusable_result_ref") or payload.get("previous_observation_ref") or ""),
+        next_start_line=_int_or_none(payload.get("next_start_line")),
+        has_more=_bool_or_none(payload.get("has_more")),
         stale=bool(payload.get("stale") is True),
     )
 
@@ -344,34 +366,119 @@ def _file_write_event_from_dict(payload: Any) -> FileWriteEvent | None:
     )
 
 
-def _coverage_payload(ranges: tuple[FileReadRange, ...]) -> dict[str, Any]:
-    active = [item for item in ranges if item.stale is False]
+def _coverage_payload(ranges: tuple[FileReadRange, ...], *, total_lines: int | None = None) -> dict[str, Any]:
+    active = _active_read_ranges(ranges)
     if not active:
         return {}
-    start = min(item.start_line for item in active)
-    end = max(item.end_line for item in active)
-    return {"start_line": start, "end_line": end, "range_count": len(active)}
+    merged = _merged_read_ranges(active)
+    start = merged[0]["start_line"]
+    end = merged[-1]["end_line"]
+    covered_lines = sum(int(item["end_line"]) - int(item["start_line"]) + 1 for item in merged)
+    complete = _merged_ranges_cover_total(merged, total_lines)
+    return _drop_empty(
+        {
+            "start_line": start,
+            "end_line": end,
+            "range_count": len(active),
+            "merged_ranges": merged,
+            "covered_lines": covered_lines,
+            "total_lines": total_lines,
+            "complete": complete if total_lines is not None else None,
+            "missing_ranges": _missing_ranges(merged, total_lines),
+        }
+    )
 
 
 def _next_suggested_read(state: TaskFileState) -> dict[str, Any]:
     if state.status not in {"partial", "stale"}:
         return {}
-    active = [item for item in state.read_ranges if item.stale is False]
+    active = _active_read_ranges(state.read_ranges)
     if not active:
         return {"start_line": 1, "line_count": 240, "reason": "file state is stale or unread"}
-    end = max(item.end_line for item in active)
+    merged = _merged_read_ranges(active)
+    missing = _missing_ranges(merged, state.total_lines)
+    latest = _latest_active_read_range(state, active)
+    if latest is not None and latest.has_more is True and latest.next_start_line is not None:
+        return {
+            "start_line": latest.next_start_line,
+            "line_count": 240,
+            "reason": "continue from latest read window",
+        }
+    if missing:
+        first = missing[0]
+        end_line = first.get("end_line")
+        line_count = 240
+        if isinstance(end_line, int):
+            line_count = max(1, min(240, end_line - int(first["start_line"]) + 1))
+        return {
+            "start_line": first["start_line"],
+            "line_count": line_count,
+            "reason": "fill first unread gap",
+        }
+    end = max(int(item["end_line"]) for item in merged)
     if state.total_lines and end >= state.total_lines:
         return {}
     return {"start_line": end + 1, "line_count": 240, "reason": "continue from last read window"}
 
 
-def _has_partial_coverage(ranges: tuple[FileReadRange, ...], total_lines: int | None) -> bool:
-    if total_lines is None:
-        return True
-    active = [item for item in ranges if item.stale is False]
-    if not active:
-        return True
-    return min(item.start_line for item in active) > 1 or max(item.end_line for item in active) < total_lines
+def _latest_active_read_range(state: TaskFileState, active: list[FileReadRange]) -> FileReadRange | None:
+    last_ref = str(state.last_observation_ref or "")
+    if last_ref:
+        for item in reversed(active):
+            if str(item.observation_ref or "") == last_ref:
+                return item
+    return active[-1] if active else None
+
+
+def _has_complete_coverage(ranges: tuple[FileReadRange, ...], total_lines: int | None) -> bool:
+    return _merged_ranges_cover_total(_merged_read_ranges(_active_read_ranges(ranges)), total_lines)
+
+
+def _active_read_ranges(ranges: tuple[FileReadRange, ...]) -> list[FileReadRange]:
+    return sorted(
+        [item for item in ranges if item.stale is False and item.start_line >= 1 and item.end_line >= item.start_line],
+        key=lambda item: (item.start_line, item.end_line),
+    )
+
+
+def _merged_read_ranges(ranges: list[FileReadRange]) -> list[dict[str, int]]:
+    merged: list[dict[str, int]] = []
+    for item in ranges:
+        start = int(item.start_line)
+        end = int(item.end_line)
+        if not merged or start > int(merged[-1]["end_line"]) + 1:
+            merged.append({"start_line": start, "end_line": end})
+            continue
+        merged[-1]["end_line"] = max(int(merged[-1]["end_line"]), end)
+    return merged
+
+
+def _merged_ranges_cover_total(merged: list[dict[str, int]], total_lines: int | None) -> bool:
+    if total_lines is None or total_lines < 1 or not merged:
+        return False
+    return (
+        len(merged) == 1
+        and int(merged[0]["start_line"]) <= 1
+        and int(merged[0]["end_line"]) >= int(total_lines)
+    )
+
+
+def _missing_ranges(merged: list[dict[str, int]], total_lines: int | None) -> list[dict[str, int]]:
+    if total_lines is None or total_lines < 1:
+        return []
+    missing: list[dict[str, int]] = []
+    cursor = 1
+    for item in merged:
+        start = int(item["start_line"])
+        end = int(item["end_line"])
+        if start > cursor:
+            missing.append({"start_line": cursor, "end_line": min(start - 1, total_lines)})
+        cursor = max(cursor, end + 1)
+        if cursor > total_lines:
+            break
+    if cursor <= total_lines:
+        missing.append({"start_line": cursor, "end_line": total_lines})
+    return missing
 
 
 def _source_observation_payload(observation: dict[str, Any]) -> dict[str, Any]:

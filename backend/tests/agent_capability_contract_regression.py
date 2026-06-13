@@ -17,6 +17,7 @@ from harness.loop.task_executor import _duplicate_read_only_tool_call_observatio
 from harness.runtime import RuntimeCompiler, assemble_runtime
 from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
 from prompt_library.environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
+from prompt_library.packs import list_builtin_runtime_prompt_resources
 from prompt_library.rules import list_builtin_prompt_rule_resources
 from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME, list_builtin_tool_prompt_resources
 from tests.support.runtime_stubs import build_harness_runtime
@@ -199,6 +200,7 @@ def test_prompt_contracts_do_not_teach_todo_active_or_bare_subagent_ids() -> Non
             *(resource.content for resource in list_builtin_tool_prompt_resources()),
             *(resource.content for resource in list_builtin_environment_lifecycle_prompt_resources()),
             *(resource.content for resource in list_builtin_prompt_rule_resources()),
+            *(resource.content for resource in list_builtin_runtime_prompt_resources()),
         ]
     )
 
@@ -211,6 +213,15 @@ def test_prompt_contracts_do_not_teach_todo_active_or_bare_subagent_ids() -> Non
     assert "agent:web_researcher" in contents
     assert " codebase_searcher " not in contents
     assert " web_researcher " not in contents
+
+
+def test_runtime_feedback_prompts_do_not_force_tool_loop_public_judgment() -> None:
+    contents = "\n".join(resource.content for resource in list_builtin_runtime_prompt_resources())
+
+    assert "如果还要继续调用工具，必须在 public_action_state.current_judgment" not in contents
+    assert "继续工具时，public_action_state.current_judgment 必须" not in contents
+    assert "如果你继续请求工具，public_action_state.current_judgment 必须" not in contents
+    assert "普通读取、搜索、缓存恢复、todo 更新和连续工具推进由系统工具生命周期展示" in contents
 
 
 def test_exploration_advisory_and_read_resource_state_remain_non_deciding_facts() -> None:

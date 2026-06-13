@@ -305,6 +305,9 @@ def infer_file_state_events(
                         "content_sha256": str(tool_result.get("content_sha256") or tool_result.get("sha256") or "").strip(),
                         "read_intent": str(tool_result.get("read_intent") or args.get("read_intent") or "").strip(),
                         "file_unchanged": tool_result.get("file_unchanged") if isinstance(tool_result.get("file_unchanged"), bool) else None,
+                        "content_omitted": tool_result.get("content_omitted") if isinstance(tool_result.get("content_omitted"), bool) else None,
+                        "previous_observation_ref": str(tool_result.get("previous_observation_ref") or "").strip(),
+                        "reusable_result_ref": str(tool_result.get("reusable_result_ref") or tool_result.get("previous_observation_ref") or "").strip(),
                         "authority": "runtime.tool_result_envelope.file_state_event",
                     }
                 )

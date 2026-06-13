@@ -58,6 +58,7 @@ class TaskStateProjector:
         current_facts = _drop_superseded_missing_path_probes(current_facts, positive_paths=positive_paths)
         latest_results = _drop_superseded_missing_path_probes(latest_results, positive_paths=positive_paths)
         file_state = _file_state_projection(execution_projection.get("file_state"))
+        task_progress_facts = _task_progress_facts_projection(file_state=file_state, latest_results=latest_results)
         evidence_confidence = _evidence_confidence_projection(latest_results)
         material_progress = _material_progress_projection(latest_results)
         payload = {
@@ -65,6 +66,7 @@ class TaskStateProjector:
             "current_step": dict(execution_projection.get("current_step") or {}),
             "current_facts": current_facts,
             "file_state": file_state,
+            "task_progress_facts": task_progress_facts,
             "read_resource_state": _read_resource_state_projection(file_state),
             "file_state_source": str(execution_projection.get("file_state_source") or ""),
             "latest_tool_results": latest_results,
@@ -206,6 +208,7 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
         {
             "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
             "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+            "tool_call_id": str(item.get("tool_call_id") or ""),
             "status": str(item.get("status") or ""),
             "path": _projection_path(item),
             "visibility": str(item.get("visibility") or ""),
@@ -218,6 +221,7 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
             "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "replacement_ref": str(item.get("replacement_ref") or ""),
+            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
         }
@@ -232,6 +236,7 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "entry_kind": str(entry_kind or ""),
             "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
             "tool_name": _tool_name(str(item.get("tool_name") or item.get("source") or "")),
+            "tool_call_id": str(item.get("tool_call_id") or ""),
             "status": str(item.get("status") or ""),
             "path": _projection_path(item),
             "visibility": str(item.get("visibility") or ""),
@@ -241,6 +246,7 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
             "artifact_refs": _replay_artifact_refs(item.get("artifact_refs")),
             "replacement_ref": str(item.get("replacement_ref") or ""),
+            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
@@ -392,6 +398,10 @@ def _replay_content_range(value: dict[str, Any]) -> dict[str, Any]:
             "next_start_line": value.get("next_start_line"),
             "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
             "content_sha256": str(value.get("content_sha256") or ""),
+            "file_unchanged": value.get("file_unchanged") if isinstance(value.get("file_unchanged"), bool) else None,
+            "content_omitted": value.get("content_omitted") if isinstance(value.get("content_omitted"), bool) else None,
+            "previous_observation_ref": str(value.get("previous_observation_ref") or ""),
+            "reusable_result_ref": str(value.get("reusable_result_ref") or value.get("previous_observation_ref") or ""),
         }
     )
 
@@ -521,6 +531,168 @@ def _evidence_confidence_projection(latest_results: list[dict[str, Any]]) -> dic
             "locator_result_count": locator_count,
         }
     )
+
+
+def _task_progress_facts_projection(
+    *,
+    file_state: list[dict[str, Any]],
+    latest_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    files = [_task_progress_file_fact(item) for item in list(file_state or [])]
+    todos = _task_progress_todo_facts(latest_results)
+    recent_tool_observations = _task_progress_tool_observations(latest_results)
+    return drop_empty(
+        {
+            "authority": "harness.runtime.dynamic_context.task_progress_facts",
+            "files": [item for item in files if item][-12:],
+            "todos": todos,
+            "recent_tool_observations": recent_tool_observations,
+        }
+    )
+
+
+def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
+    coverage = dict(item.get("coverage") or {})
+    reusable_ref = _file_reusable_result_ref(item)
+    next_missing_ranges = list(coverage.get("missing_ranges") or [])
+    return drop_empty(
+        {
+            "path": _projection_path(item),
+            "status": str(item.get("status") or ""),
+            "coverage": coverage,
+            "total_lines": item.get("total_lines"),
+            "content_sha256": str(item.get("content_sha256") or ""),
+            "stale": str(item.get("status") or "") == "stale",
+            "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+            "last_observation_ref": str(item.get("last_observation_ref") or ""),
+            "reusable_result_ref": reusable_ref,
+            "next_missing_ranges": next_missing_ranges,
+            "next_suggested_read": dict(item.get("next_suggested_read") or {}),
+            "read_windows_available": [
+                drop_empty(
+                    {
+                        "start_line": segment.get("start_line"),
+                        "end_line": segment.get("end_line"),
+                        "observation_ref": str(segment.get("observation_ref") or ""),
+                        "reusable_result_ref": str(
+                            segment.get("reusable_result_ref") or segment.get("previous_observation_ref") or ""
+                        ),
+                        "file_unchanged": segment.get("file_unchanged")
+                        if isinstance(segment.get("file_unchanged"), bool)
+                        else None,
+                    }
+                )
+                for segment in dict_tuple(item.get("read_ranges"))[-8:]
+            ],
+        }
+    )
+
+
+def _file_reusable_result_ref(item: dict[str, Any]) -> str:
+    for segment in reversed(dict_tuple(item.get("read_ranges"))):
+        for key in ("reusable_result_ref", "previous_observation_ref", "observation_ref"):
+            value = str(segment.get(key) or "").strip()
+            if value:
+                return value
+    return str(item.get("last_observation_ref") or "").strip()
+
+
+def _task_progress_todo_facts(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_plan: dict[str, Any] = {}
+    for item in latest_results:
+        if _tool_name(str(item.get("tool_name") or "")) != "agent_todo":
+            continue
+        plan = _todo_plan_projection(dict(item.get("todo_plan") or {}))
+        if plan:
+            latest_plan = plan
+    if not latest_plan:
+        return []
+    allowed_operations = list(latest_plan.get("allowed_operations") or [])
+    result: list[dict[str, Any]] = []
+    for item in dict_tuple(latest_plan.get("items")):
+        todo_id = str(item.get("todo_id") or "").strip()
+        if not todo_id:
+            continue
+        result.append(
+            drop_empty(
+                {
+                    "id": todo_id,
+                    "title": compact_text(item.get("content") or "", limit=180),
+                    "active_form": compact_text(item.get("active_form") or "", limit=120),
+                    "status": str(item.get("status") or ""),
+                    "notes": compact_text(item.get("notes") or "", limit=180),
+                    "allowed_operations": allowed_operations,
+                    "evidence_refs": [
+                        str(value)
+                        for value in [
+                            *list(item.get("contract_refs") or []),
+                            *list(item.get("evidence_expectations") or []),
+                        ]
+                        if str(value).strip()
+                    ][-6:],
+                    "plan_id": str(latest_plan.get("plan_id") or ""),
+                }
+            )
+        )
+    return result[-20:]
+
+
+def _todo_plan_projection(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    items: list[dict[str, Any]] = []
+    for item in dict_tuple(value.get("items"))[:40]:
+        todo_id = str(item.get("todo_id") or item.get("id") or "").strip()
+        if not todo_id:
+            continue
+        items.append(
+            drop_empty(
+                {
+                    "todo_id": todo_id,
+                    "content": compact_text(item.get("content") or item.get("title") or "", limit=180),
+                    "active_form": compact_text(item.get("active_form") or "", limit=120),
+                    "status": str(item.get("status") or ""),
+                    "notes": compact_text(item.get("notes") or "", limit=180),
+                    "evidence_expectations": [
+                        str(entry) for entry in list(item.get("evidence_expectations") or []) if str(entry).strip()
+                    ],
+                    "contract_refs": [str(entry) for entry in list(item.get("contract_refs") or []) if str(entry).strip()],
+                }
+            )
+        )
+    return drop_empty(
+        {
+            "plan_id": str(value.get("plan_id") or ""),
+            "active_item_id": str(value.get("active_item_id") or ""),
+            "completion_ready": value.get("completion_ready") if isinstance(value.get("completion_ready"), bool) else None,
+            "items": items,
+            "allowed_operations": list(value.get("allowed_operations") or ["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"]),
+            "authority": str(value.get("authority") or "agent.todo_plan"),
+        }
+    )
+
+
+def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for item in latest_results[-12:]:
+        tool_name = _tool_name(str(item.get("tool_name") or ""))
+        if not tool_name:
+            continue
+        observations.append(
+            drop_empty(
+                {
+                    "tool_call_id": str(item.get("tool_call_id") or ""),
+                    "tool_name": tool_name,
+                    "outcome": str(item.get("status") or ""),
+                    "observation_ref": str(item.get("observation_ref") or item.get("tool_result_ref") or ""),
+                    "path": _projection_path(item),
+                    "trace_only": _is_context_only_tool(tool_name),
+                    "reason": str(item.get("reason") or ""),
+                    "event_offset": item.get("event_offset"),
+                }
+            )
+        )
+    return observations
 
 
 def _dedupe_evidence_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -684,10 +856,12 @@ def _latest_results(
                 {
                     "observation_ref": str(item.get("observation_ref") or ""),
                     "tool_name": str(item.get("tool_name") or ""),
+                    "tool_call_id": str(item.get("tool_call_id") or ""),
                     "status": str(item.get("status") or ""),
                     "path": _projection_path(item),
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
+                    "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
                     "code_structure": dict(item.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or {}),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
@@ -717,6 +891,7 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
         {
             "observation_ref": str(item.get("observation_id") or item.get("observation_ref") or ""),
             "tool_name": _tool_name(str(item.get("source") or tool_result.get("tool_name") or "")),
+            "tool_call_id": str(item.get("tool_call_id") or tool_result.get("tool_call_id") or ""),
             "status": str(item.get("status") or tool_result.get("status") or ""),
             "path": _projection_path(item) or _projection_path(tool_result),
             "visibility": str(item.get("visibility") or ""),
@@ -724,6 +899,7 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "structured_error": structured_error,
             "artifact_refs": list(dict_tuple(item.get("artifact_refs") or tool_result.get("artifact_refs"))),
             "replacement_ref": str(tool_result.get("replacement_ref") or ""),
+            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or tool_result.get("todo_plan") or {})),
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {})),
@@ -999,6 +1175,18 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
         payload["read_intent"] = read_intent
     if isinstance(segment.get("file_unchanged"), bool):
         payload["file_unchanged"] = segment.get("file_unchanged")
+    if isinstance(segment.get("content_omitted"), bool):
+        payload["content_omitted"] = segment.get("content_omitted")
+    if isinstance(segment.get("has_more"), bool):
+        payload["has_more"] = segment.get("has_more")
+    if segment.get("next_start_line") not in (None, ""):
+        payload["next_start_line"] = segment.get("next_start_line")
+    previous_ref = str(segment.get("previous_observation_ref") or "")
+    if previous_ref:
+        payload["previous_observation_ref"] = previous_ref
+    reusable_ref = str(segment.get("reusable_result_ref") or previous_ref)
+    if reusable_ref:
+        payload["reusable_result_ref"] = reusable_ref
     source = str(segment.get("source") or "")
     if source:
         payload["source"] = source
@@ -1039,6 +1227,20 @@ def _read_resource_state_projection(file_state: list[dict[str, Any]]) -> dict[st
             "authority_boundary": "resource_state_only",
             "status": "available",
             "path": path,
+            "files": [
+                drop_empty(
+                    {
+                        "path": str(item.get("path") or ""),
+                        "status": str(item.get("status") or ""),
+                        "coverage": dict(item.get("coverage") or {}),
+                        "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+                        "content_sha256": str(item.get("content_sha256") or ""),
+                        "last_observation_ref": str(item.get("last_observation_ref") or ""),
+                        "next_suggested_read": dict(item.get("next_suggested_read") or {}),
+                    }
+                )
+                for item in active_files[-8:]
+            ],
             "available_range_count": len(active_ranges),
             "available_evidence_refs": _read_resource_evidence_refs(active_files),
             "coverage": dict(latest.get("coverage") or {}),

@@ -199,8 +199,6 @@ def _known_task_files(task_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "status": str(item.get("status") or "").strip(),
                     "total_lines": item.get("total_lines") if isinstance(item.get("total_lines"), int) else None,
                     "content_sha256": str(item.get("content_sha256") or "").strip(),
-                    "next_suggested_read": dict(item.get("next_suggested_read") or {}),
-                    "last_observation_ref": str(item.get("last_observation_ref") or "").strip(),
                 }
             )
         )

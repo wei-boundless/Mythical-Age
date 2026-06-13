@@ -618,6 +618,7 @@ def _unchanged_previous_read_window(
                         "file_unchanged": True,
                         "content_omitted": True,
                         "previous_observation_ref": str(segment.observation_ref or ""),
+                        "reusable_result_ref": str(segment.observation_ref or ""),
                     }
     except Exception:
         return {}
