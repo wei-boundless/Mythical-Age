@@ -11,7 +11,7 @@ import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
-import type { Message, TokenStats } from "@/lib/store/types";
+import type { ChatStreamConnectionStatus, Message, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
@@ -39,6 +39,7 @@ export function ChatPanel() {
     setSelectedChatModel,
     sessions,
     tokenStats,
+    chatStreamConnectionStatus,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSession = useMemo(
@@ -171,6 +172,10 @@ export function ChatPanel() {
                 </strong>
               </div>
             ) : null}
+            <ChatStreamStatusBadge
+              status={chatStreamConnectionStatus}
+              streaming={currentSessionReceivingStream}
+            />
             <VSCodeStatusPanel
               sessionId={currentSessionId}
               projectBinding={currentSession?.conversation_state?.project_binding ?? null}
@@ -199,6 +204,77 @@ export function ChatPanel() {
       </div>
     </section>
   );
+}
+
+function ChatStreamStatusBadge({
+  status,
+  streaming,
+}: {
+  status: ChatStreamConnectionStatus;
+  streaming: boolean;
+}) {
+  const presentation = chatStreamStatusPresentation(status, streaming);
+  if (!presentation) {
+    return null;
+  }
+  return (
+    <div
+      className={`chat-stream-status chat-stream-status--${presentation.state}`}
+      title={presentation.title}
+    >
+      <span className="chat-stream-status__dot" />
+      <span>{presentation.label}</span>
+      {presentation.detail ? <strong>{presentation.detail}</strong> : null}
+    </div>
+  );
+}
+
+function chatStreamStatusPresentation(status: ChatStreamConnectionStatus, streaming: boolean) {
+  const state = status.state === "idle" && streaming ? "streaming" : status.state;
+  if (state === "idle") {
+    return null;
+  }
+  if (state === "reconnecting") {
+    const attempt = status.attempt && status.maxAttempts
+      ? `${status.attempt}/${status.maxAttempts}`
+      : "";
+    return {
+      state,
+      label: "输出流",
+      detail: attempt ? `重连 ${attempt}` : "重连中",
+      title: status.reason ? `输出流连接中断，正在重连：${status.reason}` : "输出流连接中断，正在重连。",
+    };
+  }
+  if (state === "failed") {
+    return {
+      state,
+      label: "输出流",
+      detail: "已断开",
+      title: status.reason ? `输出流已断开：${status.reason}` : "输出流已断开。",
+    };
+  }
+  if (state === "stopped") {
+    return {
+      state,
+      label: "输出流",
+      detail: "已停止",
+      title: status.reason ? `输出流已停止：${status.reason}` : "输出流已停止。",
+    };
+  }
+  if (state === "reconnected") {
+    return {
+      state,
+      label: "输出流",
+      detail: "已恢复",
+      title: "输出流已恢复，继续接收事件。",
+    };
+  }
+  return {
+    state,
+    label: "输出流",
+    detail: "正常",
+    title: "正在接收输出流事件。",
+  };
 }
 
 export function shouldSuppressSessionActivityBar(messages: Message[], active: boolean) {

@@ -96,6 +96,16 @@ export type AssistantTextSegmentState = {
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
 export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
+export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped";
+
+export type ChatStreamConnectionStatus = {
+  state: ChatStreamConnectionState;
+  attempt?: number;
+  maxAttempts?: number;
+  lastEventOffset?: number;
+  reason?: string;
+  updatedAt: number;
+};
 
 export type UserReceiptArtifact = {
   label: string;
@@ -396,6 +406,7 @@ export type StoreState = {
   assistantTextStreamsByMessageId: Record<string, AssistantTextStreamState>;
   isStreaming: boolean;
   activeStreamSessionIds: string[];
+  chatStreamConnectionStatus: ChatStreamConnectionStatus;
   sessionActivity: SessionActivityState;
   sessionActivitiesById: Record<string, SessionActivityState>;
   permissionMode: PermissionMode;

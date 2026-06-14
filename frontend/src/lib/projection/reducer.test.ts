@@ -71,6 +71,7 @@ function project(
 describe("public projection frame reducer contract", () => {
   it("progressively appends and finalizes assistant body from public_projection_frame", () => {
     let transition = startBoundProjectionTurn();
+    const activityBeforeBody = transition.state.sessionActivity;
     transition = project(transition, {
       op: "body_append",
       slot: "body",
@@ -92,10 +93,13 @@ describe("public projection frame reducer contract", () => {
     expect(assistant?.content).toBe("正在检查投影链路。");
     expect(assistant?.publicProjection?.bodyText).toBe("正在检查投影链路。");
     expect(assistant?.publicProjection?.bodyState).toBe("finalized");
+    expect(assistant?.publicProjection?.bodyEventOffset).toBeGreaterThan(0);
+    expect(transition.state.sessionActivity).toBe(activityBeforeBody);
   });
 
   it("opens the main tool action only from the model tool_call_requested frame", () => {
     let transition = startBoundProjectionTurn();
+    const activityBeforeTool = transition.state.sessionActivity;
     transition = project(transition, {
       source_event_type: "tool_call_requested",
       op: "item_upsert",
@@ -117,7 +121,6 @@ describe("public projection frame reducer contract", () => {
       itemId: "tool:read",
       toolCallId: "call:read",
       permissionDecisionId: "permission:read",
-      text: "读取投影 reducer",
       mainVisibility: "visible_live",
     });
     expect(projection?.timeline).toEqual([
@@ -129,6 +132,7 @@ describe("public projection frame reducer contract", () => {
         sourceEventType: "tool_call_requested",
       }),
     ]);
+    expect(transition.state.sessionActivity).toBe(activityBeforeTool);
   });
 
   it("keeps raw tool_item_started invisible when it has no public projection frame", () => {
@@ -191,7 +195,6 @@ describe("public projection frame reducer contract", () => {
       retention: "trace",
       item_id: "tool:read",
       tool_call_id: "call:read",
-      title: "读取完成",
       state: "done",
     });
 
@@ -199,10 +202,212 @@ describe("public projection frame reducer contract", () => {
     expect(projection?.currentAction).toBeUndefined();
     expect(projection?.pinned).toEqual([]);
     expect(projection?.traceCount).toBeGreaterThan(0);
-    expect(projection?.timeline.map((item) => item.sourceEventType)).toEqual([
-      "tool_call_requested",
-      "tool_item_completed",
+    expect(projection?.timeline).toHaveLength(1);
+    expect(projection?.timeline[0]).toMatchObject({
+      itemId: "call:read",
+      toolCallId: "call:read",
+      sourceEventType: "tool_item_completed",
+      state: "done",
+    });
+    expect(projection?.timeline[0]?.eventOffset).toBeLessThan(projection?.timeline[0]?.updatedEventOffset ?? 0);
+  });
+
+  it("updates one tool trajectory across request start and completion by tool call id", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "call:search",
+      tool_call_id: "call:search",
+      tool_lifecycle_id: "call:search",
+      tool_name: "search_files",
+      title: "搜索文件：mario修复计划",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_started",
+      op: "item_upsert",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "toolinv:search:1",
+      tool_call_id: "call:search",
+      tool_lifecycle_id: "toolinv:search:1",
+      tool_name: "search_files",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "toolinv:search:1",
+      tool_call_id: "call:search",
+      tool_lifecycle_id: "toolinv:search:1",
+      tool_name: "search_files",
+      state: "done",
+    });
+
+    const projection = transition.state.messages.at(-1)?.publicProjection;
+    expect(projection?.timeline).toHaveLength(1);
+    expect(projection?.timeline[0]).toMatchObject({
+      itemId: "call:search",
+      toolCallId: "call:search",
+      toolLifecycleId: "toolinv:search:1",
+      sourceEventType: "tool_item_completed",
+      state: "done",
+    });
+  });
+
+  it("does not merge separate tool calls that share the same title", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "tool-life:search:1",
+      tool_call_id: "call:search:1",
+      tool_lifecycle_id: "tool-life:search:1",
+      tool_name: "search_files",
+      title: "搜索文件：mario",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "tool-life:search:2",
+      tool_call_id: "call:search:2",
+      tool_lifecycle_id: "tool-life:search:2",
+      tool_name: "search_files",
+      title: "搜索文件：mario",
+      state: "running",
+    });
+
+    const projection = transition.state.messages.at(-1)?.publicProjection;
+    expect(projection?.timeline).toHaveLength(2);
+    expect(projection?.timeline.map((item) => item.itemId)).toEqual([
+      "call:search:1",
+      "call:search:2",
     ]);
+    expect(projection?.timeline.map((item) => item.toolCallId)).toEqual([
+      "call:search:1",
+      "call:search:2",
+    ]);
+  });
+
+  it("keeps assistant body separate from tool lifecycle activity", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "final",
+      text: "先说明。",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "tool:read",
+      tool_call_id: "call:read",
+      tool_lifecycle_id: "tool-life:read",
+      tool_name: "read_file",
+      title: "读取文件",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "tool-life:read",
+      tool_call_id: "call:read",
+      tool_lifecycle_id: "tool-life:read",
+      tool_name: "read_file",
+      state: "done",
+    });
+    transition = project(transition, {
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "final",
+      text: "再继续。",
+    });
+
+    const projection = transition.state.messages.at(-1)?.publicProjection;
+    expect(projection?.bodyText).toBe("先说明。再继续。");
+    expect(projection?.timeline).toHaveLength(1);
+    expect(projection?.timeline[0]).toMatchObject({
+      itemId: "call:read",
+      toolCallId: "call:read",
+      toolLifecycleId: "tool-life:read",
+      sourceEventType: "tool_item_completed",
+    });
+  });
+
+  it("keeps repeated status updates as separate timeline events while latest status is upserted", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_id: "event:status:1",
+      source_event_type: "runtime_step_summary",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "task-stage-status:taskrun:1",
+      title: "STATUS_A",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_id: "event:status:2",
+      source_event_type: "runtime_step_summary",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "task-stage-status:taskrun:1",
+      title: "STATUS_B",
+      state: "running",
+    });
+
+    const projection = transition.state.messages.at(-1)?.publicProjection;
+    expect(projection?.status).toHaveLength(1);
+    const timeline = projection?.timeline ?? [];
+    expect(projection?.status[0]).toMatchObject({
+      itemId: "task-stage-status:taskrun:1",
+      sourceEventId: "event:status:2",
+    });
+    expect(timeline).toHaveLength(2);
+    expect(new Set(timeline.map((item) => item.itemId)).size).toBe(2);
+    expect(timeline.every((item) => item.itemId !== "task-stage-status:taskrun:1")).toBe(true);
+    expect(timeline.map((item) => item.sourceEventId)).toEqual([
+      "event:status:1",
+      "event:status:2",
+    ]);
+    expect(Number(timeline[0]?.eventOffset)).toBeLessThan(Number(timeline[1]?.eventOffset));
   });
 
   it("pins failed tool results until they are resolved", () => {
@@ -266,6 +471,56 @@ describe("public projection frame reducer contract", () => {
     const projection = transition.state.messages.at(-1)?.publicProjection;
     expect(projection?.bodyText).toBe("正文仍在推进。");
     expect(projection?.currentAction?.itemId).toBe("tool:verify");
+  });
+
+  it("rejects stale task frames from a different turn even when task_run_id is shared", () => {
+    let transition = startStreamingTurn(getDefaultState(), "new instruction");
+    transition = {
+      ...transition,
+      session: {
+        ...transition.session,
+        boundTurnId: "turn:new",
+        boundTurnRunId: "turnrun:new",
+        boundRunId: "run:new",
+        boundTaskRunId: "taskrun:shared",
+      },
+    };
+    transition = project(transition, {
+      anchor: {
+        turn_id: "turn:old",
+        turn_run_id: "turnrun:old",
+        run_id: "run:old",
+        task_run_id: "taskrun:shared",
+      },
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "final",
+      text: "旧时序内容",
+    });
+
+    expect(transition.state.messages.at(-1)?.publicProjection).toBeUndefined();
+
+    transition = project(transition, {
+      anchor: {
+        turn_id: "turn:new",
+        turn_run_id: "turnrun:new",
+        run_id: "run:new",
+        task_run_id: "taskrun:shared",
+      },
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "final",
+      text: "新时序内容",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.sourceTurnId).toBe("turn:new");
+    expect(assistant?.publicProjection?.bodyText).toBe("新时序内容");
+    expect(assistant?.publicProjection?.bodyText).not.toContain("旧时序内容");
   });
 
   it("uses commit_ack as the only commit authority and retires transient activity", () => {

@@ -3845,9 +3845,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("removes a session from the local list before the delete request settles", async () => {
     vi.useRealTimers();
-    let resolveDelete: ((value: { ok: boolean }) => void) | null = null;
+    const deleteDeferred: { resolve?: (value: { ok: boolean }) => void } = {};
     api.deleteSession.mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => {
-      resolveDelete = resolve;
+      deleteDeferred.resolve = resolve;
     }));
     api.listSessions.mockResolvedValue([{
       id: "session:keep",
@@ -3886,7 +3886,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.deleteSession).toHaveBeenCalledWith("session:delete", undefined);
     expect(store.getState().sessions.map((session) => session.id)).toEqual(["session:keep"]);
 
-    resolveDelete?.({ ok: true });
+    deleteDeferred.resolve?.({ ok: true });
     await deletion;
     expect(api.listSessions).toHaveBeenCalled();
   });

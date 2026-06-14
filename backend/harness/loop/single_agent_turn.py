@@ -49,6 +49,7 @@ from runtime.output_boundary import (
     sanitize_visible_assistant_content,
 )
 from runtime.shared.models import TurnRun
+from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
@@ -3080,13 +3081,7 @@ def _tool_call_from_action_request(action_request: ModelActionRequest) -> dict[s
 
 
 def _canonical_action_tool_call_id(action_request: ModelActionRequest) -> str:
-    tool_call = dict(action_request.tool_call or {})
-    return str(
-        tool_call.get("id")
-        or getattr(action_request, "tool_call_id", "")
-        or getattr(action_request, "request_id", "")
-        or ""
-    ).strip()
+    return canonical_action_tool_call_id(action_request)
 
 
 def _tool_observation_from_admission(
@@ -4578,7 +4573,7 @@ def _tool_item_started_events_for_group(
         tool_call_id = _canonical_action_tool_call_id(action_request)
         if not tool_name or not tool_call_id:
             continue
-        permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{tool_call_id}").strip()
+        permission_decision_id_value = permission_decision_id(admission, tool_call_id=tool_call_id)
         tool_lifecycle_id = build_tool_invocation_id(
             caller_ref=turn_run.turn_run_id,
             action_request_ref=str(getattr(action_request, "request_id", "") or tool_call_id),
@@ -4593,7 +4588,7 @@ def _tool_item_started_events_for_group(
                 "turn_run_id": turn_run.turn_run_id,
                 "tool_lifecycle_id": tool_lifecycle_id,
                 "tool_call_id": tool_call_id,
-                "permission_decision_id": permission_decision_id,
+                "permission_decision_id": permission_decision_id_value,
                 "tool_name": tool_name,
                 "state": "running",
                 "action_request_ref": str(getattr(action_request, "request_id", "") or ""),

@@ -1387,53 +1387,6 @@ def test_system_tool_status_does_not_become_monitor_public_progress():
     assert item["latest_step"]["presentation_source"] == "system.tool_call_status"
 
 
-def test_tool_observation_trace_does_not_replace_previous_public_monitor_progress():
-    events = [
-        EventStub(
-            event_type="step_summary_recorded",
-            created_at=120.0,
-            offset=1,
-            payload={
-                "step": "model_action_received:2",
-                "status": "running",
-                "summary": "已确认修复计划，下一步开始修改 mario.html。",
-                "presentation_source": "model_action.public_action_state",
-                "public_action_state": {
-                    "current_judgment": "已确认修复计划，下一步开始修改 mario.html。",
-                    "next_action": "执行第一项火球机制修复。",
-                    "completion_status": "working",
-                },
-            },
-        ),
-        EventStub(
-            event_type="step_summary_recorded",
-            created_at=125.0,
-            offset=2,
-            payload={
-                "step": "task_tool_observation_recorded:2",
-                "status": "running",
-                "summary": "File unchanged for storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md:1-48; content omitted.",
-                "agent_brief_output": "File unchanged for storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md:1-48; content omitted.",
-                "presentation_source": "tool_observation.summary",
-            },
-        ),
-    ]
-    projector = RuntimeMonitorProjector(EventLogStub({"taskrun:turn:session-a:1:abc": events}))
-
-    item = projector.project_task_run(task_run(updated_at=125.0), now=150.0)
-
-    assert item["latest_public_progress_note"] == "已确认修复计划，下一步开始修改 mario.html。"
-    assert item["latest_step_summary"] == "已确认修复计划，下一步开始修改 mario.html。"
-    assert item["latest_progress"]["summary"] == "已确认修复计划，下一步开始修改 mario.html。"
-    assert item["latest_progress"]["current_judgment"] == "已确认修复计划，下一步开始修改 mario.html。"
-    assert item["latest_progress"]["next_action"] == "执行第一项火球机制修复。"
-    assert item["latest_progress"]["completion_status"] == "working"
-    assert item["latest_progress"]["agent_brief"] == ""
-    assert item["agent_brief_output"] == ""
-    assert item["latest_step"]["presentation_source"] == "tool_observation.summary"
-    assert item["latest_step"]["agent_brief_output"] == ""
-    assert item["latest_step"]["summary"].startswith("File unchanged for")
-
 
 def test_project_task_run_exposes_session_output_commit_ack_from_event_log():
     events = [

@@ -34,7 +34,7 @@ class ProjectionLifecycleState:
 
     def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
         event_type = text(public_event_type)
-        offset = _event_offset(data, sequence=sequence)
+        offset = _event_offset(sequence=sequence)
         if event_type == TOOL_CALL_REQUESTED_EVENT:
             spec = _tool_call_requested_spec(data)
             tool_call_id = text(spec.get("tool_call_id"))
@@ -234,7 +234,7 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_spec(data)
     if event_type == "active_task_steer_accepted":
-        return _hidden_trace_spec(event_type, data)
+        return _active_task_steer_accepted_spec(data)
     if event_type in {"error", "stopped"}:
         return _terminal_status_spec(event_type, data)
     return _hidden_trace_spec(event_type, data)
@@ -507,8 +507,6 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
         "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
-        "title": title,
-        "text": title,
         "detail": detail,
         "state": "done",
         "trace_refs": _trace_refs(data),
@@ -693,6 +691,27 @@ def _runtime_stage_status_item_id(data: dict[str, Any]) -> str:
     return stable_id("turn-stage-status", data.get("turn_run_id"), data.get("turn_id"), "public")
 
 
+def _active_task_steer_accepted_spec(data: dict[str, Any]) -> dict[str, Any]:
+    anchor = record(data.get("public_anchor"))
+    task_run_id = text(data.get("task_run_id")) or text(data.get("runtime_task_run_id")) or text(anchor.get("task_run_id"))
+    turn_id = text(data.get("turn_id")) or text(data.get("active_turn_id")) or text(anchor.get("turn_id"))
+    detail = public_text(data.get("detail") or data.get("summary") or data.get("content"), limit=220)
+    return {
+        "op": "item_upsert",
+        "slot": "status",
+        "status_kind": "active_task_steer_receipt",
+        "source_authority": "runtime",
+        "main_visibility": "visible_live",
+        "retention": "transient",
+        "item_id": stable_id("active-task-steer", task_run_id, turn_id, "accepted"),
+        "title": "补充要求已纳入当前任务",
+        "text": "补充要求已纳入当前任务",
+        "detail": detail,
+        "state": text(data.get("state") or data.get("status")) or "done",
+        "trace_refs": _trace_refs(data),
+    }
+
+
 def _terminal_status_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     failed = event_type == "error"
     return {
@@ -742,30 +761,28 @@ def _protocol_diagnostic_spec(data: dict[str, Any], *, code: str, detail: str) -
 
 
 def _tool_request_text(data: dict[str, Any], *, tool_name: str, subject: str = "") -> str:
-    action_state = record(data.get("public_action_state"))
     visible_subject = subject or public_text(data.get("target") or data.get("arguments_preview"), limit=180)
     structured = _structured_tool_action_text(tool_name=tool_name, subject=visible_subject)
-    return (
-        public_text(action_state.get("next_action"), limit=180)
-        or public_text(data.get("public_progress_note"), limit=180)
-        or structured
-        or visible_subject
-        or text(tool_name)
-    )
+    return structured or visible_subject or text(tool_name)
 
 
 def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
     visible_subject = public_text(subject, limit=140)
-    if tool_name in {"search_files", "search_text", "glob_paths"}:
+    normalized_tool = text(tool_name).lower()
+    if normalized_tool in {"path_exists", "stat_path"}:
+        return f"检查路径：{visible_subject}" if visible_subject else "检查路径"
+    if normalized_tool == "list_dir":
+        return f"列出目录：{visible_subject}" if visible_subject else "列出目录"
+    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
         verb = {
             "search_files": "搜索文件",
             "search_text": "搜索文本",
             "glob_paths": "匹配路径",
-        }.get(tool_name, "搜索")
+        }.get(normalized_tool, "搜索")
         return f"{verb}：{visible_subject}" if visible_subject else verb
-    if tool_name in {"read_file", "read_files"}:
+    if normalized_tool in {"read_file", "read_files", "read_path"}:
         return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
-    if tool_name in {"write_file", "edit_file"}:
+    if normalized_tool in {"write_file", "edit_file", "apply_patch"}:
         return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
     if visible_subject:
         return f"{tool_name}：{visible_subject}"
@@ -776,15 +793,37 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
     explicit = public_text(data.get("title") or data.get("summary"), limit=120)
     if explicit:
         return explicit
+    tool_label = _tool_display_label(tool_name)
+    normalized_tool = text(tool_name).lower()
     if failed:
-        return "工具执行失败"
-    if tool_name in {"search_files", "search_text", "glob_paths"}:
+        return f"{tool_label}失败" if tool_label else "工具执行失败"
+    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
         return "搜索完成"
-    if tool_name in {"read_file", "read_files"}:
+    if normalized_tool in {"read_file", "read_files", "read_path"}:
         return "文件读取完成"
-    if tool_name in {"write_file", "edit_file"}:
+    if normalized_tool in {"write_file", "edit_file", "apply_patch"}:
         return "文件更新完成"
+    if tool_label:
+        return f"{tool_label}完成"
     return "工具执行完成"
+
+
+def _tool_display_label(tool_name: str) -> str:
+    normalized = text(tool_name).lower()
+    return {
+        "apply_patch": "更新文件",
+        "edit_file": "更新文件",
+        "glob_paths": "匹配路径",
+        "list_dir": "列出目录",
+        "path_exists": "检查路径",
+        "read_file": "读取文件",
+        "read_files": "读取文件",
+        "read_path": "读取文件",
+        "search_files": "搜索文件",
+        "search_text": "搜索文本",
+        "stat_path": "检查路径",
+        "write_file": "写入文件",
+    }.get(normalized, "")
 
 
 def _body_item_id(data: dict[str, Any]) -> str:
@@ -811,13 +850,11 @@ def _trace_refs(data: dict[str, Any]) -> list[str]:
     return refs
 
 
-def _event_offset(data: dict[str, Any], *, sequence: int = 0) -> int:
-    for value in (data.get("event_offset"), data.get("offset"), data.get("sequence"), sequence):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
-    return 0
+def _event_offset(*, sequence: int = 0) -> int:
+    try:
+        return int(sequence)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _tool_lifecycle_key(data: dict[str, Any], *, tool_call_id: str) -> str:

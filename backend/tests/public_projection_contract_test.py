@@ -62,6 +62,36 @@ def test_public_projection_frame_exposes_dual_channel_contract() -> None:
     assert status["lossless"] is False
 
 
+def test_public_projection_frame_event_offset_uses_public_sequence_only() -> None:
+    frame = _frame(
+        ASSISTANT_TEXT_FINAL_EVENT,
+        {"content": "完成。", "event_offset": 999, "offset": 998, "sequence": 997},
+        sequence=7,
+    )
+
+    assert frame["sequence"] == 7
+    assert frame["event_offset"] == 7
+
+
+def test_active_task_steer_accepted_is_visible_status_not_body() -> None:
+    frame = _frame(
+        "active_task_steer_accepted",
+        {
+            "task_run_id": "taskrun:active",
+            "turn_id": "turn:test",
+            "detail": "新的限制已经加入当前任务。",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "status"
+    assert frame["status_kind"] == "active_task_steer_receipt"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["event_family"] == "status_trace"
+    assert frame["channel"] == "status"
+    assert frame["slot"] != "body"
+
+
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
@@ -89,17 +119,46 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
     )
 
     assert [event_type for event_type, _ in events] == [
+        "runtime_step_summary",
         TOOL_CALL_REQUESTED_EVENT,
         TOOL_PERMISSION_DECIDED_EVENT,
     ]
-    requested = events[0][1]
-    permission = events[1][1]
+    status = events[0][1]
+    requested = events[1][1]
+    permission = events[2][1]
+    assert status["presentation_source"] == "model_action.public_progress_note"
+    assert status["summary"] == "读取 README。"
     assert requested["tool_call_id"] == "call:read"
     assert requested["tool_name"] == "read_file"
-    assert requested["target"] == "README.md"
-    assert requested["public_action_state"]["next_action"] == "读取 README.md"
+    assert requested["turn_run_id"] == "turnrun:turn:test:1"
     assert permission["tool_call_id"] == "call:read"
     assert permission["permission_decision"] == "allow"
+
+
+def test_chat_bridge_does_not_use_request_id_as_tool_call_id() -> None:
+    events = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:no-tool-id",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:read",
+                        "action_type": "tool_call",
+                        "tool_call": {
+                            "tool_name": "read_file",
+                            "args": {"path": "README.md"},
+                        },
+                    },
+                    "admission": {"decision": "allow"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert events == []
 
 
 def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
@@ -121,25 +180,27 @@ def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
     assert frame["main_visibility"] == "visible_live"
     assert frame["retention"] == "transient"
     assert frame["tool_call_id"] == "call:read"
+    assert frame["tool_lifecycle_id"] == "call:read"
+    assert frame["event_family"] == "tool_control"
+    assert frame["channel"] == "control"
 
 
-def test_runtime_context_rehydration_tool_stays_trace_only() -> None:
+def test_path_inspection_tool_request_uses_user_facing_title() -> None:
     frame = _frame(
         TOOL_CALL_REQUESTED_EVENT,
         {
-            "tool_call_id": "call:rehydrate",
-            "tool_lifecycle_id": "call:rehydrate",
-            "tool_name": "read_persisted_tool_result",
-            "target": "storage/memory/durable/global_common/notes/project-mario-full-fix-plan.md",
+            "tool_call_id": "call:stat",
+            "tool_lifecycle_id": "call:stat",
+            "tool_name": "stat_path",
+            "target": "mario.html",
         },
     )
 
-    assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "trace"
-    assert frame["source_authority"] == "model"
-    assert frame["main_visibility"] == "trace_only"
-    assert frame["retention"] == "trace"
-    assert frame["tool_call_id"] == "call:rehydrate"
+    assert frame["title"] == "检查路径：mario.html"
+    assert frame["text"] == "检查路径：mario.html"
+    assert frame["tool_name"] == "stat_path"
+
+
 
 
 def test_system_tool_batch_step_summary_stays_trace_only() -> None:
@@ -223,6 +284,8 @@ def test_successful_tool_completed_retires_current_action_to_trace() -> None:
     assert frame["slot"] == "trace"
     assert frame["main_visibility"] == "trace_only"
     assert frame["tool_call_id"] == "call:read"
+    assert "title" not in frame
+    assert "text" not in frame
 
 
 def test_failed_tool_completed_is_pinned_until_resolved() -> None:
@@ -261,7 +324,6 @@ def test_failed_runtime_context_rehydration_tool_retires_any_visible_card() -> N
     assert frame["main_visibility"] == "visible_live"
     assert frame["retention"] == "transient"
     assert frame["tool_call_id"] == "call:rehydrate"
-    assert "read_persisted_tool_result" not in frame["title"]
 
 
 def test_turn_completed_has_no_hydrate_or_main_tool_semantics() -> None:
@@ -366,12 +428,13 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
                         "task_run_id": "taskrun:turn:test:1",
                         "observation_type": "tool_result",
                         "request_ref": "request:read",
-                        "payload": {
-                            "caller_ref": "turnrun:turn:test:1",
-                            "task_run_id": "taskrun:turn:test:1",
-                            "tool_name": "read_file",
-                            "status": "ok",
-                            "text": "读取完成。",
+                            "payload": {
+                                "caller_ref": "turnrun:turn:test:1",
+                                "task_run_id": "taskrun:turn:test:1",
+                                "invocation_id": "toolinv:read:1",
+                                "tool_name": "read_file",
+                                "status": "ok",
+                                "text": "读取完成。",
                             "tool_call_id": "call:read",
                             "result_envelope": {
                                 "tool_name": "read_file",
@@ -399,9 +462,48 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
     assert [event_type for event_type, _ in events] == [TOOL_ITEM_COMPLETED_EVENT]
     completed = events[0][1]
     assert completed["tool_call_id"] == "call:read"
+    assert completed["tool_lifecycle_id"] == "toolinv:read:1"
     assert completed["permission_decision_id"] == "admission:request:read"
     assert completed["tool_name"] == "read_file"
-    assert completed["observation"] == "读取完成。"
+
+
+def test_tool_completion_uses_request_ref_for_permission_identity() -> None:
+    events = _project_public_stream_event(
+        "task_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:tool-observation:no-admission-ref",
+                "payload": {
+                    "observation": {
+                        "task_run_id": "taskrun:turn:test:1",
+                        "observation_type": "tool_result",
+                        "request_ref": "request:read",
+                            "payload": {
+                                "caller_ref": "turnrun:turn:test:1",
+                                "task_run_id": "taskrun:turn:test:1",
+                                "invocation_id": "toolinv:read:request-ref",
+                                "tool_name": "read_file",
+                                "status": "ok",
+                                "text": "读取完成。",
+                            "tool_call_id": "call:read",
+                            "result_envelope": {
+                                "tool_name": "read_file",
+                                "tool_call_id": "call:read",
+                                "text": "读取完成。",
+                            },
+                        },
+                    }
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1", "task_run_ref": "taskrun:turn:test:1"},
+            }
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TOOL_ITEM_COMPLETED_EVENT]
+    completed = events[0][1]
+    assert completed["tool_call_id"] == "call:read"
+    assert completed["tool_lifecycle_id"] == "toolinv:read:request-ref"
+    assert completed["permission_decision_id"] == "admission:request:read"
 
 
 def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
@@ -420,6 +522,7 @@ def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
             "tool_name": "read_file",
         },
         session_id="session:test",
+        sequence=1,
         lifecycle_state=lifecycle,
     )
     project_public_projection_event(
@@ -432,6 +535,7 @@ def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
             "permission_decision": "allow",
         },
         session_id="session:test",
+        sequence=2,
         lifecycle_state=lifecycle,
     )
     project_public_projection_event(
@@ -444,6 +548,7 @@ def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
             "tool_name": "read_file",
         },
         session_id="session:test",
+        sequence=3,
         lifecycle_state=lifecycle,
     )
 
@@ -458,6 +563,7 @@ def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
             "state": "done",
         },
         session_id="session:test",
+        sequence=4,
         lifecycle_state=lifecycle,
     )["public_projection_frame"]
 

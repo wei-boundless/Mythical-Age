@@ -207,6 +207,8 @@ export type PublicChatTimelineItem = {
   sourceRunId?: string;
   source_event_id?: string;
   sourceEventId?: string;
+  source_event_type?: string;
+  sourceEventType?: string;
   updated_event_offset?: number;
   updated_at?: number;
   updated_source_event_id?: string;
@@ -267,12 +269,14 @@ export type PublicProjectionItem = {
   toolCallId?: string;
   permissionDecisionId?: string;
   toolName?: string;
+  toolLifecycleId?: string;
   actionKind?: string;
   subjectLabel?: string;
   traceRefs?: string[];
   artifactRefs?: Array<Record<string, unknown>>;
   collapsed?: boolean;
   eventOffset?: number;
+  updatedEventOffset?: number;
   sourceEventType?: string;
   sourceEventId?: string;
 };
@@ -282,6 +286,11 @@ export type ProjectionLedger = {
     text: string;
     stream_state: "streaming" | "finalized" | "committed";
     source_offsets: number[];
+    blocks: PublicProjectionBodyBlock[];
+  };
+  displayCursor?: {
+    kind: "body" | "activity";
+    itemId?: string;
   };
   currentAction?: PublicProjectionItem;
   pinned: PublicProjectionItem[];
@@ -299,9 +308,20 @@ export type ProjectionLedger = {
   };
 };
 
+export type PublicProjectionBodyBlock = {
+  kind: "body";
+  blockId: string;
+  text: string;
+  firstOffset: number;
+  lastOffset: number;
+  state?: "streaming" | "finalized" | "committed" | string;
+  sourceFrameIds: string[];
+};
+
 export type MessagePublicProjection = {
   bodyText: string;
   bodyState: "streaming" | "finalized" | "committed";
+  bodyBlocks: PublicProjectionBodyBlock[];
   currentAction?: PublicProjectionItem;
   pinned: PublicProjectionItem[];
   finalResults: PublicProjectionItem[];

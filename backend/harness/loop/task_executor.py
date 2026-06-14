@@ -30,6 +30,11 @@ from runtime.model_gateway.assistant_stream_frame import (
 from runtime.cache_manager import runtime_cache_manager_for_host
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
+from runtime.shared.tool_identity import (
+    canonical_action_tool_call_id,
+    ensure_tool_call_id,
+    permission_decision_id,
+)
 
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
@@ -2952,7 +2957,7 @@ def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_re
         tool_name=tool_name,
         tool_args=tool_args,
         tool_call_id=tool_call_id,
-        admission_ref=str(getattr(row.get("admission"), "admission_id", "") or f"admission:{action_request.request_id}"),
+        admission_ref=permission_decision_id(row.get("admission"), tool_call_id=tool_call_id),
         action_request=action_request,
         error=str(error),
     )
@@ -3003,13 +3008,12 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
         tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
         tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
         child_request_id = action_request.request_id if len(raw_calls) == 1 else f"{action_request.request_id}:tool:{index + 1}"
-        tool_call = {
+        tool_call = ensure_tool_call_id({
             **tool_call,
-            "id": str(tool_call.get("id") or child_request_id),
             "tool_name": tool_name,
             "name": tool_name,
             "args": tool_args,
-        }
+        }, request_id=child_request_id, ordinal=index)
         result.append(
             TaskExecutionModelActionRequest(
                 request_id=child_request_id,
@@ -3030,13 +3034,7 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
 
 
 def _canonical_tool_call_id(action_request: AnyModelActionRequest) -> str:
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    return str(
-        tool_call.get("id")
-        or getattr(action_request, "tool_call_id", "")
-        or getattr(action_request, "request_id", "")
-        or ""
-    ).strip()
+    return canonical_action_tool_call_id(action_request)
 
 
 def _task_batch_workspace_root(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
@@ -3319,7 +3317,7 @@ def _record_task_tool_item_started(
     packet_ref: str,
 ) -> Any:
     tool_call_id = _canonical_tool_call_id(action_request)
-    permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}").strip()
+    permission_decision_id_value = permission_decision_id(admission, tool_call_id=tool_call_id)
     event = runtime_host.event_log.append(
         task_run.task_run_id,
         "tool_item_started",
@@ -3328,7 +3326,7 @@ def _record_task_tool_item_started(
             "turn_id": str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or getattr(task_run, "task_id", "") or ""),
             "tool_lifecycle_id": invocation_id,
             "tool_call_id": tool_call_id,
-            "permission_decision_id": permission_decision_id,
+            "permission_decision_id": permission_decision_id_value,
             "tool_name": tool_name,
             "state": "running",
             "action_request_ref": action_request.request_id,
@@ -3448,7 +3446,7 @@ async def _execute_task_tool_call(
         tool_args=tool_args,
         operation_id=operation_id,
         tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
-        admission_ref=str(getattr(admission, "admission_id", "") or "task_executor_admission"),
+        admission_ref=permission_decision_id(admission, tool_call_id=tool_call_id),
         action_permit=action_permit.to_dict(),
         permission_mode=runtime_permission_mode,
         caller_resource_scope={
@@ -3488,7 +3486,7 @@ async def _execute_task_tool_call(
             tool_name=tool_name,
             tool_args=tool_args,
             tool_call_id=tool_call_id,
-            admission_ref=str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}"),
+            admission_ref=permission_decision_id(admission, tool_call_id=tool_call_id),
             action_request=action_request,
             error="runtime_tool_control_plane_unavailable",
         )
@@ -7547,8 +7545,8 @@ def _executor_error_observation(
     admission_ref: str = "",
     action_request: AnyModelActionRequest | None = None,
 ) -> dict[str, Any]:
-    normalized_tool_call_id = str(tool_call_id or request_ref or "").strip()
-    normalized_admission_ref = str(admission_ref or (f"admission:{request_ref}" if request_ref else "")).strip()
+    normalized_tool_call_id = str(tool_call_id or "").strip()
+    normalized_admission_ref = str(admission_ref or permission_decision_id(tool_call_id=normalized_tool_call_id)).strip()
     diagnostics: dict[str, Any] = {}
     if action_request is not None:
         diagnostics["action_request"] = action_request.to_dict()

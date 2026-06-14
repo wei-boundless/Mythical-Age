@@ -17,7 +17,7 @@ type ActivityEntry = {
   collapsed?: boolean;
   detail?: string;
   id: string;
-  kind: "status" | "tool";
+  kind: "status" | "tool_lifecycle" | "tool_window";
   meta: string[];
   sections: Array<{ label: string; text: string }>;
   state?: string;
@@ -37,7 +37,7 @@ export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: Pu
       data-entry-count={view.entries.length}
     >
       {view.entries.map((entry) => (
-        entry.kind === "tool"
+        entry.kind === "tool_window"
           ? <ToolWindow entry={entry} key={entry.id} />
           : <ActivityLine entry={entry} key={entry.id} />
       ))}
@@ -76,14 +76,14 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
         }))
         .filter((section) => section.label && section.text)
     : [];
+  const kind = activityKindFromItem(item);
   const meta = [
-    toolWindow?.tool_label,
-    toolWindow?.status,
-    toolWindow?.target,
+    displayToolLabel(toolWindow?.tool_label || (kind === "tool_lifecycle" ? item.tool_name : "")),
+    displayToolStatus(toolWindow?.status || (kind === "tool_lifecycle" ? item.state : "")),
+    toolWindow?.target || (kind === "tool_lifecycle" ? item.subject_label : ""),
   ].map(cleanText).filter(Boolean);
-  const kind = isToolItem(item) ? "tool" : "status";
   return {
-    collapsed: kind === "tool" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
+    collapsed: kind === "tool_window" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
     detail,
     id: cleanText(item.item_id) || cleanText(item.source_event_id) || `${kind}:${index}`,
     kind,
@@ -94,10 +94,13 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
   };
 }
 
-function isToolItem(item: PublicChatTimelineItem) {
-  return cleanText((item as { slot?: unknown }).slot).toLowerCase() === "tool"
-    || cleanText((item as { surface?: unknown }).surface).toLowerCase() === "tool_window"
-    || cleanText(item.kind).toLowerCase() === "work_action";
+function activityKindFromItem(item: PublicChatTimelineItem): ActivityEntry["kind"] {
+  const kind = cleanText(item.kind).toLowerCase();
+  const slot = cleanText((item as { slot?: unknown }).slot).toLowerCase();
+  const surface = cleanText((item as { surface?: unknown }).surface).toLowerCase();
+  if (surface === "tool_window" || kind === "work_action") return "tool_window";
+  if (kind === "tool_activity" || slot === "tool" || cleanText(item.tool_call_id)) return "tool_lifecycle";
+  return "status";
 }
 
 function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTone {
@@ -138,14 +141,63 @@ function cleanText(value: unknown) {
     .trim();
 }
 
+function displayToolLabel(value: unknown) {
+  const normalized = cleanText(value).toLowerCase();
+  const labels: Record<string, string> = {
+    glob_paths: "匹配路径",
+    list_dir: "列出目录",
+    path_exists: "检查路径",
+    read_file: "读取文件",
+    read_files: "读取文件",
+    read_path: "读取文件",
+    search_files: "搜索文件",
+    search_text: "搜索文本",
+    stat_path: "检查路径",
+    write_file: "写入文件",
+    edit_file: "更新文件",
+    apply_patch: "更新文件",
+  };
+  return labels[normalized] || cleanText(value);
+}
+
+function displayToolStatus(value: unknown) {
+  const normalized = cleanText(value).toLowerCase();
+  const labels: Record<string, string> = {
+    running: "运行中",
+    waiting: "等待中",
+    queued: "排队中",
+    done: "已完成",
+    complete: "已完成",
+    completed: "已完成",
+    success: "已完成",
+    passed: "已完成",
+    failed: "失败",
+    error: "失败",
+    blocked: "受阻",
+    missing: "缺失",
+    stopped: "已停止",
+    aborted: "已停止",
+    cancelled: "已停止",
+    canceled: "已停止",
+  };
+  return labels[normalized] || cleanText(value);
+}
+
 function ActivityLine({ entry }: { entry: ActivityEntry }) {
   return (
     <div
-      className="public-run-activity__line public-run-activity__line--status"
+      className={`public-run-activity__line public-run-activity__line--${entry.kind}`}
       data-activity-id={entry.id}
       data-activity-kind={entry.kind}
     >
-      <p>{entry.text}</p>
+      <p>
+        <span>{entry.text}</span>
+      </p>
+      {entry.meta.length ? (
+        <div className="public-run-activity__line-meta">
+          {entry.meta.map((item) => <span key={item}>{item}</span>)}
+        </div>
+      ) : null}
       {entry.detail ? (
         <div className="public-run-activity__line-detail markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -173,7 +225,9 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
       onToggle={(event) => setOpen(event.currentTarget.open)}
       open={open}
     >
-      <summary>{entry.text}</summary>
+      <summary>
+        <span>{entry.text}</span>
+      </summary>
       {entry.meta.length || entry.sections.length || entry.detail ? (
         <div className="public-run-activity__tool-window-body">
           {entry.meta.length ? (

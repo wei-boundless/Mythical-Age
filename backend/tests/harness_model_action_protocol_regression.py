@@ -638,6 +638,27 @@ def test_internal_tool_call_can_keep_public_response_empty() -> None:
     assert action.public_progress_note == ""
     assert action.public_action_state == {}
     assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
+    assert action.tool_call["id"].startswith("toolcall:model-action:test:internal-tool:")
+
+
+def test_tool_call_id_is_generated_during_action_normalization() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:generated-tool-id",
+            "turn_id": "turn:test:generated-tool-id",
+            "action_type": "tool_call",
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        turn_id="turn:test:generated-tool-id",
+    )
+
+    assert diagnostics["status"] == "accepted"
+    assert action is not None
+    assert action.tool_call["id"].startswith("toolcall:model-action:test:generated-tool-id:")
+    assert action.tool_call["id"] != action.request_id
 
 
 def test_single_agent_parser_rejects_initial_native_tool_call_without_model_preamble() -> None:
@@ -753,6 +774,8 @@ def test_task_execution_action_request_omits_empty_cross_context_fields() -> Non
     assert action is not None
     payload = action.to_dict()
     assert payload["action_type"] == "tool_call"
+    assert payload["tool_calls"][0]["id"].startswith("toolcall:model-action:test:task-tool:")
+    assert payload["tool_calls"][0]["id"] != payload["request_id"]
     assert "task_contract_seed" not in payload
     assert "completion_contract" not in payload
     assert "permission_request" not in payload

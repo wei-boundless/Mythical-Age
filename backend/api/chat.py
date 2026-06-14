@@ -41,6 +41,7 @@ from runtime.output_stream.public_contract import (
     TURN_COMPLETED_EVENT,
     event_requires_public_projection,
 )
+from runtime.shared.tool_identity import permission_decision_id
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
@@ -1959,10 +1960,38 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
     if not request_data:
         return []
     permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
-    events: list[tuple[str, dict[str, Any]]] = [(TOOL_CALL_REQUESTED_EVENT, request_data)]
+    events: list[tuple[str, dict[str, Any]]] = []
+    status_data = _tool_action_status_data(raw_data, request_data=request_data)
+    if status_data:
+        events.append(("runtime_step_summary", status_data))
+    events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
     if permission_data:
         events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
+
+
+def _tool_action_status_data(raw_data: dict[str, Any], *, request_data: dict[str, Any]) -> dict[str, Any]:
+    public_action_state = _record(request_data.get("public_action_state"))
+    public_progress_note = _safe_public_action_text(request_data.get("public_progress_note"))
+    current_judgment = _safe_public_action_text(public_action_state.get("current_judgment"))
+    next_action = _safe_public_action_text(public_action_state.get("next_action"))
+    if not (public_progress_note or current_judgment or next_action):
+        return {}
+    request_id = str(request_data.get("request_id") or request_data.get("tool_call_id") or "").strip()
+    presentation_source = "model_action.public_progress_note" if public_progress_note else "model_action.public_action_state"
+    data: dict[str, Any] = {
+        "step": f"model_action_requested:{request_id}" if request_id else "model_action_requested",
+        "status": "running",
+        "summary": public_progress_note or current_judgment or next_action,
+        "public_progress_note": public_progress_note,
+        "current_judgment": current_judgment,
+        "next_action": next_action,
+        "presentation_source": presentation_source,
+        "turn_run_id": str(request_data.get("turn_run_id") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(request_data.get("task_run_id") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "runtime_event_id": str(request_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
+    }
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
 def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
@@ -1976,7 +2005,7 @@ def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         return {}
     tool = _record(request.get("tool_call"))
     tool_name = str(tool.get("tool_name") or tool.get("name") or request.get("tool_name") or "").strip()
-    tool_call_id = str(tool.get("id") or request.get("tool_call_id") or request.get("request_id") or "").strip()
+    tool_call_id = str(tool.get("id") or request.get("tool_call_id") or "").strip()
     if not tool_name or not tool_call_id:
         return {}
     tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
@@ -2011,8 +2040,8 @@ def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dic
     decision = str(admission.get("decision") or "").strip()
     permission_decision_id = str(admission.get("admission_id") or "").strip()
     tool_call_id = str(request_data.get("tool_call_id") or admission.get("action_request_ref") or "").strip()
-    if not permission_decision_id and tool_call_id:
-        permission_decision_id = f"admission:{tool_call_id}"
+    if not permission_decision_id:
+        permission_decision_id = _canonical_permission_decision_id(admission, tool_call_id=tool_call_id)
     data: dict[str, Any] = {
         "item_id": permission_decision_id,
         "request_id": str(request_data.get("request_id") or admission.get("action_request_ref") or ""),
@@ -2076,7 +2105,12 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = _tool_call_id_from_observation(tool_observation) or _tool_call_id_from_observation(observation)
     if not tool_name or not tool_call_id:
         return {}
-    tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
+    tool_lifecycle_id = _tool_lifecycle_id_from_observation(
+        tool_observation,
+        observation,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+    )
     status = str(tool_observation.get("status") or observation.get("status") or "").strip().lower()
     state = "error" if status and status not in {"ok", "done", "completed", "success"} else "done"
     result_envelope = _record(tool_observation.get("result_envelope") or observation.get("result_envelope"))
@@ -2095,7 +2129,11 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "item_id": tool_lifecycle_id,
         "tool_lifecycle_id": tool_lifecycle_id,
         "tool_call_id": tool_call_id,
-        "permission_decision_id": _permission_decision_id_from_observation(tool_observation, admission=admission, tool_call_id=tool_call_id),
+        "permission_decision_id": _permission_decision_id_from_observation(
+            tool_observation,
+            raw_observation=observation,
+            admission=admission,
+        ),
         "turn_run_id": str(tool_observation.get("caller_ref") or observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
@@ -2110,19 +2148,60 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
-def _permission_decision_id_from_observation(observation: dict[str, Any], *, admission: dict[str, Any], tool_call_id: str) -> str:
+def _permission_decision_id_from_observation(
+    observation: dict[str, Any],
+    *,
+    raw_observation: dict[str, Any],
+    admission: dict[str, Any],
+) -> str:
     observation = _tool_runtime_observation_payload(observation)
     result_envelope = _record(observation.get("result_envelope"))
     execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    diagnostics = _record(observation.get("diagnostics"))
-    action_request = _record(diagnostics.get("action_request"))
-    request_id = str(action_request.get("request_id") or tool_call_id or "").strip()
-    return str(
-        admission.get("admission_id")
-        or execution_receipt.get("admission_ref")
-        or result_envelope.get("admission_ref")
-        or (f"admission:{request_id}" if request_id else "")
+    admission_id = str(admission.get("admission_id") or admission.get("permission_decision_id") or "").strip()
+    if admission_id:
+        return admission_id
+    admission_ref = str(execution_receipt.get("admission_ref") or result_envelope.get("admission_ref") or "").strip()
+    if admission_ref:
+        return admission_ref
+    request_ref = str(
+        raw_observation.get("request_ref")
+        or observation.get("request_ref")
+        or result_envelope.get("action_request_id")
+        or observation.get("action_request_id")
+        or execution_receipt.get("action_request_id")
+        or ""
     ).strip()
+    if request_ref:
+        return request_ref if request_ref.startswith("admission:") else f"admission:{request_ref}"
+    return ""
+
+
+def _canonical_permission_decision_id(admission: dict[str, Any] | None = None, *, tool_call_id: str = "") -> str:
+    return permission_decision_id(admission or {}, tool_call_id=tool_call_id)
+
+
+def _tool_lifecycle_id_from_observation(
+    observation: dict[str, Any],
+    raw_observation: dict[str, Any],
+    *,
+    tool_call_id: str,
+    tool_name: str,
+) -> str:
+    observation = _tool_runtime_observation_payload(observation)
+    result_envelope = _record(observation.get("result_envelope"))
+    execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
+    lifecycle_id = str(
+        observation.get("invocation_id")
+        or raw_observation.get("invocation_id")
+        or observation.get("tool_lifecycle_id")
+        or result_envelope.get("tool_lifecycle_id")
+        or execution_receipt.get("tool_lifecycle_id")
+        or execution_receipt.get("tool_invocation_id")
+        or ""
+    ).strip()
+    if lifecycle_id:
+        return lifecycle_id
+    return _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
 
 
 def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:

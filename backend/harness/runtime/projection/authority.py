@@ -68,7 +68,7 @@ def build_public_projection_frame(
     frame_spec = dict(spec or {})
     anchor = projection_anchor(payload)
     source_event_id = _source_event_id(payload)
-    event_offset = _int_value(payload.get("event_offset") or payload.get("offset") or sequence)
+    event_offset = _int_value(sequence)
     invalid_fields = _invalid_spec_fields(frame_spec)
     if invalid_fields:
         frame_spec = _protocol_diagnostic_frame_spec(
@@ -101,7 +101,7 @@ def build_public_projection_frame(
         "projection_id": frame_id,
         "source_event_id": source_event_id,
         "source_event_type": text(public_event_type),
-        "sequence": int(sequence or payload.get("sequence") or event_offset or 0),
+        "sequence": event_offset,
         "event_offset": event_offset,
         "event_family": event_family,
         "channel": channel,

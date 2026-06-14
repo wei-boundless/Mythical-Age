@@ -1455,6 +1455,10 @@ export class WorkspaceRuntime {
         ...prev,
         activeStreamSessionIds,
         isStreaming: activeStreamSessionIds.length > 0,
+        chatStreamConnectionStatus: {
+          state: "streaming",
+          updatedAt: Date.now(),
+        },
       };
     });
   }
@@ -1673,10 +1677,15 @@ export class WorkspaceRuntime {
 
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
     const activeStreamSessionIds = prev.activeStreamSessionIds.filter((id) => id !== sessionId);
+    const shouldClearConnectionStatus = activeStreamSessionIds.length === 0
+      && ["streaming", "reconnected", "idle"].includes(prev.chatStreamConnectionStatus.state);
     return {
       ...prev,
       isStreaming: activeStreamSessionIds.length > 0,
       activeStreamSessionIds,
+      chatStreamConnectionStatus: shouldClearConnectionStatus
+        ? { state: "idle", updatedAt: Date.now() }
+        : prev.chatStreamConnectionStatus,
     };
   }
 
@@ -1796,6 +1805,7 @@ export class WorkspaceRuntime {
       taskGraphLiveMonitor: options.preserveTaskGraphLiveMonitor ? prev.taskGraphLiveMonitor : null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
+      chatStreamConnectionStatus: streamState.chatStreamConnectionStatus,
       sessionActivity: streamState.sessionActivity,
       sessionActivitiesById: {
         ...prev.sessionActivitiesById,

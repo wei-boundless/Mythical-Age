@@ -8,7 +8,14 @@ import remarkGfm from "remark-gfm";
 import { PublicTimelineActivity, publicTimelineHasDisplayableActivity } from "@/components/chat/PublicTimelineActivity";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
-import type { MessagePublicProjection, PublicChatTimelineItem, PublicProjectionItem, RetrievalResult, ToolCall } from "@/lib/api";
+import type {
+  MessagePublicProjection,
+  PublicChatTimelineItem,
+  PublicProjectionBodyBlock,
+  PublicProjectionItem,
+  RetrievalResult,
+  ToolCall,
+} from "@/lib/api";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { useNaturalizedStreamText } from "./useNaturalizedStreamText";
 
@@ -63,6 +70,8 @@ export function ChatMessage({
   const projectionBodyText = publicProjection?.bodyText && !isInternalControlProtocolText(publicProjection.bodyText)
     ? publicProjection.bodyText
     : "";
+  const projectionBodyBlocks = (publicProjection?.bodyBlocks ?? [])
+    .filter((block) => block.text && !isInternalControlProtocolText(block.text));
   const baseDisplayContent = isUser
     ? content
     : projectionBodyText || assistantDisplayContent(content, {
@@ -128,12 +137,20 @@ export function ChatMessage({
     setCopiedReply(true);
     window.setTimeout(() => setCopiedReply(false), 1200);
   };
-  const renderMessageContent = (key = "message-content") => shouldRenderContent ? (
+  const renderMessageContent = (key = "message-content", bodyText?: string, showCopy = true) => {
+    const displayText = bodyText ?? naturalizedMessageDisplayContent;
+    const explicitBodyText = bodyText !== undefined;
+    const renderableContent =
+      isUser
+      || (!explicitBodyText && Boolean(image?.src))
+      || (!explicitBodyText && imageUnavailable)
+      || Boolean(displayText.trim());
+    return renderableContent ? (
     <div
       className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}
       key={key}
     >
-      {!isUser && copyableReplyText ? (
+      {!isUser && showCopy && copyableReplyText ? (
         <button
           aria-label={copiedReply ? "已复制回复" : "复制回复"}
           className="message-copy-button"
@@ -185,7 +202,7 @@ export function ChatMessage({
         </div>
       ) : isUser ? (
         content
-      ) : image?.src && !imageUnavailable ? (
+      ) : !explicitBodyText && image?.src && !imageUnavailable ? (
         <figure className="chat-image-message">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -196,25 +213,28 @@ export function ChatMessage({
           />
           {image.caption ? <figcaption>{image.caption}</figcaption> : null}
         </figure>
-      ) : imageUnavailable ? (
+      ) : !explicitBodyText && imageUnavailable ? (
         <div className="chat-image-message chat-image-message--missing">
           <p>图像文件不可用。</p>
           <span>{image?.src}</span>
         </div>
       ) : (
         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {naturalizedMessageDisplayContent}
+          {displayText}
         </ReactMarkdown>
       )}
     </div>
-  ) : null;
+    ) : null;
+  };
   const orderedMessageBlocks = isUser
     ? []
     : orderedProjectionMessageBlocks({
-      bodyEventOffset: publicProjection?.bodyEventOffset,
+      bodyBlocks: projectionBodyBlocks,
       hasBody: shouldRenderContent,
+      fallbackBodyText: naturalizedMessageDisplayContent,
       timelineItems: publicTimelineItems,
     });
+  const firstBodyBlockKey = orderedMessageBlocks.find((block) => block.kind === "body")?.key ?? "";
 
   return (
     <article
@@ -243,7 +263,7 @@ export function ChatMessage({
       {!isUser && <RetrievalCard results={retrievals} />}
       {isUser ? renderMessageContent() : orderedMessageBlocks.map((block) => (
         block.kind === "body"
-          ? renderMessageContent(block.key)
+          ? renderMessageContent(block.key, block.text, block.key === firstBodyBlockKey)
           : (
             <PublicTimelineActivity
               ariaLabel="执行轨迹"
@@ -283,24 +303,36 @@ async function writeClipboardText(text: string) {
 }
 
 type ProjectionMessageBlock =
-  | { kind: "body"; key: string; offset: number }
+  | { kind: "body"; key: string; offset: number; text: string }
   | { kind: "activity"; key: string; offset: number; items: PublicChatTimelineItem[] };
 
 function orderedProjectionMessageBlocks({
-  bodyEventOffset,
+  bodyBlocks,
+  fallbackBodyText,
   hasBody,
   timelineItems,
 }: {
-  bodyEventOffset?: number;
+  bodyBlocks: PublicProjectionBodyBlock[];
+  fallbackBodyText: string;
   hasBody: boolean;
   timelineItems: PublicChatTimelineItem[];
 }): ProjectionMessageBlock[] {
   const entries: ProjectionMessageBlock[] = [];
-  if (hasBody) {
+  if (bodyBlocks.length > 0) {
+    for (const block of bodyBlocks) {
+      entries.push({
+        kind: "body",
+        key: block.blockId,
+        offset: Number.isFinite(Number(block.firstOffset)) ? Number(block.firstOffset) : Number.MAX_SAFE_INTEGER,
+        text: block.text,
+      });
+    }
+  } else if (hasBody) {
     entries.push({
       kind: "body",
       key: "projection-body",
-      offset: Number.isFinite(Number(bodyEventOffset)) ? Number(bodyEventOffset) : Number.MAX_SAFE_INTEGER,
+      offset: Number.MAX_SAFE_INTEGER,
+      text: fallbackBodyText,
     });
   }
   for (const item of timelineItems) {
@@ -313,7 +345,6 @@ function orderedProjectionMessageBlocks({
   }
   const sorted = entries.sort((left, right) => {
     if (left.offset !== right.offset) return left.offset - right.offset;
-    if (left.kind !== right.kind) return left.kind === "activity" ? -1 : 1;
     return left.key.localeCompare(right.key);
   });
   const grouped: ProjectionMessageBlock[] = [];
@@ -330,6 +361,7 @@ function orderedProjectionMessageBlocks({
 
 function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
   if (!projection) return [];
+  if (projectionHasClosedBody(projection)) return [];
   const timeline = projection.timeline?.length
     ? projection.timeline
     : [
@@ -348,46 +380,69 @@ function publicTimelineItemsFromProjection(projection: MessagePublicProjection |
     );
 }
 
+function projectionHasClosedBody(projection: MessagePublicProjection) {
+  const bodyState = cleanText(projection.bodyState).toLowerCase();
+  return Boolean(cleanText(projection.bodyText)) && ["finalized", "committed"].includes(bodyState);
+}
+
 function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem | null {
   if (!isProjectionTimelineItem(item)) return null;
   const toolOwned = Boolean(item.toolCallId || item.toolName);
+  const toolWindow = toolOwned && projectionItemNeedsToolWindow(item);
   const title = projectionTimelineTitle(item);
+  const toolLabel = projectionToolLabel(item.toolName);
+  const detail = normalizeProjectionToolTitle(cleanText(item.detail), item);
   if (!title) return null;
   return {
     item_id: item.itemId,
-    kind: toolOwned ? "work_action" : "status_update",
+    kind: toolOwned ? (toolWindow ? "work_action" : "tool_activity") : "status_update",
     slot: toolOwned ? "tool" : "status",
-    surface: toolOwned ? "tool_window" : "timeline",
+    surface: toolWindow ? "tool_window" : "timeline",
     source_authority: item.sourceAuthority,
     event_family: item.eventFamily,
     channel: item.channel,
     lossless: item.lossless,
     title,
     text: title,
-    detail: item.detail,
+    detail,
     state: item.state,
     phase: item.state === "running" || item.state === "waiting" ? "running" : "done",
     stream_state: item.state === "running" || item.state === "waiting" ? "streaming" : "done",
     tool_call_id: item.toolCallId,
-    tool_name: item.toolName,
+    tool_lifecycle_id: item.toolLifecycleId,
+    tool_name: toolLabel || item.toolName,
     action_kind: item.actionKind,
     subject_label: item.subjectLabel,
     collapsed: item.collapsed,
     trace_refs: item.traceRefs,
     artifacts: item.artifactRefs,
     event_offset: item.eventOffset,
+    updated_event_offset: item.updatedEventOffset,
     source_event_id: item.sourceEventId,
-    tool_window: toolOwned ? {
-      tool_label: item.toolName,
+    source_event_type: item.sourceEventType,
+    tool_window: toolWindow ? {
+      tool_label: toolLabel || item.toolName,
       status: projectionToolStatusLabel(item),
       target: item.subjectLabel,
       sections: [
-        item.detail ? { label: "详情", text: item.detail } : null,
-        item.subjectLabel && item.subjectLabel !== item.detail ? { label: "目标", text: item.subjectLabel } : null,
+        detail ? { label: "详情", text: detail } : null,
+        item.subjectLabel && item.subjectLabel !== detail ? { label: "目标", text: item.subjectLabel } : null,
       ].filter((section): section is { label: string; text: string } => Boolean(section?.text)),
     } : undefined,
-    public_summary: item.detail || item.text || item.title,
+    public_summary: detail || title,
   };
+}
+
+function projectionItemNeedsToolWindow(item: PublicProjectionItem) {
+  const state = cleanText(item.state).toLowerCase();
+  const visibility = cleanText(item.mainVisibility).toLowerCase();
+  const retention = cleanText(item.retention).toLowerCase();
+  const sourceEventType = cleanText(item.sourceEventType).toLowerCase();
+  if (["failed", "error", "blocked", "missing"].includes(state)) return true;
+  if (visibility === "pinned" || retention === "pinned_until_resolved") return true;
+  if (sourceEventType === "tool_permission_decided" && state !== "done") return true;
+  if ((item.artifactRefs?.length ?? 0) > 0) return true;
+  return false;
 }
 
 function isProjectionTimelineItem(item: PublicProjectionItem) {
@@ -399,29 +454,57 @@ function isProjectionTimelineItem(item: PublicProjectionItem) {
 
 function projectionTimelineTitle(item: PublicProjectionItem) {
   const explicit = cleanText(item.title || item.text);
-  if (explicit) return explicit;
-  const tool = cleanText(item.toolName) || "tool";
+  if (explicit) return normalizeProjectionToolTitle(explicit, item);
+  const tool = projectionToolLabel(item.toolName) || "工具";
   if (!item.toolCallId && !item.toolName) return "";
   const sourceEventType = cleanText(item.sourceEventType).toLowerCase();
   const state = cleanText(item.state).toLowerCase();
   if (sourceEventType === "tool_permission_decided") return "工具权限已确认";
-  if (sourceEventType === "tool_item_started") return `正在执行 ${tool}`;
+  if (sourceEventType === "tool_item_started") return `正在${tool}`;
   if (sourceEventType === "tool_item_completed") {
-    return ["failed", "error", "blocked"].includes(state) ? `${tool} 执行失败` : `${tool} 执行完成`;
+    return ["failed", "error", "blocked"].includes(state) ? `${tool}失败` : `${tool}完成`;
   }
-  if (state === "running") return `正在执行 ${tool}`;
-  if (state === "waiting") return `等待 ${tool}`;
-  if (["failed", "error", "blocked"].includes(state)) return `${tool} 执行失败`;
-  return `${tool} 执行完成`;
+  if (state === "running") return `正在${tool}`;
+  if (state === "waiting") return `等待${tool}`;
+  if (["failed", "error", "blocked"].includes(state)) return `${tool}失败`;
+  return `${tool}完成`;
 }
 
 function projectionToolStatusLabel(item: PublicProjectionItem) {
   const state = cleanText(item.state).toLowerCase();
-  if (state === "running") return "running";
-  if (state === "waiting") return "waiting";
-  if (["failed", "error", "blocked"].includes(state)) return "failed";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (state === "running") return "运行中";
+  if (state === "waiting") return "等待中";
+  if (["done", "complete", "completed", "success", "passed"].includes(state)) return "已完成";
+  if (["failed", "error", "blocked", "missing"].includes(state)) return "失败";
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "已停止";
   return state || undefined;
+}
+
+function normalizeProjectionToolTitle(title: string, item: PublicProjectionItem) {
+  const rawToolName = cleanText(item.toolName);
+  const toolLabel = projectionToolLabel(rawToolName);
+  if (!rawToolName || !toolLabel || rawToolName === toolLabel) return title;
+  const escaped = rawToolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return title.replace(new RegExp(`^${escaped}\\s*[:：]\\s*`, "i"), `${toolLabel}：`);
+}
+
+function projectionToolLabel(toolName: unknown) {
+  const normalized = cleanText(toolName).toLowerCase();
+  const labels: Record<string, string> = {
+    glob_paths: "匹配路径",
+    list_dir: "列出目录",
+    path_exists: "检查路径",
+    read_file: "读取文件",
+    read_files: "读取文件",
+    read_path: "读取文件",
+    search_files: "搜索文件",
+    search_text: "搜索文本",
+    stat_path: "检查路径",
+    write_file: "写入文件",
+    edit_file: "更新文件",
+    apply_patch: "更新文件",
+  };
+  return labels[normalized] || cleanText(toolName);
 }
 
 function assistantDisplayContent(

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from runtime.shared.tool_identity import ensure_tool_call_id
+
 ModelActionType = Literal[
     "respond",
     "ask_user",
@@ -139,6 +141,7 @@ def model_action_request_from_payload(
     raw_turn_id = str(raw.get("turn_id") or turn_id).strip()
     if raw_turn_id != str(turn_id or "").strip():
         errors.append("turn_id_mismatch")
+    request_id = str(raw.get("request_id") or f"model-action:{turn_id}:1")
     tool_call = raw.get("tool_call") or {}
     raw_selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
     task_contract_seed = raw.get("task_contract_seed") or {}
@@ -208,6 +211,7 @@ def model_action_request_from_payload(
             errors.append("tool_name_required_for_tool_call")
         if not isinstance(tool_args, dict):
             errors.append("tool_args_must_be_object")
+        tool_call = ensure_tool_call_id(dict(tool_call), request_id=request_id)
     if action_type == "request_task_run" and not task_contract_seed:
         errors.append("task_contract_seed_required_for_request_task_run")
     if action_type == "active_work_control":
@@ -232,7 +236,7 @@ def model_action_request_from_payload(
             *contract_gaps,
         ]
     return ModelActionRequest(
-        request_id=str(raw.get("request_id") or f"model-action:{turn_id}:1"),
+        request_id=request_id,
         turn_id=raw_turn_id,
         action_type=action_type,  # type: ignore[arg-type]
         public_progress_note=public_progress_note,
@@ -573,6 +577,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
     else:
         calls = []
     normalized: list[dict[str, Any]] = []
+    request_id = str(raw.get("request_id") or "task-model-action").strip()
     for index, item in enumerate(calls):
         if not isinstance(item, dict):
             errors.append(f"tool_calls[{index}]_must_be_object")
@@ -591,6 +596,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
         payload["name"] = tool_name
         payload["args"] = dict(tool_args)
         payload.pop("tool_args", None)
+        payload = ensure_tool_call_id(payload, request_id=request_id, ordinal=index)
         normalized.append(payload)
     if not normalized:
         errors.append("tool_calls_required_for_tool_call")

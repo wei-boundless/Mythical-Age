@@ -12,7 +12,7 @@ import {
   publicProjectionFrameFromRecord,
 } from "@/lib/projection/reducer";
 
-import type { AssistantTextSegmentState, AssistantTextStreamState, Message, StoreState } from "./types";
+import type { AssistantTextSegmentState, AssistantTextStreamState, ChatStreamConnectionStatus, Message, StoreState } from "./types";
 import {
   makeId
 } from "./utils";
@@ -1188,7 +1188,11 @@ export function reduceStreamEvent(
         streamAnchor: streamAnchorFromSession(boundSession),
       })
     : stateWithOrchestrationBase;
-  const stateWithTimelineDraft = patchActiveTaskTurnGate(stateWithPublicProjection, boundSession, data);
+  const stateWithTimelineDraft = applyChatStreamConnectionStatus(
+    patchActiveTaskTurnGate(stateWithPublicProjection, boundSession, data),
+    event,
+    data,
+  );
 
   if (event === "retrieval") {
     return {
@@ -1286,4 +1290,78 @@ export function reduceStreamEvent(
   }
 
   return { state: stateWithTimelineDraft, session: boundSession };
+}
+
+function applyChatStreamConnectionStatus(
+  state: StoreState,
+  event: string,
+  data: Record<string, unknown>,
+): StoreState {
+  const next = chatStreamConnectionStatusFromEvent(event, data);
+  if (!next) return state;
+  return {
+    ...state,
+    chatStreamConnectionStatus: next,
+  };
+}
+
+function chatStreamConnectionStatusFromEvent(
+  event: string,
+  data: Record<string, unknown>,
+): ChatStreamConnectionStatus | null {
+  const updatedAt = Date.now();
+  if (event === "stream_reconnecting") {
+    return {
+      state: "reconnecting",
+      attempt: finiteNumber(data.attempt),
+      maxAttempts: finiteNumber(data.max_attempts),
+      lastEventOffset: finiteNumber(data.event_offset),
+      reason: stringValue(data.reason),
+      updatedAt,
+    };
+  }
+  if (event === "stream_reconnected") {
+    return {
+      state: "reconnected",
+      attempt: finiteNumber(data.attempt),
+      maxAttempts: finiteNumber(data.max_attempts),
+      lastEventOffset: finiteNumber(data.event_offset),
+      updatedAt,
+    };
+  }
+  if (event === "stream_reconnect_failed") {
+    return {
+      state: "failed",
+      attempt: finiteNumber(data.attempt),
+      maxAttempts: finiteNumber(data.max_attempts),
+      lastEventOffset: finiteNumber(data.event_offset),
+      reason: stringValue(data.reason),
+      updatedAt,
+    };
+  }
+  if (event === "error") {
+    return { state: "failed", reason: stringValue(data.error), updatedAt };
+  }
+  if (event === "stopped") {
+    return { state: "stopped", reason: stringValue(data.reason), updatedAt };
+  }
+  if (event === "done" || event === TURN_COMPLETED_EVENT) {
+    return { state: "idle", updatedAt };
+  }
+  if (
+    event === "public_projection_frame"
+    || event === "assistant_text_delta"
+    || event === "assistant_text_final"
+    || event === "token"
+    || event === TOOL_ITEM_STARTED_EVENT
+    || event === TOOL_ITEM_COMPLETED_EVENT
+  ) {
+    return { state: "streaming", updatedAt };
+  }
+  return null;
+}
+
+function finiteNumber(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
 }

@@ -21,6 +21,7 @@ from runtime.tool_runtime.tool_invocation_control import (
     build_tool_invocation_idempotency_key,
     registry_for,
 )
+from runtime.shared.tool_identity import canonical_runtime_tool_call_id
 from runtime.tool_runtime.tool_use_context import ToolUseContext
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import (
@@ -60,13 +61,7 @@ _WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
 
 
 def _canonical_runtime_tool_call_id(action_request: RuntimeActionRequest) -> str:
-    tool_call = dict(action_request.payload.get("tool_call") or {})
-    return str(
-        tool_call.get("id")
-        or getattr(action_request, "tool_call_id", "")
-        or getattr(action_request, "request_id", "")
-        or ""
-    ).strip()
+    return canonical_runtime_tool_call_id(action_request)
 
 
 class ToolRuntimeExecutor:

@@ -67,6 +67,7 @@ export function getDefaultState(): StoreState {
     assistantTextStreamsByMessageId: {},
     isStreaming: false,
     activeStreamSessionIds: [],
+    chatStreamConnectionStatus: { state: "idle", updatedAt: 0 },
     sessionActivity: createIdleSessionActivity(),
     sessionActivitiesById: {},
     permissionMode: "full_access",

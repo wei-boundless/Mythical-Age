@@ -7,6 +7,7 @@ function publicProjection(patch: Partial<MessagePublicProjection>): MessagePubli
   return {
     bodyText: "",
     bodyState: "streaming",
+    bodyBlocks: [],
     pinned: [],
     finalResults: [],
     status: [],
