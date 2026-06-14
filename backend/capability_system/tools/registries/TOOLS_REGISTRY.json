@@ -913,7 +913,7 @@
       "name": "read_persisted_tool_result",
       "display_name": "读取持久化工具输出",
       "operation_id": "op.read_persisted_tool_result",
-      "module": "tools.persisted_tool_result_tool",
+      "module": "runtime.tool_runtime.native_tools",
       "contract": {
         "required_inputs": [],
         "required_bindings": [],
@@ -971,7 +971,7 @@
       "runtime_visibility": "main_runtime",
       "prompt_exposure_policy": "schema_plus_guidance",
       "resource_exposure_policy": "none",
-      "native_runtime_only": false,
+      "native_runtime_only": true,
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true

@@ -175,6 +175,9 @@ def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code
     assert capabilities["read_persisted_tool_result"]["tool_name"] == "read_persisted_tool_result"
     assert capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("tool_result:")
     assert not capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("replacement:")
+    assert projection["content_replacements"][0]["metadata"]["source_tool_name"] == "read_file"
+    assert projection["content_replacements"][0]["metadata"]["content_range"]["path"] == "src/large.py"
+    assert capabilities["read_persisted_tool_result"]["content_replacements"][0]["source_metadata"]["content_range"]["content_sha256"] == "sha256:large-py"
     assert capabilities["read_file_range"]["next_request"] == {
         "tool_name": "read_file",
         "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},

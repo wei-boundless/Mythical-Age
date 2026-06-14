@@ -47,13 +47,14 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
 import { applyPublicProjectionFramesToMessages, publicProjectionFrameFromRecord } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
+import { allRunMonitorSignals } from "../run-monitor/reducer";
 import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
@@ -4708,15 +4709,115 @@ export class WorkspaceRuntime {
     options: { selectedSignalId?: string } = {},
   ) {
     this.runMonitorController.applySnapshot(monitor, options);
+    this.syncCurrentSessionActivityFromRunMonitor();
   }
 
   applyRunMonitorStreamPayload(payload: RunMonitorEventPayload | null) {
     this.runMonitorController.applyStreamPayload(payload);
+    this.syncCurrentSessionActivityFromRunMonitor();
     void this.refreshCurrentSessionTokenStats("run_monitor_stream").catch(() => undefined);
   }
 
   private openRunMonitorSignal(signalId: string) {
     this.runMonitorController.openSignal(signalId);
+  }
+
+  private syncCurrentSessionActivityFromRunMonitor() {
+    const state = this.store.getState();
+    const currentSessionId = String(state.currentSessionId || "").trim();
+    if (!currentSessionId || !state.runMonitor) {
+      return;
+    }
+    const signal = this.currentSessionActivitySignal(state.runMonitor, currentSessionId);
+    if (!signal) {
+      return;
+    }
+    const liveStatus = runtimeText(signal.status || signal.activity_state || signal.state);
+    const taskRunId = runtimeText(signal.task_run_id || signal.detail_ref?.task_run_id || signal.task_instance_id);
+    const graphRunId = runtimeText(signal.graph_run_id || signal.graph_ref?.graph_run_id || signal.detail_ref?.graph_run_id);
+    this.updateSessionActivityFromLiveMonitor(
+      liveStatus,
+      taskRunId,
+      graphRunId,
+      this.runMonitorSignalControlState(signal),
+      signal as unknown as Record<string, unknown>,
+    );
+  }
+
+  private currentSessionActivitySignal(monitor: RuntimeMonitorEnvelope, currentSessionId: string): RuntimeMonitorSignal | null {
+    const candidates = allRunMonitorSignals(monitor)
+      .filter((signal) => this.runMonitorSignalSessionId(signal) === currentSessionId)
+      .filter((signal) => !this.runMonitorSignalHidden(signal))
+      .filter((signal) => this.shouldSyncRunMonitorSignalActivity(signal));
+    if (!candidates.length) {
+      return null;
+    }
+    return [...candidates].sort((left, right) =>
+      this.runMonitorSignalActivityRank(right) - this.runMonitorSignalActivityRank(left)
+      || Number(right.timestamps?.last_activity_at ?? right.timestamps?.updated_at ?? 0) - Number(left.timestamps?.last_activity_at ?? left.timestamps?.updated_at ?? 0)
+      || Number(right.priority ?? 0) - Number(left.priority ?? 0)
+    )[0] ?? null;
+  }
+
+  private runMonitorSignalSessionId(signal: RuntimeMonitorSignal) {
+    const navigation = signal.navigation_target && typeof signal.navigation_target === "object" && !Array.isArray(signal.navigation_target)
+      ? signal.navigation_target as Record<string, unknown>
+      : {};
+    return runtimeText(navigation.session_id || signal.session_id || signal.raw_refs?.session_id);
+  }
+
+  private runMonitorSignalHidden(signal: RuntimeMonitorSignal) {
+    const visibility = signal.visibility && typeof signal.visibility === "object" && !Array.isArray(signal.visibility)
+      ? signal.visibility
+      : {};
+    return visibility.hidden === true || visibility.visible === false;
+  }
+
+  private shouldSyncRunMonitorSignalActivity(signal: RuntimeMonitorSignal) {
+    const activityState = runtimeText(signal.activity_state || signal.activity?.activity_state);
+    const status = runtimeText(signal.status);
+    const lifecycle = runtimeText(signal.lifecycle);
+    const bucket = runtimeText(signal.bucket);
+    const state = runtimeText(signal.state);
+    const recoveryCause = runtimeText(signal.recovery_cause);
+    const controlReason = runtimeText(signal.control_reason || signal.activity?.control_reason);
+    if (recoveryCause === "runtime_restart" || controlReason === "runtime_restart_waiting_resume") {
+      return true;
+    }
+    return ["waiting", "paused", "stale", "failed"].includes(activityState)
+      || ["waiting", "attention", "stale", "failed"].includes(state)
+      || ["waiting_executor", "waiting_approval", "waiting_safe_boundary", "blocked", "failed", "error"].includes(status)
+      || ["waiting", "action_required", "paused", "stale", "failed"].includes(lifecycle)
+      || ["waiting", "diagnostics", "failed"].includes(bucket);
+  }
+
+  private runMonitorSignalActivityRank(signal: RuntimeMonitorSignal) {
+    const activityState = runtimeText(signal.activity_state || signal.activity?.activity_state);
+    const status = runtimeText(signal.status);
+    const state = runtimeText(signal.state);
+    if (runtimeText(signal.recovery_cause) === "runtime_restart" || runtimeText(signal.control_reason || signal.activity?.control_reason) === "runtime_restart_waiting_resume") {
+      return 60;
+    }
+    if (status === "waiting_approval" || status === "waiting_safe_boundary") return 55;
+    if (activityState === "waiting" || state === "waiting" || status === "waiting_executor") return 50;
+    if (activityState === "paused") return 45;
+    if (activityState === "failed" || state === "failed" || status === "failed" || status === "error") return 40;
+    if (activityState === "stale" || state === "stale") return 30;
+    return 10;
+  }
+
+  private runMonitorSignalControlState(signal: RuntimeMonitorSignal) {
+    const activity = signal.activity && typeof signal.activity === "object" && !Array.isArray(signal.activity)
+      ? signal.activity
+      : {};
+    const controlCapability = signal.control_capability && typeof signal.control_capability === "object" && !Array.isArray(signal.control_capability)
+      ? signal.control_capability
+      : {};
+    return runtimeText(
+      activity.control_state
+      || controlCapability.control_state
+      || signal.raw_refs?.control_state
+    );
   }
 
   private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string, controlState = "", monitor: Record<string, unknown> | null = null) {
@@ -4733,6 +4834,9 @@ export class WorkspaceRuntime {
       ? ""
       : String(monitorRecord.activity_state || activityRecord.activity_state || "").trim();
     const effectiveStatus = projectedActivityState === "waiting" ? "waiting_executor" : projectedActivityState || normalizedStatus;
+    const recoveryCause = String(monitorRecord.recovery_cause || "").trim();
+    const controlReason = String(monitorRecord.control_reason || "").trim();
+    const runtimeRestartWaitingResume = recoveryCause === "runtime_restart" || controlReason === "runtime_restart_waiting_resume";
     const projectedTitle = this.runtimeVisibleProgressText(monitorRecord.activity_label || activityRecord.activity_label);
     const latestProgress = monitorRecord.latest_progress && typeof monitorRecord.latest_progress === "object" && !Array.isArray(monitorRecord.latest_progress)
       ? monitorRecord.latest_progress as Record<string, unknown>
@@ -4822,8 +4926,8 @@ export class WorkspaceRuntime {
       return;
     }
     if (effectiveStatus === "waiting_executor" || effectiveStatus === "waiting_approval" || effectiveStatus === "waiting_safe_boundary" || effectiveStatus === "blocked") {
-      const title = projectedTitle || (effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
-      const detail = projectedDetail || (effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会暂停或结束。" : "当前处理受阻。");
+      const title = projectedTitle || (runtimeRestartWaitingResume ? "运行时重启后待续跑" : effectiveStatus === "waiting_executor" ? "等待继续" : effectiveStatus === "waiting_approval" ? "等待确认" : effectiveStatus === "waiting_safe_boundary" ? "等待安全边界" : "运行受阻");
+      const detail = projectedDetail || (runtimeRestartWaitingResume ? "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。" : effectiveStatus === "waiting_executor" ? "任务已进入等待队列。" : effectiveStatus === "waiting_approval" ? "需要确认后继续执行。" : effectiveStatus === "waiting_safe_boundary" ? "暂停或中断请求已记录，当前步骤到达安全边界后会暂停或结束。" : "当前处理受阻。");
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {

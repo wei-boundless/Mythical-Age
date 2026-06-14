@@ -369,17 +369,19 @@ Do not repeat unchanged covered read ranges.
 - `backend/harness/runtime/dynamic_context/tool_result_projector.py`
 - `backend/harness/runtime/dynamic_context/replacement_store.py`
 - `backend/runtime/tool_runtime/native_tools.py`
-- `backend/capability_system/tools/tool_units/persisted_tool_result_tool.py`
+- `backend/capability_system/tools/native_tool_catalog.py`
 
 动作：
 
 - 模型可见 rehydration ref 只允许 `tool_result:`。
 - 内部 `replacement:` 只在存储层使用。
-- read_file omitted result 的说明改为“恢复旧窗口”，不是“重新读取”。
+- `read_persisted_tool_result` 只能走 native runtime；禁止保留 BaseTool 第二执行链路。
+- read_file omitted result 的 rehydration 必须验证当前 FileStateAuthority 与磁盘指纹，并记录新的 read event。
 
 删除或改写：
 
 - 所有模型可见 `replacement:`。
+- 旧 BaseTool rehydration 执行链路。
 
 ### 阶段 6：测试与回归
 

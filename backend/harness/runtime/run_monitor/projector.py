@@ -244,6 +244,7 @@ class RuntimeMonitorProjector:
             "executor_status": str(state_view.get("executor_status") or ""),
             "executor_lease_state": str(state_view.get("executor_lease_state") or ""),
             "recovery_action": str(state_view.get("recovery_action") or ""),
+            "recovery_cause": str(state_view.get("recovery_cause") or ""),
             "recoverable": bool(state_view.get("recoverable")),
             "graph_controlled": bool(state_view.get("graph_controlled")),
             "running_claimed": bool(state_view.get("running_claimed")),

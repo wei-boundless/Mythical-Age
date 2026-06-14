@@ -95,6 +95,7 @@ class ToolResultProjector:
                 field_limit_bytes=preview_limit,
                 preview_size_bytes=preview_limit,
                 payload_budget_bytes=max(preview_limit * 2, preview_limit + 1000),
+                replacement_metadata=_replacement_source_metadata(normalized),
             )
             preview = str(budgeted.get("text") or preview)
             content_replacements = [item.to_dict() for item in replacements]
@@ -295,6 +296,7 @@ def _read_file_metadata_from_structured(
             "has_more": bool(source.get("has_more") or source.get("truncated")),
             "truncated": bool(source.get("truncated") or source.get("has_more")),
             "content_sha256": str(source.get("content_sha256") or "").strip(),
+            "mtime_ns": _int_or_none(source.get("mtime_ns")),
             "file_unchanged": source.get("file_unchanged") if isinstance(source.get("file_unchanged"), bool) else None,
             "content_omitted": source.get("content_omitted") if isinstance(source.get("content_omitted"), bool) else None,
             "previous_observation_ref": str(source.get("previous_observation_ref") or "").strip(),
@@ -645,6 +647,25 @@ def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:
             "original_size_bytes": item.get("original_size_bytes"),
             "preview_size_bytes": item.get("preview_size_bytes"),
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+            "source_metadata": dict(item.get("metadata") or {}),
+        }
+    )
+
+
+def _replacement_source_metadata(normalized: dict[str, Any]) -> dict[str, Any]:
+    tool_name = _normalized_tool_name(normalized.get("tool_name"))
+    if tool_name != "read_file":
+        return {}
+    content_range = dict(normalized.get("content_range") or {})
+    if not content_range:
+        return {}
+    return drop_empty(
+        {
+            "source_tool_name": "read_file",
+            "source_tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
+            "source_tool_call_id": str(normalized.get("tool_call_id") or ""),
+            "content_range": content_range,
+            "authority": "harness.runtime.dynamic_context.tool_result_rehydration_metadata",
         }
     )
 

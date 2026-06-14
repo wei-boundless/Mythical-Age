@@ -220,6 +220,7 @@ function monitorSignalForTest(item: Record<string, unknown>) {
   const route = recordValue(item.route);
   const sessionScope = recordValue(item.session_scope);
   const navigationPatch = recordValue(item.navigation_target);
+  const activityPatch = recordValue(item.activity);
   const taskRunId = text(item.task_run_id);
   const graphRunId = text(item.graph_run_id);
   const graphHarnessConfigId = text(item.graph_harness_config_id);
@@ -268,10 +269,12 @@ function monitorSignalForTest(item: Record<string, unknown>) {
     is_resumable: isResumable,
     is_interruptible: isInterruptible,
     control_reason: text(item.control_reason),
+    recovery_cause: text(item.recovery_cause),
     tone: text(item.tone) || (isRunning ? "active" : activityState === "completed" ? "done" : activityState === "failed" ? "attention" : "neutral"),
     activity: {
       activity_state: activityState,
       activity_label: text(item.activity_label) || activityLabelForTest(activityState),
+      detail: text(activityPatch.detail || item.activity_detail),
       is_running: isRunning,
       is_waiting: isWaiting,
       is_resumable: isResumable,
@@ -2111,6 +2114,44 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().runMonitor).not.toBeNull();
     expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+  });
+
+  it("surfaces runtime restart recovery as an explicit waiting-resume state", () => {
+    const taskRunId = "taskrun:turn:session:restart:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:restart",
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
+    };
+
+    runtime.applyRunMonitorStreamPayload({
+      monitor: monitorForTest([
+        itemForMonitor({
+          task_run_id: taskRunId,
+          session_id: "session:restart",
+          task_id: "task:turn:session:restart:1",
+          status: "waiting_executor",
+          lifecycle: "waiting",
+          bucket: "waiting",
+          activity_state: "waiting",
+          activity_label: "运行时重启后待续跑",
+          recovery_cause: "runtime_restart",
+          control_reason: "runtime_restart_waiting_resume",
+          activity: {
+            detail: "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。",
+          },
+          route: { kind: "agent_runtime_run", session_id: "session:restart", task_run_id: taskRunId },
+        }),
+      ]),
+    });
+
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "waiting",
+      title: "运行时重启后待续跑",
+      detail: expect.stringContaining("后端运行时已重启"),
+    });
   });
 
   it("does not hydrate the current session from monitor snapshots before output commit ack", async () => {

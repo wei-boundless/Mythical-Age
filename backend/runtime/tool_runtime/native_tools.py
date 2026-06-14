@@ -549,6 +549,29 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
                 },
                 execution_receipt=context.execution_receipt,
             )
+        source_metadata = dict(result.get("metadata") or {})
+        file_evidence, file_state_events = _rehydrated_read_file_evidence(
+            context=context,
+            metadata=source_metadata,
+        )
+        if file_evidence.get("status") == "error":
+            error = str(file_evidence.get("message") or "persisted read_file evidence is stale")
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"Read persisted tool result rejected: {error}",
+                structured_payload={
+                    "tool_result": {
+                        "kind": "persisted_tool_result",
+                        "status": "error",
+                        "replacement_id": str(result.get("replacement_id") or args.get("replacement_id") or ""),
+                        "path": str(result.get("path") or args.get("path") or ""),
+                        "error": str(file_evidence.get("code") or "persisted_read_file_evidence_stale"),
+                    },
+                    "structured_error": file_evidence,
+                },
+                execution_receipt=context.execution_receipt,
+            )
         tool_result = {
             "kind": "persisted_tool_result",
             "status": "ok",
@@ -558,6 +581,9 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
             "returned_bytes": int(result.get("returned_bytes") or 0),
             "total_bytes": int(result.get("total_bytes") or 0),
             "truncated": bool(result.get("truncated")),
+            "content_sha256": _sha256_text(str(result.get("content") or "")),
+            "source_metadata": source_metadata,
+            "file_evidence": file_evidence,
             "authority": str(result.get("authority") or "runtime.tool_result_rehydration"),
         }
         observed = (tool_result["path"],) if tool_result["path"] else ()
@@ -567,8 +593,243 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
             text=str(result.get("content") or ""),
             structured_payload={"tool_result": tool_result},
             observed_paths=observed,
+            file_state_events=file_state_events,
             execution_receipt=context.execution_receipt,
         )
+
+
+def _rehydrated_read_file_evidence(
+    *,
+    context: ToolUseContext,
+    metadata: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
+    source_tool_name = str(metadata.get("source_tool_name") or "").strip()
+    content_range = dict(metadata.get("content_range") or {})
+    if source_tool_name != "read_file" or not content_range:
+        return (
+            {
+                "status": "not_file_evidence",
+                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
+            },
+            (),
+        )
+    if content_range.get("content_omitted") is True:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_was_already_omitted",
+                message="Persisted output points to a read_file stub, not exact file lines.",
+                repair_instruction="Call read_file for the current target range.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    scope = dict(getattr(context, "file_evidence_scope", {}) or {})
+    if not scope:
+        return (
+            {
+                "status": "unverified_no_file_evidence_scope",
+                "source_tool_name": "read_file",
+                "content_range": content_range,
+                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
+            },
+            (),
+        )
+    path = str(content_range.get("path") or "").replace("\\", "/").strip().strip("/")
+    start_line = _native_int_or_none(content_range.get("start_line"))
+    end_line = _native_int_or_none(content_range.get("end_line"))
+    if not path or start_line is None or end_line is None or end_line < start_line:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_metadata_invalid",
+                message="Persisted read_file metadata is missing a valid path or line range.",
+                repair_instruction="Call read_file for the current target range.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    current = _current_file_state_for_path(context=context, path=path)
+    if current is None:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_evidence_missing",
+                message="No current file evidence state exists for the persisted read_file output.",
+                repair_instruction="Call read_file for the current target range before using the restored content for edits.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    current_status = str(getattr(current, "status", "") or "").strip().lower()
+    if current_status in {"stale", "missing", "unread"}:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_evidence_stale",
+                message="The persisted read_file output belongs to stale or unavailable file evidence.",
+                repair_instruction="Call read_file again for the current target range.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    content_sha256 = str(content_range.get("content_sha256") or "").strip()
+    state_sha256 = str(getattr(current, "content_sha256", "") or "").strip()
+    if content_sha256 and state_sha256 and content_sha256 != state_sha256:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_evidence_stale",
+                message="The current file hash differs from the persisted read_file output hash.",
+                repair_instruction="Call read_file again for the current target range.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    mtime_ns = _native_int_or_none(content_range.get("mtime_ns"))
+    state_mtime_ns = _native_int_or_none(getattr(current, "mtime_ns", None))
+    if mtime_ns is not None and state_mtime_ns is not None and mtime_ns != state_mtime_ns:
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_evidence_stale",
+                message="The current file mtime differs from the persisted read_file output mtime.",
+                repair_instruction="Call read_file again for the current target range.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    disk_status = _current_workspace_text_file_fingerprint(context=context, path=path)
+    if disk_status.get("status") == "missing":
+        return (
+            _persisted_read_file_evidence_error(
+                code="persisted_read_file_evidence_stale",
+                message="The current file no longer exists at the persisted read_file path.",
+                repair_instruction="Call read_file again only after restoring the file or choose the correct current path.",
+                content_range=content_range,
+            ),
+            (),
+        )
+    if disk_status.get("status") == "ok":
+        disk_sha256 = str(disk_status.get("content_sha256") or "").strip()
+        if content_sha256 and disk_sha256 and content_sha256 != disk_sha256:
+            return (
+                _persisted_read_file_evidence_error(
+                    code="persisted_read_file_evidence_stale",
+                    message="The current file content differs from the persisted read_file output.",
+                    repair_instruction="Call read_file again for the current target range.",
+                    content_range=content_range,
+                ),
+                (),
+            )
+        disk_mtime_ns = _native_int_or_none(disk_status.get("mtime_ns"))
+        if mtime_ns is not None and disk_mtime_ns is not None and mtime_ns != disk_mtime_ns:
+            return (
+                _persisted_read_file_evidence_error(
+                    code="persisted_read_file_evidence_stale",
+                    message="The current file mtime differs from the persisted read_file output mtime.",
+                    repair_instruction="Call read_file again for the current target range.",
+                    content_range=content_range,
+                ),
+                (),
+            )
+    for segment in tuple(getattr(current, "read_ranges", ()) or ()):
+        if bool(getattr(segment, "stale", False)):
+            continue
+        segment_start = int(getattr(segment, "start_line", 0) or 0)
+        segment_end = int(getattr(segment, "end_line", 0) or 0)
+        if segment_start > start_line or segment_end < end_line:
+            continue
+        segment_hash = str(getattr(segment, "content_sha256", "") or state_sha256 or "").strip()
+        if content_sha256 and segment_hash and content_sha256 != segment_hash:
+            continue
+        segment_mtime_ns = _native_int_or_none(getattr(segment, "mtime_ns", None))
+        if mtime_ns is not None and segment_mtime_ns is not None and mtime_ns != segment_mtime_ns:
+            continue
+        event = _rehydrated_read_file_state_event(path=path, content_range=content_range)
+        return (
+            {
+                "status": "verified_current_read",
+                "source_tool_name": "read_file",
+                "path": path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "content_sha256": content_sha256,
+                "source_tool_result_ref": str(metadata.get("source_tool_result_ref") or ""),
+                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
+            },
+            (event,),
+        )
+    return (
+        _persisted_read_file_evidence_error(
+            code="persisted_read_file_target_range_not_current",
+            message="The persisted read_file output is outside current non-stale read windows.",
+            repair_instruction="Call read_file again for the current target range.",
+            content_range=content_range,
+        ),
+        (),
+    )
+
+
+def _rehydrated_read_file_state_event(*, path: str, content_range: dict[str, Any]) -> dict[str, Any]:
+    event = {
+        "event_type": "read",
+        "path": path,
+        "start_line": _native_int_or_none(content_range.get("start_line")),
+        "end_line": _native_int_or_none(content_range.get("end_line")),
+        "returned_lines": _native_int_or_none(content_range.get("returned_lines")),
+        "line_count": _native_int_or_none(content_range.get("line_count")),
+        "total_lines": _native_int_or_none(content_range.get("total_lines")),
+        "next_start_line": _native_int_or_none(content_range.get("next_start_line")),
+        "has_more": content_range.get("has_more") if isinstance(content_range.get("has_more"), bool) else None,
+        "content_sha256": str(content_range.get("content_sha256") or "").strip(),
+        "mtime_ns": _native_int_or_none(content_range.get("mtime_ns")),
+        "read_intent": "rehydrate_omitted_read_file",
+        "authority": "runtime.tool_runtime.read_persisted_tool_result.file_state_event",
+    }
+    return {key: value for key, value in event.items() if value not in ("", None, [], {}, ())}
+
+
+def _persisted_read_file_evidence_error(
+    *,
+    code: str,
+    message: str,
+    repair_instruction: str,
+    content_range: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "code": code,
+        "message": message,
+        "repair_instruction": repair_instruction,
+        "retryable": True,
+        "source_tool_name": "read_file",
+        "content_range": dict(content_range or {}),
+        "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence_guard",
+    }
+
+
+def _current_workspace_text_file_fingerprint(*, context: ToolUseContext, path: str) -> dict[str, Any]:
+    try:
+        files = WorkspaceFileService(context.workspace_root)
+        file_path = files.resolve(path, require_path=True)
+        if not file_path.exists() or not file_path.is_file():
+            return {"status": "missing"}
+        content = files.read_text(file_path, limit=None)
+        stat = file_path.stat()
+        return {
+            "status": "ok",
+            "content_sha256": _sha256_text(content),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+    except Exception as exc:
+        return {
+            "status": "unverified",
+            "error": str(exc),
+        }
+
+
+def _native_int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _coerce_read_window_int(

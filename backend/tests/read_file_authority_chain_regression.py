@@ -15,6 +15,8 @@ from capability_system.tools.native_tool_runtime import ToolRuntime
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
+from harness.runtime.dynamic_context.replacement_store import ReplacementStore
+from harness.runtime.dynamic_context.tool_result_projector import ToolResultProjector
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
@@ -71,6 +73,17 @@ def test_read_file_is_native_only_but_model_visible_with_schema() -> None:
     ]
     assert ToolRuntime(BACKEND_DIR).get_instance("read_file") is None
     assert ToolRuntime(BACKEND_DIR).get_definition("read_file") is not None
+
+
+def test_read_persisted_tool_result_is_native_only_with_no_basetool_chain() -> None:
+    definitions = get_tool_definition_map()
+    rehydrator = definitions["read_persisted_tool_result"]
+
+    assert rehydrator.native_runtime_only is True
+    assert rehydrator.factory is None
+    assert all(str(getattr(tool, "name", "") or "") != "read_persisted_tool_result" for tool in build_tool_instances(BACKEND_DIR))
+    assert ToolRuntime(BACKEND_DIR).get_instance("read_persisted_tool_result") is None
+    assert build_native_runtime_tool(capability_definition=rehydrator) is not None
 
 
 def test_native_read_file_agent_turn_returns_structured_window_and_events(tmp_path: Path) -> None:
@@ -279,6 +292,132 @@ def test_native_read_file_omits_subwindow_covered_by_larger_current_read(tmp_pat
     assert tool_result["previous_end_line"] == 3
     assert tool_result["previous_observation_ref"] == "obs:read-full"
     assert "beta" not in second.text
+
+
+def test_read_persisted_tool_result_rehydrates_read_file_as_current_evidence(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    content = "\n".join(f"value_{line} = {line}" for line in range(1, 90))
+    (workspace / "notes.py").write_text(content, encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    rehydrator = build_native_runtime_tool(capability_definition=definitions["read_persisted_tool_result"])
+    assert reader is not None
+    assert rehydrator is not None
+    task_run_id = "taskrun:rehydrate-read-file-evidence"
+    scope = task_run_file_evidence_scope(task_run_id)
+    context = ToolUseContext(
+        workspace_root=workspace,
+        task_run_id=task_run_id,
+        tool_call_id="call:read",
+        file_evidence_scope=scope,
+        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+    )
+
+    read = asyncio.run(reader.call({"path": "notes.py", "start_line": 1, "line_count": 89, "read_intent": "edit_target"}, context))
+    store = FileStateAuthorityStore(runtime_state)
+    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:read-large", tool_call_id="call:read")
+    projection, _ = ToolResultProjector(
+        root_dir=runtime_state,
+        replacement_store=ReplacementStore(runtime_state),
+    ).project(
+        {"result_envelope": read.to_dict()},
+        task_run_id=task_run_id,
+        projection_policy={"tool_result_preview_chars": 160},
+    )
+    replacement = projection["content_replacements"][0]
+
+    restored = asyncio.run(
+        rehydrator.call(
+            {
+                "replacement_id": replacement["replacement_id"],
+                "path": replacement["path"],
+                "task_run_id": task_run_id,
+            },
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:rehydrate",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    state = store.apply_events_scope(
+        scope,
+        restored.file_state_events,
+        observation_ref="obs:rehydrate",
+        tool_call_id="call:rehydrate",
+    ).projection()[0]
+
+    assert restored.status == "ok"
+    assert "89 | value_89 = 89" in restored.text
+    assert restored.structured_payload["tool_result"]["file_evidence"]["status"] == "verified_current_read"
+    assert restored.file_state_events[0]["event_type"] == "read"
+    assert restored.file_state_events[0]["path"] == "notes.py"
+    assert restored.file_state_events[0]["read_intent"] == "rehydrate_omitted_read_file"
+    assert state["last_observation_ref"] == "obs:rehydrate"
+    assert state["coverage"]["complete"] is True
+
+
+def test_read_persisted_tool_result_rejects_stale_read_file_evidence(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    content = "\n".join(f"value_{line} = {line}" for line in range(1, 90))
+    target = workspace / "notes.py"
+    target.write_text(content, encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    rehydrator = build_native_runtime_tool(capability_definition=definitions["read_persisted_tool_result"])
+    assert reader is not None
+    assert rehydrator is not None
+    task_run_id = "taskrun:rehydrate-stale-read-file-evidence"
+    scope = task_run_file_evidence_scope(task_run_id)
+    context = ToolUseContext(
+        workspace_root=workspace,
+        task_run_id=task_run_id,
+        tool_call_id="call:read",
+        file_evidence_scope=scope,
+        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+    )
+
+    read = asyncio.run(reader.call({"path": "notes.py", "start_line": 1, "line_count": 89, "read_intent": "edit_target"}, context))
+    FileStateAuthorityStore(runtime_state).apply_events_scope(scope, read.file_state_events, observation_ref="obs:read-large", tool_call_id="call:read")
+    projection, _ = ToolResultProjector(
+        root_dir=runtime_state,
+        replacement_store=ReplacementStore(runtime_state),
+    ).project(
+        {"result_envelope": read.to_dict()},
+        task_run_id=task_run_id,
+        projection_policy={"tool_result_preview_chars": 160},
+    )
+    replacement = projection["content_replacements"][0]
+    target.write_text(content.replace("value_42 = 42", "value_42 = changed"), encoding="utf-8")
+
+    restored = asyncio.run(
+        rehydrator.call(
+            {
+                "replacement_id": replacement["replacement_id"],
+                "path": replacement["path"],
+                "task_run_id": task_run_id,
+            },
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:rehydrate",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+
+    assert restored.status == "error"
+    assert restored.structured_payload["structured_error"]["code"] == "persisted_read_file_evidence_stale"
+    assert restored.file_state_events == ()
 
 
 def test_native_edit_file_requires_current_read_for_existing_non_empty_file(tmp_path: Path) -> None:

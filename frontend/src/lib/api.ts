@@ -119,6 +119,7 @@ export type SessionTaskSummary = {
   is_resumable?: boolean;
   is_interruptible?: boolean;
   control_reason?: string;
+  recovery_cause?: string;
   tone?: "active" | "neutral" | "attention" | "done" | string;
   activity?: Record<string, unknown>;
   control_capability?: Record<string, unknown>;
@@ -2648,6 +2649,7 @@ export type RuntimeMonitorSignal = {
   is_resumable?: boolean;
   is_interruptible?: boolean;
   control_reason?: string;
+  recovery_cause?: string;
   tone?: "active" | "neutral" | "attention" | "done" | string;
   activity?: Record<string, unknown>;
   control_capability?: Record<string, unknown>;

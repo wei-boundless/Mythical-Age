@@ -1913,7 +1913,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     raw_data = {key: value for key, value in dict(event).items() if key != "type"}
-    if normalized == "step_summary_recorded":
+    if normalized in {"step_summary_recorded", "runtime_step_summary"}:
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []
     if normalized == "task_model_action_wait_heartbeat":

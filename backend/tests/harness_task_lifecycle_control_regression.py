@@ -4,6 +4,7 @@ from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
 from harness.loop.model_action_protocol import TaskExecutionModelActionRequest
 from harness.loop.task_executor import _pause_executor_for_tool_approval
+from harness.task_run_state_view import task_run_state_view
 from runtime.shared.models import AgentRun
 
 
@@ -381,6 +382,12 @@ def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -
     assert dict(recovered.diagnostics)["recovery_action"] == "rerun_task_executor"
     assert dict(dict(recovered.diagnostics)["recoverable_error"])["error_code"] == "task_executor_interrupted_by_runtime_restart"
     assert "task_run_executor_recovered_after_runtime_start" in events
+    state_view = task_run_state_view(recovered)
+    assert state_view["task_work_state"] == "ready_to_continue"
+    assert state_view["recovery_cause"] == "runtime_restart"
+    assert state_view["control_reason"] == "runtime_restart_waiting_resume"
+    assert state_view["activity"]["activity_label"] == "运行时重启后待续跑"
+    assert "后端运行时已重启" in state_view["activity"]["detail"]
 
 
 def test_runtime_start_recovery_does_not_auto_schedule_recovered_executor() -> None:

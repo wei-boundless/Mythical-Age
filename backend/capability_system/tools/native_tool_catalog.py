@@ -36,7 +36,6 @@ from capability_system.tools.tool_units.git_tools import (
 )
 from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
 from capability_system.tools.tool_units.memory_search_tool import MemorySearchTool
-from capability_system.tools.tool_units.persisted_tool_result_tool import ReadPersistedToolResultTool
 from capability_system.tools.tool_units.python_repl_tool import PythonReplTool
 from capability_system.tools.tool_units.python_ast_tools import PythonCodeOutlineTool, PythonParseCheckTool, PythonSymbolSearchTool
 from capability_system.tools.tool_units.search_files_tool import SearchFilesTool, SearchTextTool
@@ -454,8 +453,8 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="read_persisted_tool_result",
             display_name="读取持久化工具输出",
             operation_id="op.read_persisted_tool_result",
-            module="tools.persisted_tool_result_tool",
-            factory=lambda base_dir: ReadPersistedToolResultTool(root_dir=base_dir),
+            module="runtime.tool_runtime.native_tools",
+            factory=None,
             contract=ToolExecutionContract(
                 required_inputs=[],
                 optional_inputs=["replacement_id", "path", "task_run_id", "start_byte", "max_bytes"],
@@ -473,6 +472,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             schema_identity="local.tools/read_persisted_tool_result",
             prompt_exposure_policy="schema_plus_guidance",
             resource_exposure_policy="none",
+            native_runtime_only=True,
         ),
         ToolDefinition(
             name="read_structured_file",

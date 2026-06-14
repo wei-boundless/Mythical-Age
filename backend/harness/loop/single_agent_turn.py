@@ -309,6 +309,7 @@ class SingleAgentActionParse:
     error: dict[str, Any] | None = None
     tool_actions: tuple[ModelActionRequest, ...] = ()
     control_action: ModelActionRequest | None = None
+    packet_public_progress_note: str = ""
 
 
 async def run_single_agent_turn(
@@ -902,6 +903,21 @@ async def run_single_agent_turn(
                 ):
                     yield event
                 return
+            if (
+                action_parse.packet_public_progress_note
+                and runtime_host is not None
+                and turn_run is not None
+            ):
+                yield _record_step_summary(
+                    runtime_host,
+                    run_id=turn_run.turn_run_id,
+                    turn_id=turn_id,
+                    step="model_action_public_feedback",
+                    status="running",
+                    summary=action_parse.packet_public_progress_note,
+                    presentation_source="model_action.public_progress_note",
+                    feedback_identity=f"model-packet-public-feedback:{current_packet_ref}",
+                )
             tool_iteration += 1
             invocation_rows: list[dict[str, Any]] = []
             for tool_action in tool_actions:
@@ -2637,6 +2653,7 @@ def _single_agent_action_request_from_response(
                 },
             ),
         )
+    packet_public_progress_note = public_runtime_progress_summary(protocol.content).strip()
     native_parse = _action_requests_from_native_tool_calls_with_diagnostics(
         native_tool_calls,
         turn_id=turn_id,
@@ -2644,7 +2661,7 @@ def _single_agent_action_request_from_response(
         iteration=iteration,
         allowed_action_types=allowed_action_types,
         public_response_required=public_response_required,
-        public_preamble=protocol.content,
+        packet_public_response_present=bool(packet_public_progress_note),
     )
     native_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -2697,6 +2714,7 @@ def _single_agent_action_request_from_response(
             action_request=tool_actions[0] if len(tool_actions) == 1 else None,
             native_tool_calls=native_tool_calls,
             tool_actions=tool_actions,
+            packet_public_progress_note=packet_public_progress_note,
         )
     if require_json_action:
         return SingleAgentActionParse(
@@ -2759,7 +2777,7 @@ def _action_requests_from_native_tool_calls(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
-    public_preamble: str = "",
+    packet_public_response_present: bool = False,
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -2769,7 +2787,7 @@ def _action_requests_from_native_tool_calls(
             iteration=iteration,
             allowed_action_types=allowed_action_types,
             public_response_required=public_response_required,
-            public_preamble=public_preamble,
+            packet_public_response_present=packet_public_response_present,
         ).actions
     )
 
@@ -2782,7 +2800,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     iteration: int,
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
-    public_preamble: str = "",
+    packet_public_response_present: bool = False,
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
@@ -2824,7 +2842,6 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 turn_id=turn_id,
                 packet_ref=packet_ref,
                 iteration=iteration,
-                public_preamble=public_preamble,
             )
             error = None
         if error is not None:
@@ -2847,7 +2864,11 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 }
             )
             continue
-        if public_response_required and not _model_action_request_has_public_response(action):
+        if (
+            public_response_required
+            and not packet_public_response_present
+            and not _model_action_request_has_public_response(action)
+        ):
             tool_name = str(dict(action.tool_call or {}).get("tool_name") or dict(action.tool_call or {}).get("name") or "").strip()
             errors.append(
                 {
@@ -3104,7 +3125,6 @@ def _tool_action_request_from_native_tool_calls(
     turn_id: str,
     packet_ref: str,
     iteration: int,
-    public_preamble: str = "",
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
@@ -3112,7 +3132,7 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
-        public_note = _native_tool_public_note(args) or public_runtime_progress_summary(public_preamble)
+        public_note = _native_tool_public_note(args)
         public_action_state = {"completion_status": "waiting_for_tool"}
         diagnostics: dict[str, Any] = {
             "origin_kind": "single_agent_turn_native_tool_call",
@@ -4536,6 +4556,7 @@ def _record_step_summary(
     status: str,
     summary: str,
     presentation_source: str = "",
+    feedback_identity: str = "",
 ) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
     payload = {
@@ -4547,11 +4568,16 @@ def _record_step_summary(
     }
     if presentation_source:
         payload["presentation_source"] = presentation_source
+    if feedback_identity:
+        payload["feedback_identity"] = feedback_identity
+    refs = {"turn_ref": turn_id}
+    if feedback_identity:
+        refs["runtime_invocation_packet_ref"] = feedback_identity
     event = runtime_host.event_log.append(
         run_id,
         "step_summary_recorded",
         payload=payload,
-        refs={"turn_ref": turn_id},
+        refs=refs,
     )
     turn_run = runtime_host.state_index.get_turn_run(run_id)
     if turn_run is not None:

@@ -32,6 +32,7 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         monitor=monitor_record,
     )
     recovery_action = _text(diagnostics.get("recovery_action") or monitor_record.get("recovery_action"))
+    recovery_cause = _recovery_cause(diagnostics, monitor_record)
     recoverable = _recoverable(diagnostics, recovery_action=recovery_action)
     resumable_breakpoint = _resumable_breakpoint(
         status=status,
@@ -104,12 +105,20 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
     elif work_state == "waiting_approval":
         resume_mode = "needs_approval"
 
-    control_reason = _control_reason(work_state, executor_lease_state, can_resume, running_claimed)
+    control_reason = _control_reason(
+        work_state,
+        executor_lease_state,
+        can_resume,
+        running_claimed,
+        recovery_cause=recovery_cause,
+    )
     activity_state = _public_activity_state(work_state, executor_lease_state)
-    activity_label = _public_activity_label(work_state)
+    activity_label = _public_activity_label(work_state, recovery_cause=recovery_cause)
+    activity_detail = _public_activity_detail(work_state, recovery_cause=recovery_cause)
     activity = {
         "activity_state": activity_state,
         "activity_label": activity_label,
+        "detail": activity_detail,
         "is_running": activity_state == "running",
         "is_waiting": activity_state in {"waiting", "paused"},
         "is_resumable": can_resume,
@@ -137,6 +146,7 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         "control_state": control_state,
         "runtime_control": control,
         "recoverable": recoverable,
+        "recovery_cause": recovery_cause,
         "recovery_action": recovery_action,
         "graph_controlled": graph_controlled,
         "running_claimed": running_claimed,
@@ -194,6 +204,20 @@ def _recoverable(diagnostics: dict[str, Any], *, recovery_action: str) -> bool:
     return isinstance(recoverable_error, dict) and recoverable_error.get("retryable") is not False
 
 
+def _recovery_cause(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
+    wait_reason = _text(diagnostics.get("wait_reason") or monitor.get("wait_reason"))
+    recoverable_error = _record(diagnostics.get("recoverable_error") or monitor.get("recoverable_error"))
+    error_code = _text(recoverable_error.get("error_code") or recoverable_error.get("code"))
+    latest_step = _text(diagnostics.get("latest_step") or monitor.get("latest_step"))
+    if (
+        wait_reason == "task_executor_interrupted_by_runtime_restart"
+        or error_code == "task_executor_interrupted_by_runtime_restart"
+        or latest_step == "task_executor_recovered_after_runtime_start"
+    ):
+        return "runtime_restart"
+    return ""
+
+
 def _resumable_breakpoint(
     *,
     status: str,
@@ -240,7 +264,9 @@ def _public_activity_state(work_state: str, executor_lease_state: str) -> str:
     return "idle"
 
 
-def _public_activity_label(work_state: str) -> str:
+def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
+    if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
+        return "运行时重启后待续跑"
     return {
         "active": "运行中",
         "ready_to_continue": "可继续",
@@ -253,8 +279,31 @@ def _public_activity_label(work_state: str) -> str:
     }.get(work_state, "任务")
 
 
-def _control_reason(work_state: str, executor_lease_state: str, can_resume: bool, running_claimed: bool) -> str:
+def _public_activity_detail(work_state: str, *, recovery_cause: str = "") -> str:
+    if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
+        return "后端运行时已重启，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。"
+    if work_state == "ready_to_continue":
+        return "任务已停在可恢复边界，可以继续调度。"
+    if work_state == "waiting_user":
+        return "任务正在等待用户处理。"
+    if work_state == "waiting_approval":
+        return "任务正在等待确认。"
+    if work_state == "paused":
+        return "任务已暂停，可以继续。"
+    return ""
+
+
+def _control_reason(
+    work_state: str,
+    executor_lease_state: str,
+    can_resume: bool,
+    running_claimed: bool,
+    *,
+    recovery_cause: str = "",
+) -> str:
     if can_resume:
+        if recovery_cause == "runtime_restart":
+            return "runtime_restart_waiting_resume"
         return "resumable"
     if running_claimed:
         return "running_task"
