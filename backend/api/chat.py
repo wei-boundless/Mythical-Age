@@ -15,6 +15,7 @@ from api.deps import require_runtime
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.projection.projector import ProjectionLifecycleState, attach_public_projection_event
 from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.task_run_status import is_stopped_or_terminal_task_run
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
@@ -968,6 +969,22 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     except Exception as exc:
         logger.exception("Chat run failed before terminal event.", extra={"stream_run_id": run.stream_run_id})
         current = registry.get_run(run.stream_run_id) or current
+        if _bridge_context_has_live_bound_task(runtime, bridge_context):
+            _safe_update_run(
+                registry,
+                run.stream_run_id,
+                fallback=current,
+                status="orphaned",
+                terminal_event="",
+                diagnostics={
+                    "reason": "projection_stream_exception",
+                    "failure_reason": str(exc) or "Chat stream failed.",
+                    "runtime_task_run_id": bridge_context.task_run_id if bridge_context else "",
+                    "active_turn_id": bridge_context.turn_id if bridge_context else "",
+                    "chat_stream_bridge": "task_run",
+                },
+            )
+            return
         logged = replay.append_public_event(
             current,
             public_event_type=TURN_COMPLETED_EVENT,
@@ -989,6 +1006,21 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
+        if _bridge_context_has_live_bound_task(runtime, bridge_context):
+            _safe_update_run(
+                registry,
+                run.stream_run_id,
+                fallback=current,
+                status="orphaned",
+                terminal_event="",
+                diagnostics={
+                    "reason": "projection_stream_missing_terminal",
+                    "runtime_task_run_id": bridge_context.task_run_id if bridge_context else "",
+                    "active_turn_id": bridge_context.turn_id if bridge_context else "",
+                    "chat_stream_bridge": "task_run",
+                },
+            )
+            return
         logged = replay.append_public_event(
             current,
             public_event_type=TURN_COMPLETED_EVENT,
@@ -1581,6 +1613,20 @@ def _apply_bridge_context_to_public_data(
     data["source_task_event_offset"] = source_task_event_offset
     data["source_task_event_type"] = str(source_event_type or "").strip()
     data["bridge_id"] = context.bridge_id
+
+
+def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBridgeContext | None) -> bool:
+    if bridge_context is None:
+        return False
+    task_run_id = str(bridge_context.task_run_id or "").strip()
+    if not task_run_id:
+        return False
+    try:
+        host = runtime.harness_runtime.single_agent_runtime_host
+        task_run = host.state_index.get_task_run(task_run_id)
+    except Exception:
+        return False
+    return task_run is not None and not is_stopped_or_terminal_task_run(task_run)
 
 
 def _task_run_snapshot_is_terminal(host: Any, task_run_id: str) -> bool:

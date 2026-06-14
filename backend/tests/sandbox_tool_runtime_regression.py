@@ -275,6 +275,17 @@ def test_sandbox_edit_file_copies_then_edits_overlay_without_touching_workspace(
     (workspace / "docs").mkdir(parents=True)
     real_file = workspace / "docs" / "note.md"
     real_file.write_text("hello old", encoding="utf-8")
+    task_run_id = "taskrun-sandbox-edit-after-read"
+
+    read = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md"},
+        operation_id="op.read_file",
+        task_run_id=task_run_id,
+    )
+    assert read["error"] == ""
 
     result = _run_tool(
         workspace=workspace,
@@ -282,6 +293,7 @@ def test_sandbox_edit_file_copies_then_edits_overlay_without_touching_workspace(
         tool_name="edit_file",
         tool_args={"path": "docs/note.md", "old_text": "old", "new_text": "sandbox"},
         operation_id="op.edit_file",
+        task_run_id=task_run_id,
     )
 
     assert result["error"] == ""

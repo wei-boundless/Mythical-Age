@@ -30,7 +30,6 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
     "dist",
     "logs",
     "node_modules",
-    "output",
     "runtime_logs",
     "venv",
 )
@@ -148,16 +147,25 @@ class WorkspaceFileService:
 
     def edit_text(self, path: str, old_text: str, new_text: str) -> Path:
         file_path = self.resolve(path, require_path=True)
+        target = str(old_text or "")
         if not file_path.exists():
-            raise FileNotFoundError("file does not exist")
+            if target:
+                raise FileNotFoundError("file does not exist")
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(str(new_text or ""), encoding="utf-8")
+            return file_path
         if file_path.is_dir():
             raise IsADirectoryError("path is a directory")
         content = self.read_text(file_path)
-        target = str(old_text or "")
         if not target:
-            raise ValueError("old_text is required")
+            if content:
+                raise ValueError("old_text may be empty only when creating a new file or initializing an empty file")
+            file_path.write_text(str(new_text or ""), encoding="utf-8")
+            return file_path
         if target not in content:
             raise LookupError("old_text not found")
+        if content.count(target) != 1:
+            raise ValueError("old_text must match exactly one location")
         file_path.write_text(content.replace(target, str(new_text or ""), 1), encoding="utf-8")
         return file_path
 
@@ -285,11 +293,12 @@ class WorkspaceFileService:
     def is_excluded(self, path: Path, *, include_default_search_excludes: bool = False) -> bool:
         if self.is_runtime_private_path(path):
             return True
-        parts = {part.lower() for part in path.parts}
+        relative = self.relative_path(path).replace("\\", "/").strip("/")
+        parts = {part.lower() for part in relative.split("/") if part}
         if any(excluded.lower() in parts for excluded in DEFAULT_EXCLUDED_DIRS):
             return True
         if include_default_search_excludes:
-            relative = self.relative_path(path).lower()
+            relative = relative.lower()
             for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
                 if relative == excluded or relative.startswith(f"{excluded}/"):
                     return True

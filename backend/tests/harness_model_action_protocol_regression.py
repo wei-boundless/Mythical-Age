@@ -184,10 +184,12 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
                 ]
             )
             self.plain_invocations = 0
+            self.plain_accounting_contexts: list[dict[str, object]] = []
 
-        async def invoke_messages(self, messages, **_kwargs):
+        async def invoke_messages(self, messages, **kwargs):
             del messages
             self.plain_invocations += 1
+            self.plain_accounting_contexts.append(dict(kwargs.get("accounting_context") or {}))
             if self.plain_invocations >= 2:
                 return SimpleNamespace(content="我已经达到本轮工具边界。下一步应缩小搜索范围，或把这次检查升级为项目级任务继续。")
             return SimpleNamespace(
@@ -219,6 +221,8 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
 
     assert model.calls == 9
     assert model.plain_invocations == 2
+    assert all(dict(item).get("segment_plan") for item in model.plain_accounting_contexts)
+    assert all(dict(dict(item).get("prompt_manifest") or {}).get("segment_plan_ref") for item in model.plain_accounting_contexts)
     assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert done["answer_channel"] == "conversation"
     assert done["completion_state"] == "tool_limit_closeout_unsafe_content"

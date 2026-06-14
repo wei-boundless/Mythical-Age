@@ -1326,8 +1326,11 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
         return []
     path = str(item.get("path") or "")
     coverage = dict(item.get("coverage") or {})
+    if coverage.get("complete") is True:
+        return []
+    has_explicit_missing_ranges = "missing_ranges" in coverage
     missing = [dict(segment) for segment in list(coverage.get("missing_ranges") or []) if isinstance(segment, dict)]
-    if not missing:
+    if not has_explicit_missing_ranges:
         missing = _missing_ranges_from_active_windows(active_ranges, total_lines=_safe_int(item.get("total_lines")))
     windows: list[dict[str, Any]] = []
     for segment in missing[:4]:
@@ -1349,7 +1352,7 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
                 }
             )
         )
-    if windows or active_ranges:
+    if windows or active_ranges or has_explicit_missing_ranges:
         return windows
     next_read = dict(item.get("next_suggested_read") or {})
     if not next_read:
@@ -1436,7 +1439,7 @@ def _read_resource_state_projection(
     active_files = [
         item
         for item in list(file_state or [])
-        if dict_tuple(item.get("read_ranges")) and str(item.get("status") or "") not in {"stale", "missing"}
+        if _has_current_read_resource(item)
     ]
     stale_files = [item for item in list(file_state or []) if str(item.get("status") or "") == "stale"]
     if not active_files and not stale_files:
@@ -1452,13 +1455,13 @@ def _read_resource_state_projection(
                 "path": path,
                 "stale": True,
                 "stale_range_count": sum(len(dict_tuple(item.get("read_ranges"))) for item in stale_files),
-                "available_evidence_refs": _read_resource_evidence_refs(stale_files),
+                "available_evidence_refs": _read_resource_evidence_refs(stale_files, include_stale=True),
                 "file_evidence_decision_ref": "file_evidence_decisions",
                 "reliability_note": "Previously read ranges are stale after a write or edit event; use them only as history. Use file_evidence_decisions for the minimal current read boundary.",
                 "authority": "harness.runtime.dynamic_context.read_resource_state",
             }
         )
-    active_ranges = [segment for item in active_files for segment in dict_tuple(item.get("read_ranges"))]
+    active_ranges = [segment for item in active_files for segment in _current_read_ranges(item)]
     return drop_empty(
         {
             "kind": "read_resource_state",
@@ -1499,15 +1502,49 @@ def _read_resource_do_not_repeat_ranges(file_evidence_decisions: dict[str, Any] 
     return ranges[-8:]
 
 
-def _read_resource_evidence_refs(file_state: list[dict[str, Any]]) -> list[str]:
+def _has_current_read_resource(item: dict[str, Any]) -> bool:
+    status = str(item.get("status") or "").strip()
+    if status in {"stale", "missing"}:
+        return False
+    if _current_read_ranges(item):
+        return True
+    coverage = dict(item.get("coverage") or {})
+    return coverage.get("complete") is True and _safe_int(coverage.get("total_lines")) == 0
+
+
+def _current_read_ranges(item: dict[str, Any]) -> list[dict[str, Any]]:
+    ranges: list[dict[str, Any]] = []
+    for segment in dict_tuple(item.get("read_ranges")):
+        if segment.get("stale") is True:
+            continue
+        start = _safe_int(segment.get("start_line"))
+        end = _safe_int(segment.get("end_line"))
+        if start >= 1 and end >= start:
+            ranges.append(segment)
+    return ranges
+
+
+def _read_resource_evidence_refs(file_state: list[dict[str, Any]], *, include_stale: bool = False) -> list[str]:
     refs: list[str] = []
     for item in list(file_state or []):
-        for ref in list(item.get("evidence_refs") or []):
-            text = str(ref or "").strip()
+        if include_stale:
+            for ref in list(item.get("evidence_refs") or []):
+                text = str(ref or "").strip()
+                if text and text not in refs:
+                    refs.append(text)
+        segments = dict_tuple(item.get("read_ranges")) if include_stale else _current_read_ranges(item)
+        for segment in segments:
+            text = str(segment.get("observation_ref") or "").strip()
             if text and text not in refs:
                 refs.append(text)
-        for segment in dict_tuple(item.get("read_ranges")):
-            text = str(segment.get("observation_ref") or "").strip()
+        coverage = dict(item.get("coverage") or {})
+        if (
+            not include_stale
+            and not segments
+            and coverage.get("complete") is True
+            and _safe_int(coverage.get("total_lines")) == 0
+        ):
+            text = str(item.get("last_observation_ref") or "").strip()
             if text and text not in refs:
                 refs.append(text)
     return refs[-6:]

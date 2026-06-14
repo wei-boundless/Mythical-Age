@@ -25,9 +25,10 @@ canvas { display: block; }
   font-family: 'Courier New', monospace; color: #fff;
 }
 #crosshair {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  position: absolute;
   width: 24px; height: 24px;
+  pointer-events: none;
+  will-change: left, top;
 }
 #crosshair::before, #crosshair::after {
   content: ''; position: absolute; background: rgba(255,255,255,0.9);
@@ -273,25 +274,79 @@ function getCurrentWeapon() {
 const controls = new PointerLockControls(camera, document.body);
 controls.pointerSpeed = 0; // 禁用内置旋转，使用手动控制避免 DPI 不稳定
 
-// 手动视角控制（解决 PointerLockControls 在不同 DPI/浏览器下视角抖动问题）
+// ===== 方案 B 自由瞄准系统 =====
+// 准心在屏幕上自由移动（CSS 绝对定位），只在靠近屏幕边缘时驱动镜头旋转
+// 射击射线从准心实际屏幕位置（而非屏幕中心）发出
+
 const MOUSE_SENSITIVITY = 0.015;
-const viewEuler = new THREE.Euler(0, 0, 0, 'YXZ'); // YXZ 顺序避免万向节死锁
-const MIN_PITCH = -Math.PI / 2.3;  // ~-78°
-const MAX_PITCH = Math.PI / 2.3;   // ~+78°
+const viewEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const MIN_PITCH = -Math.PI / 2.3;
+const MAX_PITCH = Math.PI / 2.3;
 viewEuler.setFromQuaternion(camera.quaternion);
 
-// 鼠标 delta 累积缓冲区：攒起高频鼠标事件，在渲染循环中统一应用，消除帧率不同步导致的视角抖动
+// 准心屏幕坐标（像素，原点从屏幕左上角）
+let crosshairX = window.innerWidth / 2;
+let crosshairY = window.innerHeight / 2;
+
+// 边缘触发镜头旋转的阈值（像素），准心进入此区域时镜头开始转动
+const EDGE_THRESHOLD = 80;
+// 边缘区域内的最大旋转速率（弧度/秒）
+const EDGE_ROTATE_SPEED = Math.PI;  // 180°/s
+
+// 自由瞄准模式下的鼠标 delta 累积
 let mouseDX = 0, mouseDY = 0;
 let _skipFirstMouse = false;
 
 function onMouseMove(e) {
   if (!controls.isLocked || !playerState.alive) return;
-  // PointerLock 首次锁定时，浏览器可能产生一次跳跃值，跳过它
   if (_skipFirstMouse) { _skipFirstMouse = false; return; }
   mouseDX += e.movementX;
   mouseDY += e.movementY;
 }
 document.addEventListener('mousemove', onMouseMove);
+
+// 每帧在 animate 中消费鼠标 delta，更新准心位置并检测边缘旋转
+function updateCrosshairAndCamera(deltaTime) {
+  // 1. 用鼠标 delta 移动准心
+  crosshairX += mouseDX;
+  crosshairY += mouseDY;
+  mouseDX = 0;
+  mouseDY = 0;
+
+  // 2. 钳制准心在屏幕内
+  crosshairX = Math.max(0, Math.min(window.innerWidth, crosshairX));
+  crosshairY = Math.max(0, Math.min(window.innerHeight, crosshairY));
+
+  // 3. 更新准心 DOM 位置
+  const ch = document.getElementById('crosshair');
+  ch.style.left = (crosshairX - 12) + 'px';
+  ch.style.top = (crosshairY - 12) + 'px';
+
+  // 4. 边缘检测 - 准心靠近屏幕边缘时转动镜头
+  const dt = Math.min(deltaTime, 0.1); // 防止大帧间隔
+  let rotateX = 0, rotateY = 0;
+
+  if (crosshairX < EDGE_THRESHOLD) {
+    rotateY = -EDGE_ROTATE_SPEED * dt * (1 - crosshairX / EDGE_THRESHOLD);
+  } else if (crosshairX > window.innerWidth - EDGE_THRESHOLD) {
+    rotateY = EDGE_ROTATE_SPEED * dt * (1 - (window.innerWidth - crosshairX) / EDGE_THRESHOLD);
+  }
+
+  if (crosshairY < EDGE_THRESHOLD) {
+    rotateX = -EDGE_ROTATE_SPEED * dt * (1 - crosshairY / EDGE_THRESHOLD);
+  } else if (crosshairY > window.innerHeight - EDGE_THRESHOLD) {
+    rotateX = EDGE_ROTATE_SPEED * dt * (1 - (window.innerHeight - crosshairY) / EDGE_THRESHOLD);
+  }
+
+  // 5. 应用镜头旋转
+  if (rotateX !== 0 || rotateY !== 0) {
+    viewEuler.setFromQuaternion(camera.quaternion);
+    viewEuler.y -= rotateY * MOUSE_SENSITIVITY * 60; // 归一化到约 60fps 手感
+    viewEuler.x -= rotateX * MOUSE_SENSITIVITY * 60;
+    viewEuler.x = Math.max(MIN_PITCH, Math.min(MAX_PITCH, viewEuler.x));
+    camera.quaternion.setFromEuler(viewEuler);
+  }
+}
 
 const keys = {};
 let mouseDown = false;

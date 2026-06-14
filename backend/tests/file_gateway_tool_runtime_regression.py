@@ -51,6 +51,17 @@ def test_runtime_edit_file_uses_file_gateway_copy_on_read_before_edit(tmp_path: 
     sandbox = tmp_path / "sandbox" / "workspace"
     (project / "src").mkdir(parents=True)
     (project / "src" / "app.py").write_text("print('old')", encoding="utf-8")
+    task_run_id = "taskrun-gateway-edit-after-read"
+
+    read = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "src/app.py"},
+        operation_id="op.read_file",
+        task_run_id=task_run_id,
+    )
+    assert read["error"] == ""
 
     result = _run_tool(
         workspace=project,
@@ -58,6 +69,7 @@ def test_runtime_edit_file_uses_file_gateway_copy_on_read_before_edit(tmp_path: 
         tool_name="edit_file",
         tool_args={"path": "src/app.py", "old_text": "old", "new_text": "new"},
         operation_id="op.edit_file",
+        task_run_id=task_run_id,
     )
 
     envelope = result["observation"].payload["result_envelope"]
@@ -136,6 +148,7 @@ def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path
         tool_args={"path": "src/app.js"},
         operation_id="op.read_file",
         permission_mode="full_access",
+        task_run_id="taskrun-gateway-full-access-edit",
     )
     assert first_read["error"] == ""
 
@@ -146,6 +159,7 @@ def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path
         tool_args={"path": "src/app.js", "old_text": "old", "new_text": "new"},
         operation_id="op.edit_file",
         permission_mode="full_access",
+        task_run_id="taskrun-gateway-full-access-edit",
     )
     assert edit["error"] == ""
     assert (project / "src" / "app.js").read_text(encoding="utf-8") == "const label = 'new';"
@@ -290,10 +304,11 @@ def _run_tool(
     file_repositories: dict[str, str] | None = None,
     default_file_repositories: bool = True,
     permission_mode: str = "",
+    task_run_id: str | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
-    task_run_id = f"taskrun-gateway-{tool_name}"
+    task_run_id = task_run_id or f"taskrun-gateway-{tool_name}"
     action_request = RuntimeActionRequest(
         request_id=f"rtact:{tool_name}",
         task_run_id=task_run_id,

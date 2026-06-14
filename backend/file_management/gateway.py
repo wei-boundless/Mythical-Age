@@ -261,12 +261,33 @@ class FileGateway:
         access_decision = self.check_access(repository_id, "edit", approval_fingerprint=approval_fingerprint)
         if repository.storage_adapter == "sandbox_overlay":
             self._copy_from_project_if_missing(binding=binding, logical_path=normalized_path)
-        before_content = adapter.read_text(normalized_path)
         target = str(old_text or "")
+        exists = adapter.exists(normalized_path)
+        before_content = adapter.read_text(normalized_path) if exists else None
         if not target:
-            raise ValueError("old_text is required")
+            if before_content:
+                raise ValueError("old_text may be empty only when creating a new file or initializing an empty file")
+            after_content = str(new_text or "")
+            adapter.write_text(normalized_path, after_content)
+            return self._write_result(
+                repository=repository,
+                binding=binding,
+                adapter=adapter,
+                logical_path=normalized_path,
+                content=after_content,
+                before_content=before_content,
+                action="edit",
+                operation_id=operation_id,
+                access_decision=access_decision,
+                approval_fingerprint=approval_fingerprint,
+                context=context,
+            )
+        if before_content is None:
+            raise FileNotFoundError("file does not exist")
         if target not in before_content:
             raise LookupError("old_text not found")
+        if before_content.count(target) != 1:
+            raise ValueError("old_text must match exactly one location")
         after_content = before_content.replace(target, str(new_text or ""), 1)
         adapter.write_text(normalized_path, after_content)
         return self._write_result(

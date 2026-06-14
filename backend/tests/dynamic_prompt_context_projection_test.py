@@ -385,6 +385,126 @@ def test_file_evidence_decisions_project_rehydrate_and_stale_boundaries() -> Non
     assert decisions["src/stale.py"]["read_after_stale_windows"][0]["decision"] == "read_after_stale"
 
 
+def test_file_evidence_decisions_do_not_recreate_missing_windows_for_complete_or_explicit_empty_coverage() -> None:
+    projection = TaskStateProjector().project(
+        execution_projection={
+            "file_state": [
+                {
+                    "path": "src/complete.py",
+                    "status": "complete",
+                    "total_lines": 100,
+                    "read_ranges": [{"start_line": 1, "end_line": 20, "observation_ref": "obs:complete"}],
+                    "coverage": {"complete": True, "missing_ranges": []},
+                    "content_sha256": "sha256:complete",
+                },
+                {
+                    "path": "src/explicit-empty.py",
+                    "status": "partial",
+                    "total_lines": 100,
+                    "read_ranges": [{"start_line": 1, "end_line": 20, "observation_ref": "obs:partial"}],
+                    "coverage": {"missing_ranges": []},
+                    "content_sha256": "sha256:partial",
+                },
+            ]
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+    )
+
+    decisions = {item["path"]: item for item in projection["file_evidence_decisions"]["files"]}
+
+    assert "read_missing_windows" not in decisions["src/complete.py"]
+    assert "read_missing_windows" not in decisions["src/explicit-empty.py"]
+
+
+def test_read_resource_state_does_not_expose_stale_ranges_as_available() -> None:
+    projection = TaskStateProjector().project(
+        execution_projection={
+            "file_state": [
+                {
+                    "path": "empty.txt",
+                    "status": "complete",
+                    "total_lines": 0,
+                    "has_more": False,
+                    "last_observation_ref": "obs:edit-empty",
+                    "read_ranges": [
+                        {
+                            "start_line": 1,
+                            "end_line": 1,
+                            "observation_ref": "obs:old-read",
+                            "stale": True,
+                        }
+                    ],
+                    "coverage": {
+                        "range_count": 0,
+                        "covered_lines": 0,
+                        "total_lines": 0,
+                        "complete": True,
+                        "missing_ranges": [],
+                    },
+                    "content_sha256": "sha256:empty",
+                }
+            ]
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+    )
+
+    read_resource_state = projection["read_resource_state"]
+
+    assert read_resource_state["status"] == "available"
+    assert read_resource_state["available_range_count"] == 0
+    assert read_resource_state["available_evidence_refs"] == ["obs:edit-empty"]
+    assert "obs:old-read" not in json.dumps(read_resource_state, ensure_ascii=False)
+
+
+def test_read_resource_state_refs_current_read_not_latest_non_read_observation() -> None:
+    projection = TaskStateProjector().project(
+        execution_projection={
+            "file_state": [
+                {
+                    "path": "src/app.py",
+                    "status": "complete",
+                    "total_lines": 3,
+                    "has_more": False,
+                    "last_observation_ref": "obs:search-after-read",
+                    "read_ranges": [
+                        {
+                            "start_line": 1,
+                            "end_line": 3,
+                            "observation_ref": "obs:read-current",
+                        }
+                    ],
+                    "coverage": {
+                        "start_line": 1,
+                        "end_line": 3,
+                        "range_count": 1,
+                        "merged_ranges": [{"start_line": 1, "end_line": 3}],
+                        "covered_lines": 3,
+                        "total_lines": 3,
+                        "complete": True,
+                        "missing_ranges": [],
+                    },
+                    "content_sha256": "sha256:app",
+                }
+            ]
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+    )
+
+    read_resource_state = projection["read_resource_state"]
+
+    assert read_resource_state["available_evidence_refs"] == ["obs:read-current"]
+    assert read_resource_state["files"][0]["last_observation_ref"] == "obs:search-after-read"
+
+
 def test_code_read_preview_survives_current_fact_dedupe() -> None:
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:code-preview-dedupe",
@@ -1018,25 +1138,35 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
 
     payload = _payload_containing_title(result.packet.model_messages, "Task execution bound task context")
     bound = payload["bound_task_context"]
+    runtime_payload = _payload_containing_title(result.packet.model_messages, "Task execution bound runtime context")
+    bound_runtime = runtime_payload["bound_task_runtime_context"]
     segment_kinds = [dict(item).get("kind") for item in result.packet.segment_plan["segments"]]
     manifest = result.packet.bound_task_context_manifest
 
     assert bound["plan_refs"] == ["plan:bound-context"]
-    assert bound["known_task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
-    assert "next_suggested_read" not in bound["known_task_files"][0]
-    assert "last_observation_ref" not in bound["known_task_files"][0]
-    assert "read_windows" not in bound["known_task_files"][0]
+    assert "known_task_files" not in bound
+    assert bound_runtime["known_task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
+    assert "next_suggested_read" not in bound_runtime["known_task_files"][0]
+    assert "last_observation_ref" not in bound_runtime["known_task_files"][0]
+    assert "read_windows" not in bound_runtime["known_task_files"][0]
     assert "task_files" not in bound
     assert "rehydration_refs" not in bound
+    assert bound_runtime["rehydration_refs"][0]["source"] == "file_state"
     assert manifest["task_files"][0]["path"] == "backend/harness/runtime/compiler.py"
     assert manifest["task_files"][0]["next_suggested_read"]["start_line"] == 31
     assert manifest["rehydration_refs"][0]["source"] == "file_state"
     assert "task_run_id" not in json.dumps(payload, ensure_ascii=False)
-    assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("task_runtime_boundary_dynamic")
+    assert "task_run_id" not in json.dumps(runtime_payload, ensure_ascii=False)
+    assert segment_kinds.index("bound_task_context_stable") < segment_kinds.index("bound_task_runtime_context")
+    assert segment_kinds.index("bound_task_runtime_context") < segment_kinds.index("task_runtime_boundary_dynamic")
     assert manifest["context_hash"] == bound["context_hash"]
+    assert bound_runtime["stable_context_hash"] == bound["context_hash"]
     bound_segment = next(item for item in result.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable")
+    runtime_segment = next(item for item in result.packet.segment_plan["segments"] if item["kind"] == "bound_task_runtime_context")
     assert bound_segment["cache_scope"] == "task"
     assert bound_segment["cache_role"] == "session_stable"
+    assert runtime_segment["cache_scope"] == "none"
+    assert runtime_segment["cache_role"] == "volatile"
 
     second_read_envelope = build_tool_result_envelope(
         tool_name="read_file",
@@ -1107,14 +1237,24 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
         "Task execution bound task context",
     )
     second_bound = second_payload["bound_task_context"]
+    second_runtime_payload = _payload_containing_title(
+        result_after_replay_growth.packet.model_messages,
+        "Task execution bound runtime context",
+    )
+    second_bound_runtime = second_runtime_payload["bound_task_runtime_context"]
     second_manifest = result_after_replay_growth.packet.bound_task_context_manifest
     second_bound_segment = next(
         item for item in result_after_replay_growth.packet.segment_plan["segments"] if item["kind"] == "bound_task_context_stable"
     )
+    second_runtime_segment = next(
+        item for item in result_after_replay_growth.packet.segment_plan["segments"] if item["kind"] == "bound_task_runtime_context"
+    )
 
-    assert "next_suggested_read" not in second_bound["known_task_files"][0]
+    assert "next_suggested_read" not in second_bound_runtime["known_task_files"][0]
     assert second_bound["context_hash"] == bound["context_hash"]
+    assert second_bound_runtime["runtime_state_hash"] != bound_runtime["runtime_state_hash"]
     assert second_bound_segment["model_message_hash"] == bound_segment["model_message_hash"]
+    assert second_runtime_segment["model_message_hash"] != runtime_segment["model_message_hash"]
     assert second_manifest["diagnostics"]["runtime_state_hash"] != manifest["diagnostics"]["runtime_state_hash"]
     assert second_manifest["task_files"][0]["next_suggested_read"]["start_line"] == 41
 

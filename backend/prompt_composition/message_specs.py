@@ -68,6 +68,8 @@ def message_spec_content_source(*, kind: str, cache_role: str, source_ref: str) 
         return "runtime.artifact_scope_manifest"
     if normalized_kind in {"bound_task_context_stable"}:
         return "harness.runtime.bound_task_context"
+    if normalized_kind in {"bound_task_runtime_context"}:
+        return "runtime.dynamic_context_fragment"
     if normalized_kind in {"task_contract_stable"}:
         return "runtime.task_contract_manifest"
     if normalized_kind in {"tool_index_stable"}:

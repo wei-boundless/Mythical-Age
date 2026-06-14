@@ -211,7 +211,7 @@ def _apply_file_event(
         start = _int_or_none(event.get("start_line"))
         end = _int_or_none(event.get("end_line"))
         ranges = list(current.read_ranges)
-        if start is not None and end is not None:
+        if start is not None and end is not None and end >= start:
             candidate = FileReadRange(
                 start_line=start,
                 end_line=end,
@@ -234,7 +234,9 @@ def _apply_file_event(
             total_lines = current.total_lines
         latest_has_more = event.get("has_more") if isinstance(event.get("has_more"), bool) else None
         ordered_ranges = tuple(sorted(ranges, key=lambda item: (item.start_line, item.end_line)))
-        aggregate_complete = _has_complete_coverage(ordered_ranges, total_lines)
+        aggregate_complete = _has_complete_coverage(ordered_ranges, total_lines) or (
+            total_lines == 0 and latest_has_more is False
+        )
         if aggregate_complete:
             status = "complete"
             has_more = False
@@ -386,6 +388,14 @@ def _file_write_event_from_dict(payload: Any) -> FileWriteEvent | None:
 
 def _coverage_payload(ranges: tuple[FileReadRange, ...], *, total_lines: int | None = None) -> dict[str, Any]:
     active = _active_read_ranges(ranges)
+    if total_lines == 0 and not active:
+        return {
+            "range_count": 0,
+            "covered_lines": 0,
+            "total_lines": 0,
+            "complete": True,
+            "missing_ranges": [],
+        }
     if not active:
         return {}
     merged = _merged_read_ranges(active)

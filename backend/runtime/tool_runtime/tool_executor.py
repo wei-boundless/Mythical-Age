@@ -481,6 +481,11 @@ class ToolRuntimeExecutor:
         )
         execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         file_policy_payload = dict(file_management_policy or {})
+        runtime_assembly_payload = (
+            {"runtime_storage_ref": {"runtime_state_root": str(execution_store.root_dir)}}
+            if execution_store is not None
+            else {}
+        )
         file_evidence_scope = normalize_file_evidence_scope(
             getattr(tool_invocation_context, "file_evidence_scope", {}) if tool_invocation_context is not None else {},
             task_run_id=task_run_id,
@@ -535,6 +540,7 @@ class ToolRuntimeExecutor:
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
             ).snapshot(),
             execution_receipt=build_execution_receipt(current_record).to_dict(),
+            runtime_assembly=runtime_assembly_payload,
         )
         validation = runtime_tool.validate_input(tool_args, tool_context)
         if not validation.allowed:

@@ -29,6 +29,7 @@ from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT
 from harness.runtime.projection.projector import attach_public_projection_event
+from harness.task_run_status import is_stopped_or_terminal_task_run
 from runtime.trace import RuntimeTraceService
 from runtime.cache_manager import RuntimeCacheManager
 from runtime.tool_runtime.tool_control_plane import RuntimeToolControlPlane
@@ -258,7 +259,7 @@ class SingleAgentRuntimeHost:
                     },
                 )
             )
-        self._release_active_turn_for_stream_failure(
+        active_turn_release = self._release_active_turn_for_stream_failure(
             session_id=turn_run.session_id,
             turn_id=turn_run.turn_id,
             terminal_reason=failure_code,
@@ -288,6 +289,7 @@ class SingleAgentRuntimeHost:
             "turn_run_id": turn_run.turn_run_id,
             "turn_run_closed": terminal_event is not None,
             "public_terminal_event_appended": public_terminal_event is not None,
+            "active_turn_release": active_turn_release,
             "failure_code": failure_code,
         }
 
@@ -304,22 +306,53 @@ class SingleAgentRuntimeHost:
         session_id: str,
         turn_id: str,
         terminal_reason: str,
-    ) -> None:
+    ) -> dict[str, Any]:
         try:
             record = self.active_turn_registry.snapshot(session_id)
         except Exception:
             logger.debug("failed to snapshot active turn during stream failure reconciliation", exc_info=True)
-            return
+            return {
+                "released": False,
+                "reason": "snapshot_failed",
+                "authority": "single_agent_runtime_host.stream_failure_active_turn_release",
+            }
         if record is None or str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
-            return
+            return {
+                "released": False,
+                "reason": "active_turn_mismatch_or_missing",
+                "authority": "single_agent_runtime_host.stream_failure_active_turn_release",
+            }
+        bound_task_run_id = str(getattr(record, "bound_task_run_id", "") or "").strip()
+        if bound_task_run_id:
+            try:
+                bound_task_run = self.state_index.get_task_run(bound_task_run_id)
+            except Exception:
+                bound_task_run = None
+            if bound_task_run is not None and not is_stopped_or_terminal_task_run(bound_task_run):
+                return {
+                    "released": False,
+                    "reason": "bound_task_still_running",
+                    "task_run_id": bound_task_run_id,
+                    "authority": "single_agent_runtime_host.stream_failure_active_turn_release",
+                }
         try:
-            self.active_turn_registry.complete(
+            updated = self.active_turn_registry.complete(
                 session_id=session_id,
                 expected_turn_id=turn_id,
                 terminal_reason=terminal_reason,
             )
         except Exception:
             logger.debug("failed to complete active turn during stream failure reconciliation", exc_info=True)
+            return {
+                "released": False,
+                "reason": "complete_failed",
+                "authority": "single_agent_runtime_host.stream_failure_active_turn_release",
+            }
+        return {
+            "released": updated is not None,
+            "reason": "completed",
+            "authority": "single_agent_runtime_host.stream_failure_active_turn_release",
+        }
 
     def _append_stream_failure_turn_completed_event(
         self,

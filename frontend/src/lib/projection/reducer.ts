@@ -510,9 +510,14 @@ function timelineItemFromFrame(
   const lifecycleId = text(frame.tool_lifecycle_id || item.toolLifecycleId);
   const frameId = text(frame.frame_id || frame.projection_id || item.sourceEventId);
   const toolOwned = Boolean(toolCallId || lifecycleId || item.toolName);
-  const timelineItemId = toolOwned
-    ? toolCallId || lifecycleId || item.itemId || frameId || `${item.itemId}:timeline:${offset}:${text(frame.op)}`
-    : frameId || item.sourceEventId || `${item.itemId}:timeline:${offset}:${text(frame.op)}`;
+  const statusKind = text(frame.status_kind || item.statusKind);
+  const placeholderOwned = statusKind === "model_wait_placeholder" || text(frame.item_id || item.itemId).startsWith("model-wait:");
+  let timelineItemId = frameId || item.sourceEventId || `${item.itemId}:timeline:${offset}:${text(frame.op)}`;
+  if (toolOwned) {
+    timelineItemId = toolCallId || lifecycleId || item.itemId || timelineItemId;
+  } else if (placeholderOwned) {
+    timelineItemId = item.itemId || text(frame.item_id) || timelineItemId;
+  }
   return {
     ...item,
     itemId: timelineItemId,

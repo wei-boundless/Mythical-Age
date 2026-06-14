@@ -226,6 +226,396 @@ def test_native_read_file_session_scope_omits_unchanged_window(tmp_path: Path) -
     assert "alpha" not in second.text
 
 
+def test_native_read_file_omits_subwindow_covered_by_larger_current_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("alpha\nbeta\ngamma", encoding="utf-8")
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    task_run_id = "taskrun:read-file-covered-subwindow"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    first = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 3},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read-full",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events_scope(
+        scope,
+        first.file_state_events,
+        observation_ref="obs:read-full",
+        tool_call_id="call:read-full",
+    )
+
+    second = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 2, "line_count": 1},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read-subwindow",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    tool_result = dict(second.structured_payload["tool_result"])
+
+    assert first.text == "1 | alpha\n2 | beta\n3 | gamma"
+    assert tool_result["file_unchanged"] is True
+    assert tool_result["content_omitted"] is True
+    assert tool_result["covered_by_previous_read"] is True
+    assert tool_result["previous_start_line"] == 1
+    assert tool_result["previous_end_line"] == 3
+    assert tool_result["previous_observation_ref"] == "obs:read-full"
+    assert "beta" not in second.text
+
+
+def test_native_edit_file_requires_current_read_for_existing_non_empty_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("hello old", encoding="utf-8")
+    definition = get_tool_definition_map()["edit_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+
+    result = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "old_text": "old", "new_text": "new"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id="taskrun:edit-requires-read",
+                tool_call_id="call:edit",
+                file_evidence_scope=task_run_file_evidence_scope("taskrun:edit-requires-read"),
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+
+    assert result.status == "error"
+    assert result.structured_payload["structured_error"]["code"] == "edit_file_requires_current_read"
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello old"
+
+
+def test_native_edit_file_rejects_empty_old_text_for_existing_non_empty_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("hello old", encoding="utf-8")
+    definition = get_tool_definition_map()["edit_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+
+    result = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "old_text": "", "new_text": "replacement"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id="taskrun:edit-empty-old-nonempty",
+                tool_call_id="call:edit",
+                file_evidence_scope=task_run_file_evidence_scope("taskrun:edit-empty-old-nonempty"),
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+
+    assert result.status == "error"
+    assert result.structured_payload["structured_error"]["code"] == "edit_file_empty_old_text_requires_empty_or_new_target"
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello old"
+
+
+def test_native_edit_file_uses_read_evidence_and_updates_current_file_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("hello old", encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    editor = build_native_runtime_tool(capability_definition=definitions["edit_file"])
+    assert reader is not None
+    assert editor is not None
+    task_run_id = "taskrun:edit-after-read"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    read = asyncio.run(
+        reader.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 1, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    store = FileStateAuthorityStore(runtime_state)
+    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:read", tool_call_id="call:read")
+
+    edit = asyncio.run(
+        editor.call(
+            {"path": "notes.txt", "old_text": "old", "new_text": "new"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:edit",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    state = store.apply_events_scope(scope, edit.file_state_events, observation_ref="obs:edit", tool_call_id="call:edit").projection()[0]
+    active_ranges = [item for item in state["read_ranges"] if item.get("stale") is not True]
+
+    assert edit.status == "ok"
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello new"
+    assert [event["event_type"] for event in edit.file_state_events] == ["edit", "read"]
+    assert state["status"] == "complete"
+    assert state["content_sha256"] == edit.structured_payload["tool_result"]["sha256"]
+    assert len(active_ranges) == 1
+    assert active_ranges[0]["start_line"] == 1
+    assert active_ranges[0]["end_line"] == 1
+    assert active_ranges[0]["observation_ref"] == "obs:edit"
+    assert active_ranges[0]["content_sha256"] == edit.structured_payload["tool_result"]["sha256"]
+    assert active_ranges[0]["mtime_ns"] == edit.structured_payload["tool_result"]["mtime_ns"]
+    assert active_ranges[0]["read_intent"] == "edit_target"
+
+
+def test_native_read_file_empty_file_commits_complete_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "empty.txt").write_text("", encoding="utf-8")
+    definition = get_tool_definition_map()["read_file"]
+    reader = build_native_runtime_tool(capability_definition=definition)
+    assert reader is not None
+    task_run_id = "taskrun:read-empty-file"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    read = asyncio.run(
+        reader.call(
+            {"path": "empty.txt", "start_line": 1, "line_count": 1, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read-empty",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    state = FileStateAuthorityStore(runtime_state).apply_events_scope(
+        scope,
+        read.file_state_events,
+        observation_ref="obs:read-empty",
+        tool_call_id="call:read-empty",
+    ).projection()[0]
+
+    assert read.status == "ok"
+    assert read.structured_payload["tool_result"]["total_lines"] == 0
+    assert read.structured_payload["tool_result"]["end_line"] == 0
+    assert state["status"] == "complete"
+    assert state["total_lines"] == 0
+    assert state["has_more"] is False
+    assert "read_ranges" not in state
+    assert state["coverage"]["complete"] is True
+    assert state["coverage"]["missing_ranges"] == []
+    assert "next_suggested_read" not in state
+
+
+def test_native_edit_file_to_empty_content_updates_current_file_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("remove me", encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    editor = build_native_runtime_tool(capability_definition=definitions["edit_file"])
+    assert reader is not None
+    assert editor is not None
+    task_run_id = "taskrun:edit-to-empty"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    read = asyncio.run(
+        reader.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 1, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read-before-empty",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    store = FileStateAuthorityStore(runtime_state)
+    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:read-before-empty", tool_call_id="call:read-before-empty")
+
+    edit = asyncio.run(
+        editor.call(
+            {"path": "notes.txt", "old_text": "remove me", "new_text": ""},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:edit-to-empty",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    state = store.apply_events_scope(scope, edit.file_state_events, observation_ref="obs:edit-to-empty", tool_call_id="call:edit-to-empty").projection()[0]
+
+    assert edit.status == "ok"
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == ""
+    assert [event["event_type"] for event in edit.file_state_events] == ["edit", "read"]
+    assert edit.file_state_events[1]["total_lines"] == 0
+    assert edit.file_state_events[1]["end_line"] == 0
+    assert state["status"] == "complete"
+    assert state["total_lines"] == 0
+    assert state["has_more"] is False
+    assert all(item.get("stale") is True for item in state["read_ranges"])
+    assert state["coverage"]["complete"] is True
+    assert state["coverage"]["missing_ranges"] == []
+    assert "next_suggested_read" not in state
+
+
+def test_native_edit_file_rejects_when_file_changed_after_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    target = workspace / "notes.txt"
+    target.write_text("hello old", encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    editor = build_native_runtime_tool(capability_definition=definitions["edit_file"])
+    assert reader is not None
+    assert editor is not None
+    task_run_id = "taskrun:edit-stale-after-read"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    read = asyncio.run(
+        reader.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 1, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events_scope(scope, read.file_state_events, observation_ref="obs:read", tool_call_id="call:read")
+    target.write_text("hello old but changed", encoding="utf-8")
+
+    edit = asyncio.run(
+        editor.call(
+            {"path": "notes.txt", "old_text": "old", "new_text": "new"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:edit",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+
+    assert edit.status == "error"
+    assert edit.structured_payload["structured_error"]["code"] == "edit_file_read_evidence_stale"
+    assert target.read_text(encoding="utf-8") == "hello old but changed"
+
+
+def test_native_edit_file_rejects_ambiguous_old_text(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("old\nold", encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    editor = build_native_runtime_tool(capability_definition=definitions["edit_file"])
+    assert reader is not None
+    assert editor is not None
+    task_run_id = "taskrun:edit-ambiguous-old-text"
+    scope = task_run_file_evidence_scope(task_run_id)
+
+    read = asyncio.run(
+        reader.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2, "read_intent": "edit_target"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:read",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events_scope(scope, read.file_state_events, observation_ref="obs:read", tool_call_id="call:read")
+
+    edit = asyncio.run(
+        editor.call(
+            {"path": "notes.txt", "old_text": "old", "new_text": "new"},
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:edit",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+
+    assert edit.status == "error"
+    assert "exactly one location" in edit.text
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "old\nold"
+
+
+def test_native_edit_file_allows_empty_old_text_for_new_and_empty_targets(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    definition = get_tool_definition_map()["edit_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    scope = task_run_file_evidence_scope("taskrun:edit-empty-target")
+    context = ToolUseContext(
+        workspace_root=workspace,
+        task_run_id="taskrun:edit-empty-target",
+        tool_call_id="call:edit-empty",
+        file_evidence_scope=scope,
+        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+    )
+
+    created = asyncio.run(tool.call({"path": "created.txt", "old_text": "", "new_text": "created"}, context))
+    (workspace / "empty.txt").write_text("", encoding="utf-8")
+    initialized = asyncio.run(tool.call({"path": "empty.txt", "old_text": "", "new_text": "initialized"}, context))
+
+    assert created.status == "ok"
+    assert initialized.status == "ok"
+    assert (workspace / "created.txt").read_text(encoding="utf-8") == "created"
+    assert (workspace / "empty.txt").read_text(encoding="utf-8") == "initialized"
+
+
 def test_native_read_file_does_not_infer_evidence_scope_from_session_id(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     runtime_state = tmp_path / "runtime_state"

@@ -29,6 +29,9 @@ class BoundTaskContext:
         return not self._stable_payload_body()
 
     def to_model_visible_payload(self) -> dict[str, Any]:
+        return self.to_stable_model_visible_payload()
+
+    def to_stable_model_visible_payload(self) -> dict[str, Any]:
         body = self._stable_payload_body()
         if not body:
             return {}
@@ -36,6 +39,21 @@ class BoundTaskContext:
             {
                 "bound_task_context": {
                     "context_hash": self.context_hash,
+                    **body,
+                    "authority": self.authority,
+                }
+            }
+        )
+
+    def to_runtime_model_visible_payload(self) -> dict[str, Any]:
+        body = self._runtime_payload_body()
+        if not body:
+            return {}
+        return _drop_empty_payload(
+            {
+                "bound_task_runtime_context": {
+                    "stable_context_hash": self.context_hash,
+                    "runtime_state_hash": str(self.diagnostics.get("runtime_state_hash") or ""),
                     **body,
                     "authority": self.authority,
                 }
@@ -59,9 +77,21 @@ class BoundTaskContext:
         return _drop_empty_payload(
             {
                 "plan_refs": list(self.plan_refs),
+                "restore_policy": _restore_policy(enabled=bool(self.plan_refs)),
+            }
+        )
+
+    def _runtime_payload_body(self) -> dict[str, Any]:
+        return _drop_empty_payload(
+            {
                 "context_refs": list(self.context_refs),
                 "known_task_files": [dict(item) for item in self.known_task_files],
-                "restore_policy": dict(self.restore_policy),
+                "edit_targets": [dict(item) for item in self.edit_targets],
+                "artifact_refs": [dict(item) for item in self.artifact_refs],
+                "rehydration_refs": [dict(item) for item in self.rehydration_refs],
+                "restore_policy": dict(self.restore_policy)
+                if self.context_refs or self.known_task_files or self.rehydration_refs
+                else {},
             }
         )
 
@@ -93,9 +123,7 @@ def build_bound_task_context(
     stable_seed = _drop_empty_payload(
         {
             "plan_refs": list(plan_refs),
-            "context_refs": list(context_refs),
-            "known_task_files": known_task_files,
-            "restore_policy": _restore_policy(enabled=restore_enabled),
+            "restore_policy": _restore_policy(enabled=bool(plan_refs)),
         }
     )
     runtime_state_seed = _drop_empty_payload(

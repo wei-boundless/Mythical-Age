@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
+import time
 from typing import Any
+import uuid
 
 from .models import json_clone, stable_json, stable_json_hash
 
@@ -123,13 +125,9 @@ class ReplacementStore:
         return selected_projection, record
 
     def _write(self, record: ReplacementRecord) -> None:
-        import json
-
         self.base_dir.mkdir(parents=True, exist_ok=True)
         path = self._path_for_key(record.replacement_key)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(stable_json(record.to_dict()), encoding="utf-8")
-        tmp.replace(path)
+        self._atomic_write_text(path, stable_json(record.to_dict()))
         if record.task_run_id:
             self._index_task_run_record(record)
 
@@ -153,16 +151,37 @@ class ReplacementStore:
             "replacement_keys": keys[-2000:],
             "authority": "harness.runtime.dynamic_context.replacement_store.task_run_index",
         }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(stable_json(body), encoding="utf-8")
-        tmp.replace(path)
+        self._atomic_write_text(path, stable_json(body))
 
     def _task_run_index_path(self, task_run_id: str) -> Path:
         safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in str(task_run_id or ""))
         if not safe:
             safe = "task_run"
         return self.base_dir / "task_runs" / f"{safe}.json"
+
+    def _atomic_write_text(self, path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        last_error: OSError | None = None
+        for attempt in range(5):
+            tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                tmp.write_text(content, encoding="utf-8")
+                tmp.replace(path)
+                return
+            except OSError as exc:
+                last_error = exc
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                winerror = getattr(exc, "winerror", None)
+                if not isinstance(exc, PermissionError) and winerror not in {5, 32}:
+                    raise
+                if attempt >= 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
 
     def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}

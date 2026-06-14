@@ -376,6 +376,8 @@ class NativeReadFileTool(_NativeToolBase):
                     start_line=window.start_line,
                     end_line=window.end_line,
                     previous_observation_ref=str(unchanged.get("previous_observation_ref") or ""),
+                    previous_start_line=int(unchanged.get("previous_start_line") or 0),
+                    previous_end_line=int(unchanged.get("previous_end_line") or 0),
                 )
         except Exception as exc:
             return self._envelope(
@@ -440,6 +442,8 @@ class NativeReadFileTool(_NativeToolBase):
                     start_line=window.start_line,
                     end_line=window.end_line,
                     previous_observation_ref=str(unchanged.get("previous_observation_ref") or ""),
+                    previous_start_line=int(unchanged.get("previous_start_line") or 0),
+                    previous_end_line=int(unchanged.get("previous_end_line") or 0),
                 )
         except Exception as exc:
             return self._envelope(
@@ -632,7 +636,7 @@ def _unchanged_previous_read_window(
                 for segment in file_state.read_ranges:
                     if segment.stale:
                         continue
-                    if int(segment.start_line) != int(start_line) or int(segment.end_line) != int(end_line):
+                    if int(segment.start_line) > int(start_line) or int(segment.end_line) < int(end_line):
                         continue
                     if str(segment.content_sha256 or "") != str(content_sha256 or ""):
                         continue
@@ -641,6 +645,9 @@ def _unchanged_previous_read_window(
                     return {
                         "file_unchanged": True,
                         "content_omitted": True,
+                        "covered_by_previous_read": True,
+                        "previous_start_line": int(segment.start_line),
+                        "previous_end_line": int(segment.end_line),
                         "previous_observation_ref": str(segment.observation_ref or ""),
                         "reusable_result_ref": str(segment.observation_ref or ""),
                     }
@@ -655,9 +662,201 @@ def _file_unchanged_read_stub(
     start_line: int,
     end_line: int,
     previous_observation_ref: str,
+    previous_start_line: int = 0,
+    previous_end_line: int = 0,
 ) -> str:
     ref = f" Previous observation: {previous_observation_ref}." if previous_observation_ref else ""
-    return f"File unchanged for {path}:{start_line}-{end_line}; content omitted. Use the earlier read result for this exact window.{ref}"
+    covered = (
+        f" Covered by earlier read window {previous_start_line}-{previous_end_line}."
+        if previous_start_line > 0 and previous_end_line >= previous_start_line
+        else ""
+    )
+    return f"File unchanged for {path}:{start_line}-{end_line}; content omitted. Use the earlier read result for this covered range.{covered}{ref}"
+
+
+def _edit_file_current_read_failure(
+    *,
+    context: ToolUseContext,
+    path: str,
+    old_text: str,
+    current_content: str | None,
+    exists: bool,
+    size_bytes: int,
+    content_sha256: str,
+    mtime_ns: int | None,
+) -> dict[str, Any]:
+    target = str(old_text or "")
+    normalized_path = str(path or "").replace("\\", "/").strip().strip("/")
+    if not exists:
+        return {}
+    if int(size_bytes or 0) <= 0 and target == "":
+        return {}
+    if target == "":
+        return _edit_file_guard_failure(
+            code="edit_file_empty_old_text_requires_empty_or_new_target",
+            path=normalized_path,
+            message="Edit rejected: old_text may be empty only for a new file or a confirmed empty file.",
+            repair_instruction=(
+                "Use write_file for full replacement, or read_file with read_intent=\"edit_target\" and retry "
+                "edit_file with a non-empty exact old_text span from the current file."
+            ),
+        )
+    file_state = _current_file_state_for_path(context=context, path=normalized_path)
+    if file_state is None:
+        return _edit_file_guard_failure(
+            code="edit_file_requires_current_read",
+            path=normalized_path,
+            message="Edit rejected: existing non-empty files must be read in the current file evidence scope before edit_file can replace old_text.",
+            repair_instruction=(
+                "Call read_file on the minimal target range with read_intent=\"edit_target\", then retry edit_file "
+                "with exact old_text from that current read."
+            ),
+        )
+    status = str(getattr(file_state, "status", "") or "").strip().lower()
+    if status in {"stale", "missing", "unread"}:
+        return _edit_file_guard_failure(
+            code="edit_file_read_evidence_stale",
+            path=normalized_path,
+            message="Edit rejected: the recorded read evidence for this file is stale or unavailable.",
+            repair_instruction="Read the current target range again with read_intent=\"edit_target\", then retry edit_file.",
+        )
+    state_hash = str(getattr(file_state, "content_sha256", "") or "").strip()
+    if state_hash and content_sha256 and state_hash != content_sha256:
+        return _edit_file_guard_failure(
+            code="edit_file_read_evidence_stale",
+            path=normalized_path,
+            message="Edit rejected: the file content hash has changed since the last recorded read.",
+            repair_instruction="Read the current target range again before editing; do not reuse old_text from an older file version.",
+        )
+    state_mtime = getattr(file_state, "mtime_ns", None)
+    if mtime_ns is not None and state_mtime is not None and int(state_mtime) != int(mtime_ns):
+        return _edit_file_guard_failure(
+            code="edit_file_read_evidence_stale",
+            path=normalized_path,
+            message="Edit rejected: the file mtime has changed since the last recorded read.",
+            repair_instruction="Read the current target range again before editing; do not reuse old_text from an older file version.",
+        )
+    active_ranges = [segment for segment in tuple(getattr(file_state, "read_ranges", ()) or ()) if not bool(getattr(segment, "stale", False))]
+    if not active_ranges:
+        return _edit_file_guard_failure(
+            code="edit_file_requires_current_read",
+            path=normalized_path,
+            message="Edit rejected: no active read window exists for this file.",
+            repair_instruction="Call read_file with read_intent=\"edit_target\" for the target span, then retry edit_file.",
+        )
+    span = _line_span_for_first_occurrence(str(current_content or ""), target)
+    if span is None:
+        return {}
+    start_line, end_line = span
+    for segment in active_ranges:
+        segment_hash = str(getattr(segment, "content_sha256", "") or state_hash or "").strip()
+        if segment_hash and content_sha256 and segment_hash != content_sha256:
+            continue
+        if mtime_ns is not None and getattr(segment, "mtime_ns", None) is not None and int(getattr(segment, "mtime_ns")) != int(mtime_ns):
+            continue
+        if int(getattr(segment, "start_line", 0) or 0) <= start_line and int(getattr(segment, "end_line", 0) or 0) >= end_line:
+            return {}
+    return _edit_file_guard_failure(
+        code="edit_file_requires_target_read_window",
+        path=normalized_path,
+        message="Edit rejected: old_text is outside the current active read windows for this file.",
+        repair_instruction=(
+            f"Call read_file with path=\"{normalized_path}\", start_line={start_line}, "
+            f"line_count={max(1, min(READ_FILE_MAX_LINE_COUNT, end_line - start_line + 1))}, "
+            "read_intent=\"edit_target\", then retry edit_file with exact old_text from that result."
+        ),
+        start_line=start_line,
+        end_line=end_line,
+    )
+
+
+def _edit_file_guard_failure(
+    *,
+    code: str,
+    path: str,
+    message: str,
+    repair_instruction: str,
+    start_line: int = 0,
+    end_line: int = 0,
+) -> dict[str, Any]:
+    payload = {
+        "code": str(code or "edit_file_read_evidence_required"),
+        "message": str(message or ""),
+        "repair_instruction": str(repair_instruction or ""),
+        "path": str(path or ""),
+        "retryable": True,
+        "authority": "runtime.tool_runtime.edit_file_read_evidence_guard",
+    }
+    if start_line > 0:
+        payload["start_line"] = start_line
+    if end_line >= start_line > 0:
+        payload["end_line"] = end_line
+        payload["line_count"] = max(1, min(READ_FILE_MAX_LINE_COUNT, end_line - start_line + 1))
+    return payload
+
+
+def _current_file_state_for_path(*, context: ToolUseContext, path: str) -> Any | None:
+    scope = dict(getattr(context, "file_evidence_scope", {}) or {})
+    if not scope:
+        return None
+    try:
+        from runtime.memory.file_evidence_scope import normalize_file_evidence_scope
+        from runtime.memory.file_state_store import FileStateAuthorityStore
+
+        evidence_scope = normalize_file_evidence_scope(scope)
+        if not evidence_scope:
+            return None
+        normalized_path = str(path or "").replace("\\", "/").strip().strip("/")
+        for root in _runtime_context_storage_roots(context):
+            state = FileStateAuthorityStore(root).load_scope(evidence_scope)
+            for file_state in state.files:
+                if str(getattr(file_state, "path", "") or "").replace("\\", "/").strip().strip("/") == normalized_path:
+                    return file_state
+    except Exception:
+        return None
+    return None
+
+
+def _line_span_for_first_occurrence(content: str, target: str) -> tuple[int, int] | None:
+    if not target:
+        return None
+    index = str(content or "").find(target)
+    if index < 0:
+        return None
+    end_index = index + len(target)
+    start_line = str(content or "").count("\n", 0, index) + 1
+    end_line = str(content or "").count("\n", 0, max(index, end_index - 1)) + 1
+    return start_line, max(start_line, end_line)
+
+
+def _edit_file_state_events(*, path: str, after_content: str, content_sha256: str, mtime_ns: int | None) -> tuple[dict[str, Any], ...]:
+    events: list[dict[str, Any]] = [
+        {
+            "event_type": "edit",
+            "path": str(path or ""),
+            "content_sha256": str(content_sha256 or ""),
+            "mtime_ns": mtime_ns,
+            "authority": "runtime.tool_runtime.native_edit_file.file_state_event",
+        }
+    ]
+    total_lines = len(str(after_content or "").splitlines())
+    events.append(
+        {
+            "event_type": "read",
+            "path": str(path or ""),
+            "start_line": 1,
+            "end_line": total_lines,
+            "returned_lines": total_lines,
+            "line_count": total_lines,
+            "total_lines": total_lines,
+            "has_more": False,
+            "content_sha256": str(content_sha256 or ""),
+            "mtime_ns": mtime_ns,
+            "read_intent": "edit_target",
+            "authority": "runtime.tool_runtime.native_edit_file.file_state_event",
+        }
+    )
+    return tuple({key: value for key, value in event.items() if value not in ("", None, [], {}, ())} for event in events)
 
 
 class NativeWriteFileTool(_NativeToolBase):
@@ -719,6 +918,9 @@ class NativeWriteFileTool(_NativeToolBase):
                 expected_previous_sha256=str(args.get("expected_previous_sha256") or ""),
             )
             rel = files.relative_path(file_path)
+            after_stat = file_path.stat()
+            after_sha256 = _file_sha256(file_path)
+            after_mtime_ns = int(after_stat.st_mtime_ns)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
@@ -740,8 +942,9 @@ class NativeWriteFileTool(_NativeToolBase):
                 "tool_result": {
                     "kind": "file_write",
                     "path": rel,
-                    "size_bytes": file_path.stat().st_size,
-                    "sha256": _file_sha256(file_path),
+                    "size_bytes": after_stat.st_size,
+                    "sha256": after_sha256,
+                    "mtime_ns": after_mtime_ns,
                 },
                 "file_change": file_change,
             },
@@ -773,6 +976,8 @@ class NativeWriteFileTool(_NativeToolBase):
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        result_path = Path(result.physical_path)
+        result_mtime_ns = int(result_path.stat().st_mtime_ns) if result_path.exists() and result_path.is_file() else None
         file_change = _record_text_file_change(
             context=context,
             tool_name=self.name,
@@ -800,6 +1005,7 @@ class NativeWriteFileTool(_NativeToolBase):
                     "managed_file_ref": result.managed_file_ref.to_dict(),
                     "size_bytes": len(content.encode("utf-8")),
                     "sha256": result.managed_file_ref.content_hash,
+                    "mtime_ns": result_mtime_ns,
                 },
                 "file_gateway": {
                     "access_decision": result.access_decision,
@@ -837,10 +1043,45 @@ class NativeEditFileTool(_NativeToolBase):
         try:
             files = self._files(context)
             target_path = files.resolve(path, require_path=True)
-            before_content = files.read_text(target_path)
+            exists = target_path.exists()
+            if exists and target_path.is_dir():
+                raise IsADirectoryError("path is a directory")
+            before_content = files.read_text(target_path) if exists else None
+            current_sha256 = _sha256_text(before_content or "") if exists and target_path.is_file() else ""
+            current_stat = target_path.stat() if exists and target_path.is_file() else None
+            rel = files.relative_path(target_path)
+            guard_failure = _edit_file_current_read_failure(
+                context=context,
+                path=rel,
+                old_text=str(args.get("old_text") or ""),
+                current_content=before_content,
+                exists=bool(exists and target_path.is_file()),
+                size_bytes=int(current_stat.st_size) if current_stat is not None else 0,
+                content_sha256=current_sha256,
+                mtime_ns=int(current_stat.st_mtime_ns) if current_stat is not None else None,
+            )
+            if guard_failure:
+                return self._envelope(
+                    tool_args=args,
+                    status="error",
+                    text=str(guard_failure.get("message") or "Edit rejected by read evidence guard."),
+                    structured_payload={
+                        "tool_result": {
+                            "kind": "file_edit",
+                            "status": "error",
+                            "path": rel,
+                            "error": str(guard_failure.get("code") or "edit_file_read_evidence_required"),
+                        },
+                        "structured_error": guard_failure,
+                    },
+                    execution_receipt=context.execution_receipt,
+                )
             file_path = files.edit_text(path, str(args.get("old_text") or ""), str(args.get("new_text") or ""))
             rel = files.relative_path(file_path)
             after_content = files.read_text(file_path)
+            after_stat = file_path.stat()
+            after_sha256 = _sha256_text(after_content)
+            after_mtime_ns = int(after_stat.st_mtime_ns)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
@@ -862,13 +1103,20 @@ class NativeEditFileTool(_NativeToolBase):
                 "tool_result": {
                     "kind": "file_edit",
                     "path": rel,
-                    "size_bytes": file_path.stat().st_size,
-                    "sha256": _file_sha256(file_path),
+                    "size_bytes": after_stat.st_size,
+                    "sha256": after_sha256,
+                    "mtime_ns": after_mtime_ns,
                 },
                 "file_change": file_change,
             },
             observed_paths=(rel,),
             artifact_refs=(artifact,),
+            file_state_events=_edit_file_state_events(
+                path=rel,
+                after_content=after_content,
+                content_sha256=after_sha256,
+                mtime_ns=after_mtime_ns,
+            ),
             execution_receipt=context.execution_receipt,
         )
 
@@ -881,11 +1129,53 @@ class NativeEditFileTool(_NativeToolBase):
         path: str,
     ) -> ToolResultEnvelope:
         repository_id = _repository_for_action(context, "edit")
+        old_text = str(args.get("old_text") or "")
         try:
+            before_result = None
+            try:
+                before_result = gateway.read_text(
+                    repository_id,
+                    path,
+                    self._gateway_context(context),
+                    operation_id="op.read_file",
+                )
+            except Exception:
+                if old_text:
+                    raise
+            if before_result is not None:
+                physical_path = Path(before_result.physical_path)
+                current_stat = physical_path.stat() if physical_path.exists() and physical_path.is_file() else None
+                guard_failure = _edit_file_current_read_failure(
+                    context=context,
+                    path=before_result.logical_path,
+                    old_text=old_text,
+                    current_content=before_result.content,
+                    exists=True,
+                    size_bytes=int(current_stat.st_size) if current_stat is not None else len(str(before_result.content or "").encode("utf-8")),
+                    content_sha256=str(before_result.managed_file_ref.content_hash or ""),
+                    mtime_ns=int(current_stat.st_mtime_ns) if current_stat is not None else None,
+                )
+                if guard_failure:
+                    return self._envelope(
+                        tool_args=args,
+                        status="error",
+                        text=str(guard_failure.get("message") or "Edit rejected by read evidence guard."),
+                        structured_payload={
+                            "tool_result": {
+                                "kind": "file_edit",
+                                "status": "error",
+                                "path": before_result.logical_path,
+                                "repository_id": repository_id,
+                                "error": str(guard_failure.get("code") or "edit_file_read_evidence_required"),
+                            },
+                            "structured_error": guard_failure,
+                        },
+                        execution_receipt=context.execution_receipt,
+                    )
             result = gateway.edit_text(
                 repository_id,
                 path,
-                str(args.get("old_text") or ""),
+                old_text,
                 str(args.get("new_text") or ""),
                 self._gateway_context(context),
                 operation_id=self.operation_id,
@@ -895,6 +1185,8 @@ class NativeEditFileTool(_NativeToolBase):
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
         artifact = _artifact_ref_for_gateway_file(context=context, result=result, kind="file", source=self.name)
         receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        result_path = Path(result.physical_path)
+        result_mtime_ns = int(result_path.stat().st_mtime_ns) if result_path.exists() and result_path.is_file() else None
         file_change = _record_text_file_change(
             context=context,
             tool_name=self.name,
@@ -922,6 +1214,7 @@ class NativeEditFileTool(_NativeToolBase):
                     "managed_file_ref": result.managed_file_ref.to_dict(),
                     "size_bytes": len(result.content.encode("utf-8")),
                     "sha256": result.managed_file_ref.content_hash,
+                    "mtime_ns": result_mtime_ns,
                 },
                 "file_gateway": {
                     "access_decision": result.access_decision,
@@ -932,6 +1225,12 @@ class NativeEditFileTool(_NativeToolBase):
             },
             observed_paths=(result.logical_path,),
             artifact_refs=(artifact,),
+            file_state_events=_edit_file_state_events(
+                path=result.logical_path,
+                after_content=result.content,
+                content_sha256=result.managed_file_ref.content_hash,
+                mtime_ns=result_mtime_ns,
+            ),
             execution_receipt={**dict(context.execution_receipt), "file_operation_receipt": receipt},
         )
 

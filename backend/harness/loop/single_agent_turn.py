@@ -501,6 +501,12 @@ async def run_single_agent_turn(
                     protocol_error=protocol_error,
                     previous_invalid_response=previous_invalid_response,
                 )
+                closeout_segment_plan = _single_agent_turn_followup_segment_plan(
+                    base_segment_plan=dict(compilation.packet.segment_plan or {}),
+                    model_messages=closeout_messages,
+                    packet_id=current_packet_ref,
+                    tool_iteration=tool_iteration + attempt,
+                )
                 closeout_response = await _invoke_single_turn_model(
                     model_runtime=model_runtime,
                     model_messages=closeout_messages,
@@ -512,12 +518,14 @@ async def run_single_agent_turn(
                         "turn_id": turn_id,
                         "packet_ref": current_packet_ref,
                         "source": _AGENT_CLOSEOUT_SOURCE,
+                        "segment_plan": closeout_segment_plan,
                         "prompt_manifest": {
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "invocation_kind": "single_agent_turn_agent_authored_closeout",
                             "closeout_phase": phase,
                             "closeout_reason": reason,
                             "attempt": attempt,
+                            "segment_plan_ref": str(closeout_segment_plan.get("segment_plan_id") or ""),
                         },
                     },
                     native_tools=[],

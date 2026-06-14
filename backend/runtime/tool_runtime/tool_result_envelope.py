@@ -322,6 +322,7 @@ def infer_file_state_events(
                         "event_type": "write" if name == "write_file" else "edit",
                         "path": path,
                         "content_sha256": str(tool_result.get("sha256") or tool_result.get("content_sha256") or "").strip(),
+                        "mtime_ns": _int_or_none(tool_result.get("mtime_ns")),
                         "repository_id": str(tool_result.get("repository_id") or "").strip(),
                         "authority": "runtime.tool_result_envelope.file_state_event",
                     }

@@ -1081,7 +1081,8 @@ class RuntimeCompiler:
             task_state_projection=volatile_payload,
             task_run_id=task_run_id,
         )
-        bound_task_context_payload = bound_task_context.to_model_visible_payload()
+        bound_task_context_payload = bound_task_context.to_stable_model_visible_payload()
+        bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
@@ -1215,22 +1216,6 @@ class RuntimeCompiler:
                 )
                 if graph_task_shared_payload
                 else None,
-                _message_spec(
-                    role="system",
-                    content=active_skill_instruction,
-                    kind="active_skills",
-                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "active_skill_runtime",
-                        "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
-                        "cache_impact": "volatile_suffix_only",
-                    },
-                )
-                if active_skill_instruction.strip()
-                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution task contract",
@@ -1268,6 +1253,41 @@ class RuntimeCompiler:
                     },
                 )
                 if bound_task_context_payload
+                else None,
+                _message_spec(
+                    role="system",
+                    content=active_skill_instruction,
+                    kind="active_skills",
+                    source_ref=",".join(active_skill_meta.get("source_refs") or ()),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if active_skill_instruction.strip()
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task execution bound runtime context",
+                    payload=bound_task_runtime_context_payload,
+                    kind="bound_task_runtime_context",
+                    source_ref=bound_task_context.source_ref,
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="ref_only",
+                    metadata={
+                        "authority_class": "bound_task_runtime_context",
+                        "semantic_layer": "L7_bound_task_runtime_context",
+                        "volatility_reason": "bound file, context, artifact, and rehydration facts are derived from runtime task state",
+                        "cache_impact": "volatile_suffix_only",
+                        "content_source": "harness.runtime.bound_task_context",
+                    },
+                )
+                if bound_task_runtime_context_payload
                 else None,
                 _runtime_payload_spec(
                     role="system",

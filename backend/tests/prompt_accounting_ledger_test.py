@@ -14,7 +14,9 @@ from runtime.prompt_accounting import (
 )
 from runtime.model_gateway import ModelRequestBuilder
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.environment_prompt_controller import build_base_prompt_mount_plan, prompt_mount_plan_for_invocation
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
+from prompt_library.environment_lifecycle_prompts import ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT
 
 
 def _model_input_text(packet) -> str:
@@ -488,7 +490,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "artifact_scope_stable",
         "tool_index_stable",
         "task_contract_stable",
-        "bound_task_context_stable",
+        "bound_task_runtime_context",
         "task_runtime_boundary_dynamic",
         "task_state_replay_entry",
         "volatile_task_state",
@@ -501,7 +503,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "session_stable",
         "session_stable",
         "session_stable",
-        "session_stable",
+        "volatile",
         "volatile",
         "volatile",
         "volatile",
@@ -514,7 +516,7 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         "task",
         "task",
         "task",
-        "task",
+        "volatile",
         "volatile",
         "volatile",
         "volatile",
@@ -542,6 +544,79 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert manifest["token_estimate"]["assembly_prompt_chars"] == manifest["token_estimate"]["prompt_chars"]
     assert manifest["token_estimate"]["model_visible_chars"] == sum(len(message["content"]) for message in messages)
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
+
+
+def test_task_execution_environment_stable_prefix_ignores_memory_context_presence() -> None:
+    base_kwargs = {
+        "session_id": "session:memory-prefix",
+        "task_run": {"task_run_id": "taskrun:memory-prefix", "diagnostics": {"executor_status": "running"}},
+        "contract": {
+            "task_run_goal": "检查 prompt cache 稳定前缀",
+            "completion_criteria": ["environment stable hash 不随 memory_context 切换"],
+            "plan_ref": "plan:memory-prefix",
+        },
+        "observations": [],
+        "execution_state": {"runtime_status": "running"},
+        "runtime_assembly": {
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+        },
+    }
+    without_memory = RuntimeCompiler().compile_task_execution_packet(**base_kwargs)
+    with_memory = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        memory_context={
+            "model_visible_sections": {
+                "relevant_durable_context": ["durable memory marker for prefix regression"],
+            },
+            "selected_sections": ["relevant_durable_context"],
+            "memory_runtime_view_ref": "memview:prefix-regression",
+        },
+    )
+
+    without_environment = _segment_by_kind(without_memory.packet, "environment_stable")
+    with_environment = _segment_by_kind(with_memory.packet, "environment_stable")
+    assert without_environment["model_message_hash"] == with_environment["model_message_hash"]
+
+    environment_content = _message_content_with_title(with_memory.packet, "Task execution environment boundary")
+    runtime_boundary_content = _message_content_with_title(with_memory.packet, "Task execution runtime boundary")
+    assert "durable memory marker for prefix regression" not in environment_content
+    assert "durable memory marker for prefix regression" in runtime_boundary_content
+    runtime_segment = _segment_by_kind(with_memory.packet, "task_runtime_boundary_dynamic")
+    assert runtime_segment["cache_role"] == "volatile"
+    assert runtime_segment["prefix_tier"] == "volatile"
+
+
+def test_lifecycle_prompt_selection_is_fixed_across_memory_context_presence() -> None:
+    lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT["env.coding.vibe_workspace"]
+    base_plan = build_base_prompt_mount_plan(
+        selected_environment={
+            "environment_id": "env.coding.vibe_workspace",
+            "environment_boundary": {
+                "lifecycle_prompt_defaults": lifecycle_defaults,
+            },
+        }
+    )
+    without_memory = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="task_execution",
+        allowed_actions=("tool_call",),
+        memory_context=None,
+    )
+    with_memory = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="task_execution",
+        allowed_actions=("tool_call",),
+        memory_context={
+            "model_visible_sections": {
+                "relevant_durable_context": ["memory marker"],
+            }
+        },
+    )
+
+    assert without_memory.lifecycle_prompt_refs == with_memory.lifecycle_prompt_refs
+    assert without_memory.lifecycle_prompt_keys == with_memory.lifecycle_prompt_keys
+    assert lifecycle_defaults["memory_read_context"] in without_memory.lifecycle_prompt_refs
 
 
 def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:

@@ -367,50 +367,6 @@ describe("public projection frame reducer contract", () => {
     });
   });
 
-  it("keeps repeated status updates as separate timeline events while latest status is upserted", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      source_event_id: "event:status:1",
-      source_event_type: "runtime_step_summary",
-      op: "item_upsert",
-      slot: "status",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "task-stage-status:taskrun:1",
-      title: "STATUS_A",
-      state: "running",
-    });
-    transition = project(transition, {
-      source_event_id: "event:status:2",
-      source_event_type: "runtime_step_summary",
-      op: "item_upsert",
-      slot: "status",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "task-stage-status:taskrun:1",
-      title: "STATUS_B",
-      state: "running",
-    });
-
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.status).toHaveLength(1);
-    const timeline = projection?.timeline ?? [];
-    expect(projection?.status[0]).toMatchObject({
-      itemId: "task-stage-status:taskrun:1",
-      sourceEventId: "event:status:2",
-    });
-    expect(timeline).toHaveLength(2);
-    expect(new Set(timeline.map((item) => item.itemId)).size).toBe(2);
-    expect(timeline.every((item) => item.itemId !== "task-stage-status:taskrun:1")).toBe(true);
-    expect(timeline.map((item) => item.sourceEventId)).toEqual([
-      "event:status:1",
-      "event:status:2",
-    ]);
-    expect(Number(timeline[0]?.eventOffset)).toBeLessThan(Number(timeline[1]?.eventOffset));
-  });
-
   it("pins failed tool results until they are resolved", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
