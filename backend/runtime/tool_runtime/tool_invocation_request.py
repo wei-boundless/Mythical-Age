@@ -29,6 +29,7 @@ class ToolInvocationRequest:
     caller_resource_scope: dict[str, Any] = field(default_factory=dict)
     sandbox_scope: dict[str, Any] = field(default_factory=dict)
     file_scope: dict[str, Any] = field(default_factory=dict)
+    file_evidence_scope: dict[str, Any] = field(default_factory=dict)
     requested_constraints: dict[str, Any] = field(default_factory=dict)
     approval_state: dict[str, Any] = field(default_factory=dict)
     approval_token: dict[str, Any] = field(default_factory=dict)
@@ -44,6 +45,8 @@ class ToolInvocationRequest:
             raise ValueError("ToolInvocationRequest requires caller_kind")
         if self.caller_kind == "task_run" and not self.task_run_id:
             raise ValueError("ToolInvocationRequest caller_kind=task_run requires task_run_id")
+        if self.file_evidence_scope and str(self.file_evidence_scope.get("authority") or "") != "runtime.file_evidence_scope":
+            raise ValueError("ToolInvocationRequest file_evidence_scope authority must be runtime.file_evidence_scope")
         if not self.tool_name:
             raise ValueError("ToolInvocationRequest requires tool_name")
         if not self.tool_call_id:
@@ -56,6 +59,7 @@ class ToolInvocationRequest:
         payload["action_permit"] = dict(self.action_permit or {})
         payload["sandbox_scope"] = dict(self.sandbox_scope or {})
         payload["file_scope"] = dict(self.file_scope or {})
+        payload["file_evidence_scope"] = dict(self.file_evidence_scope or {})
         payload["requested_constraints"] = dict(self.requested_constraints or {})
         payload["approval_state"] = dict(self.approval_state or {})
         payload["approval_token"] = dict(self.approval_token or {})

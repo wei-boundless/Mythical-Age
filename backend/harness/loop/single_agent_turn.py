@@ -51,6 +51,7 @@ from runtime.output_boundary import (
 from runtime.shared.models import TurnRun
 from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
+from runtime.memory.file_state_store import session_file_evidence_scope
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from permissions.policy import normalize_permission_mode
@@ -3573,6 +3574,7 @@ async def _invoke_turn_tool(
             dict(assembly_payload.get("task_environment") or {}),
             sandbox_policy=sandbox_scope,
         ),
+        file_evidence_scope=session_file_evidence_scope(session_id),
         requested_constraints={
             "runtime_host": runtime_host,
             "runtime_assembly": assembly_payload,

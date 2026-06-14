@@ -16,7 +16,7 @@ from harness.runtime.assembly import assemble_runtime
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
 from orchestration.runtime_directive import RuntimeDirective
-from runtime.memory.file_state_store import FileStateAuthorityStore
+from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
@@ -123,10 +123,12 @@ def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: 
     tool = build_native_runtime_tool(capability_definition=definition)
     assert tool is not None
     task_run_id = "taskrun:read-file-unchanged"
+    scope = task_run_file_evidence_scope(task_run_id)
     context = ToolUseContext(
         workspace_root=workspace,
         task_run_id=task_run_id,
         tool_call_id="call:read-1",
+        file_evidence_scope=scope,
         file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
     )
 
@@ -136,8 +138,8 @@ def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: 
             context,
         )
     )
-    FileStateAuthorityStore(runtime_state).apply_events(
-        task_run_id,
+    FileStateAuthorityStore(runtime_state).apply_events_scope(
+        scope,
         first.file_state_events,
         observation_ref="obs:first-read",
         tool_call_id="call:read-1",
@@ -150,6 +152,7 @@ def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: 
                 workspace_root=workspace,
                 task_run_id=task_run_id,
                 tool_call_id="call:read-2",
+                file_evidence_scope=scope,
                 file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
             ),
         )
@@ -165,6 +168,61 @@ def test_native_read_file_preserves_intent_and_omits_unchanged_window(tmp_path: 
     assert tool_result["read_intent"] == "edit_target"
     assert event["read_intent"] == "edit_target"
     assert event["file_unchanged"] is True
+
+
+def test_native_read_file_session_scope_omits_unchanged_window(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("alpha\nbeta\ngamma", encoding="utf-8")
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    scope = session_file_evidence_scope("session:read-file-unchanged")
+
+    first = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2},
+            ToolUseContext(
+                workspace_root=workspace,
+                caller_kind="agent_turn",
+                caller_ref="turnrun:session-read",
+                session_id="session:read-file-unchanged",
+                tool_call_id="call:session-read-1",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events_scope(
+        scope,
+        first.file_state_events,
+        observation_ref="obs:session-first-read",
+        tool_call_id="call:session-read-1",
+    )
+
+    second = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2},
+            ToolUseContext(
+                workspace_root=workspace,
+                caller_kind="agent_turn",
+                caller_ref="turnrun:session-read",
+                session_id="session:read-file-unchanged",
+                tool_call_id="call:session-read-2",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    tool_result = second.structured_payload["tool_result"]
+
+    assert first.text == "1 | alpha\n2 | beta"
+    assert tool_result["file_unchanged"] is True
+    assert tool_result["content_omitted"] is True
+    assert tool_result["previous_observation_ref"] == "obs:session-first-read"
+    assert "alpha" not in second.text
 
 
 def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_injected_state(tmp_path: Path) -> None:
@@ -184,7 +242,7 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_inje
 
     envelope = result["observation"].payload["result_envelope"]
     tool_result = envelope["structured_payload"]["tool_result"]
-    snapshot = FileStateAuthorityStore(execution_store.root_dir).snapshot(task_run_id)
+    snapshot = FileStateAuthorityStore(execution_store.root_dir).snapshot_scope(task_run_file_evidence_scope(task_run_id))
 
     assert result["error"] == ""
     assert result["file_state_commit"]["event_count"] == 1
@@ -225,8 +283,8 @@ def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_inje
     assert "recommended_next_actions" not in read_resource_state
 
     store = FileStateAuthorityStore(execution_store.root_dir)
-    stale = store.apply_events(
-        task_run_id,
+    stale = store.apply_events_scope(
+        task_run_file_evidence_scope(task_run_id),
         [{"event_type": "edit", "path": "src/app.py", "content_sha256": "sha256:after"}],
         observation_ref="obs:edit",
         tool_call_id="call:edit",

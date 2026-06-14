@@ -40,6 +40,7 @@ class ToolInvocationContext:
     task_run_id: str = ""
     tool_call_id: str = ""
     idempotency_key: str = ""
+    file_evidence_scope: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

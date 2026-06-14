@@ -12,6 +12,7 @@ class FileReadRange:
     end_line: int
     observation_ref: str = ""
     content_sha256: str = ""
+    mtime_ns: int | None = None
     read_intent: str = ""
     file_unchanged: bool = False
     content_omitted: bool = False
@@ -74,6 +75,7 @@ class TaskFileState:
     write_events: tuple[FileWriteEvent, ...] = ()
     total_lines: int | None = None
     content_sha256: str = ""
+    mtime_ns: int | None = None
     last_observation_ref: str = ""
     last_tool_call_id: str = ""
     has_more: bool | None = None
@@ -95,6 +97,9 @@ class TaskFileState:
 @dataclass(frozen=True, slots=True)
 class FileStateAuthority:
     task_run_id: str = ""
+    scope_kind: str = ""
+    scope_id: str = ""
+    session_id: str = ""
     files: tuple[TaskFileState, ...] = ()
     authority: str = "runtime.memory.file_state_authority"
 
@@ -123,6 +128,9 @@ class FileStateAuthority:
                 files.append(parsed)
         return cls(
             task_run_id=str(item.get("task_run_id") or ""),
+            scope_kind=str(item.get("scope_kind") or ""),
+            scope_id=str(item.get("scope_id") or ""),
+            session_id=str(item.get("session_id") or ""),
             files=tuple(files),
         )
 
@@ -161,11 +169,16 @@ class FileStateAuthority:
         return [item.to_dict() for item in self.files[-max(1, int(limit or 20)):]]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "task_run_id": self.task_run_id,
-            "files": [item.to_dict() for item in self.files],
-            "authority": self.authority,
-        }
+        return _drop_empty(
+            {
+                "task_run_id": self.task_run_id,
+                "scope_kind": self.scope_kind,
+                "scope_id": self.scope_id,
+                "session_id": self.session_id,
+                "files": [item.to_dict() for item in self.files],
+                "authority": self.authority,
+            }
+        )
 
 
 def file_state_events_from_observation(observation: dict[str, Any]) -> FileStateObservationEvents:
@@ -204,6 +217,7 @@ def _apply_file_event(
                 end_line=end,
                 observation_ref=observation_ref,
                 content_sha256=str(event.get("content_sha256") or ""),
+                mtime_ns=_int_or_none(event.get("mtime_ns")),
                 read_intent=str(event.get("read_intent") or ""),
                 file_unchanged=bool(event.get("file_unchanged") is True),
                 content_omitted=bool(event.get("content_omitted") is True),
@@ -233,6 +247,7 @@ def _apply_file_event(
             read_ranges=ordered_ranges,
             total_lines=total_lines,
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
+            mtime_ns=_int_or_none(event.get("mtime_ns")) if _int_or_none(event.get("mtime_ns")) is not None else current.mtime_ns,
             has_more=has_more,
             last_observation_ref=observation_ref,
             last_tool_call_id=tool_call_id,
@@ -251,6 +266,7 @@ def _apply_file_event(
             read_ranges=stale_ranges,
             write_events=(*current.write_events, write)[-12:],
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
+            mtime_ns=_int_or_none(event.get("mtime_ns")) if _int_or_none(event.get("mtime_ns")) is not None else current.mtime_ns,
             last_observation_ref=observation_ref,
             last_tool_call_id=tool_call_id,
             exists=True,
@@ -312,6 +328,7 @@ def _task_file_state_from_dict(payload: dict[str, Any]) -> TaskFileState | None:
         ),
         total_lines=_int_or_none(payload.get("total_lines")),
         content_sha256=str(payload.get("content_sha256") or ""),
+        mtime_ns=_int_or_none(payload.get("mtime_ns")),
         last_observation_ref=str(payload.get("last_observation_ref") or ""),
         last_tool_call_id=str(payload.get("last_tool_call_id") or ""),
         has_more=_bool_or_none(payload.get("has_more")),
@@ -331,6 +348,7 @@ def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
         end_line=end_line,
         observation_ref=str(payload.get("observation_ref") or ""),
         content_sha256=str(payload.get("content_sha256") or ""),
+        mtime_ns=_int_or_none(payload.get("mtime_ns")),
         read_intent=str(payload.get("read_intent") or ""),
         file_unchanged=bool(payload.get("file_unchanged") is True),
         content_omitted=bool(payload.get("content_omitted") is True),

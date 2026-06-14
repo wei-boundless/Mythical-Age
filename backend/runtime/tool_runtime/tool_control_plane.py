@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
@@ -21,6 +21,7 @@ from runtime.shared.execution_record import (
 )
 from runtime.shared.models import AgentRun
 from runtime.shared.safety import build_task_safety_validators
+from runtime.memory.file_evidence_scope import normalize_file_evidence_scope
 from runtime.tool_runtime.tool_invocation_request import ToolInvocationRequest
 from runtime.tool_runtime.tool_observation import ToolObservation
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
@@ -439,6 +440,7 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
+        observation = _with_file_state_commit_diagnostics(request, observation)
         if _should_consume_approval_grant(observation):
             _consume_approval_grant_if_present(
                 request,
@@ -536,6 +538,75 @@ def _observation(
         artifact_refs=tuple(dict(item) for item in tuple(artifact_refs or ())),
         diagnostics=dict(diagnostics or {}),
     )
+
+
+def _with_file_state_commit_diagnostics(request: ToolInvocationRequest, observation: ToolObservation) -> ToolObservation:
+    envelope = dict(observation.result_envelope or {})
+    events = tuple(dict(item) for item in list(envelope.get("file_state_events") or []) if isinstance(item, dict))
+    if not events:
+        return observation
+    scope = normalize_file_evidence_scope(
+        request.file_evidence_scope,
+        task_run_id=request.task_run_id,
+        session_id=request.session_id,
+        caller_kind=request.caller_kind,
+    )
+    commit = _commit_file_state_events_for_observation(
+        request,
+        scope=scope,
+        events=events,
+        observation_ref=observation.observation_id,
+    )
+    return replace(
+        observation,
+        diagnostics={
+            **dict(observation.diagnostics or {}),
+            "file_state_commit": commit,
+        },
+    )
+
+
+def _commit_file_state_events_for_observation(
+    request: ToolInvocationRequest,
+    *,
+    scope: dict[str, Any],
+    events: tuple[dict[str, Any], ...],
+    observation_ref: str,
+) -> dict[str, Any]:
+    if not scope:
+        return {
+            "event_count": len(events),
+            "skipped_reason": "missing_file_evidence_scope",
+            "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
+        }
+    runtime_host = _runtime_host(request)
+    store = getattr(runtime_host, "file_state_store", None) if runtime_host is not None else None
+    if store is None:
+        root_dir = getattr(runtime_host, "root_dir", None) if runtime_host is not None else None
+        if root_dir is None:
+            return {
+                "file_evidence_scope": scope,
+                "event_count": len(events),
+                "skipped_reason": "file_state_store_unavailable",
+                "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
+            }
+        from runtime.memory.file_state_store import FileStateAuthorityStore
+
+        store = FileStateAuthorityStore(Path(root_dir))
+    authority = store.apply_events_scope(
+        scope,
+        events,
+        observation_ref=observation_ref,
+        tool_call_id=request.tool_call_id,
+    )
+    return {
+        "file_evidence_scope": scope,
+        "observation_ref": str(observation_ref or ""),
+        "tool_call_id": request.tool_call_id,
+        "event_count": len(events),
+        "file_count": len(authority.files),
+        "authority": "runtime.tool_runtime.tool_control_plane.file_state_commit",
+    }
 
 
 def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> tuple[Any, Any, dict[str, Any], dict[str, Any], Any]:

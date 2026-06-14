@@ -16,6 +16,8 @@ class DynamicContextInput:
     history: tuple[dict[str, Any], ...] = ()
     observations: tuple[dict[str, Any], ...] = ()
     tool_results: tuple[dict[str, Any], ...] = ()
+    file_state: tuple[dict[str, Any], ...] = ()
+    file_evidence_scope: dict[str, Any] = field(default_factory=dict)
     execution_state: dict[str, Any] = field(default_factory=dict)
     work_rollout: dict[str, Any] = field(default_factory=dict)
     session_context: dict[str, Any] = field(default_factory=dict)

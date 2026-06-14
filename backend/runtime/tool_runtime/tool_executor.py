@@ -7,6 +7,7 @@ from typing import Any
 
 from capability_system.tools.contracts import ToolInvocationValidationDecision, ToolInvocationValidator
 from runtime.environment import RuntimeEnvironment
+from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
 from runtime.tool_runtime.tool_result_envelope import (
     build_tool_result_envelope,
     build_tool_result_envelope_id,
@@ -182,6 +183,7 @@ class ToolRuntimeExecutor:
             permission_mode=str(policy_payload.get("permission_mode") or ""),
             sandbox_policy=policy_payload,
             file_management_policy=file_policy_payload,
+            file_evidence_scope=task_run_file_evidence_scope(task_run_id, session_id=_session_id_from_policy(policy_payload)),
             environment_snapshot=RuntimeEnvironment(
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -250,6 +252,12 @@ class ToolRuntimeExecutor:
                     turn_id=str(getattr(request, "turn_id", "") or ""),
                     task_run_id=str(getattr(request, "task_run_id", "") or ""),
                     tool_call_id=str(getattr(request, "tool_call_id", "") or ""),
+                    file_evidence_scope=normalize_file_evidence_scope(
+                        getattr(request, "file_evidence_scope", {}) or {},
+                        task_run_id=str(getattr(request, "task_run_id", "") or ""),
+                        session_id=str(getattr(request, "session_id", "") or ""),
+                        caller_kind=caller_kind,
+                    ),
                     idempotency_key=build_tool_invocation_idempotency_key(
                         caller_ref=str(getattr(request, "caller_ref", "") or ""),
                         action_request_ref=str(getattr(request, "action_request_ref", "") or ""),
@@ -271,6 +279,11 @@ class ToolRuntimeExecutor:
             operation_id=str(getattr(request, "operation_id", "") or ""),
             sandbox_policy=sandbox_policy,
             file_management_policy=file_management_policy,
+            file_evidence_scope=normalize_file_evidence_scope(
+                getattr(request, "file_evidence_scope", {}) or {},
+                session_id=str(getattr(request, "session_id", "") or ""),
+                caller_kind=caller_kind or "agent_turn",
+            ),
             max_result_size_chars=max_result_size_chars,
         )
 
@@ -468,6 +481,12 @@ class ToolRuntimeExecutor:
         )
         execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         file_policy_payload = dict(file_management_policy or {})
+        file_evidence_scope = normalize_file_evidence_scope(
+            getattr(tool_invocation_context, "file_evidence_scope", {}) if tool_invocation_context is not None else {},
+            task_run_id=task_run_id,
+            session_id=str(getattr(tool_invocation_context, "session_id", "") or _session_id_from_policy(policy_payload)),
+            caller_kind="task_run",
+        ) or task_run_file_evidence_scope(task_run_id, session_id=str(getattr(tool_invocation_context, "session_id", "") or _session_id_from_policy(policy_payload)))
         tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         invocation_context = _resolve_tool_invocation_context(
             task_run_id=task_run_id,
@@ -510,6 +529,7 @@ class ToolRuntimeExecutor:
             permission_mode=str(policy_payload.get("permission_mode") or ""),
             sandbox_policy=policy_payload,
             file_management_policy=file_policy_payload,
+            file_evidence_scope=file_evidence_scope,
             environment_snapshot=RuntimeEnvironment(
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -714,7 +734,8 @@ class ToolRuntimeExecutor:
         )
         file_state_commit = _commit_file_state_events(
             execution_store=execution_store,
-            task_run_id=task_run_id,
+            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+            file_evidence_scope=file_evidence_scope,
             observation_ref=observation.observation_id,
             tool_call_id=tool_call_id,
             envelope=envelope,
@@ -741,6 +762,7 @@ class ToolRuntimeExecutor:
         operation_id: str = "",
         sandbox_policy: dict[str, Any] | None = None,
         file_management_policy: dict[str, Any] | None = None,
+        file_evidence_scope: dict[str, Any] | None = None,
         max_result_size_chars: int = 0,
     ) -> dict[str, Any]:
         tool_args = dict(tool_args or {})
@@ -753,6 +775,7 @@ class ToolRuntimeExecutor:
             tool_name=tool_name,
             tool_call_id=tool_call_id,
             tool_args=tool_args,
+            file_evidence_scope=file_evidence_scope,
         )
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
@@ -861,6 +884,7 @@ class ToolRuntimeExecutor:
             tool_name=tool_name,
             tool_call_id=tool_call_id,
             tool_args=tool_args,
+            file_evidence_scope=file_evidence_scope,
         )
         tool_args = _bind_tool_invocation_args(tool_name, tool_args, invocation_context=invocation_context)
         invocation_context = _core_invocation_context(
@@ -872,6 +896,7 @@ class ToolRuntimeExecutor:
             tool_name=tool_name,
             tool_call_id=tool_call_id,
             tool_args=tool_args,
+            file_evidence_scope=file_evidence_scope,
         )
         execution_receipt = _core_execution_receipt(
             invocation_context,
@@ -901,6 +926,11 @@ class ToolRuntimeExecutor:
             permission_mode=str(policy_payload.get("permission_mode") or ""),
             sandbox_policy=policy_payload,
             file_management_policy=file_policy_payload,
+            file_evidence_scope=normalize_file_evidence_scope(
+                file_evidence_scope,
+                session_id=session_id,
+                caller_kind=caller_kind or "agent_turn",
+            ),
             environment_snapshot=RuntimeEnvironment(
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -1154,6 +1184,7 @@ def _core_execution_receipt(
         "session_id": str(invocation_context.session_id or ""),
         "turn_id": str(invocation_context.turn_id or ""),
         "task_run_id": str(invocation_context.task_run_id or ""),
+        "file_evidence_scope": dict(invocation_context.file_evidence_scope or {}),
         "tool_call_id": str(invocation_context.tool_call_id or ""),
         "idempotency_key": str(invocation_context.idempotency_key or ""),
         "authority": "runtime.tool_runtime.core_execution_receipt",
@@ -1170,6 +1201,7 @@ def _core_invocation_context(
     tool_name: str,
     tool_call_id: str,
     tool_args: dict[str, Any],
+    file_evidence_scope: dict[str, Any] | None = None,
 ) -> ToolInvocationContext:
     invocation_id = str(tool_invocation_id or "").strip()
     return ToolInvocationContext(
@@ -1179,6 +1211,11 @@ def _core_invocation_context(
         session_id=str(session_id or "").strip(),
         turn_id=str(turn_id or "").strip(),
         task_run_id="",
+        file_evidence_scope=normalize_file_evidence_scope(
+            file_evidence_scope,
+            session_id=session_id,
+            caller_kind=str(caller_kind or "").strip() or "agent_turn",
+        ),
         tool_call_id=str(tool_call_id or "").strip(),
         idempotency_key=build_tool_invocation_idempotency_key(
             caller_ref=caller_ref,
@@ -1380,24 +1417,46 @@ def _uses_system_backend_root(tool_name: str) -> bool:
 def _commit_file_state_events(
     *,
     execution_store: RuntimeExecutionStore | None,
-    task_run_id: str,
+    runtime_host: Any | None = None,
+    file_evidence_scope: dict[str, Any] | None,
     observation_ref: str,
     tool_call_id: str,
     envelope: Any,
 ) -> dict[str, Any]:
     events = tuple(dict(item) for item in tuple(getattr(envelope, "file_state_events", ()) or ()) if isinstance(item, dict))
-    if execution_store is None or not str(task_run_id or "").strip() or not events:
+    scope = normalize_file_evidence_scope(file_evidence_scope)
+    if not events:
         return {}
-    from runtime.memory.file_state_store import FileStateAuthorityStore
+    if not scope:
+        return {
+            "event_count": len(events),
+            "skipped_reason": "missing_file_evidence_scope",
+            "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
+        }
+    store = getattr(runtime_host, "file_state_store", None) if runtime_host is not None else None
+    if store is None:
+        root_dir = getattr(runtime_host, "root_dir", None) if runtime_host is not None else None
+        if root_dir is None and execution_store is not None:
+            root_dir = execution_store.root_dir
+        if root_dir is None:
+            return {
+                "file_evidence_scope": scope,
+                "event_count": len(events),
+                "skipped_reason": "file_state_store_unavailable",
+                "authority": "runtime.tool_runtime.tool_executor.file_state_commit",
+            }
+        from runtime.memory.file_state_store import FileStateAuthorityStore
 
-    authority = FileStateAuthorityStore(execution_store.root_dir).apply_events(
-        task_run_id,
+        store = FileStateAuthorityStore(Path(root_dir))
+
+    authority = store.apply_events_scope(
+        scope,
         events,
         observation_ref=observation_ref,
         tool_call_id=tool_call_id,
     )
     return {
-        "task_run_id": str(task_run_id or ""),
+        "file_evidence_scope": scope,
         "observation_ref": str(observation_ref or ""),
         "tool_call_id": str(tool_call_id or ""),
         "event_count": len(events),
@@ -1529,6 +1588,12 @@ def _resolve_tool_invocation_context(
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_ref,
+        file_evidence_scope=normalize_file_evidence_scope(
+            getattr(explicit_context, "file_evidence_scope", {}) if explicit_context is not None else {},
+            task_run_id=task_ref,
+            session_id=session_id,
+            caller_kind=caller_kind,
+        ),
         tool_call_id=str(getattr(explicit_context, "tool_call_id", "") or tool_call_id or "").strip(),
         idempotency_key=idempotency_key,
     )

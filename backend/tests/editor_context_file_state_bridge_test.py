@@ -4,7 +4,7 @@ from pathlib import Path
 
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
-from runtime.memory.file_state_store import FileStateAuthorityStore
+from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
 
 
 def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path) -> None:
@@ -75,8 +75,9 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
     workspace = tmp_path / "workspace"
     storage_root = tmp_path / "runtime-state"
     workspace.mkdir()
-    FileStateAuthorityStore(storage_root).apply_events(
-        "taskrun:editor-merge",
+    scope = task_run_file_evidence_scope("taskrun:editor-merge")
+    FileStateAuthorityStore(storage_root).apply_events_scope(
+        scope,
         [
             {
                 "event_type": "read",
@@ -91,7 +92,7 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
         observation_ref="obs:read",
         tool_call_id="call:read",
     )
-    persisted_file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:editor-merge")
+    persisted_file_state = FileStateAuthorityStore(storage_root).snapshot_scope(scope)
 
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
@@ -137,8 +138,8 @@ def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tm
 
 def test_file_state_still_absent_without_vscode_or_read_file_state(tmp_path: Path) -> None:
     storage_root = tmp_path / "runtime-state"
-    FileStateAuthorityStore(storage_root).apply_events(
-        "taskrun:no-editor",
+    FileStateAuthorityStore(storage_root).apply_events_scope(
+        task_run_file_evidence_scope("taskrun:no-editor"),
         [
             {
                 "event_type": "read",

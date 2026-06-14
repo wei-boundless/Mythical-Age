@@ -19,7 +19,7 @@ from artifact_system.artifact_authority import (
 )
 from file_management import RepositoryRootResolver, normalize_logical_path, resolve_file_environment
 from runtime.shared.models import AgentRun, AgentRunResult
-from runtime.memory.file_state_store import FileStateAuthorityStore
+from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.model_gateway.assistant_stream_frame import (
@@ -3514,6 +3514,7 @@ async def _execute_task_tool_call(
         },
         sandbox_scope=sandbox_policy,
         file_scope=file_policy,
+        file_evidence_scope=task_run_file_evidence_scope(task_run.task_run_id, session_id=task_run.session_id),
         approval_state=approval_state_for_task_run(task_run).to_dict(),
         approval_risk_fingerprint=approval_risk_fingerprint,
         requested_constraints={
@@ -6176,10 +6177,10 @@ def _file_state_projection_from_store(runtime_host: Any, task_run_id: str) -> li
         if root_dir is None:
             return []
         store = FileStateAuthorityStore(Path(root_dir))
-    snapshot = getattr(store, "snapshot", None)
+    snapshot = getattr(store, "snapshot_scope", None)
     if not callable(snapshot):
         return []
-    return list(snapshot(task_id, limit=20) or [])
+    return list(snapshot(task_run_file_evidence_scope(task_id), limit=20) or [])
 
 
 def _observations_for_packet(

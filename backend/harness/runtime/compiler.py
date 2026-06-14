@@ -36,6 +36,7 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from agent_system.identity import normalize_agent_id_sequence
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
+from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
@@ -510,6 +511,8 @@ class RuntimeCompiler:
         )
         packet_id = f"rtpacket:{turn_id}:single_agent_turn:1"
         turn_input_facts = dict(session_context_payload.get("turn_input_facts") or {})
+        file_evidence_scope = session_file_evidence_scope(session_id)
+        session_file_state = _file_state_snapshot_for_scope(self.base_dir, assembly_payload, file_evidence_scope)
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="single_agent_turn",
             model_selection=model_selection,
@@ -527,6 +530,8 @@ class RuntimeCompiler:
                 session_id=session_id,
                 turn_id=turn_id,
                 history=tuple(dict(item) for item in list(history or []) if isinstance(item, dict)),
+                file_state=session_file_state,
+                file_evidence_scope=file_evidence_scope,
                 session_context=session_context_payload,
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
@@ -673,6 +678,10 @@ class RuntimeCompiler:
             "recent_work_outcome",
             "current_work_boundary_receipt",
             "runtime_observations",
+            "file_evidence_scope",
+            "file_state",
+            "file_evidence_decisions",
+            "read_resource_state",
         )
         single_turn_volatile_refs = (
             "runtime_envelope",
@@ -3613,6 +3622,23 @@ def _dynamic_context_projection_policy(
         **budget_policy,
         **dict(overrides or {}),
     }
+
+
+def _file_state_snapshot_for_scope(
+    base_dir: Path,
+    runtime_assembly: dict[str, Any],
+    file_evidence_scope: dict[str, Any],
+    *,
+    limit: int = 20,
+) -> tuple[dict[str, Any], ...]:
+    scope = dict(file_evidence_scope or {})
+    if not scope:
+        return ()
+    storage_root = dynamic_context_storage_root(base_dir, dict(runtime_assembly or {})) or base_dir
+    try:
+        return tuple(dict(item) for item in FileStateAuthorityStore(storage_root).snapshot_scope(scope, limit=limit))
+    except Exception:
+        return ()
 
 
 def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:

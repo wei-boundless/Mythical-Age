@@ -12,7 +12,7 @@ from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSe
 from harness.runtime.dynamic_context.history_projector import HistoryProjector
 from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
-from runtime.memory.file_state_store import FileStateAuthorityStore
+from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
@@ -661,8 +661,9 @@ def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path)
         caller_kind="task_run",
         caller_ref="taskrun:derived-file-state",
     )
-    FileStateAuthorityStore(storage_root).apply_observation(
-        "taskrun:derived-file-state",
+    scope = task_run_file_evidence_scope("taskrun:derived-file-state")
+    FileStateAuthorityStore(storage_root).apply_observation_scope(
+        scope,
         {
             "observation_id": "obs:read-native",
             "payload": {
@@ -672,7 +673,7 @@ def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path)
             },
         },
     )
-    file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:derived-file-state")
+    file_state = FileStateAuthorityStore(storage_root).snapshot_scope(scope)
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:derived-file-state",
@@ -706,6 +707,80 @@ def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path)
     assert progress_facts["files"][0]["path"] == "backend/runtime/tool_runtime/native_tools.py"
     assert progress_facts["files"][0]["next_missing_ranges"][0] == {"start_line": 1, "end_line": 10}
     assert progress_facts["files"][0]["next_suggested_read"]["start_line"] == 16
+
+
+def test_single_agent_turn_projects_session_file_evidence(tmp_path: Path) -> None:
+    storage_root = tmp_path / "runtime-state"
+    session_id = "session:single-agent-file-evidence"
+    scope = session_file_evidence_scope(session_id)
+    read_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/harness/loop/single_agent_turn.py", "start_line": 21, "line_count": 10},
+        result={
+            "text": "21 | from runtime.tool_runtime import ToolInvocationRequest",
+            "structured_payload": {
+                "observed_paths": ["backend/harness/loop/single_agent_turn.py"],
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": "backend/harness/loop/single_agent_turn.py",
+                    "start_line": 21,
+                    "end_line": 30,
+                    "returned_lines": 10,
+                    "line_count": 10,
+                    "total_lines": 5000,
+                    "next_start_line": 31,
+                    "has_more": True,
+                    "content_sha256": "sha256:single-agent-turn",
+                },
+            },
+        },
+        tool_call_id="call:session-read",
+        action_request_id="rtact:session-read",
+        caller_kind="agent_turn",
+        caller_ref="turnrun:session-file-evidence",
+    )
+    FileStateAuthorityStore(storage_root).apply_observation_scope(
+        scope,
+        {
+            "observation_id": "obs:session-read",
+            "payload": {
+                "tool_name": "read_file",
+                "tool_call_id": "call:session-read",
+                "result_envelope": read_envelope.to_dict(),
+            },
+        },
+    )
+
+    result = RuntimeCompiler(base_dir=tmp_path).compile_single_agent_turn_packet(
+        session_id=session_id,
+        turn_id="turn:session-file-evidence",
+        agent_invocation_id="agent:session-file-evidence",
+        user_message="继续分析刚才读过的 single_agent_turn。",
+        history=[],
+        runtime_assembly={
+            "runtime_storage_ref": {"runtime_state_root": str(storage_root)},
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
+            "available_tools": [],
+        },
+    )
+
+    dynamic_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn dynamic runtime")
+    decisions = dynamic_payload["file_evidence_decisions"]
+    file_decision = decisions["files"][0]
+
+    assert dynamic_payload["file_evidence_scope"] == scope
+    assert file_decision["path"] == "backend/harness/loop/single_agent_turn.py"
+    assert file_decision["reuse_current_windows"][0]["decision"] == "reuse_current_window"
+    assert dynamic_payload["read_resource_state"]["do_not_repeat_read_ranges"] == [
+        {
+            "path": "backend/harness/loop/single_agent_turn.py",
+            "start_line": 21,
+            "end_line": 30,
+            "observation_ref": "obs:session-read",
+            "reason": "covered_by_current_non_stale_read_window",
+        }
+    ]
 
 
 def test_task_progress_facts_project_todo_id_contract() -> None:
@@ -804,8 +879,9 @@ def test_task_execution_evidence_ledger_marks_full_file_complete_after_local_rer
             caller_kind="task_run",
             caller_ref="taskrun:mario-ledger",
         )
-        store.apply_observation(
-            "taskrun:mario-ledger",
+        scope = task_run_file_evidence_scope("taskrun:mario-ledger")
+        store.apply_observation_scope(
+            scope,
             {"observation_id": f"obs:read:{index}", "payload": {"result_envelope": envelope.to_dict()}},
         )
     local_envelope = build_tool_result_envelope(
@@ -834,8 +910,8 @@ def test_task_execution_evidence_ledger_marks_full_file_complete_after_local_rer
         caller_kind="task_run",
         caller_ref="taskrun:mario-ledger",
     )
-    store.apply_observation(
-        "taskrun:mario-ledger",
+    store.apply_observation_scope(
+        task_run_file_evidence_scope("taskrun:mario-ledger"),
         {"observation_id": "obs:read:local", "payload": {"result_envelope": local_envelope.to_dict()}},
     )
 
@@ -847,7 +923,7 @@ def test_task_execution_evidence_ledger_marks_full_file_complete_after_local_rer
         execution_state={
             "system_projection": {
                 "runtime_status": "running",
-                "file_state": store.snapshot("taskrun:mario-ledger"),
+                "file_state": store.snapshot_scope(task_run_file_evidence_scope("taskrun:mario-ledger")),
                 "file_state_source": "runtime.memory.file_state_store",
             }
         },
@@ -899,8 +975,9 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
         caller_kind="task_run",
         caller_ref="taskrun:bound-context",
     )
-    FileStateAuthorityStore(storage_root).apply_observation(
-        "taskrun:bound-context",
+    scope = task_run_file_evidence_scope("taskrun:bound-context")
+    FileStateAuthorityStore(storage_root).apply_observation_scope(
+        scope,
         {
             "observation_id": "obs:read-compiler",
             "payload": {
@@ -910,7 +987,7 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
             },
         },
     )
-    file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:bound-context")
+    file_state = FileStateAuthorityStore(storage_root).snapshot_scope(scope)
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:bound-context",
@@ -986,8 +1063,8 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
         caller_kind="task_run",
         caller_ref="taskrun:bound-context",
     )
-    FileStateAuthorityStore(storage_root).apply_observation(
-        "taskrun:bound-context",
+    FileStateAuthorityStore(storage_root).apply_observation_scope(
+        scope,
         {
             "observation_id": "obs:read-compiler-2",
             "payload": {
@@ -997,7 +1074,7 @@ def test_task_execution_exposes_known_task_files_for_resume(tmp_path: Path) -> N
             },
         },
     )
-    second_file_state = FileStateAuthorityStore(storage_root).snapshot("taskrun:bound-context")
+    second_file_state = FileStateAuthorityStore(storage_root).snapshot_scope(scope)
 
     result_after_replay_growth = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:bound-context",

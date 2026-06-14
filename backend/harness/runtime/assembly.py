@@ -8,6 +8,7 @@ from agent_system.identity import normalize_agent_id_sequence
 from capability_system.skills.registry import SkillRegistry
 from capability_system.tools.authorization import build_authorized_tool_set
 from permissions.policy import normalize_permission_mode
+from project_layout import ProjectLayout
 from harness.runtime.environment_storage import apply_session_scoped_environment_storage
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_view_from_skill_definition
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
@@ -217,6 +218,7 @@ class RuntimeAssembly:
     agent_profile_ref: str = ""
     model_selection: dict[str, Any] = field(default_factory=dict)
     runtime_contract: dict[str, Any] = field(default_factory=dict)
+    runtime_storage_ref: dict[str, Any] = field(default_factory=dict)
     engagement_contract: dict[str, Any] = field(default_factory=dict)
     execution_strategy: dict[str, Any] = field(default_factory=dict)
     engagement_run_ref: str = ""
@@ -380,6 +382,7 @@ def assemble_runtime(
         agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         model_selection=dict(model_selection or {}),
         runtime_contract=runtime_contract_payload,
+        runtime_storage_ref=_runtime_storage_ref(backend_dir),
         engagement_contract=engagement_contract,
         execution_strategy=dict(engagement_contract.get("execution_strategy") or runtime_contract_payload.get("execution_strategy") or {}),
         engagement_run_ref=str(runtime_contract_payload.get("engagement_run_ref") or ""),
@@ -487,6 +490,14 @@ def _normalize_workspace_root(value: str | Path | None) -> str:
     if not text:
         return ""
     return str(Path(text).resolve())
+
+
+def _runtime_storage_ref(backend_dir: str | Path) -> dict[str, Any]:
+    layout = ProjectLayout.from_backend_dir(backend_dir)
+    return {
+        "runtime_state_root": str(layout.runtime_state_dir),
+        "authority": "harness.runtime.assembly.runtime_storage_ref",
+    }
 
 
 def _apply_bound_workspace_root(environment: dict[str, Any], workspace_root: str) -> dict[str, Any]:

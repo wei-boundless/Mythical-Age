@@ -6,7 +6,7 @@ from pathlib import Path
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from harness.runtime.run_monitor import RuntimeMonitorService
 from runtime.cache_manager import RuntimeCacheManager
-from runtime.memory.file_state_store import FileStateAuthorityStore
+from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.models import TaskRun
@@ -83,8 +83,8 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
     host = _RuntimeHost(tmp_path / "runtime_state")
     task_run_id = "taskrun:blocked-old"
     host.state_index.upsert_task_run(_task_run(task_run_id, status="blocked", updated_at=100.0))
-    host.file_state_store.apply_events(
-        task_run_id,
+    host.file_state_store.apply_events_scope(
+        task_run_file_evidence_scope(task_run_id),
         [{"event_type": "read", "path": "docs/a.md", "start_line": 1, "end_line": 2, "total_lines": 2}],
         observation_ref="obs:file",
     )
@@ -127,7 +127,7 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
     assert task_run_id not in attention_ids
     assert recent[task_run_id]["activity_state"] == "stopped"
     assert not sandbox.exists()
-    assert host.file_state_store.snapshot(task_run_id) == []
+    assert host.file_state_store.snapshot_scope(task_run_file_evidence_scope(task_run_id)) == []
     assert not (host.root_dir / "dynamic_context" / "replacements").exists() or not any((host.root_dir / "dynamic_context" / "replacements").glob("*.json"))
     assert not (host.root_dir / "tool_results" / "taskrun-blocked-old").exists()
     assert registry.record("toolinv:blocked-old").status == "cancelled"

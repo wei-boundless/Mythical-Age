@@ -1169,6 +1169,7 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                 "coverage": dict(item.get("coverage") or {}),
                 "total_lines": item.get("total_lines"),
                 "content_sha256": str(item.get("content_sha256") or ""),
+                "mtime_ns": item.get("mtime_ns"),
                 "last_observation_ref": str(item.get("last_observation_ref") or ""),
                 "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                 "status": str(item.get("status") or ""),
@@ -1211,6 +1212,8 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
         payload["content_omitted"] = segment.get("content_omitted")
     if isinstance(segment.get("has_more"), bool):
         payload["has_more"] = segment.get("has_more")
+    if segment.get("mtime_ns") not in (None, ""):
+        payload["mtime_ns"] = segment.get("mtime_ns")
     if segment.get("next_start_line") not in (None, ""):
         payload["next_start_line"] = segment.get("next_start_line")
     previous_ref = str(segment.get("previous_observation_ref") or "")
@@ -1290,6 +1293,7 @@ def _reuse_current_window_decision(*, path: str, segment: dict[str, Any]) -> dic
             "end_line": segment.get("end_line"),
             "observation_ref": str(segment.get("observation_ref") or ""),
             "reusable_result_ref": str(segment.get("reusable_result_ref") or segment.get("previous_observation_ref") or ""),
+            "mtime_ns": segment.get("mtime_ns"),
             "content_omitted": segment.get("content_omitted") if isinstance(segment.get("content_omitted"), bool) else None,
             "file_unchanged": segment.get("file_unchanged") if isinstance(segment.get("file_unchanged"), bool) else None,
             "read_intent": str(segment.get("read_intent") or ""),
@@ -1418,6 +1422,7 @@ def _do_not_repeat_read_range(*, path: str, segment: dict[str, Any]) -> dict[str
             "start_line": start_line,
             "end_line": end_line,
             "observation_ref": str(segment.get("observation_ref") or ""),
+            "mtime_ns": segment.get("mtime_ns"),
             "reason": "covered_by_current_non_stale_read_window",
         }
     )

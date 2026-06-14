@@ -354,7 +354,10 @@ class NativeReadFileTool(_NativeToolBase):
                 start_line=start_line,
                 line_count=line_count,
             )
+            stat = file_path.stat()
+            mtime_ns = int(stat.st_mtime_ns)
             tool_result = window.to_dict(include_text=False)
+            tool_result["mtime_ns"] = mtime_ns
             if read_intent:
                 tool_result["read_intent"] = read_intent
             unchanged = _unchanged_previous_read_window(
@@ -363,6 +366,7 @@ class NativeReadFileTool(_NativeToolBase):
                 start_line=window.start_line,
                 end_line=window.end_line,
                 content_sha256=window.content_sha256,
+                mtime_ns=mtime_ns,
             )
             text = window.text
             if unchanged:
@@ -426,6 +430,7 @@ class NativeReadFileTool(_NativeToolBase):
                 start_line=window.start_line,
                 end_line=window.end_line,
                 content_sha256=window.content_sha256,
+                mtime_ns=None,
             )
             text = window.text
             if unchanged:
@@ -605,15 +610,19 @@ def _unchanged_previous_read_window(
     start_line: int,
     end_line: int,
     content_sha256: str,
+    mtime_ns: int | None = None,
 ) -> dict[str, Any]:
-    task_run_id = str(getattr(context, "task_run_id", "") or "").strip()
-    if not task_run_id or not content_sha256:
+    scope = dict(getattr(context, "file_evidence_scope", {}) or {})
+    if not scope or not content_sha256:
         return {}
     try:
-        from runtime.memory.file_state_store import FileStateAuthorityStore
+        from runtime.memory.file_state_store import FileStateAuthorityStore, normalize_file_evidence_scope
 
+        evidence_scope = normalize_file_evidence_scope(scope)
+        if not evidence_scope:
+            return {}
         for root in _runtime_context_storage_roots(context):
-            state = FileStateAuthorityStore(root).load(task_run_id)
+            state = FileStateAuthorityStore(root).load_scope(evidence_scope)
             for file_state in state.files:
                 if str(file_state.path or "").replace("\\", "/").strip().strip("/") != str(path or "").replace("\\", "/").strip().strip("/"):
                     continue
@@ -625,6 +634,8 @@ def _unchanged_previous_read_window(
                     if int(segment.start_line) != int(start_line) or int(segment.end_line) != int(end_line):
                         continue
                     if str(segment.content_sha256 or "") != str(content_sha256 or ""):
+                        continue
+                    if mtime_ns is not None and segment.mtime_ns is not None and int(segment.mtime_ns) != int(mtime_ns):
                         continue
                     return {
                         "file_unchanged": True,

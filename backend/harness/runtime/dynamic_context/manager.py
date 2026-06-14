@@ -91,6 +91,9 @@ class DynamicContextManager:
             work_history_projection=work_history_projection,
         )
         dynamic_payload = dict(runtime_delta)
+        session_file_state_projection = self._session_file_state_projection(request)
+        if session_file_state_projection:
+            dynamic_payload.update(session_file_state_projection)
         budget_report = build_budget_report(
             invocation_kind=request.invocation_kind,
             projection_policy=request.projection_policy,
@@ -180,6 +183,33 @@ class DynamicContextManager:
                 existing=str(projection.get("file_state_source") or ""),
             ),
         }
+
+    def _session_file_state_projection(self, request: DynamicContextInput) -> dict[str, Any]:
+        if request.invocation_kind == "task_execution":
+            return {}
+        file_state = [dict(item) for item in list(request.file_state or ()) if isinstance(item, dict)]
+        if not file_state:
+            return {}
+        task_state = self.task_state_projector.project(
+            execution_projection={
+                "file_state": file_state,
+                "file_state_source": "runtime.memory.file_state_store",
+            },
+            observation_projection={},
+            work_history_projection={},
+            task_run_state={},
+            envelope_projection={},
+            include_task_run_context=False,
+        )
+        return drop_empty(
+            {
+                "file_evidence_scope": dict(request.file_evidence_scope or {}),
+                "file_state": task_state.get("file_state"),
+                "file_evidence_decisions": task_state.get("file_evidence_decisions"),
+                "read_resource_state": task_state.get("read_resource_state"),
+                "file_state_source": task_state.get("file_state_source") or "runtime.memory.file_state_store",
+            }
+        )
 
     def _volatile_state_projection(
         self,

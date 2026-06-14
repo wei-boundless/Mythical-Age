@@ -28,6 +28,7 @@ class ToolUseContext:
     permission_mode: str = ""
     sandbox_policy: dict[str, Any] = field(default_factory=dict)
     file_management_policy: dict[str, Any] = field(default_factory=dict)
+    file_evidence_scope: dict[str, Any] = field(default_factory=dict)
     environment_snapshot: dict[str, Any] = field(default_factory=dict)
     execution_receipt: dict[str, Any] = field(default_factory=dict)
     runtime_assembly: dict[str, Any] = field(default_factory=dict)
@@ -40,6 +41,7 @@ class ToolUseContext:
         payload["material_mounts"] = [dict(item) for item in self.material_mounts]
         payload["sandbox_policy"] = dict(self.sandbox_policy)
         payload["file_management_policy"] = dict(self.file_management_policy)
+        payload["file_evidence_scope"] = dict(self.file_evidence_scope)
         payload["environment_snapshot"] = dict(self.environment_snapshot)
         payload["execution_receipt"] = dict(self.execution_receipt)
         payload["runtime_assembly"] = dict(self.runtime_assembly)

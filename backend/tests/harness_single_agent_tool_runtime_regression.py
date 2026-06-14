@@ -108,6 +108,8 @@ def test_single_agent_turn_projection_requires_json_action_and_hides_native_cont
     assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True
 
 def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers(tmp_path: Path) -> None:
+    from runtime.memory.file_state_store import session_file_evidence_scope
+
     model = NativeToolCallSequenceModelRuntimeStub(
         [
             {
@@ -182,6 +184,10 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert "single_agent_turn_tool_observation" in followup_kinds
     assert any(event.get("type") == "turn_tool_observation_recorded" for event in events)
     assert runtime.single_agent_runtime_host.list_session_traces("session-single-turn-read-tool")["task_run_count"] == 0
+    scope = session_file_evidence_scope("session-single-turn-read-tool")
+    file_state = runtime.single_agent_runtime_host.file_state_store.snapshot_scope(scope)
+    assert file_state[0]["path"] == "requirements.txt"
+    assert file_state[0]["read_ranges"][0]["observation_ref"].startswith("toolobs:")
 
     async def _collect_second_turn() -> None:
         async for _event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-read-tool", message="继续说明。")):
@@ -194,6 +200,12 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
 
     assert dict(list(replayed_tool_call["tool_calls"])[0]).get("id") == "call-read-requirements"
     assert replayed_tool_result["tool_call_id"] == "call-read-requirements"
+    dynamic_marker = "Single agent turn dynamic runtime\n"
+    dynamic_content = next(str(item.get("content") or "") for item in second_turn_messages if dynamic_marker in str(item.get("content") or ""))
+    second_dynamic_payload = json.loads(dynamic_content[dynamic_content.index(dynamic_marker) + len(dynamic_marker):])
+    assert second_dynamic_payload["file_evidence_scope"] == scope
+    assert second_dynamic_payload["file_evidence_decisions"]["files"][0]["path"] == "requirements.txt"
+    assert second_dynamic_payload["read_resource_state"]["do_not_repeat_read_ranges"][0]["path"] == "requirements.txt"
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(
