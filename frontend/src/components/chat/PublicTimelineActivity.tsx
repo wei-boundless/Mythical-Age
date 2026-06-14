@@ -27,24 +27,41 @@ type ActivityEntry = {
   statusLabel?: string;
   statusTone?: PublicTimelineActivityTone;
   text: string;
+  toolRoundKey?: string;
 };
+
+type ActivityRenderUnit =
+  | { kind: "entry"; entry: ActivityEntry }
+  | {
+      kind: "tool_round";
+      count: number;
+      entries: ActivityEntry[];
+      id: string;
+      preview: string;
+      statusLabel: string;
+      statusTone: PublicTimelineActivityTone;
+    };
 
 export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: PublicTimelineActivityProps) {
   const view = publicTimelineActivityView(items);
   if (!view.entries.length) {
     return null;
   }
+  const rows = activityRenderRows(view.entries);
 
   return (
     <div
       className={`public-run-activity public-run-activity--${view.tone}`}
       aria-label={ariaLabel}
       data-entry-count={view.entries.length}
+      data-row-count={rows.length}
     >
-      {view.entries.map((entry) => (
-        entry.kind === "tool_window"
-          ? <ToolWindow entry={entry} key={entry.id} />
-          : <ActivityLine entry={entry} key={entry.id} />
+      {rows.map((row) => (
+        row.kind === "tool_round"
+          ? <ToolRound group={row} key={row.id} />
+          : row.entry.kind === "tool_window"
+            ? <ToolWindow entry={row.entry} key={row.entry.id} />
+            : <ActivityLine entry={row.entry} key={row.entry.id} />
       ))}
     </div>
   );
@@ -64,6 +81,106 @@ function publicTimelineActivityView(items: PublicChatTimelineItem[] | null | und
     entries,
     tone: publicTimelineTone(entries),
   };
+}
+
+function activityRenderRows(entries: ActivityEntry[]): ActivityRenderUnit[] {
+  const rows: ActivityRenderUnit[] = [];
+  let roundTools: ActivityEntry[] = [];
+  let roundKey = "";
+
+  const flushRoundTools = () => {
+    if (!roundTools.length) return;
+    if (roundTools.length === 1) {
+      rows.push({ kind: "entry", entry: roundTools[0] });
+    } else {
+      rows.push(toolRoundFromEntries(roundTools, roundKey));
+    }
+    roundTools = [];
+    roundKey = "";
+  };
+
+  for (const entry of entries) {
+    if (entry.kind !== "tool_window") {
+      flushRoundTools();
+      rows.push({ kind: "entry", entry });
+      continue;
+    }
+    const nextRoundKey = entry.toolRoundKey ?? "";
+    if (!nextRoundKey) {
+      flushRoundTools();
+      rows.push({ kind: "entry", entry });
+      continue;
+    }
+    if (roundTools.length && nextRoundKey !== roundKey) {
+      flushRoundTools();
+    }
+    roundKey = nextRoundKey;
+    roundTools.push(entry);
+  }
+  flushRoundTools();
+  return rows;
+}
+
+function toolRoundFromEntries(entries: ActivityEntry[], roundKey: string): ActivityRenderUnit {
+  const statusTone = publicTimelineTone(entries);
+  const count = entries.length;
+  return {
+    kind: "tool_round",
+    count,
+    entries,
+    id: `tool-round:${roundKey || entries[0]?.id || "tools"}`,
+    preview: toolRoundPreview(entries),
+    statusLabel: toolRoundStatusLabel(statusTone),
+    statusTone,
+  };
+}
+
+function toolRoundPreview(entries: ActivityEntry[]) {
+  const parts = entries.map(toolPreviewPart).filter((part) => part.action || part.target);
+  const firstAction = parts[0]?.action ?? "";
+  const sameAction = Boolean(firstAction) && parts.every((part) => part.action === firstAction);
+  const preview = sameAction
+    ? `${firstAction} ${parts.map((part) => part.target).filter(Boolean).slice(0, 3).join("、")}`.trim()
+    : parts
+        .map((part) => [part.action, part.target].filter(Boolean).join(" "))
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" / ");
+  if (!preview) {
+    return "系统工具执行轨迹";
+  }
+  return entries.length > 3 ? `${preview} 等` : preview;
+}
+
+const TOOL_ACTION_LABELS = [
+  "运行命令",
+  "匹配路径",
+  "列出目录",
+  "检查路径",
+  "读取文件",
+  "搜索文件",
+  "搜索文本",
+  "写入文件",
+  "编辑文件",
+  "应用补丁",
+];
+
+function toolPreviewPart(entry: ActivityEntry) {
+  const text = cleanText(entry.text);
+  for (const label of TOOL_ACTION_LABELS) {
+    if (text === label) return { action: label, target: "" };
+    if (text.startsWith(`${label} `)) return { action: label, target: cleanText(text.slice(label.length)) };
+    if (text.startsWith(`${label}：`)) return { action: label, target: cleanText(text.slice(label.length + 1)) };
+  }
+  return { action: "", target: text };
+}
+
+function toolRoundStatusLabel(tone: PublicTimelineActivityTone) {
+  if (tone === "done") return "已完成";
+  if (tone === "soft_error") return "有失败";
+  if (tone === "stopped") return "已停止";
+  if (tone === "waiting") return "等待中";
+  return "运行中";
 }
 
 function activityEntryFromItem(item: PublicChatTimelineItem, index: number): ActivityEntry | null {
@@ -109,6 +226,7 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
     statusLabel: kind === "tool_window" ? toolWindowStatusLabel(item) : undefined,
     statusTone: kind === "tool_window" ? toolWindowStatusTone(item) : undefined,
     text,
+    toolRoundKey: kind === "tool_window" ? toolWindowRoundKey(item) : undefined,
   };
 }
 
@@ -197,6 +315,19 @@ function toolWindowStatusLabel(item: PublicChatTimelineItem) {
   if (tone === "stopped") return "停止";
   if (tone === "waiting") return "等待";
   return "运行中";
+}
+
+function toolWindowRoundKey(item: PublicChatTimelineItem) {
+  const sourceItemId = cleanText(item.source_item_id);
+  if (!sourceItemId) return "";
+  if (sourceItemId === cleanText(item.tool_call_id) || sourceItemId === cleanText(item.tool_lifecycle_id)) return "";
+  const parts = sourceItemId.split(":").map((part) => cleanText(part)).filter(Boolean);
+  const markerIndex = parts.indexOf("single-agent-tool");
+  if (markerIndex < 0) return "";
+  const roundIndex = parts[markerIndex + 1] ?? "";
+  const hasPerToolSuffix = parts.length > markerIndex + 2;
+  if (!roundIndex || !/^\d+$/.test(roundIndex) || !hasPerToolSuffix) return "";
+  return parts.slice(0, markerIndex + 2).join(":");
 }
 
 function toolWindowConsoleLabel(item: PublicChatTimelineItem) {
@@ -345,7 +476,44 @@ function ActivityLine({ entry }: { entry: ActivityEntry }) {
   );
 }
 
-function ToolWindow({ entry }: { entry: ActivityEntry }) {
+function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind: "tool_round" }> }) {
+  const defaultOpen = false;
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [group.id, defaultOpen]);
+
+  return (
+    <details
+      className={`public-run-activity__tool-round public-run-activity__tool-round--${group.statusTone}`}
+      data-tool-count={group.count}
+      data-status-tone={group.statusTone}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary>
+        <span className="public-run-activity__tool-round-icon" aria-hidden="true" />
+        <span className="public-run-activity__tool-round-copy">
+          <span className="public-run-activity__tool-round-title">工具调用</span>
+          <span className="public-run-activity__tool-round-separator" aria-hidden="true">·</span>
+          <span className="public-run-activity__tool-round-preview">{group.preview}</span>
+        </span>
+        <span className="public-run-activity__tool-round-count">{group.count} 个工具</span>
+        <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${group.statusTone}`}>
+          {group.statusLabel}
+        </span>
+      </summary>
+      <div className="public-run-activity__tool-round-body">
+        {group.entries.map((entry) => (
+          <ToolWindow entry={entry} key={entry.id} nested />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; nested?: boolean }) {
   const defaultOpen = false;
   const [open, setOpen] = useState(defaultOpen);
   const statusTone = entry.statusTone ?? "running";
@@ -358,9 +526,10 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
 
   return (
     <details
-      className="public-run-activity__tool-window"
+      className={`public-run-activity__tool-window public-run-activity__tool-window--${statusTone}${nested ? " public-run-activity__tool-window--nested" : ""}`}
       data-activity-id={entry.id}
       data-activity-kind={entry.kind}
+      data-status-tone={statusTone}
       onToggle={(event) => setOpen(event.currentTarget.open)}
       open={open}
     >
@@ -373,16 +542,17 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
       </summary>
       <div className="public-run-activity__tool-window-body">
         <div className="public-run-activity__tool-console" role="group" aria-label="工具调用窗口">
-          <div className="public-run-activity__tool-console-label">{entry.consoleLabel || "命令行"}</div>
-          <pre className="public-run-activity__tool-console-command">
-            <code>{entry.commandLine ? `$ ${entry.commandLine}` : "$ tool"}</code>
-          </pre>
-          <div className="public-run-activity__tool-console-label">系统返回</div>
-          <pre className="public-run-activity__tool-console-output">
-            <code>{outputText}</code>
-          </pre>
-          <div className={`public-run-activity__tool-console-result public-run-activity__tool-console-result--${statusTone}`}>
-            {entry.statusLabel}
+          <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--command">
+            <div className="public-run-activity__tool-console-label">{entry.consoleLabel || "命令行"}</div>
+            <pre className="public-run-activity__tool-console-command">
+              <code>{entry.commandLine ? `$ ${entry.commandLine}` : "$ tool"}</code>
+            </pre>
+          </div>
+          <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--output">
+            <div className="public-run-activity__tool-console-label">系统返回</div>
+            <pre className="public-run-activity__tool-console-output">
+              <code>{outputText}</code>
+            </pre>
           </div>
         </div>
       </div>

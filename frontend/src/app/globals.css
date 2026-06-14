@@ -18881,6 +18881,7 @@ body {
 .agent-workbench .public-run-activity__line,
 .agent-workbench .public-run-activity__body,
 .agent-workbench .public-run-activity__todo-block,
+.agent-workbench .public-run-activity__tool-round,
 .agent-workbench .public-run-activity__tool-window {
   display: grid;
   gap: 3px;
@@ -18912,64 +18913,229 @@ body {
   padding: 1px 0 8px;
 }
 
+.agent-workbench .public-run-activity__tool-round,
 .agent-workbench .public-run-activity__tool-window {
-  width: min(100%, 780px);
+  width: min(100%, 800px);
+  --tool-accent: #2f6fbd;
+  --tool-accent-soft: rgba(47, 111, 189, 0.075);
+  --tool-accent-line: rgba(47, 111, 189, 0.2);
   border: 0;
   border-radius: 0;
   background: transparent;
   color: #4f5b6d;
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   overflow: visible;
   position: relative;
   box-shadow: none;
 }
 
-.agent-workbench .public-run-activity__tool-window summary {
-  display: flex;
+.agent-workbench .public-run-activity__tool-round--done,
+.agent-workbench .public-run-activity__tool-window--done {
+  --tool-accent: #18745a;
+  --tool-accent-soft: rgba(24, 116, 90, 0.07);
+  --tool-accent-line: rgba(24, 116, 90, 0.2);
+}
+
+.agent-workbench .public-run-activity__tool-round--waiting,
+.agent-workbench .public-run-activity__tool-window--waiting {
+  --tool-accent: #95620b;
+  --tool-accent-soft: rgba(149, 98, 11, 0.08);
+  --tool-accent-line: rgba(149, 98, 11, 0.2);
+}
+
+.agent-workbench .public-run-activity__tool-round--stopped,
+.agent-workbench .public-run-activity__tool-window--stopped {
+  --tool-accent: #64748b;
+  --tool-accent-soft: rgba(100, 116, 139, 0.08);
+  --tool-accent-line: rgba(100, 116, 139, 0.18);
+}
+
+.agent-workbench .public-run-activity__tool-round--soft_error,
+.agent-workbench .public-run-activity__tool-window--soft_error {
+  --tool-accent: #6f5b2a;
+  --tool-accent-soft: rgba(111, 91, 42, 0.07);
+  --tool-accent-line: rgba(111, 91, 42, 0.22);
+}
+
+.agent-workbench .public-run-activity__tool-round summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   cursor: pointer;
   list-style: none;
-  width: fit-content;
+  width: min(100%, 800px);
   max-width: 100%;
-  min-height: 24px;
-  padding: 3px 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #4e5b6d;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid rgba(107, 124, 146, 0.16);
+  border-radius: 7px;
+  background: transparent;
+  color: #405068;
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 640;
   line-height: 1.32;
   overflow-wrap: anywhere;
+  box-shadow: none;
+  user-select: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-round summary:hover {
+  border-color: rgba(47, 111, 189, 0.24);
+  background: rgba(248, 250, 252, 0.42);
+  color: #26364c;
+}
+
+.agent-workbench .public-run-activity__tool-round summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-workbench .public-run-activity__tool-round summary::after {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #8a96a8;
+  border-bottom: 1.5px solid #8a96a8;
+  transform: rotate(45deg) translateY(-2px);
+  transform-origin: center;
+  transition: transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-round[open] summary::after {
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.agent-workbench .public-run-activity__tool-round[open] summary {
+  border-color: rgba(47, 111, 189, 0.24);
+  background: rgba(248, 250, 252, 0.32);
+}
+
+.agent-workbench .public-run-activity__tool-round-icon {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--tool-accent-line);
+  border-radius: 4px;
+  color: var(--tool-accent);
+  background: transparent;
+}
+
+.agent-workbench .public-run-activity__tool-round-icon::before {
+  content: ">";
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-56%);
+  font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.agent-workbench .public-run-activity__tool-round-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__tool-round-title {
+  flex: 0 0 auto;
+  color: #314056;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-round-separator {
+  flex: 0 0 auto;
+  color: #9aa5b4;
+  font-weight: 620;
+}
+
+.agent-workbench .public-run-activity__tool-round-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: #7b8796;
+  font-size: 11.5px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-round-count {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 19px;
+  padding: 1px 6px;
+  border: 1px solid rgba(107, 124, 146, 0.16);
+  border-radius: 999px;
+  color: #66758a;
+  font-size: 10.8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__tool-round-body {
+  display: grid;
+  gap: 2px;
+  margin: 1px 0 2px 7px;
+  padding: 4px 0 3px 15px;
+  border-left: 1px solid rgba(107, 124, 146, 0.16);
+}
+
+.agent-workbench .public-run-activity__tool-window summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  list-style: none;
+  width: min(100%, 780px);
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid rgba(107, 124, 146, 0.16);
+  border-radius: 7px;
+  background: transparent;
+  color: #46566d;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+  box-shadow: none;
   user-select: none;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .agent-workbench .public-run-activity__tool-window summary:hover {
-  border-color: rgba(107, 124, 146, 0.2);
-  background: rgba(246, 248, 251, 0.82);
-  color: #243247;
+  border-color: rgba(47, 111, 189, 0.22);
+  background: rgba(248, 250, 252, 0.42);
+  color: #26364c;
 }
 
 .agent-workbench .public-run-activity__tool-window-icon {
   flex: 0 0 auto;
   position: relative;
-  width: 12px;
-  height: 12px;
-  border: 1px solid #aab4c1;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--tool-accent-line);
   border-radius: 4px;
-  color: #738195;
-  background: #f8fafc;
+  color: var(--tool-accent);
+  background: transparent;
 }
 
 .agent-workbench .public-run-activity__tool-window-icon::before {
   content: ">";
   position: absolute;
   top: 50%;
-  left: 2px;
+  left: 4px;
   transform: translateY(-56%);
   font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
-  font-size: 7px;
+  font-size: 8px;
+  font-weight: 800;
   line-height: 1;
 }
 
@@ -18984,28 +19150,32 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window summary::after {
-  content: "⌄";
-  display: inline-block;
+  content: "";
+  display: block;
   flex: 0 0 auto;
-  width: 10px;
-  color: #9aa3af;
-  font-size: 12px;
-  transform: translateY(-1px);
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #8a96a8;
+  border-bottom: 1.5px solid #8a96a8;
+  transform: rotate(45deg) translateY(-2px);
+  transform-origin: center;
   transition: transform 140ms ease;
 }
 
 .agent-workbench .public-run-activity__tool-window-status {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: 2px;
+  justify-self: end;
+  min-height: 19px;
+  margin-left: 0;
   padding: 1px 6px;
+  border: 1px solid var(--tool-accent-line);
   border-radius: 999px;
-  background: rgba(100, 116, 139, 0.08);
-  color: #5f6f83;
+  background: transparent;
+  color: var(--tool-accent);
   font-size: 10.8px;
-  font-weight: 640;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -19018,91 +19188,101 @@ body {
   opacity: 0.7;
 }
 
-.agent-workbench .public-run-activity__tool-window-status--done,
-.agent-workbench .public-run-activity__tool-console-result--done {
-  color: #586576;
-}
-
-.agent-workbench .public-run-activity__tool-window-status--soft_error,
-.agent-workbench .public-run-activity__tool-console-result--soft_error {
-  color: #b42318;
-}
-
-.agent-workbench .public-run-activity__tool-window-status--running,
-.agent-workbench .public-run-activity__tool-console-result--running {
-  color: #1f5fbf;
-}
-
-.agent-workbench .public-run-activity__tool-window-status--running {
-  background: rgba(31, 95, 191, 0.08);
-}
-
-.agent-workbench .public-run-activity__tool-window-status--soft_error {
-  background: rgba(180, 35, 24, 0.08);
-}
-
 .agent-workbench .public-run-activity__tool-window[open] summary::after {
-  transform: rotate(180deg) translateY(1px);
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.agent-workbench .public-run-activity__tool-window[open] summary {
+  border-color: rgba(47, 111, 189, 0.24);
+  background: rgba(248, 250, 252, 0.35);
 }
 
 .agent-workbench .public-run-activity__tool-window-body {
-  padding: 2px 0 6px 20px;
+  padding: 5px 0 7px 21px;
 }
 
 .agent-workbench .public-run-activity__tool-console {
   display: grid;
-  gap: 7px;
-  min-height: 116px;
+  gap: 0;
   max-height: 260px;
   margin: 0;
   overflow: auto;
-  width: min(100%, 720px);
-  padding: 10px 12px 34px;
-  border-radius: 8px;
-  background: #f0f1f3;
-  color: #2e3540;
+  width: min(100%, 740px);
+  padding: 1px 0 1px 10px;
+  border-left: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 0;
+  background: transparent;
+  color: #243044;
   font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
   font-size: 11.8px;
-  line-height: 1.52;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  position: relative;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
+  box-shadow: none;
+}
+
+.agent-workbench .public-run-activity__tool-console-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 0;
+  border-radius: 0;
+}
+
+.agent-workbench .public-run-activity__tool-console-row + .public-run-activity__tool-console-row {
+  margin-top: 0;
+  border-top: 1px solid rgba(100, 116, 139, 0.1);
 }
 
 .agent-workbench .public-run-activity__tool-console-label {
-  color: #687386;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 56px;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 1px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #7a8594;
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.8px;
+  font-weight: 720;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .agent-workbench .public-run-activity__tool-console-command,
 .agent-workbench .public-run-activity__tool-console-output {
   margin: 0;
-  color: #242a33;
+  min-width: 0;
+  min-height: 22px;
+  padding: 1px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #202938;
   font: inherit;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .public-run-activity__tool-console-command {
+  color: #2b3b52;
+  box-shadow: none;
 }
 
 .agent-workbench .public-run-activity__tool-console-output {
-  color: #4f5865;
+  color: #5c6878;
 }
 
 .agent-workbench .public-run-activity__tool-console code {
   color: inherit;
   font: inherit;
-}
-
-.agent-workbench .public-run-activity__tool-console-result {
-  position: absolute;
-  right: 12px;
-  bottom: 9px;
-  font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 12px;
-  font-weight: 500;
 }
 
 .agent-workbench .public-run-activity__tool-console::-webkit-scrollbar {
@@ -19111,7 +19291,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-console::-webkit-scrollbar-thumb {
-  border: 2px solid rgba(246, 247, 249, 0.94);
+  border: 2px solid rgba(250, 251, 253, 0.96);
   border-radius: 999px;
   background: rgba(100, 116, 139, 0.35);
 }
@@ -19323,9 +19503,64 @@ body {
     margin-left: 0;
   }
 
+  .agent-workbench .public-run-activity__tool-round summary,
   .agent-workbench .public-run-activity__tool-window summary {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
+    width: 100%;
+  }
+
+  .agent-workbench .public-run-activity__tool-round summary::after,
+  .agent-workbench .public-run-activity__tool-window summary::after {
+    grid-column: 3;
+    grid-row: 1;
+    margin-top: 4px;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-count,
+  .agent-workbench .public-run-activity__tool-window-status {
+    grid-column: 2 / 4;
+    justify-self: start;
+  }
+
+  .agent-workbench .public-run-activity__tool-round .public-run-activity__tool-window-status {
+    grid-column: 2 / 4;
+    justify-self: start;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-body {
+    margin-left: 0;
+    padding-left: 10px;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-copy {
+    display: grid;
+    gap: 2px;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-separator {
+    display: none;
+  }
+
+  .agent-workbench .public-run-activity__tool-round-preview {
+    white-space: normal;
+  }
+
+  .agent-workbench .public-run-activity__tool-window-body {
+    padding-left: 0;
+  }
+
+  .agent-workbench .public-run-activity__tool-console {
+    width: 100%;
+  }
+
+  .agent-workbench .public-run-activity__tool-console-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .agent-workbench .public-run-activity__tool-console-label {
+    width: fit-content;
   }
 }
 .run-monitor-panel {

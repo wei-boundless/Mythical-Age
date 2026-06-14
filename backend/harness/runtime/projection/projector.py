@@ -27,7 +27,7 @@ from runtime.output_stream.public_contract import (
 
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
-_TRACE_ONLY_RUNTIME_STEP_SOURCES = {"system.tool_call_status", "tool_observation.summary"}
+_TRACE_ONLY_RUNTIME_STEP_SOURCES = {"runtime.protocol_repair", "system.tool_call_status", "tool_observation.summary"}
 
 
 class ProjectionLifecycleState:
@@ -95,14 +95,11 @@ class ProjectionLifecycleState:
             return spec
         if event_type == TOOL_ITEM_STARTED_EVENT:
             tool_call_id = text(data.get("tool_call_id"))
-            permission_decision_id = text(data.get("permission_decision_id"))
             record = self._tool_record(data, tool_call_id=tool_call_id)
             if (
                 not tool_call_id
-                or not permission_decision_id
                 or not record
                 or record.get("permission_allowed") is not True
-                or permission_decision_id != text(record.get("permission_decision_id"))
             ):
                 return _protocol_diagnostic_spec(
                     data,
@@ -116,7 +113,11 @@ class ProjectionLifecycleState:
                     code="tool_started_before_permission",
                     detail="tool_item_started 的 event_offset 不晚于 tool_permission_decided，不能进入公开工具生命周期。",
                 )
-            spec = _tool_started_spec(data)
+            started_data = {
+                **data,
+                "permission_decision_id": text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
+            }
+            spec = _tool_started_spec(started_data)
             record.update(
                 {
                     "started_offset": offset,

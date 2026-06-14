@@ -517,6 +517,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
   if (!title) return null;
   return {
     item_id: item.itemId,
+    source_item_id: item.sourceItemId,
     kind: toolOwned ? (toolWindow ? "work_action" : "tool_activity") : "status_update",
     slot: toolOwned ? "tool" : "status",
     surface: toolWindow ? "tool_window" : "timeline",

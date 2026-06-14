@@ -48,7 +48,7 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -115,7 +115,7 @@ function hydrateSessionRuntimeProjection(
       Number(left.event_offset ?? left.sequence ?? 0) - Number(right.event_offset ?? right.sequence ?? 0)
       || String(left.frame_id || left.projection_id || "").localeCompare(String(right.frame_id || right.projection_id || ""))
     );
-    hydratedMessages = applyPublicProjectionFramesToMessages(hydratedMessages, orderedFrames);
+    hydratedMessages = applyPublicProjectionFramesToMessages(hydratedMessages, orderedFrames, { createMessages: true });
   }
   for (const attachment of runtimeAttachments) {
     hydratedMessages = applyRuntimeAttachmentDisplayState(hydratedMessages, attachment);
@@ -157,9 +157,9 @@ function applyRuntimeAttachmentDisplayState(
   }
   const displayState = runtimeAttachmentDisplayState(attachment);
   const targetIndex = runtimeAttachmentMessageIndex(messages, attachment);
-  const ensuredMessages = targetIndex >= 0 || surface !== "closeout_summary"
+  const ensuredMessages = targetIndex >= 0
     ? messages
-    : ensureCloseoutRuntimeMessage(messages, attachment);
+    : ensureRuntimeAttachmentMessage(messages, attachment);
   const index = targetIndex >= 0 ? targetIndex : runtimeAttachmentMessageIndex(ensuredMessages, attachment);
   if (index < 0) {
     return ensuredMessages;
@@ -214,10 +214,9 @@ function runtimeAttachmentMessageIndex(messages: Message[], attachment: SessionR
   return -1;
 }
 
-function ensureCloseoutRuntimeMessage(messages: Message[], attachment: SessionRuntimeAttachment) {
+function ensureRuntimeAttachmentMessage(messages: Message[], attachment: SessionRuntimeAttachment) {
   const turnId = runtimeAttachmentTurnId(attachment);
-  const closeoutSummary = runtimeText(attachment.closeout_summary);
-  if (!turnId || !closeoutSummary) {
+  if (!turnId) {
     return messages;
   }
   const userIndex = messages.findIndex((message) => message.role === "user" && message.sourceTurnId === turnId);
@@ -2549,7 +2548,7 @@ export class WorkspaceRuntime {
       }
       this.applyActiveTurnSnapshotFromChatRun(cursorRun);
       await this.refreshSessionDetails(sessionId).catch(() => undefined);
-      this.startRecoveredChatRunStream(sessionId, streamRunId, cursor);
+      this.startRecoveredChatRunStream(sessionId, streamRunId, cursor, cursorRun);
       return true;
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
@@ -2653,7 +2652,39 @@ export class WorkspaceRuntime {
     ].join("|");
   }
 
-  private startRecoveredChatRunStream(sessionId: string, streamRunId: string, cursor: ChatStreamCursor | null) {
+  private recoveredAssistantMessageId(streamRunId: string, run: ChatRun | null) {
+    const state = this.store.getState();
+    const activeTurn = run?.active_turn_snapshot ?? null;
+    const turnId = String(activeTurn?.turn_id ?? "").trim();
+    const turnRunId = String(activeTurn?.turn_run_id ?? "").trim();
+    const taskRunId = String(activeTurn?.bound_task_run_id ?? activeTurn?.task_run_id ?? "").trim();
+    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+      const message = state.messages[index];
+      if (message.role !== "assistant") {
+        continue;
+      }
+      if (streamRunId && (message.sourceStreamRunId === streamRunId || message.sourceRunId === streamRunId)) {
+        return message.id;
+      }
+      if (turnRunId && message.sourceTurnRunId === turnRunId) {
+        return message.id;
+      }
+      if (taskRunId && message.sourceTaskRunId === taskRunId) {
+        return message.id;
+      }
+      if (turnId && message.sourceTurnId === turnId) {
+        return message.id;
+      }
+    }
+    return "";
+  }
+
+  private startRecoveredChatRunStream(
+    sessionId: string,
+    streamRunId: string,
+    cursor: ChatStreamCursor | null,
+    run: ChatRun | null = null,
+  ) {
     if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
       return;
     }
@@ -2662,7 +2693,7 @@ export class WorkspaceRuntime {
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
 
-    const assistantId = makeId();
+    const assistantId = this.recoveredAssistantMessageId(streamRunId, run) || makeId();
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];

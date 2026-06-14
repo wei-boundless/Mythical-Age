@@ -112,6 +112,7 @@ from .work_rollout import append_work_rollout_item, ensure_work_rollout, work_ro
 
 _MAX_TASK_EXECUTION_STEPS = 12
 _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS = 3
+_PROTOCOL_REPAIR_PRESENTATION_SOURCE = "runtime.protocol_repair"
 _REPEATED_ADMISSION_GUARD_COUNT = 2
 _REPEATED_ADMISSION_PAUSE_COUNT = 3
 _REPEATED_TOOL_FAILURE_OBSERVATION_COUNT = 3
@@ -1259,6 +1260,7 @@ async def _execute_claimed_task_run(
                 step=f"model_action_protocol_repair_required:{step_index}",
                 status="running",
                 summary="当前步骤输出格式不完整，正在自动修正后继续。",
+                presentation_source=_PROTOCOL_REPAIR_PRESENTATION_SOURCE,
                 refs={"observation_ref": repair_observation["observation_id"]},
             )
             if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
@@ -1596,6 +1598,7 @@ async def _execute_claimed_task_run(
                     step=f"model_action_protocol_repair_required:{step_index}",
                     status="running",
                     summary="模型 respond 动作缺少 final_answer，已反馈模型修正。",
+                    presentation_source=_PROTOCOL_REPAIR_PRESENTATION_SOURCE,
                     refs={"observation_ref": repair_observation["observation_id"]},
                 )
                 if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
@@ -8155,6 +8158,9 @@ def _step_summary_diagnostics_update(
         "latest_step_summary": summary,
     }
     if source == "system.user_steer_status":
+        update["latest_step_summary"] = ""
+        return update
+    if source == _PROTOCOL_REPAIR_PRESENTATION_SOURCE:
         update["latest_step_summary"] = ""
         return update
     if source in {"tool_observation.summary", "system.tool_call_status"}:

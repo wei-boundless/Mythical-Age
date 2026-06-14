@@ -162,9 +162,51 @@ _CANONICAL_RESULT_BLOCK_RE = re.compile(
     r"[A-Z_]+_CANONICAL_RESULT::[\s\S]*",
     re.IGNORECASE,
 )
+_PSEUDO_TOOL_CALL_NAMES = (
+    "agent_todo",
+    "bash",
+    "close_subagent",
+    "cmd",
+    "edit_file",
+    "execute_command",
+    "fetch_url",
+    "git_branch_create",
+    "git_branch_list",
+    "git_commit",
+    "git_diff",
+    "git_log",
+    "git_restore",
+    "git_show",
+    "git_stage",
+    "git_status",
+    "git_unstage",
+    "glob_paths",
+    "image_generate",
+    "list_dir",
+    "list_subagents",
+    "memory_search",
+    "path_exists",
+    "python_code_outline",
+    "python_parse_check",
+    "python_symbol_search",
+    "read_file",
+    "read_persisted_tool_result",
+    "read_structured_file",
+    "search_files",
+    "search_text",
+    "send_subagent_message",
+    "shell",
+    "spawn_subagent",
+    "stat_path",
+    "terminal",
+    "wait_subagent",
+    "web_search",
+    "write_file",
+)
+_PSEUDO_TOOL_CALL_NAME_RE = "|".join(re.escape(name) for name in _PSEUDO_TOOL_CALL_NAMES)
 _INLINE_PSEUDO_TOOL_CALL_RE = re.compile(
-    r"(?:[A-Za-z_][A-Za-z0-9_]*\([^()\n]{0,400}\)\s*){1,8}",
-    re.DOTALL,
+    rf"^\s*(?:(?:{_PSEUDO_TOOL_CALL_NAME_RE})\s*\([^()\n]{{0,800}}\)\s*(?:[,;]\s*)?){{1,8}}\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 _INTERNAL_STATUS_LINE_RE = re.compile(
     r"^(?:我将使用.+工具.+|我来检索.+|我来查看.+|知识库检索失败.*|搜索(?:_knowledge)? 工具调用失败.*|"
@@ -502,6 +544,11 @@ def canonical_output_decision_for_final_text(
         leak_flags.append("internal_protocol_final_text")
     if contains_inline_pseudo_tool_call(raw_text):
         leak_flags.append("inline_pseudo_tool_call_final_text")
+    hard_leak_flags = [
+        flag
+        for flag in leak_flags
+        if flag != "inline_pseudo_tool_call_final_text"
+    ]
 
     normalized_channel = str(answer_channel or "").strip() or "final_answer"
     normalized_source = str(answer_source or "").strip() or "runtime.output_boundary.final_text"
@@ -518,7 +565,7 @@ def canonical_output_decision_for_final_text(
             fallback_reason=str(terminal_reason or completion_state or "empty_final_text").strip(),
             leak_flags=leak_flags,
         )
-    if leak_flags and not _meaningful_visible_final_text(visible_text):
+    if hard_leak_flags and not _meaningful_visible_final_text(visible_text):
         return CanonicalFinalTextDecision(
             content="",
             answer_channel=normalized_channel,
@@ -529,7 +576,7 @@ def canonical_output_decision_for_final_text(
             persist_policy="do_not_persist",
             finalization_policy="none",
             fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
-            leak_flags=leak_flags,
+            leak_flags=hard_leak_flags,
         )
     if normalized_channel in _DEBUG_ONLY_FINAL_TEXT_CHANNELS:
         return CanonicalFinalTextDecision(
@@ -544,7 +591,7 @@ def canonical_output_decision_for_final_text(
             fallback_reason=str(terminal_reason or completion_state or f"{normalized_channel}_message").strip(),
             leak_flags=leak_flags,
         )
-    if leak_flags:
+    if hard_leak_flags:
         return CanonicalFinalTextDecision(
             content="",
             answer_channel=normalized_channel,
@@ -555,7 +602,7 @@ def canonical_output_decision_for_final_text(
             persist_policy="do_not_persist",
             finalization_policy="none",
             fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
-            leak_flags=leak_flags,
+            leak_flags=hard_leak_flags,
         )
 
     candidate = classify_output_candidate(

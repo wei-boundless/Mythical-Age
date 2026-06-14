@@ -1967,13 +1967,13 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
 
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    request_items = _tool_call_requested_items(raw_data)
-    if not request_items:
-        return []
     events: list[tuple[str, dict[str, Any]]] = []
     feedback_data = _model_action_feedback_step_data(raw_data)
     if feedback_data:
         events.append(("runtime_step_summary", feedback_data))
+    request_items = _tool_call_requested_items(raw_data)
+    if not request_items:
+        return events
     for request_data in request_items:
         permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
         events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
@@ -1988,9 +1988,6 @@ def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]
     refs = _record(raw_event.get("refs"))
     request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
     if not request:
-        return {}
-    action_type = str(request.get("action_type") or "").strip().lower()
-    if action_type not in {"tool_call", "tool_calls"}:
         return {}
     action_state = _public_action_state(request.get("public_action_state"))
     content = (
@@ -2036,15 +2033,15 @@ def _model_action_feedback_identity(
     return str(
         refs.get("batch_action_request_ref")
         or request.get("batch_action_request_ref")
-        or refs.get("runtime_invocation_packet_ref")
-        or payload.get("runtime_invocation_packet_ref")
-        or request.get("runtime_invocation_packet_ref")
         or refs.get("action_request_ref")
         or payload.get("action_request_ref")
         or request.get("action_request_ref")
         or refs.get("request_id")
         or payload.get("request_id")
         or request.get("request_id")
+        or refs.get("runtime_invocation_packet_ref")
+        or payload.get("runtime_invocation_packet_ref")
+        or request.get("runtime_invocation_packet_ref")
         or runtime_event_id
         or ""
     ).strip()

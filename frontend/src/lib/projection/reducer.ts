@@ -49,10 +49,11 @@ export function applyPublicProjectionFrame(
 export function applyPublicProjectionFramesToMessages(
   messages: Message[],
   frames: PublicProjectionFrame[],
+  options: { createMessages?: boolean } = {},
 ): Message[] {
   let state = { messages } as StoreState;
   for (const frame of frames) {
-    state = patchProjectionMessage(state, frame, { createMessage: false });
+    state = patchProjectionMessage(state, frame, { createMessage: options.createMessages === true });
   }
   return state.messages;
 }
@@ -364,6 +365,7 @@ function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjection
   if (!itemId) return null;
   return {
     itemId,
+    sourceItemId: text(frame.source_item_id),
     slot: text(frame.slot),
     text: text(frame.text || frame.title),
     title: text(frame.title),
@@ -508,6 +510,7 @@ function timelineItemFromFrame(
   return {
     ...item,
     itemId: timelineItemId,
+    sourceItemId: text(frame.source_item_id || item.sourceItemId),
     slot: toolOwned ? "tool" : item.slot,
     toolCallId: toolCallId || item.toolCallId,
     toolLifecycleId: lifecycleId || item.toolLifecycleId,

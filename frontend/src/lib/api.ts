@@ -1,4 +1,4 @@
-import { apiRequest, getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl } from "./api/client";
+import { apiRequest, getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
 
 export { getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
 
@@ -191,6 +191,7 @@ export type PublicTodoItem = {
 
 export type PublicChatTimelineItem = {
   item_id?: string;
+  source_item_id?: string;
   kind: "status_update" | "assistant_text" | "opening_judgment" | "todo_plan" | "work_action" | "tool_activity" | "observation_report" | "artifact" | "verification" | "blocked" | "final_summary" | string;
   slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
   surface?: "assistant_body" | "body" | "tool_window" | "status_bar" | "status" | "timeline" | "control" | string;
@@ -260,6 +261,7 @@ export type PublicChatTimelineItem = {
 
 export type PublicProjectionItem = {
   itemId: string;
+  sourceItemId?: string;
   slot: "current_action" | "pinned" | "final_result" | "status" | "trace" | string;
   text?: string;
   title?: string;
@@ -4092,6 +4094,7 @@ export type ChatRun = {
   latest_event_offset: number;
   active_turn_snapshot?: {
     turn_id?: string;
+    turn_run_id?: string;
     bound_task_run_id?: string;
     task_run_id?: string;
     state?: string;
@@ -4136,6 +4139,49 @@ const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
 const MAX_STREAM_BUFFER_CHARS = 1_000_000;
 const CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS = 500;
 const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
+
+type ChatStreamError = Error & {
+  status?: number;
+  reconnectable?: boolean;
+};
+
+function nonReconnectableChatStreamError(message: string, status?: number): ChatStreamError {
+  const error = new Error(message) as ChatStreamError;
+  error.name = "ChatStreamProtocolError";
+  error.reconnectable = false;
+  if (status !== undefined) {
+    error.status = status;
+  }
+  return error;
+}
+
+function chatStreamErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  return message || fallback;
+}
+
+function isReconnectableChatStreamTransportError(error: unknown) {
+  if (isRequestAbortError(error)) {
+    return false;
+  }
+  if (error instanceof TypeError) {
+    return true;
+  }
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const record = error as { name?: unknown; message?: unknown; reconnectable?: unknown };
+  if (record.reconnectable === false) {
+    return false;
+  }
+  const name = String(record.name ?? "");
+  const message = String(record.message ?? "");
+  return name === "NetworkError"
+    || message.includes("Failed to fetch")
+    || message.includes("NetworkError")
+    || message.includes("Load failed")
+    || message.includes("The network connection was lost");
+}
 
 function findSseBoundary(buffer: string): { index: number; length: number } | null {
   const boundaries = [
@@ -6055,8 +6101,11 @@ async function consumeChatRunStream(
         signal: options.signal,
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error(`Chat stream request failed: ${response.status}`);
+      if (!response.ok) {
+        throw nonReconnectableChatStreamError(`Chat stream request failed: ${response.status}`, response.status);
+      }
+      if (!response.body) {
+        throw nonReconnectableChatStreamError("Chat stream response did not include a readable body.");
       }
 
       reader = response.body.getReader();
@@ -6108,9 +6157,18 @@ async function consumeChatRunStream(
         }
         throw error;
       }
-      reconnectReason = error instanceof Error && error.message.trim()
-        ? error.message
-        : "stream_transport_error";
+      if (!isReconnectableChatStreamTransportError(error)) {
+        handlers.onEvent("stream_reconnect_failed", {
+          stream_run_id: run.stream_run_id,
+          event_log_id: run.event_log_id,
+          event_offset: lastEventOffset,
+          last_event_id: lastEventId,
+          attempt: reconnectAttempt,
+          reason: chatStreamErrorMessage(error, "stream_protocol_error"),
+        });
+        throw error;
+      }
+      reconnectReason = chatStreamErrorMessage(error, "stream_transport_error");
     } finally {
       if (reader && !readerClosed && !readerCancelled) {
         await reader.cancel().catch(() => undefined);

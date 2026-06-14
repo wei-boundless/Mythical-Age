@@ -87,6 +87,20 @@ _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
 _CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
+_CONTROL_ACTION_ALIASES = {
+    "task_run_request": "request_task_run",
+}
+_COMMAND_TRANSPORT_TOOL_NAMES = {
+    "bash",
+    "cmd",
+    "command",
+    "execute_command",
+    "powershell",
+    "run_command",
+    "shell",
+    "terminal",
+}
+_CONTROL_TOKEN_COMMAND_PREFIXES = ("echo", "printf", "write-output")
 _REPAIRABLE_SINGLE_AGENT_PROTOCOL_ERRORS = {
     "single_agent_turn_model_protocol_error",
     "single_agent_turn_multiple_action_sources",
@@ -2567,28 +2581,8 @@ def _single_agent_action_request_from_response(
                     native_respond_actions.append(action)
                 elif error is not None:
                     native_errors.append(error)
-            elif tool_name in _CONTROL_ACTION_NAMES:
-                action_issue = _protocol_action_issue(
-                    category="protocol_violation",
-                    code="control_action_requires_json_action",
-                    requested_action_type=tool_name,
-                    requested_tool_name=tool_name,
-                    repair_instruction="控制裁决必须输出 JSON action；请保留原控制意图并改用 JSON action 重新提交。",
-                )
-                native_errors.append(
-                    {
-                        "authority": "harness.loop.single_agent_turn.native_action_parser",
-                        "code": "native_control_action_requires_json_action",
-                        "reason": "native_control_action_requires_json_action",
-                        "native_tool_call": _native_tool_call_diagnostics(dict(call or {})),
-                        "action_issue": action_issue,
-                        "repairable": True,
-                        "repair_contract": {
-                            "required_transport": "json_action",
-                            "action_type": tool_name,
-                        },
-                    }
-                )
+            elif control_error := _native_control_action_error(dict(call or {})):
+                native_errors.append(control_error)
             else:
                 action_issue = _protocol_action_issue(
                     category="service_unavailable",
@@ -2813,27 +2807,8 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
             if error is not None:
                 errors.append(error)
                 continue
-        elif tool_name in _CONTROL_ACTION_NAMES:
-            errors.append(
-                {
-                    "authority": "harness.loop.single_agent_turn.native_action_parser",
-                    "code": "native_control_action_requires_json_action",
-                    "reason": "native_control_action_requires_json_action",
-                    "native_tool_call": _native_tool_call_diagnostics(call),
-                    "action_issue": _protocol_action_issue(
-                        category="protocol_violation",
-                        code="control_action_requires_json_action",
-                        requested_action_type=tool_name,
-                        requested_tool_name=tool_name,
-                        repair_instruction="控制裁决必须输出 JSON action；请保留原控制意图并改用 JSON action 重新提交。",
-                    ),
-                    "repairable": True,
-                    "repair_contract": {
-                        "required_transport": "json_action",
-                        "action_type": tool_name,
-                    },
-                }
-            )
+        elif control_error := _native_control_action_error(call):
+            errors.append(control_error)
             continue
         else:
             action = _tool_action_request_from_native_tool_calls(
@@ -2966,6 +2941,92 @@ def _native_tool_call_diagnostics(call: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _native_control_action_error(call: dict[str, Any]) -> dict[str, Any] | None:
+    action_type = _control_action_from_native_tool_call(call)
+    if not action_type:
+        return None
+    tool_name = str(dict(call or {}).get("name") or "").strip()
+    return {
+        "authority": "harness.loop.single_agent_turn.native_action_parser",
+        "code": "native_control_action_requires_json_action",
+        "reason": "native_control_action_requires_json_action",
+        "native_tool_call": _native_tool_call_diagnostics(call),
+        "action_issue": _protocol_action_issue(
+            category="protocol_violation",
+            code="control_action_requires_json_action",
+            requested_action_type=action_type,
+            requested_tool_name=tool_name,
+            repair_instruction="控制裁决必须输出 JSON action；请保留原控制意图并改用 JSON action 重新提交。",
+        ),
+        "repairable": True,
+        "repair_contract": {
+            "required_transport": "json_action",
+            "action_type": action_type,
+        },
+    }
+
+
+def _control_action_from_native_tool_call(call: dict[str, Any]) -> str:
+    payload = dict(call or {})
+    tool_name = str(payload.get("name") or "").strip()
+    direct = _canonical_control_action_name(tool_name)
+    if direct:
+        return direct
+    if tool_name.lower() not in _COMMAND_TRANSPORT_TOOL_NAMES:
+        return ""
+    return _control_action_from_command_transport_args(payload.get("args") or {})
+
+
+def _canonical_control_action_name(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized in _CONTROL_ACTION_NAMES:
+        return normalized
+    return _CONTROL_ACTION_ALIASES.get(normalized, "")
+
+
+def _control_action_from_command_transport_args(args: Any) -> str:
+    if not isinstance(args, dict):
+        return ""
+    command = _command_transport_text(args)
+    if not command:
+        return ""
+    normalized = " ".join(command.replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    for prefix in _CONTROL_TOKEN_COMMAND_PREFIXES:
+        if not lowered.startswith(prefix):
+            continue
+        remainder = normalized[len(prefix):].strip()
+        if not remainder:
+            continue
+        control_token = _strip_command_token_wrappers(remainder)
+        canonical = _canonical_control_action_name(control_token)
+        if canonical:
+            return canonical
+    return ""
+
+
+def _command_transport_text(args: dict[str, Any]) -> str:
+    for key in ("command", "cmd", "script", "input", "code"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _strip_command_token_wrappers(value: str) -> str:
+    token = str(value or "").strip()
+    for suffix in (";", "&&", "||"):
+        if suffix in token:
+            token = token.split(suffix, 1)[0].strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"', "`"}:
+        token = token[1:-1].strip()
+    return token.strip()
+
+
 def _protocol_action_issue(
     *,
     category: str,
@@ -3039,7 +3100,7 @@ def _tool_action_request_from_native_tool_calls(
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
-        if not tool_name or tool_name in _CONTROL_ACTION_NAMES:
+        if not tool_name or _control_action_from_native_tool_call(call):
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
