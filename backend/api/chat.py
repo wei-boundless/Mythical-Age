@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, replace
@@ -41,7 +42,7 @@ from runtime.output_stream.public_contract import (
     TURN_COMPLETED_EVENT,
     event_requires_public_projection,
 )
-from runtime.shared.tool_identity import permission_decision_id
+from runtime.shared.tool_identity import ensure_tool_call_id, permission_decision_id
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
@@ -187,6 +188,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "next_action",
         "completion_status",
         "presentation_source",
+        "feedback_identity",
         "event",
     },
     "bounded_observation": {"event"},
@@ -1963,17 +1965,18 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
 
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    request_data = _tool_call_requested_data(raw_data)
-    if not request_data:
+    request_items = _tool_call_requested_items(raw_data)
+    if not request_items:
         return []
-    permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
     events: list[tuple[str, dict[str, Any]]] = []
     feedback_data = _model_action_feedback_step_data(raw_data)
     if feedback_data:
         events.append(("runtime_step_summary", feedback_data))
-    events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
-    if permission_data:
-        events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
+    for request_data in request_items:
+        permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
+        events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
+        if permission_data:
+            events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
 
 
@@ -1995,19 +1998,18 @@ def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]
     if not content:
         return {}
     runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
-    action_ref = str(
-        refs.get("batch_action_request_ref")
-        or request.get("batch_action_request_ref")
-        or refs.get("action_request_ref")
-        or request.get("request_id")
-        or runtime_event_id
-        or ""
-    ).strip()
-    feedback_event_id = f"model-action-feedback:{action_ref}:{content}" if action_ref else runtime_event_id
+    feedback_identity = _model_action_feedback_identity(
+        payload=payload,
+        refs=refs,
+        request=request,
+        runtime_event_id=runtime_event_id,
+    )
+    feedback_event_id = f"model-action-feedback:{feedback_identity}" if feedback_identity else runtime_event_id
     data: dict[str, Any] = {
         "status": "running",
         "step": "model_action_public_feedback",
         "summary": content,
+        "feedback_identity": feedback_identity,
         "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
         "current_judgment": _safe_public_action_text(action_state.get("current_judgment")),
         "next_action": _safe_public_action_text(action_state.get("next_action")),
@@ -2022,37 +2024,125 @@ def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
-def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+def _model_action_feedback_identity(
+    *,
+    payload: dict[str, Any],
+    refs: dict[str, Any],
+    request: dict[str, Any],
+    runtime_event_id: str,
+) -> str:
+    return str(
+        refs.get("batch_action_request_ref")
+        or request.get("batch_action_request_ref")
+        or refs.get("runtime_invocation_packet_ref")
+        or payload.get("runtime_invocation_packet_ref")
+        or request.get("runtime_invocation_packet_ref")
+        or refs.get("action_request_ref")
+        or payload.get("action_request_ref")
+        or request.get("action_request_ref")
+        or refs.get("request_id")
+        or payload.get("request_id")
+        or request.get("request_id")
+        or runtime_event_id
+        or ""
+    ).strip()
+
+
+def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_event = _record(raw_data.get("event"))
     payload = _record(raw_event.get("payload") or raw_data)
     refs = _record(raw_event.get("refs"))
     request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
     if not request:
-        return {}
-    if str(request.get("action_type") or "").strip().lower() != "tool_call":
-        return {}
-    tool = _record(request.get("tool_call"))
-    tool_name = str(tool.get("tool_name") or tool.get("name") or request.get("tool_name") or "").strip()
-    tool_call_id = str(tool.get("id") or request.get("tool_call_id") or "").strip()
-    if not tool_name or not tool_call_id:
-        return {}
-    args = _record(tool.get("args") or tool.get("arguments") or request.get("tool_args"))
-    target = _safe_public_tool_target(args)
-    data: dict[str, Any] = {
-        "item_id": tool_call_id,
-        "request_id": str(request.get("request_id") or tool_call_id),
-        "tool_lifecycle_id": tool_call_id,
-        "tool_call_id": tool_call_id,
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "tool_name": tool_name,
-        "target": target,
-        "arguments_preview": _tool_arguments_preview(args),
-    }
-    event_id = str(raw_event.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+        return []
+    action_type = str(request.get("action_type") or "").strip().lower()
+    if action_type not in {"tool_call", "tool_calls"}:
+        return []
+    tool_calls = _model_action_tool_calls(request)
+    if not tool_calls:
+        return []
+    runtime_event_id = str(raw_event.get("event_id") or "").strip()
+    request_id = str(
+        request.get("request_id")
+        or refs.get("action_request_ref")
+        or refs.get("batch_action_request_ref")
+        or runtime_event_id
+        or ""
+    ).strip()
+    result: list[dict[str, Any]] = []
+    for index, raw_tool in enumerate(tool_calls):
+        tool = ensure_tool_call_id(
+            _record(raw_tool),
+            request_id=request_id or runtime_event_id or f"model-action:{index + 1}",
+            ordinal=index if len(tool_calls) > 1 else None,
+        )
+        tool_name = str(tool.get("tool_name") or tool.get("name") or (request.get("tool_name") if len(tool_calls) == 1 else "") or "").strip()
+        tool_call_id = str(tool.get("id") or tool.get("tool_call_id") or "").strip()
+        if not tool_name or not tool_call_id:
+            continue
+        args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
+        target = _safe_public_tool_target(args)
+        data: dict[str, Any] = {
+            "item_id": tool_call_id,
+            "request_id": request_id or tool_call_id,
+            "tool_lifecycle_id": tool_call_id,
+            "tool_call_id": tool_call_id,
+            "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+            "tool_name": tool_name,
+            "target": target,
+            "arguments_preview": _tool_arguments_preview(args),
+        }
+        if runtime_event_id:
+            data["runtime_event_id"] = f"{runtime_event_id}:tool:{index + 1}" if len(tool_calls) > 1 else runtime_event_id
+            data["source_task_event_id"] = runtime_event_id
+        result.append(_redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)}))
+    return result
+
+
+def _model_action_tool_calls(request: dict[str, Any]) -> list[dict[str, Any]]:
+    action_type = str(request.get("action_type") or "").strip().lower()
+    if action_type == "tool_call":
+        tool = _record(request.get("tool_call"))
+        if not tool:
+            tool = {
+                "id": request.get("tool_call_id"),
+                "name": request.get("tool_name"),
+                "args": request.get("tool_args"),
+            }
+        return [tool] if tool else []
+    raw_calls = request.get("tool_calls")
+    if not isinstance(raw_calls, list):
+        return []
+    return [_record(item) for item in raw_calls if _record(item)]
+
+
+def _tool_call_args(tool: dict[str, Any], *, request: dict[str, Any]) -> dict[str, Any]:
+    for value in (
+        tool.get("args"),
+        tool.get("arguments"),
+        tool.get("input"),
+        request.get("tool_args"),
+    ):
+        parsed = _record_or_json_object(value)
+        if parsed:
+            return parsed
+    return {}
+
+
+def _record_or_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dict[str, Any]) -> dict[str, Any]:
@@ -2063,10 +2153,8 @@ def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dic
     if not admission:
         return {}
     decision = str(admission.get("decision") or "").strip()
-    permission_decision_id = str(admission.get("admission_id") or "").strip()
     tool_call_id = str(request_data.get("tool_call_id") or admission.get("action_request_ref") or "").strip()
-    if not permission_decision_id:
-        permission_decision_id = _canonical_permission_decision_id(admission, tool_call_id=tool_call_id)
+    permission_decision_id = _canonical_permission_decision_id(admission, tool_call_id=tool_call_id)
     data: dict[str, Any] = {
         "item_id": permission_decision_id,
         "request_id": str(request_data.get("request_id") or admission.get("action_request_ref") or ""),
@@ -2215,7 +2303,12 @@ def _public_permission_decision_ref(value: Any) -> str:
 
 
 def _canonical_permission_decision_id(admission: dict[str, Any] | None = None, *, tool_call_id: str = "") -> str:
-    return permission_decision_id(admission or {}, tool_call_id=tool_call_id)
+    payload = admission or {}
+    admission_id = str(payload.get("admission_id") or payload.get("permission_decision_id") or "").strip()
+    normalized_tool_call_id = str(tool_call_id or "").strip()
+    if admission_id and normalized_tool_call_id:
+        return admission_id if normalized_tool_call_id in admission_id else f"{admission_id}:{normalized_tool_call_id}"
+    return permission_decision_id(payload, tool_call_id=normalized_tool_call_id)
 
 
 def _tool_lifecycle_id_from_observation(
@@ -2294,6 +2387,7 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "step": str(payload.get("step") or "").strip(),
         "status": str(payload.get("status") or "running").strip() or "running",
         "presentation_source": str(payload.get("presentation_source") or "").strip(),
+        "feedback_identity": str(payload.get("feedback_identity") or "").strip(),
         **{key: value for key, value in visible_fields.items() if value},
     }
     event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()

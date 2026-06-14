@@ -12,7 +12,8 @@ from harness.runtime.dynamic_context import DynamicContextProjection, VolatileSe
 from harness.runtime.dynamic_context.history_projector import HistoryProjector
 from harness.runtime.dynamic_context.task_state_projector import TaskStateProjector
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
-from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 

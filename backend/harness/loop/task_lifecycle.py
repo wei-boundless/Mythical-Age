@@ -392,7 +392,7 @@ def start_task_lifecycle(
         task_run_id=task_run_id,
         agent_id="agent:0",
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
-        status="created",
+        status="pending",
         execution_runtime_kind="single_agent_task",
         created_at=now,
         updated_at=now,
@@ -537,9 +537,10 @@ def wait_task_launch_supervision(
         task_run,
         status="waiting_approval",
         updated_at=now,
-        terminal_reason="task_launch_supervision",
+        terminal_reason="",
         diagnostics={
             **dict(task_run.diagnostics or {}),
+            "wait_reason": "task_launch_supervision",
             "pending_launch_gate": gate_state,
         },
     )
@@ -547,7 +548,7 @@ def wait_task_launch_supervision(
         lifecycle,
         status="waiting_approval",
         updated_at=now,
-        terminal_reason="task_launch_supervision",
+        terminal_reason="",
     )
     runtime_host.state_index.upsert_task_run(updated_task)
     active_registry = getattr(runtime_host, "active_turn_registry", None)

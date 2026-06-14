@@ -4,7 +4,8 @@ from pathlib import Path
 
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
-from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 
 
 def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path) -> None:

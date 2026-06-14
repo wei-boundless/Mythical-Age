@@ -6,7 +6,8 @@ from pathlib import Path
 from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from harness.runtime.run_monitor import RuntimeMonitorService
 from runtime.cache_manager import RuntimeCacheManager
-from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.models import TaskRun
@@ -74,7 +75,7 @@ def _task_run(task_run_id: str, *, status: str, updated_at: float, diagnostics: 
         status=status,  # type: ignore[arg-type]
         created_at=updated_at - 10,
         updated_at=updated_at,
-        terminal_reason="waiting_executor" if status == "waiting_executor" else "",
+        terminal_reason="",
         diagnostics=dict(diagnostics or {}),
     )
 
@@ -165,7 +166,8 @@ def test_retention_does_not_auto_stop_paused_task(tmp_path: Path) -> None:
 
     assert current is not None
     assert current.status == "waiting_executor"
-    assert current.terminal_reason == "waiting_executor"
+    assert current.terminal_reason == ""
+    assert dict(current.diagnostics)["runtime_control"]["state"] == "paused"
 
 
 def test_retention_stops_old_waiting_executor_and_clears_recovery(tmp_path: Path) -> None:

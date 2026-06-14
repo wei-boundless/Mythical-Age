@@ -2,8 +2,53 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from runtime.shared.models import AgentRun, AgentRunResult, ProjectRuntimeStatus, TaskRun
 from runtime.memory.state_index import RuntimeStateIndex
+
+
+def test_formal_run_models_reject_noncanonical_statuses() -> None:
+    with pytest.raises(ValueError, match="TaskRun status must be canonical"):
+        TaskRun(task_run_id="taskrun:legacy", session_id="session", task_id="task", status="stopped")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="AgentRun status must be canonical"):
+        AgentRun(
+            agent_run_id="agrun:legacy",
+            task_run_id="taskrun:legacy",
+            agent_id="agent:0",
+            agent_profile_id="main",
+            status="waiting_executor",  # type: ignore[arg-type]
+        )
+
+
+def test_state_index_normalizes_legacy_run_statuses_on_read(tmp_path) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    state_index._write_record(
+        "task_runs",
+        "taskrun:legacy",
+        {
+            "task_run_id": "taskrun:legacy",
+            "session_id": "session",
+            "task_id": "task",
+            "status": "stopped",
+        },
+    )
+    state_index._write_record(
+        "agent_runs",
+        "agrun:legacy",
+        {
+            "agent_run_id": "agrun:legacy",
+            "task_run_id": "taskrun:legacy",
+            "agent_id": "agent:0",
+            "agent_profile_id": "main",
+            "status": "waiting_executor",
+        },
+    )
+    state_index._append_index_id("task_agent_runs", "taskrun:legacy", "agrun:legacy")
+
+    assert state_index.get_task_run("taskrun:legacy").status == "aborted"
+    assert state_index.list_task_agent_runs("taskrun:legacy")[0].status == "pending"
 
 
 def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:

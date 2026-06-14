@@ -616,7 +616,8 @@ def _unchanged_previous_read_window(
     if not scope or not content_sha256:
         return {}
     try:
-        from runtime.memory.file_state_store import FileStateAuthorityStore, normalize_file_evidence_scope
+        from runtime.memory.file_evidence_scope import normalize_file_evidence_scope
+        from runtime.memory.file_state_store import FileStateAuthorityStore
 
         evidence_scope = normalize_file_evidence_scope(scope)
         if not evidence_scope:

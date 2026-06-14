@@ -509,7 +509,6 @@ def test_health_governance_does_not_treat_waiting_executor_as_resumable_without_
         task_id="task.missing-rollout",
         execution_runtime_kind="single_agent_task",
         status="waiting_executor",
-        terminal_reason="waiting_executor",
         created_at=now - 2000,
         updated_at=now - 1900,
     )

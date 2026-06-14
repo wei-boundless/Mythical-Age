@@ -35,6 +35,7 @@ export function ChatPanel() {
     setChatThinkingMode,
     chatStreamDisplayEnabled,
     setChatStreamDisplayEnabled,
+    openRuntimeLog,
     selectedChatModelId,
     setSelectedChatModel,
     sessions,
@@ -146,10 +147,16 @@ export function ChatPanel() {
               answerSelectedChannel={message.answerSelectedChannel}
               answerSelectedSource={message.answerSelectedSource}
               answerSource={message.answerSource}
+              closeoutSummary={message.closeoutSummary}
+              mainChatSurface={message.mainChatSurface}
+              onOpenRuntimeLog={runtimeLogOpenHandler(message, openRuntimeLog)}
               publicProjection={message.publicProjection}
               retrievals={message.retrievals}
               role={message.role}
+              runtimeDisplayState={message.runtimeDisplayState}
+              runtimeLogRef={message.runtimeLogRef}
               streamingContent={message.id === liveAssistantMessageId}
+              toolEventCount={message.toolEventCount}
               toolCalls={message.toolCalls}
             />
           ))}
@@ -204,6 +211,39 @@ export function ChatPanel() {
       </div>
     </section>
   );
+}
+
+function runtimeLogOpenHandler(
+  message: Message,
+  openRuntimeLog: ReturnType<typeof useAppStore>["openRuntimeLog"],
+) {
+  const taskRunId = String(message.sourceTaskRunId || "").trim();
+  if (taskRunId) {
+    return () => openRuntimeLog({
+      scope: "task_run",
+      run_id: taskRunId,
+      title: "执行日志",
+      subtitle: runtimeLogSubtitle(message),
+    });
+  }
+  const turnRunId = String(message.sourceTurnRunId || "").trim();
+  if (turnRunId) {
+    return () => openRuntimeLog({
+      scope: "turn_run",
+      run_id: turnRunId,
+      title: "执行日志",
+      subtitle: runtimeLogSubtitle(message),
+    });
+  }
+  return undefined;
+}
+
+function runtimeLogSubtitle(message: Message) {
+  const count = Number(message.toolEventCount ?? 0);
+  if (Number.isFinite(count) && count > 0) {
+    return `${count} 次工具调用`;
+  }
+  return String(message.runtimeLogRef || "完整运行轨迹").trim();
 }
 
 function ChatStreamStatusBadge({
@@ -291,6 +331,9 @@ export function shouldSuppressSessionActivityBar(messages: Message[], active: bo
     return true;
   }
   if (latestAssistant.publicProjection?.bodyText.trim()) {
+    return true;
+  }
+  if (latestAssistant.closeoutSummary?.trim()) {
     return true;
   }
   if (active) {

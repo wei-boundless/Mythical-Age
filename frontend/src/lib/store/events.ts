@@ -589,6 +589,133 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
   }));
 }
 
+function patchAssistantRuntimeDisplaySurface(
+  state: StoreState,
+  session: StreamSession,
+  event: string,
+  data: Record<string, unknown>,
+  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
+): StoreState {
+  const assistantId = stringValue(session.assistantId);
+  if (!assistantId) {
+    return state;
+  }
+  const surface = runtimeSurfaceFromStreamEvent(session, event, data, frame);
+  const closeoutSummary = surface.mainChatSurface === "closeout_summary"
+    ? runtimeCloseoutSummary(data, frame)
+    : "";
+  const logRef = stringValue(session.boundTaskRunId)
+    || stringValue(data.runtime_task_run_id)
+    || stringValue(data.task_run_id)
+    || stringValue(session.boundTurnRunId)
+    || stringValue(data.turn_run_id)
+    || stringValue(session.boundStreamRunId)
+    || stringValue(data.stream_run_id);
+  return patchAssistant(state, assistantId, (message) => {
+    if (message.mainChatSurface === "closeout_summary" && surface.mainChatSurface !== "closeout_summary") {
+      return message;
+    }
+    return {
+      ...message,
+      runtimeDisplayState: surface.runtimeDisplayState,
+      mainChatSurface: surface.mainChatSurface,
+      closeoutSummary: closeoutSummary || message.closeoutSummary,
+      runtimeLogRef: logRef || message.runtimeLogRef,
+    };
+  });
+}
+
+function runtimeSurfaceFromStreamEvent(
+  session: StreamSession,
+  event: string,
+  data: Record<string, unknown>,
+  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
+) {
+  const frameAnchor = recordValue(frame?.anchor);
+  const taskRunId = stringValue(session.boundTaskRunId)
+    || stringValue(data.runtime_task_run_id)
+    || stringValue(data.task_run_id)
+    || stringValue(frameAnchor.task_run_id);
+  if (!taskRunId) {
+    return {
+      runtimeDisplayState: "normal_turn" as const,
+      mainChatSurface: "body_only" as const,
+    };
+  }
+  if (streamEventClosesMainTimeline(event, data, frame)) {
+    return {
+      runtimeDisplayState: "task_closed" as const,
+      mainChatSurface: "closeout_summary" as const,
+    };
+  }
+  return {
+    runtimeDisplayState: "task_live" as const,
+    mainChatSurface: "live_timeline" as const,
+  };
+}
+
+function streamEventClosesMainTimeline(
+  event: string,
+  data: Record<string, unknown>,
+  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
+) {
+  const eventName = stringValue(event);
+  if (eventName === TURN_COMPLETED_EVENT || eventName === "done") {
+    return true;
+  }
+  const publicEventType = stringValue(data.public_event_type || data.source_event_type);
+  if (
+    publicEventType === "task_bridge_terminal"
+    || publicEventType === "turn_completed"
+    || publicEventType.startsWith("session_output_commit_")
+  ) {
+    return true;
+  }
+  if (!frame) {
+    return false;
+  }
+  const family = stringValue(frame.event_family);
+  const state = stringValue(frame.state).toLowerCase();
+  return (
+    frame.op === "commit_ack"
+    || frame.op === "commit_failed"
+    || frame.op === "turn_terminal"
+    || family === "runtime_commit"
+    || family === "turn_anchor_terminal"
+  ) && ["", "done", "completed", "failed", "stopped", "skipped", "committed"].includes(state);
+}
+
+function runtimeCloseoutSummary(
+  data: Record<string, unknown>,
+  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
+) {
+  const frameText = stringValue(frame?.slot === "body" ? frame.text : "");
+  if (frameText) {
+    return frameText;
+  }
+  return stringValue(data.summary)
+    || stringValue(data.error_summary)
+    || stringValue(data.terminal_reason)
+    || stringValue(data.stopped_reason)
+    || stringValue(data.reason)
+    || terminalStatusSummary(data.status)
+    || "任务已结束，但没有可提交的正文。";
+}
+
+function terminalStatusSummary(value: unknown) {
+  const status = stringValue(value).toLowerCase();
+  if (status === "completed" || status === "complete" || status === "success" || status === "succeeded") {
+    return "任务已完成。";
+  }
+  if (status === "failed" || status === "error") {
+    return "任务已结束，但没有可提交的正文。";
+  }
+  if (status === "stopped" || status === "aborted" || status === "cancelled" || status === "canceled") {
+    return "任务已停止。";
+  }
+  return "";
+}
+
 function patchActiveTaskTurnGate(
   state: StoreState,
   session: StreamSession,
@@ -1193,8 +1320,15 @@ export function reduceStreamEvent(
         streamAnchor: streamAnchorFromSession(boundSession),
       })
     : stateWithOrchestrationBase;
+  const stateWithDisplaySurface = patchAssistantRuntimeDisplaySurface(
+    stateWithPublicProjection,
+    boundSession,
+    event,
+    data,
+    publicProjectionFrame,
+  );
   const stateWithTimelineDraft = applyChatStreamConnectionStatus(
-    patchActiveTaskTurnGate(stateWithPublicProjection, boundSession, data),
+    patchActiveTaskTurnGate(stateWithDisplaySurface, boundSession, data),
     event,
     data,
   );

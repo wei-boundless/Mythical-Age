@@ -64,6 +64,35 @@ class RuntimeStreamReplayService:
             and str(event.event_type) == PUBLIC_STREAM_EVENT_TYPE
         ]
 
+    def list_public_events(self, run: RuntimeRun) -> list[RuntimeEvent]:
+        return [
+            event
+            for event in self.event_log.list_events(run.event_log_id)
+            if str(event.event_type) == PUBLIC_STREAM_EVENT_TYPE
+        ]
+
+    def list_public_event_records(self, run: RuntimeRun) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for event in self.list_public_events(run):
+            payload = dict(event.payload or {})
+            data = dict(payload.get("data") or {})
+            records.append(
+                {
+                    "stream_run_id": run.stream_run_id,
+                    "event_log_id": run.event_log_id,
+                    "event_id": event.event_id,
+                    "event_offset": event.offset,
+                    "created_at": event.created_at,
+                    "public_event_type": str(payload.get("public_event_type") or "message").strip() or "message",
+                    "terminal": bool(payload.get("terminal") is True),
+                    "data": data,
+                    "public_projection_frame": dict(data.get("public_projection_frame") or {})
+                    if isinstance(data.get("public_projection_frame"), dict)
+                    else {},
+                }
+            )
+        return sorted(records, key=lambda item: int(item.get("event_offset") or 0))
+
     def to_public_sse(self, run: RuntimeRun, event: RuntimeEvent, *, retry_ms: int = 1500) -> str:
         payload = dict(event.payload or {})
         event_name = str(payload.get("public_event_type") or "message").strip() or "message"

@@ -15924,6 +15924,42 @@ html[data-workspace-tone] .agent-workbench {
   vertical-align: bottom;
 }
 
+.agent-workbench .chat-message-shell__runtime-log-entry {
+  grid-column: 1;
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 18px;
+  letter-spacing: 0;
+}
+
+.agent-workbench .chat-message-shell__runtime-log-entry strong {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.agent-workbench .chat-message-shell__runtime-log-entry--button {
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.agent-workbench .chat-message-shell__runtime-log-entry--button:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #eef6ff;
+  color: #1d4ed8;
+}
+
 @keyframes chat-thinking-dots {
   0% {
     width: 0;

@@ -19,7 +19,8 @@ from artifact_system.artifact_authority import (
 )
 from file_management import RepositoryRootResolver, normalize_logical_path, resolve_file_environment
 from runtime.shared.models import AgentRun, AgentRunResult
-from runtime.memory.file_state_store import FileStateAuthorityStore, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
 from runtime.model_gateway.assistant_stream_frame import (
@@ -344,7 +345,7 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
         status=updated_status,  # type: ignore[arg-type]
         updated_at=event.created_at or now,
         latest_event_offset=event.offset,
-        terminal_reason="waiting_executor" if updated_status == "waiting_executor" else getattr(task_run, "terminal_reason", ""),
+        terminal_reason="" if updated_status == "waiting_executor" else getattr(task_run, "terminal_reason", ""),
         diagnostics=_diagnostics_with_runtime_control(
             dict(task_run.diagnostics or {}),
             state=control_state,
@@ -456,11 +457,12 @@ def resume_paused_task_run(
         status=resume_status,  # type: ignore[arg-type]
         updated_at=event.created_at or now,
         latest_event_offset=event.offset,
-        terminal_reason="waiting_executor",
+        terminal_reason="",
         diagnostics=_diagnostics_with_runtime_control(
             {
                 **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
                 "executor_status": "waiting_executor",
+                "wait_reason": "resume_requested",
                 "recovery_action": resume_recovery_action,
                 **({"recoverable_error": resume_recoverable} if resume_recoverable else {}),
                 **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
@@ -5447,7 +5449,7 @@ def _pause_executor_for_model_recovery(
     runtime_host.state_index.upsert_agent_run(
         replace(
             agent_run,
-            status="blocked",
+            status="failed",
             updated_at=now,
             diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "model_call_recovery_required", "recoverable_error": error_payload},
         )
@@ -5585,10 +5587,11 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         status="waiting_executor",
         updated_at=event.created_at or now,
         latest_event_offset=event.offset,
-        terminal_reason="waiting_executor",
+        terminal_reason="",
         diagnostics={
             **diagnostics,
             "executor_status": "waiting_executor",
+            "wait_reason": "user_paused",
             "recovery_action": "resume_task_run",
         },
     )
@@ -5598,7 +5601,7 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         runtime_host.state_index.upsert_agent_run(
             replace(
                 agent_run,
-                status="blocked",
+                status="failed",
                 updated_at=event.created_at or now,
                 diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "user_paused", "runtime_control": _runtime_control_payload(paused_task)},
             )
@@ -5720,10 +5723,11 @@ def _replan_executor_for_user_control(
         status="waiting_executor",
         updated_at=event.created_at or now,
         latest_event_offset=event.offset,
-        terminal_reason="waiting_executor",
+        terminal_reason="",
         diagnostics={
             **diagnostics,
             "executor_status": "waiting_executor",
+            "wait_reason": "user_interrupt_replan_required",
             "recoverable_error": recoverable_error,
             "recovery_action": "resume_task_run",
         },
@@ -5733,7 +5737,7 @@ def _replan_executor_for_user_control(
         runtime_host.state_index.upsert_agent_run(
             replace(
                 agent_run,
-                status="blocked",
+                status="failed",
                 updated_at=event.created_at or now,
                 diagnostics={
                     **dict(agent_run.diagnostics or {}),
@@ -5851,17 +5855,18 @@ def _pause_executor_for_tool_approval(
         lifecycle,
         status="waiting_approval",
         updated_at=now,
-        terminal_reason="waiting_approval",
+        terminal_reason="",
         observation_refs=tuple(_dedupe_strings([*list(lifecycle.observation_refs), observation_ref])),
     )
     waiting_task = replace(
         task_run,
         status="waiting_approval",
         updated_at=now,
-        terminal_reason="waiting_approval",
+        terminal_reason="",
         diagnostics={
             **dict(task_run.diagnostics or {}),
             "executor_status": "waiting_approval",
+            "wait_reason": "tool_approval_required",
             "pending_approval": pending_approval,
             "latest_step": f"task_tool_approval_waiting:{step_index}",
             "latest_step_status": "waiting_approval",
@@ -5964,10 +5969,11 @@ def _pause_executor_for_repeated_admission_denial(
         task_run,
         status="waiting_executor",
         updated_at=now,
-        terminal_reason="waiting_executor",
+        terminal_reason="",
         diagnostics={
             **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
             "executor_status": "waiting_executor",
+            "wait_reason": "repeated_admission_denial",
             "recoverable_error": recoverable_error,
             "recovery_action": "resume_task_run",
             "latest_step": "task_executor_repeated_admission_denial",
@@ -5980,7 +5986,7 @@ def _pause_executor_for_repeated_admission_denial(
     runtime_host.state_index.upsert_agent_run(
         replace(
             agent_run,
-            status="blocked",
+            status="failed",
             updated_at=now,
             diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "repeated_admission_denial", "recoverable_error": recoverable_error},
         )
@@ -6025,10 +6031,11 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
         task_run,
         status="waiting_executor",
         updated_at=now,
-        terminal_reason="waiting_executor",
+        terminal_reason="",
         diagnostics={
             **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
             "executor_status": "waiting_executor",
+            "wait_reason": "task_execution_step_budget_exhausted",
             "recoverable_error": payload,
             "recovery_action": "rerun_task_executor",
         },
@@ -6037,7 +6044,7 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
     runtime_host.state_index.upsert_agent_run(
         replace(
             agent_run,
-            status="blocked",
+            status="failed",
             updated_at=now,
             diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "task_execution_step_budget_exhausted", "recoverable_error": payload},
         )

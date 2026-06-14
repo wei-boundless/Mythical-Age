@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Pencil, X } from "lucide-react";
+import { Check, Copy, FileText, Pencil, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,6 +25,11 @@ export function ChatMessage({
   content,
   image,
   publicProjection,
+  runtimeDisplayState,
+  mainChatSurface,
+  closeoutSummary,
+  runtimeLogRef,
+  toolEventCount,
   answerChannel,
   answerCanonicalState,
   answerPersistPolicy,
@@ -33,6 +38,7 @@ export function ChatMessage({
   streamingContent = false,
   retrievals,
   canEdit = false,
+  onOpenRuntimeLog,
   onResendEdit
 }: {
   id: string;
@@ -44,6 +50,11 @@ export function ChatMessage({
     caption?: string;
   } | null;
   publicProjection?: MessagePublicProjection;
+  runtimeDisplayState?: string;
+  mainChatSurface?: string;
+  closeoutSummary?: string;
+  runtimeLogRef?: string;
+  toolEventCount?: number;
   answerChannel?: string;
   answerCanonicalState?: string;
   answerPersistPolicy?: string;
@@ -57,6 +68,7 @@ export function ChatMessage({
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   canEdit?: boolean;
+  onOpenRuntimeLog?: () => void;
   onResendEdit?: (messageId: string, value: string) => Promise<void>;
 }) {
   const isUser = role === "user";
@@ -67,8 +79,14 @@ export function ChatMessage({
   const [copiedReply, setCopiedReply] = useState(false);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
+  const mainSurface = normalizedMainChatSurface(mainChatSurface, runtimeDisplayState);
+  const taskClosed = mainSurface === "closeout_summary";
+  const renderLiveTimeline = !isUser && mainSurface === "live_timeline";
   const projectionBodyText = publicProjection?.bodyText && !isInternalControlProtocolText(publicProjection.bodyText)
     ? publicProjection.bodyText
+    : "";
+  const closeoutText = closeoutSummary && !isInternalControlProtocolText(closeoutSummary)
+    ? closeoutSummary
     : "";
   const assistantContentText = isUser
     ? ""
@@ -79,15 +97,20 @@ export function ChatMessage({
       answerSource,
       answerLeakFlags,
     });
-  const projectionBodyBlocks = (publicProjection?.bodyBlocks ?? [])
-    .filter((block) => block.text && !isInternalControlProtocolText(block.text));
+  const projectionBodyBlocks = renderLiveTimeline
+    ? (publicProjection?.bodyBlocks ?? []).filter((block) => block.text && !isInternalControlProtocolText(block.text))
+    : [];
   const baseDisplayContent = isUser
     ? content
-    : projectionBodyText || assistantContentText;
+    : taskClosed
+      ? projectionBodyText || assistantContentText || closeoutText
+      : projectionBodyText || assistantContentText;
   const messageDisplayContent = baseDisplayContent;
   const publicTimelineItems = isUser
     ? []
-    : publicTimelineItemsFromProjection(publicProjection);
+    : renderLiveTimeline
+      ? publicTimelineItemsFromProjection(publicProjection)
+      : [];
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
@@ -229,7 +252,7 @@ export function ChatMessage({
     </div>
     ) : null;
   };
-  const orderedMessageBlocks = isUser
+  const orderedMessageBlocks = isUser || taskClosed || !renderLiveTimeline
     ? []
     : orderedProjectionMessageBlocks({
       bodyBlocks: projectionBodyBlocks,
@@ -264,7 +287,7 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {isUser ? renderMessageContent() : orderedMessageBlocks.map((block) => (
+      {isUser || taskClosed || !renderLiveTimeline ? renderMessageContent() : orderedMessageBlocks.map((block) => (
         block.kind === "body"
           ? renderMessageContent(block.key, block.text, block.key === firstBodyBlockKey)
           : (
@@ -275,6 +298,13 @@ export function ChatMessage({
             />
           )
       ))}
+      {!isUser && taskClosed ? (
+        <RuntimeLogEntry
+          onOpen={onOpenRuntimeLog}
+          runtimeLogRef={runtimeLogRef}
+          toolEventCount={toolEventCount}
+        />
+      ) : null}
       {showThinkingPlaceholder ? (
         <div className="chat-message-shell__thinking-placeholder" aria-live="polite">
           <span>正在思考</span>
@@ -282,6 +312,57 @@ export function ChatMessage({
       ) : null}
     </article>
   );
+}
+
+function RuntimeLogEntry({
+  onOpen,
+  runtimeLogRef,
+  toolEventCount,
+}: {
+  onOpen?: () => void;
+  runtimeLogRef?: string;
+  toolEventCount?: number;
+}) {
+  const count = Number(toolEventCount ?? 0);
+  const detail = Number.isFinite(count) && count > 0
+    ? `${count} 次工具调用`
+    : "完整执行轨迹";
+  const title = runtimeLogRef ? "查看执行日志" : "执行日志";
+  const content = (
+    <>
+      <FileText size={14} />
+      <span>{title}</span>
+      <strong>{detail}</strong>
+    </>
+  );
+  if (!onOpen) {
+    return (
+      <div className="chat-message-shell__runtime-log-entry" aria-label="执行日志">
+        {content}
+      </div>
+    );
+  }
+  return (
+    <button
+      className="chat-message-shell__runtime-log-entry chat-message-shell__runtime-log-entry--button"
+      onClick={onOpen}
+      type="button"
+    >
+      {content}
+    </button>
+  );
+}
+
+function normalizedMainChatSurface(mainChatSurface?: string, runtimeDisplayState?: string) {
+  const surface = cleanText(mainChatSurface).toLowerCase();
+  if (surface === "body_only" || surface === "live_timeline" || surface === "closeout_summary" || surface === "log_only") {
+    return surface;
+  }
+  const displayState = cleanText(runtimeDisplayState).toLowerCase();
+  if (displayState === "task_live") return "live_timeline";
+  if (displayState === "task_closed") return "closeout_summary";
+  if (displayState === "normal_turn") return "body_only";
+  return "body_only";
 }
 
 function editFailureMessage(error: unknown) {
@@ -324,10 +405,6 @@ function orderedProjectionMessageBlocks({
   const seenModelFeedback = new Set<string>();
   if (bodyBlocks.length > 0) {
     for (const block of bodyBlocks) {
-      const feedbackKey = compactText(block.text);
-      if (feedbackKey) {
-        seenModelFeedback.add(feedbackKey);
-      }
       entries.push({
         kind: "body",
         key: block.blockId,
@@ -347,7 +424,7 @@ function orderedProjectionMessageBlocks({
     if (isModelFeedbackTimelineItem(item)) {
       const feedbackText = modelFeedbackBodyText(item);
       if (feedbackText) {
-        const feedbackKey = compactText(feedbackText);
+        const feedbackKey = modelFeedbackIdentityKey(item);
         if (feedbackKey && seenModelFeedback.has(feedbackKey)) {
           continue;
         }
@@ -386,6 +463,13 @@ function orderedProjectionMessageBlocks({
   return grouped;
 }
 
+function modelFeedbackIdentityKey(item: PublicChatTimelineItem) {
+  return cleanText(item.item_id)
+    || cleanText(item.source_event_id)
+    || cleanText(item.source_event_type && item.event_offset !== undefined ? `${item.source_event_type}:${item.event_offset}` : "")
+    || "";
+}
+
 function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
   if (!projection) return [];
   const timeline = projection.timeline?.length
@@ -395,7 +479,6 @@ function publicTimelineItemsFromProjection(projection: MessagePublicProjection |
       ...(projection.status ?? []),
       ...(projection.pinned ?? []),
       ...(projection.finalResults ?? []),
-      ...(projection.trace ?? []),
     ].filter((item): item is PublicProjectionItem => Boolean(item));
   return coalesceProjectionTimelineItems(timeline)
     .map(projectionItemToTimelineItem)

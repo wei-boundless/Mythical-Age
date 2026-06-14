@@ -2,19 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from harness.task_run_status import (
+    COMPLETED_TASK_RUN_STATUSES,
+    FAILED_TASK_RUN_STATUSES,
+    STOPPED_TASK_RUN_STATUSES,
+    is_terminal_task_run_reason,
+    normalize_task_run_status,
+)
 
-COMPLETED_STATUSES = {"completed", "success", "done", "succeeded"}
-FAILED_STATUSES = {"failed", "error"}
-STOPPED_STATUSES = {
-    "aborted",
-    "cancelled",
-    "canceled",
-    "stopped",
-    "user_aborted",
-    "blocked_expired",
-    "runtime_retention_expired",
-    "approval_expired",
-}
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
 RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
@@ -24,7 +19,7 @@ STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None) -> dict[str, Any]:
     monitor_record = dict(monitor or {}) if isinstance(monitor, dict) else {}
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    status = _text(getattr(task_run, "status", "") or monitor_record.get("status"))
+    status = normalize_task_run_status(getattr(task_run, "status", "") or monitor_record.get("status"))
     terminal_reason = _text(getattr(task_run, "terminal_reason", "") or monitor_record.get("terminal_reason"))
     control = _runtime_control(diagnostics, monitor_record)
     control_state = _text(control.get("state"))
@@ -45,10 +40,14 @@ def task_run_state_view(task_run: Any, *, monitor: dict[str, Any] | None = None)
         control_state=control_state,
         recoverable=recoverable,
     )
-    stopped = control_state in STOP_CONTROL_STATES or terminal_reason in STOPPED_STATUSES or status in STOPPED_STATUSES
+    stopped = (
+        control_state in STOP_CONTROL_STATES
+        or status in STOPPED_TASK_RUN_STATUSES
+        or (is_terminal_task_run_reason(terminal_reason) and normalize_task_run_status(terminal_reason) == "aborted")
+    )
     paused = control_state in PAUSED_CONTROL_STATES or status == "paused"
-    completed = status in COMPLETED_STATUSES
-    terminal_failed = status in FAILED_STATUSES
+    completed = status in COMPLETED_TASK_RUN_STATUSES
+    terminal_failed = status in FAILED_TASK_RUN_STATUSES
     pending_approval = _record(diagnostics.get("pending_approval"))
     waiting_approval = status in WAITING_APPROVAL_STATUSES and _text(pending_approval.get("status")) != "approved"
     graph_controlled = _graph_controlled(diagnostics)

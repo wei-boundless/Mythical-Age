@@ -510,7 +510,7 @@ def _seed_active_work(
             agent_profile_id="main_interactive_agent",
             execution_runtime_kind="single_agent_task",
             status=status,
-            terminal_reason="waiting_executor" if status == "waiting_executor" else "",
+            terminal_reason="",
             created_at=1.0,
             updated_at=1.0,
             diagnostics={

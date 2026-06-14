@@ -137,7 +137,7 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
     assert permission["permission_decision"] == "allow"
 
 
-def test_chat_bridge_does_not_use_request_id_as_tool_call_id() -> None:
+def test_chat_bridge_generates_tool_call_id_without_reusing_request_id() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
         {
@@ -160,7 +160,69 @@ def test_chat_bridge_does_not_use_request_id_as_tool_call_id() -> None:
         },
     )
 
-    assert events == []
+    assert [event_type for event_type, _ in events] == [
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+    ]
+    requested = events[0][1]
+    permission = events[1][1]
+    assert requested["request_id"] == "request:read"
+    assert requested["tool_call_id"]
+    assert requested["tool_call_id"] != "request:read"
+    assert requested["tool_lifecycle_id"] == requested["tool_call_id"]
+    assert permission["tool_call_id"] == requested["tool_call_id"]
+    assert permission["permission_decision_id"] == f"admission:{requested['tool_call_id']}"
+
+
+def test_chat_bridge_projects_tool_calls_array_with_one_feedback_event() -> None:
+    events = _project_public_stream_event(
+        "model_action_admission",
+        {
+            "event": {
+                "event_id": "event:admission:batch",
+                "payload": {
+                    "turn_id": "turn:test",
+                    "model_action_request": {
+                        "request_id": "request:batch",
+                        "action_type": "tool_calls",
+                        "public_progress_note": "并行检查两个文件。",
+                        "tool_calls": [
+                            {
+                                "id": "call:readme",
+                                "tool_name": "read_file",
+                                "args": {"path": "README.md"},
+                            },
+                            {
+                                "id": "call:package",
+                                "tool_name": "read_file",
+                                "args": {"path": "package.json"},
+                            },
+                        ],
+                    },
+                    "admission": {"decision": "allow", "admission_id": "permit:batch"},
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1"},
+            },
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [
+        "runtime_step_summary",
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+    ]
+    assert events[0][1]["feedback_identity"] == "request:batch"
+    requests = [data for event_type, data in events if event_type == TOOL_CALL_REQUESTED_EVENT]
+    permissions = [data for event_type, data in events if event_type == TOOL_PERMISSION_DECIDED_EVENT]
+    assert [item["tool_call_id"] for item in requests] == ["call:readme", "call:package"]
+    assert [item["target"] for item in requests] == ["README.md", "package.json"]
+    assert [item["tool_call_id"] for item in permissions] == ["call:readme", "call:package"]
+    assert [item["permission_decision_id"] for item in permissions] == [
+        "permit:batch:call:readme",
+        "permit:batch:call:package",
+    ]
 
 
 def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:

@@ -2,7 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
+_TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
+_TASK_ANCHOR_PUBLIC_EVENTS = {"task_bridge_started", "task_bridge_terminal"}
+_TASK_CLOSED_PUBLIC_EVENTS = {
+    "task_bridge_terminal",
+    "turn_completed",
+    "session_output_commit_ack",
+    "session_output_commit_failed",
+    "session_output_commit_skipped",
+}
+_BODY_ONLY_SURFACE = "body_only"
+_LIVE_TIMELINE_SURFACE = "live_timeline"
+_CLOSEOUT_SUMMARY_SURFACE = "closeout_summary"
+_LOG_ONLY_SURFACE = "log_only"
 
 
 def build_session_runtime_timeline(
@@ -14,6 +26,11 @@ def build_session_runtime_timeline(
 ) -> dict[str, Any]:
     history_record = dict(history or {})
     history_messages = list(history_record.get("messages") or [])
+    stream_attachments = _stream_runtime_attachments(
+        runtime_host,
+        session_id=session_id,
+        history_messages=history_messages,
+    )
     task_attachments = [
         _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_timeline_items=max_timeline_items)
         for task_run in sorted(
@@ -30,7 +47,7 @@ def build_session_runtime_timeline(
         )
     ]
     attachments = sorted(
-        [item for item in [*task_attachments, *turn_attachments] if item],
+        [item for item in [*stream_attachments, *task_attachments, *turn_attachments] if item],
         key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
     )
     return {
@@ -45,6 +62,268 @@ def _is_formal_chat_task_run(task_run: Any) -> bool:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     task_id = str(getattr(task_run, "task_id", "") or "")
     return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
+
+
+def _stream_runtime_attachments(runtime_host: Any, *, session_id: str, history_messages: list[Any]) -> list[dict[str, Any]]:
+    registry = getattr(runtime_host, "run_registry", None)
+    list_runs = getattr(registry, "list_session_runs", None)
+    if not callable(list_runs):
+        return []
+    try:
+        runs = list(list_runs(session_id))
+    except Exception:
+        return []
+    return [
+        attachment
+        for attachment in (
+            _stream_runtime_attachment(runtime_host, run, history_messages=history_messages)
+            for run in sorted(runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0))
+        )
+        if attachment
+    ]
+
+
+def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages: list[Any]) -> dict[str, Any]:
+    event_log_id = str(getattr(run, "event_log_id", "") or "").strip()
+    stream_run_id = str(getattr(run, "stream_run_id", "") or "").strip()
+    if not stream_run_id or not event_log_id.startswith("chatrun:"):
+        return {}
+    public_events = _public_event_records_for_run(runtime_host, run)
+    if not public_events:
+        return {}
+    frames = _public_projection_frames_from_public_events(public_events)
+    projection_anchor = _projection_anchor_from_public_ledger(
+        run,
+        public_events=public_events,
+        frames=frames,
+        history_messages=history_messages,
+    )
+    anchored_frames = [
+        _frame_with_projection_anchor(frame, projection_anchor=projection_anchor)
+        for frame in frames
+        if isinstance(frame, dict)
+    ]
+    display = _display_state_for_stream_run(run, public_events=public_events, frames=anchored_frames, projection_anchor=projection_anchor)
+    tool_event_count = _tool_event_count(anchored_frames)
+    closeout_summary = _closeout_summary(public_events=public_events, frames=anchored_frames)
+    return {
+        "attachment_id": f"runtime-attachment:{stream_run_id}",
+        "run_id": stream_run_id,
+        "stream_run_id": stream_run_id,
+        "event_log_id": event_log_id,
+        "anchor_turn_id": str(projection_anchor.get("anchor_turn_id") or ""),
+        "anchor_message_id": str(projection_anchor.get("anchor_message_id") or ""),
+        "anchor_role": "assistant",
+        "turn_run_id": str(projection_anchor.get("turn_run_id") or ""),
+        "task_run_id": str(projection_anchor.get("task_run_id") or ""),
+        "task_id": "",
+        "status": str(getattr(run, "status", "") or ""),
+        "display_state": display["display_state"],
+        "main_chat_surface": display["main_chat_surface"],
+        "latest_event_type": _latest_public_event_type(public_events),
+        "event_count": len(public_events),
+        "tool_event_count": tool_event_count,
+        "closeout_summary": closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
+        "log_ref": event_log_id,
+        "projection_anchor": projection_anchor,
+        "public_projection_frames": anchored_frames,
+        "artifact_refs": [],
+        "trace_available": True,
+        "debug_trace_ref": event_log_id,
+        "created_at": float(getattr(run, "created_at", 0.0) or 0.0),
+        "updated_at": max(
+            float(getattr(run, "updated_at", 0.0) or 0.0),
+            max((_float_value(item.get("created_at"), fallback=0.0) for item in public_events), default=0.0),
+        ),
+        "authority": "session_runtime_timeline.stream_attachment",
+    }
+
+
+def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str, Any]]:
+    replay = getattr(runtime_host, "stream_replay", None)
+    reader = getattr(replay, "list_public_event_records", None)
+    if callable(reader):
+        try:
+            return list(reader(run))
+        except Exception:
+            return []
+    events_reader = getattr(getattr(runtime_host, "event_log", None), "list_events", None)
+    if not callable(events_reader):
+        return []
+    records: list[dict[str, Any]] = []
+    try:
+        events = list(events_reader(str(getattr(run, "event_log_id", "") or "")))
+    except Exception:
+        return []
+    for event in events:
+        event_type = str(getattr(event, "event_type", "") or "")
+        if event_type != "chat_stream_event":
+            continue
+        payload = dict(getattr(event, "payload", {}) or {})
+        data = dict(payload.get("data") or {})
+        records.append(
+            {
+                "stream_run_id": str(getattr(run, "stream_run_id", "") or ""),
+                "event_log_id": str(getattr(run, "event_log_id", "") or ""),
+                "event_id": str(getattr(event, "event_id", "") or ""),
+                "event_offset": int(getattr(event, "offset", 0) or 0),
+                "created_at": float(getattr(event, "created_at", 0.0) or 0.0),
+                "public_event_type": str(payload.get("public_event_type") or "").strip(),
+                "terminal": bool(payload.get("terminal") is True),
+                "data": data,
+                "public_projection_frame": dict(data.get("public_projection_frame") or {})
+                if isinstance(data.get("public_projection_frame"), dict)
+                else {},
+            }
+        )
+    return sorted(records, key=lambda item: int(item.get("event_offset") or 0))
+
+
+def _public_projection_frames_from_public_events(public_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    frames: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for event in public_events:
+        frame = dict(event.get("public_projection_frame") or {})
+        if not frame:
+            data = _dict_record(event.get("data"))
+            frame = dict(data.get("public_projection_frame") or {}) if isinstance(data.get("public_projection_frame"), dict) else {}
+        frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
+        if not frame_id or frame_id in seen:
+            continue
+        seen.add(frame_id)
+        frames.append(frame)
+    return sorted(frames, key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or "")))
+
+
+def _projection_anchor_from_public_ledger(
+    run: Any,
+    *,
+    public_events: list[dict[str, Any]],
+    frames: list[dict[str, Any]],
+    history_messages: list[Any],
+) -> dict[str, Any]:
+    session_id = str(getattr(run, "session_id", "") or "")
+    stream_run_id = str(getattr(run, "stream_run_id", "") or "")
+    event_log_id = str(getattr(run, "event_log_id", "") or "")
+    anchor: dict[str, str] = {
+        "session_id": session_id,
+        "run_id": stream_run_id,
+        "stream_run_id": stream_run_id,
+        "event_log_id": event_log_id,
+    }
+    for frame in frames:
+        frame_anchor = _dict_record(frame.get("anchor"))
+        _set_first(anchor, "anchor_turn_id", frame_anchor.get("turn_id"))
+        _set_first(anchor, "anchor_message_id", frame_anchor.get("message_id"))
+        _set_first(anchor, "task_run_id", frame_anchor.get("task_run_id"))
+        _set_first(anchor, "turn_run_id", frame_anchor.get("turn_run_id"))
+    for event in public_events:
+        data = _dict_record(event.get("data"))
+        _set_first(anchor, "anchor_turn_id", data.get("turn_id") or data.get("active_turn_id"))
+        _set_first(anchor, "anchor_message_id", data.get("message_id") or data.get("message_ref"))
+        _set_first(anchor, "task_run_id", data.get("task_run_id") or data.get("runtime_task_run_id"))
+        _set_first(anchor, "turn_run_id", data.get("turn_run_id"))
+    diagnostics = dict(getattr(run, "diagnostics", {}) or {})
+    _set_first(anchor, "anchor_turn_id", diagnostics.get("active_turn_id") or diagnostics.get("expected_active_turn_id"))
+    _set_first(anchor, "task_run_id", diagnostics.get("runtime_task_run_id"))
+    _set_first(anchor, "turn_run_id", diagnostics.get("runtime_turn_run_id"))
+    if not anchor.get("anchor_message_id") and anchor.get("anchor_turn_id"):
+        anchor_message = _anchor_assistant_message(anchor_turn_id=anchor["anchor_turn_id"], history_messages=history_messages)
+        _set_first(anchor, "anchor_message_id", _history_message_id(anchor_message) if anchor_message else "")
+    return {key: value for key, value in anchor.items() if str(value or "").strip()}
+
+
+def _set_first(target: dict[str, str], key: str, value: Any) -> None:
+    if str(target.get(key) or "").strip():
+        return
+    text = str(value or "").strip()
+    if text:
+        target[key] = text
+
+
+def _frame_with_projection_anchor(frame: dict[str, Any], *, projection_anchor: dict[str, Any]) -> dict[str, Any]:
+    anchor = _dict_record(frame.get("anchor"))
+    next_anchor = {
+        **anchor,
+        "session_id": str(anchor.get("session_id") or projection_anchor.get("session_id") or ""),
+        "turn_id": str(anchor.get("turn_id") or projection_anchor.get("anchor_turn_id") or ""),
+        "message_id": str(anchor.get("message_id") or projection_anchor.get("anchor_message_id") or ""),
+        "task_run_id": str(anchor.get("task_run_id") or projection_anchor.get("task_run_id") or ""),
+        "stream_run_id": str(anchor.get("stream_run_id") or projection_anchor.get("stream_run_id") or ""),
+        "run_id": str(anchor.get("run_id") or projection_anchor.get("run_id") or ""),
+        "turn_run_id": str(anchor.get("turn_run_id") or projection_anchor.get("turn_run_id") or ""),
+    }
+    return {
+        **frame,
+        "anchor": {key: value for key, value in next_anchor.items() if str(value or "").strip()},
+    }
+
+
+def _display_state_for_stream_run(
+    run: Any,
+    *,
+    public_events: list[dict[str, Any]],
+    frames: list[dict[str, Any]],
+    projection_anchor: dict[str, Any],
+) -> dict[str, str]:
+    has_task = bool(projection_anchor.get("task_run_id")) or any(
+        str(event.get("public_event_type") or "") in _TASK_ANCHOR_PUBLIC_EVENTS
+        for event in public_events
+    )
+    if not has_task:
+        return {"display_state": "normal_turn", "main_chat_surface": _BODY_ONLY_SURFACE}
+    status = str(getattr(run, "status", "") or "").strip().lower()
+    closed = status in _TERMINAL_RUN_STATUSES or any(
+        str(event.get("public_event_type") or "") in _TASK_CLOSED_PUBLIC_EVENTS
+        for event in public_events
+    ) or any(
+        str(frame.get("event_family") or "") in {"runtime_commit", "turn_anchor_terminal"}
+        and str(frame.get("state") or "").strip().lower() in {"done", "completed", "failed", "stopped", "skipped", "committed"}
+        for frame in frames
+    )
+    if closed:
+        return {"display_state": "task_closed", "main_chat_surface": _CLOSEOUT_SUMMARY_SURFACE}
+    return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
+
+
+def _tool_event_count(frames: list[dict[str, Any]]) -> int:
+    tool_call_ids = {
+        str(frame.get("tool_call_id") or "").strip()
+        for frame in frames
+        if str(frame.get("event_family") or "") == "tool_control" and str(frame.get("tool_call_id") or "").strip()
+    }
+    if tool_call_ids:
+        return len(tool_call_ids)
+    return sum(1 for frame in frames if str(frame.get("event_family") or "") == "tool_control")
+
+
+def _closeout_summary(*, public_events: list[dict[str, Any]], frames: list[dict[str, Any]]) -> str:
+    for frame in reversed(frames):
+        if str(frame.get("slot") or "") == "body" and str(frame.get("op") or "") == "body_finalize":
+            text = str(frame.get("text") or "").strip()
+            if text:
+                return text
+    for event in reversed(public_events):
+        public_event_type = str(event.get("public_event_type") or "").strip()
+        data = _dict_record(event.get("data"))
+        if public_event_type in {"session_output_commit_ack", "session_output_commit_failed", "session_output_commit_skipped"}:
+            summary = str(data.get("summary") or data.get("reason") or data.get("error") or "").strip()
+            if summary:
+                return summary
+        if public_event_type == "turn_completed":
+            summary = str(data.get("error_summary") or data.get("stopped_reason") or data.get("terminal_reason") or data.get("status") or "").strip()
+            if summary:
+                return f"任务已结束：{summary}"
+        if public_event_type == "task_bridge_terminal":
+            summary = str(data.get("terminal_reason") or data.get("completion_state") or data.get("status") or "").strip()
+            if summary:
+                return f"任务已收口：{summary}"
+    return "任务已结束，但没有可提交的正文。"
+
+
+def _latest_public_event_type(public_events: list[dict[str, Any]]) -> str:
+    latest = public_events[-1] if public_events else {}
+    return str(latest.get("public_event_type") or "")
 
 
 def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: list[Any], max_timeline_items: int) -> dict[str, Any]:
@@ -66,11 +345,6 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         anchor_message_id=anchor_message_id,
         task_run_id=task_run_id,
     )
-    public_projection_frames = _public_projection_frames_from_events(
-        runtime_host,
-        events,
-        projection_anchor=projection_anchor,
-    )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
         "run_id": task_run_id,
@@ -83,14 +357,16 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "latest_event_type": _latest_event_type(events),
         "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
         **({"session_output_commit": session_output_commit} if session_output_commit else {}),
+        "display_state": "log_only",
+        "main_chat_surface": _LOG_ONLY_SURFACE,
         "projection_anchor": projection_anchor,
-        "public_projection_frames": public_projection_frames,
+        "public_projection_frames": [],
         "artifact_refs": artifact_refs,
         "trace_available": True,
         "debug_trace_ref": task_run_id,
         "created_at": float(getattr(task_run, "created_at", 0.0) or 0.0),
         "updated_at": float(getattr(task_run, "updated_at", 0.0) or 0.0),
-        "authority": "session_runtime_timeline.attachment",
+        "authority": "session_runtime_timeline.trace_attachment",
     }
 
 
@@ -111,11 +387,6 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         anchor_message_id=anchor_message_id,
         turn_run_id=turn_run_id,
     )
-    public_projection_frames = _public_projection_frames_from_events(
-        runtime_host,
-        events,
-        projection_anchor=projection_anchor,
-    )
     return {
         "attachment_id": f"runtime-attachment:{turn_run_id}",
         "run_id": turn_run_id,
@@ -128,14 +399,16 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "status": status,
         "latest_event_type": _latest_event_type(events),
         "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
+        "display_state": "log_only",
+        "main_chat_surface": _LOG_ONLY_SURFACE,
         "projection_anchor": projection_anchor,
-        "public_projection_frames": public_projection_frames,
+        "public_projection_frames": [],
         "artifact_refs": [],
         "trace_available": True,
         "debug_trace_ref": turn_run_id,
         "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
-        "authority": "session_runtime_timeline.turn_attachment",
+        "authority": "session_runtime_timeline.turn_trace_attachment",
     }
 
 
@@ -164,143 +437,6 @@ def _projection_anchor(
         }.items()
         if value
     }
-
-
-def _public_anchor_for_frame(projection_anchor: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in {
-            "session_id": projection_anchor.get("session_id"),
-            "turn_id": projection_anchor.get("anchor_turn_id"),
-            "message_id": projection_anchor.get("anchor_message_id"),
-            "run_id": projection_anchor.get("run_id"),
-            "task_run_id": projection_anchor.get("task_run_id"),
-            "turn_run_id": projection_anchor.get("turn_run_id"),
-        }.items()
-        if value
-    }
-
-
-def _public_projection_frames_from_events(
-    runtime_host: Any,
-    events: list[dict[str, Any]],
-    *,
-    projection_anchor: dict[str, Any],
-) -> list[dict[str, Any]]:
-    if not events or not projection_anchor.get("anchor_turn_id"):
-        return []
-    try:
-        from api.chat import _project_public_stream_event
-    except Exception:
-        return []
-    session_id = str(projection_anchor.get("session_id") or "")
-    public_anchor = _public_anchor_for_frame(projection_anchor)
-    lifecycle_state = ProjectionLifecycleState()
-    frames: list[dict[str, Any]] = []
-    seen_frame_ids: set[str] = set()
-    for event_index, event in enumerate(events):
-        stream_event = _runtime_event_record_to_stream_event(runtime_host, event)
-        event_type = str(stream_event.get("type") or "").strip()
-        if not event_type:
-            continue
-        source_event = _dict_record(stream_event.get("event"))
-        source_event_id = str(source_event.get("event_id") or event.get("event_id") or "").strip()
-        source_offset = _int_value(source_event.get("offset") or event.get("offset"), fallback=event_index)
-        try:
-            public_events = list(_project_public_stream_event(event_type, stream_event))
-        except Exception:
-            public_events = []
-        for public_index, (public_event_type, data) in enumerate(public_events):
-            public_data = dict(data or {})
-            _apply_projection_anchor_to_public_data(
-                public_data,
-                projection_anchor=projection_anchor,
-                source_event_id=source_event_id,
-                source_offset=source_offset,
-            )
-            sequence = max(0, source_offset) * 10 + public_index
-            try:
-                frame = project_public_projection_event(
-                    public_event_type,
-                    public_data,
-                    session_id=session_id,
-                    sequence=sequence,
-                    public_anchor=public_anchor,
-                    lifecycle_state=lifecycle_state,
-                ).get("public_projection_frame")
-            except Exception:
-                continue
-            if not _history_public_projection_frame_allowed(frame):
-                continue
-            frame_id = str(dict(frame or {}).get("frame_id") or dict(frame or {}).get("projection_id") or "").strip()
-            if frame_id and frame_id in seen_frame_ids:
-                continue
-            if frame_id:
-                seen_frame_ids.add(frame_id)
-            frames.append(dict(frame))
-    return sorted(frames, key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or "")))
-
-
-def _runtime_event_record_to_stream_event(runtime_host: Any, event: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(event or {})
-    try:
-        payload_store = getattr(getattr(runtime_host, "event_log", None), "payload_store", None)
-        hydrated = payload_store.hydrate_event_payload(raw) if payload_store is not None else raw
-    except Exception:
-        hydrated = raw
-    event_type = str(hydrated.get("event_type") or raw.get("event_type") or "").strip()
-    return {"type": event_type, "event": hydrated}
-
-
-def _apply_projection_anchor_to_public_data(
-    data: dict[str, Any],
-    *,
-    projection_anchor: dict[str, Any],
-    source_event_id: str,
-    source_offset: int,
-) -> None:
-    session_id = str(projection_anchor.get("session_id") or "")
-    turn_id = str(projection_anchor.get("anchor_turn_id") or "")
-    message_id = str(projection_anchor.get("anchor_message_id") or "")
-    run_id = str(projection_anchor.get("run_id") or "")
-    task_run_id = str(projection_anchor.get("task_run_id") or "")
-    turn_run_id = str(projection_anchor.get("turn_run_id") or "")
-    if session_id:
-        data.setdefault("session_id", session_id)
-    if turn_id:
-        data.setdefault("turn_id", turn_id)
-        data.setdefault("active_turn_id", turn_id)
-    if message_id:
-        data.setdefault("message_id", message_id)
-        data.setdefault("message_ref", message_id)
-    if run_id:
-        data.setdefault("run_id", run_id)
-    if task_run_id:
-        data.setdefault("task_run_id", task_run_id)
-        data.setdefault("runtime_task_run_id", task_run_id)
-    if turn_run_id:
-        data.setdefault("turn_run_id", turn_run_id)
-    if source_event_id:
-        data.setdefault("runtime_event_id", source_event_id)
-        data.setdefault("source_task_event_id", source_event_id)
-    if source_offset >= 0:
-        data.setdefault("source_task_event_offset", source_offset)
-
-
-def _history_public_projection_frame_allowed(frame: Any) -> bool:
-    if not isinstance(frame, dict):
-        return False
-    family = str(frame.get("event_family") or "").strip()
-    slot = str(frame.get("slot") or "").strip()
-    source = str(frame.get("source_authority") or "").strip()
-    visibility = str(frame.get("main_visibility") or "").strip()
-    if slot == "body":
-        return True
-    if family in {"tool_control", "runtime_commit", "turn_anchor_terminal"}:
-        return True
-    if family == "status_trace" and source == "model":
-        return True
-    return visibility in {"visible_live", "visible_final", "pinned"}
 
 
 def _session_output_commit_state(events: list[dict[str, Any]], *, diagnostics: dict[str, Any], task_run: Any) -> dict[str, Any]:

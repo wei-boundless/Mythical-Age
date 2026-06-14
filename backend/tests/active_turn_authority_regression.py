@@ -55,7 +55,8 @@ def test_active_turn_resolve_clears_stopped_bound_task_run(tmp_path: Path) -> No
         session_id="session:test",
         task_id="task:stopped",
         execution_runtime_kind="single_agent_task",
-        status="stopped",  # type: ignore[arg-type]
+        status="aborted",
+        terminal_reason="user_aborted",
         created_at=1,
         updated_at=2,
     )
@@ -364,7 +365,6 @@ def test_waiting_executor_without_explicit_recovery_boundary_is_not_executable(t
         task_id="task:ambiguous-waiting",
         execution_runtime_kind="single_agent_task",
         status="waiting_executor",
-        terminal_reason="waiting_executor",
         created_at=1,
         updated_at=2,
     )
@@ -560,8 +560,8 @@ def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path)
     event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
-    assert any(event.get("type") == "active_work_control_observation" for event in events)
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "current_work_task_run_terminal" for event in events)
+    assert any(event.get("type") == "assistant_text_final" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
+    assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
     assert "active_task_steer_recorded" not in event_types
     assert model.calls >= 2
 
@@ -596,7 +596,6 @@ def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing
             task_id="task:old-waiting",
             execution_runtime_kind="single_agent_task",
             status="waiting_executor",
-            terminal_reason="waiting_executor",
             created_at=1,
             updated_at=2,
             diagnostics={"recovery_action": "rerun_task_executor", "recoverable_error": {"retryable": True}},

@@ -375,8 +375,9 @@ def test_runtime_start_recovery_marks_network_interrupted_executor_resumable() -
     assert result["recovered_count"] == 1
     assert result["task_run_ids"] == [task_run_id]
     assert recovered.status == "waiting_executor"
-    assert recovered.terminal_reason == "waiting_executor"
+    assert recovered.terminal_reason == ""
     assert dict(recovered.diagnostics)["executor_status"] == "waiting_executor"
+    assert dict(recovered.diagnostics)["wait_reason"] == "task_executor_interrupted_by_runtime_restart"
     assert dict(recovered.diagnostics)["recovery_action"] == "rerun_task_executor"
     assert dict(dict(recovered.diagnostics)["recoverable_error"])["error_code"] == "task_executor_interrupted_by_runtime_restart"
     assert "task_run_executor_recovered_after_runtime_start" in events

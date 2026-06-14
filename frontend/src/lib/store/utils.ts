@@ -122,10 +122,10 @@ export function toUiMessages(history: SessionHistory["messages"]) {
       const toolCalls = (message.tool_calls ?? [])
         .map(sanitizeToolCall)
         .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
-      if (message.role === "assistant" && toolCalls.length > 0) {
+      const content = message.content ?? "";
+      if (message.role === "assistant" && toolCalls.length > 0 && !content.trim()) {
         return null;
       }
-      const content = message.content ?? "";
       if (message.role === "assistant" && looksLikeSkillDocument(content) && toolCalls.length === 0) {
         return null;
       }

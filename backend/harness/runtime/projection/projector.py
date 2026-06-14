@@ -669,7 +669,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
             "source_authority": "runtime",
             "main_visibility": "hidden",
             "retention": "trace",
-            "frame_id": stable_id("runtime-step-frame", _runtime_stage_status_item_id(data), title, detail),
+            "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
             "item_id": stable_id(
                 "runtime-step",
                 data.get("runtime_event_id"),
@@ -690,7 +690,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
         "source_authority": "model" if presentation_source.startswith("model_action.") else "runtime",
         "main_visibility": "visible_live" if title or detail else "hidden",
         "retention": "transient",
-        "frame_id": stable_id("runtime-step-frame", _runtime_stage_status_item_id(data), title, detail),
+        "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
         "item_id": _runtime_stage_status_item_id(data),
         "title": title,
         "text": title,
@@ -700,7 +700,19 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _runtime_stage_status_frame_id(data: dict[str, Any], *, title: str, detail: str) -> str:
+    presentation_source = text(data.get("presentation_source"))
+    feedback_identity = text(data.get("feedback_identity"))
+    if presentation_source.startswith("model_action.") and feedback_identity:
+        return stable_id("runtime-step-frame", "model-action-feedback", feedback_identity)
+    return stable_id("runtime-step-frame", _runtime_stage_status_item_id(data), title, detail)
+
+
 def _runtime_stage_status_item_id(data: dict[str, Any]) -> str:
+    presentation_source = text(data.get("presentation_source"))
+    feedback_identity = text(data.get("feedback_identity"))
+    if presentation_source.startswith("model_action.") and feedback_identity:
+        return stable_id("model-action-feedback", feedback_identity)
     anchor = record(data.get("public_anchor"))
     task_run_id = text(data.get("task_run_id")) or text(anchor.get("task_run_id")) or text(data.get("runtime_task_run_id"))
     if task_run_id:

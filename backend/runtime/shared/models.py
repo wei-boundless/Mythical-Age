@@ -15,6 +15,19 @@ TaskRunStatus = Literal[
     "aborted",
 ]
 
+CANONICAL_TASK_RUN_STATUSES = frozenset(
+    {
+        "created",
+        "running",
+        "waiting_executor",
+        "waiting_approval",
+        "blocked",
+        "completed",
+        "failed",
+        "aborted",
+    }
+)
+
 RuntimeTransition = Literal[
     "start",
     "next_turn",
@@ -58,6 +71,8 @@ AgentRunStatus = Literal[
     "killed",
 ]
 
+CANONICAL_AGENT_RUN_STATUSES = frozenset({"pending", "running", "completed", "failed", "killed"})
+
 ProjectRuntimeHealth = Literal[
     "healthy",
     "watching",
@@ -98,6 +113,8 @@ class TaskRun:
             raise ValueError("TaskRun requires session_id")
         if not self.task_id:
             raise ValueError("TaskRun requires task_id")
+        if self.status not in CANONICAL_TASK_RUN_STATUSES:
+            raise ValueError(f"TaskRun status must be canonical: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -133,6 +150,8 @@ class TurnRun:
             raise ValueError("TurnRun requires session_id")
         if not self.turn_id:
             raise ValueError("TurnRun requires turn_id")
+        if self.status not in CANONICAL_TASK_RUN_STATUSES:
+            raise ValueError(f"TurnRun status must be canonical: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -168,6 +187,8 @@ class AgentRun:
             raise ValueError("AgentRun requires task_run_id")
         if not self.agent_id:
             raise ValueError("AgentRun requires agent_id")
+        if self.status not in CANONICAL_AGENT_RUN_STATUSES:
+            raise ValueError(f"AgentRun status must be canonical: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -198,6 +219,8 @@ class AgentRunResult:
             raise ValueError("AgentRunResult requires agent_run_id")
         if not self.task_run_id:
             raise ValueError("AgentRunResult requires task_run_id")
+        if self.status not in CANONICAL_AGENT_RUN_STATUSES:
+            raise ValueError(f"AgentRunResult status must be canonical: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

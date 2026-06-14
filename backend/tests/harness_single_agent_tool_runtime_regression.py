@@ -108,7 +108,7 @@ def test_single_agent_turn_projection_requires_json_action_and_hides_native_cont
     assert getattr(model.seen_tool_call_options[0], "parallel_tool_calls", None) is True
 
 def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_followup_answers(tmp_path: Path) -> None:
-    from runtime.memory.file_state_store import session_file_evidence_scope
+    from runtime.memory.file_evidence_scope import session_file_evidence_scope
 
     model = NativeToolCallSequenceModelRuntimeStub(
         [

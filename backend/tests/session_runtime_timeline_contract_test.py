@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from harness.runtime.projection.projector import project_public_projection_event
 from harness.runtime.session_timeline import build_session_runtime_timeline
+from runtime.output_stream.public_contract import (
+    ASSISTANT_TEXT_FINAL_EVENT,
+    SESSION_OUTPUT_COMMIT_ACK_EVENT,
+    TOOL_CALL_REQUESTED_EVENT,
+)
 
 
 class _Event:
@@ -39,46 +45,117 @@ class _StateIndex:
         return [run for run in self._turn_runs if run.session_id == session_id]
 
 
-def _runtime_host(*, task_runs: list[SimpleNamespace], events_by_run: dict[str, list[dict]], turn_runs: list[SimpleNamespace] | None = None):
+class _RunRegistry:
+    def __init__(self, runs: list[SimpleNamespace] | None = None) -> None:
+        self._runs = list(runs or [])
+
+    def list_session_runs(self, session_id: str) -> list[SimpleNamespace]:
+        return [run for run in self._runs if run.session_id == session_id]
+
+
+class _StreamReplay:
+    def __init__(self, records_by_run: dict[str, list[dict]] | None = None) -> None:
+        self.records_by_run = dict(records_by_run or {})
+
+    def list_public_event_records(self, run: SimpleNamespace) -> list[dict]:
+        return list(self.records_by_run.get(run.stream_run_id, []))
+
+
+def _runtime_host(
+    *,
+    task_runs: list[SimpleNamespace],
+    events_by_run: dict[str, list[dict]],
+    turn_runs: list[SimpleNamespace] | None = None,
+    stream_runs: list[SimpleNamespace] | None = None,
+    public_events_by_stream_run: dict[str, list[dict]] | None = None,
+):
     return SimpleNamespace(
         state_index=_StateIndex(task_runs=task_runs, turn_runs=turn_runs),
         event_log=_EventLog(events_by_run),
+        run_registry=_RunRegistry(stream_runs),
+        stream_replay=_StreamReplay(public_events_by_stream_run),
     )
 
 
-def test_session_runtime_timeline_attachment_replays_public_projection_frames() -> None:
+def _public_ledger_record(
+    public_event_type: str,
+    data: dict,
+    *,
+    offset: int,
+    session_id: str = "session-a",
+    turn_id: str = "turn:session-a:1",
+    stream_run_id: str = "strun:session-a:1",
+    task_run_id: str = "taskrun:turn:session-a:1:abc",
+    message_id: str = "history-message:turn:session-a:1:assistant",
+) -> dict:
+    payload = {
+        **data,
+        "public_anchor": {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "stream_run_id": stream_run_id,
+            "task_run_id": task_run_id,
+            "message_id": message_id,
+        },
+    }
+    frame = project_public_projection_event(
+        public_event_type,
+        payload,
+        session_id=session_id,
+        sequence=offset,
+    )["public_projection_frame"]
+    return {
+        "stream_run_id": stream_run_id,
+        "event_log_id": f"chatrun:{session_id}:1",
+        "event_id": f"event:{offset}",
+        "event_offset": offset,
+        "created_at": float(offset),
+        "public_event_type": public_event_type,
+        "terminal": public_event_type == SESSION_OUTPUT_COMMIT_ACK_EVENT,
+        "data": {**data, "public_projection_frame": frame},
+        "public_projection_frame": frame,
+    }
+
+
+def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surface() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
-    task_run = SimpleNamespace(
-        task_run_id=task_run_id,
+    stream_run_id = "strun:session-a:1"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
         session_id="session-a",
-        task_id="task:turn:session-a:1",
+        event_log_id="chatrun:session-a:1",
         status="completed",
-        terminal_reason="completed",
-        diagnostics={"turn_id": "turn:session-a:1"},
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
         created_at=1.0,
         updated_at=3.0,
     )
     runtime_host = _runtime_host(
-        task_runs=[task_run],
-        events_by_run={
-            task_run_id: [
-                {
-                    "event_id": "event:commit",
-                    "event_type": "session_output_commit_ack",
-                    "run_id": task_run_id,
-                    "offset": 7,
-                    "created_at": 3.0,
-                    "payload": {
-                        "session_id": "session-a",
-                        "turn_id": "turn:session-a:1",
-                        "task_run_id": task_run_id,
-                        "task_id": "task:turn:session-a:1",
-                        "state": "committed",
-                        "anchor_message_id": "history-message:turn:session-a:1:assistant",
-                        "content_sha256": "sha256:final",
-                    },
-                    "refs": {"turn_ref": "turn:session-a:1", "task_run_ref": task_run_id},
-                }
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    TOOL_CALL_REQUESTED_EVENT,
+                    {"tool_call_id": "call:read", "tool_name": "read_file", "target": "README.md"},
+                    offset=1,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
+                _public_ledger_record(
+                    ASSISTANT_TEXT_FINAL_EVENT,
+                    {"content": "done"},
+                    offset=2,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
+                _public_ledger_record(
+                    SESSION_OUTPUT_COMMIT_ACK_EVENT,
+                    {"state": "committed", "content_sha256": "sha256:final"},
+                    offset=3,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
             ]
         },
     )
@@ -95,16 +172,65 @@ def test_session_runtime_timeline_attachment_replays_public_projection_frames() 
     )
 
     attachment = timeline["runtime_attachments"][0]
-    assert attachment["task_run_id"] == task_run_id
-    assert attachment["session_output_commit"]["state"] == "committed"
-    assert attachment["session_output_commit"]["commit_event_offset"] == 7
+    assert attachment["stream_run_id"] == stream_run_id
+    assert attachment["event_log_id"] == "chatrun:session-a:1"
+    assert attachment["display_state"] == "task_closed"
+    assert attachment["main_chat_surface"] == "closeout_summary"
+    assert attachment["closeout_summary"] == "done"
+    assert attachment["tool_event_count"] == 1
+    assert attachment["log_ref"] == "chatrun:session-a:1"
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:1"
     assert attachment["projection_anchor"]["anchor_message_id"] == "history-message:turn:session-a:1:assistant"
-    assert attachment["public_projection_frames"]
-    assert attachment["public_projection_frames"][0]["event_family"] == "runtime_commit"
+    assert [frame["event_family"] for frame in attachment["public_projection_frames"]] == [
+        "tool_control",
+        "assistant_body",
+        "runtime_commit",
+    ]
     assert "public_timeline" not in attachment
     assert "task_projection" not in attachment
     assert "public_projection_status" not in attachment
+
+
+def test_session_runtime_timeline_running_task_replays_live_timeline_surface() -> None:
+    task_run_id = "taskrun:turn:session-a:1:abc"
+    stream_run_id = "strun:session-a:1"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:1",
+        status="running",
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    TOOL_CALL_REQUESTED_EVENT,
+                    {"tool_call_id": "call:read", "tool_name": "read_file", "target": "README.md"},
+                    offset=1,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                )
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "run", "turn_id": "turn:session-a:1"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["display_state"] == "task_live"
+    assert attachment["main_chat_surface"] == "live_timeline"
+    assert attachment["public_projection_frames"][0]["tool_call_id"] == "call:read"
+    assert attachment["tool_event_count"] == 1
 
 
 def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projection_fields() -> None:
@@ -145,7 +271,9 @@ def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projecti
     attachment = timeline["runtime_attachments"][0]
     assert attachment["run_id"] == turn_run_id
     assert attachment["trace_available"] is True
+    assert attachment["display_state"] == "log_only"
+    assert attachment["main_chat_surface"] == "log_only"
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:2"
-    assert "public_projection_frames" in attachment
+    assert attachment["public_projection_frames"] == []
     assert "public_timeline" not in attachment
     assert "task_projection" not in attachment

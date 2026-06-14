@@ -40,6 +40,11 @@ export type Message = {
   runtimeProgress?: RuntimeProgressEntry[];
   projectionLedger?: ProjectionLedger;
   publicProjection?: MessagePublicProjection;
+  runtimeDisplayState?: "normal_turn" | "task_live" | "task_closed" | "log_only" | string;
+  mainChatSurface?: "body_only" | "live_timeline" | "closeout_summary" | "log_only" | string;
+  closeoutSummary?: string;
+  runtimeLogRef?: string;
+  toolEventCount?: number;
   stageStatus?: string;
   sourceIndex?: number;
   sourceTurnId?: string;

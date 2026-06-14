@@ -38,6 +38,7 @@ from project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat_direct_routes import run_direct_system_route
 from harness.task_run_status import is_stopped_or_terminal_task_run
+from harness.task_run_state_view import task_run_state_view
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
@@ -1108,11 +1109,18 @@ class HarnessRuntimeFacade:
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None
         control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}
-        control_state = str(dict(control or {}).get("state") or "")
+        view = task_run_state_view(task_run)
+        control_state = str(view.get("control_state") or dict(control or {}).get("state") or "")
         recovery_state = recovery_state_for_task_run(task_run)
-        same_run_allowed = bool(recovery_state.same_run_resumable)
-        running = status in {"created", "running"}
-        continuation_kind = "paused" if control_state == "paused" else ("active" if running else "waiting")
+        same_run_allowed = bool(view.get("can_resume") or recovery_state.same_run_resumable)
+        running = bool(view.get("running_claimed") or view.get("task_work_state") == "active")
+        work_state = str(view.get("task_work_state") or "")
+        if control_state == "paused" or work_state == "paused":
+            continuation_kind = "paused"
+        elif running:
+            continuation_kind = "active"
+        else:
+            continuation_kind = "waiting"
         contract = {}
         try:
             contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(str(getattr(task_run, "task_contract_ref", "") or "")) or {})
@@ -1137,9 +1145,9 @@ class HarnessRuntimeFacade:
                 or ""
             ).strip(),
             latest_step_name=str(diagnostics.get("latest_step") or ""),
-            resumable=same_run_allowed,
+            resumable=bool(view.get("can_resume") or same_run_allowed),
             running=running,
-            paused=control_state == "paused",
+            paused=control_state == "paused" or work_state == "paused",
             queued_user_instruction_count=int(diagnostics.get("pending_user_steer_count") or 0),
             execution_runtime_kind=str(getattr(task_run, "execution_runtime_kind", "") or ""),
             continuation_kind=continuation_kind,
@@ -1788,7 +1796,7 @@ class HarnessRuntimeFacade:
             context_scope="graph_node_work_order",
             execution_runtime_kind="single_agent_task",
             parent_agent_run_ref=work_order.graph_run_id,
-            status="waiting_executor",
+            status="pending",
             created_at=now,
             updated_at=now,
             diagnostics={

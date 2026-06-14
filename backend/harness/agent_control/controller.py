@@ -327,7 +327,7 @@ class SubagentControl:
                 context_scope=str(value.get("context_scope") or "task_default"),
                 execution_runtime_kind=str(value.get("execution_runtime_kind") or ""),
                 parent_agent_run_ref=str(value.get("parent_agent_run_ref") or ""),
-                status=value.get("status", "pending"),
+                status=_canonical_agent_run_status(value.get("status", "pending")),
                 latest_checkpoint_ref=str(value.get("latest_checkpoint_ref") or ""),
                 result_ref=str(value.get("result_ref") or ""),
                 created_at=float(value.get("created_at") or 0.0),
@@ -507,6 +507,28 @@ def _child_status_summary(task_run: Any) -> str:
     if terminal_reason:
         return f"subagent task status: {status}, reason: {terminal_reason}"
     return f"subagent task status: {status}"
+
+
+def _canonical_agent_run_status(value: Any) -> str:
+    status = str(value or "pending").strip()
+    aliases = {
+        "created": "pending",
+        "waiting_executor": "pending",
+        "waiting_approval": "running",
+        "blocked": "failed",
+        "aborted": "killed",
+        "cancelled": "killed",
+        "canceled": "killed",
+        "stopped": "killed",
+        "error": "failed",
+        "success": "completed",
+        "succeeded": "completed",
+        "done": "completed",
+    }
+    normalized = aliases.get(status, status)
+    if normalized not in {"pending", "running", "completed", "failed", "killed"}:
+        raise ValueError(f"AgentRun status must be canonical: {status}")
+    return normalized
 
 
 def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, reason: str) -> dict[str, Any]:

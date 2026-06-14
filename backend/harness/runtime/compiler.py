@@ -36,7 +36,8 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from agent_system.identity import normalize_agent_id_sequence
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope
+from runtime.memory.file_evidence_scope import session_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 

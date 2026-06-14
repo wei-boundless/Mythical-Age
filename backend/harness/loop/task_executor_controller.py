@@ -215,10 +215,11 @@ class TaskExecutorController:
                 status="waiting_executor",
                 updated_at=event.created_at,
                 latest_event_offset=event.offset,
-                terminal_reason="waiting_executor",
+                terminal_reason="",
                 diagnostics={
                     **_strip_terminal_diagnostics(diagnostics),
                     "executor_status": "waiting_executor",
+                    "wait_reason": "task_executor_interrupted_by_runtime_restart",
                     "latest_step": "task_executor_recovered_after_runtime_start",
                     "latest_step_status": "waiting_executor",
                     "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",

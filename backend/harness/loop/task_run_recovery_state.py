@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from harness.task_run_state_view import task_run_state_view
+from harness.task_run_status import COMPLETED_TASK_RUN_STATUSES, normalize_task_run_status
 
 from .task_tool_approval import matching_approval_grant_for_pending
 
@@ -11,8 +12,6 @@ from .task_tool_approval import matching_approval_grant_for_pending
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
 REPLAN_CONTROL_STATES = {"replan_requested", "interrupted_for_replan"}
-TERMINAL_COMPLETED_STATUSES = {"completed", "success"}
-
 
 @dataclass(frozen=True, slots=True)
 class TaskRunRecoveryState:
@@ -34,7 +33,7 @@ class TaskRunRecoveryState:
 
 
 def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
-    status = str(getattr(task_run, "status", "") or "").strip()
+    status = normalize_task_run_status(getattr(task_run, "status", "") or "")
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     executor_status = str(diagnostics.get("executor_status") or "").strip()
@@ -46,7 +45,7 @@ def recovery_state_for_task_run(task_run: Any) -> TaskRunRecoveryState:
     task_work_state = str(view.get("task_work_state") or "")
     stopped = task_work_state == "stopped"
     paused = task_work_state == "paused" or control_state in PAUSE_CONTROL_STATES
-    completed_iteration = task_work_state == "completed" or status in TERMINAL_COMPLETED_STATUSES
+    completed_iteration = task_work_state == "completed" or status in COMPLETED_TASK_RUN_STATUSES
     running_claimed = bool(view.get("running_claimed"))
     active_executable = bool(task_work_state == "active" and not graph_controlled)
 

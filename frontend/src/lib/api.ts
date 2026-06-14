@@ -431,6 +431,8 @@ export type TaskEnvironmentSessionResolveResponse = {
 export type SessionRuntimeAttachment = {
   attachment_id: string;
   run_id: string;
+  stream_run_id?: string;
+  event_log_id?: string;
   anchor_turn_id: string;
   anchor_message_id?: string;
   anchor_role?: "assistant" | string;
@@ -445,12 +447,19 @@ export type SessionRuntimeAttachment = {
   summary?: string;
   latest_event_type?: string;
   event_count?: number;
+  display_state?: "normal_turn" | "task_live" | "task_closed" | "log_only" | string;
+  main_chat_surface?: "body_only" | "live_timeline" | "closeout_summary" | "log_only" | string;
+  tool_event_count?: number;
+  closeout_summary?: string;
+  log_ref?: string;
   session_output_commit?: RuntimeMonitorSignal["session_output_commit"];
   projection_anchor?: {
     session_id?: string;
     anchor_turn_id?: string;
     anchor_message_id?: string;
     run_id?: string;
+    stream_run_id?: string;
+    event_log_id?: string;
     task_run_id?: string;
     turn_run_id?: string;
   };

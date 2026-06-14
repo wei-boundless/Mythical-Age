@@ -16,7 +16,8 @@ from harness.runtime.assembly import assemble_runtime
 from harness.runtime.dynamic_context.manager import DynamicContextManager
 from harness.runtime.dynamic_context.models import DynamicContextInput
 from orchestration.runtime_directive import RuntimeDirective
-from runtime.memory.file_state_store import FileStateAuthorityStore, session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.shared.action_request import RuntimeActionRequest
 from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
@@ -223,6 +224,58 @@ def test_native_read_file_session_scope_omits_unchanged_window(tmp_path: Path) -
     assert tool_result["content_omitted"] is True
     assert tool_result["previous_observation_ref"] == "obs:session-first-read"
     assert "alpha" not in second.text
+
+
+def test_native_read_file_does_not_infer_evidence_scope_from_session_id(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    (workspace / "notes.txt").write_text("alpha\nbeta\ngamma", encoding="utf-8")
+    definition = get_tool_definition_map()["read_file"]
+    tool = build_native_runtime_tool(capability_definition=definition)
+    assert tool is not None
+    scope = session_file_evidence_scope("session:read-file-explicit-scope")
+
+    first = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2},
+            ToolUseContext(
+                workspace_root=workspace,
+                caller_kind="agent_turn",
+                caller_ref="turnrun:session-read",
+                session_id="session:read-file-explicit-scope",
+                tool_call_id="call:session-read-1",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    FileStateAuthorityStore(runtime_state).apply_events_scope(
+        scope,
+        first.file_state_events,
+        observation_ref="obs:session-first-read",
+        tool_call_id="call:session-read-1",
+    )
+
+    second = asyncio.run(
+        tool.call(
+            {"path": "notes.txt", "start_line": 1, "line_count": 2},
+            ToolUseContext(
+                workspace_root=workspace,
+                caller_kind="agent_turn",
+                caller_ref="turnrun:session-read",
+                session_id="session:read-file-explicit-scope",
+                tool_call_id="call:session-read-2",
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    tool_result = second.structured_payload["tool_result"]
+
+    assert "file_unchanged" not in tool_result
+    assert "content_omitted" not in tool_result
+    assert second.text == "1 | alpha\n2 | beta"
 
 
 def test_task_run_read_file_commits_file_state_and_dynamic_context_projects_injected_state(tmp_path: Path) -> None:

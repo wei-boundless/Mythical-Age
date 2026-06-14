@@ -11,6 +11,8 @@ from typing import Any
 from ..shared.models import (
     AgentRun,
     AgentRunResult,
+    CANONICAL_AGENT_RUN_STATUSES,
+    CANONICAL_TASK_RUN_STATUSES,
     ProjectProgressLedger,
     ProjectRuntimeStatus,
     SupervisionRecord,
@@ -27,6 +29,35 @@ GLOBAL_RECENT_TASK_RUN_INDEX_ID = "default"
 GLOBAL_RECENT_TASK_RUN_LIMIT = 240
 ACTIVE_EXECUTOR_TASK_RUN_INDEX_ID = "default"
 TASK_RUN_SUMMARY_AUTHORITY = "orchestration.task_run.monitor_summary"
+
+LEGACY_TASK_RUN_STATUS_ALIASES = {
+    "success": "completed",
+    "succeeded": "completed",
+    "done": "completed",
+    "error": "failed",
+    "cancelled": "aborted",
+    "canceled": "aborted",
+    "stopped": "aborted",
+    "user_aborted": "aborted",
+    "blocked_expired": "aborted",
+    "runtime_retention_expired": "aborted",
+    "approval_expired": "aborted",
+}
+
+LEGACY_AGENT_RUN_STATUS_ALIASES = {
+    "created": "pending",
+    "waiting_executor": "pending",
+    "waiting_approval": "running",
+    "blocked": "failed",
+    "aborted": "killed",
+    "cancelled": "killed",
+    "canceled": "killed",
+    "stopped": "killed",
+    "error": "failed",
+    "success": "completed",
+    "succeeded": "completed",
+    "done": "completed",
+}
 
 
 TASK_RUN_SUMMARY_DIAGNOSTIC_KEYS = {
@@ -1442,7 +1473,7 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         agent_id=str(payload.get("agent_id") or "agent:0"),
         agent_profile_id=str(payload.get("agent_profile_id") or "main_interactive_agent"),
         execution_runtime_kind=str(payload.get("execution_runtime_kind") or ""),
-        status=payload.get("status", "created"),
+        status=_canonical_task_run_status(payload.get("status", "created")),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         latest_event_offset=int(payload.get("latest_event_offset", -1)),
@@ -1450,6 +1481,22 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         terminal_reason=payload.get("terminal_reason", ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
+
+
+def _canonical_task_run_status(value: Any) -> str:
+    status = str(value or "created").strip()
+    normalized = LEGACY_TASK_RUN_STATUS_ALIASES.get(status, status)
+    if normalized not in CANONICAL_TASK_RUN_STATUSES:
+        raise ValueError(f"TaskRun status is not canonical: {status}")
+    return normalized
+
+
+def _canonical_agent_run_status(value: Any) -> str:
+    status = str(value or "pending").strip()
+    normalized = LEGACY_AGENT_RUN_STATUS_ALIASES.get(status, status)
+    if normalized not in CANONICAL_AGENT_RUN_STATUSES:
+        raise ValueError(f"AgentRun status is not canonical: {status}")
+    return normalized
 
 
 def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1463,7 +1510,7 @@ def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]
         "agent_id": str(payload.get("agent_id") or "agent:0"),
         "agent_profile_id": str(payload.get("agent_profile_id") or "main_interactive_agent"),
         "execution_runtime_kind": str(payload.get("execution_runtime_kind") or ""),
-        "status": payload.get("status", "created"),
+        "status": _canonical_task_run_status(payload.get("status", "created")),
         "created_at": float(payload.get("created_at") or 0.0),
         "updated_at": float(payload.get("updated_at") or 0.0),
         "latest_event_offset": int(payload.get("latest_event_offset", -1)),
@@ -1550,8 +1597,8 @@ def _monitor_summary_text(value: Any, *, limit: int) -> str:
 def _is_active_executor_task_run_payload(payload: dict[str, Any]) -> bool:
     if str(payload.get("execution_runtime_kind") or "") not in {"single_agent_task", "subagent_task"}:
         return False
-    status = str(payload.get("status") or "").strip()
-    if status in {"completed", "success", "failed", "error", "aborted", "cancelled", "canceled", "stopped"}:
+    status = _canonical_task_run_status(payload.get("status") or "")
+    if status in {"completed", "failed", "aborted"}:
         return False
     diagnostics = dict(payload.get("diagnostics") or {})
     origin = dict(diagnostics.get("origin") or {}) if isinstance(diagnostics.get("origin"), dict) else {}
@@ -1662,7 +1709,7 @@ def _agent_run_from_payload(payload: dict[str, Any]) -> AgentRun:
         context_scope=str(payload.get("context_scope") or "task_default"),
         execution_runtime_kind=str(payload.get("execution_runtime_kind") or ""),
         parent_agent_run_ref=str(payload.get("parent_agent_run_ref") or ""),
-        status=payload.get("status", "pending"),
+        status=_canonical_agent_run_status(payload.get("status", "pending")),
         latest_checkpoint_ref=str(payload.get("latest_checkpoint_ref") or ""),
         result_ref=str(payload.get("result_ref") or ""),
         created_at=float(payload.get("created_at") or 0.0),
@@ -1677,7 +1724,7 @@ def _agent_run_result_from_payload(payload: dict[str, Any]) -> AgentRunResult:
         agent_run_id=str(payload.get("agent_run_id") or ""),
         task_run_id=str(payload.get("task_run_id") or ""),
         agent_id=str(payload.get("agent_id") or ""),
-        status=payload.get("status", "completed"),
+        status=_canonical_agent_run_status(payload.get("status", "completed")),
         output_ref=str(payload.get("output_ref") or ""),
         summary=str(payload.get("summary") or ""),
         artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or []) if str(item)),

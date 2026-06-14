@@ -93,8 +93,14 @@ function hydrateSessionRuntimeProjection(
   messages: Message[],
   attachments: SessionRuntimeAttachment[] | undefined,
 ) {
+  const runtimeAttachments = (attachments ?? [])
+    .filter((attachment) => runtimeAttachmentSurface(attachment) !== "log_only");
   const frames: PublicProjectionFrame[] = [];
+  let hydratedMessages = messages;
   for (const attachment of attachments ?? []) {
+    if (runtimeAttachmentSurface(attachment) !== "live_timeline") {
+      continue;
+    }
     for (const record of attachment.public_projection_frames ?? []) {
       const frame = publicProjectionFrameFromRecord(record);
       if (!frame) continue;
@@ -103,12 +109,165 @@ function hydrateSessionRuntimeProjection(
       frames.push(anchoredFrame);
     }
   }
-  if (!frames.length) return messages;
-  const orderedFrames = [...frames].sort((left, right) =>
-    Number(left.event_offset ?? left.sequence ?? 0) - Number(right.event_offset ?? right.sequence ?? 0)
-    || String(left.frame_id || left.projection_id || "").localeCompare(String(right.frame_id || right.projection_id || ""))
-  );
-  return applyPublicProjectionFramesToMessages(messages, orderedFrames);
+  if (frames.length) {
+    const orderedFrames = [...frames].sort((left, right) =>
+      Number(left.event_offset ?? left.sequence ?? 0) - Number(right.event_offset ?? right.sequence ?? 0)
+      || String(left.frame_id || left.projection_id || "").localeCompare(String(right.frame_id || right.projection_id || ""))
+    );
+    hydratedMessages = applyPublicProjectionFramesToMessages(hydratedMessages, orderedFrames);
+  }
+  for (const attachment of runtimeAttachments) {
+    hydratedMessages = applyRuntimeAttachmentDisplayState(hydratedMessages, attachment);
+  }
+  return hydratedMessages;
+}
+
+function runtimeAttachmentSurface(attachment: SessionRuntimeAttachment) {
+  const surface = runtimeText(attachment.main_chat_surface).toLowerCase();
+  if (surface === "body_only" || surface === "live_timeline" || surface === "closeout_summary" || surface === "log_only") {
+    return surface;
+  }
+  const displayState = runtimeText(attachment.display_state).toLowerCase();
+  if (displayState === "normal_turn") return "body_only";
+  if (displayState === "task_live") return "live_timeline";
+  if (displayState === "task_closed") return "closeout_summary";
+  return "log_only";
+}
+
+function runtimeAttachmentDisplayState(attachment: SessionRuntimeAttachment) {
+  const displayState = runtimeText(attachment.display_state).toLowerCase();
+  if (displayState === "normal_turn" || displayState === "task_live" || displayState === "task_closed" || displayState === "log_only") {
+    return displayState;
+  }
+  const surface = runtimeAttachmentSurface(attachment);
+  if (surface === "body_only") return "normal_turn";
+  if (surface === "live_timeline") return "task_live";
+  if (surface === "closeout_summary") return "task_closed";
+  return "log_only";
+}
+
+function applyRuntimeAttachmentDisplayState(
+  messages: Message[],
+  attachment: SessionRuntimeAttachment,
+): Message[] {
+  const surface = runtimeAttachmentSurface(attachment);
+  if (surface === "log_only") {
+    return messages;
+  }
+  const displayState = runtimeAttachmentDisplayState(attachment);
+  const targetIndex = runtimeAttachmentMessageIndex(messages, attachment);
+  const ensuredMessages = targetIndex >= 0 || surface !== "closeout_summary"
+    ? messages
+    : ensureCloseoutRuntimeMessage(messages, attachment);
+  const index = targetIndex >= 0 ? targetIndex : runtimeAttachmentMessageIndex(ensuredMessages, attachment);
+  if (index < 0) {
+    return ensuredMessages;
+  }
+  const nextMessages = [...ensuredMessages];
+  const message = nextMessages[index];
+  const closeoutSummary = runtimeText(attachment.closeout_summary);
+  const toolEventCount = runtimeNumber(attachment.tool_event_count);
+  const runtimeLogRef = runtimeText(attachment.log_ref || attachment.task_run_id || attachment.turn_run_id || attachment.event_log_id);
+  nextMessages[index] = {
+    ...message,
+    runtimeDisplayState: displayState,
+    mainChatSurface: surface,
+    closeoutSummary: surface === "closeout_summary" ? closeoutSummary || message.closeoutSummary : message.closeoutSummary,
+    runtimeLogRef: runtimeLogRef || message.runtimeLogRef,
+    toolEventCount: toolEventCount ?? message.toolEventCount,
+    sourceStreamRunId: message.sourceStreamRunId || runtimeText(attachment.stream_run_id) || undefined,
+    sourceRunId: message.sourceRunId || runtimeText(attachment.run_id) || undefined,
+    sourceTaskRunId: message.sourceTaskRunId || runtimeText(attachment.task_run_id) || undefined,
+    sourceTurnRunId: message.sourceTurnRunId || runtimeText(attachment.turn_run_id) || undefined,
+    sourceTurnId: message.sourceTurnId || runtimeAttachmentTurnId(attachment) || undefined,
+  };
+  return nextMessages;
+}
+
+function runtimeAttachmentMessageIndex(messages: Message[], attachment: SessionRuntimeAttachment) {
+  const messageId = runtimeAttachmentMessageId(attachment);
+  if (messageId) {
+    const index = messages.findIndex((message) => message.role === "assistant" && message.id === messageId);
+    if (index >= 0) return index;
+  }
+  const turnId = runtimeAttachmentTurnId(attachment);
+  if (turnId) {
+    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTurnId === turnId);
+    if (index >= 0) return index;
+  }
+  const taskRunId = runtimeText(attachment.task_run_id || attachment.projection_anchor?.task_run_id);
+  if (taskRunId) {
+    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTaskRunId === taskRunId);
+    if (index >= 0) return index;
+  }
+  const turnRunId = runtimeText(attachment.turn_run_id || attachment.projection_anchor?.turn_run_id);
+  if (turnRunId) {
+    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTurnRunId === turnRunId);
+    if (index >= 0) return index;
+  }
+  const streamRunId = runtimeText(attachment.stream_run_id || attachment.projection_anchor?.stream_run_id);
+  if (streamRunId) {
+    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceStreamRunId === streamRunId);
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+function ensureCloseoutRuntimeMessage(messages: Message[], attachment: SessionRuntimeAttachment) {
+  const turnId = runtimeAttachmentTurnId(attachment);
+  const closeoutSummary = runtimeText(attachment.closeout_summary);
+  if (!turnId || !closeoutSummary) {
+    return messages;
+  }
+  const userIndex = messages.findIndex((message) => message.role === "user" && message.sourceTurnId === turnId);
+  if (userIndex < 0) {
+    return messages;
+  }
+  const userMessage = messages[userIndex];
+  const id = runtimeAttachmentMessageId(attachment) || `history-message:${turnId}:assistant`;
+  if (messages.some((message) => message.id === id)) {
+    return messages;
+  }
+  const sourceIndex = typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5;
+  return [
+    ...messages,
+    {
+      id,
+      role: "assistant" as const,
+      content: "",
+      toolCalls: [],
+      retrievals: [],
+      sourceIndex,
+      sourceTurnId: turnId,
+      sourceStreamRunId: runtimeText(attachment.stream_run_id) || undefined,
+      sourceRunId: runtimeText(attachment.run_id) || undefined,
+      sourceTaskRunId: runtimeText(attachment.task_run_id) || undefined,
+      sourceTurnRunId: runtimeText(attachment.turn_run_id) || undefined,
+    },
+  ].sort((left, right) => {
+    const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    if (left.role !== right.role) return left.role === "user" ? -1 : 1;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function runtimeAttachmentMessageId(attachment: SessionRuntimeAttachment) {
+  return runtimeText(attachment.anchor_message_id || attachment.projection_anchor?.anchor_message_id);
+}
+
+function runtimeAttachmentTurnId(attachment: SessionRuntimeAttachment) {
+  return runtimeText(attachment.anchor_turn_id || attachment.projection_anchor?.anchor_turn_id);
+}
+
+function runtimeText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function runtimeNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function frameWithRuntimeAttachmentAnchor(
@@ -1390,6 +1549,11 @@ export class WorkspaceRuntime {
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
         projectionLedger: message.projectionLedger ?? current.projectionLedger,
         publicProjection: message.publicProjection ?? current.publicProjection,
+        runtimeDisplayState: message.runtimeDisplayState ?? current.runtimeDisplayState,
+        mainChatSurface: message.mainChatSurface ?? current.mainChatSurface,
+        closeoutSummary: message.closeoutSummary ?? current.closeoutSummary,
+        runtimeLogRef: message.runtimeLogRef ?? current.runtimeLogRef,
+        toolEventCount: message.toolEventCount ?? current.toolEventCount,
         content: message.content || currentProjectionText || current.content,
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
@@ -1411,7 +1575,13 @@ export class WorkspaceRuntime {
   }
 
   private messageHasRuntimeVolatileState(message: Message) {
-    return Boolean(message.runtimeProgress?.length || message.projectionLedger || message.publicProjection);
+    return Boolean(
+      message.runtimeProgress?.length
+      || message.projectionLedger
+      || message.publicProjection
+      || message.mainChatSurface
+      || message.runtimeDisplayState
+    );
   }
 
   private findCurrentRuntimeMessageForRefresh(message: Message, candidates: Message[]) {
