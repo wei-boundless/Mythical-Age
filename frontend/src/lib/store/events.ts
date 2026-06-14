@@ -22,6 +22,7 @@ export type StreamSession = {
   userId?: string;
   queueOnly?: boolean;
   boundTurnId?: string;
+  boundStreamRunId?: string;
   boundRunId?: string;
   boundTaskRunId?: string;
   boundTurnRunId?: string;
@@ -530,7 +531,7 @@ function bindStreamSessionAnchor(
   data: Record<string, unknown>,
 ): StreamSession {
   let next = session;
-  const bind = (field: keyof Pick<StreamSession, "boundTurnId" | "boundRunId" | "boundTaskRunId" | "boundTurnRunId">, value: string) => {
+  const bind = (field: keyof Pick<StreamSession, "boundTurnId" | "boundStreamRunId" | "boundRunId" | "boundTaskRunId" | "boundTurnRunId">, value: string) => {
     const normalized = stringValue(value);
     if (!normalized) {
       return;
@@ -548,11 +549,13 @@ function bindStreamSessionAnchor(
   const frameAnchor = recordValue(frame.anchor);
   if (frameAnchor) {
     bind("boundTurnId", stringValue(frameAnchor.turn_id));
+    bind("boundStreamRunId", stringValue(frameAnchor.stream_run_id));
     bind("boundRunId", stringValue(frameAnchor.run_id));
     bind("boundTaskRunId", stringValue(frameAnchor.task_run_id));
     bind("boundTurnRunId", stringValue(frameAnchor.turn_run_id));
   }
   bind("boundTurnId", stringValue(data.active_turn_id) || stringValue(data.turn_id));
+  bind("boundStreamRunId", stringValue(data.stream_run_id) || stringValue(data.streamRunId));
   bind("boundRunId", stringValue(data.runtime_run_id) || stringValue(data.run_id));
   bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id) || stringValue(data.bound_task_run_id));
   bind("boundTurnRunId", stringValue(data.turn_run_id));
@@ -561,13 +564,14 @@ function bindStreamSessionAnchor(
 
 function streamAnchorFromSession(session: StreamSession) {
   const turnId = stringValue(session.boundTurnId);
+  const streamRunId = stringValue(session.boundStreamRunId);
   const runId = stringValue(session.boundRunId);
   const taskRunId = stringValue(session.boundTaskRunId);
   const turnRunId = stringValue(session.boundTurnRunId);
-  if (!turnId && !runId && !taskRunId && !turnRunId) {
+  if (!turnId && !streamRunId && !runId && !taskRunId && !turnRunId) {
     return undefined;
   }
-  return { turnId, runId, taskRunId, turnRunId };
+  return { turnId, streamRunId, runId, taskRunId, turnRunId };
 }
 
 function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): StoreState {
@@ -578,6 +582,7 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
   return patchAssistant(state, assistantId, (message) => ({
     ...message,
     sourceTurnId: message.sourceTurnId || stringValue(session.boundTurnId) || undefined,
+    sourceStreamRunId: message.sourceStreamRunId || stringValue(session.boundStreamRunId) || undefined,
     sourceRunId: message.sourceRunId || stringValue(session.boundRunId) || undefined,
     sourceTaskRunId: message.sourceTaskRunId || stringValue(session.boundTaskRunId) || undefined,
     sourceTurnRunId: message.sourceTurnRunId || stringValue(session.boundTurnRunId) || undefined,

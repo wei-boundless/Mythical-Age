@@ -166,6 +166,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "title",
         "detail",
         "state",
+        "status_kind",
         "phase",
         "runtime_task_run_id",
         "task_run_id",
@@ -408,6 +409,7 @@ class PublicTurnOutputContext:
             "turn_run_id": self.turn_run_id,
             "message_id": self.assistant_message_ref,
             "message_ref": self.assistant_message_ref,
+            "stream_run_id": self.stream_run_id,
             "run_id": self.stream_run_id,
         }
 
@@ -436,6 +438,7 @@ class ChatTaskBridgeContext:
             "task_run_id": self.task_run_id,
             "message_id": self.assistant_message_ref,
             "message_ref": self.assistant_message_ref,
+            "stream_run_id": self.stream_run_id,
             "run_id": self.stream_run_id,
         }
 
@@ -1017,6 +1020,7 @@ def _append_chat_public_event(
     public_anchor: dict[str, Any] | None = None,
 ) -> RuntimeRun:
     payload = dict(data or {})
+    payload.setdefault("stream_run_id", current.stream_run_id)
     payload.setdefault("runtime_run_id", current.stream_run_id)
     anchor = dict(public_anchor or {})
     if anchor:
@@ -1124,6 +1128,7 @@ def _public_turn_context_event_data(context: PublicTurnOutputContext) -> dict[st
 
 
 def _apply_turn_context_to_public_data(data: dict[str, Any], context: PublicTurnOutputContext) -> None:
+    data.setdefault("stream_run_id", context.stream_run_id)
     data.setdefault("session_id", context.session_id)
     data.setdefault("turn_id", context.turn_id)
     data.setdefault("active_turn_id", context.turn_id)
@@ -1554,6 +1559,7 @@ def _apply_bridge_context_to_public_data(
     source_task_event_id = str(getattr(task_event, "event_id", "") or "").strip()
     source_task_event_offset = int(getattr(task_event, "offset", -1) or -1)
     data["session_id"] = context.session_id
+    data["stream_run_id"] = context.stream_run_id
     data["turn_id"] = context.turn_id
     data["active_turn_id"] = context.turn_id
     data["turn_run_id"] = context.turn_run_id
@@ -1960,38 +1966,10 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
     if not request_data:
         return []
     permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
-    events: list[tuple[str, dict[str, Any]]] = []
-    status_data = _tool_action_status_data(raw_data, request_data=request_data)
-    if status_data:
-        events.append(("runtime_step_summary", status_data))
-    events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
+    events: list[tuple[str, dict[str, Any]]] = [(TOOL_CALL_REQUESTED_EVENT, request_data)]
     if permission_data:
         events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
-
-
-def _tool_action_status_data(raw_data: dict[str, Any], *, request_data: dict[str, Any]) -> dict[str, Any]:
-    public_action_state = _record(request_data.get("public_action_state"))
-    public_progress_note = _safe_public_action_text(request_data.get("public_progress_note"))
-    current_judgment = _safe_public_action_text(public_action_state.get("current_judgment"))
-    next_action = _safe_public_action_text(public_action_state.get("next_action"))
-    if not (public_progress_note or current_judgment or next_action):
-        return {}
-    request_id = str(request_data.get("request_id") or request_data.get("tool_call_id") or "").strip()
-    presentation_source = "model_action.public_progress_note" if public_progress_note else "model_action.public_action_state"
-    data: dict[str, Any] = {
-        "step": f"model_action_requested:{request_id}" if request_id else "model_action_requested",
-        "status": "running",
-        "summary": public_progress_note or current_judgment or next_action,
-        "public_progress_note": public_progress_note,
-        "current_judgment": current_judgment,
-        "next_action": next_action,
-        "presentation_source": presentation_source,
-        "turn_run_id": str(request_data.get("turn_run_id") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(request_data.get("task_run_id") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": str(request_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
-    }
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
 def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:

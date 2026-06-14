@@ -784,7 +784,7 @@ def test_task_execution_action_request_omits_empty_cross_context_fields() -> Non
     assert "selected_skill_ids" not in payload
 
 
-def test_active_work_control_request_accepts_intent_alias() -> None:
+def test_active_work_control_request_rejects_intent_alias_and_requires_action() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -804,10 +804,35 @@ def test_active_work_control_request_accepts_intent_alias() -> None:
         allowed_action_types=("respond", "active_work_control"),
     )
 
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "active_work_action_required" in diagnostics["validation_errors"]
+
+
+def test_active_work_control_request_accepts_canonical_action_field() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:active-work-action",
+            "turn_id": "turn:test:active-work-action",
+            "action_type": "active_work_control",
+            "public_progress_note": "我会继续当前工作。",
+            "active_work_control": {
+                "action": "continue_active_work",
+                "relation_to_current_work": "current_work",
+                "response": "好，我接着处理。",
+            },
+        },
+        turn_id="turn:test:active-work-action",
+        allowed_action_types=("respond", "active_work_control"),
+    )
+
     assert diagnostics["status"] == "accepted"
     assert action is not None
     assert action.action_type == "active_work_control"
-    assert action.active_work_control["intent"] == "continue_active_work"
+    assert action.active_work_control["action"] == "continue_active_work"
 
 
 def test_single_agent_parser_rejects_bare_active_work_control_payload() -> None:

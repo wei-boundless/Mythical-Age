@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
+ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 8
@@ -310,10 +311,11 @@ async def run_single_agent_turn(
     active_work_context: Any | None,
     model_runtime: Any,
     model_selection: dict[str, Any],
-    current_work_boundary_receipt: dict[str, Any] | None = None,
+    current_work_permit: dict[str, Any] | None = None,
     stream_run_id: str = "",
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
+    apply_active_work_control: ApplyActiveWorkControl | None = None,
     compact_session_context: CompactSessionContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
@@ -358,7 +360,7 @@ async def run_single_agent_turn(
             history=history,
             session_context=session_context,
             active_work_context=active_work_for_turn,
-            current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+            current_work_permit=dict(current_work_permit or {}),
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
@@ -371,7 +373,7 @@ async def run_single_agent_turn(
             "runtime_branch": dict(runtime_branch or {}),
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
-            "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
+            "current_work_permit": dict(current_work_permit or {}),
             "turn_id": turn_id,
             "turn_run_id": turn_run.turn_run_id if turn_run is not None else "",
             "active_turn_id": turn_id,
@@ -859,24 +861,6 @@ async def run_single_agent_turn(
                     yield event
                 terminal_recorded = True
                 return
-            if (
-                action_parse.action_request is not None
-                and action_parse.action_request.action_type == "active_work_control"
-            ):
-                async for event in emit_agent_authored_closeout(
-                    reason="active_work_control_must_be_handled_by_current_work_boundary",
-                    phase="active_work_control_protocol_error",
-                    terminal_reason="active_work_control_must_be_handled_by_current_work_boundary",
-                    protocol_error={
-                        "code": "active_work_control_must_be_handled_by_current_work_boundary",
-                        "reason": "single_agent_turn_received_active_work_control_after_boundary_cutover",
-                        "allowed_action_types": list(current_allowed_action_types),
-                        "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
-                    },
-                ):
-                    yield event
-                terminal_recorded = True
-                return
             tool_actions = list(action_parse.tool_actions)
             if (
                 not tool_actions
@@ -907,6 +891,7 @@ async def run_single_agent_turn(
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
                     permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
+                    current_work_permit=dict(current_work_permit or {}),
                 )
                 action_permit = action_permit_from_admission(
                     tool_action,
@@ -1363,6 +1348,7 @@ async def run_single_agent_turn(
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
                 permission_mode=runtime_permission_mode,
                 side_effect_policy="runtime_authorized",
+                current_work_permit=dict(current_work_permit or {}),
             )
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
@@ -1415,6 +1401,7 @@ async def run_single_agent_turn(
                         runtime_profile=_runtime_profile_payload(runtime_assembly),
                         permission_mode=runtime_permission_mode,
                         side_effect_policy="runtime_authorized",
+                        current_work_permit=dict(current_work_permit or {}),
                     )
                     if runtime_host is not None and turn_run is not None:
                         event = _record_model_action_admission(
@@ -1587,22 +1574,40 @@ async def run_single_agent_turn(
                     yield event
                 return
             if action_request.action_type == "active_work_control":
-                protocol_error = _single_agent_protocol_error(
-                    code="single_agent_turn_active_work_control_not_observed",
-                    reason="active_work_control_final_dispatch_unreachable",
-                    diagnostics={
-                        "phase": "final",
-                        "action_request": action_request.to_dict(),
-                    },
-                )
-                async for event in emit_agent_authored_closeout(
-                    reason="single_agent_turn_active_work_control_not_observed",
-                    phase="final_active_work_control_protocol_error",
-                    terminal_reason="single_agent_turn_active_work_control_not_observed",
-                    protocol_error=protocol_error,
-                ):
+                if apply_active_work_control is None:
+                    async for event in emit_agent_authored_closeout(
+                        reason="active_work_control_executor_missing",
+                        phase="active_work_control_executor_missing",
+                        terminal_reason="active_work_control_executor_missing",
+                        protocol_error=_single_agent_protocol_error(
+                            code="active_work_control_executor_missing",
+                            reason="single_agent_turn_missing_active_work_control_callback",
+                            diagnostics={"action_request": action_request.to_dict()},
+                        ),
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
+                terminal_reason = "active_work_control"
+                terminal_status = "completed"
+                async for event in apply_active_work_control(action_request):
+                    if dict(event or {}).get("type") == "error":
+                        terminal_status = "failed"
+                        terminal_reason = str(dict(event or {}).get("code") or terminal_reason)
+                    elif dict(event or {}).get("type") == "done":
+                        terminal_reason = str(dict(event or {}).get("terminal_reason") or terminal_reason)
                     yield event
-                terminal_recorded = True
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status=terminal_status,
+                        terminal_reason=terminal_reason,
+                        payload={"action_request_ref": action_request.request_id},
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
                 return
             protocol_error = _single_agent_protocol_error(
                 code="single_agent_turn_unhandled_model_action",

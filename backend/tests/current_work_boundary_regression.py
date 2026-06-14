@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-
 from harness.entrypoint.current_work_boundary import (
-    boundary_receipt_allows_active_work_control,
     build_current_work_boundary_input,
-    current_work_boundary_decision_from_payload,
-    current_work_boundary_receipt_from_decision,
+    current_work_permit_allows_active_work_control,
+    current_work_permit_from_decision,
     decide_current_work_boundary,
 )
 from harness.runtime import RuntimeCompiler
@@ -53,13 +50,14 @@ def test_no_current_work_allows_ordinary_turn_without_active_work_control() -> N
     )
 
     decision = decide_current_work_boundary(boundary_input)
-    receipt = current_work_boundary_receipt_from_decision(decision)
+    permit = current_work_permit_from_decision(decision)
 
     assert decision.action == "no_current_work"
-    assert receipt.execution_route == "ordinary_turn"
-    assert "active_work_control" not in receipt.allowed_action_types_for_next_packet
-    assert "request_task_run" in receipt.allowed_action_types_for_next_packet
-    assert boundary_receipt_allows_active_work_control(receipt) is False
+    assert decision.requires_model_boundary_decision is False
+    assert permit.execution_route == "ordinary_turn"
+    assert "active_work_control" not in permit.allowed_action_types_for_next_packet
+    assert "request_task_run" in permit.allowed_action_types_for_next_packet
+    assert current_work_permit_allows_active_work_control(permit) is False
 
 
 def test_steer_without_expected_active_turn_fails_closed_before_model() -> None:
@@ -69,10 +67,13 @@ def test_steer_without_expected_active_turn_fails_closed_before_model() -> None:
     )
 
     decision = decide_current_work_boundary(boundary_input)
+    permit = current_work_permit_from_decision(decision)
 
     assert decision.action == "block"
     assert decision.reason == "expected_active_turn_unavailable"
     assert decision.requires_model_boundary_decision is False
+    assert permit.execution_route == "terminal"
+    assert permit.decision == "deny"
 
 
 def test_steer_without_active_work_does_not_promote_latest_task() -> None:
@@ -85,13 +86,15 @@ def test_steer_without_active_work_does_not_promote_latest_task() -> None:
     )
 
     decision = decide_current_work_boundary(boundary_input)
+    permit = current_work_permit_from_decision(decision)
 
     assert decision.action == "block"
     assert decision.reason == "active_turn_steer_not_running"
     assert decision.task_run_id == ""
+    assert permit.allows["active_work_control"] is False
 
 
-def test_active_turn_bound_current_work_requires_narrow_boundary_model() -> None:
+def test_active_turn_bound_current_work_issues_control_permit_without_boundary_model() -> None:
     boundary_input = build_current_work_boundary_input(
         turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
         active_turn_input_policy="steer",
@@ -101,62 +104,15 @@ def test_active_turn_bound_current_work_requires_narrow_boundary_model() -> None
     )
 
     decision = decide_current_work_boundary(boundary_input)
+    permit = current_work_permit_from_decision(decision)
 
     assert decision.action == "current_work_control_required"
-    assert decision.requires_model_boundary_decision is True
-    assert decision.task_run_id == "taskrun:active"
-
-
-def test_steer_boundary_model_cannot_turn_valid_steer_into_independent_turn() -> None:
-    boundary_input = build_current_work_boundary_input(
-        turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
-        active_turn_input_policy="steer",
-        expected_active_turn_id="turn:active",
-        active_work_context=_active_work(),
-        active_turn_check=_accepted_check(),
-    )
-
-    decision = current_work_boundary_decision_from_payload(
-        {
-            "action": "new_independent_turn_allowed",
-            "relation_to_current_work": "independent_turn",
-            "reason": "model attempted to leave steer channel",
-        },
-        boundary_input=boundary_input,
-    )
-    receipt = current_work_boundary_receipt_from_decision(decision)
-
-    assert decision.action == "block"
-    assert decision.reason == "steer_boundary_action_not_allowed:new_independent_turn_allowed"
-    assert receipt.execution_route == "terminal"
-    assert "active_work_control" not in receipt.allowed_action_types_for_next_packet
-
-
-def test_boundary_control_receipt_is_the_only_active_work_control_permit() -> None:
-    boundary_input = build_current_work_boundary_input(
-        turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
-        active_turn_input_policy="steer",
-        expected_active_turn_id="turn:active",
-        active_work_context=_active_work(),
-        active_turn_check=_accepted_check(),
-    )
-
-    decision = current_work_boundary_decision_from_payload(
-        {
-            "action": "append_instruction_to_active_work",
-            "relation_to_current_work": "current_work",
-            "appended_instruction": "先检查 CurrentWorkBoundary 的冲突。",
-            "reason": "user is adding scope to the current work",
-        },
-        boundary_input=boundary_input,
-    )
-    receipt = current_work_boundary_receipt_from_decision(decision)
-
-    assert decision.action == "append_instruction_to_active_work"
-    assert receipt.execution_route == "control_only"
-    assert receipt.allowed_action_types_for_next_packet == ("active_work_control",)
-    assert receipt.active_work_control_payload["resolved_action"] == "append_instruction_to_active_work"
-    assert boundary_receipt_allows_active_work_control(receipt) is True
+    assert decision.reason == "current_work_permit_ready"
+    assert decision.requires_model_boundary_decision is False
+    assert permit.boundary_decision == "current_work_control_required"
+    assert permit.execution_route == "ordinary_turn"
+    assert permit.allowed_action_types_for_next_packet == ("active_work_control", "ask_user", "block")
+    assert current_work_permit_allows_active_work_control(permit) is True
 
 
 def test_terminal_active_work_is_read_only_for_ordinary_input() -> None:
@@ -168,11 +124,11 @@ def test_terminal_active_work_is_read_only_for_ordinary_input() -> None:
     )
 
     decision = decide_current_work_boundary(boundary_input)
-    receipt = current_work_boundary_receipt_from_decision(decision)
+    permit = current_work_permit_from_decision(decision)
 
     assert decision.action == "new_independent_turn_allowed"
     assert decision.reason == "active_work_terminal"
-    assert "active_work_control" not in receipt.allowed_action_types_for_next_packet
+    assert "active_work_control" not in permit.allowed_action_types_for_next_packet
 
 
 def test_compiler_does_not_open_active_work_control_from_context_alone() -> None:
@@ -193,23 +149,24 @@ def test_compiler_does_not_open_active_work_control_from_context_alone() -> None
     assert "active_work_control" not in result.packet.allowed_action_types
 
 
-def test_compiler_honors_independent_boundary_receipt_as_read_only_context() -> None:
-    receipt = {
-        "receipt_id": "cwbr:independent",
-        "boundary_action": "new_independent_turn_allowed",
+def test_compiler_honors_current_work_permit_as_the_only_control_authority() -> None:
+    permit = {
+        "permit_id": "cwpermit:active",
+        "boundary_decision": "current_work_control_required",
         "execution_route": "ordinary_turn",
         "active_work_ref": {"task_run_id": "taskrun:active", "actual_active_turn_id": "turn:active"},
-        "allowed_action_types_for_next_packet": ["respond", "ask_user", "block", "tool_call"],
-        "diagnostics": {"decision": {"reason": "independent user request", "relation_to_current_work": "independent_turn"}},
+        "allowed_action_types_for_next_packet": ["active_work_control", "ask_user", "block"],
+        "allows": {"active_work_control": True, "request_task_run": False, "tool_call": False},
+        "diagnostics": {"decision": {"reason": "current_work_permit_ready", "relation_to_current_work": "active_turn_bound_current_work"}},
     }
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:compiler-boundary",
         turn_id="turn:compiler-boundary",
         agent_invocation_id="aginvoke:compiler-boundary",
-        user_message="解释一下 CurrentWorkBoundary 的设计。",
+        user_message="继续当前任务。",
         history=[],
         active_work_context=_active_work(),
-        current_work_boundary_receipt=receipt,
+        current_work_permit=permit,
         runtime_assembly={
             "profile": {"mode": "conversation"},
             "task_environment": {"environment_id": "env.general.workspace"},
@@ -218,30 +175,7 @@ def test_compiler_honors_independent_boundary_receipt_as_read_only_context() -> 
     )
     model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
-    assert "active_work_control" not in result.packet.allowed_action_types
-    assert "request_task_run" not in result.packet.allowed_action_types
-    assert "current_work_boundary_receipt" in model_input
-    assert '"read_only_context":true' in model_input
-
-
-def test_boundary_packet_is_narrow_and_toolless() -> None:
-    boundary_input = build_current_work_boundary_input(
-        turn_input_facts=_facts(policy="steer", expected_turn_id="turn:active"),
-        active_turn_input_policy="steer",
-        expected_active_turn_id="turn:active",
-        active_work_context=_active_work(),
-        active_turn_check=_accepted_check(),
-    )
-
-    result = RuntimeCompiler().compile_current_work_boundary_packet(
-        session_id="session:boundary-packet",
-        turn_id="turn:boundary-packet",
-        boundary_input=boundary_input.to_dict(),
-    )
-    prompt_text = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
-
-    assert result.packet.available_tools == ()
-    assert result.packet.allowed_action_types == ("current_work_boundary_decision",)
-    assert "你是当前工作边界裁决员" in prompt_text
-    assert "这是 runtime 节点" not in prompt_text
-    assert json.loads(result.packet.model_messages[1]["content"])["boundary_input"]["active_work_context"]["task_run_id"] == "taskrun:active"
+    assert result.packet.allowed_action_types == ("active_work_control", "ask_user", "block")
+    assert "current_work_permit" in model_input
+    assert "current_work_boundary_receipt" not in model_input
+    assert '"read_only_context":false' in model_input

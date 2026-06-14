@@ -175,6 +175,7 @@ def projection_anchor(data: dict[str, Any]) -> dict[str, Any]:
                 or text(payload.get("task_run_id"))
                 or text(task_run.get("task_run_id"))
             ),
+            "stream_run_id": text(public_anchor.get("stream_run_id") or payload.get("stream_run_id") or payload.get("streamRunId")),
             "run_id": text(public_anchor.get("run_id") or payload.get("runtime_run_id") or payload.get("run_id")),
             "turn_run_id": text(public_anchor.get("turn_run_id") or payload.get("turn_run_id") or active_turn.get("turn_run_id")),
         }

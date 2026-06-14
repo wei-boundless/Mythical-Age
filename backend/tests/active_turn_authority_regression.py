@@ -10,7 +10,6 @@ import pytest
 
 import api.orchestration_harness as orchestration_harness
 from api.orchestration_harness import _assert_expected_active_turn, _schedule_result_allows_progress
-from harness.entrypoint.current_work_boundary import CurrentWorkBoundaryReceipt
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime import SingleAgentRuntimeHost
 from harness.loop.task_executor import append_user_work_instruction, is_task_run_executable, request_task_run_pause, resume_paused_task_run
@@ -415,16 +414,21 @@ def test_active_turn_plain_instruction_uses_model_decision_without_keyword_pause
             self.calls += 1
             if self.calls == 1:
                 return SimpleNamespace(
-                    content=json.dumps(
-                        {
-                            "action": "append_instruction_to_active_work",
-                            "relation_to_current_work": "current_work",
-                            "appended_instruction": "等一下 task runtime 为什么必须有 task_environment？",
-                            "response": "我会先把这个问题接入当前工作判断。",
-                            "reason": "用户正在向当前 active turn 补充约束。",
-                        },
-                        ensure_ascii=False,
-                    )
+                        content=json.dumps(
+                            {
+                                "authority": "harness.loop.model_action_request",
+                                "action_type": "active_work_control",
+                                "public_progress_note": "我会把这条补充接入当前工作。",
+                                "active_work_control": {
+                                    "action": "append_instruction_to_active_work",
+                                    "relation_to_current_work": "current_work",
+                                    "appended_instruction": "等一下 task runtime 为什么必须有 task_environment？",
+                                    "response": "我会先把这个问题接入当前工作判断。",
+                                    "reason": "用户正在向当前 active turn 补充约束。",
+                                },
+                            },
+                            ensure_ascii=False,
+                        )
                 )
             return SimpleNamespace(content="已接入当前工作。")
 
@@ -480,7 +484,7 @@ def test_active_turn_plain_instruction_uses_model_decision_without_keyword_pause
     assert messages[0]["turn_id"] == "turn:session:test:1"
 
 
-def test_current_work_control_receipt_revalidates_before_append(tmp_path: Path) -> None:
+def test_current_work_permit_revalidates_before_append(tmp_path: Path) -> None:
     import asyncio
 
     class StaleBoundaryModelRuntime:
@@ -497,10 +501,15 @@ def test_current_work_control_receipt_revalidates_before_append(tmp_path: Path) 
             return SimpleNamespace(
                 content=json.dumps(
                     {
-                        "action": "append_instruction_to_active_work",
-                        "relation_to_current_work": "current_work",
-                        "appended_instruction": "把这条补充接入当前工作。",
-                        "reason": "user steers active work",
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "active_work_control",
+                        "public_progress_note": "我会把这条补充接入当前工作。",
+                        "active_work_control": {
+                            "action": "append_instruction_to_active_work",
+                            "relation_to_current_work": "current_work",
+                            "appended_instruction": "把这条补充接入当前工作。",
+                            "reason": "user steers active work",
+                        },
                     },
                     ensure_ascii=False,
                 )
@@ -546,58 +555,6 @@ def test_current_work_control_receipt_revalidates_before_append(tmp_path: Path) 
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
     assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
     assert "active_task_steer_recorded" not in event_types
-
-
-def test_replacement_receipt_does_not_stop_mismatched_current_task(tmp_path: Path) -> None:
-    import asyncio
-
-    runtime = build_harness_runtime(base_dir=tmp_path)
-    host = runtime.single_agent_runtime_host
-    old_task = TaskRun(
-        task_run_id="taskrun:old",
-        session_id="session:test",
-        task_id="task:old",
-        execution_runtime_kind="single_agent_task",
-        status="running",
-        created_at=1,
-        updated_at=1,
-    )
-    new_current_task = TaskRun(
-        task_run_id="taskrun:new-current",
-        session_id="session:test",
-        task_id="task:new-current",
-        execution_runtime_kind="single_agent_task",
-        status="running",
-        created_at=2,
-        updated_at=2,
-    )
-    host.state_index.upsert_task_run(old_task)
-    host.state_index.upsert_task_run(new_current_task)
-    receipt = CurrentWorkBoundaryReceipt(
-        receipt_id="cwbr:test:replace",
-        decision_id="cwbd:test:replace",
-        boundary_action="replace_current_work",
-        execution_route="replacement_then_task_request",
-        active_work_ref={"task_run_id": old_task.task_run_id, "actual_active_turn_id": "turn:session:test:old"},
-        task_run_ref=old_task.task_run_id,
-        turn_ref="turn:session:test:2",
-        allowed_action_types_for_next_packet=("request_task_run",),
-    )
-
-    result = asyncio.run(
-        runtime._execute_current_task_replacement_receipt(
-            session_id="session:test",
-            turn_id="turn:session:test:2",
-            receipt=receipt,
-            answer_source="test.current_work_boundary",
-            runtime_branch={},
-        )
-    )
-
-    assert result is not None
-    assert result[0]["code"] == "current_work_replacement_receipt_task_ref_mismatch"
-    assert host.state_index.get_task_run(new_current_task.task_run_id).status == "running"
-    assert "task_run_stop_requested" not in [event.event_type for event in host.event_log.list_events(new_current_task.task_run_id)]
 
 
 def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing(tmp_path: Path) -> None:

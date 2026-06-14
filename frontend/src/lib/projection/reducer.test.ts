@@ -19,6 +19,7 @@ function publicFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFra
     lossless: patch.lossless ?? eventFamily !== "status_trace",
     anchor: {
       turn_id: "turn:projection:1",
+      stream_run_id: "strun:projection:1",
       turn_run_id: "turnrun:projection:1",
       run_id: "turnrun:projection:1",
     },
@@ -480,6 +481,7 @@ describe("public projection frame reducer contract", () => {
       session: {
         ...transition.session,
         boundTurnId: "turn:new",
+        boundStreamRunId: "strun:new",
         boundTurnRunId: "turnrun:new",
         boundRunId: "run:new",
         boundTaskRunId: "taskrun:shared",
@@ -488,6 +490,7 @@ describe("public projection frame reducer contract", () => {
     transition = project(transition, {
       anchor: {
         turn_id: "turn:old",
+        stream_run_id: "strun:old",
         turn_run_id: "turnrun:old",
         run_id: "run:old",
         task_run_id: "taskrun:shared",
@@ -505,6 +508,7 @@ describe("public projection frame reducer contract", () => {
     transition = project(transition, {
       anchor: {
         turn_id: "turn:new",
+        stream_run_id: "strun:new",
         turn_run_id: "turnrun:new",
         run_id: "run:new",
         task_run_id: "taskrun:shared",
@@ -519,6 +523,7 @@ describe("public projection frame reducer contract", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.sourceTurnId).toBe("turn:new");
+    expect(assistant?.sourceStreamRunId).toBe("strun:new");
     expect(assistant?.publicProjection?.bodyText).toBe("新时序内容");
     expect(assistant?.publicProjection?.bodyText).not.toContain("旧时序内容");
   });

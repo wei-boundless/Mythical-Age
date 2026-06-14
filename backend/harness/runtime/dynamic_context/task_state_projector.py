@@ -650,7 +650,7 @@ def _task_progress_todo_facts(latest_results: list[dict[str, Any]]) -> list[dict
         result.append(
             drop_empty(
                 {
-                    "id": todo_id,
+                    "todo_id": todo_id,
                     "title": compact_text(item.get("content") or "", limit=180),
                     "active_form": compact_text(item.get("active_form") or "", limit=120),
                     "status": str(item.get("status") or ""),
@@ -676,7 +676,7 @@ def _todo_plan_projection(value: dict[str, Any]) -> dict[str, Any]:
         return {}
     items: list[dict[str, Any]] = []
     for item in dict_tuple(value.get("items"))[:40]:
-        todo_id = str(item.get("todo_id") or item.get("id") or "").strip()
+        todo_id = str(item.get("todo_id") or "").strip()
         if not todo_id:
             continue
         items.append(

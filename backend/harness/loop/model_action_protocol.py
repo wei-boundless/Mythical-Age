@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from runtime.shared.tool_identity import ensure_tool_call_id
-
 ModelActionType = Literal[
     "respond",
     "ask_user",
@@ -14,18 +12,12 @@ ModelActionType = Literal[
     "block",
 ]
 TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block"]
-CurrentWorkBoundaryActionType = Literal[
-    "continue_active_work",
-    "append_instruction_to_active_work",
-    "answer_about_active_work",
-    "answer_then_continue_active_work",
-    "pause_active_work",
-    "stop_active_work",
-    "new_independent_turn_allowed",
-    "replace_current_work",
-    "ask_user",
-    "block",
-]
+
+
+def _ensure_tool_call_id(tool_call: dict[str, Any] | None, *, request_id: Any, ordinal: int | None = None) -> dict[str, Any]:
+    from runtime.shared.tool_identity import ensure_tool_call_id
+
+    return ensure_tool_call_id(tool_call, request_id=request_id, ordinal=ordinal)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,31 +81,6 @@ class TaskExecutionModelActionRequest:
         payload["public_action_state"] = dict(self.public_action_state or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
-
-
-@dataclass(frozen=True, slots=True)
-class CurrentWorkBoundaryActionRequest:
-    request_id: str
-    turn_id: str
-    action: CurrentWorkBoundaryActionType
-    relation_to_current_work: str = "ambiguous"
-    reason: str = ""
-    evidence: str = ""
-    response: str = ""
-    appended_instruction: str = ""
-    continuation_strategy: str = ""
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.entrypoint.current_work_boundary_action"
-
-    def __post_init__(self) -> None:
-        if self.authority != "harness.entrypoint.current_work_boundary_action":
-            raise ValueError("CurrentWorkBoundaryActionRequest authority must be harness.entrypoint.current_work_boundary_action")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["diagnostics"] = dict(self.diagnostics or {})
-        return payload
-
 
 AnyModelActionRequest = ModelActionRequest | TaskExecutionModelActionRequest
 
@@ -211,18 +178,18 @@ def model_action_request_from_payload(
             errors.append("tool_name_required_for_tool_call")
         if not isinstance(tool_args, dict):
             errors.append("tool_args_must_be_object")
-        tool_call = ensure_tool_call_id(dict(tool_call), request_id=request_id)
+        tool_call = _ensure_tool_call_id(dict(tool_call), request_id=request_id)
     if action_type == "request_task_run" and not task_contract_seed:
         errors.append("task_contract_seed_required_for_request_task_run")
     if action_type == "active_work_control":
         from harness.loop.active_work import active_work_action_from_payload
 
-        action = active_work_action_from_payload({
-            **dict(raw),
-            **dict(active_work_control),
-        })
+        raw_action = str(dict(active_work_control).get("action") or "").strip()
+        action = active_work_action_from_payload({"action": raw_action})
         if not action:
             errors.append("active_work_action_required")
+        elif action != raw_action:
+            errors.append("active_work_action_must_be_canonical")
     if errors:
         return None, {
             "status": "invalid",
@@ -596,7 +563,7 @@ def _task_execution_tool_calls(raw: dict[str, Any]) -> tuple[tuple[dict[str, Any
         payload["name"] = tool_name
         payload["args"] = dict(tool_args)
         payload.pop("tool_args", None)
-        payload = ensure_tool_call_id(payload, request_id=request_id, ordinal=index)
+        payload = _ensure_tool_call_id(payload, request_id=request_id, ordinal=index)
         normalized.append(payload)
     if not normalized:
         errors.append("tool_calls_required_for_tool_call")

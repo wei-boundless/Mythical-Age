@@ -22,6 +22,7 @@ type ActivityEntry = {
   sections: Array<{ label: string; text: string }>;
   state?: string;
   text: string;
+  windowInfo?: string;
 };
 
 export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: PublicTimelineActivityProps) {
@@ -82,6 +83,7 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
     displayToolStatus(toolWindow?.status || (kind === "tool_lifecycle" ? item.state : "")),
     toolWindow?.target || (kind === "tool_lifecycle" ? item.subject_label : ""),
   ].map(cleanText).filter(Boolean);
+  const windowInfo = cleanText(toolWindow?.window_info);
   return {
     collapsed: kind === "tool_window" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
     detail,
@@ -91,6 +93,7 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
     sections,
     state: cleanText(item.state).toLowerCase(),
     text,
+    windowInfo,
   };
 }
 
@@ -226,15 +229,16 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
       open={open}
     >
       <summary>
-        <span>{entry.text}</span>
+        <span className="public-run-activity__tool-window-title">{entry.text}</span>
+        {entry.meta.length || entry.windowInfo ? (
+          <span className="public-run-activity__tool-window-summary-meta">
+            {entry.meta.map((item) => <span key={item}>{item}</span>)}
+            {entry.windowInfo ? <span>{entry.windowInfo}</span> : null}
+          </span>
+        ) : null}
       </summary>
       {entry.meta.length || entry.sections.length || entry.detail ? (
         <div className="public-run-activity__tool-window-body">
-          {entry.meta.length ? (
-            <div className="public-run-activity__tool-meta">
-              {entry.meta.map((item) => <span key={item}>{item}</span>)}
-            </div>
-          ) : null}
           {entry.sections.length ? (
             <dl className="public-run-activity__tool-snapshot">
               {entry.sections.map((section) => (

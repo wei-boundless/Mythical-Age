@@ -621,12 +621,15 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
     visible_title = public_text(title or data.get("title") or data.get("summary"), limit=140)
     visible_detail = public_text(data.get("detail"), limit=260)
     state = text(data.get("state") or data.get("status")) or "running"
+    status_kind = text(data.get("status_kind"))
+    public_status = status_kind in {"public_stage_status", "active_task_steer_receipt", "user_visible_runtime_status"}
     return {
         "op": "item_upsert",
-        "slot": "status",
+        "slot": "status" if public_status else "trace",
+        "status_kind": status_kind,
         "source_authority": "runtime",
-        "main_visibility": "visible_live" if visible_title or visible_detail else "hidden",
-        "retention": "transient",
+        "main_visibility": "visible_live" if public_status and (visible_title or visible_detail) else "hidden",
+        "retention": "transient" if public_status else "trace",
         "item_id": text(data.get("item_id")) or stable_id("status", data.get("runtime_event_id"), visible_title, visible_detail),
         "title": visible_title,
         "text": visible_title,

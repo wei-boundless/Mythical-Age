@@ -51,6 +51,7 @@ def admit_model_action(
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
     side_effect_policy: Literal["requires_task_run", "runtime_authorized"] = "requires_task_run",
+    current_work_permit: dict[str, Any] | None = None,
 ) -> AdmissionDecision:
     allowed_actions = {str(item or "").strip() for item in tuple(packet_allowed_action_types or ()) if str(item or "").strip()}
     if allowed_actions and action_request.action_type not in allowed_actions:
@@ -266,6 +267,36 @@ def admit_model_action(
             action_issue=issue,
         )
     if action_request.action_type == "active_work_control":
+        permit = dict(current_work_permit or {})
+        allows = dict(permit.get("allows") or {})
+        if allows.get("active_work_control") is not True:
+            issue = _action_issue(
+                action_request,
+                category="permission_denied",
+                code="active_work_control_permit_required",
+                user_visible_summary="当前输入没有获得控制进行中工作的运行许可。",
+                repair_instruction="请选择 respond、ask_user 或 block；不要把历史任务或普通上下文当成可控制的当前工作。",
+                extra={
+                    "permit_id": str(permit.get("permit_id") or ""),
+                    "permit_decision": str(permit.get("decision") or ""),
+                },
+            )
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="deny",
+                user_visible_reason="当前输入没有获得控制进行中工作的运行许可。",
+                system_reason="active_work_control_permit_required",
+                contract_errors=("active_work_control_permit_required",),
+                permission_delta={
+                    "action_type": action_request.action_type,
+                    "permit_id": str(permit.get("permit_id") or ""),
+                    "invocation_kind": str(invocation_kind or ""),
+                },
+                issue_category="permission_denied",
+                issue_code="active_work_control_permit_required",
+                action_issue=issue,
+            )
         task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
         if task_lifecycle_policy.get("active_work_control") is False:
             issue = _action_issue(

@@ -336,6 +336,18 @@ function orderedProjectionMessageBlocks({
     });
   }
   for (const item of timelineItems) {
+    if (isModelFeedbackTimelineItem(item)) {
+      const feedbackText = modelFeedbackBodyText(item);
+      if (feedbackText) {
+        entries.push({
+          kind: "body",
+          key: `model-feedback:${item.source_event_id || item.item_id || item.event_offset || entries.length}`,
+          offset: Number.isFinite(Number(item.event_offset)) ? Number(item.event_offset) : 0,
+          text: feedbackText,
+        });
+      }
+      continue;
+    }
     entries.push({
       kind: "activity",
       key: `activity:${item.item_id || item.source_event_id || item.event_offset || entries.length}`,
@@ -392,6 +404,9 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
   const title = projectionTimelineTitle(item);
   const toolLabel = projectionToolLabel(item.toolName);
   const detail = normalizeProjectionToolTitle(cleanText(item.detail), item);
+  const target = cleanText(item.target || item.subjectLabel);
+  const argumentsPreview = cleanText(item.argumentsPreview);
+  const toolWindowInfo = toolWindow ? projectionToolWindowInfo(item) : "";
   if (!title) return null;
   return {
     item_id: item.itemId,
@@ -411,8 +426,11 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     tool_call_id: item.toolCallId,
     tool_lifecycle_id: item.toolLifecycleId,
     tool_name: toolLabel || item.toolName,
+    permission_decision_id: item.permissionDecisionId,
+    arguments_preview: argumentsPreview,
+    target,
     action_kind: item.actionKind,
-    subject_label: item.subjectLabel,
+    subject_label: target || item.subjectLabel,
     collapsed: item.collapsed,
     trace_refs: item.traceRefs,
     artifacts: item.artifactRefs,
@@ -423,17 +441,89 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     tool_window: toolWindow ? {
       tool_label: toolLabel || item.toolName,
       status: projectionToolStatusLabel(item),
-      target: item.subjectLabel,
-      sections: [
-        detail ? { label: "详情", text: detail } : null,
-        item.subjectLabel && item.subjectLabel !== detail ? { label: "目标", text: item.subjectLabel } : null,
-      ].filter((section): section is { label: string; text: string } => Boolean(section?.text)),
+      target,
+      window_info: toolWindowInfo,
+      sections: projectionToolWindowSections(item, { detail, target, argumentsPreview }),
     } : undefined,
     public_summary: detail || title,
   };
 }
 
+function projectionToolWindowSections(
+  item: PublicProjectionItem,
+  {
+    argumentsPreview,
+    detail,
+    target,
+  }: {
+    argumentsPreview: string;
+    detail: string;
+    target: string;
+  },
+) {
+  const sections: Array<{ label: string; text: string }> = [];
+  const title = cleanText(item.title || item.text);
+  if (target) {
+    sections.push({ label: "目标", text: target });
+  }
+  if (argumentsPreview && !sameCompactText(argumentsPreview, target)) {
+    sections.push({ label: "参数", text: argumentsPreview });
+  }
+  if (
+    detail
+    && !sameCompactText(detail, title)
+    && !sameCompactText(detail, target)
+    && !sameCompactText(detail, argumentsPreview)
+  ) {
+    sections.push({ label: projectionToolDetailLabel(item), text: detail });
+  }
+  const sourceInfo = projectionToolWindowInfo(item);
+  if (sourceInfo) {
+    sections.push({ label: "时序", text: sourceInfo });
+  }
+  const lifecycle = cleanText(item.toolLifecycleId || item.toolCallId);
+  if (lifecycle) {
+    sections.push({ label: "调用", text: lifecycle });
+  }
+  return sections;
+}
+
+function projectionToolDetailLabel(item: PublicProjectionItem) {
+  const state = cleanText(item.state).toLowerCase();
+  if (["failed", "error", "blocked", "missing"].includes(state)) return "错误";
+  if (["done", "complete", "completed", "success", "passed"].includes(state)) return "观察";
+  return "详情";
+}
+
+function projectionToolWindowInfo(item: PublicProjectionItem) {
+  const sourceEvent = projectionSourceEventLabel(item.sourceEventType);
+  const eventOffset = projectionOffsetLabel(item.eventOffset);
+  const updatedOffset = projectionOffsetLabel(item.updatedEventOffset);
+  const offsetInfo = eventOffset && updatedOffset && eventOffset !== updatedOffset
+    ? `${eventOffset} -> ${updatedOffset}`
+    : eventOffset || updatedOffset;
+  return [sourceEvent, offsetInfo].filter(Boolean).join(" ");
+}
+
+function projectionSourceEventLabel(value: unknown) {
+  const normalized = cleanText(value).toLowerCase();
+  const labels: Record<string, string> = {
+    tool_call_requested: "请求",
+    tool_permission_decided: "权限",
+    tool_item_started: "开始",
+    tool_item_completed: "完成",
+  };
+  return labels[normalized] || cleanText(value);
+}
+
+function projectionOffsetLabel(value: unknown) {
+  const offset = Number(value);
+  if (!Number.isFinite(offset) || offset <= 0) return "";
+  return `#${offset}`;
+}
+
 function projectionItemNeedsToolWindow(item: PublicProjectionItem) {
+  if (item.toolCallId || item.toolName) return true;
   const state = cleanText(item.state).toLowerCase();
   const visibility = cleanText(item.mainVisibility).toLowerCase();
   const retention = cleanText(item.retention).toLowerCase();
@@ -507,6 +597,22 @@ function projectionToolLabel(toolName: unknown) {
   return labels[normalized] || cleanText(toolName);
 }
 
+function isModelFeedbackTimelineItem(item: PublicChatTimelineItem) {
+  if (cleanText(item.tool_call_id) || cleanText(item.tool_name)) return false;
+  const sourceAuthority = cleanText(item.source_authority).toLowerCase();
+  const eventFamily = cleanText(item.event_family).toLowerCase();
+  const channel = cleanText(item.channel).toLowerCase();
+  return sourceAuthority === "model" && (eventFamily === "status_trace" || channel === "status");
+}
+
+function modelFeedbackBodyText(item: PublicChatTimelineItem) {
+  const main = cleanText(item.text || item.title || item.public_summary);
+  const detail = cleanText(item.detail);
+  if (!main) return detail;
+  if (!detail || compactText(detail) === compactText(main)) return main;
+  return `${main}\n\n${detail}`;
+}
+
 function assistantDisplayContent(
   content: string,
   metadata: Parameters<typeof shouldDisplayAssistantContent>[0],
@@ -528,4 +634,14 @@ function assistantDisplayContent(
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function compactText(value: unknown) {
+  return cleanText(value).replace(/\s+/g, "").toLowerCase();
+}
+
+function sameCompactText(left: unknown, right: unknown) {
+  const normalizedLeft = compactText(left);
+  const normalizedRight = compactText(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
 }

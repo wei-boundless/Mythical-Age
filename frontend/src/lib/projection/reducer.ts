@@ -15,6 +15,7 @@ type ApplyProjectionOptions = {
 
 type ProjectionStreamAnchor = {
   turnId?: string;
+  streamRunId?: string;
   runId?: string;
   taskRunId?: string;
   turnRunId?: string;
@@ -142,6 +143,7 @@ function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame
     retrievals: [],
     sourceIndex: typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5,
     sourceTurnId: turnId,
+    sourceStreamRunId: text(anchor.stream_run_id) || undefined,
     sourceRunId: text(anchor.run_id) || undefined,
     sourceTaskRunId: text(anchor.task_run_id) || undefined,
     sourceTurnRunId: text(anchor.turn_run_id) || undefined,
@@ -157,7 +159,7 @@ function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame
 function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame, options: ApplyProjectionOptions) {
   const anchor = frame.anchor ?? {};
   const turnId = text(anchor.turn_id);
-  const runId = text(anchor.run_id);
+  const streamRunId = text(anchor.stream_run_id);
   const taskRunId = text(anchor.task_run_id);
   const turnRunId = text(anchor.turn_run_id);
   if (options.assistantId && streamAnchorMatchesFrame(options.streamAnchor, frame)) {
@@ -169,7 +171,7 @@ function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame,
     const index = state.messages.findIndex((message) =>
       message.id === messageId
       && message.role === "assistant"
-      && messageCanAcceptProjectionAnchor(message, { turnId, runId, taskRunId, turnRunId })
+      && messageCanAcceptProjectionAnchor(message, { turnId, streamRunId, taskRunId, turnRunId })
     );
     if (index >= 0) return index;
   }
@@ -181,9 +183,9 @@ function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame,
     const message = state.messages[index];
     if (
       message.role === "assistant"
-      && messageCanAcceptProjectionAnchor(message, { turnId, runId, taskRunId, turnRunId })
+      && messageCanAcceptProjectionAnchor(message, { turnId, streamRunId, taskRunId, turnRunId })
       && (
-        strongMessageAnchorMatches(message, { runId, taskRunId, turnRunId })
+        strongMessageAnchorMatches(message, { streamRunId, taskRunId, turnRunId })
         || taskOnlyMessageAnchorMatches(message, { taskRunId })
       )
     ) {
@@ -367,6 +369,8 @@ function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjection
     toolLifecycleId: text(frame.tool_lifecycle_id),
     actionKind: text(frame.action_kind),
     subjectLabel: text(frame.subject_label || frame.target),
+    argumentsPreview: text(frame.arguments_preview),
+    target: text(frame.target),
     collapsed: typeof frame.collapsed === "boolean" ? frame.collapsed : undefined,
     traceRefs: Array.isArray(frame.trace_refs) ? frame.trace_refs.map(text).filter(Boolean) : [],
     artifactRefs: Array.isArray(frame.artifact_refs) ? frame.artifact_refs : [],
@@ -581,7 +585,7 @@ function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, fr
   if (!projectionAnchorsAreCompatible(anchor, projectionAnchor)) return false;
   return Boolean(
     (anchor.turnId && projectionAnchor.turn_id === anchor.turnId)
-    || (anchor.runId && projectionAnchor.run_id === anchor.runId)
+    || (anchor.streamRunId && projectionAnchor.stream_run_id === anchor.streamRunId)
     || (anchor.turnRunId && projectionAnchor.turn_run_id === anchor.turnRunId)
     || (
       anchor.taskRunId
@@ -589,7 +593,7 @@ function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, fr
       && !hasStrongProjectionAnchor(anchor)
       && !hasStrongProjectionAnchor({
         turnId: text(projectionAnchor.turn_id),
-        runId: text(projectionAnchor.run_id),
+        streamRunId: text(projectionAnchor.stream_run_id),
         turnRunId: text(projectionAnchor.turn_run_id),
       })
     )
@@ -598,17 +602,18 @@ function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, fr
 
 function messageCanAcceptProjectionAnchor(
   message: Message,
-  anchor: { turnId?: string; runId?: string; taskRunId?: string; turnRunId?: string },
+  anchor: { turnId?: string; streamRunId?: string; taskRunId?: string; turnRunId?: string },
 ) {
   const turnId = text(anchor.turnId);
   const messageTurnId = text(message.sourceTurnId);
   if (turnId && messageTurnId && messageTurnId !== turnId) return false;
+  const streamRunId = text(anchor.streamRunId);
+  const messageStreamRunId = text(message.sourceStreamRunId);
+  if (streamRunId && messageStreamRunId && messageStreamRunId !== streamRunId) return false;
   const taskRunId = text(anchor.taskRunId);
   const messageTaskRunId = text(message.sourceTaskRunId);
   if (taskRunId && messageTaskRunId && messageTaskRunId !== taskRunId) return false;
-  const runId = text(anchor.runId);
   const turnRunId = text(anchor.turnRunId);
-  if (runId && text(message.sourceRunId) && text(message.sourceRunId) !== runId) return false;
   if (turnRunId && text(message.sourceTurnRunId) && text(message.sourceTurnRunId) !== turnRunId) return false;
   return true;
 }
@@ -619,7 +624,7 @@ function projectionAnchorsAreCompatible(
 ) {
   const checks: Array<[unknown, unknown]> = [
     [streamAnchor.turnId, frameAnchor.turn_id],
-    [streamAnchor.runId, frameAnchor.run_id],
+    [streamAnchor.streamRunId, frameAnchor.stream_run_id],
     [streamAnchor.taskRunId, frameAnchor.task_run_id],
     [streamAnchor.turnRunId, frameAnchor.turn_run_id],
   ];
@@ -631,23 +636,23 @@ function projectionAnchorsAreCompatible(
 }
 
 function hasStrongProjectionAnchor(anchor: ProjectionStreamAnchor) {
-  return Boolean(text(anchor.turnId) || text(anchor.runId) || text(anchor.turnRunId));
+  return Boolean(text(anchor.turnId) || text(anchor.streamRunId) || text(anchor.turnRunId));
 }
 
 function strongMessageAnchorMatches(
   message: Message,
-  anchor: { runId?: string; taskRunId?: string; turnRunId?: string },
+  anchor: { streamRunId?: string; taskRunId?: string; turnRunId?: string },
 ) {
   return Boolean(
     (anchor.turnRunId && text(message.sourceTurnRunId) === anchor.turnRunId)
-    || (anchor.runId && text(message.sourceRunId) === anchor.runId)
+    || (anchor.streamRunId && text(message.sourceStreamRunId) === anchor.streamRunId)
   );
 }
 
 function taskOnlyMessageAnchorMatches(message: Message, anchor: { taskRunId?: string }) {
   const taskRunId = text(anchor.taskRunId);
   if (!taskRunId || text(message.sourceTaskRunId) !== taskRunId) return false;
-  return !text(message.sourceTurnId) && !text(message.sourceTurnRunId) && !text(message.sourceRunId);
+  return !text(message.sourceTurnId) && !text(message.sourceStreamRunId) && !text(message.sourceTurnRunId);
 }
 
 function findAssistantMessageIndexByTurnId(state: StoreState, turnId: string) {

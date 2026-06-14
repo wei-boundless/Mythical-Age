@@ -216,6 +216,9 @@ export type PublicChatTimelineItem = {
   tool_lifecycle_id?: string;
   tool_call_id?: string;
   tool_name?: string;
+  permission_decision_id?: string;
+  arguments_preview?: string;
+  target?: string;
   phase?: "running" | "done" | "adjusting" | string;
   phase_ref?: string;
   subject_label?: string;
@@ -231,6 +234,7 @@ export type PublicChatTimelineItem = {
     tool_label?: string;
     target?: string;
     status?: string;
+    window_info?: string;
     sections?: Array<{
       label?: string;
       text?: string;
@@ -272,6 +276,8 @@ export type PublicProjectionItem = {
   toolLifecycleId?: string;
   actionKind?: string;
   subjectLabel?: string;
+  argumentsPreview?: string;
+  target?: string;
   traceRefs?: string[];
   artifactRefs?: Array<Record<string, unknown>>;
   collapsed?: boolean;
@@ -352,6 +358,7 @@ export type PublicProjectionFrame = {
     turn_id?: string;
     message_id?: string;
     task_run_id?: string;
+    stream_run_id?: string;
     run_id?: string;
     turn_run_id?: string;
   };

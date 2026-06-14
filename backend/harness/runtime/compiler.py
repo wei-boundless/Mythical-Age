@@ -353,7 +353,7 @@ class RuntimeCompiler:
         history: list[dict[str, Any]],
         session_context: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
-        current_work_boundary_receipt: dict[str, Any] | None = None,
+        current_work_permit: dict[str, Any] | None = None,
         memory_context: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
@@ -372,7 +372,7 @@ class RuntimeCompiler:
         allowed_actions = _single_agent_turn_allowed_actions(
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
-            current_work_boundary_receipt=current_work_boundary_receipt,
+            current_work_permit=current_work_permit,
         )
         single_turn_tool_plan = _single_agent_turn_tool_plan(
             assembly_payload=assembly_payload,
@@ -382,8 +382,8 @@ class RuntimeCompiler:
         if not single_turn_tools and "tool_call" in allowed_actions:
             allowed_actions = tuple(item for item in allowed_actions if item != "tool_call")
         if single_turn_tools and "tool_call" not in allowed_actions:
-            receipt_allowed = _receipt_allowed_action_types(current_work_boundary_receipt)
-            if not receipt_allowed or "tool_call" in receipt_allowed:
+            permit_allowed = _permit_allowed_action_types(current_work_permit)
+            if not permit_allowed or "tool_call" in permit_allowed:
                 allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
             control_capabilities=control_capabilities,
@@ -518,7 +518,7 @@ class RuntimeCompiler:
                 "agent_visible_runtime_projection": agent_visible_runtime_projection,
                 "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
                 "active_work_context": dict(active_work_context or {}),
-                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
+                "current_work_permit": dict(current_work_permit or {}),
             },
         )
         dynamic_context = self.dynamic_context_manager.project(
@@ -546,8 +546,8 @@ class RuntimeCompiler:
                 active_work_context,
                 controls_enabled="active_work_control" in set(allowed_actions),
             )
-        if current_work_boundary_receipt:
-            dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(current_work_boundary_receipt)
+        if current_work_permit:
+            dynamic_payload["current_work_permit"] = _current_work_permit_model_visible_payload(current_work_permit)
         if turn_input_facts:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
@@ -664,7 +664,7 @@ class RuntimeCompiler:
             "operation_authorization",
             "active_work_context",
             "recent_work_outcome",
-            "current_work_boundary_receipt",
+            "current_work_permit",
         )
         single_turn_volatile_refs = (
             "runtime_envelope",
@@ -778,97 +778,8 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
-                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
+                "current_work_permit": dict(current_work_permit or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
-            },
-        )
-        return RuntimeCompilationResult(envelope=envelope, packet=packet)
-
-    def compile_current_work_boundary_packet(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        boundary_input: dict[str, Any],
-        model_selection: dict[str, Any] | None = None,
-        runtime_assembly: Any | None = None,
-    ) -> RuntimeCompilationResult:
-        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-        envelope = RuntimeEnvelope(
-            envelope_id=f"rtenv:{turn_id}:current_work_boundary",
-            scope_kind="turn",
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_profile_ref=str(assembly_payload.get("agent_profile_ref") or "main_interactive_agent"),
-            task_environment_ref=str(dict(assembly_payload.get("task_environment") or {}).get("environment_id") or "env.general.workspace"),
-            prompt_policy={"invocation_kind": "current_work_boundary"},
-            output_policy={
-                "format": "json_object",
-                "allowed_actions": [
-                    "continue_active_work",
-                    "append_instruction_to_active_work",
-                    "answer_about_active_work",
-                    "answer_then_continue_active_work",
-                    "pause_active_work",
-                    "stop_active_work",
-                    "new_independent_turn_allowed",
-                    "replace_current_work",
-                    "ask_user",
-                    "block",
-                ],
-                "authority": "harness.entrypoint.current_work_boundary.output_contract",
-            },
-            diagnostics={
-                "model_selection": dict(model_selection or {}),
-                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
-            },
-        )
-        prompt = (
-            "你是当前工作边界裁决员。\n"
-            "你只判断用户这一轮输入与系统暴露的当前工作之间的关系。\n"
-            "你不执行工具，不改文件，不启动任务，也不生成最终交付物。\n"
-            "你需要在给定的结构化动作中选择一个，并说明依据。\n"
-            "如果用户明确是在继续、暂停、停止、补充、追问或纠正当前工作，选择对应的 current work 控制动作。\n"
-            "如果用户提出的是独立问题或新的无关请求，普通入口选择 new_independent_turn_allowed；"
-            "但 active_turn_input_policy=steer 且 active turn 已通过硬校验时，不能选择 new_independent_turn_allowed，应选择 ask_user 或 block。\n"
-            "如果用户要求用新任务替换当前工作，选择 replace_current_work。\n"
-            "如果 active turn id 不匹配、当前工作已失效或关系不清，选择 ask_user 或 block。\n"
-            "你的输出必须是结构化 JSON，不得请求普通工具调用。"
-        )
-        response_schema = {
-            "required_fields": ["action", "relation_to_current_work", "reason"],
-            "optional_fields": ["response", "appended_instruction", "continuation_strategy", "evidence"],
-            "authority": "harness.entrypoint.current_work_boundary.schema",
-        }
-        model_messages = [
-            {"role": "system", "content": prompt},
-            {
-                "role": "system",
-                "content": json.dumps(
-                    {
-                        "boundary_input": dict(boundary_input or {}),
-                        "response_schema": response_schema,
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-        packet = RuntimeInvocationPacket(
-            packet_id=f"rtpacket:{turn_id}:current_work_boundary:1",
-            envelope_ref=envelope.envelope_id,
-            invocation_kind="current_work_boundary",
-            invocation_index=1,
-            session_id=session_id,
-            turn_id=turn_id,
-            model_messages=model_messages,
-            prompt_pack_refs=(),
-            available_tools=(),
-            allowed_action_types=("current_work_boundary_decision",),
-            output_contract=dict(envelope.output_policy),
-            hidden_control_refs={"runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
-            diagnostics={
-                "model_input_authority": "harness.runtime.compiler.current_work_boundary",
-                "boundary_input": dict(boundary_input or {}),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -2270,7 +2181,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "finalization_requires_evidence": True
             },
             "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
-            "active_work_relationship": "可选；当本轮已有 active_work_context 且你仍选择 request_task_run 时填写。restart_current_work/replace_current_work 表示用新任务接管旧任务；new_work 表示用户要求开启新的持续任务。",
+            "active_work_relationship": "可选；只有 current_work_permit 已允许 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
             "plan_requirements": {
                 "requires_plan": False,
                 "reason": "为什么需要先计划；仅在高影响改动、架构重构、协议变更或用户要求计划时填写。",
@@ -2376,19 +2287,19 @@ def _single_agent_turn_allowed_actions(
     *,
     control_capabilities: dict[str, Any],
     active_work_context: dict[str, Any] | None,
-    current_work_boundary_receipt: dict[str, Any] | None = None,
+    current_work_permit: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
-    receipt_allowed = _receipt_allowed_action_types(current_work_boundary_receipt)
-    if receipt_allowed:
-        return tuple(dict.fromkeys(receipt_allowed))
+    permit_allowed = _permit_allowed_action_types(current_work_permit)
+    if permit_allowed:
+        return tuple(dict.fromkeys(permit_allowed))
     actions: list[str] = ["respond", "ask_user", "block"]
     if bool(control_capabilities.get("may_request_task_run") is True):
         actions.append("request_task_run")
     return tuple(dict.fromkeys(actions))
 
 
-def _receipt_allowed_action_types(receipt: dict[str, Any] | None) -> tuple[str, ...]:
-    payload = dict(receipt or {})
+def _permit_allowed_action_types(permit: dict[str, Any] | None) -> tuple[str, ...]:
+    payload = dict(permit or {})
     if not payload:
         return ()
     return tuple(
@@ -2398,21 +2309,22 @@ def _receipt_allowed_action_types(receipt: dict[str, Any] | None) -> tuple[str, 
     )
 
 
-def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(receipt or {})
+def _current_work_permit_model_visible_payload(permit: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(permit or {})
     if not payload:
         return {}
     decision = dict(dict(payload.get("diagnostics") or {}).get("decision") or {})
     return {
-        "receipt_id": str(payload.get("receipt_id") or ""),
-        "boundary_action": str(payload.get("boundary_action") or ""),
-        "execution_route": str(payload.get("execution_route") or ""),
+        "permit_id": str(payload.get("permit_id") or ""),
+        "decision": str(payload.get("decision") or ""),
+        "allows": dict(payload.get("allows") or {}),
         "active_work_ref": dict(payload.get("active_work_ref") or {}),
-        "allowed_action_types_for_next_packet": list(payload.get("allowed_action_types_for_next_packet") or []),
-        "read_only_context": str(payload.get("boundary_action") or "") == "new_independent_turn_allowed",
+        "allowed_action_types": list(payload.get("allowed_action_types_for_next_packet") or []),
+        "read_only_context": not bool(dict(payload.get("allows") or {}).get("active_work_control") is True),
+        "denied_reason": str(payload.get("denied_reason") or ""),
         "reason": str(decision.get("reason") or ""),
         "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
-        "authority": "harness.runtime.current_work_boundary_receipt_projection",
+        "authority": "harness.runtime.current_work_permit_projection",
     }
 
 
@@ -2533,7 +2445,7 @@ def _single_agent_turn_output_contract(
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
-                "current_work_boundary": "request_task_run is available only when the current-work boundary receipt permits a new or replacement lifecycle. It does not control, resume, pause, or mutate active_work_context.",
+                "current_work_permit": "request_task_run is available only when the runtime-issued current_work_permit allows a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
@@ -2620,13 +2532,13 @@ def _active_work_model_visible_payload(
             "available_controls": controls,
             "read_only_context": not controls_enabled,
             "control_authorization": (
-                "current_work_boundary_receipt_allows_active_work_control"
+                "current_work_permit_allows_active_work_control"
                 if controls_enabled
-                else "current_work_boundary_receipt_required"
+                else "current_work_permit_required"
             ),
             "decision_boundary": (
                 "active_work_context represents only current active-turn-bound work exposed by this turn. "
-                "It is a state fact, not a control permit; only current_work_boundary_receipt can authorize active_work_control. "
+                "It is a state fact, not a control permit; only current_work_permit can authorize active_work_control. "
                 "If it contains a recovery boundary, that boundary has already been explicitly bound to the current active turn by the system; it is not a latest-task fallback. "
                 "Historical work summaries, recent_work_outcome, ordinary waiting_executor state, old artifacts, and terminal task records are read-only facts, not controllable current work. "
                 "Do not infer continue, pause, stop, replacement, or append authority from this context alone."
@@ -4365,10 +4277,10 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 如果本轮上下文包含 active_work_context，它只代表系统在本轮显式暴露的当前 active-turn-bound work；"
             "如果其中出现可恢复边界，也已经由系统绑定到当前 active turn，不是 latest task fallback。"
             "recent_work_outcome、历史摘要和普通 waiting_executor 只能作为只读事实，不能被当作当前可控制工作。"
-            "active_work_control 只在 CurrentWorkBoundary receipt 已授权时出现；你不能从 active_work_context 自行推断控制权限。"
+            "active_work_control 只在 current_work_permit 已授权时出现；你不能从 active_work_context 自行推断控制权限。"
         )
         lines.append(
-            "- 当 active_work_control 已被本轮 receipt 授权时，只执行 receipt/action schema 允许的当前工作控制。"
+            "- 当 active_work_control 已被本轮 current_work_permit 授权时，只执行 permit/action schema 允许的当前工作控制。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
             "如果 active_work_context 未提供 available_controls，说明普通 turn 没有当前工作控制授权。"
             "继续、暂停、停止或补充这类纯控制也必须携带简短用户可见反馈意图，由控制裁决和系统投影统一给出可见回执；不要另外生成一条与控制动作脱节的普通 assistant 正文，也不要把无需正文理解成结束任务。"
@@ -4380,9 +4292,9 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         if "request_task_run" in allowed_actions:
             lines.append(
-                "- request_task_run 只能在 CurrentWorkBoundary receipt 已允许新任务或替换任务时使用。"
-                "这种情况下在 task_contract_seed.active_work_relationship 填 restart_current_work、replace_current_work 或 new_work；"
-                "request_task_run 不会恢复旧任务，而会让运行时把旧 current work 做边缘收口后启动新生命周期。"
+                "- request_task_run 只能在 current_work_permit 已允许新任务时使用。"
+                "这种情况下在 task_contract_seed.active_work_relationship 填 new_work；"
+                "request_task_run 不会恢复、替换或接管旧任务；如果当前工作仍在运行，必须先使用 active_work_control 或 ask_user/block 处理当前工作。"
             )
     elif projection.get("invocation_kind") == "single_agent_turn":
         lines.append(

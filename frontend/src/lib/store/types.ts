@@ -43,6 +43,7 @@ export type Message = {
   stageStatus?: string;
   sourceIndex?: number;
   sourceTurnId?: string;
+  sourceStreamRunId?: string;
   sourceRunId?: string;
   sourceTaskRunId?: string;
   sourceTurnRunId?: string;

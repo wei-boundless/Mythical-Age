@@ -25,6 +25,7 @@ def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
             "public_anchor": {
                 "session_id": "session:test",
                 "turn_id": "turn:test",
+                "stream_run_id": "strun:test",
                 "task_run_id": "taskrun:turn:test:1",
             },
         },
@@ -35,6 +36,7 @@ def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
     assert frame["event_family"]
     assert frame["channel"]
     assert isinstance(frame["lossless"], bool)
+    assert frame["anchor"]["stream_run_id"] == "strun:test"
     return frame
 
 
@@ -220,6 +222,35 @@ def test_system_tool_batch_step_summary_stays_trace_only() -> None:
     assert frame["source_authority"] == "runtime"
     assert frame["main_visibility"] == "hidden"
     assert frame["retention"] == "trace"
+
+
+def test_runtime_status_defaults_to_trace_only_unless_public_status_kind() -> None:
+    hidden = _frame(
+        "runtime_status",
+        {
+            "runtime_event_id": "event:runtime-status:hidden",
+            "title": "内部运行状态",
+            "detail": "这只是运行时诊断。",
+            "state": "running",
+        },
+    )
+    visible = _frame(
+        "runtime_status",
+        {
+            "runtime_event_id": "event:runtime-status:visible",
+            "title": "公开阶段状态",
+            "detail": "这条状态明确允许展示。",
+            "state": "running",
+            "status_kind": "user_visible_runtime_status",
+        },
+    )
+
+    assert hidden["slot"] == "trace"
+    assert hidden["main_visibility"] == "hidden"
+    assert hidden["retention"] == "trace"
+    assert visible["slot"] == "status"
+    assert visible["main_visibility"] == "visible_live"
+    assert visible["retention"] == "transient"
 
 
 def test_runtime_stage_status_uses_stable_task_item_id() -> None:

@@ -708,6 +708,72 @@ def test_task_execution_projects_file_state_from_execution_state(tmp_path: Path)
     assert progress_facts["files"][0]["next_suggested_read"]["start_line"] == 16
 
 
+def test_task_progress_facts_project_todo_id_contract() -> None:
+    payload = TaskStateProjector().project(
+        execution_projection={
+            "runtime_status": "running",
+            "last_action_receipts": [
+                {
+                    "observation_ref": "obs:todo",
+                    "tool_name": "agent_todo",
+                    "status": "ok",
+                    "todo_plan": {
+                        "plan_id": "agent-todo:session:task",
+                        "items": [
+                            {
+                                "todo_id": "todo:inspect",
+                                "content": "Inspect current todo contract",
+                                "status": "in_progress",
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+        include_task_run_context=False,
+    )
+
+    todo_fact = payload["task_progress_facts"]["todos"][0]
+    assert todo_fact["todo_id"] == "todo:inspect"
+    assert "id" not in todo_fact
+
+
+def test_task_progress_facts_drop_legacy_todo_id_alias() -> None:
+    payload = TaskStateProjector().project(
+        execution_projection={
+            "runtime_status": "running",
+            "last_action_receipts": [
+                {
+                    "observation_ref": "obs:legacy-todo",
+                    "tool_name": "agent_todo",
+                    "status": "ok",
+                    "todo_plan": {
+                        "plan_id": "agent-todo:session:task",
+                        "items": [
+                            {
+                                "id": "todo:legacy",
+                                "content": "Legacy id field should not drive the todo contract",
+                                "status": "in_progress",
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+        observation_projection={},
+        work_history_projection={},
+        task_run_state={},
+        envelope_projection={},
+        include_task_run_context=False,
+    )
+
+    assert "todos" not in payload.get("task_progress_facts", {})
+
+
 def test_task_execution_evidence_ledger_marks_full_file_complete_after_local_reread(tmp_path: Path) -> None:
     storage_root = tmp_path / "runtime-state"
     store = FileStateAuthorityStore(storage_root)
@@ -1675,7 +1741,7 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")
 
 
-def test_single_agent_turn_active_work_context_is_read_only_without_boundary_receipt() -> None:
+def test_single_agent_turn_active_work_context_is_read_only_without_current_work_permit() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:active-work-current-turn",
         turn_id="turn:active-work-current-turn",
@@ -1704,16 +1770,17 @@ def test_single_agent_turn_active_work_context_is_read_only_without_boundary_rec
     model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
     assert "current active-turn-bound work" in decision_boundary
-    assert "current_work_boundary_receipt can authorize active_work_control" in decision_boundary
+    assert "current_work_permit can authorize active_work_control" in decision_boundary
     assert "latest resumable executor checkpoint" not in decision_boundary
     assert "latest-task fallback" in decision_boundary
     assert "recent_work_outcome" in decision_boundary
     assert active_work["read_only_context"] is True
-    assert active_work["control_authorization"] == "current_work_boundary_receipt_required"
+    assert active_work["control_authorization"] == "current_work_permit_required"
     assert "available_controls" not in active_work
     assert "active_work_control" not in result.packet.allowed_action_types
     assert "当前工作或可恢复断点" not in model_input
-    assert "current_work_boundary_receipt" in model_input
+    assert "current_work_permit" in model_input
+    assert "current_work_boundary_receipt" not in model_input
 
 
 def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:

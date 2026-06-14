@@ -18883,32 +18883,35 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window {
-  width: min(100%, 680px);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  width: min(100%, 760px);
+  border: 1px solid rgba(117, 135, 156, 0.24);
   border-radius: 8px;
-  background: rgba(248, 250, 252, 0.72);
-  color: #66758a;
+  background: rgba(250, 252, 253, 0.9);
+  color: #526176;
   margin: 2px 0 8px;
   overflow: hidden;
   position: relative;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
 }
 
 .agent-workbench .public-run-activity__tool-window summary {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   list-style: none;
-  padding: 6px 9px;
-  color: #526176;
-  font-size: 11.5px;
+  padding: 7px 10px;
+  color: #26354a;
+  font-size: 12px;
   font-weight: 620;
   line-height: 1.35;
   overflow-wrap: anywhere;
   user-select: none;
 }
 
-.agent-workbench .public-run-activity__tool-window summary span:first-child {
+.agent-workbench .public-run-activity__tool-window-title {
+  grid-column: 2;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -18920,19 +18923,50 @@ body {
 .agent-workbench .public-run-activity__tool-window summary::before {
   content: "›";
   display: inline-block;
-  margin-right: 6px;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  width: 10px;
   color: #7b8796;
   transform: translateY(-1px);
   transition: transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-window-title {
+  padding-left: 0;
 }
 
 .agent-workbench .public-run-activity__tool-window[open] summary::before {
   transform: rotate(90deg) translateX(1px);
 }
 
+.agent-workbench .public-run-activity__tool-window-summary-meta {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-workbench .public-run-activity__tool-window-summary-meta span {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #536174;
+  font-size: 10.6px;
+  font-weight: 620;
+  line-height: 1.2;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 2px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-workbench .public-run-activity__tool-window-body {
   border-top: 1px solid rgba(148, 163, 184, 0.18);
-  padding: 7px 9px 8px;
+  padding: 8px 10px 9px;
 }
 
 .agent-workbench .public-run-activity__tool-window-body p {
@@ -18974,14 +19008,14 @@ body {
 
 .agent-workbench .public-run-activity__tool-snapshot {
   display: grid;
-  gap: 5px;
+  gap: 6px;
   margin: 0;
   min-width: 0;
 }
 
 .agent-workbench .public-run-activity__tool-snapshot div {
   display: grid;
-  grid-template-columns: minmax(44px, 64px) minmax(0, 1fr);
+  grid-template-columns: minmax(44px, 68px) minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   min-width: 0;
@@ -19186,6 +19220,21 @@ body {
   .agent-workbench .public-run-activity {
     width: 100%;
     margin-left: 0;
+  }
+
+  .agent-workbench .public-run-activity__tool-window summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .agent-workbench .public-run-activity__tool-window-summary-meta {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .agent-workbench .public-run-activity__tool-window-summary-meta span {
+    max-width: 100%;
+    white-space: normal;
   }
 }
 .run-monitor-panel {
