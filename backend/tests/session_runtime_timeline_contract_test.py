@@ -8,6 +8,7 @@ from runtime.output_stream.public_contract import (
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
+    TURN_COMPLETED_EVENT,
 )
 
 
@@ -231,6 +232,55 @@ def test_session_runtime_timeline_running_task_replays_live_timeline_surface() -
     assert attachment["main_chat_surface"] == "live_timeline"
     assert attachment["public_projection_frames"][0]["tool_call_id"] == "call:read"
     assert attachment["tool_event_count"] == 1
+
+
+def test_session_runtime_timeline_stream_failure_does_not_close_main_surface() -> None:
+    task_run_id = "taskrun:turn:session-a:1:abc"
+    stream_run_id = "strun:session-a:1"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:1",
+        status="stopped",
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
+        created_at=1.0,
+        updated_at=3.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    TOOL_CALL_REQUESTED_EVENT,
+                    {"tool_call_id": "call:read", "tool_name": "read_file", "target": "README.md"},
+                    offset=1,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
+                _public_ledger_record(
+                    TURN_COMPLETED_EVENT,
+                    {"status": "stopped", "terminal_reason": "runtime_process_restarted"},
+                    offset=2,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "run", "turn_id": "turn:session-a:1"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["display_state"] == "task_live"
+    assert attachment["main_chat_surface"] == "live_timeline"
+    assert attachment["closeout_summary"] == ""
+    assert [frame["op"] for frame in attachment["public_projection_frames"]] == ["item_upsert", "turn_terminal"]
 
 
 def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projection_fields() -> None:

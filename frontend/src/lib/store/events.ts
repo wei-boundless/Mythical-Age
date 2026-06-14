@@ -660,29 +660,17 @@ function streamEventClosesMainTimeline(
   frame: ReturnType<typeof publicProjectionFrameFromRecord>,
 ) {
   const eventName = stringValue(event);
-  if (eventName === TURN_COMPLETED_EVENT || eventName === "done") {
-    return true;
-  }
+  if (eventName === "done") return false;
   const publicEventType = stringValue(data.public_event_type || data.source_event_type);
-  if (
-    publicEventType === "task_bridge_terminal"
-    || publicEventType === "turn_completed"
-    || publicEventType.startsWith("session_output_commit_")
-  ) {
+  if (publicEventType === "session_output_commit_ack") {
     return true;
   }
+  if (publicEventType === TURN_COMPLETED_EVENT || publicEventType === "task_bridge_terminal") return false;
+  if (publicEventType.startsWith("session_output_commit_")) return false;
   if (!frame) {
     return false;
   }
-  const family = stringValue(frame.event_family);
-  const state = stringValue(frame.state).toLowerCase();
-  return (
-    frame.op === "commit_ack"
-    || frame.op === "commit_failed"
-    || frame.op === "turn_terminal"
-    || family === "runtime_commit"
-    || family === "turn_anchor_terminal"
-  ) && ["", "done", "completed", "failed", "stopped", "skipped", "committed"].includes(state);
+  return frame.op === "commit_ack";
 }
 
 function runtimeCloseoutSummary(

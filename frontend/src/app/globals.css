@@ -18913,36 +18913,69 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window {
-  width: min(100%, 820px);
-  border: 1px solid rgba(117, 135, 156, 0.26);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.94);
-  color: #405169;
-  margin: 2px 0 8px;
-  overflow: hidden;
+  width: min(100%, 780px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #4f5b6d;
+  margin: 0 0 4px;
+  overflow: visible;
   position: relative;
-  box-shadow: 0 9px 22px rgba(15, 23, 42, 0.055);
+  box-shadow: none;
 }
 
 .agent-workbench .public-run-activity__tool-window summary {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   list-style: none;
-  padding: 8px 10px;
-  color: #26354a;
-  font-size: 12.2px;
-  font-weight: 620;
-  line-height: 1.35;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #4e5b6d;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.32;
   overflow-wrap: anywhere;
   user-select: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.agent-workbench .public-run-activity__tool-window summary:hover {
+  border-color: rgba(107, 124, 146, 0.2);
+  background: rgba(246, 248, 251, 0.82);
+  color: #243247;
+}
+
+.agent-workbench .public-run-activity__tool-window-icon {
+  flex: 0 0 auto;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border: 1px solid #aab4c1;
+  border-radius: 4px;
+  color: #738195;
+  background: #f8fafc;
+}
+
+.agent-workbench .public-run-activity__tool-window-icon::before {
+  content: ">";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  transform: translateY(-56%);
+  font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  font-size: 7px;
+  line-height: 1;
 }
 
 .agent-workbench .public-run-activity__tool-window-title {
-  grid-column: 2;
   min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
@@ -18950,44 +18983,112 @@ body {
   display: none;
 }
 
-.agent-workbench .public-run-activity__tool-window summary::before {
-  content: "›";
+.agent-workbench .public-run-activity__tool-window summary::after {
+  content: "⌄";
   display: inline-block;
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: start;
+  flex: 0 0 auto;
   width: 10px;
-  color: #7b8796;
+  color: #9aa3af;
+  font-size: 12px;
   transform: translateY(-1px);
   transition: transform 140ms ease;
 }
 
-.agent-workbench .public-run-activity__tool-window-title {
-  padding-left: 0;
+.agent-workbench .public-run-activity__tool-window-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.08);
+  color: #5f6f83;
+  font-size: 10.8px;
+  font-weight: 640;
+  white-space: nowrap;
 }
 
-.agent-workbench .public-run-activity__tool-window[open] summary::before {
-  transform: rotate(90deg) translateX(1px);
+.agent-workbench .public-run-activity__tool-window-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--done,
+.agent-workbench .public-run-activity__tool-console-result--done {
+  color: #586576;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--soft_error,
+.agent-workbench .public-run-activity__tool-console-result--soft_error {
+  color: #b42318;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--running,
+.agent-workbench .public-run-activity__tool-console-result--running {
+  color: #1f5fbf;
+}
+
+.agent-workbench .public-run-activity__tool-window-status--running {
+  background: rgba(31, 95, 191, 0.08);
+}
+
+.agent-workbench .public-run-activity__tool-window-status--soft_error {
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.agent-workbench .public-run-activity__tool-window[open] summary::after {
+  transform: rotate(180deg) translateY(1px);
 }
 
 .agent-workbench .public-run-activity__tool-window-body {
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
-  padding: 0;
+  padding: 2px 0 6px 20px;
 }
 
 .agent-workbench .public-run-activity__tool-console {
-  display: block;
-  max-height: 220px;
+  display: grid;
+  gap: 7px;
+  min-height: 116px;
+  max-height: 260px;
   margin: 0;
   overflow: auto;
-  padding: 8px 10px 10px;
-  background: rgba(246, 247, 249, 0.94);
-  color: #2f3a4a;
+  width: min(100%, 720px);
+  padding: 10px 12px 34px;
+  border-radius: 8px;
+  background: #f0f1f3;
+  color: #2e3540;
   font-family: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
-  font-size: 11.2px;
+  font-size: 11.8px;
   line-height: 1.52;
   white-space: pre-wrap;
   word-break: break-word;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
+}
+
+.agent-workbench .public-run-activity__tool-console-label {
+  color: #687386;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.agent-workbench .public-run-activity__tool-console-command,
+.agent-workbench .public-run-activity__tool-console-output {
+  margin: 0;
+  color: #242a33;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-workbench .public-run-activity__tool-console-output {
+  color: #4f5865;
 }
 
 .agent-workbench .public-run-activity__tool-console code {
@@ -18995,9 +19096,13 @@ body {
   font: inherit;
 }
 
-.agent-workbench .public-run-activity__tool-console code:first-child {
-  color: #172033;
-  font-weight: 640;
+.agent-workbench .public-run-activity__tool-console-result {
+  position: absolute;
+  right: 12px;
+  bottom: 9px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .agent-workbench .public-run-activity__tool-console::-webkit-scrollbar {

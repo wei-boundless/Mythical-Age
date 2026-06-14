@@ -2,15 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-_TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
 _TASK_ANCHOR_PUBLIC_EVENTS = {"task_bridge_started", "task_bridge_terminal"}
-_TASK_CLOSED_PUBLIC_EVENTS = {
-    "task_bridge_terminal",
-    "turn_completed",
-    "session_output_commit_ack",
-    "session_output_commit_failed",
-    "session_output_commit_skipped",
-}
+_TASK_CLOSED_PUBLIC_EVENTS = {"session_output_commit_ack"}
 _BODY_ONLY_SURFACE = "body_only"
 _LIVE_TIMELINE_SURFACE = "live_timeline"
 _CLOSEOUT_SUMMARY_SURFACE = "closeout_summary"
@@ -272,13 +265,11 @@ def _display_state_for_stream_run(
     )
     if not has_task:
         return {"display_state": "normal_turn", "main_chat_surface": _BODY_ONLY_SURFACE}
-    status = str(getattr(run, "status", "") or "").strip().lower()
-    closed = status in _TERMINAL_RUN_STATUSES or any(
+    closed = any(
         str(event.get("public_event_type") or "") in _TASK_CLOSED_PUBLIC_EVENTS
         for event in public_events
     ) or any(
-        str(frame.get("event_family") or "") in {"runtime_commit", "turn_anchor_terminal"}
-        and str(frame.get("state") or "").strip().lower() in {"done", "completed", "failed", "stopped", "skipped", "committed"}
+        str(frame.get("op") or "") == "commit_ack"
         for frame in frames
     )
     if closed:

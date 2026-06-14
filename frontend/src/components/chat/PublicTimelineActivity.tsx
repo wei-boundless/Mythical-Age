@@ -16,6 +16,7 @@ type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "
 type ActivityEntry = {
   collapsed?: boolean;
   commandLine?: string;
+  consoleLabel?: string;
   detail?: string;
   id: string;
   kind: "status" | "tool_window";
@@ -23,6 +24,8 @@ type ActivityEntry = {
   outputText?: string;
   sections: Array<{ label: string; text: string }>;
   state?: string;
+  statusLabel?: string;
+  statusTone?: PublicTimelineActivityTone;
   text: string;
 };
 
@@ -66,7 +69,7 @@ function publicTimelineActivityView(items: PublicChatTimelineItem[] | null | und
 function activityEntryFromItem(item: PublicChatTimelineItem, index: number): ActivityEntry | null {
   const kind = activityKindFromItem(item);
   const text = kind === "tool_window"
-    ? toolWindowText(item)
+    ? toolWindowTitle(item)
     : firstText(item.text, item.title, item.public_summary, item.subject_label, item.detail);
   if (!text) {
     return null;
@@ -95,6 +98,7 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
   return {
     collapsed: kind === "tool_window" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
     commandLine,
+    consoleLabel: kind === "tool_window" ? toolWindowConsoleLabel(item) : undefined,
     detail,
     id: kind === "tool_window" ? `tool-window:${stableId}` : stableId,
     kind,
@@ -102,6 +106,8 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
     outputText,
     sections,
     state: cleanText(item.state).toLowerCase(),
+    statusLabel: kind === "tool_window" ? toolWindowStatusLabel(item) : undefined,
+    statusTone: kind === "tool_window" ? toolWindowStatusTone(item) : undefined,
     text,
   };
 }
@@ -141,21 +147,64 @@ function firstDifferentText(summary: string, ...values: unknown[]) {
   return "";
 }
 
-function toolWindowText(item: PublicChatTimelineItem) {
-  const toolWindow = item.tool_window;
-  const baseText = firstText(item.text, item.title, item.public_summary, item.subject_label, item.detail);
-  const target = displayTargetLabel(toolWindow?.target || item.target || item.subject_label);
-  const status = displayToolStatus(toolWindow?.status || item.state);
-  const parts = [baseText];
-  const compactBase = compactText(baseText);
-  if (target && !compactBase.includes(compactText(target))) {
-    parts.push(target);
+function toolWindowTitle(item: PublicChatTimelineItem) {
+  const action = toolInvocationName(item);
+  const target = toolInvocationTarget(item);
+  return [action, target].filter(Boolean).join(" ");
+}
+
+function toolInvocationName(item: PublicChatTimelineItem) {
+  const rawTool = cleanText(item.tool_name || item.action_kind || item.tool_window?.tool_label);
+  const normalized = rawTool.toLowerCase();
+  if (!rawTool) return "tool";
+  if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(normalized)) {
+    return "运行命令";
   }
-  const compactWithTarget = compactText(parts.join(""));
-  if (status && !compactWithTarget.includes(compactText(status))) {
-    parts.push(status);
+  const labels: Record<string, string> = {
+    glob_paths: "匹配路径",
+    list_dir: "列出目录",
+    path_exists: "检查路径",
+    read_file: "读取文件",
+    read_files: "读取文件",
+    read_path: "读取文件",
+    search_files: "搜索文件",
+    search_text: "搜索文本",
+    stat_path: "检查路径",
+    write_file: "写入文件",
+    edit_file: "编辑文件",
+    apply_patch: "应用补丁",
+  };
+  return labels[normalized] || rawTool;
+}
+
+function toolInvocationTarget(item: PublicChatTimelineItem) {
+  return displayTargetLabel(item.tool_window?.target || item.target || item.subject_label);
+}
+
+function toolWindowStatusTone(item: PublicChatTimelineItem): PublicTimelineActivityTone {
+  const state = cleanText(item.state).toLowerCase();
+  if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
+  if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
+  return "running";
+}
+
+function toolWindowStatusLabel(item: PublicChatTimelineItem) {
+  const tone = toolWindowStatusTone(item);
+  if (tone === "done") return "完成";
+  if (tone === "soft_error") return "失败";
+  if (tone === "stopped") return "停止";
+  if (tone === "waiting") return "等待";
+  return "运行中";
+}
+
+function toolWindowConsoleLabel(item: PublicChatTimelineItem) {
+  const tool = cleanText(item.tool_name).toLowerCase();
+  if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool)) {
+    return "命令行";
   }
-  return parts.filter(Boolean).join(" ");
+  return "命令行";
 }
 
 function displayTargetLabel(value: unknown) {
@@ -199,7 +248,7 @@ function toolWindowOutputText(
     || firstSectionText(sections, "错误")
     || firstSectionText(sections, "详情");
   if (observation) return observation;
-  return cleanText(detail || item.observation || item.public_summary || item.recovery_hint);
+  return cleanText(item.observation || item.recovery_hint);
 }
 
 function firstSectionText(sections: Array<{ label: string; text: string }>, label: string) {
@@ -297,8 +346,11 @@ function ActivityLine({ entry }: { entry: ActivityEntry }) {
 }
 
 function ToolWindow({ entry }: { entry: ActivityEntry }) {
-  const defaultOpen = !entry.collapsed;
+  const defaultOpen = false;
   const [open, setOpen] = useState(defaultOpen);
+  const statusTone = entry.statusTone ?? "running";
+  const outputText = entry.outputText
+    || (statusTone === "running" || statusTone === "waiting" ? "等待系统返回" : "无输出");
 
   useEffect(() => {
     setOpen(defaultOpen);
@@ -313,17 +365,27 @@ function ToolWindow({ entry }: { entry: ActivityEntry }) {
       open={open}
     >
       <summary>
+        <span className="public-run-activity__tool-window-icon" aria-hidden="true" />
         <span className="public-run-activity__tool-window-title">{entry.text}</span>
+        <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${statusTone}`}>
+          {entry.statusLabel}
+        </span>
       </summary>
-      {entry.commandLine || entry.outputText ? (
-        <div className="public-run-activity__tool-window-body">
-          <pre className="public-run-activity__tool-console">
-            {entry.commandLine ? <code>{`$ ${entry.commandLine}`}</code> : null}
-            {entry.commandLine && entry.outputText ? "\n" : null}
-            {entry.outputText ? <code>{entry.outputText}</code> : null}
+      <div className="public-run-activity__tool-window-body">
+        <div className="public-run-activity__tool-console" role="group" aria-label="工具调用窗口">
+          <div className="public-run-activity__tool-console-label">{entry.consoleLabel || "命令行"}</div>
+          <pre className="public-run-activity__tool-console-command">
+            <code>{entry.commandLine ? `$ ${entry.commandLine}` : "$ tool"}</code>
           </pre>
+          <div className="public-run-activity__tool-console-label">系统返回</div>
+          <pre className="public-run-activity__tool-console-output">
+            <code>{outputText}</code>
+          </pre>
+          <div className={`public-run-activity__tool-console-result public-run-activity__tool-console-result--${statusTone}`}>
+            {entry.statusLabel}
+          </div>
         </div>
-      ) : null}
+      </div>
     </details>
   );
 }

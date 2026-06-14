@@ -10,6 +10,7 @@ import type { ActiveTurnState, Message, SessionActivityState, StoreState } from 
 
 type ApplyProjectionOptions = {
   assistantId?: string;
+  createMessage?: boolean;
   streamAnchor?: ProjectionStreamAnchor;
 };
 
@@ -51,7 +52,7 @@ export function applyPublicProjectionFramesToMessages(
 ): Message[] {
   let state = { messages } as StoreState;
   for (const frame of frames) {
-    state = patchProjectionMessage(state, frame, {});
+    state = patchProjectionMessage(state, frame, { createMessage: false });
   }
   return state.messages;
 }
@@ -132,6 +133,7 @@ function patchProjectionMessage(
 }
 
 function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame, options: ApplyProjectionOptions): StoreState {
+  if (options.createMessage === false) return state;
   if (!frameCreatesVisibleMessage(frame)) return state;
   if (projectionMessageIndex(state, frame, options) >= 0) return state;
   const anchor = frame.anchor ?? {};
@@ -433,7 +435,7 @@ function addTrace(ledger: ProjectionLedger, item: PublicProjectionItem) {
 }
 
 function recordTimelineItem(ledger: ProjectionLedger, frame: PublicProjectionFrame, item: PublicProjectionItem) {
-  const timelineItem = timelineItemFromFrame(frame, item);
+  const timelineItem = timelineItemFromFrame(frame, item, ledger);
   if (!timelineItem) return;
   ledger.timeline = upsertProjectionItem(ledger.timeline, timelineItem);
   ledger.displayCursor = { kind: "activity", itemId: timelineItem.itemId };
@@ -489,8 +491,12 @@ function stableBodyBlockId(frame: PublicProjectionFrame, offset: number) {
   return `body:${text(frame.anchor?.message_id || frame.anchor?.turn_id || frame.source_event_id || "message")}:${offset}`;
 }
 
-function timelineItemFromFrame(frame: PublicProjectionFrame, item: PublicProjectionItem): PublicProjectionItem | null {
-  if (!itemShouldEnterTimeline(frame, item)) return null;
+function timelineItemFromFrame(
+  frame: PublicProjectionFrame,
+  item: PublicProjectionItem,
+  ledger: ProjectionLedger,
+): PublicProjectionItem | null {
+  if (!itemShouldEnterTimeline(frame, item, ledger)) return null;
   const offset = frameOffset(frame);
   const toolCallId = text(frame.tool_call_id || item.toolCallId);
   const lifecycleId = text(frame.tool_lifecycle_id || item.toolLifecycleId);
@@ -513,14 +519,49 @@ function timelineItemFromFrame(frame: PublicProjectionFrame, item: PublicProject
   };
 }
 
-function itemShouldEnterTimeline(frame: PublicProjectionFrame, item: PublicProjectionItem) {
+function itemShouldEnterTimeline(
+  frame: PublicProjectionFrame,
+  item: PublicProjectionItem,
+  ledger: ProjectionLedger,
+) {
   const slot = text(frame.slot);
   const visibility = text(frame.main_visibility);
   const sourceEventType = text(frame.source_event_type);
-  if (sourceEventType === "tool_permission_decided" && visibility === "trace_only") return false;
-  if (frame.tool_call_id || frame.tool_lifecycle_id || item.toolCallId || item.toolLifecycleId || item.toolName) return true;
+  const toolOwned = Boolean(frame.tool_call_id || frame.tool_lifecycle_id || item.toolCallId || item.toolLifecycleId || item.toolName);
   if (visibility === "hidden") return false;
+  if (sourceEventType === "tool_permission_decided" && visibility === "trace_only") return false;
+  if (toolOwned) {
+    if (frameIsMainVisible(frame)) return true;
+    return visibility === "trace_only" && timelineAlreadyHasTool(ledger, frame, item);
+  }
   return ["current_action", "pinned", "status", "final_result"].includes(slot);
+}
+
+function timelineAlreadyHasTool(
+  ledger: ProjectionLedger,
+  frame: PublicProjectionFrame,
+  item: PublicProjectionItem,
+) {
+  const keys = new Set([
+    text(frame.tool_call_id),
+    text(frame.tool_lifecycle_id),
+    text(item.toolCallId),
+    text(item.toolLifecycleId),
+    text(item.itemId),
+  ].filter(Boolean));
+  if (!keys.size) return false;
+  if (ledger.currentAction && projectionItemMatchesAnyToolKey(ledger.currentAction, keys)) {
+    return true;
+  }
+  return (ledger.timeline ?? []).some((existing) => projectionItemMatchesAnyToolKey(existing, keys));
+}
+
+function projectionItemMatchesAnyToolKey(item: PublicProjectionItem, keys: Set<string>) {
+  return [
+    item.itemId,
+    item.toolCallId,
+    item.toolLifecycleId,
+  ].map(text).some((key) => key && keys.has(key));
 }
 
 function upsertProjectionItem(items: PublicProjectionItem[], incoming: PublicProjectionItem) {
@@ -678,15 +719,22 @@ function findAssistantMessageIndexByTurnId(
   const normalized = text(turnId);
   if (!normalized) return -1;
   const hasExecutionAnchor = Boolean(text(anchor.streamRunId) || text(anchor.turnRunId));
+  let turnOnlyIndex = -1;
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
     if (message.role !== "assistant") continue;
     if (message.sourceTurnId !== normalized) continue;
     if (!messageCanAcceptProjectionAnchor(message, { turnId: normalized, ...anchor })) continue;
-    if (hasExecutionAnchor && !strongMessageAnchorMatches(message, anchor)) continue;
+    if (hasExecutionAnchor) {
+      if (strongMessageAnchorMatches(message, anchor)) return index;
+      if (!text(message.sourceStreamRunId) && !text(message.sourceTurnRunId) && turnOnlyIndex < 0) {
+        turnOnlyIndex = index;
+      }
+      continue;
+    }
     return index;
   }
-  return -1;
+  return turnOnlyIndex;
 }
 
 function compareProjectionMessages(left: Message, right: Message) {

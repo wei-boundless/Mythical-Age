@@ -1043,6 +1043,8 @@ def _append_chat_public_event(
     if runtime_active_turn_id:
         payload.setdefault("active_turn_id", runtime_active_turn_id)
         payload.setdefault("turn_id", runtime_active_turn_id)
+    if not projection_lifecycle.should_emit_public_event(public_event_type, payload):
+        return current
     next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
     if event_requires_public_projection(public_event_type):
         _attach_public_projection_frame(
@@ -2372,6 +2374,7 @@ def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> di
 def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     raw_event = _record(raw_data.get("event"))
     payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
     visible_fields = {
         "summary": _safe_public_action_text(payload.get("summary")),
         "public_progress_note": _safe_public_action_text(payload.get("public_progress_note")),
@@ -2387,7 +2390,13 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "step": str(payload.get("step") or "").strip(),
         "status": str(payload.get("status") or "running").strip() or "running",
         "presentation_source": str(payload.get("presentation_source") or "").strip(),
-        "feedback_identity": str(payload.get("feedback_identity") or "").strip(),
+        "feedback_identity": str(
+            payload.get("feedback_identity")
+            or refs.get("action_request_ref")
+            or refs.get("batch_action_request_ref")
+            or refs.get("runtime_invocation_packet_ref")
+            or ""
+        ).strip(),
         **{key: value for key, value in visible_fields.items() if value},
     }
     event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()

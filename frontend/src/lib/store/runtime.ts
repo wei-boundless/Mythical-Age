@@ -98,7 +98,8 @@ function hydrateSessionRuntimeProjection(
   const frames: PublicProjectionFrame[] = [];
   let hydratedMessages = messages;
   for (const attachment of attachments ?? []) {
-    if (runtimeAttachmentSurface(attachment) !== "live_timeline") {
+    const surface = runtimeAttachmentSurface(attachment);
+    if (surface === "log_only" || surface === "closeout_summary") {
       continue;
     }
     for (const record of attachment.public_projection_frames ?? []) {

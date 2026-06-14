@@ -41,7 +41,7 @@ export function getRuntimeLogEventStreamUrl(
 
 function requestTimeoutMs(path: string) {
   if (path === "/sessions") {
-    return 5000;
+    return 15000;
   }
   if (path.includes("/project-binding/select-directory") || path.includes("/project-workspaces/select-directory")) {
     return 90000;

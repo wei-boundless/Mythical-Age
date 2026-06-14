@@ -20,6 +20,10 @@ class PromptAccountingLedger:
         self.ledger_dir = self.root_dir / "prompt_accounting"
         self.ledger_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._filtered_read_cache: dict[
+            tuple[str, str, str, str],
+            tuple[tuple[int, int], list[dict[str, Any]]],
+        ] = {}
 
     def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
         self._append_jsonl("segment_maps.jsonl", segment_map.to_dict())
@@ -312,32 +316,75 @@ class PromptAccountingLedger:
         with self._lock:
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+            self._apply_append_to_filtered_read_cache(filename, _file_signature(path), payload)
 
     def _read_jsonl(self, filename: str, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
         path = self.ledger_dir / filename
         if not path.exists():
             return []
-        rows: list[dict[str, Any]] = []
-        with self._lock:
-            lines = path.read_text(encoding="utf-8").splitlines()
+        normalized_run_id = str(run_id or "")
+        normalized_task_run_id = str(task_run_id or "")
+        normalized_session_id = str(session_id or "")
+        cache_key = (filename, normalized_run_id, normalized_task_run_id, normalized_session_id)
+        cacheable = bool(normalized_run_id or normalized_task_run_id or normalized_session_id)
         prefilter = _line_prefilter(
-            run_id=str(run_id or ""),
-            task_run_id=str(task_run_id or ""),
-            session_id=str(session_id or ""),
+            run_id=normalized_run_id,
+            task_run_id=normalized_task_run_id,
+            session_id=normalized_session_id,
         )
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
+        with self._lock:
+            signature = _file_signature(path)
+            if cacheable:
+                cached = self._filtered_read_cache.get(cache_key)
+                if cached is not None:
+                    cached_signature, cached_rows = cached
+                    if cached_signature == signature:
+                        return [dict(row) for row in cached_rows]
+
+            rows: list[dict[str, Any]] = []
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if prefilter and not _line_matches_prefilter(stripped, prefilter):
+                        continue
+                    try:
+                        payload = json.loads(stripped)
+                    except JSONDecodeError:
+                        continue
+                    if isinstance(payload, dict):
+                        rows.append(payload)
+            if cacheable:
+                self._filtered_read_cache[cache_key] = (signature, [dict(row) for row in rows])
+                if len(self._filtered_read_cache) > 256:
+                    self._filtered_read_cache.pop(next(iter(self._filtered_read_cache)))
+            return rows
+
+    def _invalidate_filtered_read_cache(self, filename: str | None = None) -> None:
+        if filename is None:
+            self._filtered_read_cache.clear()
+            return
+        target = str(filename or "")
+        for key in list(self._filtered_read_cache):
+            if key[0] == target:
+                self._filtered_read_cache.pop(key, None)
+
+    def _apply_append_to_filtered_read_cache(
+        self,
+        filename: str,
+        signature: tuple[int, int],
+        payload: dict[str, Any],
+    ) -> None:
+        target = str(filename or "")
+        for key, (_cached_signature, cached_rows) in list(self._filtered_read_cache.items()):
+            if key[0] != target:
                 continue
-            if prefilter and not _line_matches_prefilter(stripped, prefilter):
-                continue
-            try:
-                payload = json.loads(stripped)
-            except JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                rows.append(payload)
-        return rows
+            _filename, run_id, task_run_id, session_id = key
+            next_rows = list(cached_rows)
+            if _row_matches_filter(payload, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
+                next_rows.append(dict(payload))
+            self._filtered_read_cache[key] = (signature, next_rows)
 
     def _rewrite_without_tasks(self, filename: str, task_run_ids: set[str]) -> int:
         path = self.ledger_dir / filename
@@ -355,6 +402,7 @@ class PromptAccountingLedger:
             with path.open("w", encoding="utf-8", newline="\n") as handle:
                 for row in kept:
                     handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            self._invalidate_filtered_read_cache(filename)
         return deleted
 
     def _rewrite_without_session_or_tasks(self, filename: str, session_id: str, task_run_ids: set[str]) -> int:
@@ -375,6 +423,7 @@ class PromptAccountingLedger:
             with path.open("w", encoding="utf-8", newline="\n") as handle:
                 for row in kept:
                     handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            self._invalidate_filtered_read_cache(filename)
         return deleted
 
 
@@ -478,3 +527,25 @@ def _json_field_markers(field: str, value: str) -> tuple[str, str]:
 
 def _line_matches_prefilter(line: str, groups: tuple[tuple[str, ...], ...]) -> bool:
     return all(any(marker in line for marker in group) for group in groups)
+
+
+def _row_matches_filter(row: dict[str, Any], *, run_id: str, task_run_id: str, session_id: str) -> bool:
+    if session_id and str(row.get("session_id") or "") != session_id:
+        return False
+    if task_run_id:
+        row_task_run_id = str(row.get("task_run_id") or "")
+        row_run_id = str(row.get("run_id") or "")
+        return task_run_id in {row_task_run_id, row_run_id}
+    if run_id:
+        row_run_id = str(row.get("run_id") or "")
+        row_task_run_id = str(row.get("task_run_id") or "")
+        return run_id in {row_run_id, row_task_run_id}
+    return True
+
+
+def _file_signature(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0)
+    return int(stat.st_mtime_ns), int(stat.st_size)

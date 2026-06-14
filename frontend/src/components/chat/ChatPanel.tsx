@@ -275,13 +275,13 @@ function chatStreamStatusPresentation(status: ChatStreamConnectionStatus, stream
     return null;
   }
   if (state === "reconnecting") {
-    const attempt = status.attempt && status.maxAttempts
-      ? `${status.attempt}/${status.maxAttempts}`
+    const attempt = status.attempt
+      ? `第 ${status.attempt} 次`
       : "";
     return {
       state,
       label: "输出流",
-      detail: attempt ? `重连 ${attempt}` : "重连中",
+      detail: attempt ? `重连中 ${attempt}` : "重连中",
       title: status.reason ? `输出流连接中断，正在重连：${status.reason}` : "输出流连接中断，正在重连。",
     };
   }

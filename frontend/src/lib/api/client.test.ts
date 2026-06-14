@@ -40,9 +40,9 @@ describe("apiRequest", () => {
 
     const pending = expect(apiRequest("/sessions", { method: "POST", body: "{}" })).rejects.toMatchObject({
       name: "RequestTimeoutError",
-      message: "Request timed out after 5000ms: /sessions",
+      message: "Request timed out after 15000ms: /sessions",
     });
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(15000);
 
     await pending;
   });
@@ -256,7 +256,7 @@ describe("streamChat", () => {
       "stream_reconnected",
       "turn_completed",
     ]);
-    expect(events[1].data).toMatchObject({ attempt: 1, max_attempts: 5, event_offset: 1 });
+    expect(events[1].data).toMatchObject({ attempt: 1, event_offset: 1 });
   });
 
   it("reconnects after a transport error without replaying delivered offsets", async () => {

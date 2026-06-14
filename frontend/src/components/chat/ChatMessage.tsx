@@ -81,7 +81,7 @@ export function ChatMessage({
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
   const mainSurface = normalizedMainChatSurface(mainChatSurface, runtimeDisplayState);
   const taskClosed = mainSurface === "closeout_summary";
-  const renderLiveTimeline = !isUser && mainSurface === "live_timeline";
+  const renderProjectionTimeline = !isUser && !taskClosed && mainSurface !== "log_only";
   const projectionBodyText = publicProjection?.bodyText && !isInternalControlProtocolText(publicProjection.bodyText)
     ? publicProjection.bodyText
     : "";
@@ -97,7 +97,7 @@ export function ChatMessage({
       answerSource,
       answerLeakFlags,
     });
-  const projectionBodyBlocks = renderLiveTimeline
+  const projectionBodyBlocks = renderProjectionTimeline
     ? (publicProjection?.bodyBlocks ?? []).filter((block) => block.text && !isInternalControlProtocolText(block.text))
     : [];
   const baseDisplayContent = isUser
@@ -108,7 +108,7 @@ export function ChatMessage({
   const messageDisplayContent = baseDisplayContent;
   const publicTimelineItems = isUser
     ? []
-    : renderLiveTimeline
+    : renderProjectionTimeline
       ? publicTimelineItemsFromProjection(publicProjection)
       : [];
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
@@ -252,7 +252,7 @@ export function ChatMessage({
     </div>
     ) : null;
   };
-  const orderedMessageBlocks = isUser || taskClosed || !renderLiveTimeline
+  const orderedMessageBlocks = isUser || taskClosed || !renderProjectionTimeline
     ? []
     : orderedProjectionMessageBlocks({
       bodyBlocks: projectionBodyBlocks,
@@ -287,7 +287,7 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {isUser || taskClosed || !renderLiveTimeline ? renderMessageContent() : orderedMessageBlocks.map((block) => (
+      {isUser || taskClosed || !renderProjectionTimeline ? renderMessageContent() : orderedMessageBlocks.map((block) => (
         block.kind === "body"
           ? renderMessageContent(block.key, block.text, block.key === firstBodyBlockKey)
           : (
@@ -402,9 +402,12 @@ function orderedProjectionMessageBlocks({
   timelineItems: PublicChatTimelineItem[];
 }): ProjectionMessageBlock[] {
   const entries: ProjectionMessageBlock[] = [];
+  const seenBodyText = new Set<string>();
   const seenModelFeedback = new Set<string>();
   if (bodyBlocks.length > 0) {
     for (const block of bodyBlocks) {
+      const bodyKey = compactText(block.text);
+      if (bodyKey) seenBodyText.add(bodyKey);
       entries.push({
         kind: "body",
         key: block.blockId,
@@ -413,6 +416,8 @@ function orderedProjectionMessageBlocks({
       });
     }
   } else if (hasBody) {
+    const bodyKey = compactText(fallbackBodyText);
+    if (bodyKey) seenBodyText.add(bodyKey);
     entries.push({
       kind: "body",
       key: "projection-body",
@@ -425,12 +430,17 @@ function orderedProjectionMessageBlocks({
       const feedbackText = modelFeedbackBodyText(item);
       if (feedbackText) {
         const feedbackKey = modelFeedbackIdentityKey(item);
+        const feedbackTextKey = compactText(feedbackText);
+        if (feedbackTextKey && seenBodyText.has(feedbackTextKey)) {
+          continue;
+        }
         if (feedbackKey && seenModelFeedback.has(feedbackKey)) {
           continue;
         }
         if (feedbackKey) {
           seenModelFeedback.add(feedbackKey);
         }
+        if (feedbackTextKey) seenBodyText.add(feedbackTextKey);
         entries.push({
           kind: "body",
           key: `model-feedback:${item.source_event_id || item.item_id || item.event_offset || entries.length}`,
@@ -513,6 +523,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     source_authority: item.sourceAuthority,
     event_family: item.eventFamily,
     channel: item.channel,
+    status_kind: item.statusKind,
     lossless: item.lossless,
     title,
     text: title,
@@ -836,6 +847,9 @@ function isModelFeedbackTimelineItem(item: PublicChatTimelineItem) {
   const sourceAuthority = cleanText(item.source_authority).toLowerCase();
   const eventFamily = cleanText(item.event_family).toLowerCase();
   const channel = cleanText(item.channel).toLowerCase();
+  const sourceEventType = cleanText(item.source_event_type).toLowerCase();
+  const statusKind = cleanText(item.status_kind || (item as { statusKind?: unknown }).statusKind).toLowerCase();
+  if (sourceEventType === "runtime_step_summary" && statusKind === "public_stage_status") return true;
   return sourceAuthority === "model" && (eventFamily === "status_trace" || channel === "status");
 }
 

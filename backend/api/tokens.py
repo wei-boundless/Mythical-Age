@@ -23,6 +23,7 @@ router = APIRouter()
 _SESSION_TOKENS_CACHE_TTL_SECONDS = 10.0
 _session_tokens_cache_guard = threading.Lock()
 _session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[int, int], float, dict[str, Any]]] = {}
+_session_tokens_key_locks: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 class FileTokensRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
@@ -85,14 +86,59 @@ def _session_tokens_payload(
         str(project_id or ""),
     )
     signature = runtime.session_manager.session_storage_signature(session_id)
+    cached_payload = _cached_session_tokens_payload(cache_key, signature)
+    if cached_payload is not None:
+        return cached_payload
+    key_lock = _session_tokens_lock_for(cache_key)
+    with key_lock:
+        signature = runtime.session_manager.session_storage_signature(session_id)
+        cached_payload = _cached_session_tokens_payload(cache_key, signature)
+        if cached_payload is not None:
+            return cached_payload
+        payload = _build_session_tokens_payload(
+            runtime,
+            session_id=session_id,
+            workspace_view=workspace_view,
+            task_environment_id=task_environment_id,
+            project_id=project_id,
+        )
+        with _session_tokens_cache_guard:
+            _session_tokens_cache[cache_key] = (signature, time.monotonic(), copy.deepcopy(payload))
+        return payload
+
+
+def _cached_session_tokens_payload(
+    cache_key: tuple[str, str, str, str],
+    signature: tuple[int, int],
+) -> dict[str, Any] | None:
     now = time.monotonic()
     with _session_tokens_cache_guard:
         cached = _session_tokens_cache.get(cache_key)
-        if cached is not None:
-            cached_signature, cached_at, cached_payload = cached
-            if cached_signature == signature and now - cached_at <= _SESSION_TOKENS_CACHE_TTL_SECONDS:
-                return copy.deepcopy(cached_payload)
+        if cached is None:
+            return None
+        cached_signature, cached_at, cached_payload = cached
+        if cached_signature == signature and now - cached_at <= _SESSION_TOKENS_CACHE_TTL_SECONDS:
+            return copy.deepcopy(cached_payload)
+    return None
 
+
+def _session_tokens_lock_for(cache_key: tuple[str, str, str, str]) -> threading.Lock:
+    with _session_tokens_cache_guard:
+        lock = _session_tokens_key_locks.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _session_tokens_key_locks[cache_key] = lock
+        return lock
+
+
+def _build_session_tokens_payload(
+    runtime: Any,
+    *,
+    session_id: str,
+    workspace_view: str | None,
+    task_environment_id: str | None,
+    project_id: str | None,
+) -> dict[str, Any]:
     assert_optional_session_scope(
         runtime.session_manager,
         session_id,
@@ -125,24 +171,20 @@ def _session_tokens_payload(
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
     cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
-    context_compaction = compact_session_history(
+    history_status = _history_compaction_status(
         runtime,
         session_id=session_id,
-        mode="preview",
-        pressure_level="auto",
-        reason="session_token_status_preview",
-        pressure_source="history",
-        context_snapshot=context_snapshot,
+        raw_messages=raw_messages,
     )
-    raw_history_tokens = int(context_compaction.get("estimated_tokens_before") or 0)
-    history_tokens = int(context_compaction.get("estimated_tokens_after") or raw_history_tokens)
+    raw_history_tokens = int(history_status.get("raw_history_tokens") or 0)
+    history_tokens = int(history_status.get("history_tokens") or raw_history_tokens)
     compression_saved_tokens = max(cumulative_transcript_tokens - history_tokens, 0)
     compression_ratio = (
         min(history_tokens / cumulative_transcript_tokens, 1.0)
         if cumulative_transcript_tokens > 0
         else 1.0
     )
-    history_budget_tokens = int(context_compaction.get("history_budget_tokens") or 0)
+    history_budget_tokens = int(history_status.get("history_budget_tokens") or 0)
     history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
     history_usage_ratio = (
         min(history_tokens / history_budget_tokens, 1.0)
@@ -154,11 +196,7 @@ def _session_tokens_payload(
         if history_budget_tokens > 0
         else 0.0
     )
-    history_pressure_level = str(
-        context_compaction.get("history_pressure_level")
-        or context_compaction.get("pressure_level")
-        or "normal"
-    )
+    history_pressure_level = str(history_status.get("history_pressure_level") or "normal")
     billing_totals = dict(prompt_usage or {})
     cache_metrics = cache_metrics_from_context_meter(context_meter, billing_totals)
     compaction_readiness = {
@@ -193,15 +231,33 @@ def _session_tokens_payload(
         "history_usage_ratio": round(history_usage_ratio, 4),
         "history_remaining_ratio": round(history_remaining_ratio, 4),
         "history_pressure_level": history_pressure_level,
-        "history_compaction_strategy": str(context_compaction.get("strategy") or "none"),
-        "history_did_compact": bool(context_compaction.get("did_compact", False)),
-        "history_did_microcompact": bool(context_compaction.get("did_microcompact", False)),
-        "history_did_full_compact": bool(context_compaction.get("did_full_compact", False)),
+        "history_compaction_strategy": str(history_status.get("history_compaction_strategy") or "none"),
+        "history_did_compact": False,
+        "history_did_microcompact": False,
+        "history_did_full_compact": False,
         "prompt_accounting": prompt_usage,
     }
-    with _session_tokens_cache_guard:
-        _session_tokens_cache[cache_key] = (signature, time.monotonic(), copy.deepcopy(payload))
     return payload
+
+
+def _history_compaction_status(
+    runtime: Any,
+    *,
+    session_id: str,
+    raw_messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
+    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    raw_history_tokens = int(compactor.conversation_tokens(py_messages) or 0)
+    history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
+    history_pressure_level = str(compactor.pressure_level(raw_history_tokens, len(py_messages)) or "normal")
+    return {
+        "raw_history_tokens": raw_history_tokens,
+        "history_tokens": raw_history_tokens,
+        "history_budget_tokens": history_budget_tokens,
+        "history_pressure_level": history_pressure_level,
+        "history_compaction_strategy": "none",
+    }
 
 
 def _context_recovery_package_status(

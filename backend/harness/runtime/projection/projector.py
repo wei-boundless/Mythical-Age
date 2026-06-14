@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from .authority import build_public_projection_frame
-from .guards import public_text, record, stable_id, text
+from .guards import compact, public_text, record, stable_id, text
 from .items import action_kind_for_tool
 from runtime.output_stream.public_contract import (
+    ASSISTANT_BODY_EVENT_FAMILY,
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
+    BODY_PUBLIC_CHANNEL,
     CHAT_TURN_BOUND_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
@@ -31,6 +33,18 @@ _TRACE_ONLY_RUNTIME_STEP_SOURCES = {"system.tool_call_status", "tool_observation
 class ProjectionLifecycleState:
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
+        self._model_feedback_keys: set[str] = set()
+
+    def should_emit_public_event(self, public_event_type: str, data: dict[str, Any]) -> bool:
+        if text(public_event_type) != "runtime_step_summary":
+            return True
+        key = _runtime_step_summary_visible_feedback_key(data)
+        if not key:
+            return True
+        if key in self._model_feedback_keys:
+            return False
+        self._model_feedback_keys.add(key)
+        return True
 
     def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
         event_type = text(public_event_type)
@@ -683,6 +697,25 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
             "state": text(data.get("status")) or "running",
             "trace_refs": _trace_refs(data),
         }
+    if presentation_source.startswith("model_action.") and (title or detail):
+        body_text = _runtime_step_summary_body_text(title=title, detail=detail)
+        return {
+            "op": "body_append",
+            "slot": "body",
+            "source_authority": "model",
+            "event_family": ASSISTANT_BODY_EVENT_FAMILY,
+            "channel": BODY_PUBLIC_CHANNEL,
+            "lossless": True,
+            "main_visibility": "visible_live",
+            "retention": "transient",
+            "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
+            "item_id": _runtime_step_summary_body_item_id(data, title=title, detail=detail),
+            "title": title,
+            "text": body_text,
+            "detail": detail,
+            "state": text(data.get("status")) or "running",
+            "trace_refs": _trace_refs(data),
+        }
     return {
         "op": "item_upsert",
         "slot": "status",
@@ -698,6 +731,64 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
         "state": text(data.get("status")) or "running",
         "trace_refs": _trace_refs(data),
     }
+
+
+def _runtime_step_summary_body_text(*, title: str, detail: str) -> str:
+    if title and detail and compact(title) != compact(detail):
+        return f"{title}\n\n{detail}"
+    return title or detail
+
+
+def _runtime_step_summary_body_item_id(data: dict[str, Any], *, title: str, detail: str) -> str:
+    feedback_identity = text(data.get("feedback_identity"))
+    if feedback_identity:
+        return stable_id("model-action-feedback-body", feedback_identity)
+    return stable_id(
+        "model-action-feedback-body",
+        data.get("runtime_event_id"),
+        data.get("source_task_event_id"),
+        data.get("source_task_event_offset"),
+        data.get("step"),
+        title,
+        detail,
+    )
+
+
+def _runtime_step_summary_visible_feedback_key(data: dict[str, Any]) -> str:
+    presentation_source = text(data.get("presentation_source"))
+    if not presentation_source.startswith("model_action."):
+        return ""
+    progress_note = public_text(data.get("public_progress_note"), limit=180)
+    current_judgment = public_text(data.get("current_judgment"), limit=180)
+    next_action = public_text(data.get("next_action"), limit=220)
+    agent_brief = public_text(data.get("agent_brief_output"), limit=220)
+    summary = public_text(data.get("summary"), limit=180)
+    title = progress_note or current_judgment or summary
+    detail = next(
+        (
+            value
+            for value in (current_judgment, next_action, agent_brief)
+            if value and value != title
+        ),
+        "",
+    )
+    body = _runtime_step_summary_body_text(title=title, detail=detail)
+    if not body:
+        return ""
+    feedback_identity = text(data.get("feedback_identity"))
+    if feedback_identity:
+        return stable_id("model-action-feedback-visible", feedback_identity)
+    anchor = record(data.get("public_anchor"))
+    scope = (
+        text(data.get("task_run_id"))
+        or text(data.get("runtime_task_run_id"))
+        or text(anchor.get("task_run_id"))
+        or text(data.get("turn_run_id"))
+        or text(anchor.get("turn_run_id"))
+        or text(data.get("turn_id"))
+        or text(anchor.get("turn_id"))
+    )
+    return stable_id("model-action-feedback-visible", scope, compact(body))
 
 
 def _runtime_stage_status_frame_id(data: dict[str, Any], *, title: str, detail: str) -> str:

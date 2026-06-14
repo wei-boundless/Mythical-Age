@@ -197,6 +197,8 @@ export type PublicChatTimelineItem = {
   source_authority?: "model" | "runtime" | "tool" | "system" | string;
   event_family?: "assistant_body" | "tool_control" | "runtime_commit" | "turn_anchor_terminal" | "status_trace" | string;
   channel?: "body" | "control" | "commit" | "terminal" | "status" | string;
+  status_kind?: string;
+  statusKind?: string;
   lossless?: boolean;
   sequence?: number;
   event_offset?: number;
@@ -4132,7 +4134,8 @@ export type OrchestrationSubagentPolicy = {
 const TURN_COMPLETED_EVENT = "turn_completed";
 const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
 const MAX_STREAM_BUFFER_CHARS = 1_000_000;
-const MAX_CHAT_STREAM_RECONNECT_ATTEMPTS = 5;
+const CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS = 500;
+const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
 
 function findSseBoundary(buffer: string): { index: number; length: number } | null {
   const boundaries = [
@@ -6023,7 +6026,6 @@ async function consumeChatRunStream(
         event_log_id: run.event_log_id,
         event_offset: lastEventOffset,
         attempt: reconnectAttempt,
-        max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
       });
       reconnectAttempt = 0;
     }
@@ -6123,21 +6125,13 @@ async function consumeChatRunStream(
         event_offset: lastEventOffset,
         last_event_id: lastEventId,
         attempt: reconnectAttempt,
-        max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
         reason: reconnectReason,
       });
-      if (reconnectAttempt >= MAX_CHAT_STREAM_RECONNECT_ATTEMPTS) {
-        handlers.onEvent("stream_reconnect_failed", {
-          stream_run_id: run.stream_run_id,
-          event_log_id: run.event_log_id,
-          event_offset: lastEventOffset,
-          attempt: reconnectAttempt,
-          max_attempts: MAX_CHAT_STREAM_RECONNECT_ATTEMPTS,
-          reason: reconnectReason,
-        });
-        throw new Error(`Chat stream reconnect attempts exhausted after ${reconnectAttempt} attempts.`);
-      }
-      await delay(Math.min(15000, 500 * 2 ** Math.max(0, reconnectAttempt - 1)), options.signal);
+      const reconnectDelay = Math.min(
+        CHAT_STREAM_RECONNECT_MAX_DELAY_MS,
+        CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS * 2 ** Math.min(Math.max(0, reconnectAttempt - 1), 6),
+      );
+      await delay(reconnectDelay, options.signal);
     }
   }
 

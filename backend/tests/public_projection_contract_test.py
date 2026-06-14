@@ -315,7 +315,7 @@ def test_runtime_status_defaults_to_trace_only_unless_public_status_kind() -> No
     assert visible["retention"] == "transient"
 
 
-def test_runtime_stage_status_uses_stable_task_item_id() -> None:
+def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
     first = _frame(
         "runtime_step_summary",
         {
@@ -341,10 +341,13 @@ def test_runtime_stage_status_uses_stable_task_item_id() -> None:
         },
     )
 
-    assert first["op"] == "item_upsert"
-    assert first["slot"] == "status"
-    assert first["status_kind"] == "public_stage_status"
-    assert second["item_id"] == first["item_id"]
+    assert first["op"] == "body_append"
+    assert first["slot"] == "body"
+    assert first["event_family"] == "assistant_body"
+    assert first["channel"] == "body"
+    assert first["source_authority"] == "model"
+    assert first["main_visibility"] == "visible_live"
+    assert second["item_id"] != first["item_id"]
     assert second["trace_refs"]
 
 
