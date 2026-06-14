@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from harness.loop.active_work import ActiveWorkTurnDecision
+from harness.task_run_status import is_stopped_or_terminal_task_run
 
 
 CurrentWorkBoundaryAction = Literal[
@@ -45,7 +46,6 @@ _CONTROL_ACTIONS = {
     "stop_active_work",
 }
 _STEER_ALLOWED_ACTIONS = _CONTROL_ACTIONS | {"ask_user", "block", "replace_current_work"}
-_TERMINAL_TASK_STATUSES = {"completed", "success", "failed", "aborted", "cancelled", "canceled", "error", "stopped", "user_aborted"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -507,7 +507,7 @@ def _payload_from_object(value: Any | None) -> dict[str, Any]:
 
 
 def _terminal_active_work(active_work: dict[str, Any]) -> bool:
-    return str(active_work.get("status") or "").strip().lower() in _TERMINAL_TASK_STATUSES
+    return is_stopped_or_terminal_task_run(active_work)
 
 
 def _normalize_action(value: Any) -> str:

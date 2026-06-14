@@ -39,6 +39,7 @@ from orchestration import (
 from project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat_direct_routes import run_direct_system_route
+from harness.task_run_status import is_stopped_or_terminal_task_run
 from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
@@ -686,6 +687,17 @@ class HarnessRuntimeFacade:
                     ):
                         yield event
                     return
+                for event in await self._task_request_blocked_without_replacement_receipt(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    answer_source="harness.single_agent_turn.request_task_run",
+                    runtime_branch=runtime_branch,
+                    current_task=current_task,
+                    reason="current_work_replacement_receipt_not_applied",
+                    content="当前工作替换凭证没有完成对旧任务的精确收口，因此没有启动新的持续任务。",
+                ):
+                    yield event
+                return
             async for event in start_task_lifecycle_from_action_request(
                 runtime_host=self.single_agent_runtime_host,
                 session_id=request.session_id,
@@ -910,6 +922,28 @@ class HarnessRuntimeFacade:
             ):
                 yield event
             return
+        fresh_context, denied_reason = self._validated_active_work_context_for_control_receipt(
+            session_id=request.session_id,
+            receipt=receipt,
+            decision=decision,
+        )
+        if fresh_context is None:
+            blocked_decision = replace(
+                decision,
+                action="block",
+                reason=denied_reason,
+                response="当前任务状态已变化，这条控制没有接入正在运行的任务。请刷新后重试。",
+            )
+            blocked = current_work_boundary_receipt_from_decision(blocked_decision)
+            async for event in self._current_work_boundary_terminal_events(
+                request=request,
+                turn_id=turn_id,
+                decision=blocked_decision,
+                receipt=blocked,
+            ):
+                yield event
+            return
+        active_work_context = fresh_context
         active_decision = decision.to_active_work_turn_decision()
         result = await self._apply_active_work_turn_decision(
             decision=active_decision,
@@ -928,6 +962,24 @@ class HarnessRuntimeFacade:
             terminal_reason = str(decision.action or "active_work_control").strip()
         active_control = dict(receipt.active_work_control_payload or {})
         refs = self._current_work_event_refs(active_work_context=active_work_context, decision=decision)
+        public_control_content = content if decision.action in {"answer_about_active_work", "answer_then_continue_active_work"} else ""
+        if public_control_content:
+            output_decision = canonical_output_decision_for_final_text(
+                public_control_content,
+                answer_channel="conversation",
+                answer_source="harness.current_work_boundary.control",
+                execution_posture="active_work_control",
+                terminal_reason=terminal_reason,
+            )
+            await self._apply_assistant_message_commit_async(
+                request.session_id,
+                {
+                    "role": "assistant",
+                    "content": output_decision.content,
+                    "turn_id": turn_id,
+                    **output_decision.to_payload(),
+                },
+            )
         if decision.action in {"continue_active_work", "append_instruction_to_active_work", "answer_then_continue_active_work"} and status != "blocked":
             yield {
                 "type": "active_task_steer_accepted",
@@ -955,8 +1007,8 @@ class HarnessRuntimeFacade:
             "current_work_boundary_receipt": receipt.to_dict(),
         }
         yield final_answer_event(
-            content=content if decision.action in {"answer_about_active_work", "answer_then_continue_active_work"} else "",
-            answer_channel="runtime_control",
+            content=public_control_content,
+            answer_channel="conversation" if decision.action in {"answer_about_active_work", "answer_then_continue_active_work"} else "runtime_control",
             answer_source="harness.current_work_boundary.control",
             terminal_reason=terminal_reason,
             execution_posture="active_work_control",
@@ -967,6 +1019,51 @@ class HarnessRuntimeFacade:
                 **refs,
             },
         )
+
+    def _validated_active_work_context_for_control_receipt(
+        self,
+        *,
+        session_id: str,
+        receipt: CurrentWorkBoundaryReceipt,
+        decision: CurrentWorkBoundaryDecision,
+    ) -> tuple[ActiveWorkContext | None, str]:
+        refs = dict(receipt.active_work_ref or {})
+        expected_task_run_id = str(receipt.task_run_ref or refs.get("task_run_id") or decision.task_run_id or "").strip()
+        expected_active_turn_id = str(
+            refs.get("actual_active_turn_id")
+            or decision.actual_active_turn_id
+            or refs.get("active_work_id")
+            or decision.active_work_id
+            or ""
+        ).strip()
+        if not expected_task_run_id:
+            return None, "current_work_receipt_task_ref_missing"
+        if not expected_active_turn_id:
+            return None, "current_work_receipt_active_turn_ref_missing"
+        active_turn_check = self.single_agent_runtime_host.active_turn_registry.compare_and_update_current_turn(
+            session_id=session_id,
+            expected_turn_id=expected_active_turn_id,
+            expected_task_run_id=expected_task_run_id,
+            require_bound_task=True,
+        )
+        if active_turn_check.get("accepted") is not True:
+            return None, str(active_turn_check.get("denied_reason") or "active_turn_unavailable")
+        task_run = self.single_agent_runtime_host.state_index.get_task_run(expected_task_run_id)
+        if task_run is None:
+            return None, "current_work_task_run_missing"
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+            return None, "current_work_task_run_not_single_agent"
+        if is_stopped_or_terminal_task_run(task_run):
+            return None, "current_work_task_run_terminal"
+        context = self._active_work_context_from_task_run(
+            session_id=session_id,
+            task_run=task_run,
+            active_work_id=expected_active_turn_id,
+            authority="harness.runtime.active_turn_context",
+        )
+        if context is None:
+            return None, "current_work_context_unavailable"
+        return context, ""
 
     def _current_work_event_refs(
         self,
@@ -996,14 +1093,16 @@ class HarnessRuntimeFacade:
         answer_source: str,
         runtime_branch: dict[str, Any],
         current_task: Any,
+        reason: str = "current_work_replacement_receipt_required",
+        content: str = "当前会话已有未完成任务，本轮没有获得替换当前工作的边界凭证，因此没有启动新的持续任务。",
     ) -> list[dict[str, Any]]:
-        content = "当前会话已有未完成任务，本轮没有获得替换当前工作的边界凭证，因此没有启动新的持续任务。"
+        reason = str(reason or "current_work_replacement_receipt_required").strip()
         decision = canonical_output_decision_for_final_text(
             content,
             answer_channel="blocked",
-            answer_source=f"{answer_source}.missing_current_work_boundary_receipt",
+            answer_source=f"{answer_source}.{reason}",
             execution_posture="task_control",
-            terminal_reason="current_work_replacement_receipt_required",
+            terminal_reason=reason,
         )
         await self._apply_assistant_message_commit_async(
             session_id,
@@ -1012,8 +1111,8 @@ class HarnessRuntimeFacade:
         return [
             error_event(
                 content=content,
-                code="current_work_replacement_receipt_required",
-                reason="current_work_replacement_receipt_required",
+                code=reason,
+                reason=reason,
                 extra={"runtime_branch": dict(runtime_branch or {}), "task_run": _task_run_identity(current_task)},
             )
         ]
@@ -1033,6 +1132,27 @@ class HarnessRuntimeFacade:
         current_task_id = str(getattr(current_task, "task_run_id", "") or "").strip()
         if not current_task_id:
             return None
+        expected_task_id = str(receipt.task_run_ref or dict(receipt.active_work_ref or {}).get("task_run_id") or "").strip()
+        if not expected_task_id:
+            return await self._task_request_blocked_without_replacement_receipt(
+                session_id=session_id,
+                turn_id=turn_id,
+                answer_source=answer_source,
+                runtime_branch=runtime_branch,
+                current_task=current_task,
+                reason="current_work_replacement_receipt_task_ref_missing",
+                content="当前工作替换凭证缺少精确任务引用，因此没有停止旧任务，也没有启动新的持续任务。",
+            )
+        if current_task_id != expected_task_id:
+            return await self._task_request_blocked_without_replacement_receipt(
+                session_id=session_id,
+                turn_id=turn_id,
+                answer_source=answer_source,
+                runtime_branch=runtime_branch,
+                current_task=current_task,
+                reason="current_work_replacement_receipt_task_ref_mismatch",
+                content="当前工作替换凭证指向的任务已不是会话中的当前任务，因此没有停止任何任务，也没有启动新的持续任务。",
+            )
         stop_result = stop_task_run(
             self.single_agent_runtime_host,
             current_task_id,
@@ -1099,13 +1219,21 @@ class HarnessRuntimeFacade:
             )
             return
         current_task = current_session_task_run(self.single_agent_runtime_host, session_id=request.session_id)
-        if current_task is not None and str(dict(current_work_boundary_receipt or {}).get("boundary_action") or "") != "replace_current_work":
+        if current_task is not None:
+            boundary_action = str(dict(current_work_boundary_receipt or {}).get("boundary_action") or "")
+            reason = "current_work_replacement_receipt_required"
+            content = "当前会话已有未完成任务，本轮没有获得替换当前工作的边界凭证，因此没有启动新的持续任务。"
+            if boundary_action == "replace_current_work":
+                reason = "current_work_replacement_receipt_not_applied"
+                content = "当前工作替换凭证没有完成对旧任务的精确收口，因此没有启动新的持续任务。"
             for event in await self._task_request_blocked_without_replacement_receipt(
                 session_id=request.session_id,
                 turn_id=turn_id,
                 answer_source="harness.explicit_contract_task",
                 runtime_branch=runtime_branch,
                 current_task=current_task,
+                reason=reason,
+                content=content,
             ):
                 yield event
             return
@@ -1201,7 +1329,7 @@ class HarnessRuntimeFacade:
         if task_run is None:
             return None
         status = str(getattr(task_run, "status", "") or "")
-        if status in {"completed", "success", "failed", "aborted", "cancelled", "error"}:
+        if is_stopped_or_terminal_task_run(task_run):
             return None
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None
@@ -1222,7 +1350,7 @@ class HarnessRuntimeFacade:
     ) -> ActiveWorkContext | None:
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         status = str(getattr(task_run, "status", "") or "")
-        if status in {"completed", "success", "failed", "aborted", "cancelled", "error"}:
+        if is_stopped_or_terminal_task_run(task_run):
             return None
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             return None
@@ -1679,7 +1807,7 @@ class HarnessRuntimeFacade:
         try:
             record = active_registry.resolve_current(session_id)
             if record is None:
-                record = active_registry.start(session_id=session_id, turn_id=turn_id, state="starting")
+                return
             if str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
                 return
             existing_task_run_id = str(getattr(record, "bound_task_run_id", "") or "").strip()

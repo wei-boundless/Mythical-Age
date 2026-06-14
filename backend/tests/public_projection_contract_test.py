@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from api.chat import _project_public_stream_event
-from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
+from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
 from runtime.output_stream.public_contract import (
+    ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
@@ -17,7 +18,7 @@ from runtime.tool_runtime import ToolObservation
 
 
 def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
-    return project_public_projection_event(
+    frame = project_public_projection_event(
         event_type,
         {
             **data,
@@ -30,6 +31,35 @@ def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
         session_id="session:test",
         sequence=sequence,
     )["public_projection_frame"]
+    assert frame["contract_revision"] == PUBLIC_PROJECTION_CONTRACT_REVISION
+    assert frame["event_family"]
+    assert frame["channel"]
+    assert isinstance(frame["lossless"], bool)
+    return frame
+
+
+def test_public_projection_frame_exposes_dual_channel_contract() -> None:
+    body = _frame(ASSISTANT_TEXT_FINAL_EVENT, {"content": "完成。"})
+    tool = _frame(TOOL_CALL_REQUESTED_EVENT, {"tool_call_id": "call:read", "tool_name": "read_file"})
+    commit = _frame(SESSION_OUTPUT_COMMIT_ACK_EVENT, {"state": "committed"})
+    terminal = _frame(TURN_COMPLETED_EVENT, {"status": "completed"})
+    status = _frame("runtime_step_summary", {"summary": "准备执行", "status": "running"})
+
+    assert body["event_family"] == "assistant_body"
+    assert body["channel"] == "body"
+    assert body["lossless"] is True
+    assert tool["event_family"] == "tool_control"
+    assert tool["channel"] == "control"
+    assert tool["lossless"] is True
+    assert commit["event_family"] == "runtime_commit"
+    assert commit["channel"] == "commit"
+    assert commit["lossless"] is True
+    assert terminal["event_family"] == "turn_anchor_terminal"
+    assert terminal["channel"] == "terminal"
+    assert terminal["lossless"] is True
+    assert status["event_family"] == "status_trace"
+    assert status["channel"] == "status"
+    assert status["lossless"] is False
 
 
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:

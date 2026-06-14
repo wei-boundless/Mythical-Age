@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
+from harness.loop.model_action_protocol import TaskExecutionModelActionRequest
+from harness.loop.task_executor import _pause_executor_for_tool_approval
+from runtime.shared.models import AgentRun
 
 
 def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields() -> None:
@@ -168,6 +171,66 @@ def test_task_run_tool_lifecycle_preserves_model_tool_call_id(tmp_path) -> None:
     assert tool_payload["tool_call_id"] == model_tool_call_id
     assert [event_type for event_type, _ in completed] == ["tool_item_completed"]
     assert completed[0][1]["tool_call_id"] == model_tool_call_id
+
+
+def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> None:
+    runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-tool-approval-id:1:abc",
+        session_id="session-tool-approval-id",
+        status="running",
+    )
+    task_run = host.state_index.get_task_run(task_run_id)
+    agent_run = AgentRun(
+        agent_run_id=f"agrun:{task_run_id}:main",
+        task_run_id=task_run_id,
+        agent_id="agent:main",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    action_request = TaskExecutionModelActionRequest(
+        request_id="request:write-file",
+        turn_id="turn:session-tool-approval-id:1",
+        action_type="tool_call",
+        tool_call={
+            "id": "call:write-file-model",
+            "tool_name": "write_file",
+            "args": {"path": "README.md", "content": "updated"},
+        },
+        tool_calls=(
+            {
+                "id": "call:write-file-model",
+                "tool_name": "write_file",
+                "args": {"path": "README.md", "content": "updated"},
+            },
+        ),
+    )
+
+    result = _pause_executor_for_tool_approval(
+        host,
+        task_run=task_run,
+        agent_run=agent_run,
+        action_request=action_request,
+        observation={
+            "observation_id": "toolobs:approval:write",
+            "directive_ref": "runtime-directive:approval:write",
+            "payload": {
+                "operation_id": "op.write_file",
+                "operation_gate": {"decision": "requires_approval"},
+                "execution_receipt": {"tool_call_id": "call:write-file-model"},
+            },
+        },
+        observation_event=SimpleNamespace(offset=7),
+        step_index=1,
+    )
+    updated_task = host.state_index.get_task_run(task_run_id)
+
+    assert result["error"] == "waiting_approval"
+    assert result["pending_approval"]["action_request_ref"] == "request:write-file"
+    assert result["pending_approval"]["tool_call_id"] == "call:write-file-model"
+    assert dict(updated_task.diagnostics)["pending_approval"]["tool_call_id"] == "call:write-file-model"
 
 
 def test_task_run_final_output_without_commit_ack_fails_lifecycle_instead_of_completed() -> None:

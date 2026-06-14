@@ -1856,7 +1856,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized in {"done", "error", "stopped"}:
         return [(TURN_COMPLETED_EVENT, _turn_completed_data(normalized, raw_data))]
     if normalized in {"answer_candidate", "assistant_text", "token"}:
-        return [(_legacy_body_signal_ignored_event_type(normalized), _legacy_body_signal_ignored_data(normalized, raw_data))]
+        return []
     if normalized in {"model_action_admission", "model_action_admission_checked"}:
         return _tool_action_public_events(raw_data)
     if normalized == TOOL_ITEM_STARTED_EVENT:
@@ -1920,21 +1920,6 @@ def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> 
     if event_type == ASSISTANT_STREAM_REPAIR_EVENT and not str(data.get("replacement_content") or ""):
         return {}
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _legacy_body_signal_ignored_event_type(source_event_type: str) -> str:
-    return f"legacy_{str(source_event_type or 'body').strip() or 'body'}_ignored"
-
-
-def _legacy_body_signal_ignored_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    return {
-        "status": "ignored",
-        "state": "ignored",
-        "reason": "legacy_body_signal_not_projected",
-        "source_event_type": str(source_event_type or "").strip(),
-        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
-    }
 
 
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:

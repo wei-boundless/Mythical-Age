@@ -408,11 +408,14 @@ function statusProjectionFrame({
   const isDone = lifecycle === "done";
   return {
     authority: "harness.public_projection",
-    contract_revision: "20260613-user-first",
+    contract_revision: "20260614-dual-channel-v1",
     frame_id: `${projectionId}:frame`,
     projection_id: projectionId,
     sequence: lifecycle === "done" ? 2 : 1,
     event_offset: lifecycle === "done" ? 2 : 1,
+    event_family: "status_trace",
+    channel: "status",
+    lossless: false,
     source_authority: "system",
     op: "item_upsert",
     slot: "status",

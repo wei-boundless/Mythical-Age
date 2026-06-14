@@ -35,6 +35,7 @@ from orchestration.commit_gate import build_assistant_session_message_commit_dec
 from permissions.policy import normalize_permission_mode
 from prompt_library import TASK_ACTION_JSON_REPAIR_PROMPT
 from project_layout import ProjectLayout
+from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
 from harness.runtime.services import TaskExecutorServices
@@ -182,6 +183,14 @@ def _is_task_run_resumable_for_user_control(task_run: Any) -> bool:
     return recovery_state_for_task_run(task_run).same_run_resumable
 
 
+def _task_run_terminal_conflict_reason(task_run: Any) -> str:
+    status = str(getattr(task_run, "status", "") or "").strip()
+    terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
+    control_state = runtime_control_state_from_task_run(task_run)
+    reason = status or terminal_reason or control_state or "unknown"
+    return f"task_run_terminal:{reason}"
+
+
 def approve_task_run_tool_call(
     runtime_host: Any,
     task_run_id: str,
@@ -305,8 +314,8 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if status in {"completed", "failed", "aborted"}:
-        return _conflict(task_run_id, f"task_run_terminal:{status}")
+    if is_stopped_or_terminal_task_run(task_run):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
     current_state = task_run_control_state(task_run)
     if status == "waiting_executor" and current_state == _TASK_RUN_PAUSED:
         return {"ok": True, "accepted": True, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run)}
@@ -409,8 +418,8 @@ def resume_paused_task_run(
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if status in {"completed", "failed", "aborted"}:
-        return _conflict(task_run_id, f"task_run_terminal:{status}")
+    if is_stopped_or_terminal_task_run(task_run):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
     if status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is None:
         return _conflict(task_run_id, "task_run_waiting_approval_requires_grant")
     if not _is_task_run_resumable_for_user_control(task_run):
@@ -491,7 +500,7 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
     status = str(getattr(task_run, "status", "") or "")
-    if status in {"completed", "failed", "aborted"}:
+    if is_stopped_or_terminal_task_run(task_run):
         return {"ok": True, "accepted": False, "task_run": task_run.to_dict(), "control": _runtime_control_payload(task_run)}
     now = time.time()
     event = runtime_host.event_log.append(
@@ -578,6 +587,8 @@ def append_user_work_instruction(
         return _conflict(task_run_id, "not_single_agent_task_run")
     if _origin_kind(task_run) == "graph_node_assigned":
         return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
+    if is_stopped_or_terminal_task_run(task_run):
+        return _conflict(task_run_id, _task_run_terminal_conflict_reason(task_run))
     instruction = str(content or "").strip()
     if not instruction:
         return _conflict(task_run_id, "user_work_instruction_empty")
@@ -5750,6 +5761,7 @@ def _pause_executor_for_tool_approval(
     operation_id = str(payload.get("operation_id") or dict(payload.get("result_envelope") or {}).get("operation_id") or "").strip()
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    tool_call_id = _canonical_tool_call_id(action_request)
     directive_ref = str(observation.get("directive_ref") or f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}")
     approval_fingerprint = _approval_fingerprint_from_observation(observation)
     pending_approval = {
@@ -5758,7 +5770,7 @@ def _pause_executor_for_tool_approval(
         "mode": "runtime_approval",
         "task_run_id": task_run.task_run_id,
         "action_request_ref": action_request.request_id,
-        "tool_call_id": str(tool_call.get("id") or action_request.request_id),
+        "tool_call_id": tool_call_id,
         "observation_ref": observation_ref,
         "tool_name": tool_name,
         "operation_id": operation_id,

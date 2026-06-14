@@ -195,6 +195,9 @@ export type PublicChatTimelineItem = {
   slot?: "body" | "timeline" | "tool" | "status" | "task" | "control" | string;
   surface?: "assistant_body" | "body" | "tool_window" | "status_bar" | "status" | "timeline" | "control" | string;
   source_authority?: "model" | "runtime" | "tool" | "system" | string;
+  event_family?: "assistant_body" | "tool_control" | "runtime_commit" | "turn_anchor_terminal" | "status_trace" | string;
+  channel?: "body" | "control" | "commit" | "terminal" | "status" | string;
+  lossless?: boolean;
   sequence?: number;
   event_offset?: number;
   eventOffset?: number;
@@ -255,6 +258,9 @@ export type PublicProjectionItem = {
   state?: "running" | "done" | "failed" | "blocked" | "waiting" | "stopped" | string;
   statusKind?: string;
   sourceAuthority?: "model" | "tool" | "runtime" | "system" | string;
+  eventFamily?: "assistant_body" | "tool_control" | "runtime_commit" | "turn_anchor_terminal" | "status_trace" | string;
+  channel?: "body" | "control" | "commit" | "terminal" | "status" | string;
+  lossless?: boolean;
   mainVisibility?: "visible_live" | "visible_final" | "pinned" | "trace_only" | "hidden" | string;
   retention?: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
   pinReason?: string;
@@ -310,13 +316,16 @@ export type MessagePublicProjection = {
 
 export type PublicProjectionFrame = {
   authority: "harness.public_projection" | string;
-  contract_revision?: "20260613-user-first" | string;
+  contract_revision?: "20260614-dual-channel-v1" | string;
   frame_id: string;
   projection_id?: string;
   source_event_id?: string;
   source_event_type?: string;
   sequence?: number;
   event_offset?: number;
+  event_family?: "assistant_body" | "tool_control" | "runtime_commit" | "turn_anchor_terminal" | "status_trace" | string;
+  channel?: "body" | "control" | "commit" | "terminal" | "status" | string;
+  lossless?: boolean;
   created_at?: number;
   anchor?: {
     session_id?: string;

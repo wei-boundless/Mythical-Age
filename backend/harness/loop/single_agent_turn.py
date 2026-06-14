@@ -3068,7 +3068,7 @@ def _turn_runtime_permission_mode(runtime_assembly: Any, *, runtime_host: Any | 
 def _tool_call_from_action_request(action_request: ModelActionRequest) -> dict[str, Any]:
     tool_call = dict(action_request.tool_call or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = str(tool_call.get("id") or action_request.request_id).strip()
+    tool_call_id = _canonical_action_tool_call_id(action_request)
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     return {
         "id": tool_call_id,
@@ -3077,6 +3077,16 @@ def _tool_call_from_action_request(action_request: ModelActionRequest) -> dict[s
         "args": tool_args,
         "type": "tool_call",
     }
+
+
+def _canonical_action_tool_call_id(action_request: ModelActionRequest) -> str:
+    tool_call = dict(action_request.tool_call or {})
+    return str(
+        tool_call.get("id")
+        or getattr(action_request, "tool_call_id", "")
+        or getattr(action_request, "request_id", "")
+        or ""
+    ).strip()
 
 
 def _tool_observation_from_admission(
@@ -3092,7 +3102,7 @@ def _tool_observation_from_admission(
 ) -> ToolObservation:
     tool_call = _tool_call_from_action_request(action_request)
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = str(tool_call.get("id") or action_request.request_id)
+    tool_call_id = _canonical_action_tool_call_id(action_request)
     operation_id = _tool_operation_id(runtime_host, tool_name=tool_name)
     invocation_id = build_tool_invocation_id(
         caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
@@ -3161,7 +3171,7 @@ def _tool_observation_from_runtime_exception(
 ) -> ToolObservation:
     tool_call = _tool_call_from_action_request(action_request)
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = str(tool_call.get("id") or action_request.request_id)
+    tool_call_id = _canonical_action_tool_call_id(action_request)
     operation_id = _tool_operation_id(runtime_host, tool_name=tool_name)
     invocation_id = build_tool_invocation_id(
         caller_ref=turn_run.turn_run_id if turn_run is not None else f"turnrun:{turn_id}",
@@ -3465,9 +3475,9 @@ async def _invoke_turn_tool(
     packet_ref: str,
     tool_plan: Any,
 ):
-    tool_call = dict(action_request.tool_call or {})
+    tool_call = _tool_call_from_action_request(action_request)
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-    tool_call_id = str(tool_call.get("id") or action_request.request_id)
+    tool_call_id = _canonical_action_tool_call_id(action_request)
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
     definitions = getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {})
     definition = dict(definitions or {}).get(tool_name)
@@ -4565,7 +4575,7 @@ def _tool_item_started_events_for_group(
             continue
         tool_call = dict(row.get("tool_call") or _tool_call_from_action_request(action_request))
         tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-        tool_call_id = str(tool_call.get("id") or getattr(action_request, "request_id", "") or "").strip()
+        tool_call_id = _canonical_action_tool_call_id(action_request)
         if not tool_name or not tool_call_id:
             continue
         permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{tool_call_id}").strip()

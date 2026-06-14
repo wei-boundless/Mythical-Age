@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 from runtime.shared.models import AgentRun, TaskRun
+from harness.task_run_status import is_terminal_task_run_status
 from harness.task_contract_normalization import contract_string_tuple
 
 from .presentation import error_event, turn_completed_event
@@ -16,19 +17,6 @@ TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executo
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 InitializeTaskTodo = Callable[..., dict[str, Any] | None]
 ScheduleTaskRunExecutor = Callable[..., Any]
-
-_CURRENT_SESSION_TASK_TERMINAL_STATUSES = {
-    "completed",
-    "success",
-    "failed",
-    "error",
-    "aborted",
-    "cancelled",
-    "canceled",
-    "stopped",
-    "user_aborted",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class TaskRunContract:
@@ -281,7 +269,7 @@ def _is_current_session_task_run(task_run: Any) -> bool:
     if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
         return False
     status = str(getattr(task_run, "status", "") or "").strip()
-    if status in _CURRENT_SESSION_TASK_TERMINAL_STATUSES:
+    if is_terminal_task_run_status(status):
         return False
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = diagnostics.get("runtime_control") if isinstance(diagnostics.get("runtime_control"), dict) else {}

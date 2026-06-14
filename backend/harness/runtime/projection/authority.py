@@ -3,10 +3,25 @@ from __future__ import annotations
 from typing import Any
 
 from .guards import compact, record, stable_id, text
+from runtime.output_stream.public_contract import (
+    ASSISTANT_BODY_EVENT_FAMILY,
+    BODY_PUBLIC_CHANNEL,
+    COMMIT_PUBLIC_CHANNEL,
+    CONTROL_PUBLIC_CHANNEL,
+    RUNTIME_COMMIT_EVENT_FAMILY,
+    STATUS_PUBLIC_CHANNEL,
+    STATUS_TRACE_EVENT_FAMILY,
+    TERMINAL_PUBLIC_CHANNEL,
+    TOOL_CONTROL_EVENT_FAMILY,
+    TURN_ANCHOR_TERMINAL_EVENT_FAMILY,
+    is_lossless_public_event,
+    public_event_channel,
+    public_event_family,
+)
 
 
 PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
-PUBLIC_PROJECTION_CONTRACT_REVISION = "20260613-user-first"
+PUBLIC_PROJECTION_CONTRACT_REVISION = "20260614-dual-channel-v1"
 
 VALID_OPS = {
     "body_append",
@@ -22,6 +37,20 @@ VALID_SLOTS = {"body", "current_action", "pinned", "final_result", "status", "tr
 VALID_SOURCES = {"model", "tool", "runtime", "system"}
 VALID_VISIBILITY = {"visible_live", "visible_final", "pinned", "trace_only", "hidden"}
 VALID_RETENTION = {"transient", "final", "pinned_until_resolved", "trace"}
+VALID_EVENT_FAMILIES = {
+    ASSISTANT_BODY_EVENT_FAMILY,
+    TOOL_CONTROL_EVENT_FAMILY,
+    RUNTIME_COMMIT_EVENT_FAMILY,
+    TURN_ANCHOR_TERMINAL_EVENT_FAMILY,
+    STATUS_TRACE_EVENT_FAMILY,
+}
+VALID_CHANNELS = {
+    BODY_PUBLIC_CHANNEL,
+    CONTROL_PUBLIC_CHANNEL,
+    COMMIT_PUBLIC_CHANNEL,
+    TERMINAL_PUBLIC_CHANNEL,
+    STATUS_PUBLIC_CHANNEL,
+}
 
 
 def build_public_projection_frame(
@@ -52,6 +81,9 @@ def build_public_projection_frame(
     source_authority = _required_value(frame_spec.get("source_authority"), VALID_SOURCES)
     main_visibility = _required_value(frame_spec.get("main_visibility"), VALID_VISIBILITY)
     retention = _required_value(frame_spec.get("retention"), VALID_RETENTION)
+    event_family = _required_value(frame_spec.get("event_family") or public_event_family(public_event_type), VALID_EVENT_FAMILIES)
+    channel = _required_value(frame_spec.get("channel") or public_event_channel(public_event_type), VALID_CHANNELS)
+    lossless = _bool_value(frame_spec.get("lossless"), default=is_lossless_public_event(public_event_type))
     frame_id = text(frame_spec.get("frame_id")) or stable_id(
         "publicframe",
         public_event_type,
@@ -71,6 +103,9 @@ def build_public_projection_frame(
         "source_event_type": text(public_event_type),
         "sequence": int(sequence or payload.get("sequence") or event_offset or 0),
         "event_offset": event_offset,
+        "event_family": event_family,
+        "channel": channel,
+        "lossless": lossless,
         "created_at": payload.get("created_at") or payload.get("updated_at") or 0,
         "anchor": {
             **anchor,
@@ -171,7 +206,11 @@ def _invalid_spec_fields(frame_spec: dict[str, Any]) -> dict[str, str]:
         "source_authority": VALID_SOURCES,
         "main_visibility": VALID_VISIBILITY,
         "retention": VALID_RETENTION,
+        "event_family": VALID_EVENT_FAMILIES,
+        "channel": VALID_CHANNELS,
     }.items():
+        if key in {"event_family", "channel"} and key not in frame_spec:
+            continue
         value = text(frame_spec.get(key))
         if value not in allowed:
             invalid[key] = value
@@ -210,3 +249,16 @@ def _int_value(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _bool_value(value: Any, *, default: bool) -> bool:
+    if value in ("", None):
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = text(value).lower()
+    if normalized in {"1", "true", "yes", "lossless"}:
+        return True
+    if normalized in {"0", "false", "no", "best_effort"}:
+        return False
+    return default

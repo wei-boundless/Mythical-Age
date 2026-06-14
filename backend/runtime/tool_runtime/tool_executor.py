@@ -59,6 +59,16 @@ _WORKSPACE_PATH_ARG_KEYS = ("path", "file_path", "target_path", "root", "cwd")
 _WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
 
 
+def _canonical_runtime_tool_call_id(action_request: RuntimeActionRequest) -> str:
+    tool_call = dict(action_request.payload.get("tool_call") or {})
+    return str(
+        tool_call.get("id")
+        or getattr(action_request, "tool_call_id", "")
+        or getattr(action_request, "request_id", "")
+        or ""
+    ).strip()
+
+
 class ToolRuntimeExecutor:
     """Executes tool RuntimeDirectives after OperationGate approval."""
 
@@ -78,7 +88,7 @@ class ToolRuntimeExecutor:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
-        tool_call_id = str(tool_call.get("id") or action_request.request_id)
+        tool_call_id = _canonical_runtime_tool_call_id(action_request)
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
             error = f"tool_not_available: {tool_name}"
@@ -285,7 +295,7 @@ class ToolRuntimeExecutor:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
-        tool_call_id = str(tool_call.get("id") or action_request.request_id)
+        tool_call_id = _canonical_runtime_tool_call_id(action_request)
         current_record = execution_record
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:

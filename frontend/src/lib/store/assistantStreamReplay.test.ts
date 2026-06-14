@@ -10,9 +10,12 @@ function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectio
   frameOffset += 1;
   return {
     authority: "harness.public_projection",
-    contract_revision: "20260613-user-first",
+    contract_revision: "20260614-dual-channel-v1",
     frame_id: `frame:assistant:${frameOffset}`,
     event_offset: frameOffset,
+    event_family: "assistant_body",
+    channel: "body",
+    lossless: true,
     anchor: {
       turn_id: "turn:assistant-stream:1",
       turn_run_id: "turnrun:assistant-stream:1",
@@ -78,6 +81,7 @@ describe("assistant public projection replay", () => {
     expect(assistant?.content).toBe("遇到前端");
     expect(assistant?.publicProjection?.bodyText).toBe("遇到前端");
     expect(assistant?.publicProjection?.bodyState).toBe("streaming");
+    expect(assistant?.projectionLedger?.body.source_offsets).toEqual([1, 2]);
   });
 
   it("preserves whitespace supplied by body frames", () => {

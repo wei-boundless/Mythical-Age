@@ -8,11 +8,15 @@ let frameOffset = 0;
 
 function publicFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
   frameOffset += 1;
+  const eventFamily = patch.event_family ?? inferEventFamily(patch);
   return {
     authority: "harness.public_projection",
-    contract_revision: "20260613-user-first",
+    contract_revision: "20260614-dual-channel-v1",
     frame_id: `frame:${frameOffset}`,
     event_offset: frameOffset,
+    event_family: eventFamily,
+    channel: patch.channel ?? channelForEventFamily(eventFamily),
+    lossless: patch.lossless ?? eventFamily !== "status_trace",
     anchor: {
       turn_id: "turn:projection:1",
       turn_run_id: "turnrun:projection:1",
@@ -25,6 +29,23 @@ function publicFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFra
     retention: "trace",
     ...patch,
   };
+}
+
+function inferEventFamily(patch: Partial<PublicProjectionFrame>) {
+  const eventType = String(patch.source_event_type ?? "");
+  if (patch.slot === "body" || eventType.startsWith("assistant_text") || eventType === "assistant_stream_repair") return "assistant_body";
+  if (eventType.startsWith("tool_") || patch.tool_call_id) return "tool_control";
+  if (patch.op === "commit_ack" || patch.op === "commit_failed" || eventType.startsWith("session_output_commit")) return "runtime_commit";
+  if (patch.op === "turn_terminal" || eventType === "turn_completed") return "turn_anchor_terminal";
+  return "status_trace";
+}
+
+function channelForEventFamily(eventFamily: string) {
+  if (eventFamily === "assistant_body") return "body";
+  if (eventFamily === "tool_control") return "control";
+  if (eventFamily === "runtime_commit") return "commit";
+  if (eventFamily === "turn_anchor_terminal") return "terminal";
+  return "status";
 }
 
 function startBoundProjectionTurn() {
@@ -102,6 +123,9 @@ describe("public projection frame reducer contract", () => {
     expect(projection?.timeline).toEqual([
       expect.objectContaining({
         toolCallId: "call:read",
+        eventFamily: "tool_control",
+        channel: "control",
+        lossless: true,
         sourceEventType: "tool_call_requested",
       }),
     ]);

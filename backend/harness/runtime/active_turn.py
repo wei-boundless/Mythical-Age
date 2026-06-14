@@ -4,8 +4,7 @@ import time
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
-
-_TERMINAL_TASK_RUN_STATUSES = {"completed", "success", "failed", "aborted", "cancelled", "error"}
+from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
 
 
 ActiveTurnState = Literal[
@@ -101,12 +100,13 @@ class ActiveTurnRegistry:
             self._update(record, state="terminal", steerable=False, terminal_reason="bound_task_run_missing")
             return None
         status = str(getattr(task_run, "status", "") or "").strip()
-        if status in _TERMINAL_TASK_RUN_STATUSES:
+        control_state = runtime_control_state_from_task_run(task_run)
+        if is_stopped_or_terminal_task_run(task_run):
             self._update(
                 record,
                 state="terminal",
                 steerable=False,
-                terminal_reason=f"bound_task_run_terminal:{status}",
+                terminal_reason=f"bound_task_run_terminal:{status or control_state or 'unknown'}",
             )
             return None
         return record
