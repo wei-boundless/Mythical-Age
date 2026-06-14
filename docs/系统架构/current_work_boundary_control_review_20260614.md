@@ -38,7 +38,7 @@ RequestFacts
 2. append_instruction_to_active_work 写入 steer 前未拒绝终态或已停止 task run。
 3. replace_current_work 消费 receipt 时未强校验 current task id 是否等于 receipt.task_run_ref。
 4. ActiveTurn、RuntimeFacade、CurrentWorkBoundary、TaskLifecycle 的终态集合不完全一致。
-5. control-only 回答的持久化不作为本轮主修复目标；本轮只保证控制动作不会过期执行。
+5. control-only 中属于公开回答的 `answer_about_active_work` / `answer_then_continue_active_work` 需要显式落库，避免刷新后丢失解释。
 
 ## 三、目标修复
 
@@ -96,6 +96,16 @@ completed, success, failed, error, aborted, cancelled, canceled, stopped, user_a
 - terminal task 不能 append steer。
 - replacement receipt 不会停止非 receipt 指向的 current task。
 - control receipt 在 active turn/task 过期时 fail-close，不执行控制动作。
+- control-only 的公开回答使用 conversation channel 提交，纯控制动作仍保持 runtime_control。
+
+### 6. control-only 公开回答持久化
+
+仅当控制动作本身包含公开回答时提交 assistant message：
+
+- `answer_about_active_work`
+- `answer_then_continue_active_work`
+
+纯执行控制如 continue、append、pause、stop 不额外提交正文，避免把控制确认伪装成最终交付。
 
 ## 四、验收标准
 

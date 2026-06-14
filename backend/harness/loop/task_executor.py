@@ -187,7 +187,7 @@ def _task_run_terminal_conflict_reason(task_run: Any) -> str:
     status = str(getattr(task_run, "status", "") or "").strip()
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
     control_state = runtime_control_state_from_task_run(task_run)
-    reason = status or terminal_reason or control_state or "unknown"
+    reason = terminal_reason or control_state or status or "unknown"
     return f"task_run_terminal:{reason}"
 
 
