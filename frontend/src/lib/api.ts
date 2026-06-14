@@ -234,7 +234,8 @@ export type PublicChatTimelineItem = {
     tool_label?: string;
     target?: string;
     status?: string;
-    window_info?: string;
+    command_line?: string;
+    output?: string;
     sections?: Array<{
       label?: string;
       text?: string;

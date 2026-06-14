@@ -1568,6 +1568,61 @@ async def _execute_claimed_task_run(
                     artifact_refs=dedupe_artifact_refs([*artifact_refs, *_artifacts_from_action(action_request)]),
                     observations=raw_observations,
                 )
+            if not str(action_request.final_answer or "").strip():
+                repair_observation = _model_protocol_repair_observation(
+                    task_run_id=current_task.task_run_id,
+                    packet_ref=compilation.packet.packet_id,
+                    step_index=step_index,
+                    diagnostics={"validation_errors": ["final_answer_required_for_respond"], "action_request": action_request.to_dict()},
+                    runtime_fingerprint=runtime_fingerprint,
+                )
+                raw_observations.append(repair_observation)
+                runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+                runtime_host.event_log.append(
+                    current_task.task_run_id,
+                    "task_model_action_protocol_repair_required",
+                    payload={"observation": repair_observation, "diagnostics": {"validation_errors": ["final_answer_required_for_respond"]}},
+                    refs={
+                        "task_run_ref": current_task.task_run_id,
+                        "observation_ref": repair_observation["observation_id"],
+                        "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                    },
+                )
+                _record_task_step_summary(
+                    runtime_host,
+                    task_run_id=current_task.task_run_id,
+                    step=f"model_action_protocol_repair_required:{step_index}",
+                    status="running",
+                    summary="模型 respond 动作缺少 final_answer，已反馈模型修正。",
+                    refs={"observation_ref": repair_observation["observation_id"]},
+                )
+                if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
+                    return _finish_executor_blocked(
+                        runtime_host,
+                        task_run=current_task,
+                        agent_run=agent_run,
+                        terminal_reason="model_action_protocol_repair_required",
+                        payload={
+                            "recoverable_error": {
+                                "error_code": "model_action_invalid",
+                                "retryable": True,
+                                "reason": "final_answer_required_for_respond",
+                            },
+                            "recovery_action": "rerun_task_executor",
+                            "action_request": action_request.to_dict(),
+                        },
+                    )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = dedupe_artifact_refs([*list(observation_context["artifact_refs"]), *artifact_refs])
+                continue
             current_pending_steer_ids = [
                 str(item.get("steer_id") or "")
                 for item in list_pending_task_steers(runtime_host, current_task.task_run_id)
@@ -4284,8 +4339,13 @@ def _finish_specialist_runtime_execution(
     closeout_status = "completed" if completed else "failed"
     limitations = [str(item) for item in list(result.get("limitations") or []) if str(item)]
     summary = str(result.get("answer_candidate") or result.get("summary") or "").strip()
-    if not summary:
-        summary = f"{execution.route or execution.runtime_kind or 'specialist'} execution {closeout_status}."
+    missing_completed_answer = completed and not summary
+    if missing_completed_answer:
+        completed = False
+        closeout_status = "failed"
+        if "specialist_runtime_missing_answer" not in limitations:
+            limitations.append("specialist_runtime_missing_answer")
+    status_summary = summary or "能力运行结束，但没有返回可提交的 agent 正文。"
     artifact_refs = _normal_artifact_refs(result.get("artifact_refs"))
     evidence_refs = [str(item) for item in list(result.get("evidence_refs") or []) if str(item).strip()]
     task_runtime_diagnostics = {
@@ -4303,8 +4363,8 @@ def _finish_specialist_runtime_execution(
     result_payload = {
         "status": closeout_status,
         "final_answer": summary,
-        "summary": str(result.get("summary") or summary),
-        "answer_candidate": str(result.get("answer_candidate") or summary),
+        "summary": str(result.get("summary") or ""),
+        "answer_candidate": str(result.get("answer_candidate") or ""),
         "artifact_refs": artifact_refs,
         "evidence_refs": evidence_refs,
         "observation_refs": [],
@@ -4335,13 +4395,17 @@ def _finish_specialist_runtime_execution(
             agent_id=agent_run.agent_id,
             status=closeout_status,  # type: ignore[arg-type]
             output_ref=result_ref,
-            summary=compact_text(summary, limit=500),
+            summary=compact_text(status_summary, limit=500),
             artifact_refs=tuple(_artifact_ref_to_string(item) for item in artifact_refs),
             created_at=now,
             diagnostics=result_diagnostics,
         )
     )
-    terminal_reason = "completed" if completed else _specialist_terminal_reason(execution=execution, limitations=limitations)
+    terminal_reason = (
+        "completed"
+        if completed
+        else ("specialist_runtime_missing_answer" if missing_completed_answer else _specialist_terminal_reason(execution=execution, limitations=limitations))
+    )
     task_candidate = replace(
         task_run,
         diagnostics={
@@ -4395,7 +4459,7 @@ def _finish_specialist_runtime_execution(
         task_run_id=finished_task.task_run_id,
         step=f"specialist_runtime_{closeout_status}",
         status=closeout_status,
-        summary=summary,
+        summary=status_summary,
         evidence_refs=evidence_refs,
         refs={"agent_run_result_ref": result_ref},
     )
@@ -4405,7 +4469,7 @@ def _finish_specialist_runtime_execution(
         item_type="final_response" if completed else "interrupted_boundary",
         title="已完成" if completed else "执行失败",
         status=closeout_status,
-        summary=summary,
+        summary=status_summary,
         agent_brief_output=summary,
         event_offset=_event_offset(event),
         refs={"task_run_ref": finished_task.task_run_id, "agent_run_result_ref": result_ref},

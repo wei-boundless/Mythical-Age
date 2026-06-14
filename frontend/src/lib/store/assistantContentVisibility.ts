@@ -16,7 +16,7 @@ const NON_PUBLIC_STATES = new Set(["missing_answer", "progress_only", "unstable_
 const NON_PUBLIC_POLICIES = new Set(["do_not_persist", "persist_debug_only"]);
 const CONTROL_CHANNELS = new Set([
   "active_work_control",
-  "fallback_answer",
+  "missing_answer",
   "opening_judgment",
   "orchestration_fail_closed",
   "runtime_control",

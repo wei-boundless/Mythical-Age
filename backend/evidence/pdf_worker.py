@@ -38,7 +38,7 @@ class PDFWorker:
                 canonical_result=CanonicalResult(
                     result_kind="pdf_answer",
                     ok=False,
-                    answer="需要先确认要阅读的 PDF 文件。",
+                    answer="",
                     projection_policy="do_not_persist",
                     degraded_reason="missing_pdf_binding",
                     diagnostics={"answer_source": "pdf_worker"},
@@ -55,7 +55,7 @@ class PDFWorker:
                 canonical_result=CanonicalResult(
                     result_kind="pdf_answer",
                     ok=False,
-                    answer=self._resolve_error_message(str(exc)),
+                    answer="",
                     projection_policy="do_not_persist",
                     degraded_reason=str(exc) or "pdf_path_resolution_failed",
                     diagnostics={"answer_source": "pdf_worker"},
@@ -229,10 +229,8 @@ class PDFWorker:
 
     def _to_worker_canonical(self, canonical: PDFCanonicalResult, *, active_pdf: str) -> CanonicalResult:
         ok = canonical.ok
-        answer = canonical.summary.strip()
+        answer = canonical.summary.strip() if ok else ""
         degraded_reason = str(canonical.degraded_reason or canonical.error or "").strip()
-        if not answer:
-            answer = _degraded_pdf_answer(canonical)
         answer = _shape_pdf_answer_for_request(answer, canonical)
         artifact_refs = [f"{active_pdf}#page={page}" for page in canonical.pages if int(page or 0) > 0]
         return CanonicalResult(
@@ -262,81 +260,6 @@ class PDFWorker:
             primary_result_handle_id=_primary_result_handle_id(canonical, active_pdf=active_pdf),
             degraded_reason_typed="" if ok else _typed_degraded_reason(canonical),
         )
-
-    def _resolve_error_message(self, reason: str) -> str:
-        if reason == "illegal_pdf_path":
-            return "检测到非法 PDF 路径访问。"
-        if reason == "pdf_file_not_found":
-            return "没有找到要阅读的 PDF 文件。"
-        if reason == "pdf_path_is_directory":
-            return "提供的 PDF 路径是一个目录。"
-        if reason == "not_pdf_file":
-            return "提供的路径不是 PDF 文件。"
-        return "PDF 阅读任务没有形成可执行输入。"
-
-
-def _degraded_pdf_answer(canonical: PDFCanonicalResult) -> str:
-    pages = "、".join(f"P{page}" for page in canonical.pages[:5] if int(page or 0) > 0)
-    reason = str(canonical.degraded_reason or canonical.error or "").strip().lower()
-    target_section = str(canonical.metadata.get("target_section", "") or "").strip()
-    page_state = str(canonical.metadata.get("target_page_state", "") or "").strip()
-    evidence_hint = _stable_evidence_hint(canonical)
-    if reason == "target_page_transition_title_only" or page_state == "transition_title_only":
-        if pages:
-            return f"已定位到 {pages}。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。"
-        return "已定位到目标页。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。"
-    if reason == "target_page_toc_like" or page_state == "toc_like":
-        if pages:
-            return f"已定位到 {pages}。这一页更像目录页，主要承担结构导航作用，不是正文论述页。"
-        return "已定位到目标页。这一页更像目录页，主要承担结构导航作用，不是正文论述页。"
-    if reason == "target_page_structure_missing" or page_state == "page_structure_missing":
-        if pages:
-            return f"已定位到 {pages}，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。"
-        return "已定位到目标页，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。"
-    if reason == "target_page_text_corrupted" or page_state == "text_corrupted":
-        if pages and evidence_hint:
-            return f"已定位到 {pages}，但这一页文本损坏或乱码严重。当前只能稳定辨认出：{evidence_hint}。"
-        if pages:
-            return f"已定位到 {pages}，但这一页文本损坏或乱码严重，暂时不能可靠提取正文。"
-        return "已定位到目标页，但这一页文本损坏或乱码严重，暂时不能可靠提取正文。"
-    if reason == "target_page_image_without_text" or page_state == "image_or_scan_without_text":
-        if pages:
-            return f"已定位到 {pages}，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。"
-        return "已定位到目标页，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。"
-    if reason == "target_page_has_no_stable_text":
-        if pages:
-            return f"已定位到 {pages}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或近乎空白页。"
-        return "已定位到目标页，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或近乎空白页。"
-    if reason == "target_page_text_quality_low":
-        if pages and evidence_hint:
-            return f"已定位到 {pages}，但页面文本质量不稳定，暂时不能可靠概括整页内容。当前只能稳定辨认出：{evidence_hint}。"
-        if pages:
-            return f"已定位到 {pages}，但页面文本质量不稳定，暂时不能可靠概括整页内容。"
-        return "已定位到目标页，但页面文本质量不稳定，暂时不能可靠概括整页内容。"
-    if reason == "target_section_not_located":
-        if target_section:
-            return f"已检索这份 PDF，但当前没有稳定定位到“{target_section}”这一部分。"
-        return "已检索这份 PDF，但当前没有稳定定位到你指定的章节或部分。"
-    if reason == "target_section_not_stably_located":
-        if target_section and pages:
-            return f"已定位到“{target_section}”的相关页码：{pages}，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
-        if target_section:
-            return f"已定位到“{target_section}”的相关线索，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
-        return "已定位到相关章节线索，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
-    if reason == "no_stable_document_evidence":
-        if pages:
-            return f"已读取这份 PDF，并检查了与问题最相关的页面：{pages}，但能稳定提取的正文证据仍然不足，暂时不能可靠总结。"
-        return "已读取这份 PDF，但能稳定提取的正文证据仍然不足，暂时不能可靠总结。"
-    if reason == "document_summary_text_quality_low":
-        if pages and evidence_hint:
-            return f"已读取这份 PDF，并检查了相关页面：{pages}，但清洗后的正文质量仍不稳定。当前只能稳定辨认出：{evidence_hint}。"
-        if pages:
-            return f"已读取这份 PDF，并检查了相关页面：{pages}，但清洗后的正文质量仍不稳定，暂时不能可靠总结。"
-        return "已读取这份 PDF，但清洗后的正文质量仍不稳定，暂时不能可靠总结。"
-    if pages:
-        return f"已读取这份 PDF 的 {pages}，但当前还没有形成稳定摘要。"
-    return "已读取这份 PDF，但当前还没有形成稳定摘要。"
-
 
 def _shape_pdf_answer_for_request(answer: str, canonical: PDFCanonicalResult) -> str:
     query = str((canonical.metadata or {}).get("query", "") or "").strip()
@@ -395,17 +318,6 @@ def _compact_basis(text: str) -> str:
     if len(compact) > 86:
         compact = compact[:86].rstrip(" ，,；;：:")
     return compact + "。"
-
-
-def _stable_evidence_hint(canonical: PDFCanonicalResult) -> str:
-    for item in list(canonical.evidence or []):
-        snippet = " ".join(str(getattr(item, "snippet", "") or "").split()).strip(" .。;；,，:：")
-        if not snippet:
-            continue
-        compact = snippet[:80].strip()
-        if compact:
-            return compact
-    return ""
 
 
 def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:

@@ -154,7 +154,7 @@ def _tool_limit_closeout_control_signal(
 ) -> dict[str, Any]:
     attempted_payloads = [item.to_dict() for item in list(attempted_actions or []) if item is not None]
     instruction = (
-        "本轮工具预算已经耗尽。这不是最终回复。你必须停止发起新的工具调用，"
+        "本轮工具预算已经耗尽。你必须停止发起新的工具调用，"
         "基于已经观察到的事实选择 respond、ask_user 或 block 收口。"
         "respond 时写清已完成事项、未完成事项、验证状态和下一步；"
         "ask_user 只用于确实需要用户决定是否继续；block 只用于事实或权限不足导致无法可靠继续。"
@@ -311,7 +311,7 @@ async def run_single_agent_turn(
     active_work_context: Any | None,
     model_runtime: Any,
     model_selection: dict[str, Any],
-    current_work_permit: dict[str, Any] | None = None,
+    current_work_boundary_receipt: dict[str, Any] | None = None,
     stream_run_id: str = "",
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
@@ -360,7 +360,7 @@ async def run_single_agent_turn(
             history=history,
             session_context=session_context,
             active_work_context=active_work_for_turn,
-            current_work_permit=dict(current_work_permit or {}),
+            current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
@@ -373,7 +373,7 @@ async def run_single_agent_turn(
             "runtime_branch": dict(runtime_branch or {}),
             "packet_ref": compilation.packet.packet_id,
             "allowed_action_types": list(compilation.packet.allowed_action_types),
-            "current_work_permit": dict(current_work_permit or {}),
+            "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
             "turn_id": turn_id,
             "turn_run_id": turn_run.turn_run_id if turn_run is not None else "",
             "active_turn_id": turn_id,
@@ -578,7 +578,7 @@ async def run_single_agent_turn(
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
             yield error_event(
-                content="agent 没有回传收口正文，运行连接已中断。",
+                content="运行中断",
                 code="single_agent_turn_agent_closeout_not_returned",
                 reason=f"{terminal_reason}:agent_closeout_not_returned",
                 extra={
@@ -891,7 +891,7 @@ async def run_single_agent_turn(
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
                     permission_mode=runtime_permission_mode,
                     side_effect_policy="runtime_authorized",
-                    current_work_permit=dict(current_work_permit or {}),
+                    current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                 )
                 action_permit = action_permit_from_admission(
                     tool_action,
@@ -1348,7 +1348,7 @@ async def run_single_agent_turn(
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
                 permission_mode=runtime_permission_mode,
                 side_effect_policy="runtime_authorized",
-                current_work_permit=dict(current_work_permit or {}),
+                current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             )
             if runtime_host is not None and turn_run is not None:
                 event = _record_model_action_admission(
@@ -1401,7 +1401,7 @@ async def run_single_agent_turn(
                         runtime_profile=_runtime_profile_payload(runtime_assembly),
                         permission_mode=runtime_permission_mode,
                         side_effect_policy="runtime_authorized",
-                        current_work_permit=dict(current_work_permit or {}),
+                        current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                     )
                     if runtime_host is not None and turn_run is not None:
                         event = _record_model_action_admission(
@@ -1414,40 +1414,52 @@ async def run_single_agent_turn(
                         )
                         yield {"type": "model_action_admission", "event": event}
             if admission.decision != "allow":
-                content = admission.user_visible_reason or "本轮动作没有通过运行时准入，运行时未执行该动作。"
-                commit_decision = await _commit_final_message(
-                    commit_assistant_message,
-                    runtime_host=runtime_host,
-                    turn_run=turn_run,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    content=content,
-                    answer_channel="blocked",
-                    answer_source="harness.single_agent_turn.admission",
-                    api_protocol_messages=_final_api_protocol_messages(
-                        api_protocol_messages,
-                        response,
-                        tool_calls,
-                        turn_id=turn_id,
-                        tool_result_content=content,
-                        final_content=content,
+                control_signal = {
+                    "observation_type": "model_action_admission_observation",
+                    "source": "system:admission",
+                    "admission": admission.to_dict(),
+                    "action_request": action_request.to_dict(),
+                    "repair_instruction": (
+                        "The requested action was not executed because the current runtime contract or operation "
+                        "state does not expose it. Continue by choosing an available action or explaining the "
+                        "unavailable operation to the user."
                     ),
-                )
-                async for event in emit_terminal_then_final(
-                    content=content,
-                    answer_channel="blocked",
-                    answer_source="harness.single_agent_turn.admission",
-                    terminal_status="blocked",
+                    "authority": "harness.loop.admission",
+                }
+                async for event in emit_agent_authored_closeout(
+                    reason=admission.system_reason or admission.decision,
+                    phase="final_admission_observation",
                     terminal_reason=admission.system_reason or admission.decision,
-                    final_extra={"runtime_branch": dict(runtime_branch or {}), "admission": admission.to_dict()},
-                    commit_decision=commit_decision,
+                    control_signal=control_signal,
+                    protocol_error=_single_agent_protocol_error(
+                        code=str(admission.system_reason or admission.decision or "model_action_admission_not_allowed"),
+                        reason=str(admission.user_visible_reason or admission.system_reason or admission.decision),
+                        diagnostics={
+                            "phase": "final_admission",
+                            "admission": admission.to_dict(),
+                            "action_request": action_request.to_dict(),
+                        },
+                    ),
                 ):
                     yield event
+                terminal_recorded = True
                 return
             if action_request.action_type == "respond":
-                content = action_request.final_answer or stringify_content(getattr(response, "content", response)).strip()
+                content = str(action_request.final_answer or "").strip()
                 if not content:
-                    content = "模型选择直接回答，但没有提供可用回答内容。"
+                    async for event in emit_agent_authored_closeout(
+                        reason="final_answer_required_for_respond",
+                        phase="final_respond_missing_answer",
+                        terminal_reason="final_answer_required_for_respond",
+                        protocol_error=_single_agent_protocol_error(
+                            code="final_answer_required_for_respond",
+                            reason="respond action did not include final_answer",
+                            diagnostics={"phase": "final", "action_request": action_request.to_dict()},
+                        ),
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     runtime_host=runtime_host,
@@ -1512,7 +1524,21 @@ async def run_single_agent_turn(
                     yield event
                 return
             if action_request.action_type == "block":
-                content = action_request.blocking_reason or "当前请求无法继续处理。"
+                content = str(action_request.blocking_reason or "").strip()
+                if not content:
+                    async for event in emit_agent_authored_closeout(
+                        reason="blocking_reason_required_for_block",
+                        phase="final_block_missing_reason",
+                        terminal_reason="blocking_reason_required_for_block",
+                        protocol_error=_single_agent_protocol_error(
+                            code="blocking_reason_required_for_block",
+                            reason="block action did not include blocking_reason",
+                            diagnostics={"phase": "final", "action_request": action_request.to_dict()},
+                        ),
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     runtime_host=runtime_host,
@@ -1543,7 +1569,21 @@ async def run_single_agent_turn(
                     yield event
                 return
             if action_request.action_type == "ask_user":
-                content = action_request.user_question or "我需要你补充一点信息。"
+                content = str(action_request.user_question or "").strip()
+                if not content:
+                    async for event in emit_agent_authored_closeout(
+                        reason="user_question_required_for_ask_user",
+                        phase="final_ask_user_missing_question",
+                        terminal_reason="user_question_required_for_ask_user",
+                        protocol_error=_single_agent_protocol_error(
+                            code="user_question_required_for_ask_user",
+                            reason="ask_user action did not include user_question",
+                            diagnostics={"phase": "final", "action_request": action_request.to_dict()},
+                        ),
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
                 commit_decision = await _commit_final_message(
                     commit_assistant_message,
                     runtime_host=runtime_host,
@@ -1590,12 +1630,37 @@ async def run_single_agent_turn(
                     return
                 terminal_reason = "active_work_control"
                 terminal_status = "completed"
+                control_observation: dict[str, Any] | None = None
+                buffered_control_events: list[dict[str, Any]] = []
                 async for event in apply_active_work_control(action_request):
-                    if dict(event or {}).get("type") == "error":
+                    event_payload = dict(event or {})
+                    event_type = str(event_payload.get("type") or "").strip()
+                    if event_type == "active_work_control_observation":
+                        control_observation = event_payload
                         terminal_status = "failed"
-                        terminal_reason = str(dict(event or {}).get("code") or terminal_reason)
-                    elif dict(event or {}).get("type") == "done":
-                        terminal_reason = str(dict(event or {}).get("terminal_reason") or terminal_reason)
+                        terminal_reason = str(event_payload.get("terminal_reason") or "active_work_control_unavailable")
+                        continue
+                    if event_type == "error":
+                        terminal_status = "failed"
+                        terminal_reason = str(event_payload.get("code") or terminal_reason)
+                    elif event_type == "done":
+                        terminal_reason = str(event_payload.get("terminal_reason") or terminal_reason)
+                    buffered_control_events.append(event_payload)
+                if control_observation is not None:
+                    async for event in emit_agent_authored_closeout(
+                        reason=terminal_reason,
+                        phase="active_work_control_observation",
+                        terminal_reason=terminal_reason,
+                        control_signal={
+                            "observation_type": "active_work_control_observation",
+                            "source": "system:active_work_control",
+                            **control_observation,
+                        },
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
+                for event in buffered_control_events:
                     yield event
                 if runtime_host is not None and turn_run is not None:
                     terminal = _record_turn_terminal(
@@ -1630,21 +1695,18 @@ async def run_single_agent_turn(
 
         content = stringify_content(getattr(response, "content", response)).strip()
         if not content:
-            if runtime_host is not None and turn_run is not None:
-                terminal = _record_turn_terminal(
-                    runtime_host,
-                    turn_run=turn_run,
-                    turn_id=turn_id,
-                    status="failed",
-                    terminal_reason="single_agent_turn_empty_response",
-                )
-                terminal_recorded = True
-                yield {"type": "agent_turn_terminal", "event": terminal}
-            yield error_event(
-                content="模型没有返回可用的回复内容。",
-                code="single_agent_turn_empty_response",
+            async for event in emit_agent_authored_closeout(
                 reason="single_agent_turn_empty_response",
-            )
+                phase="single_agent_turn_empty_response",
+                terminal_reason="single_agent_turn_empty_response",
+                protocol_error=_single_agent_protocol_error(
+                    code="single_agent_turn_empty_response",
+                    reason="model returned an empty assistant response",
+                    diagnostics={"phase": "final", "response_empty": True},
+                ),
+            ):
+                yield event
+            terminal_recorded = True
             return
         commit_decision = await _commit_final_message(
             commit_assistant_message,
@@ -1715,7 +1777,7 @@ async def _invoke_single_turn_model(
         except Exception as exc:
             logger.exception("single agent turn model tool invocation failed")
             return error_event(
-                content="模型生成本轮回复时失败。",
+                content="运行中断",
                 code="single_agent_turn_model_failed",
                 reason=str(exc),
             )
@@ -1730,12 +1792,12 @@ async def _invoke_single_turn_model(
         except Exception as exc:
             logger.exception("single agent turn model invocation failed")
             return error_event(
-                content="模型生成本轮回复时失败。",
+                content="运行中断",
                 code="single_agent_turn_model_failed",
                 reason=str(exc),
             )
     return error_event(
-        content="当前模型运行时不可用，无法完成本轮处理。",
+        content="运行中断",
         code="model_runtime_unavailable",
         reason="model_runtime_unavailable",
     )
@@ -1868,7 +1930,7 @@ async def _invoke_single_turn_model_with_stream_events(
             "type": _INTERNAL_MODEL_RESPONSE_EVENT,
             "assistant_stream_normalizer": assistant_normalizer,
             "response": error_event(
-                content="模型生成本轮回复时失败。",
+                content="运行中断",
                 code="single_agent_turn_model_failed",
                 reason=str(exc),
             ),

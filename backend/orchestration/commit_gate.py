@@ -254,8 +254,7 @@ def build_assistant_session_message_commit_decision(
     debug_only_output = normalized_persist_policy == "persist_debug_only" or normalized_state == "progress_only"
     replacement_stop = normalized_terminal_reason == "user_aborted" and source == "harness.loop.task_executor.replacement_stop"
     is_missing_fallback = (
-        normalized_channel == "fallback_answer"
-        or normalized_state == "missing_answer"
+        normalized_state == "missing_answer"
         or normalized_persist_policy == "do_not_persist"
     )
     allowed = (

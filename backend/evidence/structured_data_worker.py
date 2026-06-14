@@ -33,11 +33,7 @@ class StructuredDataWorker:
                 canonical_result=CanonicalResult(
                     result_kind="structured_answer",
                     ok=False,
-                    answer=(
-                        "已确认表格候选，但它还没有可直接分析的数据文件。需要先把该表格抽取或物化为结构化数据。"
-                        if active_table
-                        else "需要先确认要分析的数据表。"
-                    ),
+                    answer="",
                     bindings={"active_table": active_table} if active_table else {},
                     projection_policy="do_not_persist",
                     degraded_reason="missing_dataset_binding",
@@ -63,7 +59,7 @@ class StructuredDataWorker:
                 canonical_result=CanonicalResult(
                     result_kind="structured_answer",
                     ok=False,
-                    answer="结构化数据分析能力当前没有形成结果。",
+                    answer="",
                     degraded_reason="structured_mcp_unavailable",
                     degraded_reason_typed="contract_blocked",
                 ),
@@ -87,7 +83,7 @@ class StructuredDataWorker:
             canonical_result=CanonicalResult(
                 result_kind="structured_answer",
                 ok=ok,
-                answer=answer or "结构化数据分析未形成可展示结果。",
+                answer=answer if ok else "",
                 bindings={
                     **({"active_dataset": dataset_path} if dataset_path else {}),
                     **({"active_table": active_table} if active_table else {}),

@@ -10,6 +10,7 @@ from harness.task_run_status import is_stopped_or_terminal_task_run
 CurrentWorkBoundaryAction = Literal[
     "no_current_work",
     "current_work_control_required",
+    "current_work_unavailable",
     "new_independent_turn_allowed",
     "ask_user",
     "block",
@@ -22,7 +23,6 @@ class CurrentWorkBoundaryInput:
     active_turn_record: dict[str, Any] = field(default_factory=dict)
     active_turn_check: dict[str, Any] = field(default_factory=dict)
     active_work_context: dict[str, Any] = field(default_factory=dict)
-    current_task_collision_candidate: dict[str, Any] = field(default_factory=dict)
     request_active_turn_policy: str = "auto"
     active_turn_input_policy: str = "auto"
     expected_active_turn_id: str = ""
@@ -68,29 +68,30 @@ class CurrentWorkBoundaryDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class CurrentWorkPermit:
-    permit_id: str
+class CurrentWorkBoundaryReceipt:
+    receipt_id: str
     decision_id: str
     boundary_decision: str
-    execution_route: str
     active_work_ref: dict[str, Any] = field(default_factory=dict)
     task_run_ref: str = ""
     turn_ref: str = ""
     runtime_branch_ref: dict[str, Any] = field(default_factory=dict)
-    allowed_action_types_for_next_packet: tuple[str, ...] = ()
-    decision: str = "allow"
-    allows: dict[str, bool] = field(default_factory=dict)
-    denied_reason: str = ""
+    available_action_types_for_next_packet: tuple[str, ...] = ()
+    unavailable_action_types_for_next_packet: tuple[str, ...] = ()
+    operation_availability: dict[str, bool] = field(default_factory=dict)
+    observation_state: str = "available"
+    state_reason: str = ""
     expected_active_turn_id: str = ""
     actual_active_turn_id: str = ""
     public_projection_policy: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    enforced: bool = True
-    authority: str = "harness.entrypoint.current_work_permit"
+    enforced: bool = False
+    authority: str = "harness.entrypoint.current_work_boundary_receipt"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["allowed_action_types_for_next_packet"] = list(self.allowed_action_types_for_next_packet)
+        payload["available_action_types_for_next_packet"] = list(self.available_action_types_for_next_packet)
+        payload["unavailable_action_types_for_next_packet"] = list(self.unavailable_action_types_for_next_packet)
         return payload
 
 
@@ -100,7 +101,6 @@ def build_current_work_boundary_input(
     active_turn_record: Any | None = None,
     active_turn_check: dict[str, Any] | None = None,
     active_work_context: Any | None = None,
-    current_task_collision_candidate: Any | None = None,
     request_active_turn_policy: str = "auto",
     active_turn_input_policy: str = "auto",
     expected_active_turn_id: str = "",
@@ -114,7 +114,6 @@ def build_current_work_boundary_input(
         active_turn_record=_payload_from_object(active_turn_record),
         active_turn_check=dict(active_turn_check or {}),
         active_work_context=_payload_from_object(active_work_context),
-        current_task_collision_candidate=_payload_from_object(current_task_collision_candidate),
         request_active_turn_policy=str(request_active_turn_policy or "auto").strip() or "auto",
         active_turn_input_policy=str(active_turn_input_policy or "auto").strip() or "auto",
         expected_active_turn_id=str(expected_active_turn_id or "").strip(),
@@ -140,10 +139,10 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             return _decision(
                 session_id=session_id,
                 turn_id=turn_id,
-                action="block",
+                action="current_work_unavailable",
                 relation="stale_or_missing_active_turn",
                 reason="expected_active_turn_unavailable",
-                response="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+                response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
                 task_run_id=task_run_id,
@@ -155,10 +154,10 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             return _decision(
                 session_id=session_id,
                 turn_id=turn_id,
-                action="block",
+                action="current_work_unavailable",
                 relation="stale_or_missing_active_turn",
                 reason="active_turn_steer_not_running",
-                response="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+                response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
                 task_run_id=task_run_id,
@@ -170,10 +169,10 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             return _decision(
                 session_id=session_id,
                 turn_id=turn_id,
-                action="block",
+                action="current_work_unavailable",
                 relation="stale_or_missing_active_turn",
                 reason=str(active_check.get("denied_reason") or "expected_active_turn_mismatch"),
-                response="当前任务状态已变化，这条补充没有接入正在运行的任务。请刷新后重试。",
+                response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
                 task_run_id=task_run_id,
@@ -199,7 +198,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
         return _decision(
             session_id=session_id,
             turn_id=turn_id,
-            action="block" if policy == "steer" else "new_independent_turn_allowed",
+            action="current_work_unavailable" if policy == "steer" else "new_independent_turn_allowed",
             relation="read_only_active_work_context",
             reason="active_work_context_not_active_turn_bound",
             response="当前任务状态不可作为可控制工作处理。",
@@ -214,7 +213,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
         return _decision(
             session_id=session_id,
             turn_id=turn_id,
-            action="new_independent_turn_allowed" if policy != "steer" else "block",
+            action="new_independent_turn_allowed" if policy != "steer" else "current_work_unavailable",
             relation="terminal_active_work_read_only",
             reason="active_work_terminal",
             response="当前任务已经结束，不能继续控制这条运行。",
@@ -230,7 +229,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
         turn_id=turn_id,
         action="current_work_control_required",
         relation="active_turn_bound_current_work",
-        reason="current_work_permit_ready",
+        reason="active_work_boundary_ready",
         expected_turn_id=expected_turn_id,
         actual_turn_id=actual_turn_id,
         task_run_id=task_run_id,
@@ -241,19 +240,24 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
     )
 
 
-def current_work_permit_from_decision(decision: CurrentWorkBoundaryDecision) -> CurrentWorkPermit:
-    route = _execution_route_for_action(decision.action)
-    allows = {
+def current_work_boundary_receipt_from_decision(decision: CurrentWorkBoundaryDecision) -> CurrentWorkBoundaryReceipt:
+    operation_availability = {
+        "respond": "respond" in set(decision.allowed_next_actions),
+        "ask_user": "ask_user" in set(decision.allowed_next_actions),
+        "block": "block" in set(decision.allowed_next_actions),
         "active_work_control": "active_work_control" in set(decision.allowed_next_actions),
         "request_task_run": "request_task_run" in set(decision.allowed_next_actions),
         "tool_call": "tool_call" in set(decision.allowed_next_actions),
     }
-    permit_decision = "needs_user" if decision.action == "ask_user" else ("deny" if decision.action == "block" else "allow")
-    return CurrentWorkPermit(
-        permit_id=f"cwpermit:{decision.turn_id}:{decision.decision_id.rsplit(':', 1)[-1]}",
+    observation_state = (
+        "controllable_current_work"
+        if operation_availability["active_work_control"]
+        else ("no_current_work" if decision.action == "no_current_work" else "read_only_or_unavailable")
+    )
+    return CurrentWorkBoundaryReceipt(
+        receipt_id=f"cwreceipt:{decision.turn_id}:{decision.decision_id.rsplit(':', 1)[-1]}",
         decision_id=decision.decision_id,
         boundary_decision=decision.action,
-        execution_route=route,
         active_work_ref={
             "active_work_id": decision.active_work_id,
             "task_run_id": decision.task_run_id,
@@ -262,14 +266,15 @@ def current_work_permit_from_decision(decision: CurrentWorkBoundaryDecision) -> 
         task_run_ref=decision.task_run_id,
         turn_ref=decision.turn_id,
         runtime_branch_ref=dict(decision.diagnostics.get("runtime_branch") or {}),
-        allowed_action_types_for_next_packet=decision.allowed_next_actions,
-        decision=permit_decision,
-        allows=allows,
-        denied_reason=decision.reason if permit_decision == "deny" else "",
+        available_action_types_for_next_packet=decision.allowed_next_actions,
+        unavailable_action_types_for_next_packet=decision.forbidden_next_actions,
+        operation_availability=operation_availability,
+        observation_state=observation_state,
+        state_reason=decision.reason,
         expected_active_turn_id=decision.expected_active_turn_id,
         actual_active_turn_id=decision.actual_active_turn_id,
         public_projection_policy={
-            "answer_channel": "runtime_control" if route != "ordinary_turn" else "conversation",
+            "answer_channel": "conversation",
             "public_response_obligation": decision.public_response_obligation,
         },
         diagnostics={
@@ -279,10 +284,12 @@ def current_work_permit_from_decision(decision: CurrentWorkBoundaryDecision) -> 
     )
 
 
-def current_work_permit_allows_active_work_control(permit: dict[str, Any] | CurrentWorkPermit | None) -> bool:
-    payload = permit.to_dict() if hasattr(permit, "to_dict") else dict(permit or {})
-    allows = dict(payload.get("allows") or {})
-    return bool(allows.get("active_work_control") is True)
+def current_work_boundary_receipt_allows_active_work_control(
+    receipt: dict[str, Any] | CurrentWorkBoundaryReceipt | None,
+) -> bool:
+    payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
+    operations = dict(payload.get("operation_availability") or {})
+    return bool(operations.get("active_work_control") is True)
 
 
 def _decision(
@@ -321,7 +328,7 @@ def _decision(
         forbidden_next_actions=forbidden,
         reason=reason,
         evidence=evidence,
-        public_response_obligation="direct_response_required" if action in {"ask_user", "block"} else "runtime_control_status",
+        public_response_obligation="direct_response_required" if action == "current_work_unavailable" else "runtime_control_status",
         requires_model_boundary_decision=requires_model,
         response=response,
         appended_instruction=appended_instruction,
@@ -341,27 +348,41 @@ def _allowed_next_actions(
     boundary_input: CurrentWorkBoundaryInput,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     may_request_task = bool(dict(boundary_input.control_capabilities or {}).get("may_request_task_run") is True)
+    may_call_tools = bool(dict(boundary_input.control_capabilities or {}).get("may_call_tools") is not False)
+    may_control_active_work = bool(dict(boundary_input.control_capabilities or {}).get("may_control_active_work") is not False)
     if action == "no_current_work":
-        allowed = ["respond", "ask_user", "block", "tool_call"]
+        allowed = ["respond", "ask_user", "block"]
+        if may_call_tools:
+            allowed.append("tool_call")
         if may_request_task:
             allowed.append("request_task_run")
         return tuple(dict.fromkeys(allowed)), ("active_work_control",)
     if action == "current_work_control_required":
-        policy = str(boundary_input.active_turn_input_policy or "auto").strip().lower() or "auto"
-        if policy == "steer":
-            return ("active_work_control", "ask_user", "block"), ("tool_call", "request_task_run")
-        return ("respond", "ask_user", "block", "tool_call", "active_work_control"), ("request_task_run",)
+        allowed = ["respond", "ask_user", "block"]
+        if may_call_tools:
+            allowed.append("tool_call")
+        if may_control_active_work:
+            allowed.append("active_work_control")
+        if may_request_task:
+            allowed.append("request_task_run")
+        return tuple(dict.fromkeys(allowed)), ()
+    if action == "current_work_unavailable":
+        allowed = ["respond", "ask_user", "block"]
+        if may_call_tools:
+            allowed.append("tool_call")
+        if may_request_task:
+            allowed.append("request_task_run")
+        return tuple(dict.fromkeys(allowed)), ("active_work_control",)
     if action == "new_independent_turn_allowed":
-        return ("respond", "ask_user", "block", "tool_call"), ("active_work_control", "request_task_run")
+        allowed = ["respond", "ask_user", "block"]
+        if may_call_tools:
+            allowed.append("tool_call")
+        if may_request_task:
+            allowed.append("request_task_run")
+        return tuple(dict.fromkeys(allowed)), ("active_work_control",)
     if action in {"ask_user", "block"}:
         return (action,), ("tool_call", "request_task_run", "active_work_control")
     return (), ("tool_call", "request_task_run", "active_work_control")
-
-
-def _execution_route_for_action(action: str) -> str:
-    if action in {"no_current_work", "new_independent_turn_allowed", "current_work_control_required"}:
-        return "ordinary_turn"
-    return "terminal"
 
 
 def _payload_from_object(value: Any | None) -> dict[str, Any]:

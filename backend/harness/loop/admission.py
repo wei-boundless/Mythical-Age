@@ -51,7 +51,7 @@ def admit_model_action(
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
     side_effect_policy: Literal["requires_task_run", "runtime_authorized"] = "requires_task_run",
-    current_work_permit: dict[str, Any] | None = None,
+    current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> AdmissionDecision:
     allowed_actions = {str(item or "").strip() for item in tuple(packet_allowed_action_types or ()) if str(item or "").strip()}
     if allowed_actions and action_request.action_type not in allowed_actions:
@@ -174,7 +174,7 @@ def admit_model_action(
                 category="permission_denied",
                 code="plan_mode_blocks_side_effect_tool",
                 requested_tool_name=tool_name,
-                user_visible_summary="当前计划模式不允许实施类副作用工具。",
+                user_visible_summary="当前计划模式没有挂载实施类副作用工具。",
                 repair_instruction="请继续只读探索、整理计划、ask_user，或在计划获批后进入执行。",
                 extra={"permission_mode": str(permission_mode or "default")},
             )
@@ -234,13 +234,13 @@ def admit_model_action(
                 category="runtime_unavailable",
                 code="task_lifecycle_disabled_by_runtime_profile",
                 user_visible_summary="当前运行模式未开放持续任务生命周期。",
-                repair_instruction="请选择 ask_user、respond 或 block，不要假装已经进入持续任务。",
+                repair_instruction="请改用 ask_user、respond 或 block 说明持续任务生命周期未挂载；不要假装已经进入持续任务。",
             )
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前运行模式不允许开始持续处理。",
+                user_visible_reason="当前运行模式没有挂载持续任务生命周期。",
                 system_reason="task_lifecycle_disabled_by_runtime_profile",
                 contract_errors=("task_lifecycle_disabled_by_runtime_profile",),
                 issue_category="runtime_unavailable",
@@ -267,34 +267,34 @@ def admit_model_action(
             action_issue=issue,
         )
     if action_request.action_type == "active_work_control":
-        permit = dict(current_work_permit or {})
-        allows = dict(permit.get("allows") or {})
-        if allows.get("active_work_control") is not True:
+        receipt = dict(current_work_boundary_receipt or {})
+        operations = dict(receipt.get("operation_availability") or {})
+        if operations.get("active_work_control") is not True:
             issue = _action_issue(
                 action_request,
-                category="permission_denied",
-                code="active_work_control_permit_required",
-                user_visible_summary="当前输入没有获得控制进行中工作的运行许可。",
+                category="operation_unavailable",
+                code="active_work_control_unavailable",
+                user_visible_summary="当前运行状态没有开放进行中工作控制。",
                 repair_instruction="请选择 respond、ask_user 或 block；不要把历史任务或普通上下文当成可控制的当前工作。",
                 extra={
-                    "permit_id": str(permit.get("permit_id") or ""),
-                    "permit_decision": str(permit.get("decision") or ""),
+                    "receipt_id": str(receipt.get("receipt_id") or ""),
+                    "boundary_decision": str(receipt.get("boundary_decision") or ""),
                 },
             )
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前输入没有获得控制进行中工作的运行许可。",
-                system_reason="active_work_control_permit_required",
-                contract_errors=("active_work_control_permit_required",),
+                user_visible_reason="当前运行状态没有开放进行中工作控制。",
+                system_reason="active_work_control_unavailable",
+                contract_errors=("active_work_control_unavailable",),
                 permission_delta={
                     "action_type": action_request.action_type,
-                    "permit_id": str(permit.get("permit_id") or ""),
+                    "receipt_id": str(receipt.get("receipt_id") or ""),
                     "invocation_kind": str(invocation_kind or ""),
                 },
-                issue_category="permission_denied",
-                issue_code="active_work_control_permit_required",
+                issue_category="operation_unavailable",
+                issue_code="active_work_control_unavailable",
                 action_issue=issue,
             )
         task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
@@ -304,13 +304,13 @@ def admit_model_action(
                 category="runtime_unavailable",
                 code="active_work_control_disabled_by_runtime_profile",
                 user_visible_summary="当前运行模式未开放 active work 控制。",
-                repair_instruction="请选择 respond、ask_user 或 block，不要假装已控制当前工作。",
+                repair_instruction="请改用 respond、ask_user 或 block 说明 active work 控制未挂载；不要假装已控制当前工作。",
             )
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前运行模式不允许控制进行中的工作。",
+                user_visible_reason="当前运行模式没有挂载进行中工作控制。",
                 system_reason="active_work_control_disabled_by_runtime_profile",
                 contract_errors=("active_work_control_disabled_by_runtime_profile",),
                 issue_category="runtime_unavailable",

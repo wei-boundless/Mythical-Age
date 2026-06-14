@@ -275,8 +275,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "tool_name",
         "target",
         "arguments_preview",
-        "public_progress_note",
-        "public_action_state",
         "runtime_event_id",
     },
     TOOL_PERMISSION_DECIDED_EVENT: {
@@ -871,8 +869,9 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                                     "status": "failed",
                                     "turn_run_id": runtime_turn_run_id,
                                     "task_run_id": bridged_task_run_id,
-                                    "error": "Task bridge handoff arrived before a public turn context was available.",
+                                    "error": "运行中断",
                                     "code": "task_bridge_context_missing",
+                                    "reason": "Task bridge handoff arrived before a public turn context was available.",
                                 },
                             ),
                             session_id=request.session_id,
@@ -972,8 +971,9 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             data=_turn_completed_data(
                 "error",
                 {
-                    "error": str(exc) or "Chat stream failed.",
+                    "error": "运行中断",
                     "code": "stream_exception",
+                    "reason": str(exc) or "Chat stream failed.",
                 },
             ),
         )
@@ -992,8 +992,9 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             data=_turn_completed_data(
                 "error",
                 {
-                    "error": "Chat stream ended without a terminal event.",
+                    "error": "运行中断",
                     "code": "missing_terminal_event",
+                    "reason": "Chat stream ended without a terminal event.",
                 },
             ),
         )
@@ -1460,7 +1461,7 @@ def _append_task_bridge_terminal(
                 "message_id": bridge_context.assistant_message_ref,
                 "message_ref": bridge_context.assistant_message_ref,
                 "reason": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
-                "error": "Task terminal carried final_answer without a preceding assistant output and commit receipt.",
+                "error": "运行中断",
                 "summary": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
                 "runtime_event_id": source_task_event_id,
                 "source_task_event_id": source_task_event_id,
@@ -1515,7 +1516,7 @@ def _append_task_bridge_terminal(
             "task_run_id": task_run_id,
             "terminal_reason": str(context.get("terminal_reason") or context.get("status") or "completed"),
             "completion_state": str(context.get("status") or ""),
-            "error": str(context.get("error_summary") or ""),
+            "error": "运行中断" if status == "failed" else "",
             "runtime_event_id": source_task_event_id,
             "source_task_event_id": source_task_event_id,
             "source_task_event_offset": source_task_event_offset,
@@ -1630,7 +1631,7 @@ def _task_terminal_context_from_task_run(
             or ""
         ).strip(),
         "answer_source": str(diagnostics.get("answer_source") or "harness.loop.task_executor.completed"),
-        "error_summary": terminal_reason if status in {"failed", "blocked"} else "",
+        "error_summary": "运行中断" if status in {"failed", "blocked"} else "",
     }
 
 
@@ -1951,7 +1952,7 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
         "final_message_ref": str(raw_data.get("message_ref") or raw_data.get("stream_ref") or ""),
         "terminal_reason": terminal_reason,
         "completion_state": str(raw_data.get("completion_state") or ""),
-        "error_summary": _safe_public_action_text(raw_data.get("error") or raw_data.get("content") or raw_data.get("message")) if status == "failed" else "",
+        "error_summary": "运行中断" if status == "failed" else "",
         "stopped_reason": _safe_public_action_text(raw_data.get("reason") or raw_data.get("content")) if status == "stopped" else "",
         "runtime_event_id": str(raw_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
         "source_task_event_id": str(raw_data.get("source_task_event_id") or ""),
@@ -1966,10 +1967,49 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
     if not request_data:
         return []
     permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
-    events: list[tuple[str, dict[str, Any]]] = [(TOOL_CALL_REQUESTED_EVENT, request_data)]
+    events: list[tuple[str, dict[str, Any]]] = []
+    feedback_data = _model_action_feedback_step_data(raw_data)
+    if feedback_data:
+        events.append(("runtime_step_summary", feedback_data))
+    events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
     if permission_data:
         events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
+
+
+def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
+    if not request:
+        return {}
+    action_type = str(request.get("action_type") or "").strip().lower()
+    if action_type not in {"tool_call", "tool_calls"}:
+        return {}
+    action_state = _public_action_state(request.get("public_action_state"))
+    content = (
+        _safe_public_action_text(request.get("public_progress_note"))
+        or _safe_public_action_text(action_state.get("current_judgment"))
+    )
+    if not content:
+        return {}
+    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
+    data: dict[str, Any] = {
+        "status": "running",
+        "step": "model_action_public_feedback",
+        "summary": content,
+        "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
+        "current_judgment": _safe_public_action_text(action_state.get("current_judgment")),
+        "next_action": _safe_public_action_text(action_state.get("next_action")),
+        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "runtime_event_id": runtime_event_id,
+        "presentation_source": "model_action.public_progress_note"
+        if _safe_public_action_text(request.get("public_progress_note"))
+        else "model_action.public_action_state",
+    }
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
 def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
@@ -1986,21 +2026,18 @@ def _tool_call_requested_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = str(tool.get("id") or request.get("tool_call_id") or "").strip()
     if not tool_name or not tool_call_id:
         return {}
-    tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
     args = _record(tool.get("args") or tool.get("arguments") or request.get("tool_args"))
     target = _safe_public_tool_target(args)
     data: dict[str, Any] = {
-        "item_id": tool_lifecycle_id,
+        "item_id": tool_call_id,
         "request_id": str(request.get("request_id") or tool_call_id),
-        "tool_lifecycle_id": tool_lifecycle_id,
+        "tool_lifecycle_id": tool_call_id,
         "tool_call_id": tool_call_id,
         "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
         "target": target,
         "arguments_preview": _tool_arguments_preview(args),
-        "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
-        "public_action_state": _public_action_state(request.get("public_action_state")),
     }
     event_id = str(raw_event.get("event_id") or "").strip()
     if event_id:
@@ -2048,7 +2085,7 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     if not tool_call_id or not permission_decision_id or not tool_name:
         return {}
     data: dict[str, Any] = {
-        "item_id": str(payload.get("item_id") or payload.get("tool_lifecycle_id") or tool_call_id),
+        "item_id": tool_call_id,
         "tool_lifecycle_id": str(payload.get("tool_lifecycle_id") or payload.get("item_id") or tool_call_id),
         "tool_call_id": tool_call_id,
         "permission_decision_id": permission_decision_id,
@@ -2104,7 +2141,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     )
     observation_text = _safe_tool_observation_text(tool_observation, result_envelope=result_envelope)
     data: dict[str, Any] = {
-        "item_id": tool_lifecycle_id,
+        "item_id": tool_call_id,
         "tool_lifecycle_id": tool_lifecycle_id,
         "tool_call_id": tool_call_id,
         "permission_decision_id": _permission_decision_id_from_observation(
@@ -2138,20 +2175,33 @@ def _permission_decision_id_from_observation(
     admission_id = str(admission.get("admission_id") or admission.get("permission_decision_id") or "").strip()
     if admission_id:
         return admission_id
-    admission_ref = str(execution_receipt.get("admission_ref") or result_envelope.get("admission_ref") or "").strip()
+    admission_ref = _public_permission_decision_ref(
+        execution_receipt.get("admission_ref") or result_envelope.get("admission_ref")
+    )
     if admission_ref:
         return admission_ref
-    request_ref = str(
+    request_ref = _public_permission_decision_ref(
         raw_observation.get("request_ref")
         or observation.get("request_ref")
         or result_envelope.get("action_request_id")
         or observation.get("action_request_id")
         or execution_receipt.get("action_request_id")
         or ""
-    ).strip()
+    )
     if request_ref:
-        return request_ref if request_ref.startswith("admission:") else f"admission:{request_ref}"
+        return request_ref
     return ""
+
+
+def _public_permission_decision_ref(value: Any) -> str:
+    ref = str(value or "").strip()
+    if not ref:
+        return ""
+    if ref.startswith("admission:toolinv:") or ref.startswith("toolinv:"):
+        return ""
+    if ref.startswith("admission:"):
+        return ref
+    return f"admission:{ref}"
 
 
 def _canonical_permission_decision_id(admission: dict[str, Any] | None = None, *, tool_call_id: str = "") -> str:

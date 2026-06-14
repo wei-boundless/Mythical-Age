@@ -347,7 +347,7 @@ class SingleAgentRuntimeHost:
             "terminal_reason": failure_code,
             "completion_state": "interrupted",
             "stopped_reason": failure_reason if status == "stopped" else "",
-            "error_summary": failure_reason if status == "failed" else "",
+            "error_summary": "运行中断" if status == "failed" else "",
             "orphaned_by": orphaned_by,
         }
         public_anchor = {

@@ -72,7 +72,7 @@ class EvidenceOrchestrator:
                 canonical=CanonicalResult(
                     result_kind="mcp_answer",
                     ok=False,
-                    answer="当前请求没有形成可执行的证据任务。",
+                    answer="",
                     degraded_reason="missing_mcp_request",
                 ),
                 main_context=main_context,
@@ -275,7 +275,7 @@ class EvidenceOrchestrator:
                 return CanonicalResult(
                     result_kind="rag_answer",
                     ok=False,
-                    answer="已检索到相关资料，但当前答案整合阶段失败，请稍后重试。",
+                    answer="",
                     evidence_refs=_evidence_refs(mcp_result),
                     artifact_refs=_artifact_refs(mcp_result),
                     projection_policy="do_not_persist",
@@ -294,7 +294,7 @@ class EvidenceOrchestrator:
             return CanonicalResult(
                 result_kind="rag_answer",
                 ok=False,
-                answer="检索链路当前未能返回证据结果，请稍后重试。",
+                answer="",
                 evidence_refs=_evidence_refs(mcp_result),
                 artifact_refs=_artifact_refs(mcp_result),
                 projection_policy="do_not_persist",
@@ -314,7 +314,7 @@ class EvidenceOrchestrator:
             return CanonicalResult(
                 result_kind="rag_candidate_clarification",
                 ok=False,
-                answer=candidate_answer,
+                answer="",
                 evidence_refs=_evidence_refs(mcp_result),
                 artifact_refs=_artifact_refs(mcp_result),
                 projection_policy="do_not_persist",
@@ -327,12 +327,12 @@ class EvidenceOrchestrator:
         return CanonicalResult(
             result_kind="rag_answer",
             ok=False,
-            answer="已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
+            answer="",
             evidence_refs=_evidence_refs(mcp_result),
             artifact_refs=_artifact_refs(mcp_result),
             projection_policy="do_not_persist",
             degraded_reason="rag_missing_answer",
-            diagnostics={"answer_source": "fallback_policy"},
+            diagnostics={"answer_source": "evidence_missing_answer"},
             object_handle_ids=_source_object_ids(mcp_result),
             degraded_reason_typed="evidence_insufficient_for_synthesis",
         )
@@ -389,7 +389,7 @@ class EvidenceOrchestrator:
             "degraded_reason_typed": projection.degraded_reason_typed,
             "presentation_hints": dict(canonical.presentation_hints or {}),
             "execution_protocol": "mcp",
-            "answer_channel": "answer_candidate" if canonical.ok else "fallback_answer",
+            "answer_channel": "answer_candidate" if canonical.ok else "missing_answer",
             "answer_source": answer_source,
             "answer_canonical_state": "stable_answer" if canonical.ok else "missing_answer",
             "answer_persist_policy": canonical.projection_policy,

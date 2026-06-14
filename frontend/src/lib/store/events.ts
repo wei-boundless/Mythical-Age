@@ -554,7 +554,7 @@ function bindStreamSessionAnchor(
     bind("boundTaskRunId", stringValue(frameAnchor.task_run_id));
     bind("boundTurnRunId", stringValue(frameAnchor.turn_run_id));
   }
-  bind("boundTurnId", stringValue(data.active_turn_id) || stringValue(data.turn_id));
+  bind("boundTurnId", stringValue(data.turn_id));
   bind("boundStreamRunId", stringValue(data.stream_run_id) || stringValue(data.streamRunId));
   bind("boundRunId", stringValue(data.runtime_run_id) || stringValue(data.run_id));
   bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id) || stringValue(data.bound_task_run_id));
@@ -820,7 +820,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
   if (event === "error") {
-    return String(data.error ?? "执行失败");
+    return String(data.error ?? "运行中断");
   }
   if (event === "prompt_manifest") {
     return "上下文已整理。";
@@ -1042,7 +1042,7 @@ function updateOrchestrationSnapshot(
     route: route === "undefined" ? snapshot.route : route,
     status: event === "error" ? "failed" : "running",
     summary: event === "error"
-        ? `编排失败：${String(data.error_summary ?? data.error ?? "unknown")}`
+        ? String(data.error_summary ?? data.error ?? "运行中断")
         : summary || snapshot.summary,
     problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,

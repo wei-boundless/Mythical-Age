@@ -505,12 +505,25 @@ def canonical_output_decision_for_final_text(
 
     normalized_channel = str(answer_channel or "").strip() or "final_answer"
     normalized_source = str(answer_source or "").strip() or "runtime.output_boundary.final_text"
-    if leak_flags and not _meaningful_visible_final_text(visible_text):
+    if not visible_text.strip():
         return CanonicalFinalTextDecision(
-            content="当前输出包含内部工具协议，已阻止作为最终答案。",
+            content="",
             answer_channel=normalized_channel,
             answer_source=normalized_source,
-            selected_channel="fallback_answer",
+            selected_channel="missing_answer",
+            selected_source="runtime.output_boundary.empty_final_text",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="none",
+            fallback_reason=str(terminal_reason or completion_state or "empty_final_text").strip(),
+            leak_flags=leak_flags,
+        )
+    if leak_flags and not _meaningful_visible_final_text(visible_text):
+        return CanonicalFinalTextDecision(
+            content="",
+            answer_channel=normalized_channel,
+            answer_source=normalized_source,
+            selected_channel="missing_answer",
             selected_source="runtime.output_boundary.protocol_fail_closed",
             canonical_state="missing_answer",
             persist_policy="do_not_persist",
@@ -532,16 +545,15 @@ def canonical_output_decision_for_final_text(
             leak_flags=leak_flags,
         )
     if leak_flags:
-        canonical_visible = visible_text.strip() or salvage_visible_assistant_content(raw_text).strip()
         return CanonicalFinalTextDecision(
-            content=canonical_visible,
+            content="",
             answer_channel=normalized_channel,
             answer_source=normalized_source,
-            selected_channel="fallback_answer",
+            selected_channel="missing_answer",
             selected_source="runtime.output_boundary.protocol_sanitized",
-            canonical_state="unstable_answer",
-            persist_policy="persist_debug_only",
-            finalization_policy="route_required",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="none",
             fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
             leak_flags=leak_flags,
         )
@@ -569,7 +581,7 @@ def canonical_output_decision_for_final_text(
             content="",
             answer_channel=normalized_channel,
             answer_source=normalized_source,
-            selected_channel="fallback_answer",
+            selected_channel="missing_answer",
             selected_source="runtime.output_boundary.empty_final_text",
             canonical_state="missing_answer",
             persist_policy="do_not_persist",

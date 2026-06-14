@@ -138,7 +138,7 @@ def test_memory_adapter_keeps_only_canonical_assistant_answers() -> None:
             },
             {
                 "role": "assistant",
-                "content": "当前没有可展示的答案。",
+                "content": "",
                 "answer_canonical_state": "missing_answer",
                 "answer_persist_policy": "do_not_persist",
             },

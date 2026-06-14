@@ -176,9 +176,10 @@ function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame,
     if (index >= 0) return index;
   }
   if (turnId) {
-    const turnIndex = findAssistantMessageIndexByTurnId(state, turnId);
+    const turnIndex = findAssistantMessageIndexByTurnId(state, turnId, { streamRunId, taskRunId, turnRunId });
     if (turnIndex >= 0) return turnIndex;
   }
+  const frameHasStrongAnchor = hasStrongProjectionAnchor({ turnId, streamRunId, turnRunId });
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
     if (
@@ -186,7 +187,7 @@ function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame,
       && messageCanAcceptProjectionAnchor(message, { turnId, streamRunId, taskRunId, turnRunId })
       && (
         strongMessageAnchorMatches(message, { streamRunId, taskRunId, turnRunId })
-        || taskOnlyMessageAnchorMatches(message, { taskRunId })
+        || (!frameHasStrongAnchor && taskOnlyMessageAnchorMatches(message, { taskRunId }))
       )
     ) {
       return index;
@@ -491,6 +492,9 @@ function timelineItemFromFrame(frame: PublicProjectionFrame, item: PublicProject
     ...item,
     itemId: timelineItemId,
     slot: toolOwned ? "tool" : item.slot,
+    toolCallId: toolCallId || item.toolCallId,
+    toolLifecycleId: lifecycleId || item.toolLifecycleId,
+    toolName: text(frame.tool_name || item.toolName),
     eventOffset: offset,
     updatedEventOffset: offset,
     sourceEventType: text(frame.source_event_type),
@@ -503,7 +507,7 @@ function itemShouldEnterTimeline(frame: PublicProjectionFrame, item: PublicProje
   const visibility = text(frame.main_visibility);
   const sourceEventType = text(frame.source_event_type);
   if (sourceEventType === "tool_permission_decided" && visibility === "trace_only") return false;
-  if (item.toolCallId || item.toolName) return true;
+  if (frame.tool_call_id || frame.tool_lifecycle_id || item.toolCallId || item.toolLifecycleId || item.toolName) return true;
   if (visibility === "hidden") return false;
   return ["current_action", "pinned", "status", "final_result"].includes(slot);
 }
@@ -655,13 +659,21 @@ function taskOnlyMessageAnchorMatches(message: Message, anchor: { taskRunId?: st
   return !text(message.sourceTurnId) && !text(message.sourceStreamRunId) && !text(message.sourceTurnRunId);
 }
 
-function findAssistantMessageIndexByTurnId(state: StoreState, turnId: string) {
+function findAssistantMessageIndexByTurnId(
+  state: StoreState,
+  turnId: string,
+  anchor: { streamRunId?: string; taskRunId?: string; turnRunId?: string },
+) {
   const normalized = text(turnId);
   if (!normalized) return -1;
+  const hasExecutionAnchor = Boolean(text(anchor.streamRunId) || text(anchor.turnRunId));
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
     const message = state.messages[index];
     if (message.role !== "assistant") continue;
-    if (message.sourceTurnId === normalized) return index;
+    if (message.sourceTurnId !== normalized) continue;
+    if (!messageCanAcceptProjectionAnchor(message, { turnId: normalized, ...anchor })) continue;
+    if (hasExecutionAnchor && !strongMessageAnchorMatches(message, anchor)) continue;
+    return index;
   }
   return -1;
 }

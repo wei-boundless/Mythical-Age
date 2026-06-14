@@ -445,8 +445,287 @@ npm test -- frontend/src/components/chat/ChatMessage.test.ts
 - 固定前端 `http://127.0.0.1:3000`。
 - 实测普通输入、任务期补充、任务期继续、active turn stale、工具成功、工具失败、final commit 后显示。
 
+## Prompt 配套性补充审查
+
+### 总体判断
+
+Prompts 目前是“部分配套”。基础角色 prompt、worker prompt 和大部分环境生命周期 prompt 已经接近成熟 agent 写法：它们描述身份、职责、输入、输出、禁止事项、验证和失败处理。但 single-agent runtime prompt、动态运行边界 prompt、协议修复 prompt 仍然把系统控制协议、`allowed_action_types` 和 `current_work_permit` 授权语言暴露给模型，和本报告的控制系统原则不完全配套。
+
+配套目标应是：
+
+```text
+Role/Responsibility Prompt
+-> State Observation Prompt
+-> Transport Schema / Action JSON Contract
+-> Safety/Tool Execution Boundary
+```
+
+不能把 schema、permit、authority 字段本身写成 agent 的世界观。模型可以知道“本轮有哪些可执行操作、状态事实是什么、输出必须符合什么传输格式”，但不应被提示成“系统已授权/拒绝你做某个业务语义决定”。
+
+### 已配套的 prompt 线
+
+| 位置 | 结论 | 证据 |
+| --- | --- | --- |
+| system foundation prompts | 基本配套。强调最新用户请求、真实观察、工具失败是事实、不要让旧任务劫持新请求 | `backend/prompt_library/system_prompts.py:18`, `backend/prompt_library/system_prompts.py:26`, `backend/prompt_library/system_prompts.py:34` |
+| main agent role prompts | 基本配套。描述当前回合职责、持续任务职责、观察 followup 职责 | `backend/prompt_library/agent_prompts.py:6`, `backend/prompt_library/agent_prompts.py:26`, `backend/prompt_library/agent_prompts.py:45` |
+| worker prompts | 配套较好。大多数 worker 都以“你是一名...”开头，明确只负责局部职责，不替主 agent 最终裁决 | `backend/prompt_library/worker_prompts.py:10`, `backend/prompt_library/worker_prompts.py:83`, `backend/prompt_library/worker_prompts.py:105`, `backend/prompt_library/worker_prompts.py:139` |
+| coding lifecycle prompts | 大体配套。明确旧摘要/旧任务只能作线索，控制观察不是最终回复 | `backend/prompt_library/environment_lifecycle_prompts.py:66`, `backend/prompt_library/environment_lifecycle_prompts.py:85`, `backend/prompt_library/environment_lifecycle_prompts.py:131`, `backend/prompt_library/environment_lifecycle_prompts.py:221` |
+| developer-style prompt guard | 有检测“这是 runtime 节点/根据任务图执行”等开发说明残留 | `backend/prompt_library/rules.py:979`, `backend/tests/task_environment_registry_regression.py:522` |
+
+这些内容可以保留，后续只需要把“权限/拒绝”一类语言限定到真实安全边缘。
+
+### 不配套的 prompt 线
+
+#### [P1] dynamic runtime prompt 仍暴露 `current_work_permit` 授权模型
+
+证据：
+
+- single agent packet 把 `current_work_permit` 放入 dynamic refs：`backend/harness/runtime/compiler.py:662`
+- dynamic payload 直接包含 `current_work_permit`：`backend/harness/runtime/compiler.py:549`
+- model-visible payload 暴露 `permit_id/decision/allows/allowed_action_types/denied_reason`：`backend/harness/runtime/compiler.py:2312`
+- active work prompt 文案写着 “only current_work_permit can authorize active_work_control”：`backend/harness/runtime/compiler.py:2541`
+- dynamic prompt projection 继续说 “current_work_permit 已授权”：`backend/harness/runtime/compiler.py:4280`, `backend/harness/runtime/compiler.py:4283`
+- 测试断言这些文字存在：`backend/tests/dynamic_prompt_context_projection_test.py:1772`
+
+必须改成：
+
+- 模型看到 `active_work_boundary_receipt` 或 `active_work_state_observation`。
+- 字段表达 `state/matched/mismatch_reason/available_operations/controlled_active_work_ref`。
+- 删除 `permit_id/decision/allows/denied_reason/authorize`。
+- prompt 说“当前是否有可控制 active work”，不说“系统授权你控制 active work”。
+
+#### [P1] runtime boundary instruction 把 action surface 写成业务权限
+
+证据：
+
+- `_runtime_projection_instruction` 写“模型决策合同来自开发者 prompt 权威；当合同要求 JSON action...必须遵守”：`backend/harness/runtime/compiler.py:4140`
+- 同一段写“你可以...在越界、缺少授权或无法继续时阻止”：`backend/harness/runtime/compiler.py:4167`
+- `request_task_run` 仍以 `current_work_permit` 是否允许为条件：`backend/harness/runtime/compiler.py:4295`
+- output contract 也写 “request_task_run is available only when current_work_permit allows”：`backend/harness/runtime/compiler.py:2448`
+
+应改为：
+
+- `allowed_action_types` 是传输/格式约束，不是业务许可世界观。
+- `block` 是模型在真实边界不可恢复时的语义回应，不是系统要求模型拒绝用户。
+- `request_task_run` 是否可执行来自 task lifecycle operation availability；若不可用，模型应看到 state/resource observation。
+
+#### [P1] admission repair prompt 延续“运行边界已经拒绝”叙事
+
+证据：
+
+- `SINGLE_AGENT_ADMISSION_REPAIR_PROMPT` 写“运行边界已经拒绝上一动作”：`backend/prompt_library/utility_prompts.py:65`
+- single turn final admission 失败当前会进入 repair，然后仍可能系统 blocked：`backend/harness/loop/single_agent_turn.py:1337`
+
+应改为：
+
+- “上一动作未执行，因为它不满足本轮可执行操作/工具资源/安全边缘。”
+- 修复 prompt 不要求模型接受“被拒绝”叙事，而是要求模型基于 observation 重新回应用户。
+- 非安全 contract mismatch 应进 observation-followup，而不是 admission repair closeout。
+
+#### [P2] protocol prompt 与角色 prompt 混在同一层
+
+证据：
+
+- `RuntimeCompiler.compile_single_agent_turn_packet` 同一组 system messages 同时包含 global role prompt、stable runtime payload、tool index、personality、environment、agent instruction、dynamic runtime payload：`backend/harness/runtime/compiler.py:555`
+- runtime pack 直接告诉模型合法动作、字段和 JSON 形态由 output contract 定义：`backend/prompt_library/packs.py:8`
+- system call rule 直接要求 `authority` 与 `allowed_action_types`：`backend/prompt_library/rules.py:18`
+- graph node prompt 直接把 JSON 顶层字段和 `authority` 写进角色 prompt：`backend/prompt_library/packs.py:44`
+
+这不是全错，因为模型确实需要严格输出 JSON action；问题是 schema 指令和角色职责没有清楚分层。目标是：
+
+- 角色 prompt：只描述身份、职责、判断标准、失败处理、用户回应义务。
+- schema prompt：只描述输出格式、字段、校验，不解释业务权限。
+- state observation：只描述当前事实和资源可用性。
+- safety/tool boundary：只描述执行前会被系统检查的真实安全边缘。
+
+#### [P2] “权限/拒绝”词汇过宽
+
+证据：
+
+- foundation prompt 写“系统负责执行工具、记录观察、校验权限和维护协议边界”：`backend/prompt_library/system_prompts.py:22`
+- runtime rules 写“被拒绝时把拒绝当作事实边界”：`backend/prompt_library/rules.py:24`
+- permission denial rule 使用“权限、沙盒、策略或用户拒绝”：`backend/prompt_library/rules.py:71`
+- coding lifecycle 多处把权限、工具不可见、控制面拒绝并列：`backend/prompt_library/environment_lifecycle_prompts.py:93`, `backend/prompt_library/environment_lifecycle_prompts.py:165`
+
+这些词在工具安全边缘里成立，但放到 current work / action contract / service unavailable 上会扩大成系统拒绝权。应统一改词：
+
+- `permission denied` 只用于真实安全/授权/沙盒/用户审批边缘。
+- `operation unavailable` 用于资源或服务未挂载。
+- `state mismatch` 用于 active turn/current work 不匹配。
+- `contract invalid` 用于模型 action payload 或任务合同结构不满足。
+- `observation` 用于交回模型恢复的非安全失败。
+
+### Prompt 修改位置清单
+
+1. `backend/harness/runtime/compiler.py`
+   - 删除 `current_work_permit` model-visible payload。
+   - `_runtime_projection_instruction` 删除 authorize/permit 语言。
+   - output contract 中 `request_task_run/current_work_permit` 改成 operation availability。
+   - dynamic payload 改挂 `active_work_boundary_receipt`。
+
+2. `backend/prompt_library/packs.py`
+   - 保留 runtime single agent turn 语义裁决职责。
+   - 把 JSON/action schema 句子缩短为“输出格式见 schema”，不要把 schema 字段当角色职责。
+   - `active_work_control` 文案改成“当存在 fresh active work operation 时可请求控制动作”。
+
+3. `backend/prompt_library/rules.py`
+   - `RUNTIME_SYSTEM_CALL_PROTOCOL_RULE` 保留 schema 要求，但去掉“边界允许/拒绝”的业务色彩。
+   - `RUNTIME_TURN_DECISION_ALIGNMENT_RULE` 保留 active_work_control 由模型语义裁决负责。
+   - `RUNTIME_PERMISSION_DENIAL_RULE` 拆成 safety denial 与 operation unavailable 两条规则。
+
+4. `backend/prompt_library/utility_prompts.py`
+   - `SINGLE_AGENT_ADMISSION_REPAIR_PROMPT` 改名或改文案为 contract observation repair。
+   - 删除“运行边界已经拒绝上一动作”的默认叙事。
+
+5. `backend/harness/loop/single_agent_turn.py`
+   - `_tool_limit_closeout_messages` 可以保留 JSON-only closeout，因为它是预算/工具限制后的格式收口。
+   - `_agent_authored_closeout_messages` 已经更接近正确方向，应作为非安全失败的自然语言恢复模板参考。
+
+6. `backend/tests/dynamic_prompt_context_projection_test.py`
+   - 删除 `current_work_permit can authorize active_work_control` 和 `current_work_permit_required` 断言。
+   - 改断言 active work context 是 state fact，operation availability 是独立字段。
+
+7. `backend/tests/task_environment_registry_regression.py`
+   - 现有 developer-style marker 测试只覆盖 coding prompt refs。
+   - 增加 runtime pack、compiler dynamic instruction、utility repair prompt 的 prompt hygiene 检查。
+
+### Prompt 与控制系统的目标配套语句
+
+建议后续把 prompts 统一到类似表述：
+
+```text
+你负责理解用户当前请求，并基于本轮可见事实、工具观察和可执行操作选择下一步。
+系统会执行工具和副作用动作，并在执行前守住安全边缘。
+如果某个操作因状态不匹配、资源不可用或合同不满足而无法执行，你会收到观察；你需要向用户解释真实状态、选择替代路径、询问用户或说明无法继续。
+不要把状态不匹配说成用户请求被系统拒绝。
+不要把工具名、协议字段、内部 ID 或运行状态写成用户正文。
+```
+
+这一版与本报告的控制原则一致：系统守安全和执行契约，模型负责语义回应和下一步裁决。
+
+## Codex / Claude Code 源码对照
+
+### 对照口径
+
+本节只对照项目目录外的当前源码，不引用旧文档。对照目标不是照搬某个实现细节，而是确认成熟 agent 在三件事上的边界：
+
+1. 用户输入、任务期补充和中断如何进入运行时。
+2. 权限/审批到底约束什么。
+3. 工具生命周期和投影 ID 如何避免串线。
+
+结论是：Codex 和 Claude Code 都有多层协议，但成熟设计不是“系统可以任意拒绝模型回应”。它们的拒绝主要出现在协议调用不满足前置条件、工具/命令/文件/网络安全边缘、用户显式审批、上下文容量等执行边界；用户语义请求和模型回应职责仍应保留给模型。
+
+### Codex 对照
+
+#### turn/start 与 turn/steer 是两类协议
+
+Codex 的 app-server v2 协议把普通启动和任务期注入拆成两个 API：
+
+- `TurnStartParams` 是普通 turn 入口，携带 `thread_id/client_user_message_id/input/cwd/permissions/sandbox_policy` 等 turn 配置：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\turn.rs:61`
+- `TurnSteerParams` 是运行中 turn 的注入入口，要求 `expected_turn_id` 必须匹配当前 active turn：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\turn.rs:160`, `D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\turn.rs:175`
+
+Codex 的 `turn_steer_inner` 会拒绝没有 active turn、expected turn mismatch、非 steerable turn、空输入等协议错误：`D:\AI应用\openai-codex\codex-rs\app-server\src\request_processors\turn_processor.rs:749`, `D:\AI应用\openai-codex\codex-rs\app-server\src\request_processors\turn_processor.rs:761`, `D:\AI应用\openai-codex\codex-rs\app-server\src\request_processors\turn_processor.rs:780`。测试也明确 `turn/steer` 在没有 active turn 时返回 JSON-RPC error，并记录 analytics `result="rejected"`、`rejection_reason="no_active_turn"`：`D:\AI应用\openai-codex\codex-rs\app-server\tests\suite\v2\turn_steer.rs:40`, `D:\AI应用\openai-codex\codex-rs\app-server\tests\suite\v2\turn_steer.rs:92`, `D:\AI应用\openai-codex\codex-rs\app-server\tests\suite\v2\turn_steer.rs:102`。
+
+这个设计可以借鉴的是：直接注入运行中 turn 的 API 必须有 expected active turn CAS，防止旧输入写进新任务。
+
+不能照搬成当前项目做法的是：当用户在聊天 UI 发出一句“继续/补充/新命令”时，如果当前 active turn 不存在，不应由后端伪造 assistant blocked 正文。成熟边界应是：
+
+```text
+explicit turn/steer API precondition failure -> protocol error / state observation
+chat user message accepted -> model sees active turn unavailable observation -> model responds
+```
+
+当前项目把 `active_turn_input_policy="steer"` 的缺失/过期状态转成 `CurrentWorkPermit.decision="deny"` 并在模型前 terminal，问题就在这里。
+
+#### Codex 的权限模型集中在工具、命令、网络、文件和沙盒
+
+Codex 的 approval/permission 结构集中在执行边界：
+
+- `TurnStartParams` 可以覆盖 `approval_policy`、`approvals_reviewer`、`sandbox_policy`、`permissions`，这些都是运行环境/工具执行配置：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\turn.rs:90`
+- `RequestPermissionProfile` 只包含 `network` 和 `file_system`：`D:\AI应用\openai-codex\codex-rs\protocol\src\request_permissions.rs:14`
+- approval reviewer 文档列举的是 sandbox escapes、blocked network access、MCP approval prompts、ARC escalations：`D:\AI应用\openai-codex\codex-rs\protocol\src\config_types.rs:160`
+- guardian review action 覆盖 Command、Execve、ApplyPatch、NetworkAccess、McpToolCall、RequestPermissions：`D:\AI应用\openai-codex\codex-rs\protocol\src\approvals.rs:125`
+- command approval request 绑定 `call_id/approval_id/turn_id/command/cwd/network/additional_permissions/available_decisions`：`D:\AI应用\openai-codex\codex-rs\protocol\src\approvals.rs:218`
+
+这说明成熟权限层可以有 allow/deny，但它约束的是“要不要执行某个有副作用或受保护资源的动作”，不是“用户这句话是否允许模型理解和回应”。因此本项目应保留 `ActionPermit`，但删除 `CurrentWorkPermit` 的授权语义。
+
+#### Codex 的公开事件把 turn 归属和 item 生命周期分开
+
+Codex 的 item 流以 `thread_id + turn_id + item.id` 表达归属和生命周期：
+
+- `ItemStartedNotification` 携带 `item/thread_id/turn_id/started_at_ms`：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\item.rs:1066`
+- `ItemCompletedNotification` 携带 `item/thread_id/turn_id/completed_at_ms`：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\item.rs:1140`
+- 增量事件携带 `item_id`，例如 agent message delta、command output delta：`D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\item.rs:1159`, `D:\AI应用\openai-codex\codex-rs\app-server-protocol\src\protocol\v2\item.rs:1231`
+- MCP tool call item 自身有 `id/server/tool/arguments/status/result/error/duration`：`D:\AI应用\openai-codex\codex-rs\protocol\src\items.rs:177`
+
+这与本报告建议一致：`turn_id` 是消息/轮次归属，工具/命令/文件变更必须有自己的 lifecycle item id。当前项目的 `tool_call_id + tool_lifecycle_id` 方向正确，但前端不能只靠 `turn_id` 或 `task_run_id` 回退归并。
+
+### Claude Code 对照
+
+#### 用户消息先进入会话，工具权限另行检查
+
+Claude Code 的 `QueryEngine.ask` 先处理用户输入，生成 `messagesFromUserInput`，推入 `mutableMessages`，并在进入模型 loop 前写 transcript：`D:\AI应用\claude-code-nb-main\QueryEngine.ts:411`, `D:\AI应用\claude-code-nb-main\QueryEngine.ts:430`, `D:\AI应用\claude-code-nb-main\QueryEngine.ts:450`。随后才构建 system prompt、工具上下文和 query loop：`D:\AI应用\claude-code-nb-main\QueryEngine.ts:490`, `D:\AI应用\claude-code-nb-main\QueryEngine.ts:675`。
+
+它也会记录工具 permission denials，但 denials 是 `tool_name/tool_use_id/tool_input` 级别：`D:\AI应用\claude-code-nb-main\QueryEngine.ts:243`, `D:\AI应用\claude-code-nb-main\QueryEngine.ts:631`。这支持一个重要设计原则：用户消息接受与工具执行许可应分层。工具被拒绝不等于用户请求被系统拒绝；模型应基于失败结果调整路径或向用户说明。
+
+#### Claude Code 的 PermissionMode 是工具权限，不是 current work 权限
+
+Claude Code 的 permission 类型集中在工具规则和模式：
+
+- 外部 permission modes 包含 `acceptEdits/bypassPermissions/default/dontAsk/plan`：`D:\AI应用\claude-code-nb-main\types\permissions.ts:14`
+- permission behavior 是 `allow/deny/ask`：`D:\AI应用\claude-code-nb-main\types\permissions.ts:38`
+- permission rule value 是 `toolName + ruleContent`：`D:\AI应用\claude-code-nb-main\types\permissions.ts:53`
+- `PermissionDecision` 是 allow/ask/deny，且 deny 携带 `toolUseID`：`D:\AI应用\claude-code-nb-main\types\permissions.ts:126`, `D:\AI应用\claude-code-nb-main\types\permissions.ts:176`
+- `ToolPermissionContext` 由 mode、working directories、allow/deny/ask rules 组成：`D:\AI应用\claude-code-nb-main\Tool.ts:110`
+- `filterToolsByDenyRules` 会按 deny 规则过滤工具池，`assembleToolPool` 把内置工具和 MCP 工具合并去重：`D:\AI应用\claude-code-nb-main\tools.ts:254`, `D:\AI应用\claude-code-nb-main\tools.ts:338`
+
+Claude Code 的系统 prompt 也把这件事说得很窄：工具在用户选择的 permission mode 下执行；当工具调用不自动允许时，提示用户审批，若用户拒绝该工具调用，模型不要重复同一个调用，而应调整方法：`D:\AI应用\claude-code-nb-main\constants\prompts.ts:189`。
+
+这与本项目的偏差很直接：本项目把 `current_work_permit` 放进模型世界观，并让它裁剪 `allowed_action_types`、授权 `active_work_control/request_task_run`。成熟实现里没有看到“当前任务关系 permit”这种业务权限层。
+
+#### plan mode 是显式交互工具，不是隐式运行时拒绝
+
+Claude Code 的 `EnterPlanModeTool` 明确是一个工具，用来请求进入 plan mode，并说明需要用户 approval：`D:\AI应用\claude-code-nb-main\tools\EnterPlanModeTool\prompt.ts:11`, `D:\AI应用\claude-code-nb-main\tools\EnterPlanModeTool\prompt.ts:85`。`AskUserQuestionTool` 也是显式工具，用于执行中澄清偏好和决策：`D:\AI应用\claude-code-nb-main\tools\AskUserQuestionTool\prompt.ts:22`。
+
+这说明 mature agent 可以有“请求确认/请求选择”的交互协议，但这些协议应由模型主动使用，并对用户可见；不能由后端静默替模型拒绝用户输入。
+
+#### Claude Code 强化 tool_use / tool_result 配对，避免重复和串线
+
+Claude Code 在工具生命周期上有多重保护：
+
+- Bash 等工具结果返回时使用同一个 `tool_use_id` 写入 `tool_result`：`D:\AI应用\claude-code-nb-main\tools\BashTool\BashTool.tsx:566`, `D:\AI应用\claude-code-nb-main\tools\BashTool\BashTool.tsx:618`
+- remote session UI 收到 assistant tool_use 时把 tool id 加入 in-progress，收到 user tool_result 时按 `tool_use_id` 删除：`D:\AI应用\claude-code-nb-main\hooks\useRemoteSession.ts:244`, `D:\AI应用\claude-code-nb-main\hooks\useRemoteSession.ts:285`
+- streaming fallback 会丢弃旧 executor，防止旧 `tool_use_id` 的结果泄漏到新响应：`D:\AI应用\claude-code-nb-main\query.ts:731`
+- `ensureToolResultPairing` 会修复缺失/孤儿/重复 tool result；缺结果时插入 synthetic error，重复 tool_use id 会被剔除：`D:\AI应用\claude-code-nb-main\utils\messages.ts:5133`, `D:\AI应用\claude-code-nb-main\utils\messages.ts:5187`, `D:\AI应用\claude-code-nb-main\utils\messages.ts:5324`
+- tool result 持久化说明 `tool_use_id` 是每次 invocation 唯一，内容对该 id 确定：`D:\AI应用\claude-code-nb-main\utils\toolResultStorage.ts:157`
+- API 错误层专门识别 missing tool_result、unexpected tool_result、duplicate tool_use_id：`D:\AI应用\claude-code-nb-main\services\api\errors.ts:666`, `D:\AI应用\claude-code-nb-main\services\api\errors.ts:711`, `D:\AI应用\claude-code-nb-main\services\api\errors.ts:716`
+
+这给本项目工具显示的成熟标准是：
+
+```text
+tool_call_id: 模型一次工具调用，必须唯一
+tool_lifecycle_id: 实际执行尝试，必须唯一
+tool_result/completed: 必须回连原 tool_call_id，并在 retry 时有明确 attempt/lifecycle
+UI in-progress: 只能由同一 tool_call_id / lifecycle completion 清理
+断流/重试: 必须 tombstone 或 discard 旧执行器，不能让旧结果进入新 turn
+```
+
+当前项目已有 request/start/completed/commit_ack 骨架，但还需要把 scoped fallback 限定在同一 `turn_run_id/stream_run_id`，并为 retry/attempt 定义显示规则。
+
+### 成熟实现对本项目的修正结论
+
+1. 保留真实权限层：`ActionPermit`、文件/网络/命令/工具副作用、UI 显式控制按钮 stale write guard。
+2. 删除伪权限层：`CurrentWorkPermit.decision/allows/denied_reason/enforced/allowed_action_types_for_next_packet`。
+3. 把 active work/current turn 检查改成 state receipt 或 observation：`matched/mismatch_reason/available_operations/controlled_ref`。
+4. 普通聊天输入永远应有模型回应机会；如果 steer precondition 不满足，模型看到 `active_turn_unavailable`，而不是系统提交 blocked 正文。
+5. 直接控制 API 可以返回 409/JSON-RPC error，因为那是显式执行协议；聊天语义 turn 不应被这种错误替代。
+6. 工具生命周期必须以后端强 ID 和状态机为准，前端只合并同一调用/同一执行尝试，不按标题、工具名或裸 `task_run_id` 猜测。
+7. prompt 中可以告诉模型工具 permission mode 和安全边缘，但不能把 `current_work_permit` 这类内部状态包装成业务授权世界观。
+
 ## 最终判断
 
 当前控制系统不是完全错误：工具安全边缘、ActionPermit、工具 observation、公开投影 lifecycle、commit gate 都有成熟结构。但 current work 这条线把“状态事实/时序契约”错误升格成了“系统许可/拒绝”，并且有模型前 terminal path。这是控制系统串线和用户命令被边界挡住的核心原因。
+
+对照 Codex 和 Claude Code 当前源码后，结论更明确：成熟 agent 可以有多层协议、审批和权限模式，但这些层主要守工具/命令/文件/网络/显式协议调用边界；它们不应成为隐藏的业务权限层，更不应在普通聊天输入路径上替模型提交“拒绝用户”的正文。
 
 重构方向不是再加一个权限层，而是删掉 current work 的权限化表达：系统只负责报告状态、守住安全边缘和执行真实可执行的动作；模型负责理解用户当前请求、解释状态变化、选择询问/回应/继续/另开任务。

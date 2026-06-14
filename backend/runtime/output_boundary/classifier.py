@@ -331,10 +331,9 @@ def build_output_decision(
             rejected_candidates=rejected,
             leak_flags=leak_flags,
         )
-    fallback = build_route_fallback(
+    fallback_reason, finalization_policy = missing_answer_reason(
         route=route,
         execution_posture=execution_posture,
-        user_message=user_message,
         tool_name=tool_name,
         retrieval_results=retrieval_results,
         rejected_candidates=ranked,
@@ -342,29 +341,28 @@ def build_output_decision(
         leak_flags=leak_flags,
     )
     return OutputDecision(
-        canonical_answer=fallback[0],
-        selected_channel="fallback_answer",
-        selected_source="fallback_policy",
-        canonical_state=fallback[2],
-        persist_policy=fallback[3],
-        finalization_policy=fallback[4],
+        canonical_answer="",
+        selected_channel="missing_answer",
+        selected_source="runtime.output_boundary.missing_answer",
+        canonical_state="missing_answer",
+        persist_policy="do_not_persist",
+        finalization_policy=finalization_policy,
         rejected_candidates=ranked,
         leak_flags=leak_flags,
-        fallback_reason=fallback[1],
+        fallback_reason=fallback_reason,
     )
 
 
-def build_route_fallback(
+def missing_answer_reason(
     *,
     route: str,
     execution_posture: str,
-    user_message: str,
     tool_name: str,
     retrieval_results: list[dict[str, object]] | None,
     rejected_candidates: list[OutputCandidate],
     has_tool_receipt: bool,
     leak_flags: list[str] | None = None,
-) -> tuple[str, str, str, str, str]:
+) -> tuple[str, str]:
     has_retrieval = bool(list(retrieval_results or []))
     normalized_leak_flags = {str(flag or "").strip() for flag in list(leak_flags or [])}
     has_no_receipt_promise = any(
@@ -384,173 +382,42 @@ def build_route_fallback(
         for item in rejected_candidates
     ) or any("inline_pseudo_tool_call" in flag for flag in normalized_leak_flags)
     if not has_tool_receipt and has_explicit_tool_claim and not rejected_candidates:
-        return (
-            "当前没有可验证的执行结果。",
-            "no_receipt_tool_claim",
-            "progress_only",
-            "persist_debug_only",
-            "none",
-        )
+        return "no_receipt_tool_claim", "none"
     if has_no_receipt_promise and not has_tool_receipt:
         if has_explicit_tool_claim:
-            return (
-                "当前没有可验证的执行结果。",
-                "no_receipt_tool_claim",
-                "progress_only",
-                "persist_debug_only",
-                "none",
-            )
+            return "no_receipt_tool_claim", "none"
         if route == "rag" and has_retrieval and has_receiptless_procedural:
-            return (
-                "当前还没有形成真实查询结果。",
-                "no_receipt_query_promise",
-                "progress_only",
-                "persist_debug_only",
-                "route_required",
-            )
+            return "no_receipt_query_promise", "route_required"
         if execution_posture == "bounded_agent" or route == "agent":
-            return (
-                "当前还没有形成真实查询结果。",
-                "no_receipt_query_promise",
-                "progress_only",
-                "persist_debug_only",
-                "none",
-            )
-        return (
-            "当前没有可验证的执行结果。",
-            "no_receipt_tool_claim",
-            "progress_only",
-            "persist_debug_only",
-            "none",
-        )
+            return "no_receipt_query_promise", "none"
+        return "no_receipt_tool_claim", "none"
     if route == "rag":
         if has_retrieval:
-            return (
-                "已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
-                "rag_missing_answer",
-                "missing_answer",
-                "do_not_persist",
-                "route_required",
-            )
-        return (
-            "当前本地知识库没有检到足够相关材料，无法可靠回答这个问题。",
-            "rag_no_retrieval",
-            "missing_answer",
-            "do_not_persist",
-            "none",
-        )
+            return "rag_missing_answer", "route_required"
+        return "rag_no_retrieval", "none"
     if route == "memory":
-        return (
-            "当前没有足够的会话记忆可直接回答这个问题。",
-            "memory_missing_answer",
-            "missing_answer",
-            "do_not_persist",
-            "none",
-        )
+        return "memory_missing_answer", "none"
     if route == "pdf" or tool_name in {"mcp_pdf", "pdf"}:
-        message, reason = _build_pdf_fallback_message(rejected_candidates)
-        return (
-            message,
-            reason,
-            "missing_answer",
-            "do_not_persist",
-            "route_required",
-        )
+        return _pdf_missing_answer_reason(rejected_candidates), "route_required"
     if tool_name:
-        return (
-            f"工具 `{tool_name}` 已执行，但当前结果尚未形成可直接展示的答案。",
-            "tool_missing_summary",
-            "missing_answer",
-            "do_not_persist",
-            "none",
-        )
-    if user_message.strip():
-        return (
-            "当前尚未形成可直接展示的结论，请继续细化问题或提供更多上下文。",
-            "generic_missing_answer",
-            "missing_answer",
-            "do_not_persist",
-            "none",
-        )
-    return ("当前没有可展示的答案。", "empty_answer", "missing_answer", "do_not_persist", "none")
+        return "tool_missing_summary", "none"
+    return "empty_answer", "none"
 
 
 def _collapse_inline_whitespace(text: str) -> str:
     return _NOISY_WHITESPACE_RE.sub(" ", text).strip()
 
 
-def _build_pdf_fallback_message(rejected_candidates: list[OutputCandidate]) -> tuple[str, str]:
+def _pdf_missing_answer_reason(rejected_candidates: list[OutputCandidate]) -> str:
     canonical_candidates = [
         item
         for item in rejected_candidates
         if item.route == "pdf" or item.tool_name in {"mcp_pdf", "pdf"}
     ]
     if not canonical_candidates:
-        return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
+        return "pdf_missing_summary"
     metadata = dict(canonical_candidates[0].metadata or {})
-    pages = [int(page) for page in list(metadata.get("pdf_pages") or []) if int(page) > 0][:3]
     degraded_reason = str(metadata.get("pdf_degraded_reason", "") or "").strip()
-    selected = "、".join(f"P{page}" for page in pages)
-    if degraded_reason == "target_page_transition_title_only" and selected:
-        return (
-            f"已定位到 {selected}。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。",
-            "pdf_target_page_transition_title_only",
-        )
-    if degraded_reason == "target_page_toc_like" and selected:
-        return (
-            f"已定位到 {selected}。这一页更像目录页，主要承担结构导航作用，不是正文论述页。",
-            "pdf_target_page_toc_like",
-        )
-    if degraded_reason == "target_page_structure_missing" and selected:
-        return (
-            f"已定位到 {selected}，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。",
-            "pdf_target_page_structure_missing",
-        )
-    if degraded_reason == "target_page_text_corrupted" and selected:
-        return (
-            f"已定位到 {selected}，但这一页文本损坏或乱码严重，当前无法可靠给出页级结论。",
-            "pdf_target_page_text_corrupted",
-        )
-    if degraded_reason == "target_page_image_without_text" and selected:
-        return (
-            f"已定位到 {selected}，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。",
-            "pdf_target_page_image_without_text",
-        )
-    if degraded_reason == "target_page_has_no_stable_text" and selected:
-        return (
-            f"已定位到 {selected}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或空白页。",
-            "pdf_target_page_has_no_stable_text",
-        )
-    if degraded_reason == "target_page_text_quality_low" and selected:
-        return (
-            f"已定位到 {selected}，但页面文本质量不稳定，当前无法可靠给出页级结论。",
-            "pdf_target_page_text_quality_low",
-        )
-    if degraded_reason == "target_section_not_located":
-        return (
-            "已检索这份 PDF，但当前没有稳定定位到你指定的章节或部分。",
-            "pdf_target_section_not_located",
-        )
-    if degraded_reason == "target_section_not_stably_located":
-        return (
-            "已定位到相关章节线索，但章节文本不够稳定，当前无法可靠生成章节摘要。",
-            "pdf_target_section_not_stably_located",
-        )
-    if degraded_reason == "no_stable_document_evidence":
-        return (
-            "已读取这份 PDF，但当前提取到的正文证据不足，暂时不能稳定生成文档结论。",
-            "pdf_no_stable_document_evidence",
-        )
-    if degraded_reason == "document_summary_text_quality_low":
-        return (
-            "已读取这份 PDF，但正文清洗后的文本质量不够稳定，暂时不能可靠总结全文。",
-            "pdf_document_summary_text_quality_low",
-        )
-    if selected:
-        return (
-            f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。",
-            "pdf_canonical_missing_summary",
-        )
-    return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
+    return degraded_reason or "pdf_missing_summary"
 
 

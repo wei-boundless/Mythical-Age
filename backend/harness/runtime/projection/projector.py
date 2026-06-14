@@ -103,18 +103,21 @@ class ProjectionLifecycleState:
                     detail="tool_item_started 的 event_offset 不晚于 tool_permission_decided，不能进入公开工具生命周期。",
                 )
             spec = _tool_started_spec(data)
-            record.update({"started_offset": offset, "started": True})
+            record.update(
+                {
+                    "started_offset": offset,
+                    "started": True,
+                    "tool_lifecycle_id": text(data.get("tool_lifecycle_id")),
+                }
+            )
             return spec
         if event_type == TOOL_ITEM_COMPLETED_EVENT:
             tool_call_id = text(data.get("tool_call_id"))
-            permission_decision_id = text(data.get("permission_decision_id"))
             record = self._tool_record(data, tool_call_id=tool_call_id)
             if (
                 not tool_call_id
-                or not permission_decision_id
                 or not record
                 or record.get("started") is not True
-                or permission_decision_id != text(record.get("permission_decision_id"))
             ):
                 return _protocol_diagnostic_spec(
                     data,
@@ -128,7 +131,11 @@ class ProjectionLifecycleState:
                     code="tool_completed_before_started",
                     detail="tool_item_completed 的 event_offset 不晚于 tool_item_started，不能进入公开工具生命周期。",
                 )
-            spec = _tool_completed_spec(data)
+            completed_data = {
+                **data,
+                "permission_decision_id": text(record.get("permission_decision_id")) or text(data.get("permission_decision_id")),
+            }
+            spec = _tool_completed_spec(completed_data)
             record.update({"completed_offset": offset, "completed": True})
             return spec
         return projection_spec_for_event(public_event_type, data)
@@ -445,7 +452,7 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         "source_authority": "tool",
         "main_visibility": "trace_only",
         "retention": "trace",
-        "item_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+        "item_id": tool_call_id,
         "tool_call_id": tool_call_id,
         "permission_decision_id": permission_decision_id,
         "tool_name": tool_name,
@@ -485,7 +492,7 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
             "main_visibility": "pinned",
             "retention": "pinned_until_resolved",
             "pin_reason": "failed",
-            "item_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+            "item_id": tool_call_id,
             "tool_call_id": tool_call_id,
             "permission_decision_id": permission_decision_id,
             "tool_name": tool_name,
@@ -640,14 +647,19 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
 
 
 def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
-    title = (
-        public_text(data.get("current_judgment"), limit=180)
-        or public_text(data.get("public_progress_note"), limit=180)
-        or public_text(data.get("summary"), limit=180)
-    )
-    detail = (
-        public_text(data.get("next_action"), limit=220)
-        or public_text(data.get("agent_brief_output"), limit=220)
+    progress_note = public_text(data.get("public_progress_note"), limit=180)
+    current_judgment = public_text(data.get("current_judgment"), limit=180)
+    next_action = public_text(data.get("next_action"), limit=220)
+    agent_brief = public_text(data.get("agent_brief_output"), limit=220)
+    summary = public_text(data.get("summary"), limit=180)
+    title = progress_note or current_judgment or summary
+    detail = next(
+        (
+            value
+            for value in (current_judgment, next_action, agent_brief)
+            if value and value != title
+        ),
+        "",
     )
     presentation_source = text(data.get("presentation_source"))
     if presentation_source in _TRACE_ONLY_RUNTIME_STEP_SOURCES:

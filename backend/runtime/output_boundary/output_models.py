@@ -11,7 +11,7 @@ OutputChannel = Literal[
     "tool_raw_output",
     "tool_visible_summary",
     "answer_candidate",
-    "fallback_answer",
+    "missing_answer",
 ]
 
 CanonicalState = Literal[

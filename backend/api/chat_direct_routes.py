@@ -47,7 +47,13 @@ async def run_direct_system_route(
             overwrite=bool(image_generation.get("overwrite") or False),
         )
     except ImageAssetError as exc:
-        return {"type": "error", "error": str(exc), "code": "provider_unavailable"}
+        return {
+            "type": "error",
+            "error": "运行中断",
+            "content": "运行中断",
+            "code": "provider_unavailable",
+            "reason": str(exc),
+        }
 
     asset_path = str(generated.get("asset_path") or "").strip()
     revised_prompt = str(generated.get("revised_prompt") or "").strip()
@@ -60,24 +66,28 @@ async def run_direct_system_route(
         if asset_path
         else None
     )
-    content = "已生成图像。"
     await assistant_message_committer(
         {
             "role": "assistant",
-            "content": content,
+            "content": "",
             "image": image,
             "turn_id": turn_id,
             "answer_channel": "image",
             "answer_source": "image_asset_service",
-            "answer_canonical_state": "complete",
-            "answer_persist_policy": "store",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
             "answer_finalization_policy": "final",
         }
     )
     return {
         "type": "done",
-        "content": content,
+        "content": "",
         "image": image,
+        "answer_channel": "image",
+        "answer_source": "image_asset_service",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "final",
     }
 
 

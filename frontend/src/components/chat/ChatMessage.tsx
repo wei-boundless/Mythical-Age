@@ -70,19 +70,23 @@ export function ChatMessage({
   const projectionBodyText = publicProjection?.bodyText && !isInternalControlProtocolText(publicProjection.bodyText)
     ? publicProjection.bodyText
     : "";
-  const projectionBodyBlocks = (publicProjection?.bodyBlocks ?? [])
-    .filter((block) => block.text && !isInternalControlProtocolText(block.text));
-  const baseDisplayContent = isUser
-    ? content
-    : projectionBodyText || assistantDisplayContent(content, {
+  const assistantContentText = isUser
+    ? ""
+    : assistantDisplayContent(content, {
       answerChannel,
       answerCanonicalState,
       answerPersistPolicy,
       answerSource,
       answerLeakFlags,
     });
+  const projectionBodyBlocks = (publicProjection?.bodyBlocks ?? [])
+    .filter((block) => block.text && !isInternalControlProtocolText(block.text));
+  const baseDisplayContent = isUser
+    ? content
+    : projectionBodyText || assistantContentText;
   const messageDisplayContent = baseDisplayContent;
-  const publicTimelineItems = isUser
+  const hasCommittedAssistantText = !isUser && !streamingContent && Boolean(assistantContentText.trim());
+  const publicTimelineItems = isUser || hasCommittedAssistantText
     ? []
     : publicTimelineItemsFromProjection(publicProjection);
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
@@ -318,8 +322,13 @@ function orderedProjectionMessageBlocks({
   timelineItems: PublicChatTimelineItem[];
 }): ProjectionMessageBlock[] {
   const entries: ProjectionMessageBlock[] = [];
+  const seenModelFeedback = new Set<string>();
   if (bodyBlocks.length > 0) {
     for (const block of bodyBlocks) {
+      const feedbackKey = compactText(block.text);
+      if (feedbackKey) {
+        seenModelFeedback.add(feedbackKey);
+      }
       entries.push({
         kind: "body",
         key: block.blockId,
@@ -339,6 +348,13 @@ function orderedProjectionMessageBlocks({
     if (isModelFeedbackTimelineItem(item)) {
       const feedbackText = modelFeedbackBodyText(item);
       if (feedbackText) {
+        const feedbackKey = compactText(feedbackText);
+        if (feedbackKey && seenModelFeedback.has(feedbackKey)) {
+          continue;
+        }
+        if (feedbackKey) {
+          seenModelFeedback.add(feedbackKey);
+        }
         entries.push({
           kind: "body",
           key: `model-feedback:${item.source_event_id || item.item_id || item.event_offset || entries.length}`,
@@ -383,7 +399,7 @@ function publicTimelineItemsFromProjection(projection: MessagePublicProjection |
       ...(projection.finalResults ?? []),
       ...(projection.trace ?? []),
     ].filter((item): item is PublicProjectionItem => Boolean(item));
-  return timeline
+  return coalesceProjectionTimelineItems(timeline)
     .map(projectionItemToTimelineItem)
     .filter((item): item is PublicChatTimelineItem => Boolean(item))
     .sort((left, right) =>
@@ -399,14 +415,19 @@ function projectionHasClosedBody(projection: MessagePublicProjection) {
 
 function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem | null {
   if (!isProjectionTimelineItem(item)) return null;
-  const toolOwned = Boolean(item.toolCallId || item.toolName);
+  const toolOwned = Boolean(item.toolCallId || item.toolLifecycleId || item.toolName);
   const toolWindow = toolOwned && projectionItemNeedsToolWindow(item);
-  const title = projectionTimelineTitle(item);
   const toolLabel = projectionToolLabel(item.toolName);
   const detail = normalizeProjectionToolTitle(cleanText(item.detail), item);
-  const target = cleanText(item.target || item.subjectLabel);
-  const argumentsPreview = cleanText(item.argumentsPreview);
-  const toolWindowInfo = toolWindow ? projectionToolWindowInfo(item) : "";
+  const rawTarget = cleanText(item.target || item.subjectLabel || projectionTargetFromTitle(item.title || item.text));
+  const target = projectionToolTargetLabel(rawTarget);
+  const argumentsPreview = projectionToolArgumentsPreview(item.argumentsPreview, rawTarget);
+  const statusLabel = projectionToolStatusLabel(item);
+  const commandLine = projectionToolCommandLine(item, { argumentsPreview, target });
+  const output = projectionToolConsoleOutput(item, { detail, statusLabel });
+  const title = toolWindow
+    ? projectionToolWindowTitle(item, { statusLabel, target, toolLabel })
+    : projectionTimelineTitle(item);
   if (!title) return null;
   return {
     item_id: item.itemId,
@@ -440,13 +461,97 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     source_event_type: item.sourceEventType,
     tool_window: toolWindow ? {
       tool_label: toolLabel || item.toolName,
-      status: projectionToolStatusLabel(item),
+      status: statusLabel,
       target,
-      window_info: toolWindowInfo,
+      command_line: commandLine,
+      output,
       sections: projectionToolWindowSections(item, { detail, target, argumentsPreview }),
     } : undefined,
     public_summary: detail || title,
   };
+}
+
+function coalesceProjectionTimelineItems(items: PublicProjectionItem[]) {
+  const result: PublicProjectionItem[] = [];
+  const indexByToolKey = new Map<string, number>();
+  for (const item of [...items].sort(compareProjectionItemsByOffset)) {
+    const key = projectionToolWindowKey(item);
+    if (!key) {
+      result.push(item);
+      continue;
+    }
+    const existingIndex = indexByToolKey.get(key);
+    if (existingIndex === undefined) {
+      indexByToolKey.set(key, result.length);
+      result.push(item);
+      continue;
+    }
+    result[existingIndex] = mergeProjectionTimelineItem(result[existingIndex], item);
+  }
+  return result;
+}
+
+function compareProjectionItemsByOffset(left: PublicProjectionItem, right: PublicProjectionItem) {
+  return Number(left.eventOffset ?? 0) - Number(right.eventOffset ?? 0)
+    || Number(left.updatedEventOffset ?? 0) - Number(right.updatedEventOffset ?? 0)
+    || left.itemId.localeCompare(right.itemId);
+}
+
+function projectionToolWindowKey(item: PublicProjectionItem) {
+  return cleanText(item.toolCallId) || cleanText(item.toolLifecycleId);
+}
+
+function mergeProjectionTimelineItem(existing: PublicProjectionItem, incoming: PublicProjectionItem): PublicProjectionItem {
+  const merged: PublicProjectionItem = { ...existing };
+  for (const [key, value] of Object.entries(incoming) as Array<[keyof PublicProjectionItem, PublicProjectionItem[keyof PublicProjectionItem]]>) {
+    if (key === "itemId" || key === "eventOffset") continue;
+    if (value === "" || value === undefined || value === null) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    merged[key] = value as never;
+  }
+  const existingOffset = Number(existing.eventOffset);
+  const incomingOffset = Number(incoming.eventOffset);
+  merged.eventOffset = Number.isFinite(existingOffset)
+    ? existingOffset
+    : (Number.isFinite(incomingOffset) ? incomingOffset : existing.eventOffset);
+  const offsets = [existing.updatedEventOffset, incoming.updatedEventOffset, existing.eventOffset, incoming.eventOffset]
+    .map(Number)
+    .filter(Number.isFinite);
+  if (offsets.length) {
+    merged.updatedEventOffset = Math.max(...offsets);
+  }
+  merged.itemId = projectionToolWindowKey(merged) || existing.itemId;
+  return merged;
+}
+
+function projectionToolWindowTitle(
+  item: PublicProjectionItem,
+  {
+    statusLabel,
+    target,
+    toolLabel,
+  }: {
+    statusLabel?: string;
+    target: string;
+    toolLabel: string;
+  },
+) {
+  const explicit = normalizeProjectionToolTitle(cleanText(item.title || item.text), item);
+  const targetLabel = projectionToolTargetLabel(target);
+  let action = toolLabel || explicit || "工具";
+  if (!targetLabel && explicit && toolLabel && !sameCompactText(explicit, toolLabel)) {
+    action = explicit;
+  }
+  const parts = [action];
+  if (targetLabel && !compactText(action).includes(compactText(targetLabel))) {
+    parts.push(targetLabel);
+  }
+  const status = cleanText(statusLabel);
+  const compactTitle = compactText(parts.join(""));
+  if (status && !compactTitle.includes(compactText(status))) {
+    parts.push(status);
+  }
+  return parts.join(" ");
 }
 
 function projectionToolWindowSections(
@@ -477,15 +582,51 @@ function projectionToolWindowSections(
   ) {
     sections.push({ label: projectionToolDetailLabel(item), text: detail });
   }
-  const sourceInfo = projectionToolWindowInfo(item);
-  if (sourceInfo) {
-    sections.push({ label: "时序", text: sourceInfo });
-  }
-  const lifecycle = cleanText(item.toolLifecycleId || item.toolCallId);
-  if (lifecycle) {
-    sections.push({ label: "调用", text: lifecycle });
-  }
   return sections;
+}
+
+function projectionToolCommandLine(
+  item: PublicProjectionItem,
+  {
+    argumentsPreview,
+    target,
+  }: {
+    argumentsPreview: string;
+    target: string;
+  },
+) {
+  const tool = cleanText(item.toolName || item.actionKind || "tool");
+  const parts = [tool];
+  if (target) parts.push(quoteCommandPart(target));
+  if (argumentsPreview && !sameCompactText(argumentsPreview, target)) {
+    parts.push(argumentsPreview);
+  }
+  return parts.join(" ");
+}
+
+function projectionToolConsoleOutput(
+  item: PublicProjectionItem,
+  {
+    detail,
+    statusLabel,
+  }: {
+    detail: string;
+    statusLabel?: string;
+  },
+) {
+  if (detail) return detail;
+  const sourceEventType = cleanText(item.sourceEventType).toLowerCase();
+  const state = cleanText(item.state).toLowerCase();
+  if (sourceEventType === "tool_call_requested") return "已提交系统调用。";
+  if (sourceEventType === "tool_permission_decided") return "系统调用已通过准入。";
+  if (sourceEventType === "tool_item_started" || state === "running") return "系统调用运行中。";
+  return statusLabel ? `系统调用${statusLabel}。` : "";
+}
+
+function quoteCommandPart(value: string) {
+  const text = cleanText(value);
+  if (!text) return "";
+  return /\s/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
 
 function projectionToolDetailLabel(item: PublicProjectionItem) {
@@ -495,35 +636,8 @@ function projectionToolDetailLabel(item: PublicProjectionItem) {
   return "详情";
 }
 
-function projectionToolWindowInfo(item: PublicProjectionItem) {
-  const sourceEvent = projectionSourceEventLabel(item.sourceEventType);
-  const eventOffset = projectionOffsetLabel(item.eventOffset);
-  const updatedOffset = projectionOffsetLabel(item.updatedEventOffset);
-  const offsetInfo = eventOffset && updatedOffset && eventOffset !== updatedOffset
-    ? `${eventOffset} -> ${updatedOffset}`
-    : eventOffset || updatedOffset;
-  return [sourceEvent, offsetInfo].filter(Boolean).join(" ");
-}
-
-function projectionSourceEventLabel(value: unknown) {
-  const normalized = cleanText(value).toLowerCase();
-  const labels: Record<string, string> = {
-    tool_call_requested: "请求",
-    tool_permission_decided: "权限",
-    tool_item_started: "开始",
-    tool_item_completed: "完成",
-  };
-  return labels[normalized] || cleanText(value);
-}
-
-function projectionOffsetLabel(value: unknown) {
-  const offset = Number(value);
-  if (!Number.isFinite(offset) || offset <= 0) return "";
-  return `#${offset}`;
-}
-
 function projectionItemNeedsToolWindow(item: PublicProjectionItem) {
-  if (item.toolCallId || item.toolName) return true;
+  if (item.toolCallId || item.toolLifecycleId || item.toolName) return true;
   const state = cleanText(item.state).toLowerCase();
   const visibility = cleanText(item.mainVisibility).toLowerCase();
   const retention = cleanText(item.retention).toLowerCase();
@@ -536,7 +650,7 @@ function projectionItemNeedsToolWindow(item: PublicProjectionItem) {
 }
 
 function isProjectionTimelineItem(item: PublicProjectionItem) {
-  if (item.toolCallId || item.toolName) return true;
+  if (item.toolCallId || item.toolLifecycleId || item.toolName) return true;
   const visibility = cleanText(item.mainVisibility).toLowerCase();
   if (visibility === "hidden") return false;
   return Boolean(cleanText(item.title || item.text || item.detail));
@@ -546,7 +660,7 @@ function projectionTimelineTitle(item: PublicProjectionItem) {
   const explicit = cleanText(item.title || item.text);
   if (explicit) return normalizeProjectionToolTitle(explicit, item);
   const tool = projectionToolLabel(item.toolName) || "工具";
-  if (!item.toolCallId && !item.toolName) return "";
+  if (!item.toolCallId && !item.toolLifecycleId && !item.toolName) return "";
   const sourceEventType = cleanText(item.sourceEventType).toLowerCase();
   const state = cleanText(item.state).toLowerCase();
   if (sourceEventType === "tool_permission_decided") return "工具权限已确认";
@@ -578,6 +692,44 @@ function normalizeProjectionToolTitle(title: string, item: PublicProjectionItem)
   return title.replace(new RegExp(`^${escaped}\\s*[:：]\\s*`, "i"), `${toolLabel}：`);
 }
 
+function projectionTargetFromTitle(value: unknown) {
+  const text = cleanText(value);
+  const match = text.match(/^[^:：]{2,24}[:：]\s*(.+)$/);
+  return cleanText(match?.[1]);
+}
+
+function projectionToolTargetLabel(value: unknown) {
+  const text = cleanText(value).replace(/\\/g, "/");
+  if (!text) return "";
+  const projectRelative = text.match(/(?:^|\/)langchain-agent\/(.+)$/i)?.[1];
+  if (projectRelative) return projectRelative;
+  const parts = text.split("/").filter(Boolean);
+  if (/^[A-Za-z]:\//.test(text) && parts.length) {
+    return parts.slice(-3).join("/");
+  }
+  if (parts.length > 3) {
+    return parts.slice(-3).join("/");
+  }
+  return text;
+}
+
+function projectionToolArgumentsPreview(value: unknown, rawTarget: string) {
+  const text = cleanText(value);
+  if (!text) return "";
+  const visibleParts = text
+    .split(",")
+    .map((part) => cleanText(part))
+    .filter((part) => part && !argumentPartRepeatsTarget(part, rawTarget));
+  return visibleParts.join(", ");
+}
+
+function argumentPartRepeatsTarget(part: string, rawTarget: string) {
+  if (!rawTarget) return false;
+  const value = cleanText(part.replace(/^[A-Za-z0-9_.-]+\s*=\s*/, ""));
+  return sameCompactText(value, rawTarget)
+    || sameCompactText(projectionToolTargetLabel(value), projectionToolTargetLabel(rawTarget));
+}
+
 function projectionToolLabel(toolName: unknown) {
   const normalized = cleanText(toolName).toLowerCase();
   const labels: Record<string, string> = {
@@ -598,7 +750,7 @@ function projectionToolLabel(toolName: unknown) {
 }
 
 function isModelFeedbackTimelineItem(item: PublicChatTimelineItem) {
-  if (cleanText(item.tool_call_id) || cleanText(item.tool_name)) return false;
+  if (cleanText(item.tool_call_id) || cleanText(item.tool_lifecycle_id) || cleanText(item.tool_name)) return false;
   const sourceAuthority = cleanText(item.source_authority).toLowerCase();
   const eventFamily = cleanText(item.event_family).toLowerCase();
   const channel = cleanText(item.channel).toLowerCase();

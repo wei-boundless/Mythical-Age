@@ -353,7 +353,7 @@ class RuntimeCompiler:
         history: list[dict[str, Any]],
         session_context: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
-        current_work_permit: dict[str, Any] | None = None,
+        current_work_boundary_receipt: dict[str, Any] | None = None,
         memory_context: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
@@ -372,7 +372,7 @@ class RuntimeCompiler:
         allowed_actions = _single_agent_turn_allowed_actions(
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
-            current_work_permit=current_work_permit,
+            current_work_boundary_receipt=current_work_boundary_receipt,
         )
         single_turn_tool_plan = _single_agent_turn_tool_plan(
             assembly_payload=assembly_payload,
@@ -382,8 +382,8 @@ class RuntimeCompiler:
         if not single_turn_tools and "tool_call" in allowed_actions:
             allowed_actions = tuple(item for item in allowed_actions if item != "tool_call")
         if single_turn_tools and "tool_call" not in allowed_actions:
-            permit_allowed = _permit_allowed_action_types(current_work_permit)
-            if not permit_allowed or "tool_call" in permit_allowed:
+            receipt_available = _receipt_available_action_types(current_work_boundary_receipt)
+            if not receipt_available or "tool_call" in receipt_available:
                 allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
             control_capabilities=control_capabilities,
@@ -518,7 +518,7 @@ class RuntimeCompiler:
                 "agent_visible_runtime_projection": agent_visible_runtime_projection,
                 "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
                 "active_work_context": dict(active_work_context or {}),
-                "current_work_permit": dict(current_work_permit or {}),
+                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
             },
         )
         dynamic_context = self.dynamic_context_manager.project(
@@ -546,8 +546,15 @@ class RuntimeCompiler:
                 active_work_context,
                 controls_enabled="active_work_control" in set(allowed_actions),
             )
-        if current_work_permit:
-            dynamic_payload["current_work_permit"] = _current_work_permit_model_visible_payload(current_work_permit)
+        if current_work_boundary_receipt:
+            dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
+                current_work_boundary_receipt
+            )
+        runtime_observations_payload = _runtime_observations_model_visible_payload(
+            session_context_payload.get("runtime_observations")
+        )
+        if runtime_observations_payload:
+            dynamic_payload["runtime_observations"] = runtime_observations_payload
         if turn_input_facts:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
@@ -664,7 +671,8 @@ class RuntimeCompiler:
             "operation_authorization",
             "active_work_context",
             "recent_work_outcome",
-            "current_work_permit",
+            "current_work_boundary_receipt",
+            "runtime_observations",
         )
         single_turn_volatile_refs = (
             "runtime_envelope",
@@ -778,7 +786,7 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
-                "current_work_permit": dict(current_work_permit or {}),
+                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
             },
         )
@@ -2082,7 +2090,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
         "authority": "harness.loop.model_action_request",
-        "action_type": "respond|ask_user|tool_call|request_task_run|block",
+        "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|block",
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
@@ -2181,7 +2189,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "finalization_requires_evidence": True
             },
             "plan_ref": "可选；用户已批准或系统已记录的计划引用。没有批准计划时不要伪造。",
-            "active_work_relationship": "可选；只有 current_work_permit 已允许 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
+            "active_work_relationship": "可选；只有本轮动作合同开放 request_task_run 时填写。new_work 表示用户要求开启新的持续任务；不要用 request_task_run 恢复、替换或接管旧任务。",
             "plan_requirements": {
                 "requires_plan": False,
                 "reason": "为什么需要先计划；仅在高影响改动、架构重构、协议变更或用户要求计划时填写。",
@@ -2287,44 +2295,88 @@ def _single_agent_turn_allowed_actions(
     *,
     control_capabilities: dict[str, Any],
     active_work_context: dict[str, Any] | None,
-    current_work_permit: dict[str, Any] | None = None,
+    current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
-    permit_allowed = _permit_allowed_action_types(current_work_permit)
-    if permit_allowed:
-        return tuple(dict.fromkeys(permit_allowed))
+    receipt_available = _receipt_available_action_types(current_work_boundary_receipt)
+    if receipt_available:
+        return tuple(dict.fromkeys(receipt_available))
     actions: list[str] = ["respond", "ask_user", "block"]
     if bool(control_capabilities.get("may_request_task_run") is True):
         actions.append("request_task_run")
     return tuple(dict.fromkeys(actions))
 
 
-def _permit_allowed_action_types(permit: dict[str, Any] | None) -> tuple[str, ...]:
-    payload = dict(permit or {})
+def _receipt_available_action_types(receipt: dict[str, Any] | None) -> tuple[str, ...]:
+    payload = dict(receipt or {})
     if not payload:
         return ()
     return tuple(
         str(item or "").strip()
-        for item in list(payload.get("allowed_action_types_for_next_packet") or [])
+        for item in list(payload.get("available_action_types_for_next_packet") or [])
         if str(item or "").strip()
     )
 
 
-def _current_work_permit_model_visible_payload(permit: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(permit or {})
+def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(receipt or {})
     if not payload:
         return {}
     decision = dict(dict(payload.get("diagnostics") or {}).get("decision") or {})
+    operations = dict(payload.get("operation_availability") or {})
     return {
-        "permit_id": str(payload.get("permit_id") or ""),
-        "decision": str(payload.get("decision") or ""),
-        "allows": dict(payload.get("allows") or {}),
+        "receipt_id": str(payload.get("receipt_id") or ""),
+        "boundary_decision": str(payload.get("boundary_decision") or ""),
+        "observation_state": str(payload.get("observation_state") or ""),
+        "operation_availability": operations,
         "active_work_ref": dict(payload.get("active_work_ref") or {}),
-        "allowed_action_types": list(payload.get("allowed_action_types_for_next_packet") or []),
-        "read_only_context": not bool(dict(payload.get("allows") or {}).get("active_work_control") is True),
-        "denied_reason": str(payload.get("denied_reason") or ""),
+        "available_action_types": list(payload.get("available_action_types_for_next_packet") or []),
+        "unavailable_action_types": list(payload.get("unavailable_action_types_for_next_packet") or []),
+        "read_only_context": not bool(operations.get("active_work_control") is True),
+        "state_reason": str(payload.get("state_reason") or ""),
         "reason": str(decision.get("reason") or ""),
         "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
-        "authority": "harness.runtime.current_work_permit_projection",
+        "decision_boundary": (
+            "This receipt is a runtime state observation. It describes whether current active-turn work "
+            "is available to this turn and which operation types are currently exposed. It is not a user "
+            "approval object and does not authorize semantic intent."
+        ),
+        "authority": "harness.runtime.current_work_boundary_receipt_projection",
+    }
+
+
+def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
+    raw_items = list(value or []) if isinstance(value, (list, tuple)) else ([value] if isinstance(value, dict) else [])
+    observations: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        payload = dict(raw)
+        payload_payload = dict(payload.get("payload") or {})
+        observations.append(
+            _drop_empty_payload(
+                {
+                    "observation_id": str(payload.get("observation_id") or ""),
+                    "observation_type": str(payload.get("observation_type") or ""),
+                    "source": str(payload.get("source") or ""),
+                    "status": str(payload.get("status") or ""),
+                    "error_code": str(payload.get("error_code") or payload_payload.get("error_code") or ""),
+                    "summary": str(payload.get("summary") or ""),
+                    "contract_errors": list(payload_payload.get("contract_errors") or []),
+                    "repair_instruction": str(payload_payload.get("repair_instruction") or ""),
+                    "needs_model_followup": bool(payload.get("needs_model_followup") is True),
+                    "authority": str(payload.get("authority") or ""),
+                }
+            )
+        )
+    if not observations:
+        return {}
+    return {
+        "observations": observations,
+        "decision_boundary": (
+            "These runtime observations are addressed to the agent. They are not user-visible assistant text. "
+            "Use them as facts for the next model decision, then author any user-facing response yourself."
+        ),
+        "authority": "harness.runtime.runtime_observations_projection",
     }
 
 
@@ -2391,7 +2443,7 @@ def _single_agent_turn_output_contract(
         )
     else:
         action_selection_rules.append(
-            "如果任务承接条件成立但本轮不允许 request_task_run，必须选择 ask_user 说明缺口或 block 说明运行边界，不能假装已经进入持续任务。"
+            "如果任务承接条件成立但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
         )
     return {
         "format": "json_action" if json_action_required else "structured_action",
@@ -2445,7 +2497,7 @@ def _single_agent_turn_output_contract(
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
-                "current_work_permit": "request_task_run is available only when the runtime-issued current_work_permit allows a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
+                "operation_boundary": "request_task_run is available only when the current action contract exposes a new task lifecycle. It does not control, resume, pause, replace, or mutate active_work_context.",
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
@@ -2531,14 +2583,14 @@ def _active_work_model_visible_payload(
             "continuation_kind": str(context.get("continuation_kind") or ""),
             "available_controls": controls,
             "read_only_context": not controls_enabled,
-            "control_authorization": (
-                "current_work_permit_allows_active_work_control"
+            "control_availability": (
+                "current_work_boundary_receipt_active_work_control_available"
                 if controls_enabled
-                else "current_work_permit_required"
+                else "current_work_boundary_receipt_active_work_control_unavailable"
             ),
             "decision_boundary": (
                 "active_work_context represents only current active-turn-bound work exposed by this turn. "
-                "It is a state fact, not a control permit; only current_work_permit can authorize active_work_control. "
+                "It is a state fact, not a control token or user approval object; current_work_boundary_receipt explains whether active_work_control is currently available. "
                 "If it contains a recovery boundary, that boundary has already been explicitly bound to the current active turn by the system; it is not a latest-task fallback. "
                 "Historical work summaries, recent_work_outcome, ordinary waiting_executor state, old artifacts, and terminal task records are read-only facts, not controllable current work. "
                 "Do not infer continue, pause, stop, replacement, or append authority from this context alone."
@@ -4223,7 +4275,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 只有在用户只是询问概念、要求解释、要求状态说明，或明确要求一次性的读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。"
         )
     elif "request_task_run" in allowed_actions:
-        lines.append("- 本轮不允许开启持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
+        lines.append("- 本轮没有挂载持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明运行边界。")
     task_scoped_routes = [
         dict(item)
         for item in list(tool_boundary.get("task_scoped_tool_routes") or [])
@@ -4241,8 +4293,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         if projection.get("invocation_kind") == "task_execution":
             lines.append(
                 "- 当前持续任务执行协议每次只能提交一个 JSON action；如需工具，action_type=tool_call，并在 tool_calls 数组中提交一个或多个互不依赖的本轮可见工具调用。"
-                "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行；成功、失败、拒绝和审批等待会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
-                "看到拒绝观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
+                "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行；成功、失败、边界未满足和审批等待会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
+                "看到边界观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
             )
             lines.append(
                 "- 你需要让用户知道任务在被真实推进。开始任务、完成阶段、改变方向、处理失败恢复、准备收口，"
@@ -4252,8 +4304,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             )
         else:
             lines.append(
-                "- 普通工具调用可以在同一轮提出多个；运行时会按工具安全声明、资源冲突和审批状态决定并发或串行，并把成功、失败或拒绝结果作为工具观察返回。"
-                "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把权限拒绝理解为用户已经授权，也不要原样重复同一个未获准动作。"
+                "- 普通工具调用可以在同一轮提出多个；运行时会按工具安全声明、资源冲突和审批状态决定并发或串行，并把成功、失败或边界未满足结果作为工具观察返回。"
+                "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把边界未满足理解为用户已经授权，也不要原样重复同一个未获准动作。"
             )
             lines.append(
                 "- 工具观察返回后，如果已经形成阶段结论、方向变化、失败恢复判断或下一阶段方向，用一两句自然语言说明判断和下一步。"
@@ -4277,12 +4329,12 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 如果本轮上下文包含 active_work_context，它只代表系统在本轮显式暴露的当前 active-turn-bound work；"
             "如果其中出现可恢复边界，也已经由系统绑定到当前 active turn，不是 latest task fallback。"
             "recent_work_outcome、历史摘要和普通 waiting_executor 只能作为只读事实，不能被当作当前可控制工作。"
-            "active_work_control 只在 current_work_permit 已授权时出现；你不能从 active_work_context 自行推断控制权限。"
+            "active_work_control 只在本轮动作合同明确开放时出现；你不能从 active_work_context 自行推断控制能力。"
         )
         lines.append(
-            "- 当 active_work_control 已被本轮 current_work_permit 授权时，只执行 permit/action schema 允许的当前工作控制。"
+            "- 当 active_work_control 在本轮开放时，只执行 current_work_boundary_receipt 和 action schema 指向的当前工作控制。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
-            "如果 active_work_context 未提供 available_controls，说明普通 turn 没有当前工作控制授权。"
+            "如果 active_work_context 未提供 available_controls，说明普通 turn 没有当前工作控制能力。"
             "继续、暂停、停止或补充这类纯控制也必须携带简短用户可见反馈意图，由控制裁决和系统投影统一给出可见回执；不要另外生成一条与控制动作脱节的普通 assistant 正文，也不要把无需正文理解成结束任务。"
             "具体字段形状以本轮 action schema 为准，不要把控制字段或机器状态写进用户正文。"
             "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后基于真实状态决定继续、收口、询问或阻塞。"
@@ -4292,9 +4344,10 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         if "request_task_run" in allowed_actions:
             lines.append(
-                "- request_task_run 只能在 current_work_permit 已允许新任务时使用。"
+                "- request_task_run 只能在本轮动作合同开放新任务生命周期时使用。"
                 "这种情况下在 task_contract_seed.active_work_relationship 填 new_work；"
-                "request_task_run 不会恢复、替换或接管旧任务；如果当前工作仍在运行，必须先使用 active_work_control 或 ask_user/block 处理当前工作。"
+                "request_task_run 不恢复、替换或接管旧任务。当前工作仍在运行不是拒绝新任务的理由；"
+                "只有用户明确要求继续、暂停、停止、补充或调整当前工作时，才使用 active_work_control。"
             )
     elif projection.get("invocation_kind") == "single_agent_turn":
         lines.append(

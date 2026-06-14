@@ -46,8 +46,10 @@ class ModelResponseRuntimeExecutor:
         if directive.executor_type != "model":
             yield {
                 "type": "error",
-                "error": "invalid_directive_executor_type",
-                "content": "模型执行器只接受 executor_type=model 的 RuntimeDirective。",
+                "error": "运行中断",
+                "content": "运行中断",
+                "code": "invalid_directive_executor_type",
+                "reason": "invalid_directive_executor_type",
                 "answer_channel": "orchestration_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
@@ -57,8 +59,10 @@ class ModelResponseRuntimeExecutor:
         if not callable(invoker):
             yield {
                 "type": "error",
-                "error": "model_runtime_unavailable",
-                "content": "模型运行时不可用，本轮停止执行。",
+                "error": "运行中断",
+                "content": "运行中断",
+                "code": "model_runtime_unavailable",
+                "reason": "model_runtime_unavailable",
                 "answer_channel": "orchestration_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
@@ -189,9 +193,10 @@ class ModelResponseRuntimeExecutor:
                     }
                     yield {
                         "type": "error",
-                        "error": exc.user_message,
-                        "content": exc.user_message,
+                        "error": "运行中断",
+                        "content": "运行中断",
                         "code": exc.code,
+                        "reason": exc.user_message,
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": exc.detail,
@@ -240,9 +245,10 @@ class ModelResponseRuntimeExecutor:
                     }
                     yield {
                         "type": "error",
-                        "error": "model_stream_recovery_timeout",
-                        "content": "模型流式恢复超时，本节点未产出有效结果，请从当前节点断点重跑。",
+                        "error": "运行中断",
+                        "content": "运行中断",
                         "code": "timeout",
+                        "reason": "model_stream_recovery_timeout",
                         "provider": exc.provider,
                         "model": exc.model,
                         "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
@@ -265,9 +271,10 @@ class ModelResponseRuntimeExecutor:
                     }
                     yield {
                         "type": "error",
-                        "error": fallback_exc.user_message,
-                        "content": fallback_exc.user_message,
+                        "error": "运行中断",
+                        "content": "运行中断",
                         "code": fallback_exc.code,
+                        "reason": fallback_exc.user_message,
                         "provider": fallback_exc.provider,
                         "model": fallback_exc.model,
                         "detail": fallback_exc.detail,
@@ -290,8 +297,10 @@ class ModelResponseRuntimeExecutor:
                     }
                     yield {
                         "type": "error",
-                        "error": str(fallback_exc) or "model_runtime_error",
-                        "content": "模型运行时失败，本轮停止执行。",
+                        "error": "运行中断",
+                        "content": "运行中断",
+                        "code": "model_runtime_error",
+                        "reason": str(fallback_exc) or "model_runtime_error",
                         "answer_channel": "orchestration_fail_closed",
                         "answer_source": "runtime_directive_executor",
                     }
@@ -310,9 +319,10 @@ class ModelResponseRuntimeExecutor:
             else:
                 yield {
                     "type": "error",
-                    "error": exc.user_message,
-                    "content": exc.user_message,
+                    "error": "运行中断",
+                    "content": "运行中断",
                     "code": exc.code,
+                    "reason": exc.user_message,
                     "provider": exc.provider,
                     "model": exc.model,
                     "detail": exc.detail,
@@ -322,26 +332,32 @@ class ModelResponseRuntimeExecutor:
                 return
         except asyncio.TimeoutError:
             if stream_enabled and raw_content.strip():
-                response = raw_content
-                partial_timeout_metadata = {
-                    "completion_state": "partial_timeout",
-                    "terminal_reason": "model_response_timeout_after_partial_output",
+                if assistant_normalizer is not None:
+                    for frame_event in assistant_normalizer.flush():
+                        yield frame_event
+                yield {
+                    "type": "error",
+                    "error": "运行中断",
+                    "content": "运行中断",
+                    "code": "timeout",
+                    "reason": "model_response_timeout_after_partial_output",
+                    "provider": str(getattr(effective_model_spec, "provider", "") or ""),
+                    "model": str(getattr(effective_model_spec, "model", "") or ""),
+                    "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
                     "timeout_seconds": response_timeout_seconds,
                     "partial_delta_count": public_delta_count,
-                    "provider": str(getattr(model_spec, "provider", "") or ""),
-                    "model": str(getattr(model_spec, "model", "") or ""),
-                    "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
-                    "answer_canonical_state": "partial_timeout",
-                    "answer_persist_policy": "persist_canonical",
-                    "answer_finalization_policy": "partial_output_committed",
-                    "answer_fallback_reason": "model_response_timeout_after_partial_output",
+                    "answer_channel": "orchestration_fail_closed",
+                    "answer_source": "runtime_directive_executor",
+                    "answer_persist_policy": "runtime_status_only",
                 }
+                return
             else:
                 yield {
                     "type": "error",
-                    "error": "model_response_timeout",
-                    "content": "模型响应超过节点执行时限，本节点未产出有效结果，请从当前节点断点重跑。",
+                    "error": "运行中断",
+                    "content": "运行中断",
                     "code": "timeout",
+                    "reason": "model_response_timeout",
                     "provider": str(getattr(effective_model_spec, "provider", "") or ""),
                     "model": str(getattr(effective_model_spec, "model", "") or ""),
                     "detail": f"model response exceeded {response_timeout_seconds:g}s",
@@ -353,8 +369,10 @@ class ModelResponseRuntimeExecutor:
         except Exception as exc:
             yield {
                 "type": "error",
-                "error": str(exc) or "model_runtime_error",
-                "content": "模型运行时失败，本轮停止执行。",
+                "error": "运行中断",
+                "content": "运行中断",
+                "code": "model_runtime_error",
+                "reason": str(exc) or "model_runtime_error",
                 "answer_channel": "orchestration_fail_closed",
                 "answer_source": "runtime_directive_executor",
             }
@@ -439,7 +457,26 @@ class ModelResponseRuntimeExecutor:
             )
         content = sanitize_visible_assistant_content(output_response.canonical_answer).strip()
         if not content:
-            content = "我已接入新的单 agent 主链，但这轮模型没有返回可展示内容。"
+            yield {
+                "type": "error",
+                "error": "运行中断",
+                "content": "运行中断",
+                "code": "model_response_empty",
+                "reason": "model_response_empty",
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive:model_response",
+                "answer_persist_policy": "runtime_status_only",
+                "output": {
+                    "selected_channel": output_response.selected_channel,
+                    "selected_source": output_response.selected_source,
+                    "canonical_state": output_response.canonical_state,
+                    "persist_policy": output_response.persist_policy,
+                    "finalization_policy": output_response.finalization_policy,
+                    "leak_flags": list(output_response.leak_flags),
+                    "missing_answer_reason": output_response.fallback_reason,
+                },
+            }
+            return
         for frame_event in assistant_final_stream_events(
             assistant_normalizer,
             content=content,

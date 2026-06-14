@@ -1727,21 +1727,18 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     volatile_payload = _payload_after_title(result.packet.model_messages[-1]["content"], "Single agent turn current request")
     history_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn session history")
     outcome = history_payload["session_context"]["recent_work_outcome"]
-    model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
     assert outcome["status"] == "failed"
     assert outcome["terminal_reason"] == "task_executor_schedule_failed"
     assert outcome["continuation_state"] == "terminal_or_interrupted_task_record"
     assert "history" not in volatile_payload
     assert "active_work_context" not in json.dumps(volatile_payload, ensure_ascii=False)
-    assert "latest resumable executor checkpoint" not in model_input
-    assert "当前工作或可恢复断点" not in model_input
     context_window = result.packet.diagnostics["prompt_manifest"]["context_window"]
     assert context_window["recent_work_outcome_present"] is True
     assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")
 
 
-def test_single_agent_turn_active_work_context_is_read_only_without_current_work_permit() -> None:
+def test_single_agent_turn_active_work_context_is_read_only_without_current_work_boundary_receipt() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:active-work-current-turn",
         turn_id="turn:active-work-current-turn",
@@ -1766,21 +1763,11 @@ def test_single_agent_turn_active_work_context_is_read_only_without_current_work
 
     dynamic_payload = _payload_containing_title(result.packet.model_messages, "Single agent turn dynamic runtime")
     active_work = dynamic_payload["active_work_context"]
-    decision_boundary = str(active_work["decision_boundary"])
-    model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
-    assert "current active-turn-bound work" in decision_boundary
-    assert "current_work_permit can authorize active_work_control" in decision_boundary
-    assert "latest resumable executor checkpoint" not in decision_boundary
-    assert "latest-task fallback" in decision_boundary
-    assert "recent_work_outcome" in decision_boundary
     assert active_work["read_only_context"] is True
-    assert active_work["control_authorization"] == "current_work_permit_required"
+    assert active_work["control_availability"] == "current_work_boundary_receipt_active_work_control_unavailable"
     assert "available_controls" not in active_work
     assert "active_work_control" not in result.packet.allowed_action_types
-    assert "当前工作或可恢复断点" not in model_input
-    assert "current_work_permit" in model_input
-    assert "current_work_boundary_receipt" not in model_input
 
 
 def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:

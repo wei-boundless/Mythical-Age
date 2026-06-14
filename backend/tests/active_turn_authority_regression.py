@@ -484,38 +484,45 @@ def test_active_turn_plain_instruction_uses_model_decision_without_keyword_pause
     assert messages[0]["turn_id"] == "turn:session:test:1"
 
 
-def test_current_work_permit_revalidates_before_append(tmp_path: Path) -> None:
+def test_current_work_boundary_receipt_revalidates_before_append(tmp_path: Path) -> None:
     import asyncio
 
     class StaleBoundaryModelRuntime:
-        async def invoke_messages(self, *_args, **_kwargs):
-            task = host.state_index.get_task_run("taskrun:current")
-            assert task is not None
-            host.state_index.upsert_task_run(
-                replace(
-                    task,
-                    status="aborted",
-                    terminal_reason="user_aborted",
-                )
-            )
-            return SimpleNamespace(
-                content=json.dumps(
-                    {
-                        "authority": "harness.loop.model_action_request",
-                        "action_type": "active_work_control",
-                        "public_progress_note": "我会把这条补充接入当前工作。",
-                        "active_work_control": {
-                            "action": "append_instruction_to_active_work",
-                            "relation_to_current_work": "current_work",
-                            "appended_instruction": "把这条补充接入当前工作。",
-                            "reason": "user steers active work",
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-            )
+        def __init__(self) -> None:
+            self.calls = 0
 
-    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=StaleBoundaryModelRuntime())
+        async def invoke_messages(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                task = host.state_index.get_task_run("taskrun:current")
+                assert task is not None
+                host.state_index.upsert_task_run(
+                    replace(
+                        task,
+                        status="aborted",
+                        terminal_reason="user_aborted",
+                    )
+                )
+                return SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "authority": "harness.loop.model_action_request",
+                            "action_type": "active_work_control",
+                            "public_progress_note": "我会把这条补充接入当前工作。",
+                            "active_work_control": {
+                                "action": "append_instruction_to_active_work",
+                                "relation_to_current_work": "current_work",
+                                "appended_instruction": "把这条补充接入当前工作。",
+                                "reason": "user steers active work",
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            return SimpleNamespace(content="当前工作已经结束，这条补充没有接入旧任务。")
+
+    model = StaleBoundaryModelRuntime()
+    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(
         TaskRun(
@@ -553,18 +560,34 @@ def test_current_work_permit_revalidates_before_append(tmp_path: Path) -> None:
     event_types = [event.event_type for event in host.event_log.list_events("taskrun:current")]
 
     assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_turn_unavailable" for event in events)
+    assert any(event.get("type") == "active_work_control_observation" for event in events)
+    assert any(event.get("type") == "done" and event.get("terminal_reason") == "current_work_task_run_terminal" for event in events)
     assert "active_task_steer_recorded" not in event_types
+    assert model.calls >= 2
 
 
 def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing(tmp_path: Path) -> None:
     import asyncio
 
-    class FailingModelRuntime:
-        async def invoke_messages(self, *_args, **_kwargs):
-            raise AssertionError("missing active turn steer should block before model")
+    class BoundaryObservationModelRuntime:
+        def __init__(self) -> None:
+            self.calls = 0
 
-    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=FailingModelRuntime())
+        async def invoke_messages(self, *_args, **_kwargs):
+            self.calls += 1
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "authority": "harness.loop.model_action_request",
+                        "action_type": "respond",
+                        "final_answer": "当前没有可控制的进行中任务，这条继续请求没有接入旧任务。",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+    model = BoundaryObservationModelRuntime()
+    runtime = build_harness_runtime(base_dir=tmp_path, model_runtime=model)
     host = runtime.single_agent_runtime_host
     host.state_index.upsert_task_run(
         TaskRun(
@@ -596,4 +619,6 @@ def test_active_turn_steer_does_not_promote_latest_task_when_active_turn_missing
     events = asyncio.run(_collect())
 
     assert host.active_turn_registry.snapshot("session:test") is None
-    assert any(event.get("type") == "done" and event.get("terminal_reason") == "active_turn_steer_not_running" for event in events)
+    assert model.calls >= 1
+    assert not any(event.get("type") == "active_task_steer_accepted" for event in events)
+    assert any(event.get("type") == "done" and event.get("terminal_reason") == "respond" for event in events)
