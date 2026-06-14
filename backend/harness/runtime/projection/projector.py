@@ -669,6 +669,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
             "source_authority": "runtime",
             "main_visibility": "hidden",
             "retention": "trace",
+            "frame_id": stable_id("runtime-step-frame", _runtime_stage_status_item_id(data), title, detail),
             "item_id": stable_id(
                 "runtime-step",
                 data.get("runtime_event_id"),
@@ -689,6 +690,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
         "source_authority": "model" if presentation_source.startswith("model_action.") else "runtime",
         "main_visibility": "visible_live" if title or detail else "hidden",
         "retention": "transient",
+        "frame_id": stable_id("runtime-step-frame", _runtime_stage_status_item_id(data), title, detail),
         "item_id": _runtime_stage_status_item_id(data),
         "title": title,
         "text": title,

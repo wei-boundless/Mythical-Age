@@ -537,7 +537,7 @@ def test_tool_completion_uses_request_ref_for_permission_identity() -> None:
     assert completed["permission_decision_id"] == "admission:request:read"
 
 
-def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
+def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permission_ref_drifts() -> None:
     lifecycle = ProjectionLifecycleState()
     anchor = {
         "session_id": "session:test",
@@ -598,4 +598,7 @@ def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
         lifecycle_state=lifecycle,
     )["public_projection_frame"]
 
-    assert frame["diagnostics"]["code"] == "tool_completed_without_started_lifecycle"
+    assert frame["op"] == "item_retire"
+    assert frame["tool_call_id"] == "call:read"
+    assert frame["permission_decision_id"] == "admission:request:read"
+    assert "diagnostics" not in frame

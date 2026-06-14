@@ -48,12 +48,12 @@ import {
   streamExistingChatRun,
   truncateSessionMessages
 } from "@/lib/api";
-import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { publicProjectionFrameFromRecord } from "@/lib/projection/reducer";
+import { applyPublicProjectionFramesToMessages, publicProjectionFrameFromRecord } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
 import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
@@ -87,6 +87,58 @@ const ACTIVE_TURN_STATES = new Set([
 
 function recoveredChatRunActivityDetail() {
   return "检测到同一会话的流式 cursor，正在按事件时序重放公开投影。";
+}
+
+function hydrateSessionRuntimeProjection(
+  messages: Message[],
+  attachments: SessionRuntimeAttachment[] | undefined,
+) {
+  const frames: PublicProjectionFrame[] = [];
+  for (const attachment of attachments ?? []) {
+    for (const record of attachment.public_projection_frames ?? []) {
+      const frame = publicProjectionFrameFromRecord(record);
+      if (!frame) continue;
+      const anchoredFrame = frameWithRuntimeAttachmentAnchor(frame, attachment);
+      if (!projectionFrameHasHistoryAnchor(anchoredFrame)) continue;
+      frames.push(anchoredFrame);
+    }
+  }
+  if (!frames.length) return messages;
+  const orderedFrames = [...frames].sort((left, right) =>
+    Number(left.event_offset ?? left.sequence ?? 0) - Number(right.event_offset ?? right.sequence ?? 0)
+    || String(left.frame_id || left.projection_id || "").localeCompare(String(right.frame_id || right.projection_id || ""))
+  );
+  return applyPublicProjectionFramesToMessages(messages, orderedFrames);
+}
+
+function frameWithRuntimeAttachmentAnchor(
+  frame: PublicProjectionFrame,
+  attachment: SessionRuntimeAttachment,
+): PublicProjectionFrame {
+  const anchor = frame.anchor ?? {};
+  const projectionAnchor = attachment.projection_anchor ?? {};
+  return {
+    ...frame,
+    anchor: compactProjectionAnchor({
+      ...anchor,
+      session_id: anchor.session_id || projectionAnchor.session_id,
+      turn_id: anchor.turn_id || projectionAnchor.anchor_turn_id || attachment.anchor_turn_id,
+      message_id: anchor.message_id || projectionAnchor.anchor_message_id || attachment.anchor_message_id,
+      task_run_id: anchor.task_run_id || projectionAnchor.task_run_id || attachment.task_run_id,
+      turn_run_id: anchor.turn_run_id || projectionAnchor.turn_run_id || attachment.turn_run_id,
+      run_id: anchor.run_id || projectionAnchor.run_id || attachment.run_id,
+    }),
+  };
+}
+
+function projectionFrameHasHistoryAnchor(frame: PublicProjectionFrame) {
+  return Boolean(String(frame.anchor?.message_id || "").trim() || String(frame.anchor?.turn_id || "").trim());
+}
+
+function compactProjectionAnchor(anchor: NonNullable<PublicProjectionFrame["anchor"]>) {
+  return Object.fromEntries(
+    Object.entries(anchor).filter(([, value]) => String(value ?? "").trim()),
+  ) as NonNullable<PublicProjectionFrame["anchor"]>;
 }
 
 function sessionTaskEnvironmentId(session: SessionSummary) {
@@ -1239,7 +1291,10 @@ export class WorkspaceRuntime {
           ? this.permissionModeFromConversationState(history.conversation_state)
           : this.permissionModeForSession(sessionId, prev);
         const refreshedMessages = this.mergeVolatileMessageProgress(
-          toUiMessages(history.messages),
+          hydrateSessionRuntimeProjection(
+            toUiMessages(history.messages),
+            (history as { runtime_attachments?: SessionRuntimeAttachment[] }).runtime_attachments,
+          ),
           prev.messages,
         );
         const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);

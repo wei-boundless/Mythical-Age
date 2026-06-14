@@ -85,8 +85,7 @@ export function ChatMessage({
     ? content
     : projectionBodyText || assistantContentText;
   const messageDisplayContent = baseDisplayContent;
-  const hasCommittedAssistantText = !isUser && !streamingContent && Boolean(assistantContentText.trim());
-  const publicTimelineItems = isUser || hasCommittedAssistantText
+  const publicTimelineItems = isUser
     ? []
     : publicTimelineItemsFromProjection(publicProjection);
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
@@ -389,7 +388,6 @@ function orderedProjectionMessageBlocks({
 
 function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
   if (!projection) return [];
-  if (projectionHasClosedBody(projection)) return [];
   const timeline = projection.timeline?.length
     ? projection.timeline
     : [
@@ -408,11 +406,6 @@ function publicTimelineItemsFromProjection(projection: MessagePublicProjection |
     );
 }
 
-function projectionHasClosedBody(projection: MessagePublicProjection) {
-  const bodyState = cleanText(projection.bodyState).toLowerCase();
-  return Boolean(cleanText(projection.bodyText)) && ["finalized", "committed"].includes(bodyState);
-}
-
 function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem | null {
   if (!isProjectionTimelineItem(item)) return null;
   const toolOwned = Boolean(item.toolCallId || item.toolLifecycleId || item.toolName);
@@ -426,7 +419,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
   const commandLine = projectionToolCommandLine(item, { argumentsPreview, target });
   const output = projectionToolConsoleOutput(item, { detail, statusLabel });
   const title = toolWindow
-    ? projectionToolWindowTitle(item, { statusLabel, target, toolLabel })
+    ? projectionToolWindowTitle(item, { argumentsPreview, statusLabel, target, toolLabel })
     : projectionTimelineTitle(item);
   if (!title) return null;
   return {
@@ -446,7 +439,7 @@ function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTim
     stream_state: item.state === "running" || item.state === "waiting" ? "streaming" : "done",
     tool_call_id: item.toolCallId,
     tool_lifecycle_id: item.toolLifecycleId,
-    tool_name: toolLabel || item.toolName,
+    tool_name: item.toolName,
     permission_decision_id: item.permissionDecisionId,
     arguments_preview: argumentsPreview,
     target,
@@ -527,10 +520,12 @@ function mergeProjectionTimelineItem(existing: PublicProjectionItem, incoming: P
 function projectionToolWindowTitle(
   item: PublicProjectionItem,
   {
+    argumentsPreview,
     statusLabel,
     target,
     toolLabel,
   }: {
+    argumentsPreview: string;
     statusLabel?: string;
     target: string;
     toolLabel: string;
@@ -545,6 +540,10 @@ function projectionToolWindowTitle(
   const parts = [action];
   if (targetLabel && !compactText(action).includes(compactText(targetLabel))) {
     parts.push(targetLabel);
+  }
+  const preview = cleanText(argumentsPreview);
+  if (preview && !compactText(parts.join("")).includes(compactText(preview))) {
+    parts.push(preview);
   }
   const status = cleanText(statusLabel);
   const compactTitle = compactText(parts.join(""));

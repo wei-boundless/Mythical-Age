@@ -446,6 +446,15 @@ export type SessionRuntimeAttachment = {
   latest_event_type?: string;
   event_count?: number;
   session_output_commit?: RuntimeMonitorSignal["session_output_commit"];
+  projection_anchor?: {
+    session_id?: string;
+    anchor_turn_id?: string;
+    anchor_message_id?: string;
+    run_id?: string;
+    task_run_id?: string;
+    turn_run_id?: string;
+  };
+  public_projection_frames?: PublicProjectionFrame[];
   artifact_refs?: Array<Record<string, unknown>>;
   trace_available?: boolean;
   debug_trace_ref?: string;

@@ -46,7 +46,7 @@ def _runtime_host(*, task_runs: list[SimpleNamespace], events_by_run: dict[str, 
     )
 
 
-def test_session_runtime_timeline_attachment_does_not_embed_public_projection_sources() -> None:
+def test_session_runtime_timeline_attachment_replays_public_projection_frames() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     task_run = SimpleNamespace(
         task_run_id=task_run_id,
@@ -98,12 +98,16 @@ def test_session_runtime_timeline_attachment_does_not_embed_public_projection_so
     assert attachment["task_run_id"] == task_run_id
     assert attachment["session_output_commit"]["state"] == "committed"
     assert attachment["session_output_commit"]["commit_event_offset"] == 7
+    assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:1"
+    assert attachment["projection_anchor"]["anchor_message_id"] == "history-message:turn:session-a:1:assistant"
+    assert attachment["public_projection_frames"]
+    assert attachment["public_projection_frames"][0]["event_family"] == "runtime_commit"
     assert "public_timeline" not in attachment
     assert "task_projection" not in attachment
     assert "public_projection_status" not in attachment
 
 
-def test_turn_runtime_attachment_is_trace_metadata_only() -> None:
+def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projection_fields() -> None:
     turn_run_id = "turnrun:turn:session-a:2"
     turn_run = SimpleNamespace(
         turn_run_id=turn_run_id,
@@ -141,5 +145,7 @@ def test_turn_runtime_attachment_is_trace_metadata_only() -> None:
     attachment = timeline["runtime_attachments"][0]
     assert attachment["run_id"] == turn_run_id
     assert attachment["trace_available"] is True
+    assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:2"
+    assert "public_projection_frames" in attachment
     assert "public_timeline" not in attachment
     assert "task_projection" not in attachment

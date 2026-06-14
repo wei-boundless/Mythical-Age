@@ -1995,6 +1995,15 @@ def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]
     if not content:
         return {}
     runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
+    action_ref = str(
+        refs.get("batch_action_request_ref")
+        or request.get("batch_action_request_ref")
+        or refs.get("action_request_ref")
+        or request.get("request_id")
+        or runtime_event_id
+        or ""
+    ).strip()
+    feedback_event_id = f"model-action-feedback:{action_ref}:{content}" if action_ref else runtime_event_id
     data: dict[str, Any] = {
         "status": "running",
         "step": "model_action_public_feedback",
@@ -2004,7 +2013,8 @@ def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]
         "next_action": _safe_public_action_text(action_state.get("next_action")),
         "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": runtime_event_id,
+        "runtime_event_id": feedback_event_id,
+        "source_task_event_id": runtime_event_id,
         "presentation_source": "model_action.public_progress_note"
         if _safe_public_action_text(request.get("public_progress_note"))
         else "model_action.public_action_state",
@@ -2368,14 +2378,32 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
     if not args:
         return ""
     parts: list[str] = []
-    for key in sorted(args.keys()):
+    priority = (
+        "path",
+        "file",
+        "file_path",
+        "target",
+        "start_line",
+        "line_count",
+        "end_line",
+        "range",
+        "query",
+        "pattern",
+        "cwd",
+        "command",
+        "url",
+    )
+    skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
+    ordered_keys = [key for key in priority if key in args]
+    ordered_keys.extend(key for key in sorted(args.keys()) if key not in ordered_keys and key not in skipped)
+    for key in ordered_keys:
         value = args.get(key)
         if isinstance(value, (dict, list, tuple)):
             continue
         text = _safe_public_action_text(f"{key}={value}")
         if text:
-            parts.append(text[:80])
-        if len(parts) >= 3:
+            parts.append(text[:120] if key == "command" else text[:80])
+        if len(parts) >= 6:
             break
     return ", ".join(parts)[:240]
 

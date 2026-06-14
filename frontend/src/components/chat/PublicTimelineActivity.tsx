@@ -91,11 +91,12 @@ function activityEntryFromItem(item: PublicChatTimelineItem, index: number): Act
     displayToolStatus(toolWindow?.status),
     toolWindow?.target,
   ].map(cleanText).filter(Boolean);
+  const stableId = cleanText(item.item_id) || cleanText(item.source_event_id) || `${kind}:${index}`;
   return {
     collapsed: kind === "tool_window" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
     commandLine,
     detail,
-    id: kind === "tool_window" ? `tool-window:${index}` : cleanText(item.item_id) || cleanText(item.source_event_id) || `${kind}:${index}`,
+    id: kind === "tool_window" ? `tool-window:${stableId}` : stableId,
     kind,
     meta,
     outputText,

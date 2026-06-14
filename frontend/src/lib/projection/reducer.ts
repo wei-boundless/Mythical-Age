@@ -45,6 +45,17 @@ export function applyPublicProjectionFrame(
   return patchProjectionMessage(withActivity, frame, options);
 }
 
+export function applyPublicProjectionFramesToMessages(
+  messages: Message[],
+  frames: PublicProjectionFrame[],
+): Message[] {
+  let state = { messages } as StoreState;
+  for (const frame of frames) {
+    state = patchProjectionMessage(state, frame, {});
+  }
+  return state.messages;
+}
+
 function applyActiveTurnUpdate(state: StoreState, frame: PublicProjectionFrame): StoreState {
   const anchor = frame.anchor ?? {};
   const turnId = text(anchor.turn_id);
