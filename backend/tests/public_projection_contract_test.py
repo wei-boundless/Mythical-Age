@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from api.chat import _project_public_stream_event
+from api.chat import _is_task_executor_handoff_terminal, _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
@@ -315,6 +315,82 @@ def test_runtime_status_defaults_to_trace_only_unless_public_status_kind() -> No
     assert visible["retention"] == "transient"
 
 
+def test_task_handoff_uses_canonical_completion_state_not_localized_reason() -> None:
+    assert _is_task_executor_handoff_terminal(
+        TURN_COMPLETED_EVENT,
+        {
+            "task_run_id": "taskrun:turn:session:test:1:abcd",
+            "terminal_reason": "任务已进入执行流程",
+            "completion_state": "task_executor_scheduled",
+            "status": "completed",
+        },
+    ) is True
+
+
+def test_task_model_wait_heartbeat_projects_as_transient_status_placeholder() -> None:
+    events = _project_public_stream_event(
+        "task_model_action_wait_heartbeat",
+        {
+            "event": {
+                "event_id": "event:model-wait",
+                "offset": 12,
+                "payload": {
+                    "task_run_id": "taskrun:wait",
+                    "step": "task_model_action_waiting:1",
+                    "status": "running",
+                    "presentation_source": "runtime.model_wait",
+                    "status_kind": "model_wait_placeholder",
+                },
+                "refs": {"task_run_ref": "taskrun:wait"},
+            },
+        },
+    )
+
+    assert len(events) == 1
+    public_event_type, data = events[0]
+    assert public_event_type == "runtime_status"
+    assert data["status_kind"] == "model_wait_placeholder"
+    assert data["item_id"] == "model-wait:taskrun:wait"
+
+    frame = _frame(public_event_type, data)
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "status"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "transient"
+    assert frame["status_kind"] == "model_wait_placeholder"
+    assert frame["slot"] != "body"
+
+
+def test_protocol_repair_status_stays_trace_only_without_public_surface() -> None:
+    frame = _frame(
+        "runtime_step_summary",
+        {
+            "runtime_event_id": "event:protocol-repair",
+            "source_task_event_offset": 14,
+            "task_run_id": "taskrun:repair",
+            "step": "model_action_protocol_repair_required:1",
+            "status": "running",
+            "presentation_source": "runtime.protocol_repair",
+            "summary": "当前步骤输出格式不完整，正在自动修正后继续。",
+            "current_judgment": "public_response_required, public_progress_note_required",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
+    assert frame.get("status_kind") != "protocol_repair_status"
+    assert not frame.get("title")
+    assert not frame.get("text")
+    assert not frame.get("detail")
+    assert "当前步骤输出格式不完整" not in str(frame)
+    assert "public_response_required" not in str(frame)
+    assert frame["slot"] != "body"
+
+
 def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
     first = _frame(
         "runtime_step_summary",
@@ -349,6 +425,61 @@ def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
     assert first["main_visibility"] == "visible_live"
     assert second["item_id"] != first["item_id"]
     assert second["trace_refs"]
+
+
+def test_lifecycle_does_not_filter_legal_model_action_body_output() -> None:
+    lifecycle = ProjectionLifecycleState()
+    anchor = {
+        "session_id": "session:test",
+        "turn_id": "turn:test",
+        "turn_run_id": "turnrun:test",
+        "task_run_id": "taskrun:test",
+    }
+    first = {
+        "public_anchor": anchor,
+        "runtime_event_id": "event:model-feedback:1",
+        "source_task_event_offset": 10,
+        "task_run_id": "taskrun:test",
+        "step": "model_action_received:1",
+        "presentation_source": "model_action.public_progress_note",
+        "public_progress_note": "用户表达感谢，直接回复即可。",
+        "current_judgment": "用户表达感谢，当前对话自然收口。",
+        "next_action": "等待用户下一步需求。",
+        "status": "running",
+    }
+    second = {
+        **first,
+        "runtime_event_id": "event:model-feedback:2",
+        "source_task_event_offset": 11,
+        "step": "model_action_received:2",
+    }
+
+    assert lifecycle.should_emit_public_event("runtime_step_summary", first) is True
+    first_frame = project_public_projection_event(
+        "runtime_step_summary",
+        first,
+        session_id="session:test",
+        sequence=1,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
+    assert lifecycle.should_emit_public_event("runtime_step_summary", second) is True
+    second_frame = project_public_projection_event(
+        "runtime_step_summary",
+        second,
+        session_id="session:test",
+        sequence=2,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
+
+    assert first_frame["op"] == "body_append"
+    assert first_frame["slot"] == "body"
+    assert first_frame["source_authority"] == "model"
+    assert first_frame["text"] == "用户表达感谢，直接回复即可。\n\n用户表达感谢，当前对话自然收口。"
+    assert second_frame["op"] == "body_append"
+    assert second_frame["slot"] == "body"
+    assert second_frame["source_authority"] == "model"
+    assert second_frame["text"] == first_frame["text"]
+    assert second_frame["item_id"] != first_frame["item_id"]
 
 
 def test_raw_tool_started_without_permission_is_hidden_protocol_diagnostic() -> None:

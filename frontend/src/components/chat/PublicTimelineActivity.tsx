@@ -184,6 +184,9 @@ function toolRoundStatusLabel(tone: PublicTimelineActivityTone) {
 }
 
 function activityEntryFromItem(item: PublicChatTimelineItem, index: number): ActivityEntry | null {
+  if (cleanText(item.tool_name).toLowerCase() === "agent_todo") {
+    return null;
+  }
   const kind = activityKindFromItem(item);
   const text = kind === "tool_window"
     ? toolWindowTitle(item)
@@ -250,7 +253,7 @@ function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTon
 
 function firstText(...values: unknown[]) {
   for (const value of values) {
-    const text = cleanText(value);
+    const text = displayText(value);
     if (text) return text;
   }
   return "";
@@ -259,7 +262,7 @@ function firstText(...values: unknown[]) {
 function firstDifferentText(summary: string, ...values: unknown[]) {
   const normalizedSummary = compactText(summary);
   for (const value of values) {
-    const text = cleanText(value);
+    const text = displayText(value);
     if (text && compactText(text) !== normalizedSummary) return text;
   }
   return "";
@@ -373,13 +376,13 @@ function toolWindowOutputText(
   sections: Array<{ label: string; text: string }>,
   detail: string,
 ) {
-  const explicit = cleanText(item.tool_window?.output);
+  const explicit = displayText(item.tool_window?.output);
   if (explicit) return explicit;
   const observation = firstSectionText(sections, "观察")
     || firstSectionText(sections, "错误")
     || firstSectionText(sections, "详情");
   if (observation) return observation;
-  return cleanText(item.observation || item.recovery_hint);
+  return displayText(item.observation || item.recovery_hint);
 }
 
 function firstSectionText(sections: Array<{ label: string; text: string }>, label: string) {
@@ -408,6 +411,17 @@ function cleanText(value: unknown) {
     .trim();
 }
 
+function displayText(value: unknown) {
+  return publicTimelineText(cleanText(value));
+}
+
+function publicTimelineText(value: string) {
+  return String(value ?? "")
+    .replace(/\buser_input_required\b/g, "等待你的确认")
+    .replace(/\bbackground_executor_missing_after_restart\b/g, "连接恢复后需要重新接续运行")
+    .replace(/\bwaiting_executor\b/g, "等待继续");
+}
+
 function displayToolLabel(value: unknown) {
   const normalized = cleanText(value).toLowerCase();
   const labels: Record<string, string> = {
@@ -432,6 +446,9 @@ function displayToolStatus(value: unknown) {
   const labels: Record<string, string> = {
     running: "运行中",
     waiting: "等待中",
+    waiting_executor: "等待中",
+    waiting_user: "等待中",
+    waiting_approval: "等待权限",
     queued: "排队中",
     done: "已完成",
     complete: "已完成",

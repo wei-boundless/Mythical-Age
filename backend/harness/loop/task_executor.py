@@ -120,6 +120,7 @@ _REPEATED_TOOL_FAILURE_BLOCK_COUNT = 4
 _DEFAULT_TASK_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TASK_TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
+_TASK_MODEL_WAIT_PRESENTATION_SOURCE = "runtime.model_wait"
 _TASK_RUN_CONTROL_KEY = "runtime_control"
 _TASK_RUN_PAUSE_REQUESTED = "pause_requested"
 _TASK_RUN_PAUSED = "paused"
@@ -5299,14 +5300,47 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
 
 
 def _executor_closeout_summary(*, status: str, terminal_reason: str) -> str:
-    reason = public_runtime_progress_summary(terminal_reason) or "未知原因"
+    reason = _executor_public_terminal_reason(terminal_reason) or "未知原因"
     if status == "waiting_executor":
+        if reason == "等待你的确认":
+            return "当前步骤正在等待你的确认。"
         return f"当前步骤在等待继续：{reason}。"
     if status in {"aborted", "failed", "blocked"}:
         return f"当前步骤遇到阻塞：{reason}。"
     if status == "completed":
         return "当前步骤已完成。"
     return f"当前步骤已结束：{reason}。"
+
+
+def _executor_public_terminal_reason(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    label = {
+        "user_input_required": "等待你的确认",
+        "waiting_executor": "等待继续",
+        "waiting_user": "等待你的确认",
+        "waiting_approval": "等待权限确认",
+        "background_executor_missing_after_restart": "连接恢复后需要重新接续运行",
+        "completed": "已完成",
+        "failed": "运行中断",
+        "blocked": "处理遇到阻塞",
+        "aborted": "运行已停止",
+        "cancelled": "运行已停止",
+        "canceled": "运行已停止",
+        "stopped": "运行已停止",
+    }.get(normalized)
+    if label:
+        return label
+    public = public_runtime_progress_summary(normalized)
+    if public and not _looks_like_executor_reason_code(public):
+        return public
+    return "需要检查运行状态" if normalized else ""
+
+
+def _looks_like_executor_reason_code(reason: str) -> bool:
+    normalized = str(reason or "").strip()
+    if not normalized or any(ord(ch) > 127 for ch in normalized):
+        return False
+    return "_" in normalized or normalized.startswith(("task-", "task:", "stream-", "stream:", "runtime-", "runtime:", "background-"))
 
 
 def _normalize_executor_terminal_closeout(*, status: str, terminal_reason: str, diagnostics: dict[str, Any]) -> tuple[str, str, dict[str, Any], str]:
@@ -8300,6 +8334,10 @@ def _record_task_model_wait_heartbeat(
             "task_run_id": task_run_id,
             "step": step,
             "status": "running",
+            "summary": "",
+            "title": "",
+            "presentation_source": _TASK_MODEL_WAIT_PRESENTATION_SOURCE,
+            "status_kind": "model_wait_placeholder",
             "wait_round": int(wait_round),
         },
         refs={"task_run_ref": task_run_id, **dict(refs or {})},
@@ -8311,6 +8349,11 @@ def _record_task_model_wait_heartbeat(
                 current,
                 updated_at=event.created_at,
                 latest_event_offset=event.offset,
+                diagnostics={
+                    **dict(current.diagnostics or {}),
+                    "latest_step": step,
+                    "latest_step_status": "running",
+                },
             )
         )
     return event.to_dict()

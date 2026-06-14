@@ -58,6 +58,7 @@ TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     "step_summary_recorded",
+    "task_model_action_wait_heartbeat",
     "model_action_admission_checked",
     "tool_item_started",
     "tool_observation",
@@ -69,7 +70,7 @@ TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     "session_output_commit_skipped",
 }
 TASK_BRIDGE_TERMINAL_EVENT_TYPES = {"task_run_lifecycle_finished", "task_run_terminal_observed"}
-TASK_TERMINAL_STATUSES = {"completed", "failed", "blocked", "aborted", "cancelled", "canceled", "stopped"}
+TASK_TERMINAL_STATUSES = {"completed", "failed", "blocked", "aborted", "cancelled", "canceled", "stopped", "waiting_executor", "waiting_user", "waiting_approval"}
 TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS = {
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
@@ -1478,9 +1479,12 @@ def _append_task_bridge_terminal(
             runtime_active_turn_id=active_turn_id,
             public_anchor=bridge_context.anchor(),
         )
+    raw_task_status = str(context.get("status") or "completed").strip() or "completed"
+    raw_terminal_reason = str(context.get("terminal_reason") or raw_task_status or "completed").strip()
+    public_terminal_reason = _public_terminal_reason(raw_terminal_reason)
     terminal_bridge_data = {
         "bridge_id": bridge_context.bridge_id,
-        "status": str(context.get("status") or "completed").strip() or "completed",
+        "status": raw_task_status,
         "stream_run_id": bridge_context.stream_run_id,
         "session_id": bridge_context.session_id,
         "turn_id": active_turn_id,
@@ -1490,8 +1494,8 @@ def _append_task_bridge_terminal(
         "runtime_task_run_id": task_run_id,
         "message_id": bridge_context.assistant_message_ref,
         "message_ref": bridge_context.assistant_message_ref,
-        "terminal_reason": str(context.get("terminal_reason") or context.get("status") or "completed"),
-        "completion_state": str(context.get("status") or ""),
+        "terminal_reason": public_terminal_reason,
+        "completion_state": raw_task_status,
         "source_task_event_id": source_task_event_id,
         "source_task_event_offset": source_task_event_offset,
         "runtime_event_id": source_task_event_id,
@@ -1511,15 +1515,15 @@ def _append_task_bridge_terminal(
         runtime_active_turn_id=active_turn_id,
         public_anchor=bridge_context.anchor(),
     )
-    status = _public_turn_status_for_task_status(context.get("status"))
+    status = _public_turn_status_for_task_status(raw_task_status)
     terminal_data = _turn_completed_data(
         "task_run_lifecycle_finished",
         {
             "status": status,
             "turn_run_id": turn_run_id,
             "task_run_id": task_run_id,
-            "terminal_reason": str(context.get("terminal_reason") or context.get("status") or "completed"),
-            "completion_state": str(context.get("status") or ""),
+            "terminal_reason": public_terminal_reason,
+            "completion_state": raw_task_status,
             "error": "运行中断" if status == "failed" else "",
             "runtime_event_id": source_task_event_id,
             "source_task_event_id": source_task_event_id,
@@ -1650,7 +1654,7 @@ def _safe_visible_final_answer(value: Any) -> str:
 
 def _public_turn_status_for_task_status(value: Any) -> str:
     status = str(value or "").strip().lower()
-    if status == "completed":
+    if status in {"completed", "waiting_executor", "waiting_user", "waiting_approval"}:
         return "completed"
     if status in {"aborted", "cancelled", "canceled", "stopped", "blocked"}:
         return "stopped"
@@ -1660,8 +1664,12 @@ def _public_turn_status_for_task_status(value: Any) -> str:
 def _is_task_executor_handoff_terminal(public_event_type: str, data: dict[str, Any]) -> bool:
     if public_event_type != TURN_COMPLETED_EVENT:
         return False
-    reason = str(data.get("terminal_reason") or data.get("completion_state") or "").strip().lower()
-    return reason in TASK_EXECUTOR_HANDOFF_REASONS and bool(_task_run_id_from_public_data(data))
+    candidates = (
+        data.get("completion_state"),
+        data.get("terminal_reason"),
+        data.get("status"),
+    )
+    return any(str(candidate or "").strip().lower() in TASK_EXECUTOR_HANDOFF_REASONS for candidate in candidates) and bool(_task_run_id_from_public_data(data))
 
 
 def _task_run_id_from_public_data(data: dict[str, Any]) -> str:
@@ -1862,6 +1870,9 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
     if normalized == "step_summary_recorded":
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []
+    if normalized == "task_model_action_wait_heartbeat":
+        data = _task_model_wait_status_data(raw_data)
+        return [("runtime_status", data)] if data else []
     if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
         data = _assistant_stream_public_data(normalized, raw_data)
         return [(normalized, data)] if data else []
@@ -2077,7 +2088,7 @@ def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]
         )
         tool_name = str(tool.get("tool_name") or tool.get("name") or (request.get("tool_name") if len(tool_calls) == 1 else "") or "").strip()
         tool_call_id = str(tool.get("id") or tool.get("tool_call_id") or "").strip()
-        if not tool_name or not tool_call_id:
+        if not tool_name or not tool_call_id or _is_agent_todo_tool_name(tool_name):
             continue
         args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
         target = _safe_public_tool_target(args)
@@ -2236,7 +2247,11 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         or result_envelope.get("error")
         or execution_receipt.get("error")
     )
-    observation_text = _safe_tool_observation_text(tool_observation, result_envelope=result_envelope)
+    observation_text = _safe_tool_observation_text(
+        tool_observation,
+        result_envelope=result_envelope,
+        tool_name=tool_name,
+    )
     data: dict[str, Any] = {
         "item_id": tool_call_id,
         "tool_lifecycle_id": tool_lifecycle_id,
@@ -2408,6 +2423,40 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
+def _task_model_wait_status_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    refs = _record(raw_event.get("refs"))
+    task_run_id = str(
+        payload.get("task_run_id")
+        or refs.get("task_run_ref")
+        or raw_event.get("task_run_id")
+        or raw_data.get("task_run_id")
+        or raw_data.get("runtime_task_run_id")
+        or ""
+    ).strip()
+    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()
+    source_event_id = str(raw_event.get("event_id") or raw_data.get("source_task_event_id") or "").strip()
+    source_offset = raw_event.get("offset") or raw_data.get("source_task_event_offset") or raw_data.get("event_offset")
+    data: dict[str, Any] = {
+        "task_run_id": task_run_id,
+        "status": "running",
+        "state": "running",
+        "title": "正在思考",
+        "summary": "正在思考",
+        "presentation_source": "runtime.model_wait",
+        "status_kind": "model_wait_placeholder",
+        "item_id": f"model-wait:{task_run_id}" if task_run_id else "",
+    }
+    if runtime_event_id:
+        data["runtime_event_id"] = runtime_event_id
+    if source_event_id:
+        data["source_task_event_id"] = source_event_id
+    if source_offset not in (None, ""):
+        data["source_task_event_offset"] = source_offset
+    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
 def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     raw_event = _record(raw_data.get("event"))
     payload = _record(raw_event.get("payload") or raw_data.get("payload"))
@@ -2456,7 +2505,20 @@ def _tool_lifecycle_id(*, tool_call_id: str, tool_name: str) -> str:
     return f"tool:{normalized_tool}"
 
 
-def _safe_tool_observation_text(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
+def _is_agent_todo_tool_name(tool_name: Any) -> bool:
+    return str(tool_name or "").strip().lower() == "agent_todo"
+
+
+def _safe_tool_observation_text(
+    observation: dict[str, Any],
+    *,
+    result_envelope: dict[str, Any],
+    tool_name: str = "",
+) -> str:
+    if str(tool_name or "").strip().lower() == "agent_todo":
+        todo_summary = _agent_todo_observation_summary(observation, result_envelope=result_envelope)
+        if todo_summary:
+            return todo_summary
     for value in (
         result_envelope.get("text"),
         observation.get("text"),
@@ -2472,6 +2534,52 @@ def _safe_tool_observation_text(observation: dict[str, Any], *, result_envelope:
         if text:
             return text[:500]
     return ""
+
+
+def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
+    payload = _record(observation.get("payload"))
+    parsed: dict[str, Any] = {}
+    for value in (
+        result_envelope.get("structured_payload"),
+        result_envelope.get("result"),
+        result_envelope.get("text"),
+        result_envelope.get("summary"),
+        observation.get("structured_payload"),
+        observation.get("result"),
+        observation.get("text"),
+        observation.get("summary"),
+        payload.get("result"),
+        payload.get("text"),
+        payload.get("summary"),
+    ):
+        parsed = _record_or_json_object(value)
+        if parsed:
+            break
+    if not parsed:
+        return ""
+    status = str(parsed.get("status") or "").strip().lower()
+    if status == "error":
+        error = _safe_public_action_text(parsed.get("error")) or "任务清单更新失败。"
+        return error[:240]
+    items = [dict(item) for item in list(parsed.get("items") or []) if isinstance(item, dict)]
+    total = len(items)
+    if total <= 0:
+        return "任务清单为空。"
+    completed = sum(1 for item in items if str(item.get("status") or "").strip() == "completed")
+    active_id = str(parsed.get("active_item_id") or "").strip()
+    active_item = next(
+        (
+            item
+            for item in items
+            if str(item.get("todo_id") or "").strip() == active_id
+            or str(item.get("status") or "").strip() == "in_progress"
+        ),
+        {},
+    )
+    active_text = _safe_public_action_text(active_item.get("active_form") or active_item.get("content"))
+    if active_text:
+        return f"任务清单：{completed}/{total} 已完成，正在：{active_text[:160]}。"
+    return f"任务清单：{completed}/{total} 已完成。"
 
 
 def _tool_arguments_preview(args: dict[str, Any]) -> str:
@@ -2551,6 +2659,9 @@ def _safe_public_action_text(value: Any) -> str:
 
 def _public_terminal_reason(value: Any) -> str:
     reason = str(value or "").strip()
+    label = _public_runtime_reason_label(reason)
+    if label:
+        return label
     if reason in {
         "continue_active_work",
         "pause_active_work",
@@ -2563,7 +2674,39 @@ def _public_terminal_reason(value: Any) -> str:
         "active_work_control_action_not_allowed",
     }:
         return "work_control"
+    if _looks_like_runtime_reason_code(reason):
+        return "运行状态已更新"
     return reason
+
+
+def _public_runtime_reason_label(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    return {
+        "user_input_required": "等待你的确认",
+        "waiting_executor": "等待继续",
+        "waiting_user": "等待你的确认",
+        "waiting_approval": "等待权限确认",
+        "task_executor_scheduled": "任务已进入执行流程",
+        "background_executor_missing_after_restart": "连接恢复后需要重新接续运行",
+        "missing_terminal_event": "输出流没有正常收口",
+        "stream_exception": "输出流异常中断",
+        "stream_cancelled": "输出流已取消",
+        "completed": "已完成",
+        "failed": "运行中断",
+        "stopped": "运行已停止",
+        "aborted": "运行已停止",
+        "cancelled": "运行已停止",
+        "canceled": "运行已停止",
+    }.get(normalized, "")
+
+
+def _looks_like_runtime_reason_code(reason: str) -> bool:
+    normalized = str(reason or "").strip()
+    if not normalized:
+        return False
+    if any(ord(ch) > 127 for ch in normalized):
+        return False
+    return "_" in normalized or normalized.startswith(("task-", "task:", "stream-", "stream:", "runtime-", "runtime:"))
 
 
 def _is_turn_trace_only_harness_start(event: dict[str, Any]) -> bool:

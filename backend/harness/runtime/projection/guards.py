@@ -9,58 +9,6 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 
 
-SUPPRESSED_PUBLIC_TEXT = {
-    "",
-    "assistant_message",
-    "done",
-    "completed",
-    "running",
-    "working",
-    "thinking",
-    "responding",
-    "verifying",
-    "waiting_for_tool",
-    "tool_returned",
-    "ready_to_finish",
-    "success",
-    "true",
-    "false",
-    "null",
-    "none",
-    "开始处理",
-    "处理完成",
-    "处理已完成",
-    "处理结束",
-    "正在处理",
-    "正在处理当前请求",
-    "正在处理当前请求。",
-    "正在处理任务",
-    "正在建立任务运行",
-    "正在建立任务运行。",
-    "已开始处理",
-    "已开始处理当前请求",
-    "已开始处理当前请求。",
-    "已同步最新进展。",
-    "已接上当前工作，正在同步最新进展。",
-    "已开始继续处理；接下来会持续汇报正在推进的步骤。",
-    "已把任务目标转成可跟踪的待办清单。",
-    "已把任务目标转成可跟踪的处理清单。",
-    "任务执行器已接管",
-    "任务执行器已接管，正在推进第一步。",
-    "已接手任务，正在整理执行步骤。",
-    "处理清单已建立",
-    "处理清单已更新。",
-    "工具调用已完成，正在根据结果继续。",
-    "工具返回成功，正在根据结果继续。",
-    "工具返回了结构化结果，正在根据结果继续。",
-    "正在判断下一步动作。",
-    "工具检查次数达到边界",
-    "等待结果返回",
-    "结果已返回",
-    "上下文已返回",
-    "读取未完成，需要重新确认读取范围后继续。",
-}
-
 INTERNAL_TOKENS = {
     "action_type",
     "agent_turn_terminal",
@@ -91,9 +39,6 @@ def public_text(value: Any, *, limit: int = 220) -> str:
     if not text:
         return ""
     text = " ".join(text.split()).strip()
-    lowered = text.lower()
-    if text in SUPPRESSED_PUBLIC_TEXT or lowered in SUPPRESSED_PUBLIC_TEXT:
-        return ""
     if looks_structured_payload(text) or looks_internal_text(text):
         return ""
     if limit > 0 and len(text) > limit:

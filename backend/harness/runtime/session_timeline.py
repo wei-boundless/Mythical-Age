@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from runtime.shared.stream_replay import sanitized_public_projection_frame
 from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
@@ -168,6 +169,9 @@ def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str,
             continue
         payload = dict(getattr(event, "payload", {}) or {})
         data = dict(payload.get("data") or {})
+        data_frame = data.get("public_projection_frame")
+        if isinstance(data_frame, dict):
+            data = {**data, "public_projection_frame": sanitized_public_projection_frame(data_frame)}
         records.append(
             {
                 "stream_run_id": str(getattr(run, "stream_run_id", "") or ""),
@@ -178,7 +182,7 @@ def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str,
                 "public_event_type": str(payload.get("public_event_type") or "").strip(),
                 "terminal": bool(payload.get("terminal") is True),
                 "data": data,
-                "public_projection_frame": dict(data.get("public_projection_frame") or {})
+                "public_projection_frame": sanitized_public_projection_frame(data.get("public_projection_frame"))
                 if isinstance(data.get("public_projection_frame"), dict)
                 else {},
             }
@@ -194,6 +198,7 @@ def _public_projection_frames_from_public_events(public_events: list[dict[str, A
         if not frame:
             data = _dict_record(event.get("data"))
             frame = dict(data.get("public_projection_frame") or {}) if isinstance(data.get("public_projection_frame"), dict) else {}
+        frame = sanitized_public_projection_frame(frame)
         frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
         if not frame_id or frame_id in seen:
             continue
@@ -295,11 +300,18 @@ def _tool_event_count(frames: list[dict[str, Any]]) -> int:
     tool_call_ids = {
         str(frame.get("tool_call_id") or "").strip()
         for frame in frames
-        if str(frame.get("event_family") or "") == "tool_control" and str(frame.get("tool_call_id") or "").strip()
+        if str(frame.get("event_family") or "") == "tool_control"
+        and str(frame.get("tool_call_id") or "").strip()
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
     }
     if tool_call_ids:
         return len(tool_call_ids)
-    return sum(1 for frame in frames if str(frame.get("event_family") or "") == "tool_control")
+    return sum(
+        1
+        for frame in frames
+        if str(frame.get("event_family") or "") == "tool_control"
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
+    )
 
 
 def _closeout_summary(*, public_events: list[dict[str, Any]], frames: list[dict[str, Any]]) -> str:

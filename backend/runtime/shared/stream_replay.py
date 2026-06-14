@@ -76,6 +76,7 @@ class RuntimeStreamReplayService:
         for event in self.list_public_events(run):
             payload = dict(event.payload or {})
             data = dict(payload.get("data") or {})
+            data = _data_with_sanitized_public_projection_frame(data)
             records.append(
                 {
                     "stream_run_id": run.stream_run_id,
@@ -97,6 +98,7 @@ class RuntimeStreamReplayService:
         payload = dict(event.payload or {})
         event_name = str(payload.get("public_event_type") or "message").strip() or "message"
         data = dict(payload.get("data") or {})
+        data = _data_with_sanitized_public_projection_frame(data)
         data.update(
             {
                 "stream_run_id": run.stream_run_id,
@@ -119,6 +121,45 @@ class RuntimeStreamReplayService:
 
 def stream_event_id(stream_run_id: str, event_log_id: str, offset: int) -> str:
     return f"{stream_run_id}:{event_log_id}:{int(offset)}"
+
+
+def sanitized_public_projection_frame(frame: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(frame or {})
+    if not _is_legacy_protocol_repair_public_frame(payload):
+        return payload
+    sanitized = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"detail", "public_summary", "status_kind", "text", "title"}
+    }
+    sanitized.update(
+        {
+            "op": "item_upsert",
+            "slot": "trace",
+            "source_authority": "runtime",
+            "main_visibility": "hidden",
+            "retention": "trace",
+        }
+    )
+    return sanitized
+
+
+def _data_with_sanitized_public_projection_frame(data: dict[str, Any]) -> dict[str, Any]:
+    frame = data.get("public_projection_frame")
+    if not isinstance(frame, dict):
+        return data
+    sanitized = sanitized_public_projection_frame(frame)
+    if sanitized == frame:
+        return data
+    return {**data, "public_projection_frame": sanitized}
+
+
+def _is_legacy_protocol_repair_public_frame(frame: dict[str, Any]) -> bool:
+    status_kind = str(frame.get("status_kind") or "").strip().lower()
+    if status_kind == "protocol_repair_status":
+        return True
+    item_id = str(frame.get("item_id") or "").strip().lower()
+    return item_id.startswith("protocol-repair")
 
 
 def parse_stream_event_id(value: str, *, expected_stream_run_id: str = "", expected_event_log_id: str = "") -> RuntimeStreamCursor | None:

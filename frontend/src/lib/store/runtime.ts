@@ -29,7 +29,6 @@ import {
   getSessionTokens,
   getWorkbenchCurrentSession,
   getProjectWorkspaceTree,
-  isRequestAbortError,
   listProjectWorkspaces,
   listProjectWorkspaceSessions,
   listSessions,
@@ -2782,7 +2781,7 @@ export class WorkspaceRuntime {
           return;
         }
         streamEndedWithError = true;
-        const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId) || this.isAbortError(error);
+        const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
         const transition = reduceStreamEvent(
           this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
           transitionSession,
@@ -3050,7 +3049,7 @@ export class WorkspaceRuntime {
         return;
       }
       streamEndedWithError = true;
-      const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId) || this.isAbortError(error);
+      const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
       transition = reduceStreamEvent(
         this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
         transition.session,
@@ -3339,10 +3338,6 @@ export class WorkspaceRuntime {
     }
     await this.hydrateLatestOrchestrationSnapshot(sessionId);
     await this.refreshRunMonitor();
-  }
-
-  private isAbortError(error: unknown) {
-    return isRequestAbortError(error);
   }
 
   private async resendEditedMessage(messageId: string, value: string) {
@@ -4587,7 +4582,7 @@ export class WorkspaceRuntime {
     const text = String(value ?? "").trim();
     if (!text) return "";
     if (this.runtimeLooksLikeMachineStatusLeak(text)) return "";
-    return this.runtimeIsGenericProgressText(text) ? "" : text;
+    return text;
   }
 
   private runtimeLooksLikeMachineStatusLeak(value: string) {
@@ -4609,50 +4604,6 @@ export class WorkspaceRuntime {
     }
     const compact = lowered.replace(/[\s。.!！?？,，;；:：_-]+/g, "");
     return Array.from(machineStates).some((item) => item.replace(/_/g, "") === compact);
-  }
-
-  private runtimeIsGenericProgressText(value: string) {
-    const normalized = String(value ?? "")
-      .replace(/\s+/g, "")
-      .replace(/[。.!！?？,，;；:：]/g, "")
-      .toLowerCase();
-    if (!normalized) return true;
-    return new Set([
-      "开始处理",
-      "处理完成",
-      "处理已完成",
-      "处理结束",
-      "正在处理",
-      "正在处理当前请求",
-      "正在处理任务",
-      "正在思考",
-      "已同步最新进展",
-      "已接上当前工作正在同步最新进展",
-      "已开始继续处理接下来会持续汇报正在推进的步骤",
-      "已把任务目标转成可跟踪的待办清单",
-      "已把任务目标转成可跟踪的处理清单",
-      "处理清单已建立",
-      "处理清单已更新",
-      "工具调用已完成正在根据结果继续",
-      "工具返回成功正在根据结果继续",
-      "工具返回了结构化结果正在根据结果继续",
-      "等待结果返回",
-      "结果已返回",
-      "上下文已返回",
-      "读取未完成需要重新确认读取范围后继续",
-      "已收到补充要求",
-      "收到补充要求",
-      "已加入当前工作队列",
-      "补充要求已进入当前工作队列",
-      "补充要求已排队当前步骤结束后会在下一回合处理",
-      "已收到你的补充说明会在后续处理里优先纳入",
-      "已收到新的补充要求正在中断当前步骤并重新规划",
-      "waiting_for_tool",
-      "tool_returned",
-      "ready_to_finish",
-      "responding",
-      "verifying",
-    ]).has(normalized);
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {

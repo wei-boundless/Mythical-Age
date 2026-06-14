@@ -16,6 +16,8 @@ from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
+    STATUS_PUBLIC_CHANNEL,
+    STATUS_TRACE_EVENT_FAMILY,
     TASK_BRIDGE_STARTED_EVENT,
     TASK_BRIDGE_TERMINAL_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
@@ -33,22 +35,22 @@ _TRACE_ONLY_RUNTIME_STEP_SOURCES = {"runtime.protocol_repair", "system.tool_call
 class ProjectionLifecycleState:
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
-        self._model_feedback_keys: set[str] = set()
 
     def should_emit_public_event(self, public_event_type: str, data: dict[str, Any]) -> bool:
-        if text(public_event_type) != "runtime_step_summary":
-            return True
-        key = _runtime_step_summary_visible_feedback_key(data)
-        if not key:
-            return True
-        if key in self._model_feedback_keys:
-            return False
-        self._model_feedback_keys.add(key)
         return True
 
     def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
         event_type = text(public_event_type)
         offset = _event_offset(sequence=sequence)
+        if event_type in {
+            TOOL_CALL_REQUESTED_EVENT,
+            TOOL_PERMISSION_DECIDED_EVENT,
+            TOOL_ITEM_STARTED_EVENT,
+            TOOL_ITEM_COMPLETED_EVENT,
+        } and _is_agent_todo_tool(data.get("tool_name")):
+            if event_type == TOOL_ITEM_COMPLETED_EVENT:
+                return _agent_todo_completed_status_spec(data)
+            return _agent_todo_hidden_trace_spec(data, state="running")
         if event_type == TOOL_CALL_REQUESTED_EVENT:
             spec = _tool_call_requested_spec(data)
             tool_call_id = text(spec.get("tool_call_id"))
@@ -224,6 +226,15 @@ def attach_public_projection_event(
 
 def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     event_type = text(public_event_type)
+    if event_type in {
+        TOOL_CALL_REQUESTED_EVENT,
+        TOOL_PERMISSION_DECIDED_EVENT,
+        TOOL_ITEM_STARTED_EVENT,
+        TOOL_ITEM_COMPLETED_EVENT,
+    } and _is_agent_todo_tool(data.get("tool_name")):
+        if event_type == TOOL_ITEM_COMPLETED_EVENT:
+            return _agent_todo_completed_status_spec(data)
+        return _agent_todo_hidden_trace_spec(data, state="running")
     if event_type == ASSISTANT_TEXT_DELTA_EVENT:
         return _assistant_body_spec(data, op="body_append", state="running", retention="transient")
     if event_type == ASSISTANT_TEXT_FINAL_EVENT:
@@ -293,6 +304,10 @@ def _assistant_repair_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 def _is_trace_only_tool(tool_name: str) -> bool:
     return text(tool_name).lower() in _TRACE_ONLY_TOOL_NAMES
+
+
+def _is_agent_todo_tool(tool_name: Any) -> bool:
+    return text(tool_name).lower() == "agent_todo"
 
 
 def _trace_only_tool_request_spec(
@@ -373,10 +388,66 @@ def _trace_only_tool_title(tool_name: str, *, failed: bool) -> str:
     return "内部工具执行失败" if failed else "内部工具执行"
 
 
+def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
+    return {
+        "op": "item_upsert",
+        "slot": "trace",
+        "source_authority": "runtime",
+        "main_visibility": "hidden",
+        "retention": "trace",
+        "event_family": STATUS_TRACE_EVENT_FAMILY,
+        "channel": STATUS_PUBLIC_CHANNEL,
+        "lossless": False,
+        "item_id": stable_id(
+            "agent-todo-trace",
+            data.get("runtime_event_id"),
+            data.get("source_task_event_id"),
+            data.get("tool_call_id"),
+            state,
+        ),
+        "state": text(state) or "running",
+        "status_kind": "todo_plan_trace",
+        "trace_refs": _trace_refs(data),
+    }
+
+
+def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "", failed: bool | None = None) -> dict[str, Any]:
+    anchor = record(data.get("public_anchor"))
+    task_run_id = text(data.get("task_run_id")) or text(anchor.get("task_run_id")) or text(data.get("runtime_task_run_id"))
+    raw_state = text(data.get("state")).lower()
+    resolved_failed = raw_state in {"error", "failed", "blocked"} if failed is None else bool(failed)
+    visible_detail = public_text(detail or data.get("error") or data.get("observation"), limit=360)
+    if not visible_detail and not resolved_failed:
+        return _agent_todo_hidden_trace_spec(data, state="done")
+    title = "任务清单更新失败" if resolved_failed else "任务清单已更新"
+    if resolved_failed and not visible_detail:
+        visible_detail = "任务清单更新失败。"
+    return {
+        "op": "item_upsert",
+        "slot": "pinned" if resolved_failed else "status",
+        "source_authority": "runtime",
+        "main_visibility": "pinned" if resolved_failed else "visible_live",
+        "retention": "pinned_until_resolved" if resolved_failed else "transient",
+        "event_family": STATUS_TRACE_EVENT_FAMILY,
+        "channel": STATUS_PUBLIC_CHANNEL,
+        "lossless": False,
+        "pin_reason": "failed" if resolved_failed else "",
+        "item_id": stable_id("agent-todo-status", task_run_id, data.get("runtime_event_id"), title, visible_detail),
+        "title": title,
+        "text": title,
+        "detail": visible_detail,
+        "state": "failed" if resolved_failed else "done",
+        "status_kind": "todo_plan_status",
+        "trace_refs": _trace_refs(data),
+    }
+
+
 def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
     action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    if _is_agent_todo_tool(tool_name):
+        return _agent_todo_hidden_trace_spec(data, state="running")
     if _is_trace_only_tool(tool_name):
         return _trace_only_tool_request_spec(
             data,
@@ -454,13 +525,15 @@ def _tool_permission_decided_spec(data: dict[str, Any]) -> dict[str, Any]:
 def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = text(data.get("tool_call_id"))
     permission_decision_id = text(data.get("permission_decision_id"))
+    tool_name = text(data.get("tool_name")) or "tool"
+    if _is_agent_todo_tool(tool_name):
+        return _agent_todo_hidden_trace_spec(data, state="running")
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
             code="tool_started_without_request_or_permission",
             detail="tool_item_started 缺少 tool_call_id 或 permission_decision_id，不能进入主视图。",
         )
-    tool_name = text(data.get("tool_name")) or "tool"
     return {
         "op": "item_upsert",
         "slot": "trace",
@@ -480,16 +553,18 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
 def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_call_id = text(data.get("tool_call_id"))
     permission_decision_id = text(data.get("permission_decision_id"))
+    tool_name = text(data.get("tool_name")) or "tool"
+    raw_state = text(data.get("state")).lower()
+    failed = raw_state in {"error", "failed", "blocked"}
+    detail = public_text(data.get("error") or data.get("observation"), limit=360)
+    if _is_agent_todo_tool(tool_name):
+        return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
             code="tool_completed_without_request_or_permission",
             detail="tool_item_completed 缺少 tool_call_id 或 permission_decision_id，不能进入主视图。",
         )
-    tool_name = text(data.get("tool_name")) or "tool"
-    raw_state = text(data.get("state")).lower()
-    failed = raw_state in {"error", "failed", "blocked"}
-    detail = public_text(data.get("error") or data.get("observation"), limit=360)
     title = _tool_completed_text(data, tool_name=tool_name, failed=failed)
     if _is_trace_only_tool(tool_name):
         return _trace_only_tool_completed_spec(
@@ -644,6 +719,33 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
     visible_detail = public_text(data.get("detail"), limit=260)
     state = text(data.get("state") or data.get("status")) or "running"
     status_kind = text(data.get("status_kind"))
+    presentation_source = text(data.get("presentation_source"))
+    source_task_event_type = text(data.get("source_task_event_type"))
+    item_id = text(data.get("item_id"))
+    if (
+        presentation_source == "runtime.model_wait"
+        or source_task_event_type == "task_model_action_wait_heartbeat"
+        or item_id.startswith("model-wait:")
+        or status_kind == "model_wait_placeholder"
+    ):
+        title = visible_title or "正在思考"
+        return {
+            "op": "item_upsert",
+            "slot": "status",
+            "status_kind": "model_wait_placeholder",
+            "source_authority": "runtime",
+            "event_family": STATUS_TRACE_EVENT_FAMILY,
+            "channel": STATUS_PUBLIC_CHANNEL,
+            "lossless": False,
+            "main_visibility": "visible_live",
+            "retention": "transient",
+            "item_id": item_id or stable_id("model-wait", data.get("task_run_id"), data.get("runtime_event_id"), data.get("source_task_event_id")),
+            "title": title,
+            "text": title,
+            "detail": "",
+            "state": state,
+            "trace_refs": _trace_refs(data),
+        }
     public_status = status_kind in {"public_stage_status", "active_task_steer_receipt", "user_visible_runtime_status"}
     return {
         "op": "item_upsert",
@@ -668,6 +770,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
     agent_brief = public_text(data.get("agent_brief_output"), limit=220)
     summary = public_text(data.get("summary"), limit=180)
     title = progress_note or current_judgment or summary
+    title = _public_runtime_step_title(data, title)
     detail = next(
         (
             value
@@ -678,13 +781,15 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
     )
     presentation_source = text(data.get("presentation_source"))
     if presentation_source in _TRACE_ONLY_RUNTIME_STEP_SOURCES:
+        trace_title = "" if presentation_source == "runtime.protocol_repair" else title
+        trace_detail = "" if presentation_source == "runtime.protocol_repair" else detail
         return {
             "op": "item_upsert",
             "slot": "trace",
             "source_authority": "runtime",
             "main_visibility": "hidden",
             "retention": "trace",
-            "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
+            "frame_id": _runtime_stage_status_frame_id(data, title=trace_title, detail=trace_detail),
             "item_id": stable_id(
                 "runtime-step",
                 data.get("runtime_event_id"),
@@ -692,9 +797,9 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
                 data.get("source_task_event_offset"),
                 data.get("step"),
             ),
-            "title": title,
-            "text": title,
-            "detail": detail,
+            "title": trace_title,
+            "text": trace_title,
+            "detail": trace_detail,
             "state": text(data.get("status")) or "running",
             "trace_refs": _trace_refs(data),
         }
@@ -735,9 +840,32 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _runtime_step_summary_body_text(*, title: str, detail: str) -> str:
-    if title and detail and compact(title) != compact(detail):
+    if title and detail and _normalized_body_text(title) != _normalized_body_text(detail):
         return f"{title}\n\n{detail}"
     return title or detail
+
+
+def _public_runtime_step_title(data: dict[str, Any], title: str) -> str:
+    status = text(data.get("status")).lower()
+    step = text(data.get("step")).lower()
+    normalized_title = text(title)
+    if status == "waiting_executor" or step.startswith("task_run_waiting_executor"):
+        if "user_input_required" in normalized_title or not normalized_title:
+            return "当前步骤正在等待你的确认。"
+        if _looks_like_runtime_reason_code(normalized_title):
+            return "当前步骤正在等待继续。"
+    return normalized_title
+
+
+def _looks_like_runtime_reason_code(value: str) -> bool:
+    normalized = text(value)
+    if not normalized or any(ord(ch) > 127 for ch in normalized):
+        return False
+    return "_" in normalized or normalized.startswith(("task-", "task:", "stream-", "stream:", "runtime-", "runtime:", "background-"))
+
+
+def _normalized_body_text(value: str) -> str:
+    return " ".join(text(value).split()).strip()
 
 
 def _runtime_step_summary_body_item_id(data: dict[str, Any], *, title: str, detail: str) -> str:
@@ -753,43 +881,6 @@ def _runtime_step_summary_body_item_id(data: dict[str, Any], *, title: str, deta
         title,
         detail,
     )
-
-
-def _runtime_step_summary_visible_feedback_key(data: dict[str, Any]) -> str:
-    presentation_source = text(data.get("presentation_source"))
-    if not presentation_source.startswith("model_action."):
-        return ""
-    progress_note = public_text(data.get("public_progress_note"), limit=180)
-    current_judgment = public_text(data.get("current_judgment"), limit=180)
-    next_action = public_text(data.get("next_action"), limit=220)
-    agent_brief = public_text(data.get("agent_brief_output"), limit=220)
-    summary = public_text(data.get("summary"), limit=180)
-    title = progress_note or current_judgment or summary
-    detail = next(
-        (
-            value
-            for value in (current_judgment, next_action, agent_brief)
-            if value and value != title
-        ),
-        "",
-    )
-    body = _runtime_step_summary_body_text(title=title, detail=detail)
-    if not body:
-        return ""
-    feedback_identity = text(data.get("feedback_identity"))
-    if feedback_identity:
-        return stable_id("model-action-feedback-visible", feedback_identity)
-    anchor = record(data.get("public_anchor"))
-    scope = (
-        text(data.get("task_run_id"))
-        or text(data.get("runtime_task_run_id"))
-        or text(anchor.get("task_run_id"))
-        or text(data.get("turn_run_id"))
-        or text(anchor.get("turn_run_id"))
-        or text(data.get("turn_id"))
-        or text(anchor.get("turn_id"))
-    )
-    return stable_id("model-action-feedback-visible", scope, compact(body))
 
 
 def _runtime_stage_status_frame_id(data: dict[str, Any], *, title: str, detail: str) -> str:

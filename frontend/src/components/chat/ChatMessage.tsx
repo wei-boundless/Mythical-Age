@@ -490,17 +490,42 @@ function publicTimelineItemsFromProjection(projection: MessagePublicProjection |
       ...(projection.pinned ?? []),
       ...(projection.finalResults ?? []),
     ].filter((item): item is PublicProjectionItem => Boolean(item));
-  return coalesceProjectionTimelineItems(timeline)
+  const items = coalesceProjectionTimelineItems(timeline)
     .map(projectionItemToTimelineItem)
     .filter((item): item is PublicChatTimelineItem => Boolean(item))
     .sort((left, right) =>
       Number(left.event_offset ?? 0) - Number(right.event_offset ?? 0)
       || String(left.item_id || "").localeCompare(String(right.item_id || ""))
     );
+  const latestBodyOffset = latestProjectionBodyOffset(projection);
+  const latestNonWaitOffset = Math.max(
+    Number.NEGATIVE_INFINITY,
+    ...items
+      .filter((item) => !isModelWaitPlaceholderTimelineItem(item))
+      .map((item) => Number(item.event_offset ?? Number.NEGATIVE_INFINITY)),
+  );
+  return items.filter((item) => {
+    if (!isModelWaitPlaceholderTimelineItem(item)) return true;
+    const itemOffset = Number(item.event_offset ?? Number.NEGATIVE_INFINITY);
+    return itemOffset >= latestBodyOffset && itemOffset >= latestNonWaitOffset;
+  });
+}
+
+function latestProjectionBodyOffset(projection: MessagePublicProjection) {
+  const bodyBlockOffsets = (projection.bodyBlocks ?? []).flatMap((block) => [
+    Number(block.firstOffset),
+    Number(block.lastOffset),
+  ]);
+  return Math.max(
+    Number.NEGATIVE_INFINITY,
+    Number(projection.bodyEventOffset ?? Number.NEGATIVE_INFINITY),
+    ...bodyBlockOffsets.filter(Number.isFinite),
+  );
 }
 
 function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem | null {
   if (!isProjectionTimelineItem(item)) return null;
+  if (cleanText(item.toolName).toLowerCase() === "agent_todo") return null;
   const toolOwned = Boolean(item.toolCallId || item.toolLifecycleId || item.toolName);
   const toolWindow = toolOwned && projectionItemNeedsToolWindow(item);
   const toolLabel = projectionToolLabel(item.toolName);
@@ -852,6 +877,20 @@ function isModelFeedbackTimelineItem(item: PublicChatTimelineItem) {
   const statusKind = cleanText(item.status_kind || (item as { statusKind?: unknown }).statusKind).toLowerCase();
   if (sourceEventType === "runtime_step_summary" && statusKind === "public_stage_status") return true;
   return sourceAuthority === "model" && (eventFamily === "status_trace" || channel === "status");
+}
+
+function isModelWaitPlaceholderTimelineItem(item: PublicChatTimelineItem) {
+  const itemId = cleanText(item.item_id);
+  const sourceEventType = cleanText(item.source_event_type).toLowerCase();
+  const statusKind = cleanText(item.status_kind || (item as { statusKind?: unknown }).statusKind).toLowerCase();
+  const title = compactText(item.text || item.title || item.public_summary);
+  return itemId.startsWith("model-wait:")
+    || statusKind === "model_wait_placeholder"
+    || (
+      sourceEventType === "runtime_status"
+      && statusKind === "public_stage_status"
+      && (title === compactText("正在思考") || title === compactText("等待模型返回"))
+    );
 }
 
 function modelFeedbackBodyText(item: PublicChatTimelineItem) {

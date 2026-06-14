@@ -216,7 +216,7 @@ function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: Pu
   switch (frame.op) {
     case "body_append": {
       const bodyChunk = typeof frame.text === "string" ? frame.text : "";
-      if (bodyChunk.length > 0 && !ledger.body.source_offsets.includes(offset)) {
+      if (bodyChunk.length > 0 && !ledgerHasBodyFrame(ledger, frame)) {
         ledger.body.text += bodyChunk;
         ledger.body.source_offsets.push(offset);
         ledger.body.stream_state = "streaming";
@@ -487,6 +487,12 @@ function markLatestBodyBlockState(
 
 function bodyFrameId(frame: PublicProjectionFrame) {
   return text(frame.frame_id || frame.projection_id || frame.source_event_id) || stableBodyBlockId(frame, frameOffset(frame));
+}
+
+function ledgerHasBodyFrame(ledger: ProjectionLedger, frame: PublicProjectionFrame) {
+  const frameId = bodyFrameId(frame);
+  if (!frameId) return false;
+  return (ledger.body.blocks ?? []).some((block) => (block.sourceFrameIds ?? []).includes(frameId));
 }
 
 function stableBodyBlockId(frame: PublicProjectionFrame, offset: number) {

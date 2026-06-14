@@ -1,4 +1,4 @@
-import { apiRequest, getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
+import { apiRequest, getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl } from "./api/client";
 
 export { getApiBase, getRuntimeLogEventStreamUrl, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
 
@@ -4161,9 +4161,6 @@ function chatStreamErrorMessage(error: unknown, fallback: string) {
 }
 
 function isReconnectableChatStreamTransportError(error: unknown) {
-  if (isRequestAbortError(error)) {
-    return false;
-  }
   if (error instanceof TypeError) {
     return true;
   }
@@ -4176,7 +4173,10 @@ function isReconnectableChatStreamTransportError(error: unknown) {
   }
   const name = String(record.name ?? "");
   const message = String(record.message ?? "");
-  return name === "NetworkError"
+  return name === "AbortError"
+    || name === "TimeoutError"
+    || name === "NetworkError"
+    || name === "RequestTimeoutError"
     || message.includes("Failed to fetch")
     || message.includes("NetworkError")
     || message.includes("Load failed")

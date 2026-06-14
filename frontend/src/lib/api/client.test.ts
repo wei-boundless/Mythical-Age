@@ -305,6 +305,35 @@ describe("streamChat", () => {
     expect(String(fetch.mock.calls[2][0])).toContain("after_offset=-1");
   });
 
+  it("reconnects when the SSE reader is interrupted with AbortError", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    const abortingReader = {
+      read: vi.fn(async () => {
+        throw new DOMException("stream interrupted", "AbortError");
+      }),
+      cancel: vi.fn(async () => undefined),
+    } as ReturnType<typeof streamReader>;
+    const doneReader = streamReader(['id: strun:test:chatrun:test:1\nevent: turn_completed\ndata: {"event_offset":1,"status":"completed"}\n\n']);
+    const fetch = mockChatRunFetch([abortingReader, doneReader]);
+    vi.stubGlobal("fetch", fetch);
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "hi", session_id: "session:abort-reconnect" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    const result = await pending;
+    expect(result.terminalEvent).toBe("turn_completed");
+    expect(result.terminalStatus).toBe("completed");
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(abortingReader.cancel).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[2][0])).toContain("after_offset=-1");
+    expect(events.map((item) => item.event)).toEqual(["stream_reconnecting", "stream_reconnected", "turn_completed"]);
+  });
+
   it("returns backend terminal events without frontend completion fields", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
