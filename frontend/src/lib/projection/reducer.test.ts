@@ -99,6 +99,12 @@ describe("public projection frame reducer contract", () => {
       text: "读取投影 reducer",
       mainVisibility: "visible_live",
     });
+    expect(projection?.timeline).toEqual([
+      expect.objectContaining({
+        toolCallId: "call:read",
+        sourceEventType: "tool_call_requested",
+      }),
+    ]);
   });
 
   it("keeps raw tool_item_started invisible when it has no public projection frame", () => {
@@ -169,6 +175,10 @@ describe("public projection frame reducer contract", () => {
     expect(projection?.currentAction).toBeUndefined();
     expect(projection?.pinned).toEqual([]);
     expect(projection?.traceCount).toBeGreaterThan(0);
+    expect(projection?.timeline.map((item) => item.sourceEventType)).toEqual([
+      "tool_call_requested",
+      "tool_item_completed",
+    ]);
   });
 
   it("pins failed tool results until they are resolved", () => {
@@ -272,6 +282,7 @@ describe("public projection frame reducer contract", () => {
     const projection = transition.state.messages.at(-1)?.publicProjection;
     expect(projection?.bodyText).toBe("最终正文。");
     expect(projection?.bodyState).toBe("committed");
+    expect(projection?.bodyEventOffset).toBeGreaterThan(0);
     expect(projection?.commitState).toBe("committed");
     expect(projection?.currentAction).toBeUndefined();
     expect(projection?.traceCount).toBeGreaterThan(0);

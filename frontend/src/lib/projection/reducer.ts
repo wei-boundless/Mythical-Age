@@ -214,9 +214,11 @@ function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: Pu
         if (ledger.currentAction && ledger.currentAction.itemId !== item.itemId) {
           ledger.trace = upsertProjectionItem(ledger.trace, { ...ledger.currentAction, mainVisibility: "trace_only", retention: "trace" });
         }
+        recordTimelineItem(ledger, frame, item);
         ledger.currentAction = item;
         return sortLedger(ledger);
       }
+      recordTimelineItem(ledger, frame, item);
       if (frame.slot === "pinned") ledger.pinned = upsertProjectionItem(ledger.pinned, item);
       else if (frame.slot === "final_result") ledger.finalResults = upsertProjectionItem(ledger.finalResults, item);
       else if (frame.slot === "status") ledger.status = upsertProjectionItem(ledger.status, item);
@@ -227,6 +229,7 @@ function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: Pu
       const item = projectionItemFromFrame(frame);
       const retireId = item?.itemId || text(frame.item_id || frame.tool_call_id);
       if (!retireId) return sortLedger(ledger);
+      if (item) recordTimelineItem(ledger, frame, item);
       if (ledger.currentAction && itemMatchesRetireId(ledger.currentAction, retireId)) {
         const retiredAction = { ...ledger.currentAction, ...item };
         ledger.trace = upsertProjectionItem(ledger.trace, { ...retiredAction, mainVisibility: "trace_only", retention: "trace" });
@@ -288,6 +291,9 @@ function messagePublicProjectionFromLedger(ledger: ProjectionLedger): MessagePub
   const visiblePinned = ledger.pinned.filter(itemIsMainVisible);
   const visibleFinal = ledger.finalResults.filter(itemIsMainVisible);
   const visibleStatus = ledger.status.filter(itemIsMainVisible);
+  const bodyEventOffset = ledger.body.source_offsets.length
+    ? ledger.body.source_offsets[ledger.body.source_offsets.length - 1]
+    : undefined;
   return {
     bodyText: ledger.body.text,
     bodyState: ledger.body.stream_state,
@@ -295,6 +301,9 @@ function messagePublicProjectionFromLedger(ledger: ProjectionLedger): MessagePub
     pinned: visiblePinned,
     finalResults: visibleFinal,
     status: visibleStatus,
+    trace: ledger.trace,
+    timeline: ledger.timeline ?? [],
+    bodyEventOffset,
     traceAvailable: ledger.trace.length > 0,
     traceCount: ledger.trace.length,
     commitState: ledger.commit.state,
@@ -325,6 +334,7 @@ function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjection
     traceRefs: Array.isArray(frame.trace_refs) ? frame.trace_refs.map(text).filter(Boolean) : [],
     artifactRefs: Array.isArray(frame.artifact_refs) ? frame.artifact_refs : [],
     eventOffset: frameOffset(frame),
+    sourceEventType: text(frame.source_event_type),
     sourceEventId: text(frame.source_event_id),
   };
 }
@@ -336,6 +346,7 @@ function emptyProjectionLedger(): ProjectionLedger {
     finalResults: [],
     status: [],
     trace: [],
+    timeline: [],
     commit: { state: "none" },
   };
 }
@@ -348,6 +359,7 @@ function cloneLedger(ledger: ProjectionLedger): ProjectionLedger {
     finalResults: ledger.finalResults.map((item) => ({ ...item })),
     status: ledger.status.map((item) => ({ ...item })),
     trace: ledger.trace.map((item) => ({ ...item })),
+    timeline: (ledger.timeline ?? []).map((item) => ({ ...item })),
     commit: { ...ledger.commit },
     terminal: ledger.terminal ? { ...ledger.terminal } : undefined,
   };
@@ -356,6 +368,34 @@ function cloneLedger(ledger: ProjectionLedger): ProjectionLedger {
 function addTrace(ledger: ProjectionLedger, item: PublicProjectionItem) {
   ledger.trace = upsertProjectionItem(ledger.trace, { ...item, mainVisibility: "trace_only", retention: "trace" });
   return sortLedger(ledger);
+}
+
+function recordTimelineItem(ledger: ProjectionLedger, frame: PublicProjectionFrame, item: PublicProjectionItem) {
+  const timelineItem = timelineItemFromFrame(frame, item);
+  if (!timelineItem) return;
+  ledger.timeline = upsertProjectionItem(ledger.timeline, timelineItem);
+}
+
+function timelineItemFromFrame(frame: PublicProjectionFrame, item: PublicProjectionItem): PublicProjectionItem | null {
+  if (!itemShouldEnterTimeline(frame, item)) return null;
+  const offset = frameOffset(frame);
+  const frameId = text(frame.frame_id || frame.projection_id || item.sourceEventId);
+  return {
+    ...item,
+    itemId: frameId || `${item.itemId}:timeline:${offset}:${text(frame.op)}`,
+    slot: item.toolCallId || item.toolName ? "tool" : item.slot,
+    eventOffset: offset,
+    sourceEventType: text(frame.source_event_type),
+    sourceEventId: text(frame.source_event_id),
+  };
+}
+
+function itemShouldEnterTimeline(frame: PublicProjectionFrame, item: PublicProjectionItem) {
+  const slot = text(frame.slot);
+  const visibility = text(frame.main_visibility);
+  if (item.toolCallId || item.toolName) return true;
+  if (visibility === "hidden") return false;
+  return ["current_action", "pinned", "status", "final_result"].includes(slot);
 }
 
 function upsertProjectionItem(items: PublicProjectionItem[], incoming: PublicProjectionItem) {
@@ -385,6 +425,7 @@ function sortLedger(ledger: ProjectionLedger): ProjectionLedger {
   ledger.finalResults = [...ledger.finalResults].sort(byOffset);
   ledger.status = [...ledger.status].sort(byOffset);
   ledger.trace = [...ledger.trace].sort(byOffset);
+  ledger.timeline = [...(ledger.timeline ?? [])].sort(byOffset);
   ledger.body.source_offsets = [...ledger.body.source_offsets].sort((left, right) => left - right);
   return ledger;
 }

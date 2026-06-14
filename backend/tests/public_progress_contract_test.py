@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from harness.loop.model_action_protocol import TaskExecutionModelActionRequest
 from harness.loop.task_executor import _action_progress_note
-from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
+from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary, public_runtime_progress_title
 
 
 def test_public_progress_summary_suppresses_generic_control_text() -> None:
@@ -13,8 +13,16 @@ def test_public_progress_summary_suppresses_generic_control_text() -> None:
         "工具调用已完成，正在根据结果继续。",
         "工具返回成功，正在根据结果继续。",
         "正在整理回复。",
+        "已收到补充要求。",
+        "已收到你的补充说明，会在后续处理里优先纳入。",
+        "补充要求已进入当前工作队列。",
     ):
         assert public_runtime_progress_summary(text) == ""
+
+
+def test_public_progress_title_does_not_turn_model_wait_into_public_text() -> None:
+    assert public_runtime_progress_title(step="model_action_waiting:1", status="running") == ""
+    assert public_runtime_progress_title(step="task_model_action_waiting:2", status="running") == ""
 
 
 def test_public_progress_summary_suppresses_raw_line_numbered_tool_output() -> None:

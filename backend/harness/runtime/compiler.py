@@ -353,6 +353,7 @@ class RuntimeCompiler:
         history: list[dict[str, Any]],
         session_context: dict[str, Any] | None = None,
         active_work_context: dict[str, Any] | None = None,
+        current_work_boundary_receipt: dict[str, Any] | None = None,
         memory_context: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
@@ -371,14 +372,19 @@ class RuntimeCompiler:
         allowed_actions = _single_agent_turn_allowed_actions(
             control_capabilities=control_capabilities,
             active_work_context=active_work_context,
+            current_work_boundary_receipt=current_work_boundary_receipt,
         )
         single_turn_tool_plan = _single_agent_turn_tool_plan(
             assembly_payload=assembly_payload,
             control_capabilities=control_capabilities,
         )
         single_turn_tools = tuple(dict(item) for item in single_turn_tool_plan.model_visible_tools)
+        if not single_turn_tools and "tool_call" in allowed_actions:
+            allowed_actions = tuple(item for item in allowed_actions if item != "tool_call")
         if single_turn_tools and "tool_call" not in allowed_actions:
-            allowed_actions = (*allowed_actions, "tool_call")
+            receipt_allowed = _receipt_allowed_action_types(current_work_boundary_receipt)
+            if not receipt_allowed or "tool_call" in receipt_allowed:
+                allowed_actions = (*allowed_actions, "tool_call")
         effective_control_capabilities = _single_agent_turn_effective_control_capabilities(
             control_capabilities=control_capabilities,
             allowed_actions=allowed_actions,
@@ -512,6 +518,7 @@ class RuntimeCompiler:
                 "agent_visible_runtime_projection": agent_visible_runtime_projection,
                 "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
                 "active_work_context": dict(active_work_context or {}),
+                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
             },
         )
         dynamic_context = self.dynamic_context_manager.project(
@@ -535,7 +542,12 @@ class RuntimeCompiler:
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
         if active_work_context:
-            dynamic_payload["active_work_context"] = _active_work_model_visible_payload(active_work_context)
+            dynamic_payload["active_work_context"] = _active_work_model_visible_payload(
+                active_work_context,
+                controls_enabled="active_work_control" in set(allowed_actions),
+            )
+        if current_work_boundary_receipt:
+            dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(current_work_boundary_receipt)
         if turn_input_facts:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
@@ -652,6 +664,7 @@ class RuntimeCompiler:
             "operation_authorization",
             "active_work_context",
             "recent_work_outcome",
+            "current_work_boundary_receipt",
         )
         single_turn_volatile_refs = (
             "runtime_envelope",
@@ -765,7 +778,97 @@ class RuntimeCompiler:
                 "protocol_sanitizer": dict(protocol_sanitizer.diagnostics),
                 "control_capabilities": dict(effective_control_capabilities),
                 "active_work_context_present": bool(active_work_context),
+                "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
                 "turn_input_facts_present": bool(turn_input_facts),
+            },
+        )
+        return RuntimeCompilationResult(envelope=envelope, packet=packet)
+
+    def compile_current_work_boundary_packet(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        boundary_input: dict[str, Any],
+        model_selection: dict[str, Any] | None = None,
+        runtime_assembly: Any | None = None,
+    ) -> RuntimeCompilationResult:
+        assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        envelope = RuntimeEnvelope(
+            envelope_id=f"rtenv:{turn_id}:current_work_boundary",
+            scope_kind="turn",
+            session_id=session_id,
+            turn_id=turn_id,
+            agent_profile_ref=str(assembly_payload.get("agent_profile_ref") or "main_interactive_agent"),
+            task_environment_ref=str(dict(assembly_payload.get("task_environment") or {}).get("environment_id") or "env.general.workspace"),
+            prompt_policy={"invocation_kind": "current_work_boundary"},
+            output_policy={
+                "format": "json_object",
+                "allowed_actions": [
+                    "continue_active_work",
+                    "append_instruction_to_active_work",
+                    "answer_about_active_work",
+                    "answer_then_continue_active_work",
+                    "pause_active_work",
+                    "stop_active_work",
+                    "new_independent_turn_allowed",
+                    "replace_current_work",
+                    "ask_user",
+                    "block",
+                ],
+                "authority": "harness.entrypoint.current_work_boundary.output_contract",
+            },
+            diagnostics={
+                "model_selection": dict(model_selection or {}),
+                "runtime_assembly_id": str(assembly_payload.get("assembly_id") or ""),
+            },
+        )
+        prompt = (
+            "你是当前工作边界裁决员。\n"
+            "你只判断用户这一轮输入与系统暴露的当前工作之间的关系。\n"
+            "你不执行工具，不改文件，不启动任务，也不生成最终交付物。\n"
+            "你需要在给定的结构化动作中选择一个，并说明依据。\n"
+            "如果用户明确是在继续、暂停、停止、补充、追问或纠正当前工作，选择对应的 current work 控制动作。\n"
+            "如果用户提出的是独立问题或新的无关请求，普通入口选择 new_independent_turn_allowed；"
+            "但 active_turn_input_policy=steer 且 active turn 已通过硬校验时，不能选择 new_independent_turn_allowed，应选择 ask_user 或 block。\n"
+            "如果用户要求用新任务替换当前工作，选择 replace_current_work。\n"
+            "如果 active turn id 不匹配、当前工作已失效或关系不清，选择 ask_user 或 block。\n"
+            "你的输出必须是结构化 JSON，不得请求普通工具调用。"
+        )
+        response_schema = {
+            "required_fields": ["action", "relation_to_current_work", "reason"],
+            "optional_fields": ["response", "appended_instruction", "continuation_strategy", "evidence"],
+            "authority": "harness.entrypoint.current_work_boundary.schema",
+        }
+        model_messages = [
+            {"role": "system", "content": prompt},
+            {
+                "role": "system",
+                "content": json.dumps(
+                    {
+                        "boundary_input": dict(boundary_input or {}),
+                        "response_schema": response_schema,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        packet = RuntimeInvocationPacket(
+            packet_id=f"rtpacket:{turn_id}:current_work_boundary:1",
+            envelope_ref=envelope.envelope_id,
+            invocation_kind="current_work_boundary",
+            invocation_index=1,
+            session_id=session_id,
+            turn_id=turn_id,
+            model_messages=model_messages,
+            prompt_pack_refs=(),
+            available_tools=(),
+            allowed_action_types=("current_work_boundary_decision",),
+            output_contract=dict(envelope.output_policy),
+            hidden_control_refs={"runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            diagnostics={
+                "model_input_authority": "harness.runtime.compiler.current_work_boundary",
+                "boundary_input": dict(boundary_input or {}),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -2083,7 +2186,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。内部工具、长期任务和结构化 action 只能服务这个回应，不能替代这个回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 或 public_action_state.current_judgment 中说明要查证的公开事实和为什么它关系到用户问题；不要写工具名、协议字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、协议字段或隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以用 active_work_control 或 request_task_run 承接执行。"
             ],
@@ -2108,7 +2211,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                 "把工具名、内部协议或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入触发的 tool_call、request_task_run 或 active_work_control 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "可选机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -2201,7 +2304,7 @@ def task_execution_action_schema() -> dict[str, Any]:
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
             "first_visible_response": [
                 "如果已经足以回答，使用 respond/final_answer。",
-                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 或 public_action_state.current_judgment 中说明要查证的公开事实和为什么它关系到用户问题；不要写工具名、协议字段或隐藏推理。",
+                "如果需要查证后才能判断，使用 tool_call/tool_calls，同时在 public_progress_note 中说明要查证的公开事实和为什么它关系到用户问题；public_action_state.current_judgment 可以补充当前公开判断，但不能替代空白回应；不要写工具名、协议字段或隐藏推理。",
                 "如果用户是在追问为什么、哪里卡住、是否正常、为什么没回应，必须先解释当前已知状态或你需要核对的状态对象；不要直接继续旧任务。",
                 "如果用户只是明确说继续、恢复、接着执行，并且没有提出新问题，才可以只承接执行。"
             ],
@@ -2226,7 +2329,7 @@ def task_execution_action_schema() -> dict[str, Any]:
                 "把工具名、内部协议或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "一句用户可理解的公开语义回应；用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "一句用户可理解的公开语义回应；用户输入或用户 steer 触发的 tool_call 必须填写，用于回应用户当前输入或说明为什么需要先查证。不要写工具名、协议字段、内部事件、隐藏推理或泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。只供系统状态机使用，不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
@@ -2273,13 +2376,44 @@ def _single_agent_turn_allowed_actions(
     *,
     control_capabilities: dict[str, Any],
     active_work_context: dict[str, Any] | None,
+    current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
+    receipt_allowed = _receipt_allowed_action_types(current_work_boundary_receipt)
+    if receipt_allowed:
+        return tuple(dict.fromkeys(receipt_allowed))
     actions: list[str] = ["respond", "ask_user", "block"]
     if bool(control_capabilities.get("may_request_task_run") is True):
         actions.append("request_task_run")
-    if active_work_context and bool(control_capabilities.get("may_control_active_work") is not False):
-        actions.append("active_work_control")
     return tuple(dict.fromkeys(actions))
+
+
+def _receipt_allowed_action_types(receipt: dict[str, Any] | None) -> tuple[str, ...]:
+    payload = dict(receipt or {})
+    if not payload:
+        return ()
+    return tuple(
+        str(item or "").strip()
+        for item in list(payload.get("allowed_action_types_for_next_packet") or [])
+        if str(item or "").strip()
+    )
+
+
+def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(receipt or {})
+    if not payload:
+        return {}
+    decision = dict(dict(payload.get("diagnostics") or {}).get("decision") or {})
+    return {
+        "receipt_id": str(payload.get("receipt_id") or ""),
+        "boundary_action": str(payload.get("boundary_action") or ""),
+        "execution_route": str(payload.get("execution_route") or ""),
+        "active_work_ref": dict(payload.get("active_work_ref") or {}),
+        "allowed_action_types_for_next_packet": list(payload.get("allowed_action_types_for_next_packet") or []),
+        "read_only_context": str(payload.get("boundary_action") or "") == "new_independent_turn_allowed",
+        "reason": str(decision.get("reason") or ""),
+        "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
+        "authority": "harness.runtime.current_work_boundary_receipt_projection",
+    }
 
 
 def _single_agent_turn_effective_control_capabilities(
@@ -2399,7 +2533,7 @@ def _single_agent_turn_output_contract(
             "request_task_run": {
                 "enabled": "request_task_run" in allowed_actions,
                 "required_fields": ["user_visible_goal", "task_run_goal", "completion_criteria"],
-                "active_work_boundary": "When active_work_context is present, request_task_run starts a new or replacement lifecycle. Use active_work_control to continue, pause, stop, answer status, or append instructions to the current work.",
+                "current_work_boundary": "request_task_run is available only when the current-work boundary receipt permits a new or replacement lifecycle. It does not control, resume, pause, or mutate active_work_context.",
             },
             "active_work_control": {
                 "enabled": "active_work_control" in allowed_actions,
@@ -2455,10 +2589,22 @@ def _single_agent_turn_tool_plan(
     )
 
 
-def _active_work_model_visible_payload(active_work_context: dict[str, Any] | None) -> dict[str, Any]:
+def _active_work_model_visible_payload(
+    active_work_context: dict[str, Any] | None,
+    *,
+    controls_enabled: bool = False,
+) -> dict[str, Any]:
     context = dict(active_work_context or {})
     if not context:
         return {}
+    controls = [
+        "continue_active_work",
+        "pause_active_work",
+        "stop_active_work",
+        "append_instruction_to_active_work",
+        "answer_about_active_work",
+        "answer_then_continue_active_work",
+    ] if controls_enabled else []
     return _drop_empty_payload(
         {
             "status": str(context.get("status") or ""),
@@ -2471,19 +2617,19 @@ def _active_work_model_visible_payload(active_work_context: dict[str, Any] | Non
             "paused": bool(context.get("paused") is True),
             "queued_user_instruction_count": _safe_int(context.get("queued_user_instruction_count")),
             "continuation_kind": str(context.get("continuation_kind") or ""),
-            "available_controls": [
-                "continue_active_work",
-                "pause_active_work",
-                "stop_active_work",
-                "append_instruction_to_active_work",
-                "answer_about_active_work",
-                "answer_then_continue_active_work",
-            ],
+            "available_controls": controls,
+            "read_only_context": not controls_enabled,
+            "control_authorization": (
+                "current_work_boundary_receipt_allows_active_work_control"
+                if controls_enabled
+                else "current_work_boundary_receipt_required"
+            ),
             "decision_boundary": (
                 "active_work_context represents only current active-turn-bound work exposed by this turn. "
+                "It is a state fact, not a control permit; only current_work_boundary_receipt can authorize active_work_control. "
                 "If it contains a recovery boundary, that boundary has already been explicitly bound to the current active turn by the system; it is not a latest-task fallback. "
                 "Historical work summaries, recent_work_outcome, ordinary waiting_executor state, old artifacts, and terminal task records are read-only facts, not controllable current work. "
-                "The agent owns semantic scheduling; the system only exposes available controls, control feedback projection, and edge validation."
+                "Do not infer continue, pause, stop, replacement, or append authority from this context alone."
             ),
         }
     )
@@ -4156,10 +4302,10 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "如果任务目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。"
         )
         lines.append(
-            "- 选择 request_task_run 时，如果你已经能向用户说明为什么需要进入持续任务或第一阶段要判断什么，"
-            "必须把这句自然语言写入 public_progress_note 或 public_action_state.current_judgment；"
+            "- 选择 request_task_run 时，必须向用户回应为什么当前输入需要进入持续任务、第一阶段要判断什么，或还缺少什么关键事实；"
+            "必须把这句自然语言写入 public_progress_note，public_action_state.current_judgment 只用于补充当前公开判断；"
             "不要把 action_type、协议名、visible_status、thinking、working、task_executor_scheduled 等机器状态写给用户。"
-            "如果还没有真实公开判断，留空公开反馈，让界面显示占位，不要编造“开始处理”。"
+            "如果还没有足够事实形成执行判断，选择 ask_user 或 block 说明缺口；不要留空公开反馈，也不要编造“开始处理”。"
         )
         lines.append(
             "- 只有在用户只是询问概念、要求解释、要求状态说明，或明确要求一次性的读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。"
@@ -4219,15 +4365,13 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
             "- 如果本轮上下文包含 active_work_context，它只代表系统在本轮显式暴露的当前 active-turn-bound work；"
             "如果其中出现可恢复边界，也已经由系统绑定到当前 active turn，不是 latest task fallback。"
             "recent_work_outcome、历史摘要和普通 waiting_executor 只能作为只读事实，不能被当作当前可控制工作。"
-            "是否继续、暂停、停止、补充要求、回答进展或另开请求，由你根据用户当前话语判断。"
+            "active_work_control 只在 CurrentWorkBoundary receipt 已授权时出现；你不能从 active_work_context 自行推断控制权限。"
         )
         lines.append(
-            "- 当用户明确指向当前工作时，直接调用 active_work_control；不要把明确控制请求变成二次确认问题。"
+            "- 当 active_work_control 已被本轮 receipt 授权时，只执行 receipt/action schema 允许的当前工作控制。"
             "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
-            "只有用户明确要求暂停或停止当前工作时，才选择 pause_active_work 或 stop_active_work；不要写成 append_instruction_to_active_work。"
-            "“等一下，为什么 X？”、“先看一下 X”、质疑、询问、纠错或追加约束不等同暂停或停止；按语义选择 answer_about_active_work、answer_then_continue_active_work 或 append_instruction_to_active_work。"
+            "如果 active_work_context 未提供 available_controls，说明普通 turn 没有当前工作控制授权。"
             "继续、暂停、停止或补充这类纯控制也必须携带简短用户可见反馈意图，由控制裁决和系统投影统一给出可见回执；不要另外生成一条与控制动作脱节的普通 assistant 正文，也不要把无需正文理解成结束任务。"
-            "用户是在问进展、追问原因、指出错误、表达不满，或一边提问一边要求继续时，才需要回答当前工作状态或回答后继续。"
             "具体字段形状以本轮 action schema 为准，不要把控制字段或机器状态写进用户正文。"
             "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后基于真实状态决定继续、收口、询问或阻塞。"
             "active_work_control 的 action、resolved_action、控制结果和 runtime 状态不是用户正文；"
@@ -4236,8 +4380,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         )
         if "request_task_run" in allowed_actions:
             lines.append(
-                "- 当前有 active_work_context 时：继续、暂停、停止、询问状态、补充当前任务要求都使用 active_work_control；"
-                "只有用户明确要求重启、从头做、替换当前任务或开启新的持续任务时，才使用 request_task_run。"
+                "- request_task_run 只能在 CurrentWorkBoundary receipt 已允许新任务或替换任务时使用。"
                 "这种情况下在 task_contract_seed.active_work_relationship 填 restart_current_work、replace_current_work 或 new_work；"
                 "request_task_run 不会恢复旧任务，而会让运行时把旧 current work 做边缘收口后启动新生命周期。"
             )

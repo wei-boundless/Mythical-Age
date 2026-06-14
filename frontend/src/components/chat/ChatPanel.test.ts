@@ -10,6 +10,8 @@ function publicProjection(patch: Partial<MessagePublicProjection>): MessagePubli
     pinned: [],
     finalResults: [],
     status: [],
+    trace: [],
+    timeline: [],
     traceAvailable: false,
     traceCount: 0,
     commitState: "none",

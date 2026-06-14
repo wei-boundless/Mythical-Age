@@ -66,6 +66,7 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
     result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
     events = host.event_log.list_events(task_run_id)
     event_types = [str(event.event_type) for event in events]
+    body_event = next(event for event in events if event.event_type == "assistant_text_final")
     ack_event = next(event for event in events if event.event_type == "session_output_commit_ack")
     completed_event = next(
         event
@@ -78,6 +79,8 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
 
     assert result["ok"] is True
     assert finished_task.status == "completed"
+    assert dict(body_event.payload)["content"] == final_answer
+    assert event_types.index("assistant_text_final") < event_types.index("session_output_commit_checked")
     assert event_types.index("session_output_commit_checked") < event_types.index("session_output_commit_ack")
     assert int(ack_event.offset) < int(completed_event.offset)
     assert dict(result["output_commit"])["state"] == "committed"
@@ -85,6 +88,86 @@ def test_task_run_success_commits_session_output_before_completed_lifecycle() ->
     assert messages[-1]["role"] == "assistant"
     assert messages[-1]["content"] == final_answer
     assert messages[-1]["turn_id"] == "turn:session-output-order:1"
+
+
+def test_task_run_tool_lifecycle_preserves_model_tool_call_id(tmp_path) -> None:
+    model_tool_call_id = "call:task-read-custom"
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "content": json.dumps(
+                    _tool_calls_action_request(
+                        tool_calls=[
+                            {
+                                "id": model_tool_call_id,
+                                "tool_name": "read_file",
+                                "args": {"path": "harness/loop/task_executor.py", "line_count": 1},
+                            }
+                        ],
+                        public_progress_note="读取 task executor 入口。",
+                    ),
+                    ensure_ascii=False,
+                )
+            },
+            {
+                "content": json.dumps(
+                    _action_request(
+                        action_type="respond",
+                        final_answer="读取完成。",
+                        public_progress_note="工具结果已经确认。",
+                    ),
+                    ensure_ascii=False,
+                )
+            },
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+    host = runtime.single_agent_runtime_host
+    task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:turn:session-tool-id:1:abc",
+        session_id="session-tool-id",
+        status="running",
+    )
+    seeded = host.state_index.get_task_run(task_run_id)
+    host.state_index.upsert_task_run(
+        replace(
+            seeded,
+            diagnostics={
+                **dict(seeded.diagnostics or {}),
+                "turn_id": "turn:session-tool-id:1",
+            },
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=3))
+    events = host.event_log.list_events(task_run_id)
+    admission_event = next(
+        event
+        for event in events
+        if event.event_type == "model_action_admission_checked"
+        and dict(dict(event.payload or {}).get("model_action_request") or {}).get("action_type") == "tool_call"
+    )
+    started_event = next(event for event in events if event.event_type == "tool_item_started")
+    observation_event = next(event for event in events if event.event_type == "task_tool_observation_recorded")
+    observation = dict(dict(observation_event.payload or {}).get("observation") or {})
+    tool_payload = dict(observation.get("payload") or {})
+    completed = _project_public_stream_event(
+        "task_tool_observation_recorded",
+        {"event": observation_event.to_dict()},
+    )
+
+    assert result["ok"] is True
+    assert dict(dict(admission_event.payload or {}).get("model_action_request") or {})["tool_call"]["id"] == model_tool_call_id
+    assert dict(started_event.payload)["tool_call_id"] == model_tool_call_id
+    assert observation["tool_call_id"] == model_tool_call_id
+    assert tool_payload["tool_call_id"] == model_tool_call_id
+    assert [event_type for event_type, _ in completed] == ["tool_item_completed"]
+    assert completed[0][1]["tool_call_id"] == model_tool_call_id
 
 
 def test_task_run_final_output_without_commit_ack_fails_lifecycle_instead_of_completed() -> None:

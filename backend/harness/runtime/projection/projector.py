@@ -109,16 +109,6 @@ class ProjectionLifecycleState:
             tool_call_id = text(data.get("tool_call_id"))
             permission_decision_id = text(data.get("permission_decision_id"))
             record = self._tool_record(data, tool_call_id=tool_call_id)
-            recorded_permission_decision_id = text(record.get("permission_decision_id")) if record else ""
-            if (
-                record
-                and permission_decision_id
-                and recorded_permission_decision_id
-                and permission_decision_id != recorded_permission_decision_id
-                and permission_decision_id == f"admission:{tool_call_id}"
-            ):
-                data["permission_decision_id"] = recorded_permission_decision_id
-                permission_decision_id = recorded_permission_decision_id
             if (
                 not tool_call_id
                 or not permission_decision_id

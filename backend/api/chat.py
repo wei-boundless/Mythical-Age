@@ -2078,36 +2078,41 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     observation, raw_event = _tool_observation_payload(raw_data)
     if not observation:
         return {}
+    tool_observation = _tool_runtime_observation_payload(observation)
     tool_name = str(
-        observation.get("tool_name")
+        tool_observation.get("tool_name")
+        or tool_observation.get("tool")
+        or observation.get("tool_name")
         or observation.get("tool")
+        or _record(tool_observation.get("result_envelope")).get("tool_name")
         or _record(observation.get("result_envelope")).get("tool_name")
         or ""
     ).strip()
-    tool_call_id = _tool_call_id_from_observation(observation)
+    tool_call_id = _tool_call_id_from_observation(tool_observation) or _tool_call_id_from_observation(observation)
     if not tool_name or not tool_call_id:
         return {}
     tool_lifecycle_id = _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
-    status = str(observation.get("status") or "").strip().lower()
+    status = str(tool_observation.get("status") or observation.get("status") or "").strip().lower()
     state = "error" if status and status not in {"ok", "done", "completed", "success"} else "done"
-    result_envelope = _record(observation.get("result_envelope"))
-    execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    operation_gate = _record(observation.get("operation_gate"))
+    result_envelope = _record(tool_observation.get("result_envelope") or observation.get("result_envelope"))
+    execution_receipt = _record(tool_observation.get("execution_receipt") or observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
+    operation_gate = _record(tool_observation.get("operation_gate") or observation.get("operation_gate"))
     admission = _record(operation_gate.get("admission"))
     refs = _record(raw_event.get("refs"))
     error = _safe_public_action_text(
-        observation.get("error")
+        tool_observation.get("error")
+        or observation.get("error")
         or result_envelope.get("error")
         or execution_receipt.get("error")
     )
-    observation_text = _safe_tool_observation_text(observation, result_envelope=result_envelope)
+    observation_text = _safe_tool_observation_text(tool_observation, result_envelope=result_envelope)
     data: dict[str, Any] = {
         "item_id": tool_lifecycle_id,
         "tool_lifecycle_id": tool_lifecycle_id,
         "tool_call_id": tool_call_id,
-        "permission_decision_id": _permission_decision_id_from_observation(observation, admission=admission, tool_call_id=tool_call_id),
-        "turn_run_id": str(observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
+        "permission_decision_id": _permission_decision_id_from_observation(tool_observation, admission=admission, tool_call_id=tool_call_id),
+        "turn_run_id": str(tool_observation.get("caller_ref") or observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
+        "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
         "state": state,
         "observation": observation_text,
@@ -2121,6 +2126,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _permission_decision_id_from_observation(observation: dict[str, Any], *, admission: dict[str, Any], tool_call_id: str) -> str:
+    observation = _tool_runtime_observation_payload(observation)
     result_envelope = _record(observation.get("result_envelope"))
     execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
     diagnostics = _record(observation.get("diagnostics"))
@@ -2212,7 +2218,20 @@ def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any],
     return observation, raw_event
 
 
+def _tool_runtime_observation_payload(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = _record(observation.get("payload"))
+    if payload and (
+        payload.get("tool_name")
+        or payload.get("result_envelope")
+        or payload.get("execution_receipt")
+        or payload.get("operation_gate")
+    ):
+        return payload
+    return observation
+
+
 def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
+    observation = _tool_runtime_observation_payload(observation)
     result_envelope = _record(observation.get("result_envelope"))
     execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
     diagnostics = _record(observation.get("diagnostics"))

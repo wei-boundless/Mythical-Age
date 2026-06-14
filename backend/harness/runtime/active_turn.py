@@ -182,6 +182,67 @@ class ActiveTurnRegistry:
             return record
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
 
+    def compare_and_update_current_turn(
+        self,
+        *,
+        session_id: str,
+        expected_turn_id: str = "",
+        expected_task_run_id: str = "",
+        require_bound_task: bool = False,
+        terminal_reason: str = "",
+    ) -> dict[str, Any]:
+        expected_turn_id = str(expected_turn_id or "").strip()
+        expected_task_run_id = str(expected_task_run_id or "").strip()
+        record = self.resolve_current(session_id)
+        if record is None:
+            return {
+                "accepted": False,
+                "denied_reason": "active_turn_unavailable",
+                "expected_turn_id": expected_turn_id,
+                "actual_turn_id": "",
+                "expected_task_run_id": expected_task_run_id,
+                "actual_task_run_id": "",
+                "owner_instance_id": "",
+                "terminal_reason": str(terminal_reason or "active_turn_unavailable"),
+                "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
+            }
+        actual_turn_id = str(record.turn_id or "").strip()
+        actual_task_run_id = str(record.bound_task_run_id or "").strip()
+        denied_reason = ""
+        if expected_turn_id and actual_turn_id != expected_turn_id:
+            denied_reason = "expected_active_turn_mismatch"
+        elif expected_task_run_id and actual_task_run_id != expected_task_run_id:
+            denied_reason = "expected_task_run_mismatch"
+        elif not bool(record.steerable):
+            denied_reason = "active_turn_not_steerable"
+        elif require_bound_task and not actual_task_run_id:
+            denied_reason = "active_turn_not_bound_to_task"
+        if denied_reason:
+            return {
+                "accepted": False,
+                "denied_reason": denied_reason,
+                "expected_turn_id": expected_turn_id,
+                "actual_turn_id": actual_turn_id,
+                "expected_task_run_id": expected_task_run_id,
+                "actual_task_run_id": actual_task_run_id,
+                "owner_instance_id": str(record.owner_instance_id or ""),
+                "terminal_reason": str(terminal_reason or denied_reason),
+                "record": record.to_dict(),
+                "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
+            }
+        return {
+            "accepted": True,
+            "denied_reason": "",
+            "expected_turn_id": expected_turn_id,
+            "actual_turn_id": actual_turn_id,
+            "expected_task_run_id": expected_task_run_id,
+            "actual_task_run_id": actual_task_run_id,
+            "owner_instance_id": str(record.owner_instance_id or ""),
+            "terminal_reason": "",
+            "record": record.to_dict(),
+            "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
+        }
+
     def clear_session(self, session_id: str, *, reason: str = "session_deleted") -> dict[str, Any]:
         normalized = str(session_id or "").strip()
         if not normalized:

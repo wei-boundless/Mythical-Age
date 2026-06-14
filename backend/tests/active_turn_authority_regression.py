@@ -362,21 +362,18 @@ def test_active_turn_plain_instruction_uses_model_decision_without_keyword_pause
         async def invoke_messages(self, *_args, **_kwargs):
             self.calls += 1
             if self.calls == 1:
-                action = ModelActionRequest(
-                    request_id="model-action:active-steer",
-                    turn_id="turn:session:test:1",
-                    action_type="active_work_control",
-                    public_progress_note="正在判断当前补充要求。",
-                    active_work_control={
-                        "action": "append_instruction_to_active_work",
-                        "relation_to_current_work": "current_work",
-                        "appended_instruction": "等一下 task runtime 为什么必须有 task_environment？",
-                        "response": "我会先把这个问题接入当前工作判断。",
-                        "turn_response_policy": "active_work_only",
-                        "answer_obligation": "none",
-                    },
+                return SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "action": "append_instruction_to_active_work",
+                            "relation_to_current_work": "current_work",
+                            "appended_instruction": "等一下 task runtime 为什么必须有 task_environment？",
+                            "response": "我会先把这个问题接入当前工作判断。",
+                            "reason": "用户正在向当前 active turn 补充约束。",
+                        },
+                        ensure_ascii=False,
+                    )
                 )
-                return SimpleNamespace(content=json.dumps(action.to_dict(), ensure_ascii=False))
             return SimpleNamespace(content="已接入当前工作。")
 
     model = ActiveWorkAppendModelRuntime()

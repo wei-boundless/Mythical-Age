@@ -12,6 +12,18 @@ ModelActionType = Literal[
     "block",
 ]
 TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block"]
+CurrentWorkBoundaryActionType = Literal[
+    "continue_active_work",
+    "append_instruction_to_active_work",
+    "answer_about_active_work",
+    "answer_then_continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "new_independent_turn_allowed",
+    "replace_current_work",
+    "ask_user",
+    "block",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +85,30 @@ class TaskExecutionModelActionRequest:
         payload["tool_call"] = dict(self.tool_call or {})
         payload["tool_calls"] = [dict(item) for item in tuple(self.tool_calls or ())]
         payload["public_action_state"] = dict(self.public_action_state or {})
+        payload["diagnostics"] = dict(self.diagnostics or {})
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentWorkBoundaryActionRequest:
+    request_id: str
+    turn_id: str
+    action: CurrentWorkBoundaryActionType
+    relation_to_current_work: str = "ambiguous"
+    reason: str = ""
+    evidence: str = ""
+    response: str = ""
+    appended_instruction: str = ""
+    continuation_strategy: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.entrypoint.current_work_boundary_action"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.entrypoint.current_work_boundary_action":
+            raise ValueError("CurrentWorkBoundaryActionRequest authority must be harness.entrypoint.current_work_boundary_action")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 

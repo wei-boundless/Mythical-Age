@@ -3,7 +3,7 @@ from __future__ import annotations
 from api.chat import _project_public_stream_event
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY
 from harness.runtime.projection.guards import public_text
-from harness.runtime.projection.projector import project_public_projection_event
+from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
 from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
@@ -323,3 +323,112 @@ def test_tool_observation_promotes_real_tool_call_id_for_public_completion() -> 
     )
 
     assert observation.to_dict()["tool_call_id"] == "call:read"
+
+
+def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity() -> None:
+    events = _project_public_stream_event(
+        "task_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:tool-observation",
+                "payload": {
+                    "observation": {
+                        "task_run_id": "taskrun:turn:test:1",
+                        "observation_type": "tool_result",
+                        "request_ref": "request:read",
+                        "payload": {
+                            "caller_ref": "turnrun:turn:test:1",
+                            "task_run_id": "taskrun:turn:test:1",
+                            "tool_name": "read_file",
+                            "status": "ok",
+                            "text": "读取完成。",
+                            "tool_call_id": "call:read",
+                            "result_envelope": {
+                                "tool_name": "read_file",
+                                "tool_call_id": "call:read",
+                                "text": "读取完成。",
+                            },
+                            "execution_receipt": {
+                                "tool_call_id": "call:read",
+                                "admission_ref": "admission:request:read",
+                            },
+                            "diagnostics": {
+                                "action_request": {
+                                    "request_id": "request:read",
+                                    "tool_call": {"id": "call:read", "tool_name": "read_file"},
+                                }
+                            },
+                        },
+                    }
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1", "task_run_ref": "taskrun:turn:test:1"},
+            }
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TOOL_ITEM_COMPLETED_EVENT]
+    completed = events[0][1]
+    assert completed["tool_call_id"] == "call:read"
+    assert completed["permission_decision_id"] == "admission:request:read"
+    assert completed["tool_name"] == "read_file"
+    assert completed["observation"] == "读取完成。"
+
+
+def test_lifecycle_does_not_rewrite_completed_permission_id_mismatch() -> None:
+    lifecycle = ProjectionLifecycleState()
+    anchor = {
+        "session_id": "session:test",
+        "turn_id": "turn:test",
+        "task_run_id": "taskrun:turn:test:1",
+    }
+    project_public_projection_event(
+        TOOL_CALL_REQUESTED_EVENT,
+        {
+            "public_anchor": anchor,
+            "event_offset": 1,
+            "tool_call_id": "call:read",
+            "tool_name": "read_file",
+        },
+        session_id="session:test",
+        lifecycle_state=lifecycle,
+    )
+    project_public_projection_event(
+        TOOL_PERMISSION_DECIDED_EVENT,
+        {
+            "public_anchor": anchor,
+            "event_offset": 2,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "permission_decision": "allow",
+        },
+        session_id="session:test",
+        lifecycle_state=lifecycle,
+    )
+    project_public_projection_event(
+        TOOL_ITEM_STARTED_EVENT,
+        {
+            "public_anchor": anchor,
+            "event_offset": 3,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "tool_name": "read_file",
+        },
+        session_id="session:test",
+        lifecycle_state=lifecycle,
+    )
+
+    frame = project_public_projection_event(
+        TOOL_ITEM_COMPLETED_EVENT,
+        {
+            "public_anchor": anchor,
+            "event_offset": 4,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:call:read",
+            "tool_name": "read_file",
+            "state": "done",
+        },
+        session_id="session:test",
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
+
+    assert frame["diagnostics"]["code"] == "tool_completed_without_started_lifecycle"

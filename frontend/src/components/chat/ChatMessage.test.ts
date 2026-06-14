@@ -12,6 +12,8 @@ function projection(patch: Partial<MessagePublicProjection>): MessagePublicProje
     pinned: [],
     finalResults: [],
     status: [],
+    trace: [],
+    timeline: [],
     traceAvailable: false,
     traceCount: 0,
     commitState: "none",
@@ -73,10 +75,13 @@ describe("ChatMessage", () => {
     expect(html).toContain("复制回复");
   });
 
-  it("keeps tool projection activity out of the assistant message surface", () => {
+  it("renders tool projection activity as ordered execution trajectory", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, assistantProps({
         publicProjection: projection({
+          bodyText: "最终回复。",
+          bodyState: "finalized",
+          bodyEventOffset: 5,
           currentAction: {
             itemId: "tool:read",
             slot: "current_action",
@@ -92,42 +97,36 @@ describe("ChatMessage", () => {
             toolName: "read_file",
             subjectLabel: "frontend/src/lib/projection/reducer.ts",
           },
-          finalResults: [
+          timeline: [
             {
-              itemId: "result:tool",
-              slot: "final_result",
-              text: "工具执行完成",
-              title: "工具执行完成",
-              state: "done",
-              sourceAuthority: "tool",
-              mainVisibility: "visible_final",
-              retention: "final",
-            },
-          ],
-          status: [
-            {
-              itemId: "status:runtime",
-              slot: "status",
-              text: "准备读取绘制函数当前内容",
-              title: "准备读取绘制函数当前内容",
+              itemId: "frame:tool-requested",
+              slot: "tool",
+              text: "读取投影 reducer",
+              title: "读取投影 reducer",
+              detail: "模型请求读取 reducer.ts。",
               state: "running",
-              sourceAuthority: "runtime",
+              sourceAuthority: "model",
               mainVisibility: "visible_live",
               retention: "transient",
+              toolCallId: "call:read",
+              toolName: "read_file",
+              subjectLabel: "frontend/src/lib/projection/reducer.ts",
+              eventOffset: 1,
+              sourceEventType: "tool_call_requested",
             },
-          ],
-          pinned: [
             {
-              itemId: "tool:failed",
-              slot: "pinned",
-              text: "提交失败",
-              title: "提交失败",
-              detail: "commit_ack 未返回。",
-              state: "failed",
-              sourceAuthority: "runtime",
-              mainVisibility: "pinned",
-              retention: "pinned_until_resolved",
-              pinReason: "commit_failed",
+              itemId: "frame:tool-completed",
+              slot: "tool",
+              text: "读取完成",
+              title: "读取完成",
+              state: "done",
+              sourceAuthority: "tool",
+              mainVisibility: "trace_only",
+              retention: "trace",
+              toolCallId: "call:read",
+              toolName: "read_file",
+              eventOffset: 4,
+              sourceEventType: "tool_item_completed",
             },
           ],
         }),
@@ -135,24 +134,23 @@ describe("ChatMessage", () => {
     );
 
     expect(html).toContain("public-run-activity");
-    expect(html).toContain("系统提示");
-    expect(html).toContain("提交失败");
-    expect(html).toContain("commit_ack 未返回");
-    expect(html).not.toContain("读取投影 reducer");
-    expect(html).not.toContain("模型请求读取 reducer.ts");
-    expect(html).not.toContain("工具执行完成");
-    expect(html).not.toContain("准备读取绘制函数当前内容");
-    expect(html).not.toContain("public-run-activity__tool-window");
+    expect(html).toContain("执行轨迹");
+    expect(html).toContain("读取投影 reducer");
+    expect(html).toContain("模型请求读取 reducer.ts");
+    expect(html).toContain("读取完成");
+    expect(html).toContain("最终回复。");
+    expect(html.indexOf("读取投影 reducer")).toBeLessThan(html.indexOf("最终回复。"));
+    expect(html).toContain("public-run-activity__tool-window");
   });
 
-  it("does not surface tool-owned failures as assistant feedback", () => {
+  it("surfaces tool-owned failures as tool trajectory instead of assistant prose", () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatMessage, assistantProps({
         publicProjection: projection({
-          pinned: [
+          timeline: [
             {
               itemId: "tool:failed",
-              slot: "pinned",
+              slot: "tool",
               text: "读取文件失败",
               title: "读取文件失败",
               detail: "read_file 返回错误。",
@@ -161,15 +159,18 @@ describe("ChatMessage", () => {
               mainVisibility: "pinned",
               retention: "pinned_until_resolved",
               toolName: "read_file",
+              toolCallId: "call:read",
+              eventOffset: 2,
             },
           ],
         }),
       })),
     );
 
-    expect(html).not.toContain("public-run-activity");
-    expect(html).not.toContain("读取文件失败");
-    expect(html).not.toContain("read_file 返回错误");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html).toContain("读取文件失败");
+    expect(html).toContain("read_file 返回错误");
+    expect(html).not.toContain("复制回复");
   });
 
   it("shows a thinking placeholder while streaming has no model body", () => {
@@ -197,8 +198,8 @@ describe("ChatMessage", () => {
     );
 
     expect(thinking).toContain("正在思考");
-    expect(active).toContain("正在思考");
-    expect(active).not.toContain("运行验证");
+    expect(active).not.toContain("正在思考");
+    expect(active).toContain("运行验证");
   });
 
   it("hides completed transient tools after commit when the ledger has retired them", () => {

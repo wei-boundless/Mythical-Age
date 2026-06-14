@@ -22,6 +22,11 @@ from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
+from runtime.model_gateway.assistant_stream_frame import (
+    allows_assistant_body_projection,
+    assistant_message_ref,
+    assistant_text_final_event,
+)
 from runtime.cache_manager import runtime_cache_manager_for_host
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
@@ -2928,13 +2933,14 @@ def _task_observation_from_batch_result(result: Any, *, task_run: Any, packet_re
     tool_call = dict(getattr(action_request, "tool_call", {}) or {})
     tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
     tool_args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    tool_call_id = _canonical_tool_call_id(action_request)
     return _executor_error_observation(
         task_run_id=task_run.task_run_id,
         request_ref=action_request.request_id,
         directive_ref=packet_ref,
         tool_name=tool_name,
         tool_args=tool_args,
-        tool_call_id=str(tool_call.get("id") or action_request.request_id),
+        tool_call_id=tool_call_id,
         admission_ref=str(getattr(row.get("admission"), "admission_id", "") or f"admission:{action_request.request_id}"),
         action_request=action_request,
         error=str(error),
@@ -3010,6 +3016,16 @@ def _task_tool_child_action_requests(action_request: AnyModelActionRequest) -> l
             )
         )
     return result
+
+
+def _canonical_tool_call_id(action_request: AnyModelActionRequest) -> str:
+    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
+    return str(
+        tool_call.get("id")
+        or getattr(action_request, "tool_call_id", "")
+        or getattr(action_request, "request_id", "")
+        or ""
+    ).strip()
 
 
 def _task_batch_workspace_root(runtime_assembly: Any, *, runtime_host: Any | None = None) -> str:
@@ -3291,8 +3307,7 @@ def _record_task_tool_item_started(
     tool_name: str,
     packet_ref: str,
 ) -> Any:
-    tool_call = dict(getattr(action_request, "tool_call", {}) or {})
-    tool_call_id = str(tool_call.get("id") or action_request.request_id or "").strip()
+    tool_call_id = _canonical_tool_call_id(action_request)
     permission_decision_id = str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}").strip()
     event = runtime_host.event_log.append(
         task_run.task_run_id,
@@ -3360,6 +3375,7 @@ async def _execute_task_tool_call(
         raise TaskRunExecutorInterrupted(signal)
     task_run = runtime_host.state_index.get_task_run(task_run.task_run_id) or latest_task_run
     tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
+    tool_call_id = _canonical_tool_call_id(action_request)
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
     tool_args = _runtime_bound_tool_args(tool_name, tool_args, task_run=task_run)
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
@@ -3404,7 +3420,7 @@ async def _execute_task_tool_call(
         caller_ref=task_run.task_run_id,
         action_request_ref=action_request.request_id,
         tool_name=tool_name,
-        tool_call_id=action_request.request_id,
+        tool_call_id=tool_call_id,
     )
     request = ToolInvocationRequest(
         invocation_id=invocation_id,
@@ -3417,7 +3433,7 @@ async def _execute_task_tool_call(
         action_request_ref=action_request.request_id,
         packet_ref=packet_ref,
         tool_name=tool_name,
-        tool_call_id=action_request.request_id,
+        tool_call_id=tool_call_id,
         tool_args=tool_args,
         operation_id=operation_id,
         tool_plan_ref=str(getattr(runtime_tool_plan, "plan_id", "") or ""),
@@ -3460,7 +3476,7 @@ async def _execute_task_tool_call(
             directive_ref=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
             tool_name=tool_name,
             tool_args=tool_args,
-            tool_call_id=str(action_request.tool_call.get("id") or action_request.request_id),
+            tool_call_id=tool_call_id,
             admission_ref=str(getattr(admission, "admission_id", "") or f"admission:{action_request.request_id}"),
             action_request=action_request,
             error="runtime_tool_control_plane_unavailable",
@@ -3471,9 +3487,11 @@ async def _execute_task_tool_call(
         request_ref=action_request.request_id,
         directive_ref=f"runtime-directive:{task_run.task_run_id}:tool:{action_request.request_id}",
     )
+    observation["tool_call_id"] = tool_call_id
     observation.setdefault("payload", {})
     if isinstance(observation.get("payload"), dict):
         payload = observation["payload"]
+        payload.setdefault("tool_call_id", tool_call_id)
         payload["runtime_fingerprint"] = _current_runtime_fingerprint(
             runtime_assembly,
             permission_mode=_task_runtime_permission_mode(
@@ -4751,6 +4769,14 @@ def _commit_task_run_final_message(
         source=commit_source,
     )
     commit_gate = decision.to_dict()
+    _record_task_assistant_text_final(
+        runtime_host,
+        task_run=task_run,
+        content=commit_content,
+        decision=canonical,
+        completion_state=completion_state,
+        terminal_reason=terminal_reason,
+    )
     checked_event = runtime_host.event_log.append(
         task_run_id,
         "session_output_commit_checked",
@@ -4935,6 +4961,89 @@ def _assistant_anchor_message_id(*, turn_id: str, committer_result: Any = None) 
             return explicit
     normalized_turn_id = str(turn_id or "").strip()
     return f"history-message:{normalized_turn_id}:assistant" if normalized_turn_id else ""
+
+
+def _record_task_assistant_text_final(
+    runtime_host: Any,
+    *,
+    task_run: Any,
+    content: str,
+    decision: Any,
+    completion_state: str,
+    terminal_reason: str,
+) -> Any | None:
+    final_content = str(content or "")
+    if not final_content.strip():
+        return None
+    if not allows_assistant_body_projection(
+        answer_channel=str(getattr(decision, "answer_channel", "") or ""),
+        answer_canonical_state=str(getattr(decision, "canonical_state", "") or ""),
+        answer_persist_policy=str(getattr(decision, "persist_policy", "") or ""),
+    ):
+        return None
+    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+    if not task_run_id:
+        return None
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    session_id = str(getattr(task_run, "session_id", "") or "")
+    task_id = str(getattr(task_run, "task_id", "") or "")
+    turn_id = str(diagnostics.get("turn_id") or "").strip()
+    turn_run_id = str(diagnostics.get("turn_run_id") or "").strip()
+    stream_ref = f"task-run:{task_run_id}:final-answer"
+    message_ref = assistant_message_ref(turn_id=turn_id, stream_ref=stream_ref)
+    payload = assistant_text_final_event(
+        content=final_content,
+        stream_ref=stream_ref,
+        message_ref=message_ref,
+        turn_run_id=turn_run_id,
+        task_run_id=task_run_id,
+        sequence=1,
+        answer_channel=str(getattr(decision, "answer_channel", "") or "final_answer"),
+        answer_source=str(getattr(decision, "answer_source", "") or "harness.loop.task_executor.completed"),
+        answer_canonical_state=str(getattr(decision, "canonical_state", "") or "stable_answer"),
+        answer_persist_policy=str(getattr(decision, "persist_policy", "") or "persist_canonical"),
+        terminal_reason=terminal_reason,
+        extra={
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "task_id": task_id,
+            "completion_state": str(completion_state or ""),
+            "answer_finalization_policy": str(getattr(decision, "finalization_policy", "") or ""),
+            "answer_fallback_reason": str(getattr(decision, "fallback_reason", "") or ""),
+            "answer_selected_channel": str(getattr(decision, "selected_channel", "") or ""),
+            "answer_selected_source": str(getattr(decision, "selected_source", "") or ""),
+            "answer_leak_flags": list(getattr(decision, "leak_flags", ()) or ()),
+            "authority": "harness.loop.task_executor.assistant_body_projection",
+        },
+    )
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "assistant_text_final",
+        payload=payload,
+        refs={
+            "session_id": session_id,
+            "session_ref": session_id,
+            "turn_id": turn_id,
+            "turn_ref": turn_id,
+            "turn_run_ref": turn_run_id,
+            "task_id": task_id,
+            "task_run_ref": task_run_id,
+            "message_ref": message_ref,
+        },
+    )
+    state_index = getattr(runtime_host, "state_index", None)
+    get_task_run = getattr(state_index, "get_task_run", None)
+    upsert_task_run = getattr(state_index, "upsert_task_run", None)
+    current = get_task_run(task_run_id) if callable(get_task_run) else None
+    if current is not None and callable(upsert_task_run):
+        upsert_task_run(
+            replace(
+                current,
+                updated_at=event.created_at or time.time(),
+                latest_event_offset=event.offset,
+            )
+        )
+    return event
 
 
 def _public_committer_result(committer_result: Any) -> dict[str, Any]:
@@ -7963,7 +8072,10 @@ def _step_summary_diagnostics_update(
         "latest_step_status": status,
         "latest_step_summary": summary,
     }
-    if source in {"tool_observation.summary", "system.tool_call_status", "system.user_steer_status"}:
+    if source == "system.user_steer_status":
+        update["latest_step_summary"] = ""
+        return update
+    if source in {"tool_observation.summary", "system.tool_call_status"}:
         trace = public_progress_note or agent_brief_output or summary
         if trace:
             update["latest_tool_observation_trace"] = trace

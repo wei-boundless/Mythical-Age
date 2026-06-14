@@ -1119,7 +1119,8 @@ def test_active_work_prompt_cache_keeps_current_work_state_volatile() -> None:
     assert "已完成第一段 prompt 审查" not in _stable_prompt_text(first.packet)
     assert "已完成第二段 cache 审查" not in _stable_prompt_text(second.packet)
     assert first_cache.prefix_hash == second_cache.prefix_hash
-    assert "active_work_control" in first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
+    semantic_actions = first_dynamic["runtime_context"]["agent_visible_runtime_projection"]["model_decision_contract"]["semantic_actions"]
+    assert "active_work_control" not in semantic_actions
 
 
 def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:

@@ -75,7 +75,7 @@ export function ChatMessage({
   const messageDisplayContent = baseDisplayContent;
   const publicTimelineItems = isUser
     ? []
-    : publicSystemNoticeItemsFromProjection(publicProjection);
+    : publicTimelineItemsFromProjection(publicProjection);
   const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
@@ -128,6 +128,93 @@ export function ChatMessage({
     setCopiedReply(true);
     window.setTimeout(() => setCopiedReply(false), 1200);
   };
+  const renderMessageContent = (key = "message-content") => shouldRenderContent ? (
+    <div
+      className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}
+      key={key}
+    >
+      {!isUser && copyableReplyText ? (
+        <button
+          aria-label={copiedReply ? "已复制回复" : "复制回复"}
+          className="message-copy-button"
+          onClick={() => void copyReply()}
+          title={copiedReply ? "已复制" : "复制回复"}
+          type="button"
+        >
+          {copiedReply ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+      ) : null}
+      {isUser && editing ? (
+        <div className="message-edit-form">
+          <textarea
+            className="message-edit-form__textarea"
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setEditError("");
+            }}
+            value={draft}
+          />
+          {editError ? (
+            <small className="message-edit-form__error" role="alert">
+              {editError}
+            </small>
+          ) : null}
+          <div className="message-edit-form__actions">
+            <button
+              className="message-edit-form__button"
+              disabled={submittingEdit}
+              onClick={() => {
+                setEditError("");
+                setEditing(false);
+              }}
+              type="button"
+            >
+              <X size={14} />
+              取消
+            </button>
+            <button
+              className="message-edit-form__button message-edit-form__button--primary"
+              disabled={sendEditDisabled}
+              onClick={() => void submitEdit()}
+              type="button"
+            >
+              <Check size={14} />
+              {submittingEdit ? "发送中" : "发送"}
+            </button>
+          </div>
+        </div>
+      ) : isUser ? (
+        content
+      ) : image?.src && !imageUnavailable ? (
+        <figure className="chat-image-message">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt={image.alt || "生成图像"}
+            loading="lazy"
+            onError={() => setFailedImageSrc(image.src)}
+            src={image.src}
+          />
+          {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+        </figure>
+      ) : imageUnavailable ? (
+        <div className="chat-image-message chat-image-message--missing">
+          <p>图像文件不可用。</p>
+          <span>{image?.src}</span>
+        </div>
+      ) : (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {naturalizedMessageDisplayContent}
+        </ReactMarkdown>
+      )}
+    </div>
+  ) : null;
+  const orderedMessageBlocks = isUser
+    ? []
+    : orderedProjectionMessageBlocks({
+      bodyEventOffset: publicProjection?.bodyEventOffset,
+      hasBody: shouldRenderContent,
+      timelineItems: publicTimelineItems,
+    });
 
   return (
     <article
@@ -154,93 +241,21 @@ export function ChatMessage({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {shouldRenderContent ? (
-        <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
-          {!isUser && copyableReplyText ? (
-            <button
-              aria-label={copiedReply ? "已复制回复" : "复制回复"}
-              className="message-copy-button"
-              onClick={() => void copyReply()}
-              title={copiedReply ? "已复制" : "复制回复"}
-              type="button"
-            >
-              {copiedReply ? <Check size={13} /> : <Copy size={13} />}
-            </button>
-          ) : null}
-          {isUser && editing ? (
-            <div className="message-edit-form">
-              <textarea
-                className="message-edit-form__textarea"
-                onChange={(event) => {
-                  setDraft(event.target.value);
-                  setEditError("");
-                }}
-                value={draft}
-              />
-              {editError ? (
-                <small className="message-edit-form__error" role="alert">
-                  {editError}
-                </small>
-              ) : null}
-              <div className="message-edit-form__actions">
-                <button
-                  className="message-edit-form__button"
-                  disabled={submittingEdit}
-                  onClick={() => {
-                    setEditError("");
-                    setEditing(false);
-                  }}
-                  type="button"
-                >
-                  <X size={14} />
-                  取消
-                </button>
-                <button
-                  className="message-edit-form__button message-edit-form__button--primary"
-                  disabled={sendEditDisabled}
-                  onClick={() => void submitEdit()}
-                  type="button"
-                >
-                  <Check size={14} />
-                  {submittingEdit ? "发送中" : "发送"}
-                </button>
-              </div>
-            </div>
-          ) : isUser ? (
-            content
-          ) : image?.src && !imageUnavailable ? (
-            <figure className="chat-image-message">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt={image.alt || "生成图像"}
-                loading="lazy"
-                onError={() => setFailedImageSrc(image.src)}
-                src={image.src}
-              />
-              {image.caption ? <figcaption>{image.caption}</figcaption> : null}
-            </figure>
-          ) : imageUnavailable ? (
-            <div className="chat-image-message chat-image-message--missing">
-              <p>图像文件不可用。</p>
-              <span>{image?.src}</span>
-            </div>
-          ) : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {naturalizedMessageDisplayContent}
-            </ReactMarkdown>
-          )}
-        </div>
-      ) : null}
+      {isUser ? renderMessageContent() : orderedMessageBlocks.map((block) => (
+        block.kind === "body"
+          ? renderMessageContent(block.key)
+          : (
+            <PublicTimelineActivity
+              ariaLabel="执行轨迹"
+              items={block.items}
+              key={block.key}
+            />
+          )
+      ))}
       {showThinkingPlaceholder ? (
         <div className="chat-message-shell__thinking-placeholder" aria-live="polite">
           <span>正在思考</span>
         </div>
-      ) : null}
-      {!isUser && hasPublicTimelineActivity ? (
-        <PublicTimelineActivity
-          ariaLabel="系统提示"
-          items={publicTimelineItems}
-        />
       ) : null}
     </article>
   );
@@ -267,22 +282,85 @@ async function writeClipboardText(text: string) {
   document.body.removeChild(textarea);
 }
 
-function publicSystemNoticeItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
-  if (!projection) return [];
-  return projection.pinned
-    .filter(isProjectionSystemNoticeItem)
-    .map(projectionSystemNoticeToTimelineItem);
+type ProjectionMessageBlock =
+  | { kind: "body"; key: string; offset: number }
+  | { kind: "activity"; key: string; offset: number; items: PublicChatTimelineItem[] };
+
+function orderedProjectionMessageBlocks({
+  bodyEventOffset,
+  hasBody,
+  timelineItems,
+}: {
+  bodyEventOffset?: number;
+  hasBody: boolean;
+  timelineItems: PublicChatTimelineItem[];
+}): ProjectionMessageBlock[] {
+  const entries: ProjectionMessageBlock[] = [];
+  if (hasBody) {
+    entries.push({
+      kind: "body",
+      key: "projection-body",
+      offset: Number.isFinite(Number(bodyEventOffset)) ? Number(bodyEventOffset) : Number.MAX_SAFE_INTEGER,
+    });
+  }
+  for (const item of timelineItems) {
+    entries.push({
+      kind: "activity",
+      key: `activity:${item.item_id || item.source_event_id || item.event_offset || entries.length}`,
+      offset: Number.isFinite(Number(item.event_offset)) ? Number(item.event_offset) : 0,
+      items: [item],
+    });
+  }
+  const sorted = entries.sort((left, right) => {
+    if (left.offset !== right.offset) return left.offset - right.offset;
+    if (left.kind !== right.kind) return left.kind === "activity" ? -1 : 1;
+    return left.key.localeCompare(right.key);
+  });
+  const grouped: ProjectionMessageBlock[] = [];
+  for (const entry of sorted) {
+    const previous = grouped[grouped.length - 1];
+    if (entry.kind === "activity" && previous?.kind === "activity") {
+      previous.items.push(...entry.items);
+      continue;
+    }
+    grouped.push(entry);
+  }
+  return grouped;
 }
 
-function projectionSystemNoticeToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem {
+function publicTimelineItemsFromProjection(projection: MessagePublicProjection | undefined): PublicChatTimelineItem[] {
+  if (!projection) return [];
+  const timeline = projection.timeline?.length
+    ? projection.timeline
+    : [
+      projection.currentAction,
+      ...(projection.status ?? []),
+      ...(projection.pinned ?? []),
+      ...(projection.finalResults ?? []),
+      ...(projection.trace ?? []),
+    ].filter((item): item is PublicProjectionItem => Boolean(item));
+  return timeline
+    .map(projectionItemToTimelineItem)
+    .filter((item): item is PublicChatTimelineItem => Boolean(item))
+    .sort((left, right) =>
+      Number(left.event_offset ?? 0) - Number(right.event_offset ?? 0)
+      || String(left.item_id || "").localeCompare(String(right.item_id || ""))
+    );
+}
+
+function projectionItemToTimelineItem(item: PublicProjectionItem): PublicChatTimelineItem | null {
+  if (!isProjectionTimelineItem(item)) return null;
+  const toolOwned = Boolean(item.toolCallId || item.toolName);
+  const title = projectionTimelineTitle(item);
+  if (!title) return null;
   return {
     item_id: item.itemId,
-    kind: "status_update",
-    slot: "status",
-    surface: "timeline",
+    kind: toolOwned ? "work_action" : "status_update",
+    slot: toolOwned ? "tool" : "status",
+    surface: toolOwned ? "tool_window" : "timeline",
     source_authority: item.sourceAuthority,
-    title: item.title || item.text,
-    text: item.text || item.title,
+    title,
+    text: title,
     detail: item.detail,
     state: item.state,
     phase: item.state === "running" || item.state === "waiting" ? "running" : "done",
@@ -296,18 +374,51 @@ function projectionSystemNoticeToTimelineItem(item: PublicProjectionItem): Publi
     artifacts: item.artifactRefs,
     event_offset: item.eventOffset,
     source_event_id: item.sourceEventId,
+    tool_window: toolOwned ? {
+      tool_label: item.toolName,
+      status: projectionToolStatusLabel(item),
+      target: item.subjectLabel,
+      sections: [
+        item.detail ? { label: "详情", text: item.detail } : null,
+        item.subjectLabel && item.subjectLabel !== item.detail ? { label: "目标", text: item.subjectLabel } : null,
+      ].filter((section): section is { label: string; text: string } => Boolean(section?.text)),
+    } : undefined,
     public_summary: item.detail || item.text || item.title,
   };
 }
 
-function isProjectionSystemNoticeItem(item: PublicProjectionItem) {
+function isProjectionTimelineItem(item: PublicProjectionItem) {
+  if (item.toolCallId || item.toolName) return true;
+  const visibility = cleanText(item.mainVisibility).toLowerCase();
+  if (visibility === "hidden") return false;
+  return Boolean(cleanText(item.title || item.text || item.detail));
+}
+
+function projectionTimelineTitle(item: PublicProjectionItem) {
+  const explicit = cleanText(item.title || item.text);
+  if (explicit) return explicit;
+  const tool = cleanText(item.toolName) || "tool";
+  if (!item.toolCallId && !item.toolName) return "";
+  const sourceEventType = cleanText(item.sourceEventType).toLowerCase();
   const state = cleanText(item.state).toLowerCase();
-  const pinReason = cleanText(item.pinReason).toLowerCase();
-  const sourceAuthority = cleanText(item.sourceAuthority).toLowerCase();
-  const systemOwned = sourceAuthority === "runtime" || sourceAuthority === "system";
-  const terminalError = ["failed", "error", "blocked", "stopped", "aborted", "cancelled", "canceled"].includes(state)
-    || ["failed", "blocked", "commit_failed", "stream_error", "connection_lost"].includes(pinReason);
-  return systemOwned && terminalError;
+  if (sourceEventType === "tool_permission_decided") return "工具权限已确认";
+  if (sourceEventType === "tool_item_started") return `正在执行 ${tool}`;
+  if (sourceEventType === "tool_item_completed") {
+    return ["failed", "error", "blocked"].includes(state) ? `${tool} 执行失败` : `${tool} 执行完成`;
+  }
+  if (state === "running") return `正在执行 ${tool}`;
+  if (state === "waiting") return `等待 ${tool}`;
+  if (["failed", "error", "blocked"].includes(state)) return `${tool} 执行失败`;
+  return `${tool} 执行完成`;
+}
+
+function projectionToolStatusLabel(item: PublicProjectionItem) {
+  const state = cleanText(item.state).toLowerCase();
+  if (state === "running") return "running";
+  if (state === "waiting") return "waiting";
+  if (["failed", "error", "blocked"].includes(state)) return "failed";
+  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  return state || undefined;
 }
 
 function assistantDisplayContent(

@@ -92,7 +92,7 @@ def test_single_agent_turn_projection_requires_json_action_and_hides_native_cont
     native_tool_contract = dict(action_protocol.get("native_tool_calls") or {})
 
     assert dict(assembly.get("control_capabilities") or {}).get("may_call_tools") is True
-    assert start.get("allowed_action_types") == ["respond", "ask_user", "block", "request_task_run", "tool_call"]
+    assert set(start.get("allowed_action_types") or []) == {"respond", "ask_user", "block", "request_task_run", "tool_call"}
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True

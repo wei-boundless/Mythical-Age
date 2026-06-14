@@ -1675,7 +1675,7 @@ def test_single_agent_turn_projects_recent_work_outcome_as_read_only_context() -
     assert str(context_window["recent_work_outcome_hash"]).startswith("sha256:")
 
 
-def test_single_agent_turn_active_work_prompt_binds_control_to_current_turn() -> None:
+def test_single_agent_turn_active_work_context_is_read_only_without_boundary_receipt() -> None:
     result = RuntimeCompiler().compile_single_agent_turn_packet(
         session_id="session:active-work-current-turn",
         turn_id="turn:active-work-current-turn",
@@ -1704,14 +1704,16 @@ def test_single_agent_turn_active_work_prompt_binds_control_to_current_turn() ->
     model_input = "\n".join(str(message.get("content") or "") for message in result.packet.model_messages)
 
     assert "current active-turn-bound work" in decision_boundary
+    assert "current_work_boundary_receipt can authorize active_work_control" in decision_boundary
     assert "latest resumable executor checkpoint" not in decision_boundary
     assert "latest-task fallback" in decision_boundary
     assert "recent_work_outcome" in decision_boundary
+    assert active_work["read_only_context"] is True
+    assert active_work["control_authorization"] == "current_work_boundary_receipt_required"
+    assert "available_controls" not in active_work
+    assert "active_work_control" not in result.packet.allowed_action_types
     assert "当前工作或可恢复断点" not in model_input
-    assert "系统在本轮显式暴露的当前 active-turn-bound work" in model_input
-    assert "用户可见反馈意图" in model_input
-    assert "控制动作脱节" in model_input
-    assert "不等同暂停或停止" in model_input
+    assert "current_work_boundary_receipt" in model_input
 
 
 def test_single_agent_turn_replays_api_transcript_as_real_chat_messages() -> None:

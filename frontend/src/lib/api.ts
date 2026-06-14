@@ -267,6 +267,7 @@ export type PublicProjectionItem = {
   artifactRefs?: Array<Record<string, unknown>>;
   collapsed?: boolean;
   eventOffset?: number;
+  sourceEventType?: string;
   sourceEventId?: string;
 };
 
@@ -281,6 +282,7 @@ export type ProjectionLedger = {
   finalResults: PublicProjectionItem[];
   status: PublicProjectionItem[];
   trace: PublicProjectionItem[];
+  timeline: PublicProjectionItem[];
   commit: {
     state: "none" | "checked" | "committed" | "failed" | "skipped";
     key?: string;
@@ -298,6 +300,9 @@ export type MessagePublicProjection = {
   pinned: PublicProjectionItem[];
   finalResults: PublicProjectionItem[];
   status: PublicProjectionItem[];
+  trace: PublicProjectionItem[];
+  timeline: PublicProjectionItem[];
+  bodyEventOffset?: number;
   traceAvailable: boolean;
   traceCount: number;
   commitState: "none" | "checked" | "committed" | "failed" | "skipped";
