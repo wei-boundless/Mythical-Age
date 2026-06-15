@@ -95,7 +95,7 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("shows context pressure ratio even when pressure is normal", () => {
+  it("shows model context window usage even when pressure is normal", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
@@ -111,10 +111,10 @@ describe("ChatPanel", () => {
       cumulative_transcript_tokens: 52000,
     }))).toEqual({
       label: "上下文",
-      usedPercent: 4,
-      pressurePercentText: "4%",
-      tokenRatioText: "34.0K/900.0K",
-      title: "当前上下文压力 34,000 tokens；自动压缩阈值 900,000 tokens；距自动压缩还剩 866,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
+      usedPercent: 3,
+      pressurePercentText: "3%",
+      tokenRatioText: "34.0K/1.00M",
+      title: "当前模型上下文 34,000/1,000,000 tokens；窗口占比 3%；自动压缩阈值 900,000 tokens；当前上下文压力 34,000 tokens；距自动压缩还剩 866,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
       levelClass: "normal",
     });
   });
@@ -177,7 +177,7 @@ describe("ChatPanel", () => {
     ]);
   });
 
-  it("uses compaction pressure tokens for the visible ratio when session pressure is lower", () => {
+  it("keeps compaction pressure in the title when visible context usage is lower", () => {
     expect(sessionContextPressurePresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.012598,
@@ -192,10 +192,10 @@ describe("ChatPanel", () => {
       },
     }))).toEqual({
       label: "上下文",
-      usedPercent: 5,
-      pressurePercentText: "5%",
-      tokenRatioText: "41.4K/850.0K",
-      title: "当前上下文压力 41,444 tokens；会话公开历史 12,598 tokens；自动压缩阈值 850,000 tokens；距自动压缩还剩 808,556 tokens；阈值占比 5%；达到阈值会触发自动压缩",
+      usedPercent: 1,
+      pressurePercentText: "1%",
+      tokenRatioText: "12.6K/1.00M",
+      title: "当前模型上下文 12,598/1,000,000 tokens；窗口占比 1%；自动压缩阈值 850,000 tokens；压缩压力按较高观测值计为 41,444 tokens；距自动压缩还剩 808,556 tokens；阈值占比 5%；达到阈值会触发自动压缩",
       levelClass: "normal",
     });
   });

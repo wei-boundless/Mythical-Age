@@ -308,7 +308,11 @@ def infer_file_state_events(
                         "file_unchanged": tool_result.get("file_unchanged") if isinstance(tool_result.get("file_unchanged"), bool) else None,
                         "content_omitted": tool_result.get("content_omitted") if isinstance(tool_result.get("content_omitted"), bool) else None,
                         "previous_observation_ref": str(tool_result.get("previous_observation_ref") or "").strip(),
-                        "reusable_result_ref": str(tool_result.get("reusable_result_ref") or tool_result.get("previous_observation_ref") or "").strip(),
+                        "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
+                        "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
+                        "artifact_ref_status": str(tool_result.get("artifact_ref_status") or "").strip(),
+                        "visible_exact": tool_result.get("visible_exact") if isinstance(tool_result.get("visible_exact"), bool) else None,
+                        "text_sha256": str(tool_result.get("text_sha256") or "").strip(),
                         "authority": "runtime.tool_result_envelope.file_state_event",
                     }
                 )

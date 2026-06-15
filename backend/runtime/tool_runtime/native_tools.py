@@ -40,6 +40,7 @@ from runtime_objects.tool_result_storage import (
     MAX_REHYDRATION_SIZE_BYTES,
     read_persisted_tool_result,
 )
+from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
 from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
@@ -360,6 +361,25 @@ class NativeReadFileTool(_NativeToolBase):
             tool_result["mtime_ns"] = mtime_ns
             if read_intent:
                 tool_result["read_intent"] = read_intent
+            artifact = _write_read_observation_artifact(
+                context=context,
+                path=rel,
+                text=window.text,
+                start_line=window.start_line,
+                end_line=window.end_line,
+                returned_lines=window.returned_lines,
+                line_count=window.line_count,
+                total_lines=window.total_lines,
+                has_more=window.has_more,
+                next_start_line=window.next_start_line,
+                content_sha256=window.content_sha256,
+                mtime_ns=mtime_ns,
+                size_bytes=int(stat.st_size),
+                repository_id=window.repository_id,
+                source_tool_name=self.name,
+            )
+            if artifact:
+                tool_result.update(_read_artifact_tool_result_fields(artifact, visible_exact=True))
             unchanged = _unchanged_previous_read_window(
                 context=context,
                 path=rel,
@@ -371,6 +391,8 @@ class NativeReadFileTool(_NativeToolBase):
             text = window.text
             if unchanged:
                 tool_result.update(unchanged)
+                if str(unchanged.get("exact_artifact_ref") or "").strip():
+                    tool_result["visible_exact"] = False
                 text = _file_unchanged_read_stub(
                     path=rel,
                     start_line=window.start_line,
@@ -426,17 +448,40 @@ class NativeReadFileTool(_NativeToolBase):
             tool_result = window.to_dict(include_text=False)
             if read_intent:
                 tool_result["read_intent"] = read_intent
+            result_path = Path(str(getattr(result, "physical_path", "") or ""))
+            result_mtime_ns = int(result_path.stat().st_mtime_ns) if result_path.exists() and result_path.is_file() else None
+            artifact = _write_read_observation_artifact(
+                context=context,
+                path=result.logical_path,
+                text=window.text,
+                start_line=window.start_line,
+                end_line=window.end_line,
+                returned_lines=window.returned_lines,
+                line_count=window.line_count,
+                total_lines=window.total_lines,
+                has_more=window.has_more,
+                next_start_line=window.next_start_line,
+                content_sha256=window.content_sha256,
+                mtime_ns=result_mtime_ns,
+                size_bytes=len(str(result.content or "").encode("utf-8", errors="replace")),
+                repository_id=window.repository_id,
+                source_tool_name=self.name,
+            )
+            if artifact:
+                tool_result.update(_read_artifact_tool_result_fields(artifact, visible_exact=True))
             unchanged = _unchanged_previous_read_window(
                 context=context,
                 path=result.logical_path,
                 start_line=window.start_line,
                 end_line=window.end_line,
                 content_sha256=window.content_sha256,
-                mtime_ns=None,
+                mtime_ns=result_mtime_ns,
             )
             text = window.text
             if unchanged:
                 tool_result.update(unchanged)
+                if str(unchanged.get("exact_artifact_ref") or "").strip():
+                    tool_result["visible_exact"] = False
                 text = _file_unchanged_read_stub(
                     path=result.logical_path,
                     start_line=window.start_line,
@@ -550,28 +595,6 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
                 execution_receipt=context.execution_receipt,
             )
         source_metadata = dict(result.get("metadata") or {})
-        file_evidence, file_state_events = _rehydrated_read_file_evidence(
-            context=context,
-            metadata=source_metadata,
-        )
-        if file_evidence.get("status") == "error":
-            error = str(file_evidence.get("message") or "persisted read_file evidence is stale")
-            return self._envelope(
-                tool_args=args,
-                status="error",
-                text=f"Read persisted tool result rejected: {error}",
-                structured_payload={
-                    "tool_result": {
-                        "kind": "persisted_tool_result",
-                        "status": "error",
-                        "replacement_id": str(result.get("replacement_id") or args.get("replacement_id") or ""),
-                        "path": str(result.get("path") or args.get("path") or ""),
-                        "error": str(file_evidence.get("code") or "persisted_read_file_evidence_stale"),
-                    },
-                    "structured_error": file_evidence,
-                },
-                execution_receipt=context.execution_receipt,
-            )
         tool_result = {
             "kind": "persisted_tool_result",
             "status": "ok",
@@ -583,7 +606,6 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
             "truncated": bool(result.get("truncated")),
             "content_sha256": _sha256_text(str(result.get("content") or "")),
             "source_metadata": source_metadata,
-            "file_evidence": file_evidence,
             "authority": str(result.get("authority") or "runtime.tool_result_rehydration"),
         }
         observed = (tool_result["path"],) if tool_result["path"] else ()
@@ -593,234 +615,8 @@ class NativeReadPersistedToolResultTool(_NativeToolBase):
             text=str(result.get("content") or ""),
             structured_payload={"tool_result": tool_result},
             observed_paths=observed,
-            file_state_events=file_state_events,
             execution_receipt=context.execution_receipt,
         )
-
-
-def _rehydrated_read_file_evidence(
-    *,
-    context: ToolUseContext,
-    metadata: dict[str, Any],
-) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
-    source_tool_name = str(metadata.get("source_tool_name") or "").strip()
-    content_range = dict(metadata.get("content_range") or {})
-    if source_tool_name != "read_file" or not content_range:
-        return (
-            {
-                "status": "not_file_evidence",
-                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
-            },
-            (),
-        )
-    if content_range.get("content_omitted") is True:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_was_already_omitted",
-                message="Persisted output points to a read_file stub, not exact file lines.",
-                repair_instruction="Call read_file for the current target range.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    scope = dict(getattr(context, "file_evidence_scope", {}) or {})
-    if not scope:
-        return (
-            {
-                "status": "unverified_no_file_evidence_scope",
-                "source_tool_name": "read_file",
-                "content_range": content_range,
-                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
-            },
-            (),
-        )
-    path = str(content_range.get("path") or "").replace("\\", "/").strip().strip("/")
-    start_line = _native_int_or_none(content_range.get("start_line"))
-    end_line = _native_int_or_none(content_range.get("end_line"))
-    if not path or start_line is None or end_line is None or end_line < start_line:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_metadata_invalid",
-                message="Persisted read_file metadata is missing a valid path or line range.",
-                repair_instruction="Call read_file for the current target range.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    current = _current_file_state_for_path(context=context, path=path)
-    if current is None:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_evidence_missing",
-                message="No current file evidence state exists for the persisted read_file output.",
-                repair_instruction="Call read_file for the current target range before using the restored content for edits.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    current_status = str(getattr(current, "status", "") or "").strip().lower()
-    if current_status in {"stale", "missing", "unread"}:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_evidence_stale",
-                message="The persisted read_file output belongs to stale or unavailable file evidence.",
-                repair_instruction="Call read_file again for the current target range.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    content_sha256 = str(content_range.get("content_sha256") or "").strip()
-    state_sha256 = str(getattr(current, "content_sha256", "") or "").strip()
-    if content_sha256 and state_sha256 and content_sha256 != state_sha256:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_evidence_stale",
-                message="The current file hash differs from the persisted read_file output hash.",
-                repair_instruction="Call read_file again for the current target range.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    mtime_ns = _native_int_or_none(content_range.get("mtime_ns"))
-    state_mtime_ns = _native_int_or_none(getattr(current, "mtime_ns", None))
-    if mtime_ns is not None and state_mtime_ns is not None and mtime_ns != state_mtime_ns:
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_evidence_stale",
-                message="The current file mtime differs from the persisted read_file output mtime.",
-                repair_instruction="Call read_file again for the current target range.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    disk_status = _current_workspace_text_file_fingerprint(context=context, path=path)
-    if disk_status.get("status") == "missing":
-        return (
-            _persisted_read_file_evidence_error(
-                code="persisted_read_file_evidence_stale",
-                message="The current file no longer exists at the persisted read_file path.",
-                repair_instruction="Call read_file again only after restoring the file or choose the correct current path.",
-                content_range=content_range,
-            ),
-            (),
-        )
-    if disk_status.get("status") == "ok":
-        disk_sha256 = str(disk_status.get("content_sha256") or "").strip()
-        if content_sha256 and disk_sha256 and content_sha256 != disk_sha256:
-            return (
-                _persisted_read_file_evidence_error(
-                    code="persisted_read_file_evidence_stale",
-                    message="The current file content differs from the persisted read_file output.",
-                    repair_instruction="Call read_file again for the current target range.",
-                    content_range=content_range,
-                ),
-                (),
-            )
-        disk_mtime_ns = _native_int_or_none(disk_status.get("mtime_ns"))
-        if mtime_ns is not None and disk_mtime_ns is not None and mtime_ns != disk_mtime_ns:
-            return (
-                _persisted_read_file_evidence_error(
-                    code="persisted_read_file_evidence_stale",
-                    message="The current file mtime differs from the persisted read_file output mtime.",
-                    repair_instruction="Call read_file again for the current target range.",
-                    content_range=content_range,
-                ),
-                (),
-            )
-    for segment in tuple(getattr(current, "read_ranges", ()) or ()):
-        if bool(getattr(segment, "stale", False)):
-            continue
-        segment_start = int(getattr(segment, "start_line", 0) or 0)
-        segment_end = int(getattr(segment, "end_line", 0) or 0)
-        if segment_start > start_line or segment_end < end_line:
-            continue
-        segment_hash = str(getattr(segment, "content_sha256", "") or state_sha256 or "").strip()
-        if content_sha256 and segment_hash and content_sha256 != segment_hash:
-            continue
-        segment_mtime_ns = _native_int_or_none(getattr(segment, "mtime_ns", None))
-        if mtime_ns is not None and segment_mtime_ns is not None and mtime_ns != segment_mtime_ns:
-            continue
-        event = _rehydrated_read_file_state_event(path=path, content_range=content_range)
-        return (
-            {
-                "status": "verified_current_read",
-                "source_tool_name": "read_file",
-                "path": path,
-                "start_line": start_line,
-                "end_line": end_line,
-                "content_sha256": content_sha256,
-                "source_tool_result_ref": str(metadata.get("source_tool_result_ref") or ""),
-                "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence",
-            },
-            (event,),
-        )
-    return (
-        _persisted_read_file_evidence_error(
-            code="persisted_read_file_target_range_not_current",
-            message="The persisted read_file output is outside current non-stale read windows.",
-            repair_instruction="Call read_file again for the current target range.",
-            content_range=content_range,
-        ),
-        (),
-    )
-
-
-def _rehydrated_read_file_state_event(*, path: str, content_range: dict[str, Any]) -> dict[str, Any]:
-    event = {
-        "event_type": "read",
-        "path": path,
-        "start_line": _native_int_or_none(content_range.get("start_line")),
-        "end_line": _native_int_or_none(content_range.get("end_line")),
-        "returned_lines": _native_int_or_none(content_range.get("returned_lines")),
-        "line_count": _native_int_or_none(content_range.get("line_count")),
-        "total_lines": _native_int_or_none(content_range.get("total_lines")),
-        "next_start_line": _native_int_or_none(content_range.get("next_start_line")),
-        "has_more": content_range.get("has_more") if isinstance(content_range.get("has_more"), bool) else None,
-        "content_sha256": str(content_range.get("content_sha256") or "").strip(),
-        "mtime_ns": _native_int_or_none(content_range.get("mtime_ns")),
-        "read_intent": "rehydrate_omitted_read_file",
-        "authority": "runtime.tool_runtime.read_persisted_tool_result.file_state_event",
-    }
-    return {key: value for key, value in event.items() if value not in ("", None, [], {}, ())}
-
-
-def _persisted_read_file_evidence_error(
-    *,
-    code: str,
-    message: str,
-    repair_instruction: str,
-    content_range: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "code": code,
-        "message": message,
-        "repair_instruction": repair_instruction,
-        "retryable": True,
-        "source_tool_name": "read_file",
-        "content_range": dict(content_range or {}),
-        "authority": "runtime.tool_runtime.read_persisted_tool_result.file_evidence_guard",
-    }
-
-
-def _current_workspace_text_file_fingerprint(*, context: ToolUseContext, path: str) -> dict[str, Any]:
-    try:
-        files = WorkspaceFileService(context.workspace_root)
-        file_path = files.resolve(path, require_path=True)
-        if not file_path.exists() or not file_path.is_file():
-            return {"status": "missing"}
-        content = files.read_text(file_path, limit=None)
-        stat = file_path.stat()
-        return {
-            "status": "ok",
-            "content_sha256": _sha256_text(content),
-            "mtime_ns": int(stat.st_mtime_ns),
-        }
-    except Exception as exc:
-        return {
-            "status": "unverified",
-            "error": str(exc),
-        }
 
 
 def _native_int_or_none(value: Any) -> int | None:
@@ -868,6 +664,86 @@ def _normalize_read_intent(value: Any) -> str:
     return intent if intent in _READ_INTENT_VALUES else ""
 
 
+def _write_read_observation_artifact(
+    *,
+    context: ToolUseContext,
+    path: str,
+    text: str,
+    start_line: int,
+    end_line: int,
+    returned_lines: int,
+    line_count: int,
+    total_lines: int,
+    has_more: bool,
+    next_start_line: int | None,
+    content_sha256: str,
+    mtime_ns: int | None,
+    size_bytes: int,
+    repository_id: str = "",
+    source_tool_name: str = "read_file",
+) -> dict[str, Any]:
+    try:
+        store = ReadObservationArtifactStore(_read_observation_primary_root(context))
+        return store.write_read_observation(
+            task_run_id=str(context.task_run_id or ""),
+            scope=dict(getattr(context, "file_evidence_scope", {}) or {}),
+            path=path,
+            text=text,
+            start_line=start_line,
+            end_line=end_line,
+            returned_lines=returned_lines,
+            line_count=line_count,
+            total_lines=total_lines,
+            has_more=has_more,
+            next_start_line=next_start_line,
+            content_sha256=content_sha256,
+            mtime_ns=mtime_ns,
+            size_bytes=size_bytes,
+            tool_call_id=str(context.tool_call_id or ""),
+            tool_result_ref=str(context.execution_receipt.get("result_ref") or context.execution_receipt.get("envelope_id") or ""),
+            source_tool_name=source_tool_name,
+            repository_id=repository_id,
+        )
+    except Exception:
+        return {}
+
+
+def _read_artifact_tool_result_fields(artifact: dict[str, Any], *, visible_exact: bool) -> dict[str, Any]:
+    artifact_ref = str(artifact.get("artifact_ref") or "").strip()
+    if not artifact_ref:
+        return {}
+    return {
+        "exact_artifact_ref": artifact_ref,
+        "artifact_ref_status": "exact",
+        "visible_exact": bool(visible_exact),
+        "read_observation_authority": str(artifact.get("authority") or "runtime_objects.read_observation_artifact.v1"),
+        "text_sha256": str(artifact.get("text_sha256") or ""),
+    }
+
+
+def _read_observation_primary_root(context: ToolUseContext) -> Path:
+    roots = _runtime_context_storage_roots(context)
+    if roots:
+        root = roots[0]
+    else:
+        root = _real_workspace_root(context) / "storage" / "runtime_state"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _read_observation_artifact_exists(context: ToolUseContext, artifact_ref: str) -> bool:
+    ref = str(artifact_ref or "").strip()
+    if not ref:
+        return False
+    for root in _runtime_context_storage_roots(context) or (_read_observation_primary_root(context),):
+        try:
+            if ReadObservationArtifactStore(root).artifact_exists(ref):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _unchanged_previous_read_window(
     *,
     context: ToolUseContext,
@@ -897,11 +773,24 @@ def _unchanged_previous_read_window(
                 for segment in file_state.read_ranges:
                     if segment.stale:
                         continue
+                    if bool(getattr(segment, "content_omitted", False)):
+                        continue
                     if int(segment.start_line) > int(start_line) or int(segment.end_line) < int(end_line):
                         continue
                     if str(segment.content_sha256 or "") != str(content_sha256 or ""):
                         continue
                     if mtime_ns is not None and segment.mtime_ns is not None and int(segment.mtime_ns) != int(mtime_ns):
+                        continue
+                    exact_artifact_ref = str(
+                        getattr(segment, "exact_artifact_ref", "")
+                        or (
+                            getattr(segment, "reusable_result_ref", "")
+                            if str(getattr(segment, "reusable_result_ref", "") or "").startswith("read_observation:")
+                            else ""
+                        )
+                        or ""
+                    ).strip()
+                    if not exact_artifact_ref or not _read_observation_artifact_exists(context, exact_artifact_ref):
                         continue
                     return {
                         "file_unchanged": True,
@@ -910,7 +799,9 @@ def _unchanged_previous_read_window(
                         "previous_start_line": int(segment.start_line),
                         "previous_end_line": int(segment.end_line),
                         "previous_observation_ref": str(segment.observation_ref or ""),
-                        "reusable_result_ref": str(segment.observation_ref or ""),
+                        "reusable_result_ref": exact_artifact_ref,
+                        "exact_artifact_ref": exact_artifact_ref,
+                        "artifact_ref_status": "exact",
                     }
     except Exception:
         return {}
@@ -950,9 +841,24 @@ def _edit_file_current_read_failure(
     normalized_path = str(path or "").replace("\\", "/").strip().strip("/")
     if not exists:
         return {}
-    if int(size_bytes or 0) <= 0 and target == "":
-        return {}
     if target == "":
+        if int(size_bytes or 0) <= 0:
+            file_state = _current_file_state_for_path(context=context, path=normalized_path)
+            if file_state is not None and _file_state_matches_current_file(
+                file_state=file_state,
+                content_sha256=content_sha256,
+                mtime_ns=mtime_ns,
+            ) and _has_current_empty_exact_read(file_state):
+                return {}
+            return _edit_file_guard_failure(
+                code="edit_file_empty_old_text_requires_current_empty_read",
+                path=normalized_path,
+                message="Edit rejected: empty existing files must have current exact read evidence before edit_file can use empty old_text.",
+                repair_instruction=(
+                    f"Call read_file with path=\"{normalized_path}\", start_line=1, line_count=1, "
+                    "read_intent=\"edit_target\", then retry edit_file."
+                ),
+            )
         return _edit_file_guard_failure(
             code="edit_file_empty_old_text_requires_empty_or_new_target",
             path=normalized_path,
@@ -981,23 +887,18 @@ def _edit_file_current_read_failure(
             message="Edit rejected: the recorded read evidence for this file is stale or unavailable.",
             repair_instruction="Read the current target range again with read_intent=\"edit_target\", then retry edit_file.",
         )
-    state_hash = str(getattr(file_state, "content_sha256", "") or "").strip()
-    if state_hash and content_sha256 and state_hash != content_sha256:
+    if not _file_state_matches_current_file(file_state=file_state, content_sha256=content_sha256, mtime_ns=mtime_ns):
         return _edit_file_guard_failure(
             code="edit_file_read_evidence_stale",
             path=normalized_path,
-            message="Edit rejected: the file content hash has changed since the last recorded read.",
+            message="Edit rejected: the file content or mtime has changed since the last recorded exact read.",
             repair_instruction="Read the current target range again before editing; do not reuse old_text from an older file version.",
         )
-    state_mtime = getattr(file_state, "mtime_ns", None)
-    if mtime_ns is not None and state_mtime is not None and int(state_mtime) != int(mtime_ns):
-        return _edit_file_guard_failure(
-            code="edit_file_read_evidence_stale",
-            path=normalized_path,
-            message="Edit rejected: the file mtime has changed since the last recorded read.",
-            repair_instruction="Read the current target range again before editing; do not reuse old_text from an older file version.",
-        )
-    active_ranges = [segment for segment in tuple(getattr(file_state, "read_ranges", ()) or ()) if not bool(getattr(segment, "stale", False))]
+    active_ranges = [
+        segment
+        for segment in tuple(getattr(file_state, "read_ranges", ()) or ())
+        if _segment_is_current_exact_read(segment)
+    ]
     if not active_ranges:
         return _edit_file_guard_failure(
             code="edit_file_requires_current_read",
@@ -1010,7 +911,7 @@ def _edit_file_current_read_failure(
         return {}
     start_line, end_line = span
     for segment in active_ranges:
-        segment_hash = str(getattr(segment, "content_sha256", "") or state_hash or "").strip()
+        segment_hash = str(getattr(segment, "content_sha256", "") or getattr(file_state, "content_sha256", "") or "").strip()
         if segment_hash and content_sha256 and segment_hash != content_sha256:
             continue
         if mtime_ns is not None and getattr(segment, "mtime_ns", None) is not None and int(getattr(segment, "mtime_ns")) != int(mtime_ns):
@@ -1029,6 +930,37 @@ def _edit_file_current_read_failure(
         start_line=start_line,
         end_line=end_line,
     )
+
+
+def _file_state_matches_current_file(*, file_state: Any, content_sha256: str, mtime_ns: int | None) -> bool:
+    state_hash = str(getattr(file_state, "content_sha256", "") or "").strip()
+    if state_hash and content_sha256 and state_hash != content_sha256:
+        return False
+    state_mtime = getattr(file_state, "mtime_ns", None)
+    if mtime_ns is not None and state_mtime is not None and int(state_mtime) != int(mtime_ns):
+        return False
+    return True
+
+
+def _segment_is_current_exact_read(segment: Any) -> bool:
+    if bool(getattr(segment, "stale", False)):
+        return False
+    exact_ref = str(getattr(segment, "exact_artifact_ref", "") or "").strip()
+    artifact_status = str(getattr(segment, "artifact_ref_status", "") or "").strip()
+    if bool(getattr(segment, "content_omitted", False)) and not exact_ref:
+        return False
+    return bool(getattr(segment, "visible_exact", False) or (exact_ref and artifact_status == "exact"))
+
+
+def _has_current_empty_exact_read(file_state: Any) -> bool:
+    if _native_int_or_none(getattr(file_state, "total_lines", None)) != 0:
+        return False
+    for segment in tuple(getattr(file_state, "read_ranges", ()) or ()):
+        if not _segment_is_current_exact_read(segment):
+            continue
+        if int(getattr(segment, "start_line", 0) or 0) == 1 and int(getattr(segment, "end_line", -1) or -1) == 0:
+            return True
+    return False
 
 
 def _edit_file_guard_failure(

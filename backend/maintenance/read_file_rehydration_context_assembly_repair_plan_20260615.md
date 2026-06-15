@@ -40,6 +40,16 @@
 - 它没有拒绝 `segment.content_omitted == True` 的旧 read range。
 - 因此一个已省略的 stub 也可能成为下一次 stub 的依据，形成“stub 指向 stub”的链。
 
+`backend/runtime/tool_runtime/tool_result_envelope.py:273-314`：
+
+- `read_file` 的 structured payload 会被自动推导成 file state event。
+- 如果 `tool_result` 带 `file_unchanged`、`content_omitted`、`previous_observation_ref`，这些字段会进入 file state。
+
+`backend/runtime/tool_runtime/tool_executor.py:1423-1465` 与 `backend/runtime/memory/file_state_store.py:32-78`：
+
+- executor 会把 envelope 上的 file state event 提交进 `FileStateAuthorityStore`。
+- 所以 stub 不是一次性的展示文本，它会变成后续 `_unchanged_previous_read_window` 的候选状态。
+
 这就是“为什么重复读”：当前实现认为同范围已读且文件未变，所以重复读不再返回内容。但这个判断没有确认早先内容仍在模型上下文中，也没有确认存在 observation-ref 级别的 exact artifact 可以还原。
 
 ### 3.2 通用工具输出存储不是 read observation artifact store
@@ -191,6 +201,12 @@
 - compact 后恢复真实文件内容，不把 stub 当真。
 - edit 是当前文件守卫，不是 rehydration 工具来授权编辑。
 
+关键纠偏：
+
+- 不能只抄 Claude 的 `file_unchanged` stub 文案。
+- Claude 的 stub 前提是“earlier Read tool_result in this conversation is still current”，并且 Read 被 `maxResultSizeChars: Infinity` 排除在通用持久化预算之外。
+- 本项目当前做法是：早先内容可能已被 provider replay / tool projection 省略，却仍根据 file state 返回 stub。这不是 Claude Code 的设计，是把 Claude 的局部优化拆掉前提后误用。
+
 ### 4.3 Pi coding-agent
 
 本地源码目录：`D:\AI应用\pi-main\packages\coding-agent`
@@ -216,6 +232,34 @@
 - 可以限制 read，但必须显式给 continuation。
 - 截断元数据和下一步读法属于 Read 工具本身，不应由 provider replay 静默改写。
 
+### 4.4 opencode
+
+本地源码目录：`D:\AI应用\opencode-main`
+
+`D:\AI应用\opencode-main\internal\llm\tools\view.go:38-67`：
+
+- View 工具是窗口化读取：默认 2000 行，支持 offset/limit，明确告诉模型大文件从指定 offset 继续读。
+
+`D:\AI应用\opencode-main\internal\llm\tools\view.go:172-187`：
+
+- 读取结果带行号；如果文件还有更多行，返回明确 continuation 提示。
+
+`D:\AI应用\opencode-main\internal\llm\tools\edit.go:267-280` 与 `:386-400`：
+
+- edit 前必须读过文件。
+- 写入前检查文件 mtime 是否晚于 last read。
+- 然后当前磁盘读取文件并要求 `old_string` 唯一匹配。
+
+`D:\AI应用\opencode-main\internal\llm\tools\grep.go:78-80`、`:145-173`：
+
+- 搜索结果截断时显式告诉模型 refine search。
+
+可借鉴点：
+
+- 搜索是定位候选，读取是文件证据。
+- 读可以窗口化，但必须给 offset continuation。
+- edit 的授权依据是当前文件读状态和当前磁盘，不是一个历史工具输出恢复器。
+
 ## 5. 成熟 agent 标准
 
 面向本项目，成熟标准应是：
@@ -229,6 +273,7 @@
 7. compaction 或 provider replay 省略了 read 内容时，context assembly 要么自动恢复 exact read artifact，要么明确要求重新 `read_file` 当前窗口。
 8. `edit_file` 是最终当前文件写入守卫，负责检查当前磁盘、hash/mtime、active read window 和 `old_text` 唯一性。
 9. 恢复历史 bytes 不能授权当前 edit；当前 edit 也不能要求恢复工具历史才能证明文件没变。
+10. 禁止保留两条 read 证据链：不能同时保留 `read_file -> ToolResultStore -> read_persisted_tool_result` 和新的 read observation artifact 链。
 
 ## 6. 目标权力链
 
@@ -261,6 +306,25 @@ edit_file
   -> verify current active read window covers old_text
   -> verify hash/mtime or content equality
   -> write or reject with a precise current-read request
+```
+
+明确唯一主链：
+
+```text
+read_file exact bytes
+  -> ReadObservationArtifactStore
+  -> FileStateAuthorityStore exact_artifact_ref
+  -> context assembly injects exact evidence or requests current read
+  -> edit_file performs final current-file guard
+```
+
+明确删除旧主链：
+
+```text
+read_file exact bytes
+  -> ToolResultStore content_replacements
+  -> read_persisted_tool_result
+  -> file_state_event rehydrate_omitted_read_file
 ```
 
 ## 7. 数据模型变更
@@ -319,8 +383,9 @@ ReadObservationArtifact = {
   - 当前 context assembly 确认可见，或 artifact store 可恢复。
 - 如果旧 range 是 omitted stub，不再返回 stub，必须返回真实当前 window。
 - `reusable_result_ref` 不再用裸 `previous_observation_ref` 伪装成可恢复结果。
-- `NativeReadPersistedToolResultTool` 不再把 read_file 的历史恢复和当前 edit 证据验证绑在一起。对 read_file 来源不再作为推荐路径。
-- `_rehydrated_read_file_evidence` 应删除或降级为非 read_file 通用输出路径，不再更新 file_state_event。
+- `NativeReadPersistedToolResultTool` 不处理 `read_file` 证据，不恢复 read_file bytes，不写 read file_state_event。
+- 删除 `_rehydrated_read_file_evidence` 的 read_file 授权分支；不要把它改成“兼容旧 read_file 持久化结果”的防御分支。
+- `read_persisted_tool_result` 只恢复 generic non-read 大工具输出。它不能成为 read/edit 链路的一环。
 
 ### 8.2 `backend/runtime_objects/tool_result_storage.py`
 
@@ -366,6 +431,8 @@ ReadObservationArtifact = {
   - 高压力：保留 read range metadata + exact artifact ref + explicit continuation，不给 `read_persisted_tool_result` capability。
   - content omitted 时只允许指向 `ReadObservationArtifactStore` 或要求重新 `read_file`。
 - 删除把 oversized read_file 视为通用 `content_replacements` 的路径。
+- `content_replacements` 中不再出现 `source_tool_name == "read_file"`。
+- 不再生成提示模型调用 `read_persisted_tool_result` 来恢复 read_file 的 capability / rehydration_plan。
 
 ### 8.7 `backend/harness/runtime/dynamic_context/task_state_projector.py`
 
@@ -374,6 +441,7 @@ ReadObservationArtifact = {
 - `read_windows_available` 中区分 `exact_artifact_ref`、`content_omitted`、`visible_exact`。
 - `do_not_repeat_read_ranges` 只对 exact visible 或 exact artifact-restorable 的 range 生效。
 - 如果只有 omitted stub，不输出“不要重复读”，而输出“需要重新 read_file 当前窗口”。
+- 如果 range 只有 `previous_observation_ref` 而没有 exact artifact ref，不允许把它标成可复用。
 
 ### 8.8 `backend/harness/runtime/bound_task_context.py`
 
@@ -413,6 +481,7 @@ ReadObservationArtifact = {
 - `read_persisted_tool_result` 保留为 generic persisted output tool，但说明不用于 read_file code evidence。
 - 不恢复 `backend/capability_system/tools/tool_units/persisted_tool_result_tool.py`。
 - 不新增旧 BaseTool 链路。
+- 不新增“历史 read_file persisted result 仍可恢复”的兼容说明。
 
 ### 8.12 Prompt 文案
 
@@ -442,6 +511,12 @@ ReadObservationArtifact = {
 - `test_empty_file_read_writes_zero_byte_exact_artifact_and_complete_state`
 - `test_edit_empty_old_text_allowed_only_for_current_confirmed_empty_file`
 - `test_edit_file_remains_final_current_file_guard_after_artifact_restore`
+- 删除或重写当前保护旧行为的用例：
+  - `test_native_read_file_omits_unchanged_window`
+  - `test_native_read_file_session_scope_omits_unchanged_window`
+  - `test_native_read_file_omits_subwindow_covered_by_larger_current_read`
+  - `test_read_persisted_tool_result_rehydrates_read_file_as_current_evidence`
+  - `test_read_persisted_tool_result_rejects_stale_read_file_evidence`
 
 `backend/tests/tool_result_projection_regression.py`
 
@@ -466,6 +541,7 @@ ReadObservationArtifact = {
 
 - 不保留防御已删除 `persisted_tool_result_tool.py` 的 BaseTool 兼容测试。
 - 不写“旧 replacement id 格式仍可用”的兼容测试。
+- 不写“read_persisted_tool_result 能拒绝旧 read_file persisted output”的防御测试；旧 read_file persisted output 链路必须从上游消失，而不是被下游守着。
 - 不用“断言 prompt 包含某句提示”代替真实 read/edit 行为测试。
 - 不通过降低断言、mock 掉 read_file、硬编码结果制造通过。
 
@@ -494,6 +570,7 @@ ReadObservationArtifact = {
 
 - repeated read 只有在 exact artifact 存在时才允许 stub。
 - content_omitted stub 不能成为下一个 stub 的依据。
+- 当前 exact artifact 不存在时，重复 read 返回真实当前窗口，而不是返回“去看之前”的 stub。
 
 ### Phase 2：拆开恢复和当前编辑授权
 
@@ -508,11 +585,13 @@ ReadObservationArtifact = {
 - generic persisted output 只服务 non-read 工具输出。
 - read_file 历史 bytes 由 internal read observation artifact 恢复。
 - `edit_file` 独立负责当前磁盘和 active read window 守卫。
+- `read_persisted_tool_result` 不再产生 read_file file_state_event。
 
 禁止：
 
 - 不让 `read_persisted_tool_result` 更新 read_file file_state。
 - 不让历史 artifact 自动授权 edit。
+- 不保留 read_file 旧 rehydration 分支。
 
 完成条件：
 

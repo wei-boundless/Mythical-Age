@@ -25,6 +25,8 @@ RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
     "artifact_scope_stable": "runtime_artifact_scope",
     "bound_task_context_stable": "runtime_bound_task_context",
     "environment_stable": "runtime_environment_boundary",
+    "file_evidence_policy_stable": "runtime_file_evidence_policy",
+    "lifecycle_stable": "runtime_lifecycle",
     "project_instructions_stable": "runtime_project_instructions",
     "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
     "task_contract_stable": "runtime_contract",
@@ -72,6 +74,12 @@ def bind_segments_to_slots(
 
 def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptCompositionSlot, ...]) -> tuple[PromptCompositionSlot, ...]:
     kind = str(segment.get("kind") or "").strip()
+    metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
+    prompt_slot_id = str(metadata.get("prompt_slot_id") or "").strip()
+    if prompt_slot_id:
+        exact_matches = [slot for slot in slots if str(slot.slot_id or "") == prompt_slot_id]
+        if exact_matches:
+            return tuple(exact_matches)
     source_tokens = _source_tokens(str(segment.get("source_ref") or ""))
     matches: list[PromptCompositionSlot] = []
     for slot in slots:
@@ -98,11 +106,11 @@ def _fallback_status(segment: dict[str, Any]) -> str:
 def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
     kind = str(segment.get("kind") or "").strip()
     cache_role = str(segment.get("cache_role") or "").strip()
-    if kind in DYNAMIC_SEGMENT_KINDS or cache_role in {"volatile", "never_cache"}:
-        return "dynamic_context_fragment"
     source_kind = RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND.get(kind)
     if source_kind:
         return source_kind
+    if kind in DYNAMIC_SEGMENT_KINDS or cache_role in {"volatile", "never_cache"}:
+        return "dynamic_context_fragment"
     return "legacy_runtime_text"
 
 
@@ -132,6 +140,10 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated artifact scope and should become a registered task-boundary slot"
     if status == "runtime_environment_boundary":
         return "segment is compiler-generated environment boundary and should become a registered environment slot"
+    if status == "runtime_file_evidence_policy":
+        return "segment is compiler-generated file evidence policy and should become a registered file evidence slot"
+    if status == "runtime_lifecycle":
+        return "segment is compiler-generated lifecycle protocol and should become a registered lifecycle slot"
     if status == "runtime_project_instructions":
         return "segment is scoped project instruction content collected from project instruction files"
     if status == "runtime_contract":

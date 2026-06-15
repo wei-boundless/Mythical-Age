@@ -18,6 +18,10 @@ class FileReadRange:
     content_omitted: bool = False
     previous_observation_ref: str = ""
     reusable_result_ref: str = ""
+    exact_artifact_ref: str = ""
+    artifact_ref_status: str = ""
+    visible_exact: bool = False
+    text_sha256: str = ""
     next_start_line: int | None = None
     has_more: bool | None = None
     stale: bool = False
@@ -88,6 +92,9 @@ class TaskFileState:
         payload["search_hits"] = [item.to_dict() for item in self.search_hits]
         payload["write_events"] = [item.to_dict() for item in self.write_events]
         payload["coverage"] = _coverage_payload(self.read_ranges, total_lines=self.total_lines)
+        exact_coverage = _coverage_payload(tuple(_active_exact_read_ranges(self.read_ranges)), total_lines=self.total_lines)
+        if exact_coverage:
+            payload["exact_coverage"] = exact_coverage
         next_read = _next_suggested_read(self)
         if next_read:
             payload["next_suggested_read"] = next_read
@@ -210,8 +217,9 @@ def _apply_file_event(
     if event_type == "read":
         start = _int_or_none(event.get("start_line"))
         end = _int_or_none(event.get("end_line"))
+        total_lines = _int_or_none(event.get("total_lines"))
         ranges = list(current.read_ranges)
-        if start is not None and end is not None and end >= start:
+        if start is not None and end is not None and (end >= start or (total_lines == 0 and start == 1 and end == 0)):
             candidate = FileReadRange(
                 start_line=start,
                 end_line=end,
@@ -222,14 +230,17 @@ def _apply_file_event(
                 file_unchanged=bool(event.get("file_unchanged") is True),
                 content_omitted=bool(event.get("content_omitted") is True),
                 previous_observation_ref=str(event.get("previous_observation_ref") or ""),
-                reusable_result_ref=str(event.get("reusable_result_ref") or event.get("previous_observation_ref") or ""),
+                reusable_result_ref=str(event.get("reusable_result_ref") or ""),
+                exact_artifact_ref=str(event.get("exact_artifact_ref") or ""),
+                artifact_ref_status=str(event.get("artifact_ref_status") or ""),
+                visible_exact=bool(event.get("visible_exact") is True),
+                text_sha256=str(event.get("text_sha256") or ""),
                 next_start_line=_int_or_none(event.get("next_start_line")),
                 has_more=event.get("has_more") if isinstance(event.get("has_more"), bool) else None,
                 stale=False,
             )
             if not any(item.start_line == candidate.start_line and item.end_line == candidate.end_line and item.stale is False for item in ranges):
                 ranges.append(candidate)
-        total_lines = _int_or_none(event.get("total_lines"))
         if total_lines is None:
             total_lines = current.total_lines
         latest_has_more = event.get("has_more") if isinstance(event.get("has_more"), bool) else None
@@ -355,7 +366,11 @@ def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
         file_unchanged=bool(payload.get("file_unchanged") is True),
         content_omitted=bool(payload.get("content_omitted") is True),
         previous_observation_ref=str(payload.get("previous_observation_ref") or ""),
-        reusable_result_ref=str(payload.get("reusable_result_ref") or payload.get("previous_observation_ref") or ""),
+        reusable_result_ref=str(payload.get("reusable_result_ref") or ""),
+        exact_artifact_ref=str(payload.get("exact_artifact_ref") or ""),
+        artifact_ref_status=str(payload.get("artifact_ref_status") or ""),
+        visible_exact=bool(payload.get("visible_exact") is True),
+        text_sha256=str(payload.get("text_sha256") or ""),
         next_start_line=_int_or_none(payload.get("next_start_line")),
         has_more=_bool_or_none(payload.get("has_more")),
         stale=bool(payload.get("stale") is True),
@@ -399,6 +414,16 @@ def _coverage_payload(ranges: tuple[FileReadRange, ...], *, total_lines: int | N
     if not active:
         return {}
     merged = _merged_read_ranges(active)
+    if not merged and total_lines == 0:
+        return {
+            "range_count": len(active),
+            "covered_lines": 0,
+            "total_lines": 0,
+            "complete": True,
+            "missing_ranges": [],
+        }
+    if not merged:
+        return {}
     start = merged[0]["start_line"]
     end = merged[-1]["end_line"]
     covered_lines = sum(int(item["end_line"]) - int(item["start_line"]) + 1 for item in merged)
@@ -469,11 +494,30 @@ def _active_read_ranges(ranges: tuple[FileReadRange, ...]) -> list[FileReadRange
     )
 
 
+def _active_exact_read_ranges(ranges: tuple[FileReadRange, ...]) -> list[FileReadRange]:
+    return sorted(
+        [
+            item
+            for item in ranges
+            if item.stale is False
+            and (
+                (item.start_line >= 1 and item.end_line >= item.start_line)
+                or (item.start_line == 1 and item.end_line == 0)
+            )
+            and (item.visible_exact or (item.exact_artifact_ref and item.artifact_ref_status == "exact"))
+            and not (item.content_omitted and not item.exact_artifact_ref)
+        ],
+        key=lambda item: (item.start_line, item.end_line),
+    )
+
+
 def _merged_read_ranges(ranges: list[FileReadRange]) -> list[dict[str, int]]:
     merged: list[dict[str, int]] = []
     for item in ranges:
         start = int(item.start_line)
         end = int(item.end_line)
+        if end < start:
+            continue
         if not merged or start > int(merged[-1]["end_line"]) + 1:
             merged.append({"start_line": start, "end_line": end})
             continue

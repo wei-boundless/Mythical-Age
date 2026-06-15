@@ -153,7 +153,7 @@ def _recent_work_outcome_projection(value: Any) -> dict[str, Any]:
             "agent_brief_output": compact_text(value.get("agent_brief_output") or "", limit=900),
             "artifact_refs": artifact_refs,
             "continuation_state": compact_text(value.get("continuation_state") or "", limit=120),
-            "decision_boundary": compact_text(value.get("decision_boundary") or "", limit=500),
+            "boundary_code": "recent_work_outcome_read_only_fact",
             "authority": "harness.runtime.dynamic_context.recent_work_outcome_projection",
         }
     )

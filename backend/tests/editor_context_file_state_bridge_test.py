@@ -72,7 +72,7 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
     assert any(item["source"] == "editor_selection" for item in file_state[0]["read_ranges"])
 
 
-def test_editor_context_file_state_does_not_replace_persisted_read_file_state(tmp_path: Path) -> None:
+def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     storage_root = tmp_path / "runtime-state"
     workspace.mkdir()

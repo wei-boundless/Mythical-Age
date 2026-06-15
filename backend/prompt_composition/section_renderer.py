@@ -41,11 +41,9 @@ def render_environment_instruction(
     environment_payload: dict[str, Any],
     *,
     environment_prompt_assembly: Any,
-    lifecycle_prompt_assembly: Any | None = None,
     include_storage_note: bool = True,
 ) -> str:
     content = _environment_prompt_section_content(environment_prompt_assembly)
-    lifecycle_content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
     environment_id = str(
         environment_payload.get("environment_id") or environment_payload.get("task_environment_id") or ""
     ).strip()
@@ -70,13 +68,18 @@ def render_environment_instruction(
     detail_sections: list[str] = []
     if content:
         detail_sections.append(content)
-    if lifecycle_content:
-        detail_sections.append(lifecycle_content)
     if storage_note:
         detail_sections.append(storage_note.rstrip())
     if not detail_sections:
         return "\n".join(identity_lines) + "\n"
     return "\n".join(identity_lines) + "\n当前任务环境说明：\n" + "\n".join(detail_sections) + "\n"
+
+
+def render_lifecycle_instruction(lifecycle_prompt_assembly: Any | None) -> str:
+    content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
+    if not content:
+        return ""
+    return "当前执行生命周期规则：\n" + content + "\n"
 
 
 def _environment_prompt_section_content(environment_prompt_assembly: Any) -> str:

@@ -1,27 +1,36 @@
 from __future__ import annotations
 
 from .fragments import build_content_fragments_from_message_specs, build_content_fragments_from_model_messages
-from .manifest import build_shadow_prompt_composition_manifest
+from .manifest import build_runtime_slot_prompt_composition_manifest
 from .message_specs import build_model_message_spec, message_spec_content_source
 from .models import (
     PromptCompositionGraph,
     PromptCompositionContentFragment,
-    PromptCompositionLayerInput,
     PromptCompositionManifest,
     PromptCompositionMessageProjection,
     PromptCompositionPlan,
     PromptCompositionSegmentBinding,
     PromptCompositionSlot,
+    RuntimeContextLoadEntry,
+    RuntimeContextLoadPlan,
+    RuntimePromptSlot,
+    RuntimePromptSlotPlan,
 )
 from .renderer import PromptCompositionRenderResult, render_model_messages_from_projection
+from .runtime_context_load_plan import build_runtime_context_load_plan, materialize_runtime_context_load_plan
 from .runtime_fragments import (
     PromptCompositionRuntimeFragment,
     build_runtime_payload_message_spec,
     render_runtime_payload_fragment,
 )
+from .runtime_slot_plan import (
+    build_runtime_prompt_slot_plan,
+    composition_slots_from_runtime_slot_plan,
+)
 from .section_renderer import (
     render_agent_prompt_instruction,
     render_environment_instruction,
+    render_lifecycle_instruction,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
 )
@@ -29,7 +38,6 @@ from .section_renderer import (
 __all__ = [
     "PromptCompositionGraph",
     "PromptCompositionContentFragment",
-    "PromptCompositionLayerInput",
     "PromptCompositionManifest",
     "PromptCompositionMessageProjection",
     "PromptCompositionPlan",
@@ -37,14 +45,23 @@ __all__ = [
     "PromptCompositionRuntimeFragment",
     "PromptCompositionSegmentBinding",
     "PromptCompositionSlot",
+    "RuntimeContextLoadEntry",
+    "RuntimeContextLoadPlan",
+    "RuntimePromptSlot",
+    "RuntimePromptSlotPlan",
     "build_content_fragments_from_model_messages",
     "build_content_fragments_from_message_specs",
     "build_model_message_spec",
+    "build_runtime_context_load_plan",
+    "build_runtime_prompt_slot_plan",
     "build_runtime_payload_message_spec",
-    "build_shadow_prompt_composition_manifest",
+    "build_runtime_slot_prompt_composition_manifest",
+    "composition_slots_from_runtime_slot_plan",
+    "materialize_runtime_context_load_plan",
     "message_spec_content_source",
     "render_agent_prompt_instruction",
     "render_environment_instruction",
+    "render_lifecycle_instruction",
     "render_model_messages_from_projection",
     "render_personality_prompt_instruction",
     "render_prompt_contract_instruction",

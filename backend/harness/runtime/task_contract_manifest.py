@@ -115,6 +115,7 @@ def project_task_contract_for_prompt(
             }
         )
     resource_requirements = dict(payload.get("resource_requirements") or {})
+    working_scope = _working_scope_stable_payload(payload.get("working_scope"))
     return _drop_empty_payload(
         {
             "title": str(payload.get("title") or "").strip(),
@@ -132,6 +133,7 @@ def project_task_contract_for_prompt(
             ],
             "completion_criteria": _string_list(payload.get("completion_criteria")),
             "constraints": _string_list(payload.get("constraints")),
+            "working_scope": working_scope,
             "forbidden_actions": _string_list(payload.get("forbidden_actions")),
             "resource_requirements": _resource_requirements_stable_payload(resource_requirements) if resource_requirements else {},
             "permission_requirements": dict(payload.get("permission_requirements") or {}),
@@ -140,6 +142,41 @@ def project_task_contract_for_prompt(
             "authority": "harness.runtime.task_contract.model_visible",
         }
     )
+
+
+def _working_scope_stable_payload(value: Any) -> dict[str, Any]:
+    raw = dict(value or {}) if isinstance(value, dict) else {}
+    body = _drop_empty_payload(
+        {
+            "target_objects": _object_ref_list(raw.get("target_objects")),
+            "workspace_refs": _string_list(raw.get("workspace_refs")),
+            "source_refs": _string_list(raw.get("source_refs")),
+            "excluded_scope": _string_list(raw.get("excluded_scope")),
+            "known_constraints": _string_list(raw.get("known_constraints")),
+        }
+    )
+    if not body:
+        return {}
+    return {**body, "authority": "harness.runtime.task_contract.working_scope.model_visible"}
+
+
+def _object_ref_list(value: Any) -> list[Any]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    result: list[Any] = []
+    for item in raw_values:
+        if isinstance(item, dict):
+            cleaned = {
+                str(key): val
+                for key, val in item.items()
+                if str(key).strip() and val not in (None, "", [], {})
+            }
+            if cleaned:
+                result.append(cleaned)
+            continue
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
 
 
 def _graph_slot_from_contract(contract: dict[str, Any]) -> dict[str, Any]:

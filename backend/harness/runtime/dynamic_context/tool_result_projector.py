@@ -88,7 +88,7 @@ class ToolResultProjector:
         content_replacements: list[dict[str, Any]] = []
         preview = _preview_text_for_tool(normalized, limit=preview_limit)
         result_ref = str(normalized.get("result_ref") or "")
-        if len(text.encode("utf-8", errors="ignore")) > preview_limit:
+        if not _is_read_file_result(normalized) and len(text.encode("utf-8", errors="ignore")) > preview_limit:
             store = ToolResultStore(self.root_dir, run_id=task_run_id or "session", namespace="runtime_context")
             budgeted, replacements = store.apply_budget(
                 {"text": text},
@@ -300,7 +300,11 @@ def _read_file_metadata_from_structured(
             "file_unchanged": source.get("file_unchanged") if isinstance(source.get("file_unchanged"), bool) else None,
             "content_omitted": source.get("content_omitted") if isinstance(source.get("content_omitted"), bool) else None,
             "previous_observation_ref": str(source.get("previous_observation_ref") or "").strip(),
-            "reusable_result_ref": str(source.get("reusable_result_ref") or source.get("previous_observation_ref") or "").strip(),
+            "reusable_result_ref": str(source.get("reusable_result_ref") or "").strip(),
+            "exact_artifact_ref": str(source.get("exact_artifact_ref") or "").strip(),
+            "artifact_ref_status": str(source.get("artifact_ref_status") or "").strip(),
+            "visible_exact": source.get("visible_exact") if isinstance(source.get("visible_exact"), bool) else None,
+            "text_sha256": str(source.get("text_sha256") or "").strip(),
         }
     )
     if not content_range:
@@ -373,14 +377,8 @@ def _build_rehydration_plan(
     if content_replacements:
         request = _persisted_tool_result_request(content_replacements, task_run_id=task_run_id)
         persisted_instruction = (
-            "This restores omitted bytes from this read_file result. For code edits, reuse the restored "
-            "window when file_state says the file is unchanged; call read_file again only if the file is "
-            "stale/changed or the target lines are outside known coverage."
-            if _is_read_file_window(normalized)
-            else (
-                "The prompt contains only a preview of this tool output. "
-                "Use the persisted result reference only when exact omitted output is required."
-            )
+            "The prompt contains only a preview of this non-code tool output. "
+            "Use the persisted result reference only when exact omitted output is required."
         )
         capabilities.append(
             drop_empty(
@@ -427,9 +425,8 @@ def _build_rehydration_plan(
             ),
             "capabilities": capabilities,
             "instruction": (
-                "Treat preview text as evidence preview only; rehydrate before relying on omitted exact content. "
-                "For code edits, use current read_file evidence or restored omitted read_file bytes when the "
-                "file is unchanged; call read_file only for stale files, changed files, or missing target lines."
+                "Treat preview text as evidence preview only; for non-code omitted output, rehydrate before relying "
+                "on exact content. For code edits, use current exact read_file evidence or read the current target window."
             ),
         }
     )
@@ -438,7 +435,7 @@ def _build_rehydration_plan(
 def _preview_text_for_tool(normalized: dict[str, Any], *, limit: int) -> str:
     text = str(normalized.get("text") or "")
     if _is_read_file_result(normalized):
-        return _compact_code_preview(text, limit=limit)
+        return text
     return compact_text(text, limit=limit)
 
 
@@ -453,6 +450,8 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
     content_range = dict(normalized.get("content_range") or {})
     if tool_name == "read_file" and content_range:
+        content_omitted = bool(content_range.get("content_omitted") is True)
+        exact_artifact_ref = str(content_range.get("exact_artifact_ref") or "").strip()
         fresh_read_conditions = _fresh_read_conditions_for_read_file(
             content_range=content_range,
             content_replacements=content_replacements,
@@ -462,15 +461,21 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             {
                 "source_kind": "code_evidence",
                 "source_authority": "read_file_line_window",
-                "visible_content_authority": "preview_of_line_window" if content_replacements else "exact_visible_line_window",
+                "visible_content_authority": (
+                    "artifact_backed_omitted_line_window"
+                    if content_omitted and exact_artifact_ref
+                    else "omitted_line_window_without_artifact"
+                    if content_omitted
+                    else "exact_visible_line_window"
+                ),
                 "coverage": coverage,
                 "full_file_window": coverage == "full_file",
-                "candidate_only": bool(content_replacements),
+                "candidate_only": bool(content_omitted and not exact_artifact_ref),
                 "usable_as_evidence_for": _read_file_usable_as_evidence_for(fresh_read_conditions),
                 "fresh_read_conditions": fresh_read_conditions,
                 "rehydration_preference": (
-                    "read_persisted_tool_result_for_omitted_read_file"
-                    if content_replacements
+                    "read_observation_artifact"
+                    if content_omitted and exact_artifact_ref
                     else "reuse_visible_read_file_window"
                 ),
                 "instruction": _read_file_evidence_instruction(content_range),
@@ -502,8 +507,9 @@ def _fresh_read_conditions_for_read_file(
     content_replacements: list[dict[str, Any]],
 ) -> list[str]:
     conditions: list[str] = []
-    if content_replacements:
-        conditions.append("visible_content_is_preview_truncated")
+    _ = content_replacements
+    if bool(content_range.get("content_omitted") is True) and not str(content_range.get("exact_artifact_ref") or "").strip():
+        conditions.append("omitted_without_exact_artifact")
     if bool(content_range.get("has_more") or content_range.get("truncated")):
         conditions.append("target_line_outside_visible_range")
     if not str(content_range.get("content_sha256") or "").strip():
@@ -535,9 +541,9 @@ def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
         )
     return (
         "This read_file result is a line window, not proof that the whole file is in prompt. "
-        "Use next_request only if later lines are needed. For code edits or error localization, reuse "
-        "this window when it covers the target and the file is unchanged; read_file again only for "
-        "stale files, changed files, or target lines outside this window."
+        "Use next_request only if later lines are needed. For code edits or error localization, reuse this "
+        "window only when exact content is visible or backed by an exact read observation artifact; read_file "
+        "again for stale files, changed files, missing artifacts, or target lines outside this window."
     )
 
 
@@ -549,9 +555,9 @@ def _read_file_evidence_instruction(content_range: dict[str, Any]) -> str:
             "to detect whether a later edit/write requires a new current read."
         )
     return (
-        "This describes the exact read_file line window represented in the prompt. "
-        "Use fresh_read_conditions to decide whether another read_file call is needed; "
-        "persisted output only restores omitted bytes from the prior tool result."
+        "This describes a read_file line window. Use it directly only when exact content is visible in the "
+        "prompt or the context assembly injects the exact read observation artifact; otherwise call read_file "
+        "for the current target range."
     )
 
 
@@ -576,7 +582,13 @@ def _evidence_confidence(
                 "authority": "harness.runtime.dynamic_context.evidence_confidence",
                 "source_kind": "read_file_line_window",
                 "tool_name": tool_name,
-                "confidence": "preview_truncated" if content_replacements else "current_line_window",
+                "confidence": (
+                    "artifact_backed_omitted_line_window"
+                    if bool(content_range.get("content_omitted") is True) and str(content_range.get("exact_artifact_ref") or "").strip()
+                    else "omitted_without_exact_artifact"
+                    if bool(content_range.get("content_omitted") is True)
+                    else "current_line_window"
+                ),
                 "coverage": _read_file_coverage(content_range),
                 "full_file_window": _read_file_window_covers_full_file(content_range),
                 "files": [
@@ -589,6 +601,9 @@ def _evidence_confidence(
                             "coverage": _read_file_coverage(content_range),
                             "full_file_window": _read_file_window_covers_full_file(content_range),
                             "content_sha256": str(content_range.get("content_sha256") or ""),
+                            "exact_artifact_ref": str(content_range.get("exact_artifact_ref") or ""),
+                            "visible_exact": content_range.get("visible_exact") if isinstance(content_range.get("visible_exact"), bool) else None,
+                            "content_omitted": content_range.get("content_omitted") if isinstance(content_range.get("content_omitted"), bool) else None,
                             "fresh_read_conditions": list(evidence_policy.get("fresh_read_conditions") or []),
                             "usable_as_evidence_for": list(evidence_policy.get("usable_as_evidence_for") or []),
                         }

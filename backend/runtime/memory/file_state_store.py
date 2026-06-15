@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, json_file_lock, read_json_dict, write_json_dict
+from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
 
 from .file_evidence_scope import (
     normalize_file_evidence_scope,
@@ -67,6 +68,11 @@ class FileStateAuthorityStore:
                     event,
                     observation_ref=observation_ref,
                     tool_call_id=tool_call_id,
+                )
+                _bind_read_observation_alias(
+                    self.root_dir,
+                    event_payload,
+                    observation_ref=str(event_payload.get("observation_ref") or ""),
                 )
                 updated = updated.apply_event(
                     event_payload,
@@ -182,6 +188,22 @@ def _scope_payload(scope: dict[str, Any]) -> dict[str, Any]:
             "authority": FILE_STATE_STORE_AUTHORITY,
         }
     )
+
+
+def _bind_read_observation_alias(root_dir: Path, event: dict[str, Any], *, observation_ref: str) -> None:
+    if str(event.get("event_type") or event.get("type") or "") != "read":
+        return
+    artifact_ref = str(event.get("exact_artifact_ref") or "").strip()
+    if not artifact_ref:
+        return
+    try:
+        ReadObservationArtifactStore(root_dir).bind_observation_ref(
+            artifact_ref=artifact_ref,
+            observation_ref=str(observation_ref or ""),
+            tool_result_ref=str(event.get("tool_result_ref") or ""),
+        )
+    except Exception:
+        return
 
 
 def _authority_for_scope(scope: dict[str, Any], *, files: tuple[Any, ...] = ()) -> FileStateAuthority:

@@ -232,9 +232,9 @@ def _build_session_tokens_payload(
         "history_remaining_ratio": round(history_remaining_ratio, 4),
         "history_pressure_level": history_pressure_level,
         "history_compaction_strategy": str(history_status.get("history_compaction_strategy") or "none"),
-        "history_did_compact": False,
-        "history_did_microcompact": False,
-        "history_did_full_compact": False,
+        "history_did_compact": bool(history_status.get("history_did_compact", False)),
+        "history_did_microcompact": bool(history_status.get("history_did_microcompact", False)),
+        "history_did_full_compact": bool(history_status.get("history_did_full_compact", False)),
         "prompt_accounting": prompt_usage,
     }
     return payload
@@ -251,12 +251,72 @@ def _history_compaction_status(
     raw_history_tokens = int(compactor.conversation_tokens(py_messages) or 0)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(raw_history_tokens, len(py_messages)) or "normal")
+    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
+    manager_ref = getattr(session_memory, "manager", None)
+    if callable(manager_ref):
+        session_memory_manager = manager_ref(session_id)
+    elif manager_ref is not None and callable(getattr(manager_ref, "load_compaction_state", None)):
+        session_memory_manager = manager_ref
+    else:
+        session_memory_manager = None
+    load_compaction_state = getattr(session_memory_manager, "load_compaction_state", None)
+    compaction_state_present = False
+    if callable(load_compaction_state):
+        try:
+            compaction_state_present = bool(dict(load_compaction_state() or {}))
+        except Exception:
+            compaction_state_present = False
+    session_record = runtime.session_manager.get_history(session_id)
+    compressed_context = str(session_record.get("compressed_context") or "").strip()
+    current_history_microcompacted = any(
+        str(dict(item.get("meta") or {}).get("kind") or "").strip() == "low_authority_text_compressed"
+        for item in raw_messages
+        if isinstance(item, dict)
+    )
+    current_history_compacted = bool(compressed_context) or current_history_microcompacted
+    history_tokens = raw_history_tokens
+    history_compaction_strategy = "warning_only" if history_pressure_level == "warning" else "none"
+    history_did_compact = False
+    history_did_microcompact = False
+    history_did_full_compact = False
+    if current_history_compacted:
+        history_did_compact = True
+        history_did_full_compact = bool(compressed_context)
+        history_did_microcompact = current_history_microcompacted
+        history_compaction_strategy = "full_compact" if history_did_full_compact else "microcompact"
+        if compressed_context:
+            history_tokens = _count_tokens(compressed_context) + _count_tokens(_messages_token_text(raw_messages))
+        else:
+            history_tokens = raw_history_tokens
+    elif compaction_state_present:
+        try:
+            preview_result = compactor.apply_strategy(
+                list(py_messages),
+                pressure_level=history_pressure_level,  # type: ignore[arg-type]
+                request_id=f"context_compaction:preview:session_tokens:{session_id}",
+                session_id=session_id,
+                trigger="preview",
+                reason="session_tokens_preview",
+            )
+        except Exception:
+            preview_result = None
+        if preview_result is not None:
+            history_tokens = int(getattr(preview_result, "estimated_tokens_after", raw_history_tokens) or raw_history_tokens)
+            history_compaction_strategy = str(getattr(preview_result, "strategy", history_compaction_strategy) or history_compaction_strategy)
+            history_did_compact = bool(getattr(preview_result, "did_compact", False))
+            history_did_microcompact = bool(getattr(preview_result, "did_microcompact", False))
+            history_did_full_compact = bool(getattr(preview_result, "did_full_compact", False))
+            if not history_did_compact:
+                history_tokens = raw_history_tokens
     return {
         "raw_history_tokens": raw_history_tokens,
-        "history_tokens": raw_history_tokens,
+        "history_tokens": history_tokens,
         "history_budget_tokens": history_budget_tokens,
         "history_pressure_level": history_pressure_level,
-        "history_compaction_strategy": "none",
+        "history_compaction_strategy": history_compaction_strategy,
+        "history_did_compact": history_did_compact,
+        "history_did_microcompact": history_did_microcompact,
+        "history_did_full_compact": history_did_full_compact,
     }
 
 

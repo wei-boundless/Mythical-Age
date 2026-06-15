@@ -167,97 +167,38 @@ function currentContextTokenCount(tokenStats: TokenStats) {
   return Number(tokenStats.total_tokens || 0);
 }
 
-function cumulativeTranscriptTokenCount(tokenStats: TokenStats) {
-  const rawCumulative = tokenStats.cumulative_transcript_tokens;
-  const cumulative = Number(rawCumulative);
-  if (rawCumulative !== undefined && rawCumulative !== null && Number.isFinite(cumulative)) {
-    return cumulative;
+function compactionThresholdTokenCount(tokenStats: TokenStats) {
+  const rawThreshold = tokenStats.context_meter?.replacement_threshold_tokens;
+  const threshold = Number(rawThreshold);
+  if (rawThreshold !== undefined && rawThreshold !== null && Number.isFinite(threshold)) {
+    return Math.max(0, threshold);
   }
-  return Math.max(Number(tokenStats.raw_history_tokens || 0), Number(tokenStats.total_tokens || 0));
+  return 0;
 }
 
-function compressionSavedTokenCount(tokenStats: TokenStats) {
-  const rawSaved = tokenStats.compression_saved_tokens;
-  const saved = Number(rawSaved);
-  if (rawSaved !== undefined && rawSaved !== null && Number.isFinite(saved)) {
-    return Math.max(0, saved);
+function contextThresholdUsageRatio(tokenStats: TokenStats) {
+  const thresholdTokens = compactionThresholdTokenCount(tokenStats);
+  if (thresholdTokens <= 0) {
+    return 0;
   }
-  return Math.max(cumulativeTranscriptTokenCount(tokenStats) - Number(tokenStats.history_tokens || 0), 0);
+  return currentContextTokenCount(tokenStats) / thresholdTokens;
 }
 
-function tokenPressureLabel(value: string) {
-  const labels: Record<string, string> = {
-    normal: "正常",
-    warning: "偏高",
-    microcompact: "微压缩",
-    full_compact: "完整压缩"
-  };
-  return labels[value] ?? (value || "正常");
-}
-
-function sessionTokenTitle(tokenStats: TokenStats | null, usagePercent: number | null, remainingPercent: number | null) {
+function sessionContextMeterTitle(tokenStats: TokenStats | null, usagePercent: number | null) {
   if (!tokenStats) {
     return "";
   }
-  const currentContextTokens = currentContextTokenCount(tokenStats);
-  const cumulativeTokens = cumulativeTranscriptTokenCount(tokenStats);
-  const compressionSavedTokens = compressionSavedTokenCount(tokenStats);
+  const currentTokens = currentContextTokenCount(tokenStats);
+  const thresholdTokens = compactionThresholdTokenCount(tokenStats);
   const contextWindowTokens = Number(tokenStats.context_meter?.context_window_tokens || 0);
+  const remainingTokens = Math.max(0, thresholdTokens - currentTokens);
   return [
-    contextWindowTokens > 0
-      ? `当前上下文 ${formatTokenCount(currentContextTokens)}/${formatTokenCount(contextWindowTokens)} tokens`
-      : `当前上下文 ${formatTokenCount(currentContextTokens)} tokens`,
-    `累计原始会话 ${formatTokenCount(cumulativeTokens)} tokens`,
-    tokenStats.cumulative_transcript_message_count ? `累计消息 ${tokenStats.cumulative_transcript_message_count} 条` : "",
-    `会话总计 ${formatTokenCount(tokenStats.total_tokens)} tokens`,
-    `消息 ${formatTokenCount(tokenStats.message_tokens)}`,
-    `系统 ${formatTokenCount(tokenStats.system_tokens)}`,
-    `当前运行历史 ${formatTokenCount(tokenStats.raw_history_tokens)} tokens`,
-    `有效历史 ${formatTokenCount(tokenStats.history_tokens)}/${formatTokenCount(tokenStats.history_budget_tokens)}`,
-    compressionSavedTokens > 0 ? `压缩节省 ${formatTokenCount(compressionSavedTokens)} tokens` : "",
-    tokenStats.compression_ratio !== undefined ? `压缩后占累计 ${percentFromRatio(tokenStats.compression_ratio)}%` : "",
-    usagePercent !== null ? `已用 ${usagePercent}%` : "",
-    remainingPercent !== null ? `余量 ${remainingPercent}%` : "",
-    tokenStats.history_did_compact ? "本次预览会压缩当前运行历史" : "",
+    `当前上下文 ${formatTokenCount(currentTokens)} tokens`,
+    thresholdTokens > 0 ? `自动压缩阈值 ${formatTokenCount(thresholdTokens)} tokens` : "",
+    thresholdTokens > 0 && usagePercent !== null ? `阈值占比 ${usagePercent}%` : "",
+    contextWindowTokens > 0 ? `模型窗口 ${formatTokenCount(contextWindowTokens)} tokens` : "",
+    thresholdTokens > 0 ? `距自动压缩还剩 ${formatTokenCount(remainingTokens)} tokens` : "",
   ].filter(Boolean).join("；");
-}
-
-function contextRecoveryPackageStatus(tokenStats: TokenStats | null) {
-  if (!tokenStats) {
-    return {
-      title: "暂无上下文恢复包状态",
-      value: "暂无",
-    };
-  }
-  const packageStatus = tokenStats.context_recovery_package;
-  const readiness = tokenStats.compaction_readiness;
-  const present = Boolean(packageStatus?.present ?? readiness?.context_recovery_package_present);
-  if (!present) {
-    return {
-      title: "上下文恢复包未生成",
-      value: "未生成",
-    };
-  }
-  const fresh = Boolean(packageStatus?.fresh ?? readiness?.context_recovery_package_fresh);
-  const source = String(packageStatus?.source || readiness?.context_recovery_package_source || "").trim();
-  const coveredMessageCount = Number(packageStatus?.covered_message_count ?? 0);
-  const coveredEventOffsetEnd = Number(packageStatus?.covered_event_offset_end ?? NaN);
-  const staleReason = String(packageStatus?.stale_reason || "").trim();
-  const value = [
-    fresh ? "fresh" : "stale",
-    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `${Math.round(coveredMessageCount)} 条` : "",
-  ].filter(Boolean).join(" · ");
-  const title = [
-    `上下文恢复包 ${fresh ? "fresh" : "stale"}`,
-    source ? `来源 ${source}` : "",
-    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `覆盖消息 ${Math.round(coveredMessageCount)} 条` : "",
-    Number.isFinite(coveredEventOffsetEnd) && coveredEventOffsetEnd >= 0 ? `覆盖事件 offset ${Math.round(coveredEventOffsetEnd)}` : "",
-    staleReason ? `失效原因 ${staleReason}` : "",
-  ].filter(Boolean).join("；");
-  return {
-    title,
-    value: value || (fresh ? "fresh" : "stale"),
-  };
 }
 
 function formatFileSize(value: number) {
@@ -383,10 +324,9 @@ export function MemoryView() {
   }, [durableStatusFilter, overview?.durable_memory.headers, query]);
 
   const selectedSemanticText = semanticMemoryText(selectedDurableNote?.header, selectedDurableNote);
-  const usagePercent = tokenStats ? percentFromRatio(contextUsageRatio(tokenStats)) : null;
-  const remainingPercent = tokenStats ? percentFromRatio(tokenStats.history_remaining_ratio) : null;
-  const tokenTitle = sessionTokenTitle(tokenStats, usagePercent, remainingPercent);
-  const recoveryPackageStatus = contextRecoveryPackageStatus(tokenStats);
+  const usagePercent = tokenStats ? percentFromRatio(contextThresholdUsageRatio(tokenStats)) : null;
+  const tokenTitle = sessionContextMeterTitle(tokenStats, usagePercent);
+  const thresholdTokens = tokenStats ? compactionThresholdTokenCount(tokenStats) : 0;
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -1191,18 +1131,18 @@ export function MemoryView() {
           </article>
           <article title={tokenTitle}>
             <Gauge size={16} />
-            <span>上下文已用</span>
-            <strong>{usagePercent !== null ? `${usagePercent}%` : "暂无"}</strong>
+            <span>当前上下文</span>
+            <strong>{tokenStats ? formatTokenCount(currentContextTokenCount(tokenStats)) : "暂无"}</strong>
           </article>
           <article title={tokenTitle}>
             <FileText size={16} />
-            <span>当前 / 累计</span>
-            <strong>{tokenStats ? `${formatTokenCount(currentContextTokenCount(tokenStats))} / ${formatTokenCount(cumulativeTranscriptTokenCount(tokenStats))} · ${tokenPressureLabel(tokenStats.context_meter?.pressure_level || tokenStats.history_pressure_level)}` : "暂无"}</strong>
+            <span>自动压缩阈值</span>
+            <strong>{thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "暂无"}</strong>
           </article>
-          <article title={recoveryPackageStatus.title}>
-            <ShieldCheck size={16} />
-            <span>恢复包</span>
-            <strong>{recoveryPackageStatus.value}</strong>
+          <article title={tokenTitle}>
+            <Activity size={16} />
+            <span>阈值占比</span>
+            <strong>{usagePercent !== null ? `${usagePercent}%` : "暂无"}</strong>
           </article>
         </div>
       </section>

@@ -21,13 +21,16 @@ from prompt_library.assembly import (
 from prompt_library.rules import build_rule_diagnostics
 from prompt_composition import (
     PromptCompositionContentFragment,
-    PromptCompositionLayerInput,
     build_content_fragments_from_message_specs,
     build_model_message_spec as _message_spec,
+    build_runtime_context_load_plan,
     build_runtime_payload_message_spec as _runtime_payload_spec,
-    build_shadow_prompt_composition_manifest,
+    build_runtime_prompt_slot_plan,
+    build_runtime_slot_prompt_composition_manifest,
+    materialize_runtime_context_load_plan,
     render_agent_prompt_instruction,
     render_environment_instruction,
+    render_lifecycle_instruction,
     render_model_messages_from_projection,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
@@ -84,8 +87,8 @@ _PROVIDER_PROTOCOL_REHYDRATION_NOTE = (
     "Provider protocol replay evidence only. This preserves tool-call continuity; it is not a request to repeat the tool. "
     "Preview only. Do not rely on omitted content for exact claims, citations, line-level edits, "
     "or final factual judgments. For non-code omitted output, call read_persisted_tool_result first when exact content matters. "
-    "For read_file content, use file_evidence_decisions to reuse current windows, rehydrate omitted bytes, or read only missing/stale windows. "
-    "Do not repeat unchanged covered read ranges."
+    "For read_file content, use file_evidence_decisions only when exact content is visible or backed by an injected read artifact; "
+    "otherwise read the current target window."
 )
 
 
@@ -193,7 +196,7 @@ class RuntimeCompiler:
             "authority": "harness.runtime.semantic_compaction.stable_boundary",
         }
         packet_id = f"rtpacket:{request_id}:semantic_compaction:1"
-        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind=invocation_kind,
             specs=[
@@ -268,21 +271,17 @@ class RuntimeCompiler:
             "rendered_prompt_refs": list(prompt_manifest["rendered_prompt_refs"]),
         }
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
+        prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
+        prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
+        prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind=invocation_kind,
             packet_id=packet_id,
-            layers=(
-                PromptCompositionLayerInput(
-                    layer_id="agent_work_role",
-                    slot_layer="agent_stable",
-                    assembly=agent_prompt_assembly,
-                    message_kinds=("semantic_compaction_role",),
-                    lifecycle="session_stable",
-                ),
-            ),
             segment_plan=segment_plan.to_dict(),
+            runtime_slot_plan=slot_plan,
             dynamic_projection_refs=semantic_dynamic_refs,
             volatile_state_refs=semantic_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_semantic_compaction_packet"},
@@ -489,8 +488,8 @@ class RuntimeCompiler:
         environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
-            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
+        lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
@@ -565,7 +564,7 @@ class RuntimeCompiler:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
             specs=[
@@ -600,6 +599,20 @@ class RuntimeCompiler:
                 )
                 if tool_index_payload
                 else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="File evidence policy",
+                    payload=_file_evidence_policy_stable_payload(),
+                    kind="file_evidence_policy_stable",
+                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "file_evidence_policy",
+                        "projection_strategy": "stable_file_evidence_policy",
+                    },
+                ),
                 _message_spec(
                     role="system",
                     content=personality_instruction,
@@ -611,17 +624,54 @@ class RuntimeCompiler:
                 ),
                 _message_spec(
                     role="system",
-                    content=_join_prompt_sections(
-                        environment_instruction,
-                        agent_instruction,
-                        skill_candidate_instruction,
-                    ),
-                    kind="turn_context",
-                    source_ref="single_agent_turn_context",
+                    content=environment_instruction,
+                    kind="environment_stable",
+                    source_ref=",".join(prompt_mount_plan.environment_prompt_refs),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _message_spec(
+                    role="system",
+                    content=lifecycle_instruction,
+                    kind="lifecycle_stable",
+                    source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_protocol",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                    },
+                )
+                if lifecycle_instruction.strip()
+                else None,
+                _message_spec(
+                    role="system",
+                    content=agent_instruction,
+                    kind="agent_stable",
+                    source_ref=",".join(agent_prompt_assembly.manifest.get("stable_prompt_refs") or ()),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=skill_candidate_instruction,
+                    kind="skill_candidates",
+                    source_ref="runtime_skill_candidates",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "skill candidates are selected for the current runtime request and must remain outside the cacheable session prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if skill_candidate_instruction.strip()
+                else None,
                 *_session_history_message_specs(
                     session_history_payload,
                     title="Single agent turn session history",
@@ -707,6 +757,10 @@ class RuntimeCompiler:
             volatile_state_refs=single_turn_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
+        prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
+        prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
+        prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["protocol_sanitizer"] = dict(protocol_sanitizer.diagnostics)
@@ -721,44 +775,8 @@ class RuntimeCompiler:
             prompt_manifest,
             invocation_kind="single_agent_turn",
             packet_id=packet_id,
-            layers=(
-                PromptCompositionLayerInput(
-                    layer_id="runtime_pack",
-                    slot_layer="global_static",
-                    assembly=prompt_assembly,
-                    message_kinds=("global_static",),
-                    lifecycle="global_static",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="personality",
-                    slot_layer="personality_stable",
-                    assembly=personality_prompt_assembly,
-                    message_kinds=("personality_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="environment",
-                    slot_layer="environment_stable",
-                    assembly=environment_prompt_assembly,
-                    message_kinds=("turn_context",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="lifecycle",
-                    slot_layer="lifecycle_stable",
-                    assembly=lifecycle_prompt_assembly,
-                    message_kinds=("turn_context",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="agent_work_role",
-                    slot_layer="agent_stable",
-                    assembly=agent_prompt_assembly,
-                    message_kinds=("turn_context",),
-                    lifecycle="session_stable",
-                ),
-            ),
             segment_plan=segment_plan.to_dict(),
+            runtime_slot_plan=slot_plan,
             dynamic_projection_refs=single_turn_dynamic_refs,
             volatile_state_refs=single_turn_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_single_agent_turn_packet"},
@@ -985,9 +1003,13 @@ class RuntimeCompiler:
             render_environment_instruction(
                 environment_payload,
                 environment_prompt_assembly=environment_prompt_assembly,
-                lifecycle_prompt_assembly=lifecycle_prompt_assembly,
                 include_storage_note=False,
             )
+            if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
+            else ""
+        )
+        lifecycle_instruction = (
+            render_lifecycle_instruction(lifecycle_prompt_assembly)
             if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
             else ""
         )
@@ -1085,7 +1107,7 @@ class RuntimeCompiler:
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         user_steering_payload = _user_steering_updates_payload(execution_state)
-        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
             specs=[
@@ -1115,19 +1137,30 @@ class RuntimeCompiler:
                         payload=environment_stable_payload,
                         preamble=environment_instruction,
                         kind="environment_stable",
-                        source_ref=",".join(
-                            _dedupe_strings(
-                                [
-                                    *prompt_mount_plan.environment_prompt_refs,
-                                    *prompt_mount_plan.lifecycle_prompt_refs,
-                                ]
-                            )
-                        ),
+                        source_ref=",".join(prompt_mount_plan.environment_prompt_refs),
                         cache_scope="session",
                         cache_role="session_stable",
                         compression_role="preserve",
                     )
                     if environment_instruction.strip() or environment_stable_payload
+                    else None
+                ),
+                (
+                    _message_spec(
+                        role="system",
+                        content=lifecycle_instruction,
+                        kind="lifecycle_stable",
+                        source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                        cache_scope="session",
+                        cache_role="session_stable",
+                        compression_role="preserve",
+                        metadata={
+                            "authority_class": "runtime_lifecycle_protocol",
+                            "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
+                            "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                        },
+                    )
+                    if lifecycle_instruction.strip()
                     else None
                 ),
                 (
@@ -1206,6 +1239,20 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
+                    title="Task execution file evidence policy",
+                    payload=_file_evidence_policy_stable_payload(),
+                    kind="file_evidence_policy_stable",
+                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "file_evidence_policy",
+                        "projection_strategy": "stable_file_evidence_policy",
+                    },
+                ),
+                _runtime_payload_spec(
+                    role="system",
                     title="Task execution graph shared context",
                     payload=graph_task_shared_payload,
                     kind="graph_task_shared_stable",
@@ -1270,6 +1317,7 @@ class RuntimeCompiler:
                 )
                 if active_skill_instruction.strip()
                 else None,
+                *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution bound runtime context",
@@ -1323,7 +1371,6 @@ class RuntimeCompiler:
                         "volatility_reason": "runtime dynamic projection may include active state and must not mutate the cacheable task prefix",
                     },
                 ),
-                *task_state_replay_specs,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution current state",
@@ -1415,6 +1462,10 @@ class RuntimeCompiler:
             volatile_state_refs=task_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
+        prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
+        prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
+        prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = _prompt_mount_plan_manifest_payload(
             prompt_mount_plan,
             prompt_policy=prompt_policy,
@@ -1432,68 +1483,12 @@ class RuntimeCompiler:
         task_contract_manifest_payload = _attach_task_contract_manifest(prompt_manifest, task_contract_manifest)
         bound_task_context_manifest_payload = bound_task_context.to_manifest_payload()
         prompt_manifest["bound_task_context_manifest"] = bound_task_context_manifest_payload
-        prompt_composition_layers = [
-            PromptCompositionLayerInput(
-                layer_id="runtime_pack",
-                slot_layer="global_static",
-                assembly=prompt_assembly,
-                message_kinds=("global_static",),
-                lifecycle="global_static",
-            ),
-        ]
-        if environment_instruction.strip() or environment_stable_payload:
-            prompt_composition_layers.extend(
-                [
-                    PromptCompositionLayerInput(
-                        layer_id="environment",
-                        slot_layer="environment_stable",
-                        assembly=environment_prompt_assembly,
-                        message_kinds=("environment_stable",),
-                        lifecycle="session_stable",
-                    ),
-                    PromptCompositionLayerInput(
-                        layer_id="lifecycle",
-                        slot_layer="lifecycle_stable",
-                        assembly=lifecycle_prompt_assembly,
-                        message_kinds=("environment_stable",),
-                        lifecycle="session_stable",
-                    ),
-                ]
-            )
-        if personality_instruction.strip():
-            prompt_composition_layers.append(
-                PromptCompositionLayerInput(
-                    layer_id="personality",
-                    slot_layer="personality_stable",
-                    assembly=personality_prompt_assembly,
-                    message_kinds=("personality_stable",),
-                    lifecycle="session_stable",
-                )
-            )
-        prompt_composition_layers.extend(
-            [
-                PromptCompositionLayerInput(
-                    layer_id="agent_work_role",
-                    slot_layer="agent_stable",
-                    assembly=agent_prompt_assembly,
-                    message_kinds=("agent_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="task_prompt_contract",
-                    slot_layer="task_contract_stable",
-                    assembly=task_prompt_assembly,
-                    message_kinds=("task_prompt_contract",),
-                    lifecycle="task_stable",
-                ),
-            ]
-        )
         prompt_composition_manifest = _attach_prompt_composition_manifest(
             prompt_manifest,
             invocation_kind="task_execution",
             packet_id=packet_id,
-            layers=tuple(prompt_composition_layers),
             segment_plan=segment_plan.to_dict(),
+            runtime_slot_plan=slot_plan,
             dynamic_projection_refs=task_dynamic_refs,
             volatile_state_refs=task_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_task_execution_packet"},
@@ -1649,8 +1644,8 @@ class RuntimeCompiler:
         environment_instruction = render_environment_instruction(
             environment_payload,
             environment_prompt_assembly=environment_prompt_assembly,
-            lifecycle_prompt_assembly=lifecycle_prompt_assembly,
         )
+        lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
@@ -1696,7 +1691,7 @@ class RuntimeCompiler:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan, message_specs = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
             specs=[
@@ -1723,18 +1718,41 @@ class RuntimeCompiler:
                     role="system",
                     content=environment_instruction,
                     kind="environment_stable",
-                    source_ref=",".join(
-                        _dedupe_strings(
-                            [
-                                *prompt_mount_plan.environment_prompt_refs,
-                                *prompt_mount_plan.lifecycle_prompt_refs,
-                            ]
-                        )
-                    ),
+                    source_ref=",".join(prompt_mount_plan.environment_prompt_refs),
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="File evidence policy",
+                    payload=_file_evidence_policy_stable_payload(),
+                    kind="file_evidence_policy_stable",
+                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "file_evidence_policy",
+                        "projection_strategy": "stable_file_evidence_policy",
+                    },
+                ),
+                _message_spec(
+                    role="system",
+                    content=lifecycle_instruction,
+                    kind="lifecycle_stable",
+                    source_ref=",".join(prompt_mount_plan.lifecycle_prompt_refs),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_protocol",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.lifecycle_trigger_reasons),
+                    },
+                )
+                if lifecycle_instruction.strip()
+                else None,
                 _message_spec(
                     role="system",
                     content=personality_instruction,
@@ -1758,9 +1776,14 @@ class RuntimeCompiler:
                     content=skill_candidate_instruction,
                     kind="skill_candidates",
                     source_ref="runtime_skill_candidates",
-                    cache_scope="session",
-                    cache_role="session_stable",
+                    cache_scope="none",
+                    cache_role="volatile",
                     compression_role="preserve",
+                    metadata={
+                        "authority_class": "active_skill_runtime",
+                        "volatility_reason": "skill candidates are selected for the current runtime followup and must remain outside the cacheable session prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
                 ),
                 *_session_history_message_specs(
                     session_history_payload,
@@ -1830,6 +1853,10 @@ class RuntimeCompiler:
             volatile_state_refs=observation_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
+        prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
+        prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
+        prompt_manifest["runtime_context_load_plan"] = context_load_plan.to_dict()
         prompt_manifest["prompt_mount_plan"] = prompt_mount_plan.to_dict()
         prompt_manifest["dynamic_context_report"] = dynamic_context.to_report_dict()
         prompt_manifest["context_window"] = _context_window_report(
@@ -1843,44 +1870,8 @@ class RuntimeCompiler:
             prompt_manifest,
             invocation_kind="tool_observation_followup",
             packet_id=packet_id,
-            layers=(
-                PromptCompositionLayerInput(
-                    layer_id="runtime_pack",
-                    slot_layer="global_static",
-                    assembly=prompt_assembly,
-                    message_kinds=("global_static",),
-                    lifecycle="global_static",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="environment",
-                    slot_layer="environment_stable",
-                    assembly=environment_prompt_assembly,
-                    message_kinds=("environment_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="lifecycle",
-                    slot_layer="lifecycle_stable",
-                    assembly=lifecycle_prompt_assembly,
-                    message_kinds=("environment_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="personality",
-                    slot_layer="personality_stable",
-                    assembly=personality_prompt_assembly,
-                    message_kinds=("personality_stable",),
-                    lifecycle="session_stable",
-                ),
-                PromptCompositionLayerInput(
-                    layer_id="agent_work_role",
-                    slot_layer="agent_stable",
-                    assembly=agent_prompt_assembly,
-                    message_kinds=("agent_stable",),
-                    lifecycle="session_stable",
-                ),
-            ),
             segment_plan=segment_plan.to_dict(),
+            runtime_slot_plan=slot_plan,
             dynamic_projection_refs=observation_dynamic_refs,
             volatile_state_refs=observation_volatile_refs,
             diagnostics={"compiler_entrypoint": "compile_observation_followup_packet"},
@@ -2365,11 +2356,7 @@ def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any]
         "state_reason": str(payload.get("state_reason") or ""),
         "reason": str(decision.get("reason") or ""),
         "relation_to_current_work": str(decision.get("relation_to_current_work") or ""),
-        "decision_boundary": (
-            "This receipt is a runtime state observation. It describes whether current active-turn work "
-            "is available to this turn and which operation types are currently exposed. It is not a user "
-            "approval object and does not authorize semantic intent."
-        ),
+        "boundary_code": "runtime_state_observation_only",
         "authority": "harness.runtime.current_work_boundary_receipt_projection",
     }
 
@@ -2402,10 +2389,7 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
         return {}
     return {
         "observations": observations,
-        "decision_boundary": (
-            "These runtime observations are addressed to the agent. They are not user-visible assistant text. "
-            "Use them as facts for the next model decision, then author any user-facing response yourself."
-        ),
+        "boundary_code": "agent_addressed_runtime_observations",
         "authority": "harness.runtime.runtime_observations_projection",
     }
 
@@ -2618,13 +2602,7 @@ def _active_work_model_visible_payload(
                 if controls_enabled
                 else "current_work_boundary_receipt_active_work_control_unavailable"
             ),
-            "decision_boundary": (
-                "active_work_context represents only current active-turn-bound work exposed by this turn. "
-                "It is a state fact, not a control token or user approval object; current_work_boundary_receipt explains whether active_work_control is currently available. "
-                "If it contains a recovery boundary, that boundary has already been explicitly bound to the current active turn by the system; it is not a latest-task fallback. "
-                "Historical work summaries, recent_work_outcome, ordinary waiting_executor state, old artifacts, and terminal task records are read-only facts, not controllable current work. "
-                "Do not infer continue, pause, stop, replacement, or append authority from this context alone."
-            ),
+            "boundary_code": "active_turn_bound_work_fact",
         }
     )
 
@@ -2645,10 +2623,7 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
             "active_turn_bound_task_run_id": str(active_turn.get("bound_task_run_id") or ""),
             "active_work_candidate_present": bool(payload.get("active_work_candidate")),
             "recent_work_outcome_candidate_present": bool(payload.get("recent_work_outcome_candidate")),
-            "decision_boundary": (
-                "These are observable request facts only. They do not decide user intent, "
-                "do not grant tool permissions, and do not require active work control."
-            ),
+            "boundary_code": "observable_request_facts_only",
             "authority": "harness.runtime.turn_input_facts.model_projection",
         }
     )
@@ -2904,11 +2879,23 @@ def _project_provider_protocol_messages(
     persisted_replacements = 0
     compacted_messages = 0
     storage_errors = 0
+    tool_name_by_call_id = _provider_protocol_tool_call_names(transcript)
     for message in transcript:
         item = dict(message)
         role = str(item.get("role") or "")
         content = str(item.get("content") or "")
         if role == "tool" and content:
+            tool_name = _provider_protocol_tool_name(item, content=content) or tool_name_by_call_id.get(
+                str(item.get("tool_call_id") or "").strip(),
+                "",
+            )
+            if tool_name == "read_file":
+                if len(content) > tool_preview_chars:
+                    item["content"] = _provider_protocol_read_file_preview(content, preview_chars=tool_preview_chars)
+                    projected_tool_outputs += 1
+                    compacted_messages += 1
+                projected.append(item)
+                continue
             try:
                 budgeted, replacements = store.apply_budget(
                     {"content": content},
@@ -3041,9 +3028,61 @@ def _with_provider_protocol_rehydration_note(content: str) -> str:
     return f"{text}\n{_PROVIDER_PROTOCOL_REHYDRATION_NOTE}"
 
 
+def _provider_protocol_tool_name(message: dict[str, Any], *, content: str = "") -> str:
+    for key in ("name", "tool_name", "function_name"):
+        value = str(message.get(key) or "").strip()
+        if value:
+            return value.removeprefix("tool:").strip()
+    parsed = _json_object(content)
+    for key in ("tool_name", "name"):
+        value = str(parsed.get(key) or "").strip()
+        if value:
+            return value.removeprefix("tool:").strip()
+    envelope = dict(parsed.get("result_envelope") or {})
+    value = str(envelope.get("tool_name") or "").strip()
+    return value.removeprefix("tool:").strip()
+
+
+def _provider_protocol_tool_call_names(transcript: list[dict[str, Any]]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for message in list(transcript or []):
+        if str(message.get("role") or "") != "assistant":
+            continue
+        for call in list(message.get("tool_calls") or []) if isinstance(message.get("tool_calls"), list) else []:
+            if not isinstance(call, dict):
+                continue
+            call_id = str(call.get("id") or "").strip()
+            name = str(call.get("name") or call.get("function_name") or "").removeprefix("tool:").strip()
+            if call_id and name:
+                names[call_id] = name
+    return names
+
+
+def _provider_protocol_read_file_preview(content: str, *, preview_chars: int) -> str:
+    preview = _provider_protocol_bounded_message_preview(content, limit=preview_chars)
+    return (
+        preview.rstrip()
+        + "\nProvider protocol replay preview only for read_file. Exact code evidence must come from "
+        "visible read_file content, injected read observation artifacts, or a current read_file call."
+    )
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    text = str(value or "").strip()
+    if not text or not text.startswith("{"):
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
 def _provider_protocol_requires_rehydration(message: dict[str, Any]) -> bool:
     content = str(message.get("content") or "")
-    return str(message.get("role") or "") == "tool" and "<persisted-output>" in content
+    if str(message.get("role") or "") != "tool":
+        return False
+    return "<persisted-output>" in content or "Provider protocol replay preview only for read_file" in content
 
 
 def _provider_protocol_storage_unavailable_preview(content: str, *, preview_chars: int) -> str:
@@ -3074,7 +3113,7 @@ def _model_messages_and_segment_plan(
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
-) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...]]:
+) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any]:
     clean_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
@@ -3087,6 +3126,13 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         clean_specs.append(spec)
+    slot_plan = build_runtime_prompt_slot_plan(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=clean_specs,
+    )
+    load_plan = build_runtime_context_load_plan(slot_plan)
+    clean_specs = [dict(item) for item in materialize_runtime_context_load_plan(load_plan)]
     if enforce_dynamic_context_reports:
         _validate_dynamic_context_metadata(clean_specs)
     model_messages = [dict(spec.get("model_message") or {}) for spec in clean_specs]
@@ -3096,7 +3142,7 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
-    return model_messages, segment_plan, tuple(clean_specs)
+    return model_messages, segment_plan, tuple(clean_specs), slot_plan, load_plan
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -3250,32 +3296,34 @@ def _attach_prompt_composition_manifest(
     *,
     invocation_kind: str,
     packet_id: str,
-    layers: tuple[PromptCompositionLayerInput, ...],
     segment_plan: dict[str, Any],
+    runtime_slot_plan: Any | None = None,
     dynamic_projection_refs: tuple[str, ...] = (),
     volatile_state_refs: tuple[str, ...] = (),
     diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if runtime_slot_plan is None:
+        raise ValueError("runtime_slot_plan is required for runtime prompt composition")
     try:
-        composition = build_shadow_prompt_composition_manifest(
+        composition = build_runtime_slot_prompt_composition_manifest(
             invocation_kind=invocation_kind,
             packet_id=packet_id,
-            layers=layers,
+            runtime_slot_plan=runtime_slot_plan,
             segment_plan=segment_plan,
             dynamic_fragment_refs=dynamic_projection_refs,
             volatile_state_refs=volatile_state_refs,
             diagnostics={
                 **dict(diagnostics or {}),
-                "shadow_mode": True,
-                "legacy_runtime_prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
+                "shadow_mode": False,
+                "runtime_prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
             },
         )
     except Exception as exc:
         failure = {
-            "shadow_mode": True,
+            "shadow_mode": False,
             "status": "failed",
             "error": str(exc),
-            "authority": "prompt_composition.shadow_manifest_builder",
+            "authority": "prompt_composition.runtime_slot_manifest_builder",
         }
         prompt_manifest["prompt_composition"] = failure
         return failure
@@ -3487,14 +3535,7 @@ def _user_steering_updates_payload(execution_state: dict[str, Any] | None) -> di
     return {
         "authority": "harness.runtime.task_execution.user_steering_updates",
         "source": "active_task_steer_queue",
-        "handling_rules": [
-            "These are user-provided steering updates for the current task_run, not a new task selection.",
-            "You must account for each pending steer before final respond.",
-            "If a steer changes scope, target, acceptance criteria, or priority, revise the task plan or contract before completing.",
-            "Only list a steer_id in diagnostics.consumed_steer_refs after your action, plan revision, tool call, or final answer has actually handled it.",
-            "If a steer cannot be satisfied, explain why and mark the related revision decision rejected or needs_user.",
-        ],
-        "required_completion_gate": "Do not action_type=respond while any listed steer is unhandled.",
+        "policy_ref": "lifecycle_stable.user_steer_contract_revision",
         "pending_user_steer_count": len(pending_steers),
         "pending_user_steers": pending_steers,
     }
@@ -3513,6 +3554,35 @@ def _user_steer_model_payload(value: dict[str, Any]) -> dict[str, Any]:
         "editor_context": dict(value.get("editor_context") or {}) if isinstance(value.get("editor_context"), dict) else {},
     }
     return {key: item for key, item in payload.items() if item not in ("", {}, [], None)}
+
+
+def _file_evidence_policy_stable_payload() -> dict[str, Any]:
+    return {
+        "file_evidence_policy": {
+            "policy_id": "file_evidence_policy_stable.read_window_admission",
+            "read_file_admission": {
+                "covered_non_stale_window": (
+                    "如果目标行范围已经被当前未过期 read_file 窗口覆盖，应复用该窗口或对应 observation_ref；"
+                    "工具控制面会把重复 read_file 转成当前证据复用观察。"
+                ),
+                "rehydrate_omitted_window": (
+                    "当已有窗口内容被省略且确实需要精确字节时，优先使用 rehydration_ref 或 reusable_result_ref 恢复；"
+                    "只有 stale、changed、missing、hash 缺失或目标范围未覆盖时才需要新的 read_file。"
+                ),
+                "known_path_boundary": (
+                    "已知 bound/editor 文件路径不需要通过 search_files 或 search_text 重新发现；"
+                    "未知位置才使用 search_files、glob_paths 或 search_text。"
+                ),
+            },
+            "dynamic_fact_refs": [
+                "file_evidence_decisions",
+                "read_resource_state",
+                "bound_task_runtime_context.rehydration_refs",
+            ],
+            "enforcement": "runtime.tool_runtime.file_evidence_admission",
+            "authority": "harness.runtime.file_evidence_policy_stable",
+        }
+    }
 
 
 def _user_steering_source_ref(payload: dict[str, Any]) -> str:
@@ -4222,225 +4292,7 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
 def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if not projection:
         return ""
-    model_decision_contract = dict(projection.get("model_decision_contract") or {})
-    service_surface = dict(projection.get("service_surface") or {})
-    execution_boundary = dict(projection.get("execution_boundary") or {})
-    allowed_actions = {
-        str(item)
-        for item in list(model_decision_contract.get("semantic_actions") or projection.get("allowed_action_types") or [])
-        if str(item)
-    }
-    task_lifecycle = dict(projection.get("task_lifecycle") or {})
-    planning = dict(projection.get("planning") or {})
-    self_review = dict(projection.get("self_review") or {})
-    step_summary = dict(projection.get("step_summary") or {})
-    tool_boundary = dict(projection.get("tool_boundary") or {})
-    permission_boundary = dict(projection.get("permission_boundary") or {})
-    lines = ["本次运行边界："]
-    if model_decision_contract:
-        lines.append(
-            "- 模型决策合同来自开发者 prompt 权威；当合同要求 JSON action、request_task_run 或 active_work_control 时必须遵守。"
-            "这些是协议和角色强约束，用于保证控制精准和投影顺畅，不代表执行层已经完成真实权限审批。"
-        )
-    if service_surface:
-        unmounted_services = [
-            dict(item)
-            for item in list(service_surface.get("unmounted_services") or [])
-            if isinstance(item, dict)
-        ]
-        if unmounted_services:
-            category_counts: dict[str, int] = {}
-            for issue in unmounted_services:
-                category = str(issue.get("category") or "service_unavailable")
-                category_counts[category] = category_counts.get(category, 0) + 1
-            category_summary = "、".join(f"{key}:{value}" for key, value in sorted(category_counts.items()))
-            lines.append(
-                f"- 服务面提示：当前存在未挂载或延迟服务（{category_summary}）。"
-                "按服务面的 required_action 或原因修复；不要把服务未挂载、任务态未进入或协议通道错误说成真实安全拒绝。"
-            )
-    if execution_boundary:
-        lines.append(
-            "- 真实安全边界只在执行许可和 tool control plane 中裁决，包括权限模式、审批、沙箱、文件策略和资源冲突。"
-            "如果只是协议格式错误或服务未挂载，应按协议/服务观察处理，不要伪装成权限结论。"
-        )
-    action_notes: list[str] = []
-    if "respond" in allowed_actions:
-        action_notes.append("直接回答")
-    if "ask_user" in allowed_actions:
-        action_notes.append("询问用户")
-    if "tool_call" in allowed_actions:
-        action_notes.append("调用本次可见工具")
-    if "block" in allowed_actions:
-        action_notes.append("在越界、缺少授权或无法继续时阻止")
-    if action_notes:
-        lines.append("- 你可以" + "、".join(action_notes) + "。")
-    if bool(planning.get("plan_mode_active") is True):
-        lines.append(
-            "- 当前处于 plan mode：你只能探索、读取、搜索、询问用户、整理计划或请求建立带计划要求的任务合同；"
-            "不能实施代码修改、写交付产物、运行有副作用的命令或宣称完成。"
-        )
-    elif str(planning.get("plan_ref") or "").strip():
-        lines.append(
-            f"- 当前任务绑定已批准计划 {planning.get('plan_ref')}；实施必须按该计划推进。"
-            "如果发现计划假设错误、风险显著扩大或需要改变范围，必须 ask_user 或 block，不能静默偏离。"
-        )
-    if projection.get("invocation_kind") == "task_execution":
-        lines.append(
-            "- 如果当前执行状态里有 pending_user_steers，你必须先判断并处理这些用户补充要求；"
-            "只有确实处理了某条补充要求时，才能在 diagnostics.consumed_steer_refs 中填写对应 steer_id。"
-        )
-        lines.append(
-            "- 解释 pending_user_steers 时，若 steer 自带 editor_context，应优先使用该 steer-local editor_context；"
-            "任务初始 editor_context 只能表示任务启动时的关注文件，不能覆盖后续用户补充要求。"
-            "editor_context 只提供项目感知证据，不扩大文件、命令、网络或写入权限；content_preview 是局部预览，不等同完整文件事实，selection 只表示真实选区。"
-        )
-        lines.append(
-            "- 如果当前执行状态里有 active_contract_revisions，你必须裁决它们是否改变目标、验收标准、范围或约束；"
-            "把裁决写入 diagnostics.contract_revision_decisions。未裁决前不能宣布完成。"
-        )
-    if projection.get("invocation_kind") == "single_agent_turn":
-        lines.append(
-            "- 选择 action_type 前，先判断用户当前要求是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令/浏览器验证或跨步骤状态记录。"
-            "这一步只用于选择动作，不要输出隐藏推理。"
-        )
-        lines.append(
-            "- 如果用户明确要求开始、启动、开启、继续推进、执行、落地、实现、修复、构建、生成、写入、验证一个任务，"
-            "或者要求你把目标做到完成并给出可验收结果，这就是任务承接请求，不是普通聊天。"
-        )
-    if bool(task_lifecycle.get("request_task_run_allowed") is True):
-        lines.append(
-            "- 当上述任务承接条件成立时，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。"
-            "如果任务目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。"
-        )
-        lines.append(
-            "- 选择 request_task_run 时，必须向用户回应为什么当前输入需要进入持续任务、第一阶段要判断什么，或还缺少什么关键事实；"
-            "必须把这句自然语言写入 public_progress_note，public_action_state.current_judgment 只用于补充当前公开判断；"
-            "不要把 action_type、协议名、visible_status、thinking、working、task_executor_scheduled 等机器状态写给用户。"
-            "如果还没有足够事实形成执行判断，选择 ask_user 或 block 说明缺口；不要留空公开反馈，也不要编造“开始处理”。"
-        )
-        lines.append(
-            "- 只有在用户只是询问概念、要求解释、要求状态说明，或明确要求一次性的读取/搜索/检查且不要求持续完成交付时，才使用 respond 或普通 tool_call。"
-        )
-    elif "request_task_run" in allowed_actions:
-        lines.append("- 本轮没有挂载持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明运行边界。")
-    task_scoped_routes = [
-        dict(item)
-        for item in list(tool_boundary.get("task_scoped_tool_routes") or [])
-        if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
-    ]
-    if projection.get("invocation_kind") == "single_agent_turn" and task_scoped_routes:
-        route_names = "、".join(str(item.get("tool_name") or "") for item in task_scoped_routes)
-        lines.append(
-            f"- 以下工具属于任务态能力，当前未进入任务运行，不能直接用普通 tool_call 调用：{route_names}。"
-            "这是服务面挂载边界，不是权限安全裁决。如果本轮需要这些能力，必须选择 request_task_run 进入持续任务；如果任务目标、范围或验收标准不足，先 ask_user。"
-        )
-    if "tool_call" in allowed_actions:
-        visible_count = int(tool_boundary.get("visible_tool_count") or 0)
-        lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
-        if projection.get("invocation_kind") == "task_execution":
-            lines.append(
-                "- 当前持续任务执行协议每次只能提交一个 JSON action；如需工具，action_type=tool_call，并在 tool_calls 数组中提交一个或多个互不依赖的本轮可见工具调用。"
-                "运行时会按工具安全声明、资源冲突和审批状态决定并发或串行；成功、失败、边界未满足和审批等待会作为工具观察返回。显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。"
-                "看到边界观察后，必须换用已开放工具、修改参数、询问用户、说明阻塞或收口；不要原样重复同一个未获准动作。"
-            )
-            lines.append(
-                "- 你需要让用户知道任务在被真实推进。开始任务、完成阶段、改变方向、处理失败恢复、准备收口，"
-                "或工具观察已经改变了公开判断时，在 public_action_state.current_judgment 写一句阶段性判断，并可在 next_action 写下一阶段方向。"
-                "普通读取、搜索、缓存恢复、todo 更新和连续工具推进不需要重复写公开判断；这些动作会由系统工具生命周期展示。"
-                "不要把工具名、JSON、内部状态机字段、权限状态或“工具返回成功，正在继续/开始处理/处理完成”这类泛化状态写成用户反馈。"
-            )
-        else:
-            lines.append(
-                "- 普通工具调用可以在同一轮提出多个；运行时会按工具安全声明、资源冲突和审批状态决定并发或串行，并把成功、失败或边界未满足结果作为工具观察返回。"
-                "显式人工审批属于 runtime/UI 控制状态，不要在聊天里要求用户批准系统权限。看到工具观察后，你需要基于观察继续判断，不要把边界未满足理解为用户已经授权，也不要原样重复同一个未获准动作。"
-            )
-            lines.append(
-                "- 工具观察返回后，如果已经形成阶段结论、方向变化、失败恢复判断或下一阶段方向，用一两句自然语言说明判断和下一步。"
-                "普通内部读取、搜索或连续工具推进不需要重复公开反馈；不要使用“开始处理/处理完成/工具返回成功，正在继续”等泛化状态。"
-            )
-    if projection.get("invocation_kind") == "single_agent_turn":
-        control_actions = [
-            item
-            for item in ("ask_user", "block", "request_task_run", "active_work_control")
-            if item in allowed_actions
-        ]
-        if control_actions:
-            lines.append(
-                "- ask_user、block、request_task_run、active_work_control 是控制裁决，不是普通 native 工具。"
-                "需要控制裁决时只能输出一个 JSON action；不能在同一轮混合多个控制裁决，也不能把控制裁决和普通工具调用混在一起。"
-            )
-    if bool(tool_boundary.get("subagent_lifecycle_enabled") is True):
-        lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；你仍负责最终判断和收口。")
-    if "active_work_control" in allowed_actions:
-        lines.append(
-            "- 如果本轮上下文包含 active_work_context，它只代表系统在本轮显式暴露的当前 active-turn-bound work；"
-            "如果其中出现可恢复边界，也已经由系统绑定到当前 active turn，不是 latest task fallback。"
-            "recent_work_outcome、历史摘要和普通 waiting_executor 只能作为只读事实，不能被当作当前可控制工作。"
-            "active_work_control 只在本轮动作合同明确开放时出现；你不能从 active_work_context 自行推断控制能力。"
-        )
-        lines.append(
-            "- 当 active_work_control 在本轮开放时，只执行 current_work_boundary_receipt 和 action schema 指向的当前工作控制。"
-            "active_work_control payload 必须使用 action 字段，值来自 active_work_context.available_controls；"
-            "如果 active_work_context 未提供 available_controls，说明普通 turn 没有当前工作控制能力。"
-            "继续、暂停、停止或补充这类纯控制也必须携带简短用户可见反馈意图，由控制裁决和系统投影统一给出可见回执；不要另外生成一条与控制动作脱节的普通 assistant 正文，也不要把无需正文理解成结束任务。"
-            "具体字段形状以本轮 action schema 为准，不要把控制字段或机器状态写进用户正文。"
-            "当前工作控制不是最终回复，而是你请求系统调整当前工作的动作；系统会把执行结果作为观察交还给你，观察返回后基于真实状态决定继续、收口、询问或阻塞。"
-            "active_work_control 的 action、resolved_action、控制结果和 runtime 状态不是用户正文；"
-            "控制观察返回后，如果用户语义不要求正文回复，不要补写普通回复；如果确实需要公开说明，只能报告真实阶段判断。"
-            "不要输出要求用户重新提出问题的阻断话术。"
-        )
-        if "request_task_run" in allowed_actions:
-            lines.append(
-                "- request_task_run 只能在本轮动作合同开放新任务生命周期时使用。"
-                "这种情况下在 task_contract_seed.active_work_relationship 填 new_work；"
-                "request_task_run 不恢复、替换或接管旧任务。当前工作仍在运行不是拒绝新任务的理由；"
-                "只有用户明确要求继续、暂停、停止、补充或调整当前工作时，才使用 active_work_control。"
-            )
-    elif projection.get("invocation_kind") == "single_agent_turn":
-        lines.append(
-            "- 本轮没有 active_work_context；系统当前没有可控制的进行中工作。"
-            "不要把历史摘要、旧任务记录或旧产物目录当作当前工作；需要持续推进时请求进入持续处理流程。"
-        )
-    if projection.get("invocation_kind") == "single_agent_turn":
-        lines.append(
-            "- 如果当前请求的 history.session_context 中包含 recent_work_outcome，它只是最近一次终止、阻塞或中断任务的只读事实。"
-            "用户询问为什么停下、为什么卡住或上个任务状态时，先基于该事实说明；"
-            "不要把它当作当前可控制任务，也不要据此直接续入同一个任务。"
-        )
-    if bool(planning.get("todo_required_when_task_run") is True):
-        lines.append(
-            "- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。"
-            "使用 agent_todo 时绑定当前任务清单：开始阶段用 start，阶段有真实证据后用 complete，范围变化用 replace/append/update_status；"
-            "不要把 default/runtime 当作真实任务 id。"
-        )
-    if bool(task_lifecycle.get("requires_completion_evidence") is True):
-        lines.append(
-            "- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。"
-            "如果系统提示收口证据不足，你需要补齐缺口或说明明确阻塞；"
-            "不要重复同一个 respond，也不要把 task_completion_repair_required、waiting_executor 等控制词写给用户。"
-        )
-    if bool(task_lifecycle.get("artifact_evidence_required") is True):
-        lines.append("- 如果合同要求 artifact，收口前必须确认 artifact 真实存在且路径可复核。")
-    if bool(self_review.get("enabled") is True):
-        checkpoints = [str(item) for item in list(self_review.get("checkpoints") or []) if str(item)]
-        if checkpoints:
-            lines.append("- 需要在关键检查点进行自我审查：" + "、".join(checkpoints) + "。")
-        else:
-            lines.append("- 收口前需要自我审查目标、边界、证据和未完成项。")
-    if bool(step_summary.get("enabled") is True):
-        detail = str(step_summary.get("detail") or "").strip()
-        suffix = f"；摘要粒度：{detail}" if detail else ""
-        lines.append("- 系统会记录任务步骤摘要，你的行动应能被步骤摘要和观察记录复核" + suffix + "。")
-    permission_scope = str(permission_boundary.get("permission_scope") or "").strip()
-    if permission_scope:
-        lines.append(f"- 权限边界由本轮运行上下文决定；当前权限范围：{permission_scope}。")
-    permission_mode = str(permission_boundary.get("permission_mode") or "").strip()
-    if permission_mode:
-        lines.append(
-            f"- 当前运行权限模式：{permission_mode}；这是本轮已经授予的执行模式。"
-            "只能调用本轮可见且可派发的工具；如果预期工具不可见，应说明需要切换任务环境或刷新能力投影，不要在聊天中要求用户重复授权。"
-        )
-    return "\n".join(lines) + "\n"
+    return "当前运行事实：\n"
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:

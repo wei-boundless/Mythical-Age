@@ -359,7 +359,7 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
 
 
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
-  const presentation = sessionContextPressurePresentation(tokenStats);
+  const presentation = sessionContextMeterPresentation(tokenStats);
   if (!presentation) {
     return null;
   }
@@ -368,17 +368,17 @@ function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
       <Gauge size={14} />
       <span>{presentation.label}</span>
       <strong>{presentation.tokenRatioText}</strong>
-      <span>{presentation.pressurePercentText}</span>
+      <span>{presentation.thresholdPercentText}</span>
     </div>
   );
 }
 
-export function sessionContextPressurePresentation(tokenStats: TokenStats | null) {
+export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   if (!tokenStats) {
     return {
       label: "上下文",
       usedPercent: 0,
-      pressurePercentText: "--",
+      thresholdPercentText: "--",
       tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
@@ -389,66 +389,51 @@ export function sessionContextPressurePresentation(tokenStats: TokenStats | null
     return {
       label: "上下文",
       usedPercent: 0,
-      pressurePercentText: "--",
+      thresholdPercentText: "--",
       tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
     };
   }
-  const pressureLevel = String(contextMeter.pressure_level || "normal").trim() || "normal";
-  const levelClass = tokenPressureClass(pressureLevel);
-  const usedPercent = percentFromRatio(currentSessionContextRatio(tokenStats));
-  const pressureTokens = contextPressureTokens(tokenStats);
   const currentTokens = currentContextTokens(tokenStats);
+  const contextWindowTokens = currentContextWindowTokens(tokenStats);
   const thresholdTokens = compactionThresholdTokens(tokenStats);
-  const remainingTokens = compactionRemainingTokens(tokenStats, pressureTokens, thresholdTokens);
+  const thresholdRatio = currentContextThresholdRatio(currentTokens, thresholdTokens);
+  const usedPercent = percentFromRatio(thresholdRatio);
+  const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
+  const levelClass = contextThresholdLevelClass(thresholdRatio);
+  const remainingTokens = Math.max(0, thresholdTokens - currentTokens);
   const tokenRatioText = thresholdTokens > 0
-    ? `${formatTokenCount(pressureTokens)}/${formatTokenCount(thresholdTokens)}`
-    : formatTokenCount(pressureTokens);
-  const pressurePercentText = `${usedPercent}%`;
+    ? `${formatTokenCount(currentTokens)}/${formatTokenCount(thresholdTokens)}`
+    : formatTokenCount(currentTokens);
   const title = [
-    `当前上下文压力 ${formatExactTokenCount(pressureTokens)} tokens`,
-    pressureTokens !== currentTokens ? `会话公开历史 ${formatExactTokenCount(currentTokens)} tokens` : "",
+    `当前上下文 ${formatExactTokenCount(currentTokens)} tokens`,
     thresholdTokens > 0 ? `自动压缩阈值 ${formatExactTokenCount(thresholdTokens)} tokens` : "",
+    thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
+    contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
-    `阈值占比 ${pressurePercentText}`,
-    ...contextRecoveryPackageTitleItems(tokenStats),
-    thresholdTokens > 0 ? "达到阈值会触发自动压缩" : "",
   ].filter(Boolean).join("；");
   return {
     label: "上下文",
     usedPercent,
-    pressurePercentText,
+    thresholdPercentText,
     tokenRatioText,
     title,
     levelClass,
   };
 }
 
-function tokenPressureClass(value: string) {
-  const normalized = value.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
-  return normalized || "normal";
-}
-
 function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
 }
 
-function currentSessionContextRatio(tokenStats: TokenStats) {
-  const rawCompactionRatio = tokenStats.context_meter?.compaction_pressure_ratio;
-  const compactionRatio = Number(rawCompactionRatio);
-  if (rawCompactionRatio !== undefined && rawCompactionRatio !== null && Number.isFinite(compactionRatio)) {
-    return compactionRatio;
-  }
-  const thresholdTokens = compactionThresholdTokens(tokenStats);
-  if (thresholdTokens > 0) {
-    return contextPressureTokens(tokenStats) / thresholdTokens;
-  }
-  return 0;
-}
-
 function currentContextTokens(tokenStats: TokenStats) {
   const value = Number(tokenStats.context_meter?.current_context_tokens ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function currentContextWindowTokens(tokenStats: TokenStats) {
+  const value = Number(tokenStats.context_meter?.context_window_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
@@ -465,31 +450,21 @@ function compactionThresholdTokens(tokenStats: TokenStats) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
-function compactionRemainingTokens(tokenStats: TokenStats, pressureTokens: number, thresholdTokens: number) {
-  const reported = Number(tokenStats.context_meter?.compaction_remaining_tokens ?? NaN);
-  if (Number.isFinite(reported)) {
-    return Math.max(0, Math.round(reported));
+function currentContextThresholdRatio(currentTokens: number, thresholdTokens: number) {
+  if (thresholdTokens > 0) {
+    return currentTokens / thresholdTokens;
   }
-  return Math.max(0, thresholdTokens - pressureTokens);
+  return 0;
 }
 
-function contextRecoveryPackageTitleItems(tokenStats: TokenStats) {
-  const packageStatus = tokenStats.context_recovery_package;
-  const readiness = tokenStats.compaction_readiness;
-  const present = Boolean(packageStatus?.present ?? readiness?.context_recovery_package_present);
-  if (!present) {
-    return [];
+function contextThresholdLevelClass(thresholdRatio: number) {
+  if (thresholdRatio >= 1) {
+    return "over_threshold";
   }
-  const fresh = Boolean(packageStatus?.fresh ?? readiness?.context_recovery_package_fresh);
-  const source = String(packageStatus?.source || readiness?.context_recovery_package_source || "").trim();
-  const coveredMessageCount = Number(packageStatus?.covered_message_count ?? NaN);
-  const staleReason = String(packageStatus?.stale_reason || "").trim();
-  return [
-    `恢复包 ${fresh ? "fresh" : "stale"}`,
-    source ? `恢复包来源 ${source}` : "",
-    Number.isFinite(coveredMessageCount) && coveredMessageCount > 0 ? `恢复包覆盖 ${Math.round(coveredMessageCount)} 条消息` : "",
-    staleReason ? `恢复包失效原因 ${staleReason}` : "",
-  ].filter(Boolean);
+  if (thresholdRatio >= 0.85) {
+    return "near_threshold";
+  }
+  return "normal";
 }
 
 function formatTokenCount(value: unknown) {

@@ -89,9 +89,7 @@ class BoundTaskContext:
                 "edit_targets": [dict(item) for item in self.edit_targets],
                 "artifact_refs": [dict(item) for item in self.artifact_refs],
                 "rehydration_refs": [dict(item) for item in self.rehydration_refs],
-                "restore_policy": dict(self.restore_policy)
-                if self.context_refs or self.known_task_files or self.rehydration_refs
-                else {},
+                "policy_ref": "bound_task_context.restore_policy" if self.restore_policy else "",
             }
         )
 
@@ -237,7 +235,7 @@ def _bound_file_evidence_decision(value: dict[str, Any]) -> dict[str, Any]:
             if isinstance(value.get("current_read_evidence"), bool)
             else None,
             "reuse_current_windows": _bounded_decision_windows(value.get("reuse_current_windows")),
-            "rehydrate_existing_windows": _bounded_decision_windows(value.get("rehydrate_existing_windows")),
+            "inject_read_artifact_windows": _bounded_decision_windows(value.get("inject_read_artifact_windows")),
             "read_missing_windows": _bounded_decision_windows(value.get("read_missing_windows")),
             "read_after_stale_windows": _bounded_decision_windows(value.get("read_after_stale_windows")),
             "do_not_repeat_read_ranges": _bounded_decision_windows(value.get("do_not_repeat_read_ranges")),
@@ -261,6 +259,7 @@ def _bounded_decision_windows(value: Any) -> list[dict[str, Any]]:
                     "line_count": _int_or_none(item.get("line_count")),
                     "observation_ref": str(item.get("observation_ref") or "").strip(),
                     "reusable_result_ref": str(item.get("reusable_result_ref") or "").strip(),
+                    "exact_artifact_ref": str(item.get("exact_artifact_ref") or "").strip(),
                     "reason": str(item.get("reason") or "").strip(),
                 }
             )
@@ -372,7 +371,8 @@ def _rehydration_refs(*, task_files: list[dict[str, Any]], replay_entries: tuple
                     "source": "task_state_replay",
                     "path": path,
                     "content_range": _content_range(content_range),
-                    "instruction": str(plan.get("instruction") or "").strip(),
+                    "reason_code": "recover_context_from_task_state_replay",
+                    "rehydration_ref": str(plan.get("rehydration_ref") or plan.get("result_ref") or "").strip(),
                 }
             )
         )
@@ -388,6 +388,9 @@ def _content_range(value: dict[str, Any]) -> dict[str, Any]:
             "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
             "next_start_line": _int_or_none(value.get("next_start_line")),
             "content_sha256": str(value.get("content_sha256") or "").strip(),
+            "exact_artifact_ref": str(value.get("exact_artifact_ref") or "").strip(),
+            "visible_exact": value.get("visible_exact") if isinstance(value.get("visible_exact"), bool) else None,
+            "content_omitted": value.get("content_omitted") if isinstance(value.get("content_omitted"), bool) else None,
         }
     )
 
@@ -399,7 +402,7 @@ def _restore_policy(*, enabled: bool) -> dict[str, Any]:
         "mode": "task_bound_context_restore",
         "compact_resume": "Restore bound plan refs and context refs before relying on older transcript summaries.",
         "volatile_state_boundary": "Current file windows, edit receipts, artifact evidence, and rehydration refs are carried by volatile task state and replay entries; known_task_files only carries file identity and recovery hints.",
-        "file_precision": "Known bound/editor file paths are already located; do not use search_files/search_text just to rediscover them. For line-level edits or exact claims, rely on current valid read-window evidence from file_evidence_decisions. Reuse covered non-stale read ranges, rehydrate omitted tool_result bytes only when exact omitted content is needed, and call read_file only for missing target lines, stale/changed files, missing hashes, or uncovered windows. For unknown location, use search_files for filename/path keywords, glob_paths for wildcard path patterns, and search_text for file contents.",
+        "file_evidence_policy_ref": "file_evidence_policy_stable.read_window_admission",
     }
 
 

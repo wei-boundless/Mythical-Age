@@ -7,7 +7,7 @@ from harness.runtime.dynamic_context.replacement_store import ReplacementStore
 from harness.runtime.dynamic_context.tool_result_projector import ToolResultProjector
 
 
-def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp_path: Path) -> None:
+def test_tool_result_projector_keeps_large_read_file_output_exact_and_keeps_artifact_refs(tmp_path: Path) -> None:
     projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
     large_text = "line\n" * 2000
 
@@ -28,28 +28,42 @@ def test_tool_result_projector_persists_large_output_and_keeps_artifact_refs(tmp
     assert projection["tool_name"] == "read_file"
     assert projection["status"] == "ok"
     assert projection["artifact_refs"] == [{"path": "artifacts/report.txt"}]
+    assert "content_replacements" not in projection
+    assert "replacement_ref" not in projection
+    assert projection["preview"] == large_text
+
+    assert "rehydration_plan" not in projection
+    assert record["projection"]["preview"] == large_text
+
+
+def test_tool_result_projector_persists_large_non_read_output(tmp_path: Path) -> None:
+    projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
+    large_text = "line\n" * 2000
+
+    projection, record = projector.project(
+        {
+            "result_envelope": {
+                "envelope_id": "tool-result:test-terminal",
+                "tool_name": "terminal",
+                "status": "ok",
+                "text": large_text,
+                "artifact_refs": [{"path": "artifacts/report.txt"}],
+            }
+        },
+        task_run_id="taskrun:test",
+        projection_policy={"tool_result_preview_chars": 300},
+    )
+
+    assert projection["tool_name"] == "terminal"
     assert projection["content_replacements"]
     assert Path(projection["content_replacements"][0]["path"]).exists()
-    assert "replacement_ref" not in projection
     assert large_text not in json.dumps(projection, ensure_ascii=False)
-
     plan = projection["rehydration_plan"]
-    assert plan["authority"] == "harness.runtime.dynamic_context.rehydration_plan"
-    assert plan["prompt_status"] == "preview_only"
-    assert "replacement_ref" not in plan
-    assert record["rehydration_plan"] == plan
     persisted = plan["capabilities"][0]
     assert persisted["capability"] == "read_persisted_tool_result"
     assert persisted["tool_name"] == "read_persisted_tool_result"
     assert persisted["args"]["replacement_id"].startswith("tool_result:")
-    assert not persisted["args"]["replacement_id"].startswith("replacement:")
-    assert persisted["args"] == {
-        "replacement_id": projection["content_replacements"][0]["replacement_id"],
-        "path": projection["content_replacements"][0]["path"],
-        "task_run_id": "taskrun:test",
-    }
-    assert persisted["next_request"] == {"tool_name": "read_persisted_tool_result", "args": persisted["args"]}
-    assert persisted["content_replacements"][0]["path"] == projection["content_replacements"][0]["path"]
+    assert record["rehydration_plan"] == plan
 
 
 def test_tool_result_projector_emits_read_file_rehydration_plan_for_partial_window(tmp_path: Path) -> None:
@@ -128,7 +142,7 @@ def test_tool_result_projector_normalizes_tool_source_prefix_for_read_file(tmp_p
     assert projection["evidence_policy"]["source_kind"] == "code_evidence"
 
 
-def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code_window(tmp_path: Path) -> None:
+def test_tool_result_projector_does_not_content_replace_oversized_read_file_window(tmp_path: Path) -> None:
     projector = ToolResultProjector(root_dir=tmp_path, replacement_store=ReplacementStore(tmp_path))
     large_window = "\n".join(f"{line} |     value_{line} = compute({line})" for line in range(1, 180))
 
@@ -165,19 +179,15 @@ def test_tool_result_projector_marks_oversized_read_file_preview_as_partial_code
     plan = projection["rehydration_plan"]
     capabilities = {item["capability"]: item for item in plan["capabilities"]}
 
-    assert projection["content_replacements"]
+    assert "content_replacements" not in projection
+    assert projection["preview"] == large_window
     assert policy["source_kind"] == "code_evidence"
-    assert policy["visible_content_authority"] == "preview_of_line_window"
-    assert policy["fresh_read_conditions"] == ["visible_content_is_preview_truncated", "target_line_outside_visible_range"]
+    assert policy["visible_content_authority"] == "exact_visible_line_window"
+    assert policy["fresh_read_conditions"] == ["target_line_outside_visible_range"]
     assert "must_read_current_source_before_edit" not in policy
     assert projection["evidence_confidence"]["files"][0]["fresh_read_conditions"] == policy["fresh_read_conditions"]
-    assert plan["prompt_status"] == "preview_and_file_window_only"
-    assert capabilities["read_persisted_tool_result"]["tool_name"] == "read_persisted_tool_result"
-    assert capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("tool_result:")
-    assert not capabilities["read_persisted_tool_result"]["args"]["replacement_id"].startswith("replacement:")
-    assert projection["content_replacements"][0]["metadata"]["source_tool_name"] == "read_file"
-    assert projection["content_replacements"][0]["metadata"]["content_range"]["path"] == "src/large.py"
-    assert capabilities["read_persisted_tool_result"]["content_replacements"][0]["source_metadata"]["content_range"]["content_sha256"] == "sha256:large-py"
+    assert plan["prompt_status"] == "file_window_only"
+    assert "read_persisted_tool_result" not in capabilities
     assert capabilities["read_file_range"]["next_request"] == {
         "tool_name": "read_file",
         "args": {"path": "src/large.py", "start_line": 180, "line_count": 179},

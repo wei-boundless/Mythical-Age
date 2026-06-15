@@ -62,8 +62,8 @@ RUNTIME_CONTEXT_MEMORY_RULE = """
 如果上下文被压缩或替换，应依赖系统提供的 refs、summary 和当前运行投影，不要补写自己没有证据的细节。
 如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
 基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 read_persisted_tool_result；高层状态判断可先用预览。
-代码类结果中，content_range 说明 read_file 行窗口，preview 可能只是窗口片段；codebase_search、search_text、summary、code_structure 和搜索片段都只能定位。
-修改代码、定位行级错误或逐行判断前，优先复用已覆盖且未过期的当前 read_file 窗口；窗口缺失、过期、文件已变更或目标行未覆盖时才重新读取。若已读窗口被省略但有有效 rehydration_plan，先恢复该窗口，不要重复读取同一未变更范围。
+代码类结果中，content_range 说明 read_file 行窗口；codebase_search、search_text、summary、code_structure 和搜索片段都只能定位，不能替代当前 exact read evidence。
+修改代码、定位行级错误或逐行判断前，只能复用已覆盖、未过期且 exact 可见或由 read observation artifact 注入的当前 read_file 窗口。窗口缺失、过期、文件已变更、目标行未覆盖、只有 omitted preview 或没有 exact artifact 时，调用 read_file 读取当前目标窗口。
 写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
 """.strip()
 

@@ -5,28 +5,6 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class PromptCompositionLayerInput:
-    layer_id: str
-    slot_layer: str
-    assembly: Any | None = None
-    message_kinds: tuple[str, ...] = ()
-    target_role: str = "system"
-    lifecycle: str = ""
-    required: bool = True
-    source_kind: str = "registered_prompt"
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "layer_id", str(self.layer_id or "").strip())
-        object.__setattr__(self, "slot_layer", str(self.slot_layer or self.layer_id or "unknown").strip())
-        object.__setattr__(
-            self,
-            "message_kinds",
-            tuple(str(item).strip() for item in tuple(self.message_kinds or ()) if str(item).strip()),
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class PromptCompositionSlot:
     slot_id: str
     invocation_kind: str
@@ -79,6 +57,109 @@ class PromptCompositionPlan:
         payload["volatile_state_refs"] = list(self.volatile_state_refs)
         payload["diagnostics"] = dict(self.diagnostics)
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromptSlot:
+    slot_id: str
+    invocation_kind: str
+    packet_id: str
+    order: int
+    layer: str
+    slot_kind: str
+    target_role: str
+    source_kind: str
+    source_ref: str
+    cache_scope: str
+    cache_role: str
+    cache_tier: str
+    dynamic_tier: str
+    compression_role: str
+    authority_class: str
+    render_contract: dict[str, Any] = field(default_factory=dict)
+    message_spec: dict[str, Any] = field(default_factory=dict)
+    content_hash: str = ""
+    model_visible: bool = True
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_prompt_slot"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["render_contract"] = dict(self.render_contract)
+        payload["message_spec"] = dict(self.message_spec)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromptSlotPlan:
+    plan_id: str
+    invocation_kind: str
+    packet_id: str
+    slots: tuple[RuntimePromptSlot, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_prompt_slot_plan"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "invocation_kind": self.invocation_kind,
+            "packet_id": self.packet_id,
+            "slots": [slot.to_dict() for slot in self.slots],
+            "diagnostics": dict(self.diagnostics),
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeContextLoadEntry:
+    load_entry_id: str
+    load_plan_id: str
+    invocation_kind: str
+    packet_id: str
+    load_phase: str
+    phase_order: int
+    load_order: int
+    slot_id: str
+    slot_layer: str
+    slot_kind: str
+    target_role: str
+    source_kind: str
+    source_ref: str
+    cache_tier: str
+    dynamic_tier: str
+    authority_class: str
+    render_contract: dict[str, Any] = field(default_factory=dict)
+    message_spec: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_context_load_entry"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["render_contract"] = dict(self.render_contract)
+        payload["message_spec"] = dict(self.message_spec)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeContextLoadPlan:
+    plan_id: str
+    invocation_kind: str
+    packet_id: str
+    entries: tuple[RuntimeContextLoadEntry, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_context_load_plan"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "invocation_kind": self.invocation_kind,
+            "packet_id": self.packet_id,
+            "entries": [entry.to_dict() for entry in self.entries],
+            "diagnostics": dict(self.diagnostics),
+            "authority": self.authority,
+        }
 
 
 @dataclass(frozen=True, slots=True)
