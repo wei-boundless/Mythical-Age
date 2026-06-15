@@ -310,6 +310,56 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     assert signal["structured_signal"]["message"] == signal["repair_instruction"]
 
 
+def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_repair_signal() -> None:
+    from harness.loop.single_agent_turn import (
+        _model_protocol_violation_control_signal,
+        _single_agent_action_request_from_response,
+    )
+
+    invalid_action = {
+        "authority": "harness.loop.model_action_request",
+        "action_type": "resume_recoverable_work",
+        "public_progress_note": "我会从原任务断点继续。",
+        "public_action_state": {"current_judgment": "已确认需要恢复原任务。"},
+        "task_run_id": "taskrun:turn:session-a:1:abc",
+        "continuation_id": "cont:session-a:1:0",
+    }
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(content=json.dumps(invalid_action, ensure_ascii=False)),
+        request_id="model-response:test:misnested-recovery-resume",
+        turn_id="turn:test:misnested-recovery-resume",
+        packet_ref="packet:test:misnested-recovery-resume",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        phase="tool_loop",
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    action_issue = dict(parsed.error["diagnostics"]["action_issue"])
+    assert action_issue["requested_action_type"] == "resume_recoverable_work"
+    assert "恢复句柄字段放错层级" in action_issue["repair_instruction"]
+    assert "recovery_resume" in action_issue["repair_instruction"]
+    assert "不要从旧消息文本猜测" in action_issue["repair_instruction"]
+
+    signal = _model_protocol_violation_control_signal(
+        turn_id="turn:test:misnested-recovery-resume",
+        packet_ref="packet:test:misnested-recovery-resume",
+        phase="tool_loop",
+        protocol_error=parsed.error,
+        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        recovery_attempt=1,
+        max_recovery_attempts=3,
+        response_preview=json.dumps(invalid_action, ensure_ascii=False),
+    )
+
+    assert "具体修复" in signal["repair_instruction"]
+    assert "恢复句柄字段放错层级" in signal["repair_instruction"]
+    assert signal["structured_signal"]["message"] == signal["repair_instruction"]
+
+
 def test_single_agent_parser_rejects_markdown_fenced_json_action_when_json_required() -> None:
     from types import SimpleNamespace
 

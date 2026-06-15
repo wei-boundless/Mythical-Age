@@ -74,6 +74,22 @@ def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> No
     assert dict(seed["observation_contract"])["evidence_policy"] == "observation_required"
 
 
+def test_single_turn_resume_recoverable_work_schema_shows_nested_handle_shape() -> None:
+    schema = model_action_request_schema("turn:resume-shape")
+
+    shape_rules = [str(item) for item in list(schema.get("resume_recoverable_work_shape_rules") or [])]
+    example = dict(schema.get("minimal_valid_resume_recoverable_work_example") or {})
+    recovery_resume = dict(example.get("recovery_resume") or {})
+
+    assert "resume_recoverable_work" in str(schema.get("action_type") or "")
+    assert any("provider-native resume_recoverable_work" in rule for rule in shape_rules)
+    assert any("必须放在 recovery_resume 对象内" in rule for rule in shape_rules)
+    assert "task_run_id" not in example
+    assert "continuation_id" not in example
+    assert recovery_resume["task_run_id"].startswith("taskrun:")
+    assert recovery_resume["continuation_id"].startswith("cont:")
+
+
 def test_task_execution_packet_attaches_action_schema_manifest_without_prompt_drift() -> None:
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
         session_id="session:action-schema-manifest",
