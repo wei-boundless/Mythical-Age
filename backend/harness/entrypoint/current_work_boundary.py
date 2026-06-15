@@ -224,6 +224,20 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             active_check=active_check,
             boundary_input=boundary_input,
         )
+    if policy != "steer":
+        return _decision(
+            session_id=session_id,
+            turn_id=turn_id,
+            action="new_independent_turn_allowed",
+            relation="active_work_present_without_steer_policy",
+            reason="active_work_control_requires_steer_policy",
+            expected_turn_id=expected_turn_id,
+            actual_turn_id=actual_turn_id,
+            task_run_id=task_run_id,
+            active_work=active_work,
+            active_check=active_check,
+            boundary_input=boundary_input,
+        )
     return _decision(
         session_id=session_id,
         turn_id=turn_id,

@@ -234,6 +234,81 @@ def test_session_runtime_timeline_running_task_replays_live_timeline_surface() -
     assert attachment["tool_event_count"] == 1
 
 
+def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summaries() -> None:
+    task_run_id = "taskrun:turn:session-a:1:abc"
+    stream_run_id = "strun:session-a:1"
+    task_run = SimpleNamespace(
+        task_run_id=task_run_id,
+        session_id="session-a",
+        task_id="task:turn:session-a:1",
+        status="running",
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:1",
+        status="running",
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[task_run],
+        events_by_run={
+            task_run_id: [
+                {
+                    "event_id": "event:step-summary",
+                    "event_type": "step_summary_recorded",
+                    "offset": 7,
+                    "created_at": 7.0,
+                    "payload": {
+                        "step": "model_action_received:1",
+                        "status": "running",
+                        "summary": "我先核对当前正文。",
+                        "public_progress_note": "我先核对当前正文。",
+                        "presentation_source": "model_action.public_progress_note",
+                    },
+                    "refs": {
+                        "task_run_ref": task_run_id,
+                        "action_request_ref": "request:feedback:1",
+                    },
+                }
+            ],
+        },
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    "runtime_step_summary",
+                    {
+                        "summary": "我先核对当前正文。",
+                        "public_progress_note": "我先核对当前正文。",
+                        "presentation_source": "model_action.public_progress_note",
+                        "feedback_identity": "request:feedback:1",
+                    },
+                    offset=7,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                ),
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "run", "turn_id": "turn:session-a:1"}]},
+        runtime_host=runtime_host,
+    )
+
+    task_attachment = next(item for item in timeline["runtime_attachments"] if item.get("task_run_id") == task_run_id)
+    stream_attachment = next(item for item in timeline["runtime_attachments"] if item.get("stream_run_id") == stream_run_id)
+    assert task_attachment["public_projection_frames"][0]["item_id"] == stream_attachment["public_projection_frames"][0]["item_id"]
+    assert task_attachment["public_projection_frames"][0]["frame_id"] == stream_attachment["public_projection_frames"][0]["frame_id"]
+
+
 def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"

@@ -669,7 +669,7 @@ def _artifact_write_paths_from_facts(facts: list[dict[str, Any]]) -> list[str]:
     paths: list[str] = []
     for fact in facts:
         tool_name = str(fact.get("tool_name") or "").strip()
-        if tool_name not in {"write_file", "edit_file"}:
+        if tool_name not in {"write_file", "edit_file", "batch_edit_file"}:
             continue
         for key in ("path", "artifact_ref"):
             value = str(fact.get(key) or "").replace("\\", "/").strip()

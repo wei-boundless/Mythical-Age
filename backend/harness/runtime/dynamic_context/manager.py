@@ -382,6 +382,11 @@ def _runtime_storage_ref(runtime_assembly: dict[str, Any]) -> dict[str, Any]:
         value = runtime_assembly.get(key)
         if isinstance(value, dict):
             return dict(value)
+    task_environment = runtime_assembly.get("task_environment")
+    if isinstance(task_environment, dict):
+        storage_space = task_environment.get("storage_space")
+        if isinstance(storage_space, dict):
+            return dict(storage_space)
     return {}
 
 

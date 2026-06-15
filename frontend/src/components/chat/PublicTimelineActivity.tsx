@@ -162,6 +162,7 @@ const TOOL_ACTION_LABELS = [
   "搜索文本",
   "写入文件",
   "编辑文件",
+  "批量编辑文件",
   "应用补丁",
 ];
 
@@ -293,6 +294,7 @@ function toolInvocationName(item: PublicChatTimelineItem) {
     stat_path: "检查路径",
     write_file: "写入文件",
     edit_file: "编辑文件",
+    batch_edit_file: "批量编辑文件",
     apply_patch: "应用补丁",
   };
   return labels[normalized] || rawTool;
@@ -436,6 +438,7 @@ function displayToolLabel(value: unknown) {
     stat_path: "检查路径",
     write_file: "写入文件",
     edit_file: "更新文件",
+    batch_edit_file: "批量编辑文件",
     apply_patch: "更新文件",
   };
   return labels[normalized] || cleanText(value);

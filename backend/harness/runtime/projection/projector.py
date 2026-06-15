@@ -35,8 +35,15 @@ _TRACE_ONLY_RUNTIME_STEP_SOURCES = {"runtime.protocol_repair", "system.tool_call
 class ProjectionLifecycleState:
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
+        self._model_wait_statuses: dict[tuple[str, str, str, str], tuple[str, str, str]] = {}
 
     def should_emit_public_event(self, public_event_type: str, data: dict[str, Any]) -> bool:
+        if _is_model_wait_status_event(public_event_type, data):
+            key = _model_wait_lifecycle_key(data)
+            signature = _model_wait_status_signature(data)
+            if self._model_wait_statuses.get(key) == signature:
+                return False
+            self._model_wait_statuses[key] = signature
         return True
 
     def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
@@ -763,6 +770,39 @@ def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
     }
 
 
+def _is_model_wait_status_event(public_event_type: str, data: dict[str, Any]) -> bool:
+    if text(public_event_type) != "runtime_status":
+        return False
+    item_id = text(data.get("item_id"))
+    return (
+        text(data.get("presentation_source")) == "runtime.model_wait"
+        or text(data.get("source_task_event_type")) == "task_model_action_wait_heartbeat"
+        or item_id.startswith("model-wait:")
+        or text(data.get("status_kind")) == "model_wait_placeholder"
+    )
+
+
+def _model_wait_lifecycle_key(data: dict[str, Any]) -> tuple[str, str, str, str]:
+    anchor = record(data.get("public_anchor"))
+    item_id = text(data.get("item_id"))
+    task_run_id = (
+        text(data.get("task_run_id"))
+        or text(data.get("runtime_task_run_id"))
+        or text(anchor.get("task_run_id"))
+    )
+    turn_id = text(data.get("turn_id")) or text(data.get("active_turn_id")) or text(anchor.get("turn_id"))
+    turn_run_id = text(data.get("turn_run_id")) or text(anchor.get("turn_run_id"))
+    if not item_id:
+        item_id = stable_id("model-wait", task_run_id, turn_run_id, turn_id)
+    return (item_id, task_run_id, turn_run_id, turn_id)
+
+
+def _model_wait_status_signature(data: dict[str, Any]) -> tuple[str, str, str]:
+    title = public_text(data.get("title") or data.get("summary"), limit=140) or "正在思考"
+    state = text(data.get("state") or data.get("status")) or "running"
+    return ("model_wait_placeholder", title, state)
+
+
 def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
     progress_note = public_text(data.get("public_progress_note"), limit=180)
     current_judgment = public_text(data.get("current_judgment"), limit=180)
@@ -994,7 +1034,7 @@ def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
         return f"{verb}：{visible_subject}" if visible_subject else verb
     if normalized_tool in {"read_file", "read_files", "read_path"}:
         return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
-    if normalized_tool in {"write_file", "edit_file", "apply_patch"}:
+    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
         return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
     if visible_subject:
         return f"{tool_name}：{visible_subject}"
@@ -1013,7 +1053,7 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
         return "搜索完成"
     if normalized_tool in {"read_file", "read_files", "read_path"}:
         return "文件读取完成"
-    if normalized_tool in {"write_file", "edit_file", "apply_patch"}:
+    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
         return "文件更新完成"
     if tool_label:
         return f"{tool_label}完成"
@@ -1024,6 +1064,7 @@ def _tool_display_label(tool_name: str) -> str:
     normalized = text(tool_name).lower()
     return {
         "apply_patch": "更新文件",
+        "batch_edit_file": "更新文件",
         "edit_file": "更新文件",
         "glob_paths": "匹配路径",
         "list_dir": "列出目录",

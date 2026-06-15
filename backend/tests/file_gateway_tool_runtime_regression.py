@@ -83,6 +83,56 @@ def test_runtime_edit_file_uses_file_gateway_copy_on_read_before_edit(tmp_path: 
     assert receipt["before_hash"] != receipt["after_hash"]
 
 
+def test_runtime_batch_edit_file_uses_file_gateway_copy_on_read_before_edit(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.py").write_text("alpha old\nbeta old\ngamma", encoding="utf-8")
+    task_run_id = "taskrun-gateway-batch-edit-after-read"
+
+    read = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "src/app.py", "start_line": 1, "line_count": 3},
+        operation_id="op.read_file",
+        task_run_id=task_run_id,
+    )
+    assert read["error"] == ""
+    tool_result = read["observation"].payload["result_envelope"]["structured_payload"]["tool_result"]
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="batch_edit_file",
+        tool_args={
+            "path": "src/app.py",
+            "base_sha256": tool_result["content_sha256"],
+            "base_mtime_ns": tool_result["mtime_ns"],
+            "edits": [
+                {"old_text": "alpha old", "new_text": "alpha new"},
+                {"old_text": "beta old", "new_text": "beta new"},
+            ],
+        },
+        operation_id="op.edit_file",
+        task_run_id=task_run_id,
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    receipt = envelope["structured_payload"]["file_gateway"]["receipt"]
+    artifact_refs = [dict(item) for item in list(envelope.get("artifact_refs") or [])]
+
+    assert result["error"] == ""
+    assert (project / "src" / "app.py").read_text(encoding="utf-8") == "alpha old\nbeta old\ngamma"
+    assert (sandbox / "src" / "app.py").read_text(encoding="utf-8") == "alpha new\nbeta new\ngamma"
+    assert envelope["structured_payload"]["tool_result"]["kind"] == "file_batch_edit"
+    assert envelope["structured_payload"]["tool_result"]["edit_count"] == 2
+    assert artifact_refs[0]["sandbox_path"] == "src/app.py"
+    assert receipt["before_hash"]
+    assert receipt["after_hash"]
+    assert receipt["before_hash"] != receipt["after_hash"]
+
+
 def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"

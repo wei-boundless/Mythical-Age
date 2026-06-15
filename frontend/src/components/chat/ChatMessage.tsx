@@ -111,7 +111,9 @@ export function ChatMessage({
     : renderProjectionTimeline
       ? publicTimelineItemsFromProjection(publicProjection)
       : [];
-  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicTimelineItems);
+  const activeModelWaitPlaceholder = publicTimelineItems.some(isModelWaitPlaceholderTimelineItem);
+  const publicActivityItems = publicTimelineItems.filter((item) => !isModelWaitPlaceholderTimelineItem(item));
+  const hasPublicTimelineActivity = publicTimelineHasDisplayableActivity(publicActivityItems);
   const naturalizedMessageDisplayContent = useNaturalizedStreamText(
     messageDisplayContent,
     !isUser && streamingContent && Boolean(messageDisplayContent),
@@ -123,7 +125,7 @@ export function ChatMessage({
     || Boolean(naturalizedMessageDisplayContent.trim());
   const showThinkingPlaceholder =
     !isUser
-    && streamingContent
+    && (streamingContent || activeModelWaitPlaceholder)
     && !shouldRenderContent
     && !hasPublicTimelineActivity;
   const copyableReplyText = !isUser && shouldRenderContent ? naturalizedMessageDisplayContent.trim() : "";
@@ -258,7 +260,7 @@ export function ChatMessage({
       bodyBlocks: projectionBodyBlocks,
       hasBody: shouldRenderContent,
       fallbackBodyText: naturalizedMessageDisplayContent,
-      timelineItems: publicTimelineItems,
+      timelineItems: publicActivityItems,
     });
   const firstBodyBlockKey = orderedMessageBlocks.find((block) => block.kind === "body")?.key ?? "";
 
@@ -863,6 +865,7 @@ function projectionToolLabel(toolName: unknown) {
     stat_path: "检查路径",
     write_file: "写入文件",
     edit_file: "更新文件",
+    batch_edit_file: "批量编辑文件",
     apply_patch: "更新文件",
   };
   return labels[normalized] || cleanText(toolName);

@@ -199,9 +199,17 @@ def build_tool_execution_error_observation(
     tool_args: dict[str, Any] | None = None,
     tool_call_id: str = "",
     execution_receipt: dict[str, Any] | None = None,
+    failure_kind: str = "",
+    error_code: str = "",
+    repair_instruction: str = "",
+    diagnostics: dict[str, Any] | None = None,
 ) -> RuntimeObservation:
     message = str(error or "").strip() or "tool_execution_failed"
     receipt = dict(execution_receipt or {})
+    kind = str(failure_kind or "tool_execution_error").strip()
+    code = str(error_code or kind or "tool_execution_error").strip()
+    repair = str(repair_instruction or _default_tool_error_repair_instruction(kind, message)).strip()
+    diagnostic_payload = dict(diagnostics or {})
     return RuntimeObservation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
@@ -215,11 +223,46 @@ def build_tool_execution_error_observation(
             "tool_call_id": str(tool_call_id or ""),
             "tool_args": dict(tool_args or {}),
             "error": message,
+            "error_message": message,
+            "error_code": code,
+            "failure_kind": kind,
+            "is_tool_execution_failure": True,
+            "tool_executed": False,
+            "repair_instruction": repair,
             "execution_receipt": receipt,
             "execution_id": str(receipt.get("execution_id") or ""),
+            "diagnostics": diagnostic_payload,
+            "structured_payload": {
+                "type": "tool_execution_error",
+                "tool_name": str(tool_name or ""),
+                "error_code": code,
+                "failure_kind": kind,
+                "error_message": message,
+                "repair_instruction": repair,
+                "tool_executed": False,
+                "diagnostics": diagnostic_payload,
+            },
         },
         needs_model_followup=False,
         created_at=time.time(),
+    )
+
+
+def _default_tool_error_repair_instruction(failure_kind: str, message: str) -> str:
+    kind = str(failure_kind or "").strip()
+    if kind == "runtime_control_interrupted":
+        return (
+            "The runtime deliberately interrupted this tool call. Obey the runtime control signal; "
+            "do not treat this as command output or as proof that the requested operation failed."
+        )
+    if kind == "tool_task_cancelled_without_runtime_control_signal":
+        return (
+            "The tool task was cancelled but no runtime control signal was recorded. Report this as a runtime "
+            "cancellation diagnostics issue and retry only after confirming the task is still the active work."
+        )
+    return (
+        "Inspect the structured error and execution receipt, then retry with corrected arguments or report a "
+        f"blocker if the failure is outside the tool input. Error: {message}"
     )
 
 

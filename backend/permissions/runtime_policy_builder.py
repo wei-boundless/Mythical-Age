@@ -15,6 +15,8 @@ from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from orchestration.runtime_directive import RuntimeDirective
 
 SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
+WRITE_OPERATIONS = {"op.write_file", "op.edit_file"}
+WRITE_TOOL_NAMES = {"write_file", "edit_file", "batch_edit_file"}
 EXPLICIT_HUMAN_APPROVAL_POLICIES = {
     "manual_approval_required",
     "requires_human_approval",
@@ -108,9 +110,7 @@ def build_model_response_runtime_admission(
             "tools_allowed": bool(allowed_scope.tool_names if allowed_scope is not None else ()),
             "mcps_allowed": bool(not_executable_scope.mcp_routes if not_executable_scope is not None else ()),
             "memory_write_allowed": False,
-            "filesystem_write_allowed": any(
-                operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
-            ),
+            "filesystem_write_allowed": any(operation in WRITE_OPERATIONS for operation in allowed_operations),
             "sandbox_policy": _public_sandbox_policy(sandbox_policy),
             "permission_mode": mode,
             "admission_owner": "harness.runtime_admission",
@@ -176,7 +176,6 @@ def build_runtime_capability_state(
         )
     )
     admitted_set = set(admitted)
-    write_ops = {"op.write_file", "op.edit_file"}
     visible_tools = tuple(_dedupe([str(item or "").strip() for item in visible_tool_names if str(item or "").strip()]))
     return {
         "state_id": f"runtime-capability-state:{resource_policy.task_id}",
@@ -194,9 +193,9 @@ def build_runtime_capability_state(
         "blocked_by_turn_policy_operations": [
             operation for operation in profile_allowed if operation not in admitted_set and operation != "op.model_response"
         ],
-        "profile_write_capable": bool(write_ops & set(profile_allowed)) and not bool(write_ops & set(profile_blocked)),
-        "turn_write_operation_admitted": bool(write_ops & admitted_set),
-        "turn_write_tool_visible": any(tool in {"write_file", "edit_file"} for tool in visible_tools),
+        "profile_write_capable": bool(WRITE_OPERATIONS & set(profile_allowed)) and not bool(WRITE_OPERATIONS & set(profile_blocked)),
+        "turn_write_operation_admitted": bool(WRITE_OPERATIONS & admitted_set),
+        "turn_write_tool_visible": any(tool in WRITE_TOOL_NAMES for tool in visible_tools),
         "commit_scope_diagnostics": {
             "resource_policy_filesystem_write_allowed": bool(
                 dict(resource_policy.diagnostics or {}).get("filesystem_write_allowed")

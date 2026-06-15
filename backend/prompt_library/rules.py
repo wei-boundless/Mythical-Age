@@ -61,7 +61,7 @@ RUNTIME_CONTEXT_MEMORY_RULE = """
 旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；只用于决定下一步检查什么。
 如果上下文被压缩或替换，应依赖系统提供的 refs、summary 和当前运行投影，不要补写自己没有证据的细节。
 如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
-基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 read_persisted_tool_result；高层状态判断可先用预览。
+基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 read_persisted_tool_result；它不用于恢复 read_file 代码证据。高层状态判断可先用预览。
 代码类结果中，content_range 说明 read_file 行窗口；codebase_search、search_text、summary、code_structure 和搜索片段都只能定位，不能替代当前 exact read evidence。
 修改代码、定位行级错误或逐行判断前，只能复用已覆盖、未过期且 exact 可见或由 read observation artifact 注入的当前 read_file 窗口。窗口缺失、过期、文件已变更、目标行未覆盖、只有 omitted preview 或没有 exact artifact 时，调用 read_file 读取当前目标窗口。
 写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
@@ -154,7 +154,7 @@ CODING_LARGE_SCOPE_EXPLORATION_RULE = """
 
 CODING_EDITING_RULE = """
 编辑优先最小必要修改，保持既有架构、命名、错误处理、类型、状态流和测试方式。
-修改前必须具备目标区域当前有效读窗证据。edit_file 的 old_text 必须来自已覆盖且未过期的当前读取窗口，并且足够唯一。
+修改前必须具备目标区域当前有效读窗证据。edit_file 的 old_text 必须来自已覆盖且未过期的当前读取窗口，并且足够唯一。同一文件中多处已经基于同一份当前读证据规划清楚的精确修改，应优先使用 batch_edit_file 一次提交，不要拆成多次 edit_file。
 编辑失败先重新确认路径或局部文本；不要原样重复失败动作。
 只有合同要求、结构必要或目标架构需要时，才新建文件、完整重写或新增抽象；重构时优先删除无权威旧链路，不在旧壳上堆新壳。
 编辑后优先按风险运行验证；只有验收需要当前精确文本、行号、diff 或失败位置时，才重读相关最小窗口。

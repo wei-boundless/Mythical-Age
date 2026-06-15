@@ -450,16 +450,18 @@ function appendBodyBlock(
   state: PublicProjectionBodyBlock["state"],
 ) {
   const frameId = bodyFrameId(frame);
+  const semanticId = bodySemanticFrameId(frame);
+  const sourceFrameIds = [frameId, semanticId].filter(Boolean);
   const offset = frameOffset(frame);
   const previous = ledger.body.blocks[ledger.body.blocks.length - 1];
-  if (previous?.sourceFrameIds.includes(frameId)) {
+  if (previous && sourceFrameIds.some((id) => previous.sourceFrameIds.includes(id))) {
     return;
   }
   if (ledger.displayCursor?.kind === "body" && previous) {
     previous.text += textValue;
     previous.lastOffset = offset;
     previous.state = state;
-    previous.sourceFrameIds = [...previous.sourceFrameIds, frameId];
+    previous.sourceFrameIds = uniqueStrings([...previous.sourceFrameIds, ...sourceFrameIds]);
   } else {
     ledger.body.blocks.push({
       kind: "body",
@@ -468,7 +470,7 @@ function appendBodyBlock(
       firstOffset: offset,
       lastOffset: offset,
       state,
-      sourceFrameIds: [frameId],
+      sourceFrameIds,
     });
   }
   ledger.displayCursor = { kind: "body" };
@@ -489,10 +491,32 @@ function bodyFrameId(frame: PublicProjectionFrame) {
   return text(frame.frame_id || frame.projection_id || frame.source_event_id) || stableBodyBlockId(frame, frameOffset(frame));
 }
 
+function bodySemanticFrameId(frame: PublicProjectionFrame) {
+  if (!isModelFeedbackBodyFrame(frame)) return "";
+  return text(frame.item_id) || text(frame.source_item_id);
+}
+
+function isModelFeedbackBodyFrame(frame: PublicProjectionFrame) {
+  const sourceEventType = text(frame.source_event_type);
+  const itemId = text(frame.item_id);
+  const sourceAuthority = text(frame.source_authority);
+  const slot = text(frame.slot);
+  return (
+    sourceAuthority === "model"
+    && slot === "body"
+    && (
+      sourceEventType === "runtime_step_summary"
+      || itemId.startsWith("model-action-feedback-body:")
+    )
+  );
+}
+
 function ledgerHasBodyFrame(ledger: ProjectionLedger, frame: PublicProjectionFrame) {
-  const frameId = bodyFrameId(frame);
-  if (!frameId) return false;
-  return (ledger.body.blocks ?? []).some((block) => (block.sourceFrameIds ?? []).includes(frameId));
+  const ids = [bodyFrameId(frame), bodySemanticFrameId(frame)].filter(Boolean);
+  if (!ids.length) return false;
+  return (ledger.body.blocks ?? []).some((block) =>
+    ids.some((id) => (block.sourceFrameIds ?? []).includes(id))
+  );
 }
 
 function stableBodyBlockId(frame: PublicProjectionFrame, offset: number) {
@@ -791,4 +815,8 @@ function frameOffset(frame: PublicProjectionFrame) {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map(text).filter(Boolean)));
 }

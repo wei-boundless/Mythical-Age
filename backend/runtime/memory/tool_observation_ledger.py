@@ -348,7 +348,7 @@ def _drop_empty_dict(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _side_effect_kind(tool_name: str) -> str:
-    if tool_name in {"write_file", "edit_file"}:
+    if tool_name in {"write_file", "edit_file", "batch_edit_file"}:
         return "write"
     if tool_name in {"terminal", "browser_control"}:
         return "verification"
@@ -373,7 +373,7 @@ def _satisfies_for_tool(
         if has_structured_envelope and status == "ok" and (observed_paths or tool_name in {"search_text", "search_files", "glob_paths"}):
             return ("read_material",)
         return ()
-    if tool_name in {"write_file", "edit_file"}:
+    if tool_name in {"write_file", "edit_file", "batch_edit_file"}:
         if has_structured_envelope and (artifact_refs or observed_paths) and status == "ok":
             return ("write_output",)
         return ()

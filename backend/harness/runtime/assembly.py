@@ -1063,7 +1063,7 @@ def _contract_input_schema(definition: Any | None) -> dict[str, Any]:
 
 def _contract_field_schema(field_name: str) -> dict[str, Any]:
     name = str(field_name or "").strip()
-    if name in {"start_line", "line_count", "max_results", "max_entries", "max_symbols", "max_bytes", "start_byte"}:
+    if name in {"start_line", "line_count", "max_results", "max_entries", "max_symbols", "max_bytes", "start_byte", "base_mtime_ns"}:
         return {"type": "integer"}
     if name in {"allow_overwrite", "dry_run"}:
         return {"type": "boolean"}
@@ -1078,6 +1078,19 @@ def _contract_field_schema(field_name: str) -> dict[str, Any]:
                 "inspect_dependency",
                 "recover_failure",
             ],
+        }
+    if name == "edits":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                },
+                "required": ["old_text", "new_text"],
+                "additionalProperties": False,
+            },
         }
     if name in {"roots", "paths", "items", "context_refs", "expected_outputs"}:
         return {"type": "array"}

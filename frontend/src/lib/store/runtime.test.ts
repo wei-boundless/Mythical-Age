@@ -2722,7 +2722,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphLiveMonitor?.task_run_id).toBe("taskrun:background");
   });
 
-  it("sends later main-chat input with the active task turn gate after task handoff", async () => {
+  it("sends later main-chat input with the active task turn gate as steer after task handoff", async () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("done", {
         content: "任务已进入后台执行。",
@@ -2745,7 +2745,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(2);
     expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session:background:1",
-      active_turn_input_policy: "auto",
+      active_turn_input_policy: "steer",
     });
     expect(store.getState().sessionActivity.event).not.toBe("done");
     expect(store.getState().sessionActivity.receipt?.debug?.event).not.toBe("done");
@@ -2853,7 +2853,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("keeps the active task turn gate after a runtime control turn completes", async () => {
+  it("keeps the active task turn gate and sends follow-up as steer after a runtime control turn completes", async () => {
     let callIndex = 0;
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       callIndex += 1;
@@ -2893,7 +2893,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(3);
     expect(api.streamChat.mock.calls[2]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session:background:1",
-      active_turn_input_policy: "auto",
+      active_turn_input_policy: "steer",
     });
   });
 
@@ -2955,14 +2955,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledWith(
       expect.objectContaining({
         expected_active_turn_id: "turn:session-monitor-recover:1",
-        active_turn_input_policy: "auto",
+        active_turn_input_policy: "steer",
       }),
       expect.anything(),
       expect.anything(),
     );
   });
 
-  it("sends running active task input as an auto active-work request with visible status feedback", async () => {
+  it("sends running active task input as a steer request with visible status feedback", async () => {
     const taskRunId = "taskrun:turn:session-queue-only:1:abc";
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
@@ -3023,7 +3023,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledWith(
       expect.objectContaining({
         expected_active_turn_id: "turn:session-queue-only:1",
-        active_turn_input_policy: "auto",
+        active_turn_input_policy: "steer",
       }),
       expect.anything(),
       expect.anything(),
@@ -3048,7 +3048,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("queues later input while an auto active-work turn stream is deciding", async () => {
+  it("queues later input while an active-task steer turn stream is deciding", async () => {
     const taskRunId = "taskrun:turn:session-auto-active-stream:1:abc";
     let finishFirstStream: (() => void) | null = null;
     api.streamChat
@@ -3152,11 +3152,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
       message: "补充二",
       expected_active_turn_id: "turn:session-auto-active-stream:1",
-      active_turn_input_policy: "auto",
+      active_turn_input_policy: "steer",
     });
   });
 
-  it("queues user input locally while the current stream is active and flushes it after handoff", async () => {
+  it("queues user input locally while the current stream is active and flushes it as steer after handoff", async () => {
     const taskRunId = "taskrun:turn:session-stream-queue:1:abc";
     let finishFirstStream: (() => void) | null = null;
     api.streamChat
@@ -3241,7 +3241,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(2);
     expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
       expected_active_turn_id: "turn:session-stream-queue:1",
-      active_turn_input_policy: "auto",
+      active_turn_input_policy: "steer",
     });
     expect(store.getState().messages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(store.getState().messages.at(-1)).toMatchObject({

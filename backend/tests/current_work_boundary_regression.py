@@ -117,6 +117,24 @@ def test_active_turn_bound_current_work_issues_control_permit_without_boundary_m
     assert current_work_boundary_receipt_allows_active_work_control(receipt) is True
 
 
+def test_running_active_work_requires_steer_policy_for_control() -> None:
+    boundary_input = build_current_work_boundary_input(
+        turn_input_facts=_facts(policy="auto", expected_turn_id="turn:active"),
+        active_turn_input_policy="auto",
+        expected_active_turn_id="turn:active",
+        active_work_context=_active_work(),
+        active_turn_check=_accepted_check(),
+    )
+
+    decision = decide_current_work_boundary(boundary_input)
+    receipt = current_work_boundary_receipt_from_decision(decision)
+
+    assert decision.action == "new_independent_turn_allowed"
+    assert decision.reason == "active_work_control_requires_steer_policy"
+    assert receipt.operation_availability["active_work_control"] is False
+    assert "active_work_control" not in receipt.available_action_types_for_next_packet
+
+
 def test_terminal_active_work_is_read_only_for_ordinary_input() -> None:
     active_work = {**_active_work(), "status": "completed"}
     boundary_input = build_current_work_boundary_input(

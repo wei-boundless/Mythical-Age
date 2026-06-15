@@ -14,9 +14,6 @@ class FileReadRange:
     content_sha256: str = ""
     mtime_ns: int | None = None
     read_intent: str = ""
-    file_unchanged: bool = False
-    content_omitted: bool = False
-    previous_observation_ref: str = ""
     reusable_result_ref: str = ""
     exact_artifact_ref: str = ""
     artifact_ref_status: str = ""
@@ -218,6 +215,7 @@ def _apply_file_event(
         start = _int_or_none(event.get("start_line"))
         end = _int_or_none(event.get("end_line"))
         total_lines = _int_or_none(event.get("total_lines"))
+        event_mtime_ns = _int_or_none(event.get("mtime_ns"))
         ranges = list(current.read_ranges)
         if start is not None and end is not None and (end >= start or (total_lines == 0 and start == 1 and end == 0)):
             candidate = FileReadRange(
@@ -225,11 +223,8 @@ def _apply_file_event(
                 end_line=end,
                 observation_ref=observation_ref,
                 content_sha256=str(event.get("content_sha256") or ""),
-                mtime_ns=_int_or_none(event.get("mtime_ns")),
+                mtime_ns=event_mtime_ns,
                 read_intent=str(event.get("read_intent") or ""),
-                file_unchanged=bool(event.get("file_unchanged") is True),
-                content_omitted=bool(event.get("content_omitted") is True),
-                previous_observation_ref=str(event.get("previous_observation_ref") or ""),
                 reusable_result_ref=str(event.get("reusable_result_ref") or ""),
                 exact_artifact_ref=str(event.get("exact_artifact_ref") or ""),
                 artifact_ref_status=str(event.get("artifact_ref_status") or ""),
@@ -260,7 +255,7 @@ def _apply_file_event(
             read_ranges=ordered_ranges,
             total_lines=total_lines,
             content_sha256=str(event.get("content_sha256") or current.content_sha256 or ""),
-            mtime_ns=_int_or_none(event.get("mtime_ns")) if _int_or_none(event.get("mtime_ns")) is not None else current.mtime_ns,
+            mtime_ns=event_mtime_ns,
             has_more=has_more,
             last_observation_ref=observation_ref,
             last_tool_call_id=tool_call_id,
@@ -363,9 +358,6 @@ def _file_read_range_from_dict(payload: Any) -> FileReadRange | None:
         content_sha256=str(payload.get("content_sha256") or ""),
         mtime_ns=_int_or_none(payload.get("mtime_ns")),
         read_intent=str(payload.get("read_intent") or ""),
-        file_unchanged=bool(payload.get("file_unchanged") is True),
-        content_omitted=bool(payload.get("content_omitted") is True),
-        previous_observation_ref=str(payload.get("previous_observation_ref") or ""),
         reusable_result_ref=str(payload.get("reusable_result_ref") or ""),
         exact_artifact_ref=str(payload.get("exact_artifact_ref") or ""),
         artifact_ref_status=str(payload.get("artifact_ref_status") or ""),
@@ -505,7 +497,6 @@ def _active_exact_read_ranges(ranges: tuple[FileReadRange, ...]) -> list[FileRea
                 or (item.start_line == 1 and item.end_line == 0)
             )
             and (item.visible_exact or (item.exact_artifact_ref and item.artifact_ref_status == "exact"))
-            and not (item.content_omitted and not item.exact_artifact_ref)
         ],
         key=lambda item: (item.start_line, item.end_line),
     )

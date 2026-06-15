@@ -443,7 +443,7 @@ def _task_public_projection_inputs(event: dict[str, Any], *, task_run: Any) -> l
     payload = _dict_record(event.get("payload"))
     base = _task_public_base_data(event, task_run=task_run)
     if event_type == "step_summary_recorded":
-        return [("runtime_step_summary", {**payload, **base})]
+        return [("runtime_step_summary", {**_step_summary_projection_payload(event, payload), **base})]
     if event_type == "model_action_request_received":
         return [
             (TOOL_CALL_REQUESTED_EVENT, {**base, **request})
@@ -462,6 +462,22 @@ def _task_public_projection_inputs(event: dict[str, Any], *, task_run: Any) -> l
     if event_type in {SESSION_OUTPUT_COMMIT_ACK_EVENT, SESSION_OUTPUT_COMMIT_FAILED_EVENT, SESSION_OUTPUT_COMMIT_SKIPPED_EVENT}:
         return [(event_type, {**payload, **base})]
     return []
+
+
+def _step_summary_projection_payload(event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload or {})
+    if str(result.get("feedback_identity") or "").strip():
+        return result
+    presentation_source = str(result.get("presentation_source") or "").strip()
+    if not presentation_source.startswith("model_action."):
+        return result
+    refs = _dict_record(event.get("refs"))
+    for key in ("action_request_ref", "batch_action_request_ref", "runtime_invocation_packet_ref"):
+        value = str(refs.get(key) or "").strip()
+        if value:
+            result["feedback_identity"] = value
+            return result
+    return result
 
 
 def _task_public_base_data(event: dict[str, Any], *, task_run: Any) -> dict[str, Any]:

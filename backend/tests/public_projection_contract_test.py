@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from api.chat import _is_task_executor_handoff_terminal, _project_public_stream_event
+from api.chat import (
+    _agent_todo_observation_summary,
+    _append_chat_public_event,
+    _is_task_executor_handoff_terminal,
+    _project_public_stream_event,
+)
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
@@ -14,6 +19,7 @@ from runtime.output_stream.public_contract import (
     TOOL_PERMISSION_DECIDED_EVENT,
     TURN_COMPLETED_EVENT,
 )
+from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.tool_runtime import ToolObservation
 
 
@@ -38,6 +44,38 @@ def _frame(event_type: str, data: dict, *, sequence: int = 1) -> dict:
     assert isinstance(frame["lossless"], bool)
     assert frame["anchor"]["stream_run_id"] == "strun:test"
     return frame
+
+
+class _RegistrySpy:
+    def __init__(self) -> None:
+        self.mark_event_calls: list[dict] = []
+
+    def mark_event(self, run: RuntimeRun, **kwargs) -> RuntimeRun:
+        self.mark_event_calls.append(dict(kwargs))
+        return RuntimeRun(
+            stream_run_id=run.stream_run_id,
+            session_id=run.session_id,
+            event_log_id=run.event_log_id,
+            root_request_ref=run.root_request_ref,
+            status=kwargs.get("status") or run.status,
+            created_at=run.created_at,
+            updated_at=run.updated_at + 1,
+            latest_event_offset=kwargs.get("latest_event_offset", run.latest_event_offset),
+            diagnostics=run.diagnostics,
+        )
+
+
+class _ReplaySpy:
+    def __init__(self) -> None:
+        self.append_public_event_calls: list[dict] = []
+
+    def append_public_event(self, run: RuntimeRun, *, public_event_type: str, data: dict):
+        self.append_public_event_calls.append({"public_event_type": public_event_type, "data": dict(data)})
+
+        class _Logged:
+            offset = run.latest_event_offset + 1
+
+        return _Logged()
 
 
 def test_public_projection_frame_exposes_dual_channel_contract() -> None:
@@ -360,6 +398,120 @@ def test_task_model_wait_heartbeat_projects_as_transient_status_placeholder() ->
     assert frame["retention"] == "transient"
     assert frame["status_kind"] == "model_wait_placeholder"
     assert frame["slot"] != "body"
+
+
+def test_lifecycle_coalesces_repeated_model_wait_heartbeat_status() -> None:
+    lifecycle = ProjectionLifecycleState()
+    first = {
+        "task_run_id": "taskrun:wait",
+        "turn_id": "turn:test",
+        "turn_run_id": "turnrun:test",
+        "item_id": "model-wait:taskrun:wait",
+        "status": "running",
+        "presentation_source": "runtime.model_wait",
+        "status_kind": "model_wait_placeholder",
+        "source_task_event_type": "task_model_action_wait_heartbeat",
+        "runtime_event_id": "event:model-wait:1",
+    }
+    second = {
+        **first,
+        "runtime_event_id": "event:model-wait:2",
+        "source_task_event_id": "event:model-wait:2",
+        "source_task_event_offset": 22,
+        "wait_round": 2,
+    }
+
+    assert lifecycle.should_emit_public_event("runtime_status", first) is True
+    assert lifecycle.should_emit_public_event("runtime_status", second) is False
+
+
+def test_lifecycle_emits_model_wait_status_when_visible_state_changes() -> None:
+    lifecycle = ProjectionLifecycleState()
+    running = {
+        "task_run_id": "taskrun:wait",
+        "turn_id": "turn:test",
+        "turn_run_id": "turnrun:test",
+        "item_id": "model-wait:taskrun:wait",
+        "status": "running",
+        "presentation_source": "runtime.model_wait",
+        "status_kind": "model_wait_placeholder",
+    }
+    waiting = {
+        **running,
+        "status": "waiting",
+        "runtime_event_id": "event:model-wait:state-change",
+    }
+
+    assert lifecycle.should_emit_public_event("runtime_status", running) is True
+    assert lifecycle.should_emit_public_event("runtime_status", waiting) is True
+
+
+def test_lifecycle_does_not_coalesce_non_wait_runtime_status() -> None:
+    lifecycle = ProjectionLifecycleState()
+    status = {
+        "task_run_id": "taskrun:stage",
+        "status": "running",
+        "title": "正在读取项目结构",
+        "status_kind": "user_visible_runtime_status",
+        "runtime_event_id": "event:status:1",
+    }
+
+    assert lifecycle.should_emit_public_event("runtime_status", status) is True
+    assert lifecycle.should_emit_public_event("runtime_status", {**status, "runtime_event_id": "event:status:2"}) is True
+
+
+def test_chat_bridge_suppresses_duplicate_model_wait_before_append_and_mark_event() -> None:
+    registry = _RegistrySpy()
+    replay = _ReplaySpy()
+    lifecycle = ProjectionLifecycleState()
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    wait_status = {
+        "task_run_id": "taskrun:wait",
+        "turn_id": "turn:test",
+        "turn_run_id": "turnrun:test",
+        "item_id": "model-wait:taskrun:wait",
+        "status": "running",
+        "presentation_source": "runtime.model_wait",
+        "status_kind": "model_wait_placeholder",
+        "source_task_event_type": "task_model_action_wait_heartbeat",
+    }
+
+    current = _append_chat_public_event(
+        registry=registry,
+        replay=replay,
+        current=run,
+        public_event_type="runtime_status",
+        data={**wait_status, "runtime_event_id": "event:model-wait:1"},
+        session_id="session:test",
+        projection_lifecycle=lifecycle,
+        runtime_task_run_id="taskrun:wait",
+        runtime_turn_run_id="turnrun:test",
+        runtime_active_turn_id="turn:test",
+    )
+    suppressed = _append_chat_public_event(
+        registry=registry,
+        replay=replay,
+        current=current,
+        public_event_type="runtime_status",
+        data={**wait_status, "runtime_event_id": "event:model-wait:2", "wait_round": 2},
+        session_id="session:test",
+        projection_lifecycle=lifecycle,
+        runtime_task_run_id="taskrun:wait",
+        runtime_turn_run_id="turnrun:test",
+        runtime_active_turn_id="turn:test",
+    )
+
+    assert suppressed is current
+    assert len(replay.append_public_event_calls) == 1
+    assert len(registry.mark_event_calls) == 1
 
 
 def test_protocol_repair_status_stays_trace_only_without_public_surface() -> None:
@@ -692,6 +844,22 @@ def test_task_tool_observation_wrapper_projects_inner_tool_completion_identity()
     assert completed["tool_lifecycle_id"] == "toolinv:read:1"
     assert completed["permission_decision_id"] == "admission:request:read"
     assert completed["tool_name"] == "read_file"
+
+
+def test_agent_todo_summary_ignores_envelope_metadata_before_text_payload() -> None:
+    summary = _agent_todo_observation_summary(
+        {"tool_name": "agent_todo"},
+        result_envelope={
+            "tool_name": "agent_todo",
+            "structured_payload": {"truncated": False, "sandbox": {}},
+            "text": (
+                '{"status":"ok","plan_id":"agent-todo:test","active_item_id":"todo:1",'
+                '"items":[{"todo_id":"todo:1","content":"修复 fps_game.html","status":"in_progress"}]}'
+            ),
+        },
+    )
+
+    assert summary == "任务清单：0/1 已完成，正在：修复 fps_game.html。"
 
 
 def test_tool_completion_uses_request_ref_for_permission_identity() -> None:

@@ -87,6 +87,7 @@ _DIRECT_PROMPT_REFS = (
     "worker.prompt.review",
     "tool.guidance.read_file",
     "tool.guidance.edit_file",
+    "tool.guidance.batch_edit_file",
     "tool.guidance.write_file",
     "tool.guidance.terminal_powershell",
     "tool.guidance.git_read",

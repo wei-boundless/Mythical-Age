@@ -402,13 +402,10 @@ def _replay_content_range(value: dict[str, Any]) -> dict[str, Any]:
             "next_start_line": value.get("next_start_line"),
             "has_more": value.get("has_more") if isinstance(value.get("has_more"), bool) else None,
             "content_sha256": str(value.get("content_sha256") or ""),
-            "file_unchanged": value.get("file_unchanged") if isinstance(value.get("file_unchanged"), bool) else None,
-            "content_omitted": value.get("content_omitted") if isinstance(value.get("content_omitted"), bool) else None,
-            "previous_observation_ref": str(value.get("previous_observation_ref") or ""),
             "reusable_result_ref": str(value.get("reusable_result_ref") or ""),
             "exact_artifact_ref": str(value.get("exact_artifact_ref") or ""),
             "artifact_ref_status": str(value.get("artifact_ref_status") or ""),
-            "visible_exact": value.get("visible_exact") if isinstance(value.get("visible_exact"), bool) else None,
+            "returned_exact": value.get("visible_exact") if isinstance(value.get("visible_exact"), bool) else None,
         }
     )
 
@@ -584,11 +581,7 @@ def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
                         "observation_ref": str(segment.get("observation_ref") or ""),
                         "reusable_result_ref": str(segment.get("reusable_result_ref") or ""),
                         "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
-                        "visible_exact": segment.get("visible_exact") if isinstance(segment.get("visible_exact"), bool) else None,
-                        "content_omitted": segment.get("content_omitted") if isinstance(segment.get("content_omitted"), bool) else None,
-                        "file_unchanged": segment.get("file_unchanged")
-                        if isinstance(segment.get("file_unchanged"), bool)
-                        else None,
+                        "returned_exact": segment.get("visible_exact") if isinstance(segment.get("visible_exact"), bool) else None,
                     }
                 )
                 for segment in dict_tuple(item.get("read_ranges"))[-8:]
@@ -604,14 +597,11 @@ def _task_progress_file_evidence_facts(file_evidence_decisions: dict[str, Any]) 
             drop_empty(
                 {
                     "path": str(item.get("path") or ""),
-                    "current_read_evidence": item.get("current_read_evidence")
-                    if isinstance(item.get("current_read_evidence"), bool)
-                    else None,
-                    "reuse_window_count": len(dict_tuple(item.get("reuse_current_windows"))),
-                    "inject_artifact_window_count": len(dict_tuple(item.get("inject_read_artifact_windows"))),
+                    "visible_exact_window_count": len(dict_tuple(item.get("visible_exact_windows"))),
+                    "artifact_available_window_count": len(dict_tuple(item.get("artifact_available_windows"))),
+                    "artifact_injection_required_window_count": len(dict_tuple(item.get("artifact_injection_required_windows"))),
                     "missing_window_count": len(dict_tuple(item.get("read_missing_windows"))),
                     "stale_window_count": len(dict_tuple(item.get("read_after_stale_windows"))),
-                    "do_not_repeat_read_ranges": dict_tuple(item.get("do_not_repeat_read_ranges"))[-4:],
                 }
             )
         )
@@ -788,6 +778,7 @@ def _is_material_progress_tool(tool_name: str) -> bool:
     return tool_name in {
         "write_file",
         "edit_file",
+        "batch_edit_file",
         "apply_patch",
         "terminal",
         "shell_command",
@@ -1208,19 +1199,12 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
     read_intent = str(segment.get("read_intent") or "")
     if read_intent:
         payload["read_intent"] = read_intent
-    if isinstance(segment.get("file_unchanged"), bool):
-        payload["file_unchanged"] = segment.get("file_unchanged")
-    if isinstance(segment.get("content_omitted"), bool):
-        payload["content_omitted"] = segment.get("content_omitted")
     if isinstance(segment.get("has_more"), bool):
         payload["has_more"] = segment.get("has_more")
     if segment.get("mtime_ns") not in (None, ""):
         payload["mtime_ns"] = segment.get("mtime_ns")
     if segment.get("next_start_line") not in (None, ""):
         payload["next_start_line"] = segment.get("next_start_line")
-    previous_ref = str(segment.get("previous_observation_ref") or "")
-    if previous_ref:
-        payload["previous_observation_ref"] = previous_ref
     reusable_ref = str(segment.get("reusable_result_ref") or "")
     if reusable_ref:
         payload["reusable_result_ref"] = reusable_ref
@@ -1231,7 +1215,7 @@ def _file_state_read_range_projection(segment: dict[str, Any]) -> dict[str, Any]
     if artifact_ref_status:
         payload["artifact_ref_status"] = artifact_ref_status
     if isinstance(segment.get("visible_exact"), bool):
-        payload["visible_exact"] = segment.get("visible_exact")
+        payload["returned_exact"] = segment.get("visible_exact")
     source = str(segment.get("source") or "")
     if source:
         payload["source"] = source
@@ -1253,12 +1237,12 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
         active_ranges = [segment for segment in ranges if not bool(segment.get("stale") is True) and status not in {"stale", "missing"}]
         exact_ranges = [segment for segment in active_ranges if _segment_exact_available(segment)]
         stale_ranges = [segment for segment in ranges if bool(segment.get("stale") is True) or status == "stale"]
-        reuse_windows = [_reuse_current_window_decision(path=path, segment=segment) for segment in exact_ranges if _segment_visible_exact(segment)]
-        rehydrate_windows = [
+        artifact_windows = [
             _inject_read_artifact_window_decision(path=path, segment=segment)
             for segment in exact_ranges
-            if not _segment_visible_exact(segment) and _segment_has_exact_artifact(segment)
+            if _segment_has_exact_artifact(segment)
         ]
+        injection_required_windows = [window for window in artifact_windows if window]
         missing_windows = _read_missing_window_decisions(item, active_ranges=exact_ranges)
         stale_read_windows = [_read_after_stale_window_decision(path=path, segment=segment) for segment in stale_ranges]
         projected = drop_empty(
@@ -1266,18 +1250,14 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
                 "path": path,
                 "status": str(item.get("status") or ""),
                 "content_sha256": str(item.get("content_sha256") or ""),
-                "current_read_evidence": bool(reuse_windows or rehydrate_windows),
                 "coverage": dict(item.get("coverage") or {}),
                 "exact_coverage": dict(item.get("exact_coverage") or {}),
-                "reuse_current_windows": [window for window in reuse_windows if window][-8:],
-                "inject_read_artifact_windows": [window for window in rehydrate_windows if window][-8:],
+                "visible_exact_windows": [],
+                "artifact_available_windows": [window for window in artifact_windows if window][-8:],
+                "artifact_injection_required_windows": injection_required_windows[-8:],
+                "inject_read_artifact_windows": injection_required_windows[-8:],
                 "read_missing_windows": [window for window in missing_windows if window][-4:],
                 "read_after_stale_windows": [window for window in stale_read_windows if window][-6:],
-                "do_not_repeat_read_ranges": [
-                    _do_not_repeat_read_range(path=path, segment=segment)
-                    for segment in exact_ranges
-                    if _do_not_repeat_read_range(path=path, segment=segment)
-                ][-8:],
                 "policy_ref": "file_evidence_policy_stable.read_window_admission",
                 "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
             }
@@ -1289,25 +1269,6 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
             "kind": "file_evidence_decisions",
             "authority": "runtime.memory.file_state_authority.evidence_decision_projection",
             "files": files[-10:],
-        }
-    )
-
-
-def _reuse_current_window_decision(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
-    return drop_empty(
-        {
-            "decision": "reuse_current_window",
-            "path": path,
-            "start_line": segment.get("start_line"),
-            "end_line": segment.get("end_line"),
-            "observation_ref": str(segment.get("observation_ref") or ""),
-            "reusable_result_ref": str(segment.get("reusable_result_ref") or ""),
-            "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
-            "mtime_ns": segment.get("mtime_ns"),
-            "content_omitted": segment.get("content_omitted") if isinstance(segment.get("content_omitted"), bool) else None,
-            "file_unchanged": segment.get("file_unchanged") if isinstance(segment.get("file_unchanged"), bool) else None,
-            "read_intent": str(segment.get("read_intent") or ""),
-            "decision_code": "reuse_current_exact_visible_read_window",
         }
     )
 
@@ -1327,10 +1288,6 @@ def _inject_read_artifact_window_decision(*, path: str, segment: dict[str, Any])
     )
 
 
-def _segment_visible_exact(segment: dict[str, Any]) -> bool:
-    return bool(segment.get("visible_exact") is True and not bool(segment.get("content_omitted") is True))
-
-
 def _segment_has_exact_artifact(segment: dict[str, Any]) -> bool:
     artifact_ref = str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or "").strip()
     if not artifact_ref.startswith("read_observation:"):
@@ -1342,10 +1299,6 @@ def _segment_has_exact_artifact(segment: dict[str, Any]) -> bool:
 def _segment_exact_available(segment: dict[str, Any]) -> bool:
     if bool(segment.get("stale") is True):
         return False
-    if _segment_visible_exact(segment):
-        return True
-    if bool(segment.get("content_omitted") is True):
-        return _segment_has_exact_artifact(segment)
     return _segment_has_exact_artifact(segment)
 
 
@@ -1443,24 +1396,6 @@ def _read_after_stale_window_decision(*, path: str, segment: dict[str, Any]) -> 
     )
 
 
-def _do_not_repeat_read_range(*, path: str, segment: dict[str, Any]) -> dict[str, Any]:
-    start_line = segment.get("start_line")
-    end_line = segment.get("end_line")
-    if start_line in (None, "") or end_line in (None, ""):
-        return {}
-    return drop_empty(
-        {
-            "path": path,
-            "start_line": start_line,
-            "end_line": end_line,
-            "observation_ref": str(segment.get("observation_ref") or ""),
-            "exact_artifact_ref": str(segment.get("exact_artifact_ref") or ""),
-            "mtime_ns": segment.get("mtime_ns"),
-            "reason": "covered_by_current_exact_read_window",
-        }
-    )
-
-
 def _read_resource_state_projection(
     file_state: list[dict[str, Any]],
     *,
@@ -1520,18 +1455,10 @@ def _read_resource_state_projection(
             "has_more": latest.get("has_more") if isinstance(latest.get("has_more"), bool) else None,
             "content_sha256": str(latest.get("content_sha256") or ""),
             "file_evidence_decision_ref": "file_evidence_decisions",
-            "do_not_repeat_read_ranges": _read_resource_do_not_repeat_ranges(file_evidence_decisions),
             "state_code": "current_read_resource_available",
             "authority": "harness.runtime.dynamic_context.read_resource_state",
         }
     )
-
-
-def _read_resource_do_not_repeat_ranges(file_evidence_decisions: dict[str, Any] | None) -> list[dict[str, Any]]:
-    ranges: list[dict[str, Any]] = []
-    for item in dict_tuple(dict(file_evidence_decisions or {}).get("files")):
-        ranges.extend(dict_tuple(item.get("do_not_repeat_read_ranges")))
-    return ranges[-8:]
 
 
 def _has_current_read_resource(item: dict[str, Any]) -> bool:
@@ -1668,7 +1595,7 @@ def _positive_paths(*groups: Any) -> set[str]:
             tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
             if (
                 status == "ok"
-                or tool_name in {"write_file", "edit_file", "read_file", "search_text", "stat_path"}
+                or tool_name in {"write_file", "edit_file", "batch_edit_file", "read_file", "search_text", "stat_path"}
                 or item.get("kind")
                 or item.get("artifact_ref")
             ):

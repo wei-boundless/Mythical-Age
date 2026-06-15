@@ -231,14 +231,13 @@ def _bound_file_evidence_decision(value: dict[str, Any]) -> dict[str, Any]:
         return {}
     return _drop_empty_payload(
         {
-            "current_read_evidence": value.get("current_read_evidence")
-            if isinstance(value.get("current_read_evidence"), bool)
-            else None,
-            "reuse_current_windows": _bounded_decision_windows(value.get("reuse_current_windows")),
+            "visible_exact_windows": _bounded_decision_windows(value.get("visible_exact_windows")),
+            "artifact_available_windows": _bounded_decision_windows(value.get("artifact_available_windows")),
+            "artifact_injection_required_windows": _bounded_decision_windows(value.get("artifact_injection_required_windows")),
             "inject_read_artifact_windows": _bounded_decision_windows(value.get("inject_read_artifact_windows")),
             "read_missing_windows": _bounded_decision_windows(value.get("read_missing_windows")),
             "read_after_stale_windows": _bounded_decision_windows(value.get("read_after_stale_windows")),
-            "do_not_repeat_read_ranges": _bounded_decision_windows(value.get("do_not_repeat_read_ranges")),
+            "read_required_windows": _bounded_decision_windows(value.get("read_required_windows")),
             "authority": str(value.get("authority") or ""),
         }
     )

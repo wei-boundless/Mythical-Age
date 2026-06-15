@@ -12,6 +12,7 @@ _SPECIAL_CONTRACT_TOOL_NAMES = {
     "agent_todo",
     "write_file",
     "edit_file",
+    "batch_edit_file",
     "spawn_subagent",
     "glob_paths",
     "search_files",
@@ -375,6 +376,23 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 }
             }
         )
+    elif name == "batch_edit_file":
+        summary.update(
+            {
+                "critical_fields": {
+                    "path": dict(field_paths.get("path") or {}),
+                    "edits": dict(field_paths.get("edits") or {}),
+                    "edits[].old_text": dict(field_paths.get("edits[].old_text") or {}),
+                    "edits[].new_text": dict(field_paths.get("edits[].new_text") or {}),
+                    "base_sha256": dict(field_paths.get("base_sha256") or {}),
+                    "base_mtime_ns": dict(field_paths.get("base_mtime_ns") or {}),
+                },
+                "usage_hint": (
+                    "Use for multiple precise edits to the same file planned from the same current read evidence. "
+                    "Do not split same-file independent edits into several edit_file calls."
+                ),
+            }
+        )
     elif name == "read_file":
         summary.update(
             {
@@ -388,7 +406,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "Use directly for known file paths, including file-like task_contract.working_scope.target_objects, "
                     "source_refs, workspace_refs, or bound/editor paths. Do not call search_files first for a known path."
                 ),
-                "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "file_unchanged"],
+                "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "exact_artifact_ref", "visible_exact"],
             }
         )
     elif name == "path_exists":

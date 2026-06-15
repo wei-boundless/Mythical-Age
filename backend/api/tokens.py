@@ -22,7 +22,7 @@ from task_system.session_scope import assert_optional_session_scope, request_sco
 router = APIRouter()
 _SESSION_TOKENS_CACHE_TTL_SECONDS = 10.0
 _session_tokens_cache_guard = threading.Lock()
-_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[int, int], float, dict[str, Any]]] = {}
+_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[tuple[int, int], tuple[int, int], tuple[int, int]], float, dict[str, Any]]] = {}
 _session_tokens_key_locks: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 class FileTokensRequest(BaseModel):
@@ -85,13 +85,14 @@ def _session_tokens_payload(
         str(task_environment_id or ""),
         str(project_id or ""),
     )
-    signature = runtime.session_manager.session_storage_signature(session_id)
+    ledger = prompt_accounting_ledger(runtime)
+    signature = _session_tokens_cache_signature(runtime, ledger=ledger, session_id=session_id)
     cached_payload = _cached_session_tokens_payload(cache_key, signature)
     if cached_payload is not None:
         return cached_payload
     key_lock = _session_tokens_lock_for(cache_key)
     with key_lock:
-        signature = runtime.session_manager.session_storage_signature(session_id)
+        signature = _session_tokens_cache_signature(runtime, ledger=ledger, session_id=session_id)
         cached_payload = _cached_session_tokens_payload(cache_key, signature)
         if cached_payload is not None:
             return cached_payload
@@ -109,7 +110,7 @@ def _session_tokens_payload(
 
 def _cached_session_tokens_payload(
     cache_key: tuple[str, str, str, str],
-    signature: tuple[int, int],
+    signature: tuple[tuple[int, int], tuple[int, int], tuple[int, int]],
 ) -> dict[str, Any] | None:
     now = time.monotonic()
     with _session_tokens_cache_guard:
@@ -120,6 +121,35 @@ def _cached_session_tokens_payload(
         if cached_signature == signature and now - cached_at <= _SESSION_TOKENS_CACHE_TTL_SECONDS:
             return copy.deepcopy(cached_payload)
     return None
+
+
+def _session_tokens_cache_signature(
+    runtime: Any,
+    *,
+    ledger: Any,
+    session_id: str,
+) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    session_signature = runtime.session_manager.session_storage_signature(session_id)
+    return (
+        session_signature,
+        _ledger_file_signature(ledger, "token_usage.jsonl"),
+        _ledger_file_signature(ledger, "prompt_cache.jsonl"),
+    )
+
+
+def _ledger_file_signature(ledger: Any, filename: str) -> tuple[int, int]:
+    ledger_dir = getattr(ledger, "ledger_dir", None)
+    if ledger_dir is None:
+        return (0, 0)
+    try:
+        path = ledger_dir / filename
+    except TypeError:
+        return (0, 0)
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0)
+    return int(stat.st_mtime_ns), int(stat.st_size)
 
 
 def _session_tokens_lock_for(cache_key: tuple[str, str, str, str]) -> threading.Lock:

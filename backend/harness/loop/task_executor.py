@@ -1158,24 +1158,6 @@ async def _execute_claimed_task_run(
                 steer_ids=included_steer_ids,
                 packet_ref=compilation.packet.packet_id,
             )
-        _record_task_step_summary(
-            runtime_host,
-            task_run_id=current_task.task_run_id,
-            step=f"task_execution_packet_compiled:{step_index}",
-            status="running",
-            summary="已同步最新进展。",
-            refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
-        )
-        append_work_rollout_item(
-            runtime_host,
-            task_run=current_task,
-            item_type="progress",
-            title="整理上下文",
-            status="running",
-            summary="已同步最新进展。",
-            event_offset=packet_event.offset,
-            refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
-        )
         _record_task_model_wait_heartbeat(
             runtime_host,
             task_run_id=current_task.task_run_id,
@@ -4123,7 +4105,7 @@ def _should_enforce_completion_verification_gate(task_run: Any, *, contract: dic
 
 
 def _observation_is_successful_write(observation: dict[str, Any]) -> bool:
-    return _observation_tool_name(observation) in {"write_file", "edit_file"} and _observation_status(observation) == "ok"
+    return _observation_tool_name(observation) in {"write_file", "edit_file", "batch_edit_file"} and _observation_status(observation) == "ok"
 
 
 def _completion_verifier_verdicts_from_observations(*, runtime_host: Any, observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -8092,6 +8074,7 @@ def _record_task_step_summary(
     visible_judgment = public_runtime_progress_summary(current_judgment)
     visible_next_action = public_runtime_progress_summary(next_action)
     visible_completion_status = public_runtime_progress_summary(completion_status)
+    refs_record = dict(refs or {})
     payload = {"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary}
     if str(action_type or "").strip():
         payload["action_type"] = str(action_type or "").strip()
@@ -8129,6 +8112,12 @@ def _record_task_step_summary(
         )
     if presentation_source:
         payload["presentation_source"] = presentation_source
+    feedback_identity = _step_summary_feedback_identity(
+        presentation_source=presentation_source,
+        refs=refs_record,
+    )
+    if feedback_identity:
+        payload["feedback_identity"] = feedback_identity
     visible_tool_status = public_runtime_progress_summary(tool_status)
     if visible_tool_status:
         payload["tool_status"] = visible_tool_status
@@ -8140,7 +8129,7 @@ def _record_task_step_summary(
         task_run_id,
         "step_summary_recorded",
         payload=payload,
-        refs={"task_run_ref": task_run_id, **dict(refs or {})},
+        refs={"task_run_ref": task_run_id, **refs_record},
     )
     current = runtime_host.state_index.get_task_run(task_run_id)
     if current is not None:
@@ -8169,6 +8158,16 @@ def _record_task_step_summary(
             )
         )
     return event.to_dict()
+
+
+def _step_summary_feedback_identity(*, presentation_source: str, refs: dict[str, Any]) -> str:
+    if not str(presentation_source or "").strip().startswith("model_action."):
+        return ""
+    for key in ("action_request_ref", "batch_action_request_ref", "runtime_invocation_packet_ref"):
+        value = str(refs.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _step_summary_diagnostics_update(
@@ -8419,7 +8418,7 @@ def _tool_action_match_keywords(tool_name: str) -> tuple[str, ...]:
         return ("路径", "存在", "检查", "确认", "artifact", "path")
     if normalized in {"read_file", "read_path"}:
         return ("读取", "查看", "文件", "内容", "read")
-    if normalized in {"write_file", "edit_file", "apply_patch"}:
+    if normalized in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
         return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
     if normalized in {"search_text", "search_files", "glob_paths"}:
         return ("搜索", "查找", "检索", "匹配", "search", "grep")
@@ -8501,6 +8500,7 @@ def _public_tool_action_label(tool_name: str) -> str:
         "close_subagent": "关闭子 Agent",
         "write_file": "写入文件",
         "edit_file": "编辑文件",
+        "batch_edit_file": "批量编辑文件",
         "apply_patch": "应用补丁",
         "read_file": "读取文件",
         "read_persisted_tool_result": "读取工具输出缓存",
@@ -8533,6 +8533,7 @@ def _public_tool_display_name(tool_name: str) -> str:
         "close_subagent": "子 Agent 关闭工具",
         "write_file": "文件写入工具",
         "edit_file": "文件编辑工具",
+        "batch_edit_file": "批量文件编辑工具",
         "read_file": "文件读取工具",
         "read_persisted_tool_result": "工具输出缓存读取工具",
         "terminal": "命令工具",

@@ -10,6 +10,7 @@ from memory_system.continuity import MemoryMessageAdapter
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
 from runtime.context_management.session_compaction import _protocol_pressure_message, _stored_messages_after_compact, auto_compact_session_if_needed, compact_session_history
+from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from sessions import SessionManager
 
 
@@ -164,6 +165,142 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert runtime.session_manager.load_session(session_id) == before
 
 
+def test_session_tokens_current_context_uses_latest_model_request_accounting(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ledger)
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:assembled:local_prediction",
+            request_id="modelreq:assembled",
+            session_id=session_id,
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=72_000,
+            total_tokens=72_000,
+            created_at=1.0,
+            diagnostics={
+                "cache_metric_scope": "agent_runtime",
+                "packet_ref": "rtpacket:assembled",
+                "prompt_manifest": {
+                    "context_window": {
+                        "active_history_fingerprint": "sha256:old-history",
+                    }
+                },
+            },
+        )
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    meter = response["context_meter"]
+    diagnostics = meter["diagnostics"]
+    assert meter["authority"] == "runtime.prompt_accounting.context_usage_snapshot"
+    assert meter["estimate_mode"] == "local_predicted_anchor_invalid"
+    assert meter["current_context_tokens"] > 72_000
+    assert meter["estimated_pending_tokens"] > 0
+    assert diagnostics["current_context_authority"] == "runtime.prompt_accounting.model_request_accounting"
+    assert diagnostics["session_pressure_used_as_current_context"] is False
+    assert diagnostics["session_pressure"]["public_history_tokens"] > 0
+    assert meter["compaction_pressure_tokens"] == meter["current_context_tokens"]
+
+
+def test_session_tokens_adds_pending_messages_after_local_prediction(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ledger)
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:pending:local_prediction",
+            request_id="modelreq:pending",
+            session_id=session_id,
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=40_000,
+            total_tokens=40_000,
+            created_at=10.0,
+            diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:pending"},
+        )
+    )
+    runtime.session_manager.append_messages(
+        session_id,
+        [{"role": "assistant", "content": "新提交的模型输出应被计入下一轮上下文。", "created_at": 11.0}],
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    response = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    meter = response["context_meter"]
+    assert meter["current_context_tokens"] > 40_000
+    assert meter["estimated_pending_tokens"] > 0
+    assert meter["diagnostics"]["observed_context_source"] == "local_prediction"
+
+
+def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_path: Path, monkeypatch) -> None:
+    runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.harness_runtime = SimpleNamespace(
+        single_agent_runtime_host=SimpleNamespace(prompt_accounting_ledger=ledger)
+    )
+    monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
+
+    first = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:cache-invalidates:local_prediction",
+            request_id="modelreq:cache-invalidates",
+            session_id=session_id,
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            source="local_prediction",
+            prompt_tokens=88_000,
+            total_tokens=88_000,
+            created_at=1.0,
+            diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:cache-invalidates"},
+        )
+    )
+
+    second = asyncio.run(
+        tokens_api.session_tokens(
+            session_id,
+            workspace_view=None,
+            task_environment_id=None,
+            project_id=None,
+        )
+    )
+
+    assert first["context_meter"]["current_context_tokens"] != 88_000
+    assert second["context_meter"]["current_context_tokens"] > 88_000
+
+
 def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
@@ -249,6 +386,7 @@ def test_auto_compact_if_needed_does_not_use_history_fallback_when_session_press
     assert response["pressure_level"] == "normal"
     assert response["history_pressure_level"] in {"microcompact", "full_compact"}
     assert response["context_meter"]["estimate_mode"] == "session_pressure"
+    assert response["context_meter"]["diagnostics"]["session_pressure_used_as_current_context"] is True
     assert response["context_meter"]["auto_replacement_allowed"] is False
     assert len(record["messages"]) == original_count
 

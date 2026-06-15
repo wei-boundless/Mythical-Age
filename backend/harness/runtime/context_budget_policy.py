@@ -9,6 +9,8 @@ from runtime.model_gateway.providers import provider_capabilities_for
 
 
 CHARS_PER_TOKEN_ESTIMATE = 4
+DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS = 120_000
+DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS = 60_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,10 +77,13 @@ def build_model_aware_context_budget_policy(
         invocation_kind=str(invocation_kind or ""),
         available_context_tokens=available_context_tokens,
     )
-    projection_limits = _projection_limits(
-        allocation_tokens=allocation_tokens,
-        long_term_token_cap=int(preset.long_term_token_cap),
-    )
+    projection_limits = {
+        **_projection_limits(
+            allocation_tokens=allocation_tokens,
+            long_term_token_cap=int(preset.long_term_token_cap),
+        ),
+        **_read_evidence_projection_limits(selection),
+    }
     volatile_char_budget = _volatile_char_budget(allocation_tokens)
     diagnostics = {
         "requested_context_window_tokens": int(get_context_budget_preset(requested_preset_id).context_window_tokens),
@@ -228,6 +233,20 @@ def _projection_limits(*, allocation_tokens: dict[str, int], long_term_token_cap
         "recent_work_step_limit": recent_work_step_limit,
         "work_step_summary_chars": _clamp_int((volatile_tokens * CHARS_PER_TOKEN_ESTIMATE) // max(8, recent_work_step_limit), low=500, high=4000),
         "work_progress_chars": _clamp_int((volatile_tokens * CHARS_PER_TOKEN_ESTIMATE) // 100, low=500, high=4000),
+    }
+
+
+def _read_evidence_projection_limits(selection: dict[str, Any]) -> dict[str, int]:
+    nested = dict(selection.get("context_budget_policy") or {}) if isinstance(selection.get("context_budget_policy"), dict) else {}
+    return {
+        "read_evidence_total_exact_chars": _positive_int(
+            nested.get("read_evidence_total_exact_chars", selection.get("read_evidence_total_exact_chars")),
+            DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS,
+        ),
+        "read_evidence_per_window_chars": _positive_int(
+            nested.get("read_evidence_per_window_chars", selection.get("read_evidence_per_window_chars")),
+            DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS,
+        ),
     }
 
 

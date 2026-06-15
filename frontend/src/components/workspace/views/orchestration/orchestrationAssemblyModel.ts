@@ -161,6 +161,7 @@ export function displayAssemblyId(
     "op.read_file": "读取文件",
     "op.write_file": "写入文件",
     "op.edit_file": "编辑文件",
+    batch_edit_file: "批量编辑文件",
     "op.shell": "终端命令",
     conversation: "会话内容",
     state: "当前状态",

@@ -26,6 +26,7 @@ _PROTOCOL_MARKERS = (
     "name=\"glob_paths\"",
     "name=\"write_file\"",
     "name=\"edit_file\"",
+    "name=\"batch_edit_file\"",
     "name=\"terminal\"",
     "name=\"spawn_subagent\"",
     "name=\"send_subagent_message\"",
@@ -38,11 +39,11 @@ _PROTOCOL_MARKERS = (
 
 _TAG_RE = re.compile(
     r"<\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent|｜｜DSML)"
+    r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent|｜｜DSML)"
     r"|</\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\s*>"
+    r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\s*>"
     r"|name=\"(?:query|path|command|old_text|new_text|content|read_file|read_structured_file|search_text|search_files|glob_paths|"
-    r"write_file|edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\"",
+    r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\"",
     flags=re.IGNORECASE,
 )
 

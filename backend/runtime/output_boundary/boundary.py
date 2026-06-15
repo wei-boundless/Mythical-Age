@@ -164,6 +164,7 @@ _CANONICAL_RESULT_BLOCK_RE = re.compile(
 )
 _PSEUDO_TOOL_CALL_NAMES = (
     "agent_todo",
+    "batch_edit_file",
     "bash",
     "close_subagent",
     "cmd",

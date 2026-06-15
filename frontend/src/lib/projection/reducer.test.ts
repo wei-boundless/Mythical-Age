@@ -367,6 +367,41 @@ describe("public projection frame reducer contract", () => {
     });
   });
 
+  it("merges replayed model feedback body frames by semantic feedback identity", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "runtime_step_summary",
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      event_family: "assistant_body",
+      channel: "body",
+      main_visibility: "visible_live",
+      retention: "transient",
+      frame_id: "frame:live-feedback",
+      item_id: "model-action-feedback-body:feedback:1",
+      text: "正在核对当前文件。\n\n下一步执行修改。",
+    });
+    transition = project(transition, {
+      source_event_type: "runtime_step_summary",
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      event_family: "assistant_body",
+      channel: "body",
+      main_visibility: "visible_live",
+      retention: "transient",
+      frame_id: "frame:history-replay-feedback",
+      item_id: "model-action-feedback-body:feedback:1",
+      text: "正在核对当前文件。\n\n下一步执行修改。",
+    });
+
+    const projection = transition.state.messages.at(-1)?.publicProjection;
+    expect(projection?.bodyText).toBe("正在核对当前文件。\n\n下一步执行修改。");
+    expect(projection?.bodyBlocks).toHaveLength(1);
+    expect(projection?.bodyBlocks[0]?.sourceFrameIds).toContain("model-action-feedback-body:feedback:1");
+  });
+
   it("pins failed tool results until they are resolved", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {

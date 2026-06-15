@@ -536,7 +536,7 @@ export class WorkspaceRuntime {
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
-  private autoActiveWorkTurnStreamSessionIds = new Set<string>();
+  private activeTaskSteerStreamSessionIds = new Set<string>();
   private queuedUserInputsBySession = new Map<string, Array<{ content: string; messageId: string }>>();
   private flushingQueuedUserInputs = new Set<string>();
   private pendingProjectionCommitHydrates = new Map<string, string>();
@@ -2882,7 +2882,7 @@ export class WorkspaceRuntime {
     }
     const activeStreamState = this.store.getState();
     if (activeStreamState.activeStreamSessionIds.includes(sessionId)) {
-      if (this.autoActiveWorkTurnStreamSessionIds.has(sessionId)) {
+      if (this.activeTaskSteerStreamSessionIds.has(sessionId)) {
         if (options.queuedUserMessageId) {
           const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
           this.queuedUserInputsBySession.set(sessionId, [
@@ -2921,6 +2921,7 @@ export class WorkspaceRuntime {
       ? preflightState.activeTurnSnapshot
       : null;
     const queueActiveTurnInput = this.shouldQueueActiveTurnInput(preflightState, sessionId);
+    const activeTurnInputPolicy = this.activeTurnInputPolicyForSession(preflightState, sessionId);
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
@@ -2966,7 +2967,7 @@ export class WorkspaceRuntime {
     });
     this.addActiveStreamSession(sessionId);
     if (queueActiveTurnInput) {
-      this.autoActiveWorkTurnStreamSessionIds.add(sessionId);
+      this.activeTaskSteerStreamSessionIds.add(sessionId);
     }
     if (!queueActiveTurnInput) {
       this.deferMonitorPollingForActiveStream();
@@ -2996,7 +2997,7 @@ export class WorkspaceRuntime {
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
           expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
-          active_turn_input_policy: "auto",
+          active_turn_input_policy: activeTurnInputPolicy,
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
           image_generation: imageGeneration
             ? {
@@ -3079,7 +3080,7 @@ export class WorkspaceRuntime {
       }
     } finally {
       this.streamAbortControllers.delete(sessionId);
-      this.autoActiveWorkTurnStreamSessionIds.delete(sessionId);
+      this.activeTaskSteerStreamSessionIds.delete(sessionId);
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
         next.sessionActivitiesById = {
@@ -3298,6 +3299,10 @@ export class WorkspaceRuntime {
     return String(snapshot?.turn_id ?? "").trim();
   }
 
+  private activeTurnInputPolicyForSession(state: StoreState, sessionId: string) {
+    return this.shouldQueueActiveTurnInput(state, sessionId) ? "steer" : "auto";
+  }
+
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
     if (state.currentSessionId !== sessionId) {
       return false;
@@ -3309,9 +3314,23 @@ export class WorkspaceRuntime {
     }
     const activeTaskRunId = String(snapshot?.task_run_id ?? "").trim();
     const monitor = state.taskGraphLiveMonitor;
+    const snapshotState = String(snapshot?.state ?? "").trim();
+    const snapshotIsTaskBound = snapshotState === "running_task"
+      || snapshotState === "waiting_executor"
+      || snapshotState === "waiting_approval"
+      || snapshotState === "waiting_safe_boundary";
+    if (!snapshotIsTaskBound) {
+      return false;
+    }
+    if (!monitor || !activeTaskRunId) {
+      return true;
+    }
     if (monitor && activeTaskRunId) {
       const taskRun = this.harnessMonitorTaskRun(monitor);
       const monitorTaskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+      if (!monitorTaskRunId || monitorTaskRunId !== activeTaskRunId) {
+        return true;
+      }
       if (monitorTaskRunId === activeTaskRunId) {
         const monitorRecord = monitor as Record<string, unknown>;
         const route = monitorRecord.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)

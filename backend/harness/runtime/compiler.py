@@ -41,12 +41,17 @@ from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifa
 from agent_system.identity import normalize_agent_id_sequence
 from project_layout import ProjectLayout
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.memory.file_evidence_scope import session_file_evidence_scope
+from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, ToolResultStore
+from runtime_objects.read_observation_artifacts import ReadObservationArtifactStore
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies, render_skill_candidate_cards
 
-from .context_budget_policy import build_model_aware_context_budget_policy
+from .context_budget_policy import (
+    DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS,
+    DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS,
+    build_model_aware_context_budget_policy,
+)
 from .artifact_scope import runtime_artifact_scope_from_environment
 from .dynamic_context import DynamicContextInput, DynamicContextManager, DynamicContextProjection, dynamic_context_storage_root
 from .envelope import RuntimeEnvelope
@@ -528,6 +533,14 @@ class RuntimeCompiler:
                 "current_work_boundary_receipt": dict(current_work_boundary_receipt or {}),
             },
         )
+        read_evidence_payload = _read_evidence_injection_payload(
+            base_dir=self.base_dir,
+            runtime_assembly=assembly_payload,
+            file_state=list(session_file_state),
+            file_evidence_scope=file_evidence_scope,
+            packet_id=packet_id,
+            budget_policy=projection_policy,
+        )
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="single_agent_turn",
@@ -675,6 +688,25 @@ class RuntimeCompiler:
                     },
                 )
                 if skill_candidate_instruction.strip()
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_payload,
+                    kind="read_evidence_injection",
+                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "exact_read_observation_artifact_injection",
+                        "content_source": "harness.runtime.compiler.read_evidence_injection",
+                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if read_evidence_payload
                 else None,
                 *_session_history_message_specs(
                     session_history_payload,
@@ -1059,6 +1091,17 @@ class RuntimeCompiler:
         project_instruction_payload = _project_instruction_model_payload(project_instruction_bundle)
         tool_index_payload = tool_catalog_manifest.to_model_visible_payload(include_catalog_hash=True)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
+        projection_policy = _dynamic_context_projection_policy(
+            invocation_kind="task_execution",
+            model_selection=model_selection,
+            assembly_payload=assembly_payload,
+            overrides={
+                "agent_visible_runtime_projection": agent_visible_runtime_projection,
+                "operation_authorization": operation_authorization,
+                "prompt_policy": prompt_policy,
+                "include_task_run_context": task_run_context_enabled,
+            },
+        )
         dynamic_context = self.dynamic_context_manager.project(
             DynamicContextInput(
                 invocation_kind="task_execution",
@@ -1071,17 +1114,7 @@ class RuntimeCompiler:
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 editor_context=_editor_context_from_task_run(task_run),
-                projection_policy=_dynamic_context_projection_policy(
-                    invocation_kind="task_execution",
-                    model_selection=model_selection,
-                    assembly_payload=assembly_payload,
-                    overrides={
-                        "agent_visible_runtime_projection": agent_visible_runtime_projection,
-                        "operation_authorization": operation_authorization,
-                        "prompt_policy": prompt_policy,
-                        "include_task_run_context": task_run_context_enabled,
-                    },
-                ),
+                projection_policy=projection_policy,
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
@@ -1112,6 +1145,15 @@ class RuntimeCompiler:
         bound_task_context_payload = bound_task_context.to_stable_model_visible_payload()
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
+        task_state_payload = dict(volatile_payload.get("task_state") or {})
+        read_evidence_payload = _read_evidence_injection_payload(
+            base_dir=self.base_dir,
+            runtime_assembly=assembly_payload,
+            file_state=[dict(item) for item in list(task_state_payload.get("file_state") or []) if isinstance(item, dict)],
+            file_evidence_scope=task_run_file_evidence_scope(task_run_id, session_id=session_id),
+            packet_id=packet_id,
+            budget_policy=projection_policy,
+        )
         user_steering_payload = _user_steering_updates_payload(execution_state)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -1342,6 +1384,25 @@ class RuntimeCompiler:
                     },
                 )
                 if bound_task_runtime_context_payload
+                else None,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_payload,
+                    kind="read_evidence_injection",
+                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "exact_read_observation_artifact_injection",
+                        "content_source": "harness.runtime.compiler.read_evidence_injection",
+                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if read_evidence_payload
                 else None,
                 _runtime_payload_spec(
                     role="system",
@@ -1667,6 +1728,8 @@ class RuntimeCompiler:
             **_project_instruction_model_payload(project_instruction_bundle),
         }
         packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
+        file_evidence_scope = session_file_evidence_scope(session_id)
+        session_file_state = _file_state_snapshot_for_scope(self.base_dir, assembly_payload, file_evidence_scope)
         projection_policy = _dynamic_context_projection_policy(
             invocation_kind="tool_observation_followup",
             model_selection=model_selection,
@@ -1690,6 +1753,14 @@ class RuntimeCompiler:
                 editor_context=_editor_context_from_session_context(dict(session_context or {})),
                 projection_policy=projection_policy,
             )
+        )
+        read_evidence_payload = _read_evidence_injection_payload(
+            base_dir=self.base_dir,
+            runtime_assembly=assembly_payload,
+            file_state=list(session_file_state),
+            file_evidence_scope=file_evidence_scope,
+            packet_id=packet_id,
+            budget_policy=projection_policy,
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
         memory_context_payload = _memory_context_model_visible_payload(
@@ -1793,6 +1864,25 @@ class RuntimeCompiler:
                         "cache_impact": "volatile_suffix_only",
                     },
                 ),
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task current exact read evidence",
+                    payload=read_evidence_payload,
+                    kind="read_evidence_injection",
+                    source_ref=str(read_evidence_payload.get("packet_id") or packet_id),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "read_evidence_injection",
+                        "projection_strategy": "exact_read_observation_artifact_injection",
+                        "content_source": "harness.runtime.compiler.read_evidence_injection",
+                        "volatility_reason": "exact file read evidence is packet-visible only and must not be inferred from persisted file_state",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if read_evidence_payload
+                else None,
                 *_session_history_message_specs(
                     session_history_payload,
                     title="Observation followup session history",
@@ -3747,6 +3837,163 @@ def _file_state_snapshot_for_scope(
         return tuple(dict(item) for item in FileStateAuthorityStore(storage_root).snapshot_scope(scope, limit=limit))
     except Exception:
         return ()
+
+
+def _read_evidence_injection_payload(
+    *,
+    base_dir: Path,
+    runtime_assembly: dict[str, Any],
+    file_state: list[dict[str, Any]],
+    file_evidence_scope: dict[str, Any],
+    packet_id: str,
+    budget_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    scope = dict(file_evidence_scope or {})
+    if not scope:
+        return {}
+    storage_root = dynamic_context_storage_root(base_dir, dict(runtime_assembly or {})) or base_dir
+    try:
+        artifact_store = ReadObservationArtifactStore(storage_root)
+    except Exception:
+        return {}
+    budget_sources: list[dict[str, Any]] = []
+    for candidate in (
+        budget_policy,
+        dict(budget_policy or {}).get("context_budget_policy"),
+        dict(runtime_assembly or {}).get("read_evidence_policy"),
+        dict(runtime_assembly or {}).get("context_budget_policy"),
+    ):
+        if isinstance(candidate, dict):
+            budget_sources.append(dict(candidate))
+    budget_payload: dict[str, Any] = {}
+    for source in budget_sources:
+        budget_payload.update(source)
+    total_budget = _safe_int(budget_payload.get("read_evidence_total_exact_chars")) or DEFAULT_READ_EVIDENCE_TOTAL_EXACT_CHARS
+    per_window_budget = _safe_int(budget_payload.get("read_evidence_per_window_chars")) or DEFAULT_READ_EVIDENCE_PER_WINDOW_CHARS
+    injections: list[dict[str, Any]] = []
+    read_required: list[dict[str, Any]] = []
+    consumed_chars = 0
+    for item in list(file_state or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        ranges = [dict(segment) for segment in list(item.get("read_ranges") or []) if isinstance(segment, dict) and segment.get("stale") is not True]
+        if not ranges:
+            continue
+        for segment in ranges:
+            artifact_ref = str(segment.get("exact_artifact_ref") or segment.get("reusable_result_ref") or "").strip()
+            if not artifact_ref.startswith("read_observation:"):
+                continue
+            start_line = _safe_int(segment.get("start_line"))
+            end_line = _safe_int(segment.get("end_line"))
+            if start_line <= 0 or end_line < start_line:
+                continue
+            exact_available = str(segment.get("artifact_ref_status") or "").strip() in {"", "exact"}
+            if not exact_available:
+                continue
+            try:
+                payload = artifact_store.read_payload(artifact_ref)
+            except Exception as exc:
+                read_required.append(
+                    _drop_empty_payload(
+                        {
+                            "path": path,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "artifact_ref": artifact_ref,
+                            "decision": "read_required",
+                            "reason": "artifact_missing_or_invalid",
+                            "error": str(exc),
+                        }
+                    )
+                )
+                continue
+            metadata = dict(payload.get("metadata") or {})
+            text = str(payload.get("text") or "")
+            if str(metadata.get("path") or "").replace("\\", "/").strip().strip("/") != path.replace("\\", "/").strip().strip("/"):
+                read_required.append(
+                    _drop_empty_payload(
+                        {
+                            "path": path,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "artifact_ref": artifact_ref,
+                            "decision": "read_required",
+                            "reason": "artifact_path_mismatch",
+                        }
+                    )
+                )
+                continue
+            if _safe_int(metadata.get("start_line")) != start_line or _safe_int(metadata.get("end_line")) != end_line:
+                read_required.append(
+                    _drop_empty_payload(
+                        {
+                            "path": path,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "artifact_ref": artifact_ref,
+                            "decision": "read_required",
+                            "reason": "artifact_range_mismatch",
+                        }
+                    )
+                )
+                continue
+            chars = len(text)
+            if chars > per_window_budget or consumed_chars + chars > total_budget:
+                read_required.append(
+                    _drop_empty_payload(
+                        {
+                            "path": path,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "artifact_ref": artifact_ref,
+                            "decision": "read_required",
+                            "reason": "budget_exceeded",
+                            "required_line_count": max(1, end_line - start_line + 1),
+                        }
+                    )
+                )
+                continue
+            consumed_chars += chars
+            injections.append(
+                _drop_empty_payload(
+                    {
+                        "path": path,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "artifact_ref": artifact_ref,
+                        "observation_ref": str(segment.get("observation_ref") or metadata.get("observation_ref") or ""),
+                        "content": text,
+                        "content_sha256": str(metadata.get("content_sha256") or segment.get("content_sha256") or ""),
+                        "text_sha256": str(metadata.get("text_sha256") or ""),
+                        "visible_exact_in_packet": True,
+                        "packet_id": packet_id,
+                        "authority": "harness.runtime.compiler.read_evidence_injection",
+                    }
+                )
+            )
+    if injections:
+        payload = {
+            "kind": "read_evidence_injection",
+            "authority": "harness.runtime.compiler.read_evidence_injection",
+            "packet_id": packet_id,
+            "read_evidence_injections": injections[-8:],
+            "visible_exact_in_packet": True,
+        }
+        if read_required:
+            payload["read_required_windows"] = read_required[-8:]
+        return payload
+    if read_required:
+        return {
+            "kind": "read_evidence_injection",
+            "authority": "harness.runtime.compiler.read_evidence_injection",
+            "packet_id": packet_id,
+            "visible_exact_in_packet": False,
+            "read_required_windows": read_required[-8:],
+        }
+    return {}
 
 
 def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:

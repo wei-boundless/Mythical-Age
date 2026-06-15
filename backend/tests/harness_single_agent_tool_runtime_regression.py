@@ -205,7 +205,12 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     second_dynamic_payload = json.loads(dynamic_content[dynamic_content.index(dynamic_marker) + len(dynamic_marker):])
     assert second_dynamic_payload["file_evidence_scope"] == scope
     assert second_dynamic_payload["file_evidence_decisions"]["files"][0]["path"] == "requirements.txt"
-    assert second_dynamic_payload["read_resource_state"]["do_not_repeat_read_ranges"][0]["path"] == "requirements.txt"
+    assert "do_not_repeat_read_ranges" not in second_dynamic_payload["read_resource_state"]
+    evidence_marker = "Task current exact read evidence\n"
+    evidence_content = next(str(item.get("content") or "") for item in second_turn_messages if evidence_marker in str(item.get("content") or ""))
+    evidence_payload = json.loads(evidence_content[evidence_content.index(evidence_marker) + len(evidence_marker):])
+    assert evidence_payload["read_evidence_injections"][0]["path"] == "requirements.txt"
+    assert evidence_payload["read_evidence_injections"][0]["visible_exact_in_packet"] is True
 
 def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_path: Path) -> None:
     action = json.dumps(
@@ -483,3 +488,70 @@ def test_single_agent_turn_tool_loop_hands_budget_closeout_to_agent_without_nint
     assert '"tool_calls_allowed_after_signal": false' in closeout_content
     assert "你现在是本轮收口负责人" in closeout_content
     assert not any("single_turn_tool_budget_exhausted" in str(item.get("content") or "") for item in runtime.session_manager.messages)
+
+
+def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_path: Path) -> None:
+    class FailingLoopModel(NativeToolCallSequenceModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(
+                [
+                    {
+                        "content": "我先读取不存在的文件确认状态。",
+                        "tool_calls": [
+                            {"id": "call-read-1", "name": "read_file", "args": {"path": "does-not-exist-1.txt"}},
+                        ],
+                    },
+                    {
+                        "content": "我再确认一次读取状态。",
+                        "tool_calls": [
+                            {"id": "call-read-2", "name": "read_file", "args": {"path": "does-not-exist-2.txt"}},
+                        ],
+                    },
+                ]
+            )
+            self.closeout_messages: list[dict[str, object]] = []
+            self.closeout_accounting: dict[str, object] = {}
+
+        async def invoke_messages(self, messages, **_kwargs):
+            if self.calls >= 2:
+                self.calls += 1
+                self.seen_tools.append(list(_kwargs.get("tools") or []))
+                self.seen_messages.append(list(messages or []))
+                self.seen_accounting_contexts.append(dict(_kwargs.get("accounting_context") or {}))
+                self.seen_tool_call_options.append(_kwargs.get("tool_call_options"))
+                self.closeout_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+                self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
+                return SimpleNamespace(content="这两个文件都不存在，先停止继续读文件。")
+            self.closeout_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
+            self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
+            return await super().invoke_messages(messages, **_kwargs)
+
+    model = FailingLoopModel()
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-single-turn-consecutive-failure", message="连续检查两个文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    control_signal = next(event for event in events if event.get("type") == "turn_runtime_control_signal_observed")
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert model.calls == 3
+    assert len(observations) == 2
+    assert all(item["status"] == "error" for item in observations)
+    control_payload = dict(dict(control_signal.get("event") or {}).get("payload") or {})
+    assert dict(control_payload.get("runtime_control_signal") or {}).get("signal_kind") == "consecutive_tool_failures"
+    assert done["terminal_reason"] == "single_turn_consecutive_tool_failures"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["content"] == "这两个文件都不存在，先停止继续读文件。"
+    assert model.closeout_accounting["source"] == "harness.single_agent_turn.agent_closeout"
+    assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_agent_authored_closeout"

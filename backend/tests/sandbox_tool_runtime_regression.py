@@ -445,6 +445,141 @@ def test_image_generate_tool_task_is_cancelled_by_runtime_stop(tmp_path: Path, m
     assert result["error"].startswith("Tool execution interrupted by runtime control: stop")
     assert result["execution_record"].status == "failed"
     assert "Tool execution interrupted by runtime control" in result["observation"].payload["error"]
+    assert result["observation"].payload["failure_kind"] == "runtime_control_interrupted"
+    assert result["observation"].payload["error_code"] == "runtime_control_stop"
+    assert result["observation"].payload["diagnostics"]["runtime_control"]["reason"] == "test_stop"
+
+
+def test_tool_task_cancelled_without_runtime_signal_is_not_reported_as_runtime_stop(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+
+    from capability_system.tools.tool_units.image_generation_tool import ImageGenerationTool
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _fake_arun(self, *args, **kwargs):
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return "{\"ok\": true}"
+
+    monkeypatch.setattr(ImageGenerationTool, "_arun", _fake_arun)
+
+    async def _run_and_cancel() -> dict:
+        execution_store = RuntimeExecutionStore(workspace / ".runtime-test")
+        action_request, directive = _tool_request_and_directive(
+            task_run_id="taskrun-bare-cancel",
+            tool_name="image_generate",
+            tool_args={"prompt": "slow image"},
+            operation_id="op.image_generate",
+        )
+        fingerprint = build_request_fingerprint(step_id="step:1", operation_id="op.image_generate", payload=action_request.payload)
+        record = execution_store.create_record(
+            task_run_id="taskrun-bare-cancel",
+            step_id="step:1",
+            action_request=action_request,
+            directive_ref=directive.directive_id,
+            operation_id="op.image_generate",
+            executor_type="tool",
+            replay_policy="deny_auto_replay",
+            request_fingerprint=fingerprint,
+            idempotency_token=build_idempotency_token(
+                task_run_id="taskrun-bare-cancel",
+                step_id="step:1",
+                operation_id="op.image_generate",
+                request_fingerprint=fingerprint,
+            ),
+        )
+        task = asyncio.create_task(
+            ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace)).run(
+                task_run_id="taskrun-bare-cancel",
+                action_request=action_request,
+                directive=directive,
+                execution_record=record,
+                execution_store=execution_store,
+                sandbox_policy={
+                    "enabled": True,
+                    "mode": "workspace_overlay",
+                    "sandbox_root": str(tmp_path / "sandbox" / "workspace"),
+                    "workspace_root": str(workspace),
+                },
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        task.cancel()
+        result = await asyncio.wait_for(task, timeout=2)
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+        return result
+
+    result = asyncio.run(_run_and_cancel())
+
+    assert "runtime control: stop" not in result["observation"].payload["error"]
+    assert result["observation"].payload["failure_kind"] == "tool_task_cancelled_without_runtime_control_signal"
+    assert result["observation"].payload["error_code"] == "tool_task_cancelled_without_runtime_control_signal"
+    assert result["observation"].payload["diagnostics"]["runtime_control"] == {}
+
+
+def test_terminal_nonzero_exit_returns_structured_failure_feedback(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": "exit 7"},
+        operation_id="op.shell",
+    )
+
+    payload = result["observation"].payload
+    envelope = payload["result_envelope"]
+    structured = envelope["structured_payload"]
+    receipt = payload["command_receipt"]
+
+    assert result["error"] == ""
+    assert payload["result"].startswith("命令失败:")
+    assert receipt["exit_code"] == 7
+    assert receipt["passed"] is False
+    assert receipt["failure_kind"] == "command_exit_nonzero"
+    assert structured["kind"] == "command_execution_error"
+    assert structured["failure_kind"] == "command_exit_nonzero"
+    assert structured["tool_executed"] is True
+    assert "repair_instruction" in structured
+
+
+def test_python_repl_nonzero_exit_returns_structured_failure_feedback(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="python_repl",
+        tool_args={"code": "import sys\nsys.exit(9)"},
+        operation_id="op.python_repl",
+    )
+
+    payload = result["observation"].payload
+    envelope = payload["result_envelope"]
+    structured = envelope["structured_payload"]
+    receipt = payload["command_receipt"]
+
+    assert result["error"] == ""
+    assert payload["result"].startswith("命令失败:")
+    assert receipt["exit_code"] == 9
+    assert receipt["passed"] is False
+    assert receipt["failure_kind"] == "command_exit_nonzero"
+    assert structured["kind"] == "command_execution_error"
+    assert structured["failure_kind"] == "command_exit_nonzero"
+    assert structured["tool_name"] == "python_repl"
+    assert structured["tool_executed"] is True
+    assert structured["command_receipt"]["exit_code"] == 9
+    assert "repair_instruction" in structured
 
 
 def test_image_generate_tool_allows_bounded_agent_retry_on_provider_failure(tmp_path: Path, monkeypatch) -> None:

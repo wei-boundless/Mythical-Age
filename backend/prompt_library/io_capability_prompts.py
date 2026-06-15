@@ -6,8 +6,8 @@ TOOL_READ_FILE_GUIDANCE = """
 不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
 如果本轮 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 recover_failure；不要臆造 schema 外的 intent 值。
 读取结果可能只是文件窗口。根据 start_line、end_line、next_start_line、line_count、total_lines、has_more、truncated 或 content_range 判断是否需要继续。
-不要重复读取相同行窗口；如果工具返回 file_unchanged 或系统提示重复只读调用，请使用已有 observation 作为证据，或改用搜索、更小行范围、下一个目标窗口、编辑、验证或收口。
-修改、逐行引用、错误定位和验收判断前，必须具备目标区域的当前有效读窗证据。已覆盖目标行且未过期的 read_file 窗口可以复用；只有窗口缺失、过期、文件已变化、目标行未覆盖或 hash/证据冲突时，才读取最小必要窗口。
+不要把重复读取当作默认动作；已覆盖目标行且未过期的 read_file 窗口可以复用，系统也可能把 read observation artifact 的精确内容注入当前上下文。
+修改、逐行引用、错误定位和验收判断前，必须具备目标区域的当前有效读窗证据。只有窗口缺失、过期、文件已变化、目标行未覆盖、artifact 未注入或 hash/证据冲突时，才读取最小必要窗口。
 写入、编辑、命令或外部动作可能让相关文件窗口过期。只有当下一步依赖当前精确文本、行号、diff 或失败位置时，才重新读取相关最小窗口；如果工具返回已确认写入成功，优先进入验证或下一步，不要把重读作为默认确认动作。
 """.strip()
 
@@ -17,15 +17,26 @@ TOOL_EDIT_FILE_GUIDANCE = """
 调用前必须具备目标文件当前有效读窗证据；old_text 必须来自已覆盖且未过期的读取窗口，并且在文件中足够唯一。
 old_text 和 new_text 要保持原有缩进、换行、局部结构和必要上下文；不要让替换意图依赖模型猜测。
 优先做最小必要修改，不要用 edit_file 承担整文件重写。
+如果你已经基于同一份当前读证据规划了同一文件的多处互不重叠修改，优先使用 batch_edit_file 一次提交，不要拆成多次 edit_file。
 如果编辑失败、old_text not found、路径不存在或文件已变化，先重新读取目标局部或确认路径，再修正 old_text；不要原样重复失败编辑。
 编辑成功后，只有当下一步需要当前精确文本、行号、diff 或失败定位时，才重新读取相关最小窗口；否则优先继续验证或处理下一步。
+""".strip()
+
+
+TOOL_BATCH_EDIT_FILE_GUIDANCE = """
+使用 batch_edit_file 时，你是在同一文件的同一份当前读证据上提交多处精确局部替换。
+它适合同一文件内多个已经规划清楚、互不重叠、互不依赖顺序副作用的修改；跨文件修改仍按文件分别处理。
+调用前必须具备目标文件当前有效读窗证据；每个 edits[].old_text 都必须来自已覆盖且未过期的当前读取窗口，并且在文件中唯一。
+如果工具 schema 暴露 base_sha256 或 base_mtime_ns，优先填入最近 read_file 返回的当前文件 hash/mtime，用来证明批量修改基于同一文件版本。
+不要把会相互覆盖、相互包含或依赖前一个 new_text 结果的修改塞进同一批；这类情况应重新规划为一个更大的唯一 old_text，或先读取当前内容后再提交。
+任一 old_text 不存在、不唯一、读证据过期、base hash/mtime 不匹配或编辑范围重叠时，整个批次会失败且不应写入；失败后重新读取目标窗口并修正批次。
 """.strip()
 
 
 TOOL_WRITE_FILE_GUIDANCE = """
 使用 write_file 时，你是在写入一个完整文件。
 它适合新文件、明确要求完整重写的文件，或 edit_file 无法可靠表达的整体生成。
-修改既有文件时优先使用 edit_file；除非用户或任务合同要求，不要主动创建 README、计划文档或说明文件。
+修改既有文件时优先使用 edit_file；同一文件多处精确修改优先使用 batch_edit_file；除非用户或任务合同要求，不要主动创建 README、计划文档或说明文件。
 写入前确认路径、覆盖意图、文件归属和当前任务范围，避免覆盖用户已有改动或无关产物。
 覆盖已有文件时，必须使用本轮工具 schema 暴露的覆盖字段；如果 schema 没有对应字段，不要臆造参数。
 写入内容必须完整可用，不要写半截 JSON、半截脚本、半截页面或需要模型后续补全才能运行的文件。

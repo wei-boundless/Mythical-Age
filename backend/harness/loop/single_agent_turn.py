@@ -86,6 +86,7 @@ _MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
+_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 2
 _CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
 _CONTROL_ACTION_ALIASES = {
     "task_run_request": "request_task_run",
@@ -233,6 +234,51 @@ def _tool_limit_closeout_messages(
         turn_id=turn_id,
         source="harness.loop.single_agent_turn.tool_limit_closeout",
     )
+
+
+def _consecutive_tool_failure_closeout_control_signal(
+    *,
+    turn_id: str,
+    packet_ref: str,
+    tool_iteration: int,
+    consecutive_failure_rounds: int,
+    attempted_actions: list[ModelActionRequest],
+    recent_observations: list[dict[str, Any]],
+    phase: str,
+) -> dict[str, Any]:
+    attempted_payloads = [item.to_dict() for item in list(attempted_actions or []) if item is not None]
+    instruction = (
+        "最近连续两轮工具观察均为失败、拒绝、取消、缺合同或运行错误。"
+        "你必须停止继续发起工具调用，基于已经观察到的失败事实向用户反馈。"
+        "如果可以解释清楚，选择 respond 并说明失败原因、影响和可继续方向；"
+        "如果需要用户补充或确认，选择 ask_user；"
+        "如果当前无法可靠继续，选择 block 并写清阻塞边界。"
+    )
+    return {
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_signal",
+        "signal_kind": "consecutive_tool_failures",
+        "runtime_control_state": "agent_closeout_required",
+        "turn_id": turn_id,
+        "packet_ref": packet_ref,
+        "phase": phase,
+        "used_tool_iterations": int(tool_iteration or 0),
+        "consecutive_failure_rounds": int(consecutive_failure_rounds or 0),
+        "failure_threshold": _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD,
+        "agent_closeout_required": True,
+        "allowed_agent_actions": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+        "tool_calls_allowed_after_signal": False,
+        "attempted_actions_not_executed": attempted_payloads,
+        "recent_observations": [dict(item) for item in list(recent_observations or [])],
+        "repair_instruction": instruction,
+        "structured_signal": {
+            "code": "single_turn_consecutive_tool_failures",
+            "message": instruction,
+            "origin": "single_agent_turn_tool_failure_boundary",
+            "retryable": False,
+        },
+        "authority": "harness.loop.single_agent_turn.runtime_control_signal",
+    }
 
 
 def _agent_authored_closeout_messages(
@@ -835,10 +881,16 @@ async def run_single_agent_turn(
             yield model_event
         tool_iteration = 0
         tool_observation_payloads: list[dict[str, Any]] = []
+        last_tool_observation_payloads: list[dict[str, Any]] = []
+        consecutive_failure_rounds = 0
         repaired_or_parsed_final_action: SingleAgentActionParse | None = None
         while True:
             if isinstance(response, dict) and response.get("type") == "error":
                 break
+            require_model_feedback = _tool_followup_public_response_required(
+                tool_iteration,
+                last_tool_observation_payloads,
+            )
             action_parse = _single_agent_action_request_from_response(
                 response,
                 request_id=f"model-response:{current_packet_ref}:tool:{tool_iteration + 1}",
@@ -848,7 +900,7 @@ async def run_single_agent_turn(
                 allowed_action_types=current_allowed_action_types,
                 phase="tool_loop",
                 require_json_action=current_requires_json_action,
-                public_response_required=tool_iteration == 0,
+                public_response_required=require_model_feedback,
             )
             if action_parse.error:
                 action_parse = await _repair_single_agent_action_parse(
@@ -873,7 +925,7 @@ async def run_single_agent_turn(
                     iteration=tool_iteration + 1,
                     allowed_action_types=current_allowed_action_types,
                     phase="tool_loop",
-                    public_response_required=tool_iteration == 0,
+                    public_response_required=require_model_feedback,
                 )
             if action_parse.error:
                 async for event in emit_agent_authored_closeout(
@@ -1089,6 +1141,7 @@ async def run_single_agent_turn(
 
             tool_protocol_messages: list[dict[str, Any]] = []
             assistant_tool_calls: list[dict[str, Any]] = []
+            round_observation_payloads: list[dict[str, Any]] = []
             for row in invocation_rows:
                 observation = row["observation"]
                 if not isinstance(observation, ToolObservation):
@@ -1109,6 +1162,7 @@ async def run_single_agent_turn(
                     row["observation"] = observation
                 observation_payload = observation.to_dict()
                 tool_observation_payloads.append(observation_payload)
+                round_observation_payloads.append(observation_payload)
                 yield observation.to_turn_observation_event()
                 if runtime_host is not None and turn_run is not None:
                     event = runtime_host.event_log.append(
@@ -1133,6 +1187,11 @@ async def run_single_agent_turn(
                         turn_id,
                     )
                 )
+            last_tool_observation_payloads = list(round_observation_payloads)
+            if round_observation_payloads and all(_tool_observation_requires_model_feedback(item) for item in round_observation_payloads):
+                consecutive_failure_rounds += 1
+            else:
+                consecutive_failure_rounds = 0
             if assistant_tool_calls:
                 assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
                 api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
@@ -1147,6 +1206,34 @@ async def run_single_agent_turn(
                 turn_id=turn_id,
                 source="harness.loop.single_agent_turn.tool_followup",
             )
+            if consecutive_failure_rounds >= _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD:
+                control_signal = _consecutive_tool_failure_closeout_control_signal(
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    tool_iteration=tool_iteration,
+                    consecutive_failure_rounds=consecutive_failure_rounds,
+                    attempted_actions=tool_actions,
+                    recent_observations=round_observation_payloads,
+                    phase="tool_loop",
+                )
+                if runtime_host is not None and turn_run is not None:
+                    event = _record_turn_runtime_control_signal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        packet_ref=current_packet_ref,
+                        control_signal=control_signal,
+                    )
+                    yield {"type": "turn_runtime_control_signal_observed", "event": event}
+                async for event in emit_agent_authored_closeout(
+                    reason="consecutive_tool_failures",
+                    phase="tool_failure_closeout",
+                    terminal_reason="single_turn_consecutive_tool_failures",
+                    control_signal=control_signal,
+                    completion_state="tool_failure_closeout",
+                ):
+                    yield event
+                return
             followup_segment_plan, followup_prompt_manifest, followup_packet_ref = _single_agent_turn_followup_prompt_context(
                 compilation=compilation,
                 model_messages=model_messages,
@@ -2283,7 +2370,8 @@ def _single_agent_protocol_repair_messages(
         f"你只负责把上一轮模型输出修复为{repair_target_text}。\n"
         "系统没有执行上一轮违规输出；这是一条发给你的协议修复信号，不是给用户的正文。\n"
         + (
-            "本次修复仍处在用户输入回应义务内；如果输出 tool_call、request_task_run 或 active_work_control，必须写入 public_progress_note 或 public_action_state.current_judgment，用自然语言回应用户当前输入本身。\n"
+            "本次修复仍处在公开反馈义务内；如果输出 tool_call、request_task_run 或 active_work_control，必须写入 public_progress_note 或 public_action_state.current_judgment。"
+            "首次工具调用前要回应用户当前输入；工具观察返回后，尤其是失败、拒绝、取消或缺合同观察后，要基于观察说明已确认的公开事实、影响和下一步。\n"
             if public_response_required
             else ""
         )
@@ -2662,6 +2750,7 @@ def _single_agent_action_request_from_response(
         allowed_action_types=allowed_action_types,
         public_response_required=public_response_required,
         packet_public_response_present=bool(packet_public_progress_note),
+        packet_public_progress_note=packet_public_progress_note,
     )
     native_actions = list(native_parse.actions)
     if native_parse.errors:
@@ -2778,6 +2867,7 @@ def _action_requests_from_native_tool_calls(
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
     packet_public_response_present: bool = False,
+    packet_public_progress_note: str = "",
 ) -> list[ModelActionRequest]:
     return list(
         _action_requests_from_native_tool_calls_with_diagnostics(
@@ -2788,6 +2878,7 @@ def _action_requests_from_native_tool_calls(
             allowed_action_types=allowed_action_types,
             public_response_required=public_response_required,
             packet_public_response_present=packet_public_response_present,
+            packet_public_progress_note=packet_public_progress_note,
         ).actions
     )
 
@@ -2801,6 +2892,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
     allowed_action_types: tuple[str, ...] = ("respond", "tool_call"),
     public_response_required: bool = False,
     packet_public_response_present: bool = False,
+    packet_public_progress_note: str = "",
 ) -> NativeActionRequestParse:
     actions: list[ModelActionRequest] = []
     errors: list[dict[str, Any]] = []
@@ -2842,6 +2934,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 turn_id=turn_id,
                 packet_ref=packet_ref,
                 iteration=iteration,
+                public_progress_note=packet_public_progress_note,
             )
             error = None
         if error is not None:
@@ -3125,6 +3218,7 @@ def _tool_action_request_from_native_tool_calls(
     turn_id: str,
     packet_ref: str,
     iteration: int,
+    public_progress_note: str = "",
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
@@ -3132,7 +3226,7 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
-        public_note = _native_tool_public_note(args)
+        public_note = _native_tool_public_note(args) or public_runtime_progress_summary(public_progress_note).strip()
         public_action_state = {"completion_status": "waiting_for_tool"}
         diagnostics: dict[str, Any] = {
             "origin_kind": "single_agent_turn_native_tool_call",
@@ -3172,6 +3266,50 @@ def _model_action_request_has_public_response(action_request: ModelActionRequest
     if action_request.action_type == "block":
         return bool(str(action_request.blocking_reason or "").strip())
     return False
+
+
+_TOOL_OBSERVATION_FAILURE_STATUSES = {
+    "error",
+    "failed",
+    "denied",
+    "needs_contract",
+    "aborted",
+    "canceled",
+    "cancelled",
+}
+
+
+def _tool_followup_public_response_required(
+    tool_iteration: int,
+    recent_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+) -> bool:
+    if int(tool_iteration or 0) <= 0:
+        return True
+    return any(_tool_observation_requires_model_feedback(item) for item in list(recent_observations or []))
+
+
+def _tool_observation_requires_model_feedback(observation: dict[str, Any]) -> bool:
+    payload = dict(observation or {})
+    status = _normalized_tool_status(payload.get("status"))
+    if status in _TOOL_OBSERVATION_FAILURE_STATUSES:
+        return True
+    if status == "needs_approval":
+        return False
+    envelope = dict(payload.get("result_envelope") or {})
+    envelope_status = _normalized_tool_status(envelope.get("status"))
+    if envelope_status in _TOOL_OBSERVATION_FAILURE_STATUSES:
+        return True
+    if str(envelope.get("error") or envelope.get("error_code") or "").strip():
+        return True
+    execution_receipt = dict(payload.get("execution_receipt") or envelope.get("execution_receipt") or {})
+    receipt_status = _normalized_tool_status(execution_receipt.get("status"))
+    if receipt_status in _TOOL_OBSERVATION_FAILURE_STATUSES:
+        return True
+    return False
+
+
+def _normalized_tool_status(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _native_tool_public_note(args: dict[str, Any]) -> str:

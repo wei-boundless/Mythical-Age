@@ -8,6 +8,7 @@ from typing import Any
 from .models import PromptResource
 from .rules import rule_metadata
 from .io_capability_prompts import (
+    TOOL_BATCH_EDIT_FILE_GUIDANCE,
     TOOL_EDIT_FILE_GUIDANCE,
     TOOL_READ_FILE_GUIDANCE,
     TOOL_TERMINAL_POWERSHELL_GUIDANCE,
@@ -130,6 +131,11 @@ def list_builtin_tool_prompt_resources() -> tuple[PromptResource, ...]:
             prompt_id="tool.guidance.edit_file",
             title="Edit file tool guidance",
             content=TOOL_EDIT_FILE_GUIDANCE,
+        ),
+        _tool_guidance_resource(
+            prompt_id="tool.guidance.batch_edit_file",
+            title="Batch edit file tool guidance",
+            content=TOOL_BATCH_EDIT_FILE_GUIDANCE,
         ),
         _tool_guidance_resource(
             prompt_id="tool.guidance.write_file",
@@ -350,6 +356,7 @@ _TOOL_GUIDANCE_REFS_BY_NAME: dict[str, tuple[str, ...]] = {
     "search_files": _LOCAL_SEARCH_TOOL_REFS,
     "search_text": _LOCAL_SEARCH_TOOL_REFS,
     "edit_file": ("tool.guidance.edit_file",),
+    "batch_edit_file": ("tool.guidance.batch_edit_file",),
     "write_file": ("tool.guidance.write_file",),
     "terminal": ("tool.guidance.terminal_powershell",),
     "agent_todo": ("tool.guidance.todo",),

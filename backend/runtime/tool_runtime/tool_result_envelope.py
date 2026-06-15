@@ -305,9 +305,6 @@ def infer_file_state_events(
                         "content_sha256": str(tool_result.get("content_sha256") or tool_result.get("sha256") or "").strip(),
                         "mtime_ns": _int_or_none(tool_result.get("mtime_ns")),
                         "read_intent": str(tool_result.get("read_intent") or args.get("read_intent") or "").strip(),
-                        "file_unchanged": tool_result.get("file_unchanged") if isinstance(tool_result.get("file_unchanged"), bool) else None,
-                        "content_omitted": tool_result.get("content_omitted") if isinstance(tool_result.get("content_omitted"), bool) else None,
-                        "previous_observation_ref": str(tool_result.get("previous_observation_ref") or "").strip(),
                         "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
                         "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
                         "artifact_ref_status": str(tool_result.get("artifact_ref_status") or "").strip(),
@@ -317,7 +314,7 @@ def infer_file_state_events(
                     }
                 )
             )
-    elif name in {"write_file", "edit_file"}:
+    elif name in {"write_file", "edit_file", "batch_edit_file"}:
         paths = written_paths or observed_paths or _string_tuple([tool_result.get("path") or args.get("path")])
         for path in paths:
             events.append(

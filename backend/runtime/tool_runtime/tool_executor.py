@@ -52,6 +52,7 @@ _WORKSPACE_PATH_ARG_TOOL_NAMES = {
     "path_exists",
     "write_file",
     "edit_file",
+    "batch_edit_file",
     "python_code_outline",
     "python_parse_check",
     "python_symbol_search",
@@ -244,6 +245,7 @@ class ToolRuntimeExecutor:
                 max_result_size_chars=max_result_size_chars,
                 sandbox_policy=sandbox_policy,
                 file_management_policy=file_management_policy,
+                runtime_assembly=_runtime_assembly_from_request(request),
                 tool_invocation_context=ToolInvocationContext(
                     tool_invocation_id=str(getattr(request, "invocation_id", "") or ""),
                     caller_kind=caller_kind,
@@ -279,6 +281,7 @@ class ToolRuntimeExecutor:
             operation_id=str(getattr(request, "operation_id", "") or ""),
             sandbox_policy=sandbox_policy,
             file_management_policy=file_management_policy,
+            runtime_assembly=_runtime_assembly_from_request(request),
             file_evidence_scope=normalize_file_evidence_scope(
                 getattr(request, "file_evidence_scope", {}) or {},
                 session_id=str(getattr(request, "session_id", "") or ""),
@@ -298,6 +301,7 @@ class ToolRuntimeExecutor:
         max_result_size_chars: int = 0,
         sandbox_policy: dict[str, Any] | None = None,
         file_management_policy: dict[str, Any] | None = None,
+        runtime_assembly: dict[str, Any] | None = None,
         tool_invocation_context: ToolInvocationContext | None = None,
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
@@ -481,10 +485,12 @@ class ToolRuntimeExecutor:
         )
         execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         file_policy_payload = dict(file_management_policy or {})
-        runtime_assembly_payload = (
-            {"runtime_storage_ref": {"runtime_state_root": str(execution_store.root_dir)}}
-            if execution_store is not None
-            else {}
+        runtime_assembly_payload = _runtime_assembly_for_tool_context(
+            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+            execution_store=execution_store,
+            runtime_assembly=runtime_assembly,
+            sandbox_policy=policy_payload,
+            file_management_policy=file_policy_payload,
         )
         file_evidence_scope = normalize_file_evidence_scope(
             getattr(tool_invocation_context, "file_evidence_scope", {}) if tool_invocation_context is not None else {},
@@ -621,14 +627,20 @@ class ToolRuntimeExecutor:
             )
         except asyncio.CancelledError as exc:
             signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
-            reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
-            kind = str(signal.get("kind") or "stop")
-            error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
+            interruption = _tool_interruption_error(signal)
+            reason = interruption["reason"]
+            kind = interruption["kind"]
+            error = interruption["message"]
             if execution_store is not None:
                 current_record = execution_store.mark_failed(
                     current_record,
                     error=error,
-                    diagnostics={"runtime_control": signal, "tool_interrupted": True},
+                    diagnostics={
+                        "runtime_control": signal,
+                        "tool_interrupted": True,
+                        "failure_kind": interruption["failure_kind"],
+                        "error_code": interruption["error_code"],
+                    },
                 )
             return {
                 "observation": build_tool_execution_error_observation(
@@ -640,6 +652,10 @@ class ToolRuntimeExecutor:
                     tool_args=tool_args,
                     error=error,
                     execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    failure_kind=interruption["failure_kind"],
+                    error_code=interruption["error_code"],
+                    repair_instruction=interruption["repair_instruction"],
+                    diagnostics={"runtime_control": signal, "reason": reason, "kind": kind},
                 ),
                 "execution_record": current_record,
                 "recoverable_error": error if kind in {"pause", "replan"} else "",
@@ -768,6 +784,7 @@ class ToolRuntimeExecutor:
         operation_id: str = "",
         sandbox_policy: dict[str, Any] | None = None,
         file_management_policy: dict[str, Any] | None = None,
+        runtime_assembly: dict[str, Any] | None = None,
         file_evidence_scope: dict[str, Any] | None = None,
         max_result_size_chars: int = 0,
     ) -> dict[str, Any]:
@@ -942,6 +959,12 @@ class ToolRuntimeExecutor:
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
             ).snapshot(),
             execution_receipt=execution_receipt,
+            runtime_assembly=_runtime_assembly_for_tool_context(
+                runtime_host=getattr(self.tool_runtime, "runtime_host", None),
+                runtime_assembly=runtime_assembly,
+                sandbox_policy=policy_payload,
+                file_management_policy=file_policy_payload,
+            ),
         )
         validation = runtime_tool.validate_input(tool_args, tool_context)
         if not validation.allowed:
@@ -995,9 +1018,9 @@ class ToolRuntimeExecutor:
             )
         except asyncio.CancelledError:
             signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
-            reason = str(signal.get("reason") or "tool_cancelled_by_runtime_control")
-            kind = str(signal.get("kind") or "stop")
-            error = f"Tool execution interrupted by runtime control: {kind}: {reason}"
+            interruption = _tool_interruption_error(signal)
+            kind = interruption["kind"]
+            error = interruption["message"]
             return _core_error_result(
                 invocation_context,
                 tool_name=tool_name,
@@ -1007,6 +1030,12 @@ class ToolRuntimeExecutor:
                 recoverable_error=error if kind in {"pause", "replan"} else "",
                 error=error if kind == "stop" else "",
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                diagnostics={
+                    "runtime_control": signal,
+                    "failure_kind": interruption["failure_kind"],
+                    "error_code": interruption["error_code"],
+                    "repair_instruction": interruption["repair_instruction"],
+                },
             )
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
@@ -1420,6 +1449,95 @@ def _uses_system_backend_root(tool_name: str) -> bool:
     return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
 
 
+def _runtime_assembly_from_request(request: Any) -> dict[str, Any]:
+    constraints = dict(getattr(request, "requested_constraints", {}) or {})
+    payload = constraints.get("runtime_assembly")
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _runtime_assembly_for_tool_context(
+    *,
+    runtime_host: Any | None,
+    execution_store: RuntimeExecutionStore | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
+    sandbox_policy: dict[str, Any] | None = None,
+    file_management_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    assembly = dict(runtime_assembly or {})
+    storage_ref = _canonical_runtime_storage_ref(
+        runtime_host=runtime_host,
+        execution_store=execution_store,
+        runtime_assembly=assembly,
+        sandbox_policy=sandbox_policy,
+        file_management_policy=file_management_policy,
+    )
+    if storage_ref:
+        assembly["runtime_storage_ref"] = storage_ref
+        environment = dict(assembly.get("task_environment") or {})
+        storage_space = dict(environment.get("storage_space") or {})
+        storage_space["runtime_state_root"] = storage_ref["runtime_state_root"]
+        environment["storage_space"] = storage_space
+        assembly["task_environment"] = environment
+    return assembly
+
+
+def _canonical_runtime_storage_ref(
+    *,
+    runtime_host: Any | None,
+    execution_store: RuntimeExecutionStore | None,
+    runtime_assembly: dict[str, Any],
+    sandbox_policy: dict[str, Any] | None,
+    file_management_policy: dict[str, Any] | None,
+) -> dict[str, str]:
+    root = getattr(runtime_host, "root_dir", None) if runtime_host is not None else None
+    root_text = str(root or "").strip()
+    if not root_text:
+        root_text = _first_runtime_storage_root(
+            dict(file_management_policy or {}).get("storage_space"),
+            dict(runtime_assembly or {}).get("runtime_storage_ref"),
+            dict(runtime_assembly or {}).get("runtime_storage"),
+            dict(dict(runtime_assembly or {}).get("task_environment") or {}).get("storage_space"),
+            dict(sandbox_policy or {}).get("storage_space"),
+        )
+    if not root_text and execution_store is not None:
+        root_text = str(getattr(execution_store, "root_dir", "") or "").strip()
+    if not root_text:
+        return {}
+    return {
+        "runtime_state_root": _absolute_storage_root(root_text, runtime_assembly=runtime_assembly, sandbox_policy=sandbox_policy),
+        "authority": "runtime.tool_runtime.tool_executor.runtime_storage_ref",
+    }
+
+
+def _first_runtime_storage_root(*candidates: Any) -> str:
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for key in ("runtime_state_root", "dynamic_context_root", "environment_storage_root", "cache_root"):
+            value = str(candidate.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _absolute_storage_root(
+    value: str,
+    *,
+    runtime_assembly: dict[str, Any],
+    sandbox_policy: dict[str, Any] | None,
+) -> str:
+    path = Path(str(value or "").strip())
+    if path.is_absolute():
+        return str(path.resolve())
+    base = str(dict(sandbox_policy or {}).get("workspace_root") or "").strip()
+    if not base:
+        environment = dict(dict(runtime_assembly or {}).get("task_environment") or {})
+        base = str(dict(environment.get("storage_space") or {}).get("workspace_root") or "").strip()
+    if not base:
+        base = str(dict(runtime_assembly or {}).get("backend_dir") or ".").strip()
+    return str((Path(base).resolve() / path).resolve())
+
+
 def _commit_file_state_events(
     *,
     execution_store: RuntimeExecutionStore | None,
@@ -1498,6 +1616,48 @@ def _tool_signal(runtime_host: Any | None, tool_invocation_id: str) -> dict[str,
     if signal is None:
         return {}
     return signal.to_dict() if hasattr(signal, "to_dict") else {}
+
+
+def _tool_interruption_error(signal: dict[str, Any]) -> dict[str, str]:
+    kind = str(signal.get("kind") or "").strip()
+    reason = str(signal.get("reason") or "").strip()
+    requested_by = str(signal.get("requested_by") or "").strip()
+    if kind:
+        failure_kind = "runtime_control_interrupted"
+        error_code = f"runtime_control_{kind}"
+        if not reason:
+            reason = f"runtime_control_{kind}"
+        repair_instruction = (
+            "The runtime interrupted this tool call. Follow the control signal and resume only when the runtime "
+            "allows it again."
+            if kind in {"pause", "replan"}
+            else "The runtime stopped this tool call. Treat it as a runtime boundary, not a command failure."
+        )
+        message = f"Tool execution interrupted by runtime control: {kind}: {reason}"
+        return {
+            "kind": kind,
+            "reason": reason,
+            "requested_by": requested_by or "system",
+            "message": message,
+            "failure_kind": failure_kind,
+            "error_code": error_code,
+            "repair_instruction": repair_instruction,
+        }
+    return {
+        "kind": "cancel",
+        "reason": "tool_task_cancelled_without_runtime_control_signal",
+        "requested_by": "system",
+        "message": (
+            "Tool execution cancelled without a recorded runtime control signal. "
+            "This is a runtime diagnostics issue, not a command output."
+        ),
+        "failure_kind": "tool_task_cancelled_without_runtime_control_signal",
+        "error_code": "tool_task_cancelled_without_runtime_control_signal",
+        "repair_instruction": (
+            "The tool task was cancelled, but the runtime did not record a control signal. "
+            "Inspect the scheduler or task lifecycle instead of the command output."
+        ),
+    }
 
 
 def _executor_epoch_from_policy(policy: dict[str, Any]) -> int:

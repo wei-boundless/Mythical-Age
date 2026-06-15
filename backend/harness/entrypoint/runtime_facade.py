@@ -717,19 +717,20 @@ class HarnessRuntimeFacade:
         profile_payload = dict(assembly_payload.get("profile") or {})
         expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
         expected_task_run_id = str(getattr(active_work_context, "task_run_id", "") or "").strip()
+        request_policy = str(getattr(request, "active_turn_input_policy", "") or "auto").strip().lower() or "auto"
         active_turn_check = self.single_agent_runtime_host.active_turn_registry.compare_and_update_current_turn(
             session_id=request.session_id,
             expected_turn_id=expected_turn_id,
             expected_task_run_id=expected_task_run_id,
-            require_bound_task=bool(active_work_context) or str(getattr(request, "active_turn_input_policy", "") or "").lower() == "steer",
+            require_bound_task=request_policy == "steer",
         )
         boundary_input = build_current_work_boundary_input(
             turn_input_facts=turn_input_facts,
             active_turn_record=dict(active_turn_check.get("record") or {}),
             active_turn_check=active_turn_check,
             active_work_context=active_work_context,
-            request_active_turn_policy=str(getattr(request, "active_turn_input_policy", "") or "auto"),
-            active_turn_input_policy=str(getattr(request, "active_turn_input_policy", "") or "auto"),
+            request_active_turn_policy=request_policy,
+            active_turn_input_policy=request_policy,
             expected_active_turn_id=expected_turn_id,
             runtime_branch=runtime_branch,
             control_capabilities=dict(assembly_payload.get("control_capabilities") or {}),

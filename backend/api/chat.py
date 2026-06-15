@@ -2598,8 +2598,9 @@ def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envel
         payload.get("text"),
         payload.get("summary"),
     ):
-        parsed = _record_or_json_object(value)
-        if parsed:
+        candidate = _record_or_json_object(value)
+        if _is_agent_todo_payload(candidate):
+            parsed = candidate
             break
     if not parsed:
         return ""
@@ -2626,6 +2627,14 @@ def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envel
     if active_text:
         return f"任务清单：{completed}/{total} 已完成，正在：{active_text[:160]}。"
     return f"任务清单：{completed}/{total} 已完成。"
+
+
+def _is_agent_todo_payload(value: dict[str, Any]) -> bool:
+    if not value:
+        return False
+    if isinstance(value.get("items"), list):
+        return True
+    return any(str(value.get(key) or "").strip() for key in ("plan_id", "active_item_id", "status", "error"))
 
 
 def _tool_arguments_preview(args: dict[str, Any]) -> str:

@@ -297,9 +297,6 @@ def _read_file_metadata_from_structured(
             "truncated": bool(source.get("truncated") or source.get("has_more")),
             "content_sha256": str(source.get("content_sha256") or "").strip(),
             "mtime_ns": _int_or_none(source.get("mtime_ns")),
-            "file_unchanged": source.get("file_unchanged") if isinstance(source.get("file_unchanged"), bool) else None,
-            "content_omitted": source.get("content_omitted") if isinstance(source.get("content_omitted"), bool) else None,
-            "previous_observation_ref": str(source.get("previous_observation_ref") or "").strip(),
             "reusable_result_ref": str(source.get("reusable_result_ref") or "").strip(),
             "exact_artifact_ref": str(source.get("exact_artifact_ref") or "").strip(),
             "artifact_ref_status": str(source.get("artifact_ref_status") or "").strip(),
@@ -450,7 +447,6 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
     content_range = dict(normalized.get("content_range") or {})
     if tool_name == "read_file" and content_range:
-        content_omitted = bool(content_range.get("content_omitted") is True)
         exact_artifact_ref = str(content_range.get("exact_artifact_ref") or "").strip()
         fresh_read_conditions = _fresh_read_conditions_for_read_file(
             content_range=content_range,
@@ -461,21 +457,15 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             {
                 "source_kind": "code_evidence",
                 "source_authority": "read_file_line_window",
-                "visible_content_authority": (
-                    "artifact_backed_omitted_line_window"
-                    if content_omitted and exact_artifact_ref
-                    else "omitted_line_window_without_artifact"
-                    if content_omitted
-                    else "exact_visible_line_window"
-                ),
+                "visible_content_authority": "exact_visible_line_window",
                 "coverage": coverage,
                 "full_file_window": coverage == "full_file",
-                "candidate_only": bool(content_omitted and not exact_artifact_ref),
+                "candidate_only": False,
                 "usable_as_evidence_for": _read_file_usable_as_evidence_for(fresh_read_conditions),
                 "fresh_read_conditions": fresh_read_conditions,
                 "rehydration_preference": (
                     "read_observation_artifact"
-                    if content_omitted and exact_artifact_ref
+                    if exact_artifact_ref
                     else "reuse_visible_read_file_window"
                 ),
                 "instruction": _read_file_evidence_instruction(content_range),
@@ -508,8 +498,6 @@ def _fresh_read_conditions_for_read_file(
 ) -> list[str]:
     conditions: list[str] = []
     _ = content_replacements
-    if bool(content_range.get("content_omitted") is True) and not str(content_range.get("exact_artifact_ref") or "").strip():
-        conditions.append("omitted_without_exact_artifact")
     if bool(content_range.get("has_more") or content_range.get("truncated")):
         conditions.append("target_line_outside_visible_range")
     if not str(content_range.get("content_sha256") or "").strip():
@@ -582,13 +570,7 @@ def _evidence_confidence(
                 "authority": "harness.runtime.dynamic_context.evidence_confidence",
                 "source_kind": "read_file_line_window",
                 "tool_name": tool_name,
-                "confidence": (
-                    "artifact_backed_omitted_line_window"
-                    if bool(content_range.get("content_omitted") is True) and str(content_range.get("exact_artifact_ref") or "").strip()
-                    else "omitted_without_exact_artifact"
-                    if bool(content_range.get("content_omitted") is True)
-                    else "current_line_window"
-                ),
+                "confidence": "current_line_window",
                 "coverage": _read_file_coverage(content_range),
                 "full_file_window": _read_file_window_covers_full_file(content_range),
                 "files": [
@@ -603,7 +585,6 @@ def _evidence_confidence(
                             "content_sha256": str(content_range.get("content_sha256") or ""),
                             "exact_artifact_ref": str(content_range.get("exact_artifact_ref") or ""),
                             "visible_exact": content_range.get("visible_exact") if isinstance(content_range.get("visible_exact"), bool) else None,
-                            "content_omitted": content_range.get("content_omitted") if isinstance(content_range.get("content_omitted"), bool) else None,
                             "fresh_read_conditions": list(evidence_policy.get("fresh_read_conditions") or []),
                             "usable_as_evidence_for": list(evidence_policy.get("usable_as_evidence_for") or []),
                         }

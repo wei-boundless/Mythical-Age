@@ -124,22 +124,15 @@ class ContextUsageMeter:
             context_fingerprint=context_fingerprint,
             previous_context_fingerprint=previous_context_fingerprint,
         )
-        provider_pending_tokens = self._estimate_pending_tokens(
-            pending_messages=pending_messages,
-            fallback_messages=fallback_messages,
-            anchor_created_at=float(getattr(anchor, "created_at", 0.0) or 0.0),
-            provider=resolved_provider,
-            model=resolved_model,
-        )
-
         if anchor is not None and not invalidation_reason and not local_newer_than_provider:
             provider_context_tokens = self._provider_context_tokens(anchor)
-            observed_context_tokens = provider_context_tokens + provider_pending_tokens
+            observation_anchor_created_at = float(getattr(anchor, "created_at", 0.0) or 0.0)
             estimate_mode: ContextEstimateMode = "provider_anchor"
             provider_anchor_valid = True
+            observed_context_source = "provider_usage"
         elif local_anchor is not None:
             provider_context_tokens = 0
-            observed_context_tokens = int(local_anchor.total_tokens or local_anchor.prompt_tokens or 0) + provider_pending_tokens
+            observation_anchor_created_at = float(getattr(local_anchor, "created_at", 0.0) or 0.0)
             if invalidation_reason:
                 estimate_mode = "local_predicted_anchor_invalid"
             elif anchor is not None and local_newer_than_provider:
@@ -147,14 +140,36 @@ class ContextUsageMeter:
             else:
                 estimate_mode = "local_predicted_no_provider_anchor"
             provider_anchor_valid = False
+            observed_context_source = "local_prediction"
         else:
             provider_context_tokens = 0
+            observation_anchor_created_at = 0.0
+            estimate_mode = "empty"
+            provider_anchor_valid = False
+            observed_context_source = "provided_model_messages" if pending_messages is not None else "fallback_messages"
+        provider_pending_tokens = self._estimate_pending_tokens(
+            pending_messages=pending_messages,
+            fallback_messages=fallback_messages,
+            anchor_created_at=observation_anchor_created_at,
+            provider=resolved_provider,
+            model=resolved_model,
+        )
+        if observed_context_source == "provider_usage":
+            observed_context_tokens = provider_context_tokens + provider_pending_tokens
+        elif observed_context_source == "local_prediction":
+            observed_context_tokens = int(local_anchor.total_tokens or local_anchor.prompt_tokens or 0) + provider_pending_tokens
+        else:
             observed_context_tokens = self._estimate_messages(fallback_messages or pending_messages or (), provider=resolved_provider, model=resolved_model)
             estimate_mode = "empty" if observed_context_tokens <= 0 else "local_predicted_no_provider_anchor"
-            provider_anchor_valid = False
 
         pressure_tokens_supplied = session_pressure_tokens is not None
-        if pressure_tokens_supplied:
+        accounting_observation_available = observed_context_source in {"provider_usage", "local_prediction"}
+        session_pressure_is_current_source = (
+            pressure_tokens_supplied
+            and not accounting_observation_available
+            and pending_messages is None
+        )
+        if session_pressure_is_current_source:
             current_context_tokens = max(0, int(session_pressure_tokens or 0))
             estimate_mode = "session_pressure"
             pending_tokens = 0
@@ -162,7 +177,18 @@ class ContextUsageMeter:
             current_context_tokens = observed_context_tokens
             pending_tokens = provider_pending_tokens
 
-        compaction_pressure_tokens = max(0, int(current_context_tokens or 0), int(observed_context_tokens or 0))
+        session_pressure_value = max(0, int(session_pressure_tokens or 0)) if pressure_tokens_supplied else 0
+        compaction_pressure_tokens = max(0, int(current_context_tokens or 0))
+        current_context_authority = (
+            str(session_pressure_source or "runtime.context_management.session_pressure")
+            if session_pressure_is_current_source
+            else (
+                "runtime.prompt_accounting.model_request_accounting"
+                if accounting_observation_available
+                else "runtime.prompt_accounting.provided_model_messages"
+            )
+        )
+        compaction_pressure_authority = current_context_authority
         pressure_level = self._pressure_level(compaction_pressure_tokens, thresholds)
         ratio = round(current_context_tokens / window, 6) if window > 0 else 0.0
         replacement_threshold = int(thresholds.get("replacement") or input_capacity_tokens)
@@ -215,13 +241,13 @@ class ContextUsageMeter:
                 "local_prediction_record_count": len(local_records),
                 "pressure_authority": str(session_pressure_source or "provider_accounting"),
                 "session_pressure_supplied": bool(pressure_tokens_supplied),
-                "session_pressure_tokens": max(0, int(session_pressure_tokens or 0)) if pressure_tokens_supplied else 0,
+                "session_pressure_tokens": session_pressure_value,
+                "session_pressure_used_as_current_context": bool(session_pressure_is_current_source),
+                "current_context_authority": current_context_authority,
                 "compaction_pressure_tokens": compaction_pressure_tokens,
-                "compaction_pressure_authority": (
-                    "prompt_accounting_observed_pressure"
-                    if int(observed_context_tokens or 0) > int(current_context_tokens or 0)
-                    else str(session_pressure_source or "provider_accounting")
-                ),
+                "compaction_pressure_authority": compaction_pressure_authority,
+                "observed_context_source": observed_context_source,
+                "prompt_accounting_observed_context_tokens": max(0, int(observed_context_tokens or 0)),
                 "provider_observed_context_tokens": max(0, int(observed_context_tokens or 0)),
                 "provider_estimated_pending_tokens": provider_pending_tokens,
                 "provider_context_tokens": provider_context_tokens,
@@ -235,7 +261,7 @@ class ContextUsageMeter:
             },
             authority=(
                 "runtime.context_management.session_pressure_snapshot"
-                if pressure_tokens_supplied
+                if session_pressure_is_current_source
                 else "runtime.prompt_accounting.context_usage_snapshot"
             ),
         )

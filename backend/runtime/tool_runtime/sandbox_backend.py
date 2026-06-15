@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
+DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "batch_edit_file", "terminal", "python_repl"}
 REAL_WORKSPACE_READ_TOOL_NAMES = {
     "read_file",
     "read_structured_file",
@@ -27,11 +27,12 @@ DEFAULT_OVERLAY_TOOL_NAMES = {
     "search_text",
     "write_file",
     "edit_file",
+    "batch_edit_file",
     "terminal",
     "python_repl",
 }
 FIXED_STORE_TOOL_NAMES = {"image_generate"}
-OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
+OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file", "batch_edit_file"}
 OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
 OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl"}
 DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
