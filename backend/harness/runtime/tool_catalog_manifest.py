@@ -17,6 +17,9 @@ _SPECIAL_CONTRACT_TOOL_NAMES = {
     "search_files",
     "read_file",
     "search_text",
+    "path_exists",
+    "stat_path",
+    "list_dir",
 }
 
 
@@ -381,7 +384,38 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "line_count": dict(field_paths.get("line_count") or {}),
                     "read_intent": dict(field_paths.get("read_intent") or {}),
                 },
+                "usage_hint": (
+                    "Use directly for known file paths, including file-like task_contract.working_scope.target_objects, "
+                    "source_refs, workspace_refs, or bound/editor paths. Do not call search_files first for a known path."
+                ),
                 "output_facts": ["start_line", "end_line", "total_lines", "has_more", "next_start_line", "content_sha256", "file_unchanged"],
+            }
+        )
+    elif name == "path_exists":
+        summary.update(
+            {
+                "critical_fields": {"path": dict(field_paths.get("path") or {})},
+                "usage_hint": (
+                    "Use to confirm a known path from task_contract.working_scope, bound context, or editor context. "
+                    "It is a direct path check, not a search tool."
+                ),
+                "output_facts": ["path", "exists", "kind"],
+            }
+        )
+    elif name == "stat_path":
+        summary.update(
+            {
+                "critical_fields": {"path": dict(field_paths.get("path") or {})},
+                "usage_hint": "Use for metadata about a known path. Do not use search_files first when the path is already known.",
+                "output_facts": ["path", "exists", "kind", "size", "modified_at"],
+            }
+        )
+    elif name == "list_dir":
+        summary.update(
+            {
+                "critical_fields": {"path": dict(field_paths.get("path") or {})},
+                "usage_hint": "Use for a known directory path. Do not use search_files to rediscover an already known directory.",
+                "output_facts": ["path", "entries"],
             }
         )
     elif name == "glob_paths":
@@ -399,7 +433,11 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "query": dict(field_paths.get("query") or {}),
                     "roots": dict(field_paths.get("roots") or {}),
                 },
-                "usage_hint": "Use for filename or path keywords when the exact path is unknown. Use glob_paths for wildcard patterns and search_text for content.",
+                "usage_hint": (
+                    "Use for filename or path keywords only when the exact path is unknown. "
+                    "If task_contract.working_scope.target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
+                    "use path_exists/read_file directly instead of search_files."
+                ),
                 "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],
             }
         )
@@ -416,7 +454,11 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "head_limit": dict(field_paths.get("head_limit") or {}),
                     "offset": dict(field_paths.get("offset") or {}),
                 },
-                "usage_hint": "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. paths accepts files only; directories must go in roots.",
+                "usage_hint": (
+                    "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. "
+                    "Do not use search_text to rediscover a known file-like target object; read_file is the direct path tool. "
+                    "paths accepts files only; directories must go in roots."
+                ),
                 "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
             }
         )

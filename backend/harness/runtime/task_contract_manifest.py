@@ -146,18 +146,108 @@ def project_task_contract_for_prompt(
 
 def _working_scope_stable_payload(value: Any) -> dict[str, Any]:
     raw = dict(value or {}) if isinstance(value, dict) else {}
+    target_objects = _object_ref_list(raw.get("target_objects"))
+    source_refs = _string_list(raw.get("source_refs"))
+    workspace_refs = _string_list(raw.get("workspace_refs"))
     body = _drop_empty_payload(
         {
-            "target_objects": _object_ref_list(raw.get("target_objects")),
-            "workspace_refs": _string_list(raw.get("workspace_refs")),
-            "source_refs": _string_list(raw.get("source_refs")),
+            "target_objects": target_objects,
+            "workspace_refs": workspace_refs,
+            "source_refs": source_refs,
             "excluded_scope": _string_list(raw.get("excluded_scope")),
             "known_constraints": _string_list(raw.get("known_constraints")),
+            "target_object_policy": _target_object_policy(
+                target_objects=target_objects,
+                source_refs=source_refs,
+                workspace_refs=workspace_refs,
+            ),
         }
     )
     if not body:
         return {}
     return {**body, "authority": "harness.runtime.task_contract.working_scope.model_visible"}
+
+
+def _target_object_policy(
+    *,
+    target_objects: list[Any],
+    source_refs: list[str],
+    workspace_refs: list[str],
+) -> dict[str, Any]:
+    known_path_refs = [
+        text
+        for text in (
+            *(_path_like_texts(target_objects)),
+            *(_path_like_texts(source_refs)),
+            *(_path_like_texts(workspace_refs)),
+        )
+        if text
+    ]
+    if not known_path_refs:
+        return {}
+    return {
+        "file_like_refs_are_known_paths": True,
+        "known_path_refs": known_path_refs,
+        "preferred_first_tools": ["path_exists", "read_file"],
+        "avoid_tools_for_known_paths": ["search_files", "search_text"],
+        "search_tools_scope": "unknown_location_only",
+        "authority": "harness.runtime.task_contract.working_scope.target_object_policy",
+    }
+
+
+def _path_like_texts(value: Any) -> list[str]:
+    raw_values = value if isinstance(value, (list, tuple)) else ([value] if value else [])
+    result: list[str] = []
+    for item in raw_values:
+        if isinstance(item, dict):
+            for key in ("path", "file", "target", "ref", "href", "source_ref", "target_object"):
+                text = str(item.get(key) or "").strip()
+                if _is_path_like_ref(text):
+                    result.append(text)
+            continue
+        text = str(item or "").strip()
+        if _is_path_like_ref(text):
+            result.append(text)
+    return _dedupe_strings(result)
+
+
+def _is_path_like_ref(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or text.startswith(("http://", "https://")):
+        return False
+    if "\\" in text or "/" in text:
+        return True
+    suffix = text.rsplit(".", 1)[-1].lower() if "." in text else ""
+    return suffix in {
+        "py",
+        "ts",
+        "tsx",
+        "js",
+        "jsx",
+        "html",
+        "css",
+        "json",
+        "md",
+        "toml",
+        "yaml",
+        "yml",
+        "txt",
+        "csv",
+        "xml",
+        "sql",
+    }
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _object_ref_list(value: Any) -> list[Any]:

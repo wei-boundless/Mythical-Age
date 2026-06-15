@@ -134,3 +134,24 @@ stable_prefix
 2. replay evidence 的层语义不准确：它是 append-only volatile evidence，不是 task stable。
 
 另有一个行为策略缺口：`target_objects` 虽进入合同，但模型没有被足够明确地告知“已知路径对象不需要 search”。这不是前端问题，也不是单纯模型坏；它属于任务合同语义到工具选择策略之间的连接线不够硬。
+
+## 本轮修复结果（2026-06-15）
+
+### 已完成
+
+- `task_execution` 的 `file_evidence_policy_stable` 已移到所有 task 前缀段之前，避免 session 段插在 task 段后形成 prefix 顺序错位。
+- `runtime_task_state_replay` 的层语义已改为 `append_only_task_evidence`，不再伪装成 stable layer。
+- `task_contract.working_scope.target_objects/source_refs/workspace_refs` 只要呈现为文件样路径，就会投影为 known path policy，优先 `path_exists/read_file`，不再默认先 `search_files/search_text`。
+- 共享工具提示已同步收口，避免 runtime、合同和工具目录对“已知路径”的说法互相打架。
+
+### 验证结果
+
+- `python -m compileall` 已通过相关 runtime / prompt 组件文件。
+- 结构脚本已通过，确认：
+  - `fps_game.html` 会进入 known path policy。
+  - replay slot 的 `layer` 和 `dynamic_tier` 都是 `append_only_task_evidence`。
+  - replay layer policy 不再报 violation。
+
+### 仍需关注
+
+- 后续新 packet 是否还会出现别的 prompt 源残留“已知路径先 search”的旧表述，需要继续按源头清理，而不是在下游再补丁化纠偏。

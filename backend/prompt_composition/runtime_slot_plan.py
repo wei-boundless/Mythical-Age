@@ -166,7 +166,7 @@ def _layer_for_source_kind(source_kind: str) -> str:
     if source_kind == "runtime_task_boundary":
         return "task_runtime_boundary_stable"
     if source_kind == "runtime_task_state_replay":
-        return "task_state_replay_stable"
+        return "append_only_task_evidence"
     if source_kind == "runtime_protocol":
         return "runtime_protocol_stable"
     return "legacy_runtime_stable"

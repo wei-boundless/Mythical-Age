@@ -1225,6 +1225,20 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
+                    title="Task execution file evidence policy",
+                    payload=_file_evidence_policy_stable_payload(),
+                    kind="file_evidence_policy_stable",
+                    source_ref="file_evidence_policy_stable.read_window_admission",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "file_evidence_policy",
+                        "projection_strategy": "stable_file_evidence_policy",
+                    },
+                ),
+                _runtime_payload_spec(
+                    role="system",
                     title="Task execution artifact write scope",
                     payload=artifact_execution_scope_payload,
                     kind="artifact_scope_stable",
@@ -1242,20 +1256,6 @@ class RuntimeCompiler:
                     cache_scope="task",
                     cache_role="session_stable",
                     compression_role="preserve",
-                ),
-                _runtime_payload_spec(
-                    role="system",
-                    title="Task execution file evidence policy",
-                    payload=_file_evidence_policy_stable_payload(),
-                    kind="file_evidence_policy_stable",
-                    source_ref="file_evidence_policy_stable.read_window_admission",
-                    cache_scope="session",
-                    cache_role="session_stable",
-                    compression_role="preserve",
-                    metadata={
-                        "authority_class": "file_evidence_policy",
-                        "projection_strategy": "stable_file_evidence_policy",
-                    },
                 ),
                 _runtime_payload_spec(
                     role="system",
@@ -3586,7 +3586,8 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
                     "只有 stale、changed、missing、hash 缺失或目标范围未覆盖时才需要新的 read_file。"
                 ),
                 "known_path_boundary": (
-                    "已知 bound/editor 文件路径不需要通过 search_files 或 search_text 重新发现；"
+                    "已知 bound/editor 文件路径，以及 task_contract.working_scope 中表现为路径的 target_objects、"
+                    "source_refs 或 workspace_refs，不需要通过 search_files 或 search_text 重新发现；"
                     "未知位置才使用 search_files、glob_paths 或 search_text。"
                 ),
             },
