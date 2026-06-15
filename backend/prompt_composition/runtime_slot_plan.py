@@ -23,6 +23,8 @@ def build_runtime_prompt_slot_plan(
         source_kind = runtime_source_kind_for_segment(spec)
         layer = _layer_for_source_kind(source_kind)
         metadata = dict(spec.get("metadata") or {})
+        prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
+        prompt_source_id = str(metadata.get("runtime_prompt_source_id") or "")
         content_hash = _stable_text_hash(str(spec.get("content") or ""))
         slot_id = _slot_id(
             invocation_kind=invocation_kind,
@@ -54,7 +56,9 @@ def build_runtime_prompt_slot_plan(
                 content_hash=content_hash,
                 metadata={
                     "source_metadata": metadata,
-                    "slot_source": "runtime_compiler_message_spec",
+                    "prompt_source_manifest_id": prompt_source_manifest_id,
+                    "prompt_source_id": prompt_source_id,
+                    "slot_source": "runtime_prompt_source_manifest",
                 },
             )
         )

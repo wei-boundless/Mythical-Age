@@ -1,0 +1,20 @@
+ 455 |   // 后坐力动画
+ 456 |   applyRecoil();
+ 457 |   
+ 458 |   // 射线检测
+ 459 |   const rayOrigin = new THREE.Vector3();
+ 460 |   camera.getWorldPosition(rayOrigin);
+ 461 |   // 准星稍微下移模拟枪口高度
+ 462 |   rayOrigin.y -= 0.15;
+ 463 |   
+ 464 |   const rayDirection = new THREE.Vector3();
+ 465 |   camera.getWorldDirection(rayDirection);
+ 466 |   // 应用散布
+ 467 |   const spread = weapon.spread;
+ 468 |   if (spread > 0) {
+ 469 |     rayDirection.x += (Math.random() - 0.5) * spread * 2;
+ 470 |     rayDirection.y += (Math.random() - 0.5) * spread * 2;
+ 471 |     rayDirection.z += (Math.random() - 0.5) * spread * 2;
+ 472 |     rayDirection.normalize();
+ 473 |   }
+ 474 |   

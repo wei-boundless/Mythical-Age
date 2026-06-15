@@ -60,6 +60,52 @@ class PromptCompositionPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimePromptSource:
+    source_id: str
+    invocation_kind: str
+    packet_id: str
+    order: int
+    kind: str
+    role: str
+    source_kind: str
+    source_ref: str
+    cache_scope: str
+    cache_role: str
+    compression_role: str
+    content_hash: str
+    model_message_hash: str
+    message_spec: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_prompt_source"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["message_spec"] = dict(self.message_spec)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromptSourceManifest:
+    manifest_id: str
+    invocation_kind: str
+    packet_id: str
+    sources: tuple[RuntimePromptSource, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_composition.runtime_prompt_source_manifest"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "manifest_id": self.manifest_id,
+            "invocation_kind": self.invocation_kind,
+            "packet_id": self.packet_id,
+            "sources": [source.to_dict() for source in self.sources],
+            "diagnostics": dict(self.diagnostics),
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimePromptSlot:
     slot_id: str
     invocation_kind: str

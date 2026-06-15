@@ -1,0 +1,240 @@
+ 241 | const PLAYER_RADIUS = 0.4;
+ 242 | const playerState = {
+ 243 |   health: 100,
+ 244 |   maxHealth: 100,
+ 245 |   kills: 0,
+ 246 |   wave: 1,
+ 247 |   score: 0,
+ 248 |   alive: true,
+ 249 |   velocity: new THREE.Vector3(),
+ 250 |   onGround: true,
+ 251 |   isRunning: false,
+ 252 | };
+ 253 | 
+ 254 | // ===== 武器系统 =====
+ 255 | const weapons = [
+ 256 |   { name: '手枪', key: '1', damage: 25, magSize: 12, reserve: 48, fireRate: 0.25, reloadTime: 1.5, spread: 0.02, auto: false, headMultiplier: 2.0 },
+ 257 |   { name: '步枪', key: '2', damage: 18, magSize: 30, reserve: 90, fireRate: 0.1, reloadTime: 2.2, spread: 0.05, auto: true, headMultiplier: 1.5 },
+ 258 | ];
+ 259 | 
+ 260 | const weaponState = {
+ 261 |   currentIndex: 0,
+ 262 |   ammo: [12, 30],
+ 263 |   reserves: [48, 90],
+ 264 |   reloading: false,
+ 265 |   reloadStartTime: 0,
+ 266 |   lastFireTime: 0,
+ 267 | };
+ 268 | 
+ 269 | function getCurrentWeapon() {
+ 270 |   return weapons[weaponState.currentIndex];
+ 271 | }
+ 272 | 
+ 273 | // ===== 第一人称控制 =====
+ 274 | const controls = new PointerLockControls(camera, document.body);
+ 275 | controls.pointerSpeed = 0; // 禁用内置旋转，使用手动控制避免 DPI 不稳定
+ 276 | 
+ 277 | // ===== 方案 B 自由瞄准系统 =====
+ 278 | // 准心在屏幕上自由移动（CSS 绝对定位），只在靠近屏幕边缘时驱动镜头旋转
+ 279 | // 射击射线从准心实际屏幕位置（而非屏幕中心）发出
+ 280 | 
+ 281 | const MOUSE_SENSITIVITY = 0.015;
+ 282 | const viewEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+ 283 | const MIN_PITCH = -Math.PI / 2.3;
+ 284 | const MAX_PITCH = Math.PI / 2.3;
+ 285 | viewEuler.setFromQuaternion(camera.quaternion);
+ 286 | 
+ 287 | // 准心屏幕坐标（像素，原点从屏幕左上角）
+ 288 | let crosshairX = window.innerWidth / 2;
+ 289 | let crosshairY = window.innerHeight / 2;
+ 290 | 
+ 291 | // 边缘触发镜头旋转的阈值（像素），准心进入此区域时镜头开始转动
+ 292 | const EDGE_THRESHOLD = 80;
+ 293 | // 边缘区域内的最大旋转速率（弧度/秒）
+ 294 | const EDGE_ROTATE_SPEED = Math.PI;  // 180°/s
+ 295 | 
+ 296 | // 自由瞄准模式下的鼠标 delta 累积
+ 297 | let mouseDX = 0, mouseDY = 0;
+ 298 | let _skipFirstMouse = false;
+ 299 | 
+ 300 | function onMouseMove(e) {
+ 301 |   if (!controls.isLocked || !playerState.alive) return;
+ 302 |   if (_skipFirstMouse) { _skipFirstMouse = false; return; }
+ 303 |   mouseDX += e.movementX;
+ 304 |   mouseDY += e.movementY;
+ 305 | }
+ 306 | document.addEventListener('mousemove', onMouseMove);
+ 307 | 
+ 308 | // 每帧在 animate 中消费鼠标 delta，更新准心位置并检测边缘旋转
+ 309 | function updateCrosshairAndCamera(deltaTime) {
+ 310 |   // 1. 用鼠标 delta 移动准心
+ 311 |   crosshairX += mouseDX;
+ 312 |   crosshairY += mouseDY;
+ 313 |   mouseDX = 0;
+ 314 |   mouseDY = 0;
+ 315 | 
+ 316 |   // 2. 钳制准心在屏幕内
+ 317 |   crosshairX = Math.max(0, Math.min(window.innerWidth, crosshairX));
+ 318 |   crosshairY = Math.max(0, Math.min(window.innerHeight, crosshairY));
+ 319 | 
+ 320 |   // 3. 更新准心 DOM 位置
+ 321 |   const ch = document.getElementById('crosshair');
+ 322 |   ch.style.left = (crosshairX - 12) + 'px';
+ 323 |   ch.style.top = (crosshairY - 12) + 'px';
+ 324 | 
+ 325 |   // 4. 边缘检测 - 准心靠近屏幕边缘时转动镜头
+ 326 |   const dt = Math.min(deltaTime, 0.1); // 防止大帧间隔
+ 327 |   let rotateX = 0, rotateY = 0;
+ 328 | 
+ 329 |   if (crosshairX < EDGE_THRESHOLD) {
+ 330 |     rotateY = -EDGE_ROTATE_SPEED * dt * (1 - crosshairX / EDGE_THRESHOLD);
+ 331 |   } else if (crosshairX > window.innerWidth - EDGE_THRESHOLD) {
+ 332 |     rotateY = EDGE_ROTATE_SPEED * dt * (1 - (window.innerWidth - crosshairX) / EDGE_THRESHOLD);
+ 333 |   }
+ 334 | 
+ 335 |   if (crosshairY < EDGE_THRESHOLD) {
+ 336 |     rotateX = -EDGE_ROTATE_SPEED * dt * (1 - crosshairY / EDGE_THRESHOLD);
+ 337 |   } else if (crosshairY > window.innerHeight - EDGE_THRESHOLD) {
+ 338 |     rotateX = EDGE_ROTATE_SPEED * dt * (1 - (window.innerHeight - crosshairY) / EDGE_THRESHOLD);
+ 339 |   }
+ 340 | 
+ 341 |   // 5. 应用镜头旋转
+ 342 |   if (rotateX !== 0 || rotateY !== 0) {
+ 343 |     viewEuler.setFromQuaternion(camera.quaternion);
+ 344 |     viewEuler.y -= rotateY * MOUSE_SENSITIVITY * 60; // 归一化到约 60fps 手感
+ 345 |     viewEuler.x -= rotateX * MOUSE_SENSITIVITY * 60;
+ 346 |     viewEuler.x = Math.max(MIN_PITCH, Math.min(MAX_PITCH, viewEuler.x));
+ 347 |     camera.quaternion.setFromEuler(viewEuler);
+ 348 |   }
+ 349 | }
+ 350 | 
+ 351 | const keys = {};
+ 352 | let mouseDown = false;
+ 353 | 
+ 354 | startBtn.addEventListener('click', () => {
+ 355 |   controls.lock();
+ 356 | });
+ 357 | 
+ 358 | controls.addEventListener('lock', () => {
+ 359 |   blocker.style.display = 'none';
+ 360 |   viewEuler.setFromQuaternion(camera.quaternion); // 重锁时同步视角
+ 361 |   _skipFirstMouse = true;  // 跳过锁定瞬间的跳跃鼠标事件
+ 362 |   mouseDX = 0;
+ 363 |   mouseDY = 0;
+ 364 | });
+ 365 | 
+ 366 | controls.addEventListener('unlock', () => {
+ 367 |   if (playerState.alive) {
+ 368 |     blocker.style.display = 'flex';
+ 369 |   }
+ 370 | });
+ 371 | 
+ 372 | document.addEventListener('keydown', (e) => {
+ 373 |   keys[e.key.toLowerCase()] = true;
+ 374 |   
+ 375 |   // 切武器
+ 376 |   if (e.key === '1') switchWeapon(0);
+ 377 |   if (e.key === '2') switchWeapon(1);
+ 378 |   
+ 379 |   // 换弹
+ 380 |   if (e.key.toLowerCase() === 'r' && !weaponState.reloading) {
+ 381 |     startReload();
+ 382 |   }
+ 383 | });
+ 384 | 
+ 385 | document.addEventListener('keyup', (e) => {
+ 386 |   keys[e.key.toLowerCase()] = false;
+ 387 | });
+ 388 | 
+ 389 | document.addEventListener('mousedown', (e) => {
+ 390 |   if (e.button === 0 && controls.isLocked) {
+ 391 |     mouseDown = true;
+ 392 |   }
+ 393 | });
+ 394 | 
+ 395 | document.addEventListener('mouseup', (e) => {
+ 396 |   if (e.button === 0) {
+ 397 |     mouseDown = false;
+ 398 |   }
+ 399 | });
+ 400 | 
+ 401 | function switchWeapon(index) {
+ 402 |   if (index === weaponState.currentIndex) return;
+ 403 |   if (weaponState.reloading) return;
+ 404 |   weaponState.currentIndex = index;
+ 405 |   updateHUD();
+ 406 | }
+ 407 | 
+ 408 | function startReload() {
+ 409 |   const weapon = getCurrentWeapon();
+ 410 |   if (weaponState.reserves[weaponState.currentIndex] <= 0) return;
+ 411 |   if (weaponState.ammo[weaponState.currentIndex] >= weapon.magSize) return;
+ 412 |   
+ 413 |   weaponState.reloading = true;
+ 414 |   weaponState.reloadStartTime = performance.now() / 1000;
+ 415 |   reloadHint.style.opacity = '0';
+ 416 | }
+ 417 | 
+ 418 | function finishReload() {
+ 419 |   const weapon = getCurrentWeapon();
+ 420 |   const idx = weaponState.currentIndex;
+ 421 |   const needed = weapon.magSize - weaponState.ammo[idx];
+ 422 |   const available = Math.min(needed, weaponState.reserves[idx]);
+ 423 |   weaponState.ammo[idx] += available;
+ 424 |   weaponState.reserves[idx] -= available;
+ 425 |   weaponState.reloading = false;
+ 426 |   updateHUD();
+ 427 | }
+ 428 | 
+ 429 | function shoot() {
+ 430 |   if (!playerState.alive) return false;
+ 431 |   if (weaponState.reloading) return false;
+ 432 |   
+ 433 |   const now = performance.now() / 1000;
+ 434 |   const weapon = getCurrentWeapon();
+ 435 |   
+ 436 |   if (now - weaponState.lastFireTime < weapon.fireRate) return false;
+ 437 |   
+ 438 |   if (weaponState.ammo[weaponState.currentIndex] <= 0) {
+ 439 |     startReload();
+ 440 |     return false;
+ 441 |   }
+ 442 |   
+ 443 |   weaponState.ammo[weaponState.currentIndex]--;
+ 444 |   weaponState.lastFireTime = now;
+ 445 |   
+ 446 |   if (weaponState.ammo[weaponState.currentIndex] <= 0 && weaponState.reserves[weaponState.currentIndex] > 0) {
+ 447 |     startReload();
+ 448 |   }
+ 449 |   
+ 450 |   updateHUD();
+ 451 |   
+ 452 |   // 后坐力动画
+ 453 |   applyRecoil();
+ 454 |   
+ 455 |   // 射线检测
+ 456 |   const rayOrigin = new THREE.Vector3();
+ 457 |   camera.getWorldPosition(rayOrigin);
+ 458 |   // 准星稍微下移模拟枪口高度
+ 459 |   rayOrigin.y -= 0.15;
+ 460 |   
+ 461 |   const rayDirection = new THREE.Vector3();
+ 462 |   camera.getWorldDirection(rayDirection);
+ 463 |   // 应用散布
+ 464 |   const spread = weapon.spread;
+ 465 |   if (spread > 0) {
+ 466 |     rayDirection.x += (Math.random() - 0.5) * spread * 2;
+ 467 |     rayDirection.y += (Math.random() - 0.5) * spread * 2;
+ 468 |     rayDirection.z += (Math.random() - 0.5) * spread * 2;
+ 469 |     rayDirection.normalize();
+ 470 |   }
+ 471 |   
+ 472 |   const raycaster = new THREE.Raycaster(rayOrigin, rayDirection, 0, 100);
+ 473 |   
+ 474 |   // 检查击中敌人
+ 475 |   const enemyMeshes = enemies.map(e => e.mesh);
+ 476 |   const intersects = raycaster.intersectObjects(enemyMeshes, true);
+ 477 |   
+ 478 |   if (intersects.length > 0) {
+ 479 |     let hitObj = intersects[0].object;
+ 480 |     // 向上查找敌人组

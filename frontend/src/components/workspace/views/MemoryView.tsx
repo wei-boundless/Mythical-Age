@@ -149,15 +149,6 @@ function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
 }
 
-function contextUsageRatio(tokenStats: TokenStats) {
-  const rawContextRatio = tokenStats.context_meter?.current_context_ratio;
-  const contextRatio = Number(rawContextRatio);
-  if (rawContextRatio !== undefined && rawContextRatio !== null && Number.isFinite(contextRatio)) {
-    return contextRatio;
-  }
-  return Number(tokenStats.history_usage_ratio || 0);
-}
-
 function currentContextTokenCount(tokenStats: TokenStats) {
   const rawCurrent = tokenStats.context_meter?.current_context_tokens;
   const current = Number(rawCurrent);

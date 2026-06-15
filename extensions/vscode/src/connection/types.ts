@@ -61,3 +61,19 @@ export type ChatRunResponse = {
   stream_url?: string;
   status?: string;
 };
+
+export type VSCodeCommand = {
+  command_id?: string;
+  type?: string;
+  left_uri?: string;
+  right_uri?: string;
+  title?: string;
+  record_id?: string;
+};
+
+export type VSCodeCommandPollResponse = {
+  session_id: string;
+  status: "ok" | "empty" | string;
+  command?: VSCodeCommand | null;
+  commands?: VSCodeCommand[];
+};

@@ -14,6 +14,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from api import file_changes as file_changes_api
+from api import vscode as vscode_api
+from integrations.vscode_connection.context_store import VSCodeConnectionStore
 from project_layout import ProjectLayout
 from runtime.file_changes import FileChangeTracker
 
@@ -115,6 +117,44 @@ def test_file_changes_api_rollback_restores_previous_content(tmp_path: Path, mon
     assert (tmp_path / "src" / "app.txt").read_text(encoding="utf-8") == "before"
 
 
+def test_vscode_file_change_diff_open_enqueues_native_diff_command(tmp_path: Path, monkeypatch) -> None:
+    session_id = "session-api"
+    session_manager = _SessionManagerStub(tmp_path)
+    runtime = SimpleNamespace(base_dir=tmp_path, session_manager=session_manager)
+    store = VSCodeConnectionStore()
+    record = _record_change(FileChangeTracker(tmp_path), tmp_path, session_id=session_id)
+    store.record_context(
+        session_manager=session_manager,
+        session_id=session_id,
+        editor_context={
+            "source": "vscode",
+            "workspace_roots": [str(tmp_path)],
+            "visible_files": [],
+            "diagnostics": [],
+            "limits": {},
+        },
+    )
+    monkeypatch.setattr(vscode_api, "require_runtime", lambda: runtime)
+    monkeypatch.setattr(vscode_api, "get_vscode_connection_store", lambda: store)
+
+    payload = asyncio.run(
+        vscode_api.open_file_change_diff_in_vscode(
+            session_id,
+            vscode_api.VSCodeOpenFileChangeDiffRequest(record_id=record["record_id"]),
+        )
+    )
+    next_command = asyncio.run(vscode_api.next_vscode_command(session_id))
+    empty = asyncio.run(vscode_api.next_vscode_command(session_id))
+
+    assert payload["authority"] == "api.vscode.open_file_change_diff"
+    assert next_command["status"] == "ok"
+    assert next_command["command"]["type"] == "open_diff"
+    assert next_command["command"]["left_uri"] == record["before_uri"]
+    assert next_command["command"]["right_uri"] == record["after_uri"]
+    assert next_command["command"]["title"] == "src/app.txt"
+    assert empty["status"] == "empty"
+
+
 def _record_change(
     tracker: FileChangeTracker,
     workspace_root: Path,
@@ -138,3 +178,14 @@ def _record_change(
         before_content="before",
         after_content="after",
     )
+
+
+class _SessionManagerStub:
+    def __init__(self, workspace_root: Path) -> None:
+        self.workspace_root = str(workspace_root)
+
+    def get_project_binding(self, session_id: str) -> dict:
+        return {"workspace_root": self.workspace_root, "source": "vscode"}
+
+    def bind_project(self, session_id: str, *, workspace_root: str, source: str) -> dict:
+        return {"workspace_root": self.workspace_root, "source": source}

@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createChatRun = createChatRun;
 exports.postEditorContext = postEditorContext;
+exports.pollNextCommand = pollNextCommand;
 exports.configuredSessionId = configuredSessionId;
 exports.createSession = createSession;
 exports.sessionExists = sessionExists;
@@ -68,6 +69,17 @@ async function postEditorContext(sessionId, snapshot) {
         const text = await response.text().catch(() => "");
         throw new Error(`VS Code context update failed: ${response.status} ${text}`.trim());
     }
+}
+async function pollNextCommand(sessionId) {
+    const apiBase = normalizedApiBase();
+    const response = await fetch(`${apiBase}/vscode/sessions/${encodeURIComponent(sessionId)}/commands/next`, {
+        method: "GET"
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`VS Code command poll failed: ${response.status} ${text}`.trim());
+    }
+    return (await response.json());
 }
 function configuredSessionId() {
     const configured = vscode.workspace.getConfiguration("langchainAgent").get("sessionId");

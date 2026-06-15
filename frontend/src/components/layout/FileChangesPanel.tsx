@@ -1,14 +1,13 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, FileClock, GitCompare, RefreshCw, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileClock, GitCompare, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import {
-  getFileChangeDiff,
   listFileChanges,
+  openFileChangeDiffInVSCode,
   rollbackFileChange,
-  type FileChangeDiff,
   type FileChangeRecord,
 } from "@/lib/api";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
@@ -44,24 +43,10 @@ function changeStatusIcon(record: FileChangeRecord) {
   return <FileClock size={14} />;
 }
 
-function splitDiffLines(value: string) {
-  const normalized = String(value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return normalized.length ? normalized.split("\n") : [""];
-}
-
-type DiffLineState = "context" | "deleted" | "added";
-
-type DiffLine = {
-  text: string;
-  lineNumber: number;
-  state: DiffLineState;
-};
-
 export function FileChangesPanel() {
   const confirm = useConfirmDialog();
   const { activeStreamSessionIds, currentSessionId, sessions } = useAppStore();
   const [records, setRecords] = useState<FileChangeRecord[]>([]);
-  const [diffPreview, setDiffPreview] = useState<{ record: FileChangeRecord; diff: FileChangeDiff } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -94,11 +79,6 @@ export function FileChangesPanel() {
       const payload = await listFileChanges({ sessionId: currentSessionId, limit: 40 });
       const nextRecords = Array.isArray(payload.records) ? payload.records : [];
       setRecords(nextRecords);
-      setDiffPreview((current) => {
-        if (!current) return current;
-        const nextRecord = nextRecords.find((record) => record.record_id === current.record.record_id);
-        return nextRecord ? { ...current, record: nextRecord } : null;
-      });
       setError("");
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : "文件变更读取失败。");
@@ -120,13 +100,16 @@ export function FileChangesPanel() {
   }, [currentSessionId, refresh, sessionActive]);
 
   async function handleOpenDiff(record: FileChangeRecord) {
+    if (!currentSessionId) {
+      setError("选择会话后才能打开 VS Code Diff。");
+      return;
+    }
     setActionLoading(`diff:${record.record_id}`);
     try {
-      const payload = await getFileChangeDiff(record.record_id);
-      setDiffPreview({ record, diff: payload.diff });
+      await openFileChangeDiffInVSCode(currentSessionId, record.record_id);
       setError("");
     } catch (openError) {
-      setError(openError instanceof Error ? openError.message : "无法打开页面 Diff。");
+      setError(openError instanceof Error ? openError.message : "无法在 VS Code 打开 Diff。");
     } finally {
       setActionLoading("");
     }
@@ -144,7 +127,6 @@ export function FileChangesPanel() {
     try {
       const payload = await rollbackFileChange(record.record_id);
       setRecords((current) => current.map((item) => item.record_id === record.record_id ? payload.record : item));
-      setDiffPreview((current) => current?.record.record_id === record.record_id ? { ...current, record: payload.record } : current);
       setError("");
     } catch (rollbackError) {
       setError(rollbackError instanceof Error ? rollbackError.message : "回滚失败。");
@@ -170,30 +152,6 @@ export function FileChangesPanel() {
           <AlertTriangle size={15} />
           <span>{error}</span>
         </div>
-      ) : null}
-
-      {diffPreview ? (
-        <section className="file-diff-preview" aria-label="文件 Diff 预览">
-          <header className="file-diff-preview__head">
-            <div>
-              <span>Diff</span>
-              <strong title={displayPath(diffPreview.record)}>{displayPath(diffPreview.record)}</strong>
-            </div>
-            <button aria-label="关闭 Diff 预览" onClick={() => setDiffPreview(null)} type="button">
-              <X size={15} />
-            </button>
-          </header>
-          {diffPreview.diff.truncated ? (
-            <div className="file-diff-preview__warning">
-              <AlertTriangle size={14} />
-              <span>内容过大，已截断显示。</span>
-            </div>
-          ) : null}
-          <div className="file-diff-preview__grid">
-            <DiffPane label={diffPreview.diff.before_exists ? "修改前" : "新增前"} lines={markDiffLines(splitDiffLines(diffPreview.diff.before_content), diffPreview.diff.before_exists ? "deleted" : "context")} tone="before" />
-            <DiffPane label={diffPreview.diff.after_exists ? "修改后" : "删除后"} lines={markDiffLines(splitDiffLines(diffPreview.diff.after_content), diffPreview.diff.after_exists ? "added" : "context")} tone="after" />
-          </div>
-        </section>
       ) : null}
 
       <div className="file-changes-list">
@@ -244,26 +202,5 @@ export function FileChangesPanel() {
         )}
       </div>
     </section>
-  );
-}
-
-function markDiffLines(lines: string[], state: DiffLineState): DiffLine[] {
-  return lines.map((line, index) => ({ text: line, lineNumber: index + 1, state }));
-}
-
-function DiffPane({ label, lines, tone }: { label: string; lines: DiffLine[]; tone: "before" | "after" }) {
-  return (
-    <div className={`file-diff-pane file-diff-pane--${tone}`}>
-      <header>{label}</header>
-      <pre>
-        {lines.map((line, index) => (
-          <span className={`file-diff-pane__line file-diff-pane__line--${line.state}`} key={`${tone}-${line.lineNumber}-${index}`}>
-            <b aria-hidden="true">{line.state === "deleted" ? "-" : line.state === "added" ? "+" : ""}</b>
-            <em>{line.lineNumber}</em>
-            <code>{line.text || " "}</code>
-          </span>
-        ))}
-      </pre>
-    </div>
   );
 }

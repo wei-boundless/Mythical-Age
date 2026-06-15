@@ -24,10 +24,12 @@ from prompt_composition import (
     build_content_fragments_from_message_specs,
     build_model_message_spec as _message_spec,
     build_runtime_context_load_plan,
+    build_runtime_prompt_source_manifest,
     build_runtime_payload_message_spec as _runtime_payload_spec,
     build_runtime_prompt_slot_plan,
     build_runtime_slot_prompt_composition_manifest,
     materialize_runtime_context_load_plan,
+    materialize_runtime_prompt_sources,
     render_agent_prompt_instruction,
     render_environment_instruction,
     render_lifecycle_instruction,
@@ -196,7 +198,7 @@ class RuntimeCompiler:
             "authority": "harness.runtime.semantic_compaction.stable_boundary",
         }
         packet_id = f"rtpacket:{request_id}:semantic_compaction:1"
-        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind=invocation_kind,
             specs=[
@@ -271,6 +273,8 @@ class RuntimeCompiler:
             "rendered_prompt_refs": list(prompt_manifest["rendered_prompt_refs"]),
         }
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
+        prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -564,7 +568,7 @@ class RuntimeCompiler:
             dynamic_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
             specs=[
@@ -757,6 +761,8 @@ class RuntimeCompiler:
             volatile_state_refs=single_turn_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
+        prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -1107,7 +1113,7 @@ class RuntimeCompiler:
         bound_task_runtime_context_payload = bound_task_context.to_runtime_model_visible_payload()
         task_state_replay_specs = _task_state_replay_message_specs(dynamic_context.task_state_replay_entries)
         user_steering_payload = _user_steering_updates_payload(execution_state)
-        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
             specs=[
@@ -1462,6 +1468,8 @@ class RuntimeCompiler:
             volatile_state_refs=task_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
+        prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -1691,7 +1699,7 @@ class RuntimeCompiler:
             dynamic_payload["memory_context"] = memory_context_payload
         volatile_payload = dict(dynamic_context.volatile_request_projection or {})
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
-        model_messages, segment_plan, message_specs, slot_plan, context_load_plan = _model_messages_and_segment_plan(
+        model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
             specs=[
@@ -1853,6 +1861,8 @@ class RuntimeCompiler:
             volatile_state_refs=observation_volatile_refs,
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
+        prompt_manifest["runtime_prompt_source_manifest_ref"] = source_manifest.manifest_id
+        prompt_manifest["runtime_prompt_sources"] = source_manifest.to_dict()
         prompt_manifest["prompt_slot_plan_ref"] = slot_plan.plan_id
         prompt_manifest["prompt_slot_plan"] = slot_plan.to_dict()
         prompt_manifest["runtime_context_load_plan_ref"] = context_load_plan.plan_id
@@ -3113,7 +3123,7 @@ def _model_messages_and_segment_plan(
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     enforce_dynamic_context_reports: bool = False,
-) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any]:
+) -> tuple[list[dict[str, Any]], Any, tuple[dict[str, Any], ...], Any, Any, Any]:
     clean_specs: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
@@ -3126,10 +3136,16 @@ def _model_messages_and_segment_plan(
         spec["content"] = str(model_message.get("content") or spec.get("content") or "")
         spec["model_message"] = model_message
         clean_specs.append(spec)
-    slot_plan = build_runtime_prompt_slot_plan(
+    source_manifest = build_runtime_prompt_source_manifest(
         packet_id=packet_id,
         invocation_kind=invocation_kind,
         message_specs=clean_specs,
+    )
+    source_specs = [dict(item) for item in materialize_runtime_prompt_sources(source_manifest)]
+    slot_plan = build_runtime_prompt_slot_plan(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=source_specs,
     )
     load_plan = build_runtime_context_load_plan(slot_plan)
     clean_specs = [dict(item) for item in materialize_runtime_context_load_plan(load_plan)]
@@ -3142,7 +3158,7 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
         enforce_dynamic_context_reports=enforce_dynamic_context_reports,
     )
-    return model_messages, segment_plan, tuple(clean_specs), slot_plan, load_plan
+    return model_messages, segment_plan, tuple(clean_specs), source_manifest, slot_plan, load_plan
 
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:

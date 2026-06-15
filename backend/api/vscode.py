@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from integrations.vscode_connection import get_vscode_connection_store
 from integrations.vscode_connection.models import VSCodeConnectionConflict
+from runtime.file_changes import FileChangeMissing, FileChangeTracker
 
 router = APIRouter()
 
@@ -25,6 +26,10 @@ class VSCodeContextRequest(BaseModel):
 
 class VSCodeSessionResolveRequest(BaseModel):
     workspace_roots: list[str] = Field(default_factory=list)
+
+
+class VSCodeOpenFileChangeDiffRequest(BaseModel):
+    record_id: str = Field(max_length=240)
 
 
 @router.post("/vscode/sessions/resolve")
@@ -81,10 +86,55 @@ async def vscode_connection_status(session_id: str) -> dict[str, Any]:
 
 @router.get("/vscode/sessions/{session_id}/commands/next")
 async def next_vscode_command(session_id: str) -> dict[str, Any]:
+    command = await asyncio.to_thread(get_vscode_connection_store().pop_next_command, session_id)
+    if command:
+        return {
+            "session_id": session_id,
+            "status": "ok",
+            "command": command,
+            "commands": [command],
+            "authority": "api.vscode.command_poll",
+        }
     return {
         "session_id": session_id,
         "status": "empty",
-        "command": "",
+        "command": None,
         "commands": [],
-        "authority": "api.vscode.legacy_command_poll",
+        "authority": "api.vscode.command_poll",
+    }
+
+
+@router.post("/vscode/sessions/{session_id}/file-change-diffs/open")
+async def open_file_change_diff_in_vscode(session_id: str, payload: VSCodeOpenFileChangeDiffRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    connection_store = get_vscode_connection_store()
+    status = await asyncio.to_thread(connection_store.status, session_id, session_manager=runtime.session_manager)
+    if not status.connected or status.stale:
+        raise HTTPException(status_code=409, detail="VS Code connection is not active")
+    try:
+        record = await asyncio.to_thread(FileChangeTracker(runtime.base_dir).require_record, payload.record_id)
+    except FileChangeMissing as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if str(record.get("session_id") or "") != str(session_id or "").strip():
+        raise HTTPException(status_code=409, detail="file change record does not belong to this session")
+    before_uri = str(record.get("before_uri") or "").strip()
+    after_uri = str(record.get("after_uri") or "").strip()
+    if not before_uri or not after_uri:
+        raise HTTPException(status_code=409, detail="file change snapshots are not available")
+    command = await asyncio.to_thread(
+        connection_store.enqueue_command,
+        session_id=session_id,
+        command={
+            "type": "open_diff",
+            "left_uri": before_uri,
+            "right_uri": after_uri,
+            "title": str(record.get("logical_path") or record.get("record_id") or "File change"),
+            "record_id": str(record.get("record_id") or ""),
+        },
+    )
+    return {
+        "ok": True,
+        "command": command,
+        "connection_status": status.to_dict(),
+        "authority": "api.vscode.open_file_change_diff",
     }

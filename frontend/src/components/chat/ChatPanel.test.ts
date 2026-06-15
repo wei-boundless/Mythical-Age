@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chatMessageRenderKeys, sessionContextPressurePresentation, shouldSuppressSessionActivityBar } from "./ChatPanel";
+import { chatMessageRenderKeys, sessionContextMeterPresentation, shouldSuppressSessionActivityBar } from "./ChatPanel";
 import type { Message, MessagePublicProjection, TokenStats } from "@/lib/store/types";
 
 function publicProjection(patch: Partial<MessagePublicProjection>): MessagePublicProjection {
@@ -95,8 +95,8 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("shows model context window usage even when pressure is normal", () => {
-    expect(sessionContextPressurePresentation(tokenStats({
+  it("shows current context usage against the auto-compaction threshold", () => {
+    expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.03,
         current_context_tokens: 34000,
@@ -111,16 +111,16 @@ describe("ChatPanel", () => {
       cumulative_transcript_tokens: 52000,
     }))).toEqual({
       label: "上下文",
-      usedPercent: 3,
-      pressurePercentText: "3%",
-      tokenRatioText: "34.0K/1.00M",
-      title: "当前模型上下文 34,000/1,000,000 tokens；窗口占比 3%；自动压缩阈值 900,000 tokens；当前上下文压力 34,000 tokens；距自动压缩还剩 866,000 tokens；阈值占比 4%；达到阈值会触发自动压缩",
+      usedPercent: 4,
+      thresholdPercentText: "4%",
+      tokenRatioText: "34.0K/900.0K",
+      title: "当前上下文 34,000 tokens；自动压缩阈值 900,000 tokens；阈值占比 4%；模型窗口 1,000,000 tokens；距自动压缩还剩 866,000 tokens",
       levelClass: "normal",
     });
   });
 
-  it("includes context recovery package freshness in the pressure title", () => {
-    expect(sessionContextPressurePresentation(tokenStats({
+  it("does not mix recovery package status into the context threshold meter", () => {
+    expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_tokens: 34000,
         compaction_pressure_tokens: 34000,
@@ -135,14 +135,14 @@ describe("ChatPanel", () => {
         source: "agent:1",
         covered_message_count: 4,
       },
-    })).title).toContain("恢复包 fresh；恢复包来源 agent:1；恢复包覆盖 4 条消息");
+    })).title).not.toContain("恢复包");
   });
 
   it("keeps the context status slot visible while token stats are loading", () => {
-    expect(sessionContextPressurePresentation(null)).toEqual({
+    expect(sessionContextMeterPresentation(null)).toEqual({
       label: "上下文",
       usedPercent: 0,
-      pressurePercentText: "--",
+      thresholdPercentText: "--",
       tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
@@ -150,7 +150,7 @@ describe("ChatPanel", () => {
   });
 
   it("does not fall back to history budget when context meter is missing", () => {
-    expect(sessionContextPressurePresentation(tokenStats({
+    expect(sessionContextMeterPresentation(tokenStats({
       history_tokens: 800,
       history_budget_tokens: 1000,
       history_usage_ratio: 0.8,
@@ -158,7 +158,7 @@ describe("ChatPanel", () => {
     }))).toEqual({
       label: "上下文",
       usedPercent: 0,
-      pressurePercentText: "--",
+      thresholdPercentText: "--",
       tokenRatioText: "--",
       title: "正在读取当前 session 上下文状态",
       levelClass: "pending",
@@ -177,8 +177,8 @@ describe("ChatPanel", () => {
     ]);
   });
 
-  it("keeps compaction pressure in the title when visible context usage is lower", () => {
-    expect(sessionContextPressurePresentation(tokenStats({
+  it("uses current context rather than internal compaction pressure for the user meter", () => {
+    expect(sessionContextMeterPresentation(tokenStats({
       context_meter: {
         current_context_ratio: 0.012598,
         current_context_tokens: 12598,
@@ -193,9 +193,9 @@ describe("ChatPanel", () => {
     }))).toEqual({
       label: "上下文",
       usedPercent: 1,
-      pressurePercentText: "1%",
-      tokenRatioText: "12.6K/1.00M",
-      title: "当前模型上下文 12,598/1,000,000 tokens；窗口占比 1%；自动压缩阈值 850,000 tokens；压缩压力按较高观测值计为 41,444 tokens；距自动压缩还剩 808,556 tokens；阈值占比 5%；达到阈值会触发自动压缩",
+      thresholdPercentText: "1%",
+      tokenRatioText: "12.6K/850.0K",
+      title: "当前上下文 12,598 tokens；自动压缩阈值 850,000 tokens；阈值占比 1%；模型窗口 1,000,000 tokens；距自动压缩还剩 837,402 tokens",
       levelClass: "normal",
     });
   });

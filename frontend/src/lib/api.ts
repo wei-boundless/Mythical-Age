@@ -584,19 +584,6 @@ export type FileChangeRecord = {
   authority?: string;
 };
 
-export type FileChangeDiff = {
-  diff_id: string;
-  logical_path: string;
-  before_exists: boolean;
-  after_exists: boolean;
-  before_content: string;
-  after_content: string;
-  before_sha256: string;
-  after_sha256: string;
-  truncated?: boolean;
-  metadata?: Record<string, unknown>;
-};
-
 export type CodeEnvironmentGitStatus = {
   authority: string;
   available: boolean;
@@ -4563,11 +4550,23 @@ export async function listFileChanges(params: { sessionId?: string; taskRunId?: 
   }>(`/file-changes${query.toString() ? `?${query.toString()}` : ""}`);
 }
 
-export async function getFileChangeDiff(recordId: string) {
+export async function openFileChangeDiffInVSCode(sessionId: string, recordId: string) {
   return request<{
-    diff: FileChangeDiff;
+    ok: boolean;
+    command?: {
+      command_id?: string;
+      type?: string;
+      left_uri?: string;
+      right_uri?: string;
+      title?: string;
+      record_id?: string;
+    };
+    connection_status?: { connected?: boolean; stale?: boolean };
     authority: string;
-  }>(`/file-changes/${encodeURIComponent(recordId)}/diff`);
+  }>(`/vscode/sessions/${encodeURIComponent(sessionId)}/file-change-diffs/open`, {
+    method: "POST",
+    body: JSON.stringify({ record_id: recordId }),
+  });
 }
 
 export async function rollbackFileChange(recordId: string, options: { force?: boolean } = {}) {

@@ -1,0 +1,240 @@
+ 721 | }
+ 722 | 
+ 723 | function checkWaveComplete() {
+ 724 |   if (!waveActive) return;
+ 725 |   if (enemies.length > 0) return;
+ 726 |   
+ 727 |   waveActive = false;
+ 728 |   playerState.wave++;
+ 729 |   updateHUD();
+ 730 |   
+ 731 |   // 短暂延迟后生成下一波
+ 732 |   setTimeout(() => {
+ 733 |     if (playerState.alive) {
+ 734 |       spawnWave();
+ 735 |     }
+ 736 |   }, 2000);
+ 737 | }
+ 738 | 
+ 739 | // ===== 物理/碰撞 =====
+ 740 | const GRAVITY = 25;
+ 741 | const JUMP_FORCE = 10;
+ 742 | const WALK_SPEED = 6;
+ 743 | const RUN_SPEED = 12;
+ 744 | 
+ 745 | function updatePlayerMovement(deltaTime) {
+ 746 |   if (!playerState.alive || !controls.isLocked) return;
+ 747 |   
+ 748 |   const dt = Math.min(deltaTime, 0.1);
+ 749 |   
+ 750 |   // 重力
+ 751 |   playerState.velocity.y -= GRAVITY * dt;
+ 752 |   
+ 753 |   // 移动输入
+ 754 |   const speed = keys['shift'] ? RUN_SPEED : WALK_SPEED;
+ 755 |   playerState.isRunning = keys['shift'] && (keys['w'] || keys['a'] || keys['s'] || keys['d']);
+ 756 |   
+ 757 |   const moveDir = new THREE.Vector3();
+ 758 |   if (keys['w']) moveDir.z -= 1;
+ 759 |   if (keys['s']) moveDir.z += 1;
+ 760 |   if (keys['a']) moveDir.x -= 1;
+ 761 |   if (keys['d']) moveDir.x += 1;
+ 762 |   
+ 763 |   if (moveDir.length() > 0) {
+ 764 |     moveDir.normalize();
+ 765 |     // 转换为世界方向
+ 766 |     const forward = new THREE.Vector3();
+ 767 |     camera.getWorldDirection(forward);
+ 768 |     forward.y = 0;
+ 769 |     forward.normalize();
+ 770 |     const right = new THREE.Vector3();
+ 771 |     right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+ 772 |     
+ 773 |     const worldMove = new THREE.Vector3();
+ 774 |     worldMove.addScaledVector(forward, -moveDir.z);
+ 775 |     worldMove.addScaledVector(right, moveDir.x);
+ 776 |     worldMove.normalize();
+ 777 |     
+ 778 |     playerState.velocity.x = worldMove.x * speed;
+ 779 |     playerState.velocity.z = worldMove.z * speed;
+ 780 |   } else {
+ 781 |     // 摩擦力
+ 782 |     playerState.velocity.x *= 0.85;
+ 783 |     playerState.velocity.z *= 0.85;
+ 784 |   }
+ 785 |   
+ 786 |   // 跳跃
+ 787 |   if (keys[' '] && playerState.onGround) {
+ 788 |     playerState.velocity.y = JUMP_FORCE;
+ 789 |     playerState.onGround = false;
+ 790 |   }
+ 791 |   
+ 792 |   // 碰撞检测与位置更新
+ 793 |   const pos = camera.position.clone();
+ 794 |   
+ 795 |   // 水平移动（碰撞）
+ 796 |   const horizontalMove = new THREE.Vector3(
+ 797 |     playerState.velocity.x * dt,
+ 798 |     0,
+ 799 |     playerState.velocity.z * dt
+ 800 |   );
+ 801 |   
+ 802 |   const newPos = pos.clone().add(horizontalMove);
+ 803 |   const playerBox = new THREE.Box3(
+ 804 |     new THREE.Vector3(newPos.x - PLAYER_RADIUS, pos.y, newPos.z - PLAYER_RADIUS),
+ 805 |     new THREE.Vector3(newPos.x + PLAYER_RADIUS, pos.y + PLAYER_HEIGHT, newPos.z + PLAYER_RADIUS)
+ 806 |   );
+ 807 |   
+ 808 |   // 检查碰撞
+ 809 |   let collisionX = false;
+ 810 |   let collisionZ = false;
+ 811 |   
+ 812 |   for (const collider of allColliders) {
+ 813 |     if (playerBox.intersectsBox(collider)) {
+ 814 |       // 轴向分离
+ 815 |       const overlapX = Math.min(
+ 816 |         playerBox.max.x - collider.min.x,
+ 817 |         collider.max.x - playerBox.min.x
+ 818 |       );
+ 819 |       const overlapZ = Math.min(
+ 820 |         playerBox.max.z - collider.min.z,
+ 821 |         collider.max.z - playerBox.min.z
+ 822 |       );
+ 823 |       
+ 824 |       if (Math.abs(horizontalMove.x) > Math.abs(horizontalMove.z)) {
+ 825 |         collisionX = true;
+ 826 |       } else {
+ 827 |         collisionZ = true;
+ 828 |       }
+ 829 |     }
+ 830 |   }
+ 831 |   
+ 832 |   if (!collisionX) camera.position.x = newPos.x;
+ 833 |   if (!collisionZ) camera.position.z = newPos.z;
+ 834 |   
+ 835 |   // 垂直移动
+ 836 |   const verticalMove = playerState.velocity.y * dt;
+ 837 |   camera.position.y += verticalMove;
+ 838 |   
+ 839 |   // 地面检测
+ 840 |   if (camera.position.y <= PLAYER_HEIGHT) {
+ 841 |     camera.position.y = PLAYER_HEIGHT;
+ 842 |     playerState.velocity.y = 0;
+ 843 |     playerState.onGround = true;
+ 844 |   } else {
+ 845 |     playerState.onGround = false;
+ 846 |   }
+ 847 |   
+ 848 |   // 地图边界限制
+ 849 |   camera.position.x = Math.max(-28, Math.min(28, camera.position.x));
+ 850 |   camera.position.z = Math.max(-28, Math.min(28, camera.position.z));
+ 851 |   if (camera.position.y > 3.8) camera.position.y = 3.8;
+ 852 |   
+ 853 |   // 头部摆动（使用绝对偏移而非累加，避免视角抖动）
+ 854 |   if (playerState.isRunning && playerState.onGround) {
+ 855 |     camera.position.y = PLAYER_HEIGHT + Math.sin(performance.now() * 0.015) * 0.04;
+ 856 |   }
+ 857 |   
+ 858 |   // 后坐力恢复（使用手动视角系统，避免与 PointerLockControls 冲突）
+ 859 |   if (recoilAmount > 0) {
+ 860 |     viewEuler.x -= recoilAmount;
+ 861 |     recoilAmount *= 0.8;
+ 862 |     viewEuler.x = Math.max(MIN_PITCH, Math.min(MAX_PITCH, viewEuler.x));
+ 863 |     camera.quaternion.setFromEuler(viewEuler);
+ 864 |   }
+ 865 | }
+ 866 | 
+ 867 | // ===== 敌人 AI =====
+ 868 | function updateEnemyAI(deltaTime) {
+ 869 |   if (!playerState.alive) return;
+ 870 |   
+ 871 |   const playerPos = new THREE.Vector3();
+ 872 |   camera.getWorldPosition(playerPos);
+ 873 |   const playerDir = new THREE.Vector3();
+ 874 |   camera.getWorldDirection(playerDir);
+ 875 |   
+ 876 |   for (const enemy of enemies) {
+ 877 |     const dt = Math.min(deltaTime, 0.1);
+ 878 |     const enemyPos = enemy.mesh.position.clone();
+ 879 |     const distToPlayer = enemyPos.distanceTo(playerPos);
+ 880 |     
+ 881 |     // 更新攻击冷却
+ 882 |     enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
+ 883 |     enemy.stateTimer += dt;
+ 884 |     
+ 885 |     // 检测玩家
+ 886 |     const toPlayer = playerPos.clone().sub(enemyPos);
+ 887 |     toPlayer.y = 0;
+ 888 |     const distXZ = toPlayer.length();
+ 889 |     
+ 890 |     let canSeePlayer = false;
+ 891 |     if (distXZ < enemy.detectionRange) {
+ 892 |       // 视线检测
+ 893 |       const lookDir = new THREE.Vector3(0, 0, -1);
+ 894 |       lookDir.applyQuaternion(enemy.mesh.quaternion);
+ 895 |       lookDir.y = 0;
+ 896 |       lookDir.normalize();
+ 897 |       
+ 898 |       const toPlayerDir = toPlayer.clone().normalize();
+ 899 |       const dot = lookDir.dot(toPlayerDir);
+ 900 |       
+ 901 |       if (dot > Math.cos(enemy.fov / 2) || distXZ < 3) {
+ 902 |         // 射线检测有无遮挡
+ 903 |         const rayOrigin = enemyPos.clone();
+ 904 |         rayOrigin.y += 1.2;
+ 905 |         const rayDir = playerPos.clone().sub(rayOrigin).normalize();
+ 906 |         const raycaster = new THREE.Raycaster(rayOrigin, rayDir, 0, distToPlayer + 1);
+ 907 |         const obstaclesForRay = [];
+ 908 |         mapGroup.children.forEach(c => {
+ 909 |           if (c !== floor && c !== ceiling && !c.userData.enemyId) {
+ 910 |             obstaclesForRay.push(c);
+ 911 |           }
+ 912 |         });
+ 913 |         const intersects = raycaster.intersectObjects(obstaclesForRay);
+ 914 |         canSeePlayer = intersects.length === 0 || intersects[0].distance > distToPlayer - 0.5;
+ 915 |       }
+ 916 |     }
+ 917 |     
+ 918 |     // 状态机
+ 919 |     switch (enemy.state) {
+ 920 |       case ENEMY_STATES.PATROL:
+ 921 |         if (canSeePlayer) {
+ 922 |           enemy.state = ENEMY_STATES.CHASE;
+ 923 |           enemy.lastKnownPlayerPos = playerPos.clone();
+ 924 |           enemy.stateTimer = 0;
+ 925 |         } else {
+ 926 |           // 巡逻移动
+ 927 |           const toTarget = enemy.patrolTarget.clone().sub(enemyPos);
+ 928 |           const targetDist = toTarget.length();
+ 929 |           if (targetDist < 0.5) {
+ 930 |             enemy.patrolWaitTimer += dt;
+ 931 |             if (enemy.patrolWaitTimer > 2) {
+ 932 |               enemy.patrolTarget = getRandomPatrolPoint(enemyPos);
+ 933 |               enemy.patrolWaitTimer = 0;
+ 934 |             }
+ 935 |           } else {
+ 936 |             toTarget.normalize();
+ 937 |             const moveAmount = enemy.speed * 0.5 * dt;
+ 938 |             enemyPos.x += toTarget.x * moveAmount;
+ 939 |             enemyPos.z += toTarget.z * moveAmount;
+ 940 |             // 面向移动方向
+ 941 |             enemy.mesh.lookAt(enemyPos.x + toTarget.x, enemyPos.y, enemyPos.z + toTarget.z);
+ 942 |           }
+ 943 |         }
+ 944 |         break;
+ 945 |         
+ 946 |       case ENEMY_STATES.CHASE:
+ 947 |         if (!canSeePlayer && enemy.stateTimer > 3) {
+ 948 |           enemy.state = ENEMY_STATES.LOST;
+ 949 |           enemy.stateTimer = 0;
+ 950 |         } else if (canSeePlayer) {
+ 951 |           enemy.lastKnownPlayerPos = playerPos.clone();
+ 952 |           // 追击
+ 953 |           const chaseDir = toPlayer.clone().normalize();
+ 954 |           const moveAmount = enemy.speed * dt;
+ 955 |           if (distXZ > 1.8) {
+ 956 |             enemyPos.x += chaseDir.x * moveAmount;
+ 957 |             enemyPos.z += chaseDir.z * moveAmount;
+ 958 |           }
+ 959 |           enemy.mesh.lookAt(playerPos);
+ 960 |           

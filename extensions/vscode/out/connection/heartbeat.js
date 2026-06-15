@@ -39,11 +39,15 @@ const apiClient_1 = require("./apiClient");
 const editorContext_1 = require("./editorContext");
 const sessionBinding_1 = require("./sessionBinding");
 const HEARTBEAT_INTERVAL_MS = 15000;
+const COMMAND_POLL_INTERVAL_MS = 1500;
 const DEBOUNCE_MS = 800;
 function startContextHeartbeat(context, output) {
     let disposed = false;
     let debounceTimer;
     const interval = setInterval(() => schedulePublish(), HEARTBEAT_INTERVAL_MS);
+    const commandInterval = setInterval(() => {
+        void pollCommands();
+    }, COMMAND_POLL_INTERVAL_MS);
     const subscriptions = [
         vscode.window.onDidChangeActiveTextEditor(() => schedulePublish()),
         vscode.window.onDidChangeVisibleTextEditors(() => schedulePublish()),
@@ -79,10 +83,33 @@ function startContextHeartbeat(context, output) {
             output.appendLine(text);
         }
     }
+    async function pollCommands() {
+        if (disposed) {
+            return;
+        }
+        try {
+            const snapshot = (0, editorContext_1.collectEditorContext)();
+            const sessionId = await (0, sessionBinding_1.resolveSessionId)(context, snapshot, { createIfMissing: false });
+            if (!sessionId) {
+                return;
+            }
+            const payload = await (0, apiClient_1.pollNextCommand)(sessionId);
+            const commands = payload.command ? [payload.command] : (payload.commands || []);
+            for (const command of commands) {
+                await executeCommand(command, output);
+            }
+        }
+        catch (error) {
+            const text = error instanceof Error ? error.message : String(error);
+            output.appendLine(text);
+        }
+    }
     schedulePublish();
+    void pollCommands();
     return new vscode.Disposable(() => {
         disposed = true;
         clearInterval(interval);
+        clearInterval(commandInterval);
         if (debounceTimer) {
             clearTimeout(debounceTimer);
         }
@@ -90,5 +117,31 @@ function startContextHeartbeat(context, output) {
             subscription.dispose();
         }
     });
+}
+async function executeCommand(command, output) {
+    if (command.type !== "open_diff") {
+        output.appendLine(`Unsupported VS Code command: ${command.type || "(missing)"}`);
+        return;
+    }
+    const leftUri = parseUri(command.left_uri);
+    const rightUri = parseUri(command.right_uri);
+    if (!leftUri || !rightUri) {
+        output.appendLine(`Invalid diff command URIs: ${command.command_id || "(unknown)"}`);
+        return;
+    }
+    const title = String(command.title || "File change").trim() || "File change";
+    await vscode.commands.executeCommand("vscode.diff", leftUri, rightUri, title, { preview: false });
+}
+function parseUri(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+        return null;
+    }
+    try {
+        return vscode.Uri.parse(text, true);
+    }
+    catch {
+        return null;
+    }
 }
 //# sourceMappingURL=heartbeat.js.map

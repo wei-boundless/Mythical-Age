@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from typing import Any
 
 from project_workspaces import project_workspace_key
@@ -17,6 +18,7 @@ SELECTION_TEXT_LIMIT = 8_000
 VISIBLE_FILES_LIMIT = 20
 DIAGNOSTICS_LIMIT = 80
 WORKSPACE_ROOTS_LIMIT = 8
+COMMAND_QUEUE_LIMIT = 50
 
 
 class VSCodeConnectionStore:
@@ -25,12 +27,14 @@ class VSCodeConnectionStore:
         self._snapshots_by_session: dict[str, VSCodeContextSnapshot] = {}
         self._snapshots_by_project_key: dict[str, VSCodeContextSnapshot] = {}
         self._launch_intents: dict[str, dict[str, Any]] = {}
+        self._commands_by_session: dict[str, list[dict[str, Any]]] = {}
 
     def clear(self) -> None:
         with self._lock:
             self._snapshots_by_session.clear()
             self._snapshots_by_project_key.clear()
             self._launch_intents.clear()
+            self._commands_by_session.clear()
 
     def register_launch_intent(self, *, session_id: str, workspace_root: str) -> dict[str, Any]:
         target_session_id = str(session_id or "").strip()
@@ -223,6 +227,38 @@ class VSCodeConnectionStore:
             connection_id=snapshot.connection_id,
             reused_project_connection=True,
         )
+
+    def enqueue_command(self, *, session_id: str, command: dict[str, Any]) -> dict[str, Any]:
+        target_session_id = str(session_id or "").strip()
+        if not target_session_id:
+            raise ValueError("session_id is required")
+        payload = dict(command or {})
+        command_id = str(payload.get("command_id") or "").strip() or f"vscode-command-{uuid.uuid4().hex}"
+        queued = {
+            **payload,
+            "command_id": command_id,
+            "queued_at": time.time(),
+            "authority": "integrations.vscode_connection.command",
+        }
+        with self._lock:
+            queue = self._commands_by_session.setdefault(target_session_id, [])
+            queue.append(queued)
+            if len(queue) > COMMAND_QUEUE_LIMIT:
+                del queue[: len(queue) - COMMAND_QUEUE_LIMIT]
+        return dict(queued)
+
+    def pop_next_command(self, session_id: str) -> dict[str, Any]:
+        target_session_id = str(session_id or "").strip()
+        if not target_session_id:
+            return {}
+        with self._lock:
+            queue = self._commands_by_session.get(target_session_id) or []
+            if not queue:
+                return {}
+            command = queue.pop(0)
+            if not queue:
+                self._commands_by_session.pop(target_session_id, None)
+        return dict(command)
 
 
 def _bind_or_validate_workspace_roots(*, session_manager: Any, session_id: str, workspace_roots: list[str]) -> str:

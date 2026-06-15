@@ -437,14 +437,6 @@ function currentContextWindowTokens(tokenStats: TokenStats) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
-function contextPressureTokens(tokenStats: TokenStats) {
-  const value = Number(tokenStats.context_meter?.compaction_pressure_tokens ?? NaN);
-  if (Number.isFinite(value)) {
-    return Math.max(0, Math.round(value));
-  }
-  return currentContextTokens(tokenStats);
-}
-
 function compactionThresholdTokens(tokenStats: TokenStats) {
   const value = Number(tokenStats.context_meter?.replacement_threshold_tokens ?? 0);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;

@@ -1,0 +1,240 @@
+   1 | <!DOCTYPE html>
+   2 | <html lang="zh-CN">
+   3 | <head>
+   4 | <meta charset="UTF-8">
+   5 | <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   6 | <title>3D 第一人称射击</title>
+   7 | <style>
+   8 | * { margin: 0; padding: 0; box-sizing: border-box; }
+   9 | body { overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+  10 | canvas { display: block; }
+  11 | #blocker {
+  12 |   position: fixed; inset: 0;
+  13 |   background: rgba(0,0,0,0.7);
+  14 |   display: flex; align-items: center; justify-content: center;
+  15 |   color: #fff; font-size: 24px; cursor: pointer;
+  16 |   flex-direction: column; z-index: 10;
+  17 | }
+  18 | #blocker p { margin-bottom: 16px; }
+  19 | #blocker button {
+  20 |   padding: 12px 32px; font-size: 20px; cursor: pointer;
+  21 |   background: #e74c3c; color: #fff; border: none; border-radius: 8px;
+  22 | }
+  23 | #hud {
+  24 |   position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  25 |   font-family: 'Courier New', monospace; color: #fff;
+  26 | }
+  27 | #crosshair {
+  28 |   position: absolute;
+  29 |   width: 24px; height: 24px;
+  30 |   pointer-events: none;
+  31 |   will-change: left, top;
+  32 | }
+  33 | #crosshair::before, #crosshair::after {
+  34 |   content: ''; position: absolute; background: rgba(255,255,255,0.9);
+  35 | }
+  36 | #crosshair::before { top: 50%; left: 4px; right: 4px; height: 2px; transform: translateY(-50%); }
+  37 | #crosshair::after { left: 50%; top: 4px; bottom: 4px; width: 2px; transform: translateX(-50%); }
+  38 | #health-bar {
+  39 |   position: absolute; bottom: 40px; left: 40px;
+  40 |   width: 220px; height: 20px;
+  41 |   border: 2px solid rgba(255,255,255,0.5);
+  42 |   background: rgba(0,0,0,0.4);
+  43 | }
+  44 | #health-fill {
+  45 |   width: 100%; height: 100%; background: #e74c3c;
+  46 |   transition: width 0.3s;
+  47 | }
+  48 | #health-label { position: absolute; bottom: 64px; left: 40px; font-size: 14px; }
+  49 | #ammo-display { position: absolute; bottom: 40px; right: 40px; font-size: 28px; text-align: right; }
+  50 | #ammo-reserve { font-size: 16px; opacity: 0.7; }
+  51 | #weapon-name { position: absolute; bottom: 90px; right: 40px; font-size: 18px; opacity: 0.8; }
+  52 | #kill-count { position: absolute; top: 20px; right: 40px; font-size: 20px; }
+  53 | #wave-info { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); font-size: 24px; text-align: center; }
+  54 | #wave-subtitle { font-size: 14px; opacity: 0.7; }
+  55 | #damage-flash {
+  56 |   position: fixed; inset: 0; background: rgba(255,0,0,0.15);
+  57 |   pointer-events: none; z-index: 4; opacity: 0; transition: opacity 0.1s;
+  58 | }
+  59 | #death-screen {
+  60 |   position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+  61 |   display: none; align-items: center; justify-content: center;
+  62 |   flex-direction: column; z-index: 20; color: #fff;
+  63 | }
+  64 | #death-screen h1 { font-size: 48px; margin-bottom: 16px; color: #e74c3c; }
+  65 | #death-screen p { font-size: 20px; margin-bottom: 24px; }
+  66 | #death-screen button {
+  67 |   padding: 12px 32px; font-size: 20px; cursor: pointer;
+  68 |   background: #e74c3c; color: #fff; border: none; border-radius: 8px;
+  69 | }
+  70 | #reload-hint {
+  71 |   position: absolute; bottom: 120px; right: 40px;
+  72 |   font-size: 16px; color: #ff0; opacity: 0; transition: opacity 0.2s;
+  73 | }
+  74 | </style>
+  75 | </head>
+  76 | <body>
+  77 | <div id="blocker">
+  78 |   <p>🖱️ 点击开始游戏 (鼠标锁定)</p>
+  79 |   <button id="start-btn">开始游戏</button>
+  80 |   <p style="font-size:14px;margin-top:10px;opacity:0.7;">WASD 移动 | 鼠标视角 | 左键射击 | R 换弹 | 空格跳跃 | Shift 奔跑 | 1/2 切武器</p>
+  81 | </div>
+  82 | 
+  83 | <div id="hud">
+  84 |   <div id="crosshair"></div>
+  85 |   <div id="health-label">❤️ 生命值</div>
+  86 |   <div id="health-bar"><div id="health-fill"></div></div>
+  87 |   <div id="ammo-display"><span id="ammo-current">30</span> / <span id="ammo-reserve">90</span></div>
+  88 |   <div id="weapon-name">🔫 手枪</div>
+  89 |   <div id="kill-count">💀 击杀: 0</div>
+  90 |   <div id="wave-info">🌊 第 1 波<div id="wave-subtitle">敌人剩余: 3</div></div>
+  91 |   <div id="reload-hint">🔄 按 R 换弹</div>
+  92 |   <div id="damage-flash"></div>
+  93 | </div>
+  94 | 
+  95 | <div id="death-screen">
+  96 |   <h1>💀 你阵亡了</h1>
+  97 |   <p id="death-stats">击杀: 0 | 波次: 1</p>
+  98 |   <button id="restart-btn">重新开始</button>
+  99 | </div>
+ 100 | 
+ 101 | <script type="importmap">
+ 102 | {
+ 103 |   "imports": {
+ 104 |     "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+ 105 |     "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+ 106 |   }
+ 107 | }
+ 108 | </script>
+ 109 | 
+ 110 | <script type="module">
+ 111 | import * as THREE from 'three';
+ 112 | import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+ 113 | 
+ 114 | // ===== DOM 元素 =====
+ 115 | const blocker = document.getElementById('blocker');
+ 116 | const startBtn = document.getElementById('start-btn');
+ 117 | const deathScreen = document.getElementById('death-screen');
+ 118 | const restartBtn = document.getElementById('restart-btn');
+ 119 | const healthFill = document.getElementById('health-fill');
+ 120 | const ammoCurrent = document.getElementById('ammo-current');
+ 121 | const ammoReserve = document.getElementById('ammo-reserve');
+ 122 | const weaponName = document.getElementById('weapon-name');
+ 123 | const killCount = document.getElementById('kill-count');
+ 124 | const waveInfo = document.getElementById('wave-info');
+ 125 | const waveSubtitle = document.getElementById('wave-subtitle');
+ 126 | const damageFlash = document.getElementById('damage-flash');
+ 127 | const reloadHint = document.getElementById('reload-hint');
+ 128 | 
+ 129 | // ===== 场景初始化 =====
+ 130 | const scene = new THREE.Scene();
+ 131 | scene.background = new THREE.Color(0x87CEEB);
+ 132 | scene.fog = new THREE.Fog(0x87CEEB, 50, 120);
+ 133 | 
+ 134 | const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+ 135 | camera.position.set(0, 1.6, 5);
+ 136 | 
+ 137 | const renderer = new THREE.WebGLRenderer({ antialias: true });
+ 138 | renderer.setSize(window.innerWidth, window.innerHeight);
+ 139 | renderer.shadowMap.enabled = true;
+ 140 | renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+ 141 | renderer.toneMapping = THREE.ACESFilmicToneMapping;
+ 142 | renderer.toneMappingExposure = 1.2;
+ 143 | document.body.appendChild(renderer.domElement);
+ 144 | 
+ 145 | // ===== 光照 =====
+ 146 | const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
+ 147 | scene.add(ambientLight);
+ 148 | 
+ 149 | const sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
+ 150 | sunLight.position.set(20, 30, 10);
+ 151 | sunLight.castShadow = true;
+ 152 | sunLight.shadow.mapSize.width = 2048;
+ 153 | sunLight.shadow.mapSize.height = 2048;
+ 154 | sunLight.shadow.camera.near = 0.5;
+ 155 | sunLight.shadow.camera.far = 100;
+ 156 | sunLight.shadow.camera.left = -40;
+ 157 | sunLight.shadow.camera.right = 40;
+ 158 | sunLight.shadow.camera.top = 40;
+ 159 | sunLight.shadow.camera.bottom = -40;
+ 160 | sunLight.shadow.bias = -0.0001;
+ 161 | scene.add(sunLight);
+ 162 | 
+ 163 | // ===== 地图构建 =====
+ 164 | const mapGroup = new THREE.Group();
+ 165 | scene.add(mapGroup);
+ 166 | 
+ 167 | // 材质
+ 168 | const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.8 });
+ 169 | const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x5D4E37, roughness: 0.9 });
+ 170 | const ceilingMaterial = new THREE.MeshStandardMaterial({ color: 0x9E9E9E, roughness: 0.9 });
+ 171 | const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x607D8B, roughness: 0.7 });
+ 172 | 
+ 173 | // 地面
+ 174 | const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMaterial);
+ 175 | floor.rotation.x = -Math.PI / 2;
+ 176 | floor.receiveShadow = true;
+ 177 | mapGroup.add(floor);
+ 178 | 
+ 179 | // 天花板
+ 180 | const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), ceilingMaterial);
+ 181 | ceiling.rotation.x = Math.PI / 2;
+ 182 | ceiling.position.y = 4;
+ 183 | mapGroup.add(ceiling);
+ 184 | 
+ 185 | // 外边界墙
+ 186 | function createWall(x, z, w, h, d, rotY=0) {
+ 187 |   const geo = new THREE.BoxGeometry(w, h, d);
+ 188 |   const mesh = new THREE.Mesh(geo, wallMaterial);
+ 189 |   mesh.position.set(x, h/2, z);
+ 190 |   mesh.rotation.y = rotY;
+ 191 |   mesh.castShadow = true;
+ 192 |   mesh.receiveShadow = true;
+ 193 |   mapGroup.add(mesh);
+ 194 |   return { mesh, box: new THREE.Box3().setFromObject(mesh) };
+ 195 | }
+ 196 | 
+ 197 | const walls = [];
+ 198 | // 外边界
+ 199 | walls.push(createWall(0, -30, 60, 4, 0.5));
+ 200 | walls.push(createWall(0, 30, 60, 4, 0.5));
+ 201 | walls.push(createWall(-30, 0, 60, 4, 0.5, Math.PI/2));
+ 202 | walls.push(createWall(30, 0, 60, 4, 0.5, Math.PI/2));
+ 203 | 
+ 204 | // 内部墙体 - 走廊
+ 205 | walls.push(createWall(-10, 0, 20, 4, 0.4));
+ 206 | walls.push(createWall(10, 0, 20, 4, 0.4));
+ 207 | walls.push(createWall(0, -10, 0.4, 4, 20, Math.PI/2));
+ 208 | walls.push(createWall(0, 10, 0.4, 4, 20, Math.PI/2));
+ 209 | 
+ 210 | // 房间分隔
+ 211 | walls.push(createWall(-20, -15, 12, 4, 0.4));
+ 212 | walls.push(createWall(-20, 15, 12, 4, 0.4));
+ 213 | walls.push(createWall(20, -15, 12, 4, 0.4));
+ 214 | walls.push(createWall(20, 15, 12, 4, 0.4));
+ 215 | 
+ 216 | // 掩体/障碍
+ 217 | function createObstacle(x, z, s=1.5) {
+ 218 |   const geo = new THREE.BoxGeometry(s, s, s);
+ 219 |   const mesh = new THREE.Mesh(geo, obstacleMaterial);
+ 220 |   mesh.position.set(x, s/2, z);
+ 221 |   mesh.castShadow = true;
+ 222 |   mesh.receiveShadow = true;
+ 223 |   mapGroup.add(mesh);
+ 224 |   return { mesh, box: new THREE.Box3().setFromObject(mesh) };
+ 225 | }
+ 226 | 
+ 227 | const obstacles = [];
+ 228 | obstacles.push(createObstacle(-5, -5, 1.2));
+ 229 | obstacles.push(createObstacle(5, 5, 1.2));
+ 230 | obstacles.push(createObstacle(-8, 8, 1.0));
+ 231 | obstacles.push(createObstacle(8, -8, 1.0));
+ 232 | obstacles.push(createObstacle(0, -8, 1.5));
+ 233 | obstacles.push(createObstacle(-15, 0, 1.3));
+ 234 | obstacles.push(createObstacle(15, 0, 1.3));
+ 235 | 
+ 236 | // 合并碰撞体
+ 237 | const allColliders = [...walls.map(w => w.box), ...obstacles.map(o => o.box)];
+ 238 | 
+ 239 | // ===== 玩家状态 =====
+ 240 | const PLAYER_HEIGHT = 1.6;
