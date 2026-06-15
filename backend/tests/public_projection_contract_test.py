@@ -159,15 +159,11 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
     )
 
     assert [event_type for event_type, _ in events] == [
-        "runtime_step_summary",
         TOOL_CALL_REQUESTED_EVENT,
         TOOL_PERMISSION_DECIDED_EVENT,
     ]
-    status = events[0][1]
-    requested = events[1][1]
-    permission = events[2][1]
-    assert status["presentation_source"] == "model_action.public_progress_note"
-    assert status["summary"] == "读取 README。"
+    requested = events[0][1]
+    permission = events[1][1]
     assert requested["tool_call_id"] == "call:read"
     assert requested["tool_name"] == "read_file"
     assert requested["turn_run_id"] == "turnrun:turn:test:1"
@@ -212,7 +208,7 @@ def test_chat_bridge_generates_tool_call_id_without_reusing_request_id() -> None
     assert permission["permission_decision_id"] == f"admission:{requested['tool_call_id']}"
 
 
-def test_chat_bridge_projects_tool_calls_array_with_one_feedback_event() -> None:
+def test_chat_bridge_projects_tool_calls_array_without_admission_body_feedback() -> None:
     events = _project_public_stream_event(
         "model_action_admission",
         {
@@ -245,13 +241,11 @@ def test_chat_bridge_projects_tool_calls_array_with_one_feedback_event() -> None
     )
 
     assert [event_type for event_type, _ in events] == [
-        "runtime_step_summary",
         TOOL_CALL_REQUESTED_EVENT,
         TOOL_PERMISSION_DECIDED_EVENT,
         TOOL_CALL_REQUESTED_EVENT,
         TOOL_PERMISSION_DECIDED_EVENT,
     ]
-    assert events[0][1]["feedback_identity"] == "request:batch"
     requests = [data for event_type, data in events if event_type == TOOL_CALL_REQUESTED_EVENT]
     permissions = [data for event_type, data in events if event_type == TOOL_PERMISSION_DECIDED_EVENT]
     assert [item["tool_call_id"] for item in requests] == ["call:readme", "call:package"]
@@ -579,7 +573,7 @@ def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
     assert second["trace_refs"]
 
 
-def test_lifecycle_does_not_filter_legal_model_action_body_output() -> None:
+def test_model_action_feedback_identity_keeps_replayed_body_frame_stable() -> None:
     lifecycle = ProjectionLifecycleState()
     anchor = {
         "session_id": "session:test",
@@ -594,6 +588,7 @@ def test_lifecycle_does_not_filter_legal_model_action_body_output() -> None:
         "task_run_id": "taskrun:test",
         "step": "model_action_received:1",
         "presentation_source": "model_action.public_progress_note",
+        "feedback_identity": "request:model-feedback:1",
         "public_progress_note": "用户表达感谢，直接回复即可。",
         "current_judgment": "用户表达感谢，当前对话自然收口。",
         "next_action": "等待用户下一步需求。",
@@ -603,7 +598,6 @@ def test_lifecycle_does_not_filter_legal_model_action_body_output() -> None:
         **first,
         "runtime_event_id": "event:model-feedback:2",
         "source_task_event_offset": 11,
-        "step": "model_action_received:2",
     }
 
     assert lifecycle.should_emit_public_event("runtime_step_summary", first) is True
@@ -631,7 +625,8 @@ def test_lifecycle_does_not_filter_legal_model_action_body_output() -> None:
     assert second_frame["slot"] == "body"
     assert second_frame["source_authority"] == "model"
     assert second_frame["text"] == first_frame["text"]
-    assert second_frame["item_id"] != first_frame["item_id"]
+    assert second_frame["item_id"] == first_frame["item_id"]
+    assert second_frame["frame_id"] == first_frame["frame_id"]
 
 
 def test_raw_tool_started_without_permission_is_hidden_protocol_diagnostic() -> None:

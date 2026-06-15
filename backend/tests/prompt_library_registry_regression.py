@@ -324,6 +324,26 @@ def test_runtime_protocol_prompts_include_active_work_control_action(tmp_path: P
     assert "纠错" in observation_followup.content
 
 
+def test_runtime_prompts_keep_long_running_task_feedback_obligation(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    single_turn = registry.get_resource("runtime.single_agent_turn")
+    task_execution = registry.get_resource("runtime.task_execution")
+    observation_followup = registry.get_resource("runtime.observation_followup")
+    tool_rule = registry.get_resource("runtime.rule.tool_use")
+
+    assert single_turn is not None
+    assert task_execution is not None
+    assert observation_followup is not None
+    assert tool_rule is not None
+    assert "不等于可以在长时间任务里沉默" in tool_rule.content
+    assert "跨多个文件、多个工具批次、多轮观察、失败恢复、写入验证或阶段切换" in tool_rule.content
+    assert "继续请求工具前必须先给用户一个基于已观察事实的阶段反馈" in single_turn.content
+    assert "持续任务不能长时间只展示工具卡片" in task_execution.content
+    assert "不能继续沉默请求下一轮工具" in observation_followup.content
+    assert "不要只说正在继续、稍等或开始处理" in single_turn.content
+
+
 def test_environment_lifecycle_prompts_keep_action_control_boundaries(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
 

@@ -3102,6 +3102,11 @@ def _capture_command_file_snapshot(
             if child.is_dir():
                 if child.name in _COMMAND_CHANGE_EXCLUDED_DIRS:
                     continue
+                if files.is_excluded(child, include_default_search_excludes=True):
+                    continue
+                rel = files.relative_path(child).replace("\\", "/").strip("/")
+                if rel == "storage/file_changes" or rel.startswith("storage/file_changes/"):
+                    continue
                 stack.append(child)
                 continue
             if not child.is_file():

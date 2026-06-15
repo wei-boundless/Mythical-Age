@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from harness.graph.checkpoint_store import GraphCheckpointRecord
-from harness.graph.loop import GraphLoop
+from harness.graph.loop import GraphLoop, _state_after_revision_requeue
 from harness.graph.models import GraphHarnessConfig, GraphLoopState, NodeResultEnvelope
 from harness.graph.runtime_objects import store_node_result
 from harness.graph.state_machine import GraphStateMachine
@@ -187,3 +187,162 @@ def test_human_gate_revision_without_declared_edge_blocks_instead_of_readying_ta
     assert advance.loop_state.node_states["review"]["blocked_reason"] == "route_edge_not_declared"
     assert advance.loop_state.node_states["revise"]["status"] == "pending"
     assert advance.node_work_orders == ()
+
+
+def test_automatic_design_revision_requeues_target_without_chapter_range() -> None:
+    config = _config(include_revision_edge=True)
+    machine = GraphStateMachine()
+    node_states = machine.initial_node_states(config)
+    edge_states = machine.initial_edge_states(config)
+    edge_states["edge.revision.review.revise"] = {
+        **dict(edge_states["edge.revision.review.revise"]),
+        "status": "ready",
+        "source_result_ref": "rtobj:result:review",
+    }
+    state = GraphLoopState(
+        state_id="gstate:human",
+        graph_run_id="grun:human",
+        task_run_id="taskrun:human",
+        session_id="session:human",
+        config_id=config.config_id,
+        config_hash=config.content_hash,
+        graph_id=config.graph_id,
+        structure_hash=config.expected_structural_hash(),
+        node_states=node_states,
+        edge_states=edge_states,
+    )
+
+    next_state = _state_after_revision_requeue(
+        graph_config=config,
+        state=state,
+        targets=("revise",),
+        reset_node_ids=("revise",),
+    )
+
+    assert next_state.node_states["revise"]["status"] == "ready"
+    assert "blocked_reason" not in next_state.node_states["revise"]
+    assert next_state.ready_node_ids == ("revise",)
+    assert next_state.blocked_node_ids == ()
+    assert next_state.edge_states["edge.revision.review.revise"]["status"] == "ready"
+
+
+def test_automatic_revision_preserves_ready_external_prerequisite_edge() -> None:
+    config = GraphHarnessConfig(
+        config_id="config:revision-prerequisite",
+        graph_id="graph:revision-prerequisite",
+        graph_title="Revision Prerequisite",
+        publish_version="test",
+        control={"start_node_ids": ["seed"], "max_active_nodes": 1},
+        nodes=(
+            {"node_id": "seed", "node_type": "agent"},
+            {"node_id": "review", "node_type": "agent"},
+            {"node_id": "revise", "node_type": "agent"},
+            {"node_id": "after_revise", "node_type": "agent"},
+        ),
+        edges=(
+            _edge("edge.seed.revise", "seed", "revise"),
+            _edge("edge.revision.review.revise", "review", "revise", "revision_request"),
+            _edge("edge.revise.after", "revise", "after_revise"),
+        ),
+    ).with_content_identity(config_id="config:revision-prerequisite")
+    machine = GraphStateMachine()
+    edge_states = machine.initial_edge_states(config)
+    edge_states["edge.seed.revise"] = {
+        **dict(edge_states["edge.seed.revise"]),
+        "status": "ready",
+        "source_result_ref": "rtobj:result:seed",
+    }
+    edge_states["edge.revision.review.revise"] = {
+        **dict(edge_states["edge.revision.review.revise"]),
+        "status": "ready",
+        "source_result_ref": "rtobj:result:review",
+    }
+    edge_states["edge.revise.after"] = {
+        **dict(edge_states["edge.revise.after"]),
+        "status": "ready",
+        "source_result_ref": "rtobj:result:revise-old",
+    }
+    node_states = machine.initial_node_states(config)
+    node_states["seed"] = {**dict(node_states["seed"]), "status": "completed"}
+    node_states["review"] = {**dict(node_states["review"]), "status": "completed"}
+    state = GraphLoopState(
+        state_id="gstate:revision-prerequisite",
+        graph_run_id="grun:revision-prerequisite",
+        task_run_id="taskrun:revision-prerequisite",
+        session_id="session:revision-prerequisite",
+        config_id=config.config_id,
+        config_hash=config.content_hash,
+        graph_id=config.graph_id,
+        structure_hash=config.expected_structural_hash(),
+        node_states=node_states,
+        edge_states=edge_states,
+    )
+
+    next_state = _state_after_revision_requeue(
+        graph_config=config,
+        state=state,
+        targets=("revise",),
+        reset_node_ids=("revise", "after_revise"),
+    )
+
+    assert next_state.edge_states["edge.seed.revise"]["status"] == "ready"
+    assert next_state.edge_states["edge.revision.review.revise"]["status"] == "ready"
+    assert next_state.edge_states["edge.revise.after"]["status"] == "pending"
+    assert GraphStateMachine().ready_nodes(
+        graph_config=config,
+        node_states=next_state.node_states,
+        edge_states=next_state.edge_states,
+        loop_state=next_state.loop_state,
+    ) == ("revise",)
+
+
+def test_chapter_draft_revision_without_chapter_range_still_blocks() -> None:
+    config = GraphHarnessConfig(
+        config_id="config:chapter-revision",
+        graph_id="graph:chapter-revision",
+        graph_title="Chapter Revision",
+        publish_version="test",
+        control={"start_node_ids": ["review"], "max_active_nodes": 1},
+        nodes=(
+            {"node_id": "review", "node_type": "agent"},
+            {
+                "node_id": "chapter_draft",
+                "node_type": "agent",
+                "retry": {"requirements_input_key": "chapter_revision_requirements"},
+            },
+        ),
+        edges=(
+            _edge("edge.revision.review.chapter_draft", "review", "chapter_draft", "revision_request"),
+        ),
+    ).with_content_identity(config_id="config:chapter-revision")
+    machine = GraphStateMachine()
+    edge_states = machine.initial_edge_states(config)
+    edge_states["edge.revision.review.chapter_draft"] = {
+        **dict(edge_states["edge.revision.review.chapter_draft"]),
+        "status": "ready",
+        "source_result_ref": "rtobj:result:review",
+    }
+    state = GraphLoopState(
+        state_id="gstate:chapter-revision",
+        graph_run_id="grun:chapter-revision",
+        task_run_id="taskrun:chapter-revision",
+        session_id="session:chapter-revision",
+        config_id=config.config_id,
+        config_hash=config.content_hash,
+        graph_id=config.graph_id,
+        structure_hash=config.expected_structural_hash(),
+        node_states=machine.initial_node_states(config),
+        edge_states=edge_states,
+    )
+
+    next_state = _state_after_revision_requeue(
+        graph_config=config,
+        state=state,
+        targets=("chapter_draft",),
+        reset_node_ids=("chapter_draft",),
+    )
+
+    assert next_state.node_states["chapter_draft"]["status"] == "blocked"
+    assert next_state.node_states["chapter_draft"]["blocked_reason"] == "revision_execution_range_missing"
+    assert next_state.ready_node_ids == ()
+    assert next_state.blocked_node_ids == ("chapter_draft",)

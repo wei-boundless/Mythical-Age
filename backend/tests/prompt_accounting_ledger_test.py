@@ -1244,6 +1244,9 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert projection["model_decision_contract"]["authority"] == "harness.runtime.model_decision_contract"
     assert projection["model_decision_contract"]["prompt_authority"] == "developer_prompt_contract"
     assert projection["model_decision_contract"]["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    task_entry_rule = projection["model_decision_contract"]["task_entry_rule"]
+    assert any("审查、评估、排查" in str(item) and "多文件链路" in str(item) for item in task_entry_rule["task_entry_conditions"])
+    assert "不要用连续读取大量文件来代替 request_task_run" in task_entry_rule["single_turn_tool_call_boundary"]
     assert projection["service_surface"]["authority"] == "harness.runtime.service_surface"
     assert projection["execution_boundary"]["authority"] == "harness.runtime.execution_boundary"
     assert projection["execution_boundary"]["safety_authority"] == "runtime.tooling.supervisor"
@@ -1373,6 +1376,11 @@ def test_real_task_prompt_assembly_keeps_prompt_service_and_safety_boundaries_se
     assert decision_contract["prompt_authority"] == "developer_prompt_contract"
     assert "request_task_run" in decision_contract["semantic_actions"]
     assert decision_contract["task_entry_rule"]["must_choose_request_task_run_when_task_entry_conditions_hold"] is True
+    assert any(
+        "审查、评估、排查" in str(item) and "多文件链路" in str(item)
+        for item in decision_contract["task_entry_rule"]["task_entry_conditions"]
+    )
+    assert "不要用连续读取大量文件来代替 request_task_run" in decision_contract["task_entry_rule"]["single_turn_tool_call_boundary"]
     assert service_surface["unmounted_services"][0]["category"] == "requires_task_run"
     assert service_surface["unmounted_services"][0]["required_action"] == "request_task_run"
     assert execution_boundary["safety_authority"] == "runtime.tooling.supervisor"
@@ -1714,6 +1722,9 @@ def test_task_execution_public_action_state_authority_lives_in_action_schema() -
 
     assert "public_action_state" in action_schema_payload["schema"]
     assert "public_progress_note" in action_schema_payload["schema"]
+    reporting = action_schema_payload["schema"]["public_response_obligation"]["tool_observation_reporting"]
+    assert any("多个工具批次" in item for item in reporting["must_explain_when"])
+    assert "不允许长时间任务只剩工具列表" in reporting["explanation_shape"]
 
 
 def test_prompt_cache_baseline_tracks_memory_tier_and_reset_generation(tmp_path) -> None:

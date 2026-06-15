@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from tests.support.harness_runtime_facade_support import *
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_lifecycle import contract_from_action_request
@@ -69,6 +72,117 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert contract.capability_intent["needed_capability_groups"] == ["runtime_inspection"]
 
 
+def test_single_agent_action_schema_treats_large_review_as_task_entry_condition() -> None:
+    from harness.runtime.compiler import model_action_request_schema
+
+    schema = model_action_request_schema("turn:test:large-review")
+    rules = [str(item) for item in list(schema.get("action_selection_rules") or [])]
+
+    assert any("审查、评估、排查" in rule and "多文件链路" in rule for rule in rules)
+    assert any("必须主动选择 request_task_run" in rule and "连续读取大量文件" in rule for rule in rules)
+
+
+def test_single_agent_model_feedback_identity_is_unique_per_tool_iteration() -> None:
+    from harness.loop.single_agent_turn import _model_public_feedback_identity
+
+    first = _model_public_feedback_identity(
+        packet_ref="rtpacket:turn:test:single_agent_turn:1",
+        tool_iteration=0,
+        tool_actions=[
+            ModelActionRequest(
+                request_id="model-action:turn:test:tool:1",
+                turn_id="turn:test",
+                action_type="tool_call",
+                tool_call={"tool_name": "search_files", "args": {"query": "prompts"}},
+            )
+        ],
+    )
+    second = _model_public_feedback_identity(
+        packet_ref="rtpacket:turn:test:single_agent_turn:1",
+        tool_iteration=1,
+        tool_actions=[
+            ModelActionRequest(
+                request_id="model-action:turn:test:tool:2",
+                turn_id="turn:test",
+                action_type="tool_call",
+                tool_call={"tool_name": "list_dir", "args": {"path": "backend/prompt_library"}},
+            )
+        ],
+    )
+
+    assert first != second
+    assert first.startswith("model-packet-public-feedback:rtpacket:turn:test:single_agent_turn:1:")
+    assert "tool-iteration:0" in first
+    assert "model-action:turn:test:tool:1" in first
+    assert "tool-iteration:1" in second
+    assert "model-action:turn:test:tool:2" in second
+
+
+def test_single_agent_tool_batch_timeout_overrides_inner_cancel_observation(monkeypatch) -> None:
+    import asyncio
+
+    import harness.loop.single_agent_turn as single_agent_turn
+    from harness.loop.admission import AdmissionDecision
+    from harness.loop.model_action_protocol import ModelActionRequest
+    from harness.runtime import ToolBatchGroup
+    from runtime.tool_runtime import ToolObservation
+
+    async def _cancel_swallowing_tool(*_args, **_kwargs):
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            return ToolObservation(
+                observation_id="toolobs:inner-cancel",
+                invocation_id="toolinv:inner-cancel",
+                caller_kind="agent_turn",
+                caller_ref="turnrun:test",
+                tool_name="terminal",
+                operation_id="op.shell",
+                status="error",
+                text="inner swallowed cancellation",
+            )
+
+    monkeypatch.setattr(single_agent_turn, "_invoke_turn_tool_for_batch_row", _cancel_swallowing_tool)
+    monkeypatch.setattr(single_agent_turn, "_tool_batch_group_timeout_seconds", lambda _runtime_assembly: 0.01)
+
+    action_request = ModelActionRequest(
+        request_id="model-action:timeout",
+        turn_id="turn:timeout",
+        action_type="tool_call",
+        tool_call={"tool_name": "terminal", "name": "terminal", "id": "call-timeout", "args": {"command": "sleep"}},
+    )
+    admission = AdmissionDecision(
+        admission_id="admission:timeout",
+        action_request_ref=action_request.request_id,
+        decision="allow",
+    )
+
+    observations = asyncio.run(
+        single_agent_turn._execute_tool_batch_group(
+            ToolBatchGroup(group_index=0, execution_class="exclusive", item_indexes=(0,), parallel=False),
+            invocation_rows=[
+                {
+                    "action_request": action_request,
+                    "admission": admission,
+                    "action_permit": {"decision": "allow"},
+                }
+            ],
+            runtime_host=SimpleNamespace(tool_authorization_index=SimpleNamespace(definitions_by_name={})),
+            runtime_assembly={},
+            turn_run=None,
+            session_id="session-timeout",
+            turn_id="turn:timeout",
+            packet_ref="rtpacket:timeout",
+            tool_plan=SimpleNamespace(plan_id="rttoolplan:timeout"),
+        )
+    )
+
+    assert observations[0].status == "error"
+    assert "tool_batch_group_timeout_after_0.01s" in observations[0].text
+    assert observations[0].diagnostics["exception_type"] == "TimeoutError"
+    assert "inner swallowed cancellation" not in observations[0].text
+
+
 def test_request_task_run_rejects_obsolete_handoff_without_capability_intent() -> None:
     contract, errors = contract_from_action_request(
         ModelActionRequest(
@@ -133,6 +247,67 @@ def test_native_request_task_run_requires_json_action_transport() -> None:
     assert native_errors[0]["action_issue"]["code"] == "control_action_requires_json_action"
     assert native_errors[0]["action_issue"]["requested_action_type"] == "request_task_run"
     assert native_errors[0]["repairable"] is True
+
+
+def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_signal() -> None:
+    from harness.loop.single_agent_turn import (
+        _model_protocol_violation_control_signal,
+        _single_agent_action_request_from_response,
+    )
+
+    invalid_action = {
+        "authority": "harness.loop.model_action_request",
+        "action_type": "request_task_run",
+        "public_progress_note": "范围已经明确，我会进入持续任务完成审查。",
+        "public_action_state": {
+            "current_judgment": "这是跨多文件审查，需要持续任务。",
+            "next_action": "进入持续任务执行流程。",
+        },
+        "capability_intent": {"selected_groups": ["file_work"], "reason": "需要读取大量文件。"},
+        "skill_intent": {"selected_skill_ids": [], "reason": "不需要额外 skill。"},
+        "observation_contract": {"evidence_policy": "observation_required"},
+        "task_contract_seed": {
+            "user_visible_goal": "完整审查 prompts 体系。",
+            "task_run_goal": "读取 prompts 体系全部相关文件并输出报告。",
+            "working_scope": {"target_objects": ["backend/prompt_library", "backend/harness/runtime/compiler.py"]},
+            "completion_criteria": ["读取证据", "输出报告"],
+        },
+    }
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(content=json.dumps(invalid_action, ensure_ascii=False)),
+        request_id="model-response:test:misnested-task-contract",
+        turn_id="turn:test:misnested-task-contract",
+        packet_ref="packet:test:misnested-task-contract",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+    )
+
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    action_issue = dict(parsed.error["diagnostics"]["action_issue"])
+    assert action_issue["requested_action_type"] == "request_task_run"
+    assert "放错层级" in action_issue["repair_instruction"]
+    assert "task_contract_seed 内" in action_issue["repair_instruction"]
+    assert "不要使用 payload" in action_issue["repair_instruction"]
+    assert "needed_capability_groups" in action_issue["repair_instruction"]
+
+    signal = _model_protocol_violation_control_signal(
+        turn_id="turn:test:misnested-task-contract",
+        packet_ref="packet:test:misnested-task-contract",
+        phase="tool_loop",
+        protocol_error=parsed.error,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        recovery_attempt=1,
+        max_recovery_attempts=3,
+        response_preview=json.dumps(invalid_action, ensure_ascii=False),
+    )
+
+    assert "具体修复" in signal["repair_instruction"]
+    assert "放错层级" in signal["repair_instruction"]
+    assert signal["structured_signal"]["message"] == signal["repair_instruction"]
 
 
 def test_single_agent_parser_rejects_markdown_fenced_json_action_when_json_required() -> None:
@@ -232,6 +407,64 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
 
 
+def test_single_agent_turn_tool_limit_noncompliant_closeout_still_feedbacks_user(tmp_path: Path) -> None:
+    class NoncompliantCloseoutLoopModel(NativeToolCallSequenceModelRuntimeStub):
+        def __init__(self) -> None:
+            super().__init__(
+                [
+                    {
+                        "content": "我继续检查文件状态。",
+                        "tool_calls": [
+                            {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                        ],
+                    }
+                    for index in range(1, 10)
+                ]
+            )
+            self.closeout_invocations = 0
+
+        async def invoke_messages(self, messages, **_kwargs):
+            self.closeout_invocations += 1
+            self.seen_messages.append(list(messages or []))
+            self.seen_accounting_contexts.append(dict(_kwargs.get("accounting_context") or {}))
+            return SimpleNamespace(content=json.dumps({"authority": "bad"}, ensure_ascii=False))
+
+    model = NoncompliantCloseoutLoopModel()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"path_exists"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-tool-limit-noncompliant-closeout", message="反复检查文件。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done = next(event for event in events if event.get("type") == "done")
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+
+    assert model.calls == 9
+    assert model.closeout_invocations >= 4
+    assert any(dict(signal or {}).get("signal_kind") == "tool_budget_exhausted" for signal in control_signals)
+    assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert not any(event.get("type") == "error" for event in events)
+    assert done["terminal_reason"] == "single_turn_tool_iteration_limit"
+    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
+    assert done["answer_channel"] == "blocked"
+    assert done["completion_state"] == "deterministic_closeout"
+    assert "工具步数" in str(done.get("content") or "")
+    assert assistant_messages
+    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
+
+
 def test_single_agent_parser_rejects_native_tool_call_when_json_action_required() -> None:
     from types import SimpleNamespace
 
@@ -282,16 +515,20 @@ def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
 
     events = asyncio.run(_collect())
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    done = next(event for event in events if event.get("type") == "done")
 
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
     assert "重新确认输入" in done_text
-    assert any(
-        event.get("type") == "done"
-        and dict(event).get("terminal_reason") == "single_agent_turn_protocol_repair_failed"
-        and dict(event).get("answer_source") == "harness.single_agent_turn.agent_closeout"
-        and dict(event).get("answer_channel") == "conversation"
-        for event in events
-    )
+    assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert done["terminal_reason"] == "single_agent_turn_model_protocol_error"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["answer_channel"] == "conversation"
+    assert done["completion_state"] == "protocol_recovery_exhausted"
     assert assistant_messages
     assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert "重新确认输入" in str(assistant_messages[-1].get("content") or "")
@@ -339,7 +576,7 @@ def test_turn_stream_cancellation_closes_running_turn() -> None:
     assert turn_run["status"] == "aborted"
     assert turn_run["terminal_reason"] == "stream_cancelled"
 
-def test_invalid_json_action_text_repairs_without_leaking_protocol() -> None:
+def test_invalid_json_action_text_recovers_through_control_signal_without_leaking_protocol() -> None:
     runtime = build_harness_runtime(
         model_runtime=_TurnActionSequenceModelRuntime(
             [
@@ -358,15 +595,20 @@ def test_invalid_json_action_text_repairs_without_leaking_protocol() -> None:
     events = asyncio.run(_collect())
     event_types = [str(event.get("type") or "") for event in events]
     admissions = _admission_payloads(events)
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
 
     assert "bounded_observation" not in event_types
+    assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
     assert admissions
-    assert dict(dict(admissions[0].get("model_action_request") or {}).get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_json_action"
     assert any(event.get("type") == "done" and "协议修复后完成" in str(event.get("content") or "") for event in events)
     assert not any(event.get("type") == "done" and "harness.loop.model_action_request" in str(event.get("content") or "") for event in events)
 
 
-def test_protocol_repair_respond_with_runtime_protocol_disclosure_is_not_committed() -> None:
+def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not_committed() -> None:
     leaked_answer = (
         "没有真的断开。上一轮输出因为格式协议问题被系统拦截了——这是会话框架的刚性约束，不是服务崩溃或代码报错。\n\n"
         "你当前打开的 `mario.html` 已经有一些落地改动。"
@@ -398,26 +640,35 @@ def test_protocol_repair_respond_with_runtime_protocol_disclosure_is_not_committ
 
     events = asyncio.run(_collect())
     admissions = _admission_payloads(events)
-    checked = next(event for event in events if event.get("type") == "session_output_commit_checked")
-    skipped = next(event for event in events if event.get("type") == "session_output_commit_skipped")
-    checked_payload = dict(dict(checked.get("event") or {}).get("payload") or {})
-    skipped_payload = dict(dict(skipped.get("event") or {}).get("payload") or {})
-    checked_gate = dict(checked_payload.get("commit_gate") or {})
-    checked_candidate = dict(dict(checked_gate.get("commit_candidate") or {}).get("payload") or {})
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    checked_events = [event for event in events if event.get("type") == "session_output_commit_checked"]
+    skipped_events = [event for event in events if event.get("type") == "session_output_commit_skipped"]
     messages = runtime.session_manager.load_session(session_id)
+    done = next(event for event in events if event.get("type") == "done")
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
 
     assert admissions
-    assert dict(dict(admissions[0].get("model_action_request") or {}).get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_reason") == "json_action_required"
-    assert checked_payload["commit_allowed"] is False
-    assert checked_payload["reason"] == "answer_leak_not_committable"
-    assert skipped_payload["reason"] == "answer_leak_not_committable"
-    assert "runtime_protocol_disclosure_final_text" in checked_candidate["answer_leak_flags"]
+    assert any(
+        dict(signal or {}).get("signal_kind") == "model_protocol_violation"
+        and dict(dict(signal or {}).get("protocol_error") or {}).get("reason") == "json_action_required"
+        for signal in control_signals
+    )
+    assert any(dict(signal or {}).get("signal_kind") == "final_output_not_committable" for signal in control_signals)
+    assert checked_events
+    assert skipped_events
+    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
+    assert done["answer_channel"] == "blocked"
+    assert done["completion_state"] == "deterministic_closeout"
+    assert str(done.get("content") or "").strip()
     assert "格式协议问题被系统拦截" not in done_text
     assert not any(leaked_answer in str(message.get("content") or "") for message in messages)
 
 
-def test_single_agent_turn_native_control_actions_repair_to_json_action() -> None:
+def test_single_agent_turn_native_control_actions_recover_to_json_action() -> None:
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
@@ -431,7 +682,7 @@ def test_single_agent_turn_native_control_actions_repair_to_json_action() -> Non
                 "args": {"reason": "当前环境缺少必要授权。"},
             },
         ],
-        repair_action=_action_request(
+        recovery_action=_action_request(
             action_type="ask_user",
             user_question="请补充目标平台。",
             public_progress_note="需要用户补充目标平台后才能继续。",
@@ -447,16 +698,25 @@ def test_single_agent_turn_native_control_actions_repair_to_json_action() -> Non
 
     events = asyncio.run(_collect())
     admissions = _admission_payloads(events)
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
 
     assert len(admissions) == 1
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     admitted_action = dict(admissions[0].get("model_action_request") or {})
     assert admitted_action.get("action_type") == "ask_user"
-    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_native_action"
+    assert any(
+        dict(signal or {}).get("signal_kind") == "model_protocol_violation"
+        and dict(dict(signal or {}).get("protocol_error") or {}).get("code") == "single_agent_turn_invalid_native_action"
+        for signal in control_signals
+    )
     assert not any(dict(payload.get("model_action_request") or {}).get("action_type") == "block" for payload in admissions)
     assert any(event.get("type") == "done" and "请补充目标平台" in str(event.get("content") or "") for event in events)
 
-def test_single_agent_turn_native_control_actions_do_not_execute_original_when_repair_fails() -> None:
+def test_single_agent_turn_native_control_actions_do_not_execute_original_when_recovery_fails() -> None:
     model = _UnexpectedNativeToolCallModelRuntime(
         tool_calls=[
             {
@@ -480,21 +740,22 @@ def test_single_agent_turn_native_control_actions_do_not_execute_original_when_r
         return events
 
     events = asyncio.run(_collect())
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    done = next(event for event in events if event.get("type") == "done")
 
     assert not _admission_payloads(events)
     assert not any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
-    assert any(
-        event.get("type") == "agent_turn_terminal"
-        and dict(dict(event.get("event") or {}).get("payload") or {}).get("terminal_reason") == "single_agent_turn_protocol_repair_failed:agent_closeout_not_returned"
-        for event in events
-    )
-    assert any(
-        event.get("type") == "error"
-        and dict(event).get("code") == "single_agent_turn_agent_closeout_not_returned"
-        for event in events
-    )
+    assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
+    assert done["answer_channel"] == "blocked"
+    assert done["completion_state"] == "deterministic_closeout"
+    assert "未完成" in str(done.get("content") or "")
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
-    assert assistant_messages == []
+    assert assistant_messages
 
 def test_single_agent_turn_json_ask_user_goes_through_admission() -> None:
     model = _TurnActionSequenceModelRuntime(
@@ -665,7 +926,7 @@ def test_tool_call_id_is_generated_during_action_normalization() -> None:
     assert action.tool_call["id"] != action.request_id
 
 
-def test_single_agent_parser_rejects_initial_native_tool_call_without_model_preamble() -> None:
+def test_single_agent_parser_allows_native_tool_call_without_model_preamble_as_diagnostic_gap() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -686,12 +947,91 @@ def test_single_agent_parser_rejects_initial_native_tool_call_without_model_prea
         public_response_required=True,
     )
 
-    assert parsed.action_request is None
-    assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
-    diagnostics = parsed.error["diagnostics"]
-    assert diagnostics["action_issue"]["code"] == "public_response_required"
-    assert diagnostics["native_action_errors"][0]["code"] == "public_response_required_for_native_tool_call"
+    assert parsed.error is None
+    assert parsed.tool_actions
+    action = parsed.tool_actions[0]
+    assert action.action_type == "tool_call"
+    assert action.tool_call["args"] == {"path": "README.md"}
+    assert dict(action.diagnostics or {}).get("public_response_required") is True
+    assert dict(action.diagnostics or {}).get("public_response_requirement_source") == "tool_observation_feedback"
+    assert "public_response_missing_for_native_tool_call" in dict(action.diagnostics or {}).get("contract_gaps", [])
+
+
+def test_single_agent_continues_corrected_tool_call_after_failed_tool_without_preamble(tmp_path: Path) -> None:
+    model = NativeToolCallSequenceModelRuntimeStub(
+        [
+            {
+                "content": "我先读取目标文件，确认当前结构。",
+                "tool_calls": [
+                    {
+                        "id": "call-bad-read",
+                        "name": "read_file",
+                        "args": {"path": "backend/memory_system/runtime_supply.py", "limit": 120},
+                    },
+                ],
+            },
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-corrected-read",
+                        "name": "read_file",
+                        "args": {
+                            "path": "backend/memory_system/runtime_supply.py",
+                            "start_line": 1,
+                            "line_count": 120,
+                        },
+                    },
+                ],
+            },
+            {
+                "content": json.dumps(
+                    _action_request(action_type="respond", final_answer="已用正确窗口参数继续读取 runtime_supply.py。"),
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+    )
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(HarnessRuntimeRequest(session_id="session-corrected-read-after-failure", message="继续审查记忆系统。")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    admissions = _admission_payloads(events)
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    done = next(event for event in events if event.get("type") == "done")
+    tool_admissions = [
+        dict(item.get("model_action_request") or {})
+        for item in admissions
+        if dict(item.get("model_action_request") or {}).get("action_type") == "tool_call"
+    ]
+
+    assert [dict(item.get("tool_call") or {}).get("id") for item in tool_admissions] == [
+        "call-bad-read",
+        "call-corrected-read",
+    ]
+    assert len(observations) == 2
+    assert observations[0]["status"] == "error"
+    assert observations[1]["status"] == "ok"
+    assert "public_response_missing_for_native_tool_call" in dict(
+        tool_admissions[1].get("diagnostics") or {}
+    ).get("contract_gaps", [])
+    assert not any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert done["terminal_reason"] == "respond"
+    assert "正确窗口参数" in str(done.get("content") or "")
 
 
 def test_single_agent_parser_uses_native_tool_preamble_as_model_response() -> None:

@@ -2193,9 +2193,6 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
 
 def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
-    feedback_data = _model_action_feedback_step_data(raw_data)
-    if feedback_data:
-        events.append(("runtime_step_summary", feedback_data))
     request_items = _tool_call_requested_items(raw_data)
     if not request_items:
         return events
@@ -2205,71 +2202,6 @@ def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict
         if permission_data:
             events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
     return events
-
-
-def _model_action_feedback_step_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
-    if not request:
-        return {}
-    action_state = _public_action_state(request.get("public_action_state"))
-    content = (
-        _safe_public_action_text(request.get("public_progress_note"))
-        or _safe_public_action_text(action_state.get("current_judgment"))
-    )
-    if not content:
-        return {}
-    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("event_id") or "").strip()
-    feedback_identity = _model_action_feedback_identity(
-        payload=payload,
-        refs=refs,
-        request=request,
-        runtime_event_id=runtime_event_id,
-    )
-    feedback_event_id = f"model-action-feedback:{feedback_identity}" if feedback_identity else runtime_event_id
-    data: dict[str, Any] = {
-        "status": "running",
-        "step": "model_action_public_feedback",
-        "summary": content,
-        "feedback_identity": feedback_identity,
-        "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
-        "current_judgment": _safe_public_action_text(action_state.get("current_judgment")),
-        "next_action": _safe_public_action_text(action_state.get("next_action")),
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": feedback_event_id,
-        "source_task_event_id": runtime_event_id,
-        "presentation_source": "model_action.public_progress_note"
-        if _safe_public_action_text(request.get("public_progress_note"))
-        else "model_action.public_action_state",
-    }
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _model_action_feedback_identity(
-    *,
-    payload: dict[str, Any],
-    refs: dict[str, Any],
-    request: dict[str, Any],
-    runtime_event_id: str,
-) -> str:
-    return str(
-        refs.get("batch_action_request_ref")
-        or request.get("batch_action_request_ref")
-        or refs.get("action_request_ref")
-        or payload.get("action_request_ref")
-        or request.get("action_request_ref")
-        or refs.get("request_id")
-        or payload.get("request_id")
-        or request.get("request_id")
-        or refs.get("runtime_invocation_packet_ref")
-        or payload.get("runtime_invocation_packet_ref")
-        or request.get("runtime_invocation_packet_ref")
-        or runtime_event_id
-        or ""
-    ).strip()
 
 
 def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:

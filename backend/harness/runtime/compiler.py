@@ -2235,11 +2235,14 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
         "authority": "harness.loop.model_action_request",
-        "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|block",
+        "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block",
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
             "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+            "当用户要求审查、评估、排查、review、audit、梳理架构或检查一个模块/子系统/目录/多文件链路，并需要形成可靠结论、问题清单、修复建议、报告或可验收结果时，这就是任务承接请求；如果 request_task_run 可用，必须主动选择 request_task_run，而不是在单轮里连续读取大量文件。",
+            "大型审查的范围只需要足以形成任务合同，不需要在单轮里先枚举完全部文件；一旦目标、范围边界和验收标准足够，就应提交 request_task_run，让持续任务生命周期负责后续证据读取和阶段反馈。",
+            "只有审查范围明确很小，例如只核对一个已知文件、一个具体函数、一个报错片段或一个单点事实，且不要求持续推进、完整结论或交付物时，才可以留在普通 tool_call。",
             "如果用户当前输入是问题、质疑、追问、状态询问、纠错或询问为什么，必须先对这个输入给出公开回应；只有用户明确要求继续/执行/恢复当前任务时，才允许 active_work_control 只承接执行。",
             "如果运行边界允许 request_task_run 且任务承接条件成立，必须选择 request_task_run；不要用 respond 给计划替代启动任务，也不要先用普通 tool_call 消耗任务。",
             "如果任务承接条件成立但目标、范围或验收标准不足以形成 task_contract_seed，必须选择 ask_user 补齐关键缺口。",
@@ -2260,14 +2263,15 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
                     "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
                     "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
                     "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
-                    "观察结果推翻了你先前的公开判断或暴露出不确定性。"
+                    "观察结果推翻了你先前的公开判断或暴露出不确定性。",
+                    "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
                 ],
                 "may_keep_internal_when": [
-                    "观察只是低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call、request_task_run 或 active_work_control，没有解释用户当前问题。",
@@ -2288,6 +2292,69 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
         "user_question": "",
         "blocking_reason": "",
         "tool_call": {"tool_name": "", "args": {}},
+        "request_task_run_shape_rules": [
+            "request_task_run 必须是单个 JSON action；不要使用 Markdown 代码块、不要在 JSON 前后附加正文、不要使用 provider-native request_task_run 工具调用。",
+            "不要使用 payload 包裹任务合同；顶层只能放 action_type、authority、public_progress_note、public_action_state、task_contract_seed、completion_contract、permission_request、diagnostics 等动作控制字段。",
+            "working_scope、capability_intent、skill_intent、observation_contract、completion_criteria、required_artifacts、required_verifications 都必须放在 task_contract_seed 内，不允许放在 JSON 顶层。",
+            "capability_intent 使用 needed_capability_groups；不要写 selected_groups。observation_contract 必须包含 evidence_policy。skill_intent 即使不选择 skill，也要给 selected_skill_ids: [] 并说明 reason。",
+        ],
+        "resume_recoverable_work_shape_rules": [
+            "resume_recoverable_work 必须是单个 JSON action；不要使用 Markdown 代码块、不要在 JSON 前后附加正文、不要使用 provider-native resume_recoverable_work 工具调用。",
+            "task_run_id 和 continuation_id 必须放在 recovery_resume 对象内；不允许放在 JSON 顶层，也不要使用 payload 包裹。",
+            "只使用系统提供的可恢复句柄；不要从聊天文本、旧 assistant closeout 或文件内容里猜测 task_run_id/continuation_id。",
+            "恢复动作只恢复同一个 task_run，不创建新任务；如果句柄缺失、失效或用户要求改目标，选择 respond、ask_user 或 block 说明原因。",
+        ],
+        "minimal_valid_resume_recoverable_work_example": {
+            "authority": "harness.loop.model_action_request",
+            "action_type": "resume_recoverable_work",
+            "public_progress_note": "已确认存在可恢复任务，我会从系统提供的断点继续原任务。",
+            "public_action_state": {
+                "current_judgment": "恢复句柄和任务标识已由系统上下文提供。",
+                "next_action": "恢复原任务执行。",
+            },
+            "recovery_resume": {
+                "task_run_id": "taskrun:系统提供的可恢复任务 id",
+                "continuation_id": "cont:系统提供的 continuation id",
+            },
+        },
+        "minimal_valid_request_task_run_example": {
+            "authority": "harness.loop.model_action_request",
+            "action_type": "request_task_run",
+            "public_progress_note": "这是跨多文件的审查任务，我会进入持续任务来读取证据、分阶段反馈并形成可验收结论。",
+            "public_action_state": {
+                "current_judgment": "目标和范围已经足以形成持续任务合同。",
+                "next_action": "进入持续任务执行流程。",
+            },
+            "task_contract_seed": {
+                "user_visible_goal": "完整审查指定系统并输出可靠报告。",
+                "task_run_goal": "读取指定模块、记录证据、审查架构和提示词链路，并输出可验收报告。",
+                "working_scope": {
+                    "target_objects": ["要审查的目录、模块、文件或子系统"],
+                    "workspace_refs": ["项目或工作区引用"],
+                    "source_refs": ["用户消息、已观察到的文件清单或资料引用"],
+                    "excluded_scope": ["明确不处理的范围"],
+                    "known_constraints": ["用户明确的质量标准和边界"],
+                },
+                "completion_criteria": ["读取关键证据", "形成问题清单和结论", "交付报告或修复建议"],
+                "capability_intent": {
+                    "needed_capability_groups": ["file_work"],
+                    "preferred_tool_namespaces": ["file_work"],
+                    "requires_deferred_tool_loading": True,
+                    "reason": "需要跨文件读取、证据记录和持续执行。",
+                },
+                "skill_intent": {
+                    "selected_skill_ids": [],
+                    "candidate_skill_ids": [],
+                    "required_capability_tags": ["code_review"],
+                    "reason": "当前任务主要依赖代码阅读和架构审查。",
+                },
+                "observation_contract": {
+                    "evidence_policy": "observation_required",
+                    "progress_granularity": "step",
+                    "finalization_requires_evidence": True,
+                },
+            },
+        },
         "task_contract_seed": {
             "user_visible_goal": "用户可理解的任务目标，必填",
             "task_run_goal": "给执行生命周期使用的任务目标，必填",
@@ -2378,14 +2445,15 @@ def task_execution_action_schema() -> dict[str, Any]:
                     "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
                     "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
                     "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
-                    "观察结果推翻了你先前的公开判断或暴露出不确定性。"
+                    "观察结果推翻了你先前的公开判断或暴露出不确定性。",
+                    "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
                 ],
                 "may_keep_internal_when": [
-                    "观察只是低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                    "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
                     "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
                     "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
                 ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。"
+                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；不要粘贴原始工具输出，不要暴露内部事件编号、协议字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
             },
             "non_response_examples": [
                 "只输出 tool_call 或 block，没有解释用户当前问题。",
@@ -2665,6 +2733,9 @@ def _single_agent_turn_output_contract(
     action_selection_rules = [
         "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
         "先判断目标是否需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+        "如果用户要求审查、评估、排查、review、audit、梳理架构或检查模块/子系统/目录/多文件链路，并需要可靠结论、问题清单、修复建议、报告或可验收结果，应视为任务承接请求。",
+        "普通 tool_call 只适合明确的小范围一次性核对；不要用连续读取大量文件来代替 request_task_run。",
+        "大型审查只需要先确认足以形成任务合同的目标、范围和验收标准，不要为了完整预扫描而继续消耗单轮工具预算。",
     ]
     if "request_task_run" in allowed_actions:
         action_selection_rules.extend(
@@ -4573,6 +4644,15 @@ def _model_decision_contract_payload(
             "request_task_run_allowed": bool(task_run_allowed),
             "must_choose_request_task_run_when_task_entry_conditions_hold": bool(task_run_allowed),
             "ask_user_when_contract_gaps_exist": True,
+            "task_entry_conditions": [
+                "用户要求开始、继续推进、执行、落地、实现、修复、构建、生成、写入或验证，并要求做到可验收结果。",
+                "目标需要多阶段完成、规划后执行、持续推进、失败恢复、真实产物、文件修改、命令或浏览器验证、跨步骤状态记录。",
+                "用户要求审查、评估、排查、review、audit、梳理架构或检查模块/子系统/目录/多文件链路，并需要可靠结论、问题清单、修复建议、报告或可验收结果。",
+            ],
+            "single_turn_tool_call_boundary": (
+                "普通 tool_call 只适合明确的小范围一次性核对，例如一个已知文件、一个具体函数、"
+                "一个报错片段或一个单点事实；不要用连续读取大量文件来代替 request_task_run。"
+            ),
         },
         "feedback_obligation": {
             "agent_must_give_user_feedback": True,

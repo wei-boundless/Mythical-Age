@@ -4802,7 +4802,7 @@ def _commit_task_run_final_message(
             commit_gate={},
         )
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    turn_id = str(diagnostics.get("turn_id") or "").strip()
+    turn_id = str(diagnostics.get("turn_id") or "").strip() or _task_run_output_turn_id(task_run_id)
     runtime_control = dict(diagnostics.get(_TASK_RUN_CONTROL_KEY) or {})
     control_reason = str(runtime_control.get("reason") or "").strip()
     commit_source = "harness.loop.task_executor"
@@ -4932,6 +4932,11 @@ def _commit_task_run_final_message(
         checked_event_offset=_event_offset(checked_event),
         committer_result=result,
     )
+
+
+def _task_run_output_turn_id(task_run_id: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(task_run_id or "")).strip("_")
+    return f"taskrun-final:{safe or uuid.uuid4().hex[:12]}"
 
 
 def _record_session_output_commit_skipped(
@@ -6047,6 +6052,7 @@ def _pause_executor_for_repeated_admission_denial(
 
 def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_run: Any, max_steps: int) -> dict[str, Any]:
     now = time.time()
+    public_status = "本轮步骤预算已用尽，任务已停在可续跑边界；继续后会从当前任务状态恢复。"
     payload = {
         "error_code": "task_execution_step_budget_exhausted",
         "retryable": True,
@@ -6064,6 +6070,19 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
             "wait_reason": "task_execution_step_budget_exhausted",
             "recoverable_error": payload,
             "recovery_action": "rerun_task_executor",
+            "latest_step": "task_executor_waiting_next_run",
+            "latest_step_status": "waiting_executor",
+            "latest_step_summary": public_status,
+            "latest_public_status": public_status,
+            "latest_public_progress_note": public_status,
+            "latest_public_action_state": {
+                "current_judgment": public_status,
+                "next_action": "等待用户继续或调度器续跑当前任务。",
+                "completion_status": "blocked",
+            },
+            "latest_current_judgment": public_status,
+            "latest_next_action": "等待用户继续或调度器续跑当前任务。",
+            "latest_completion_status": "blocked",
         },
     )
     runtime_host.state_index.upsert_task_run(paused_task)
@@ -6081,25 +6100,101 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
         payload={"task_run": paused_task.to_dict(), "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS)},
         refs={"task_run_ref": task_run.task_run_id},
     )
+    observation = _budget_exhausted_runtime_control_observation(
+        task_run=replace(paused_task, latest_event_offset=budget_event.offset, updated_at=budget_event.created_at or now),
+        max_steps=int(max_steps or _MAX_TASK_EXECUTION_STEPS),
+        event_offset=budget_event.offset,
+    )
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    signal_event = runtime_host.event_log.append(
+        task_run.task_run_id,
+        "task_runtime_control_signal_observed",
+        payload={"observation": observation, "control": _runtime_control_payload(paused_task)},
+        refs={
+            "task_run_ref": task_run.task_run_id,
+            "observation_ref": observation["observation_id"],
+            "runtime_invocation_packet_ref": str(dict(getattr(task_run, "diagnostics", {}) or {}).get("active_packet_ref") or ""),
+        },
+    )
     _record_task_step_summary(
         runtime_host,
         task_run_id=task_run.task_run_id,
         step="task_executor_waiting_next_run",
         status="waiting_executor",
-        summary="本轮步骤预算已用尽，当前工作会等待后续继续。",
+        summary=public_status,
+        public_progress_note=public_status,
+        current_judgment=public_status,
+        next_action="等待用户继续或调度器续跑当前任务。",
+        completion_status="blocked",
+        presentation_source="runtime.step_budget_exhausted",
+        refs={"observation_ref": observation["observation_id"]},
     )
     append_work_rollout_item(
         runtime_host,
-        task_run=replace(paused_task, latest_event_offset=budget_event.offset, updated_at=budget_event.created_at or now),
+        task_run=replace(paused_task, latest_event_offset=signal_event.offset, updated_at=signal_event.created_at or budget_event.created_at or now),
         item_type="pause_boundary",
         title="等待继续",
         status="waiting_executor",
-        summary="本轮步骤预算已用尽，当前工作会等待后续继续。",
-        event_offset=budget_event.offset,
-        refs={"task_run_ref": task_run.task_run_id},
-        payload={"terminal_reason": "task_execution_step_budget_exhausted"},
+        summary=public_status,
+        event_offset=signal_event.offset,
+        refs={"task_run_ref": task_run.task_run_id, "observation_ref": observation["observation_id"]},
+        payload={
+            "terminal_reason": "task_execution_step_budget_exhausted",
+            "model_visible": True,
+            "runtime_control_signal": dict(observation.get("payload") or {}),
+        },
     )
-    return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_execution_step_budget_exhausted", "retryable": True}
+    latest_task = runtime_host.state_index.get_task_run(task_run.task_run_id) or paused_task
+    return {"ok": False, "task_run": latest_task.to_dict(), "error": "task_execution_step_budget_exhausted", "retryable": True}
+
+
+def _budget_exhausted_runtime_control_observation(*, task_run: Any, max_steps: int, event_offset: int | float) -> dict[str, Any]:
+    now = time.time()
+    instruction = (
+        "本轮任务执行步骤预算已用尽。系统没有把任务判为失败；当前 task_run 已停在 waiting_executor 可续跑边界。"
+        "你需要在下一次恢复时先吸收这条预算边界观察，说明已完成进度和下一步，不要把它误判为协议恢复失败或最终阻塞。"
+    )
+    fingerprint = "sha256:" + _stable_hash(
+        {
+            "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
+            "event_offset": int(event_offset or 0),
+            "signal_kind": "budget_exhausted",
+            "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS),
+        }
+    )
+    return {
+        "observation_id": f"rtobs:{task_run.task_run_id}:budget-exhausted:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run.task_run_id,
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_signal",
+        "request_ref": f"runtime-control-signal:{task_run.task_run_id}:budget-exhausted:{int(event_offset or 0)}",
+        "directive_ref": str(dict(getattr(task_run, "diagnostics", {}) or {}).get("active_packet_ref") or ""),
+        "content_chars": len(instruction),
+        "summary": instruction,
+        "payload": {
+            "signal_kind": "budget_exhausted",
+            "runtime_control_state": "waiting_executor",
+            "requested_by": "system",
+            "requested_at": now,
+            "reason": "task_execution_step_budget_exhausted",
+            "boundary": "task_execution_step_budget",
+            "runtime_control_signal_fingerprint": fingerprint,
+            "agent_closeout_required": False,
+            "allowed_agent_actions": ["respond", "ask_user", "block", "tool_call"],
+            "tool_calls_allowed_after_signal": True,
+            "repair_instruction": instruction,
+            "structured_signal": {
+                "code": "runtime_control_budget_exhausted",
+                "message": instruction,
+                "origin": "task_execution_step_budget_boundary",
+                "retryable": True,
+            },
+            "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS),
+        },
+        "needs_model_followup": True,
+        "created_at": now,
+        "authority": "orchestration.runtime_observation",
+    }
 
 
 def _model_error_payload(error: Exception) -> dict[str, Any]:

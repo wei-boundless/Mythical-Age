@@ -118,3 +118,60 @@ def test_wait_any_allows_ready_when_one_incoming_edge_is_ready() -> None:
 
     assert decision.ready_node_ids == ("b",)
     assert decision.reasons["b"]["reason"] == "any_incoming_edge_ready"
+
+
+def test_pending_revision_edge_does_not_block_initial_forward_path() -> None:
+    config = _config(
+        nodes=(
+            {"node_id": "brief", "node_type": "agent"},
+            {"node_id": "review", "node_type": "agent"},
+            {"node_id": "draft", "node_type": "agent"},
+        ),
+        edges=(
+            _edge("edge.brief.draft", "brief", "draft"),
+            {
+                **_edge("edge.revision.review.draft", "review", "draft"),
+                "edge_type": "revision_request",
+                "semantic_role": "revision",
+                "scheduler_role": "conditional_dependency",
+            },
+        ),
+    )
+
+    decision = GraphReadinessEvaluator().evaluate(
+        graph_config=config,
+        node_states=_node_states(brief="completed", review="pending", draft="pending"),
+        edge_states={
+            "edge.brief.draft": {"edge_id": "edge.brief.draft", "status": "ready"},
+            "edge.revision.review.draft": {"edge_id": "edge.revision.review.draft", "status": "pending"},
+        },
+    )
+
+    assert "draft" in decision.ready_node_ids
+    assert decision.reasons["draft"]["reason"] == "all_required_incoming_edges_ready"
+    assert decision.reasons["draft"]["ignored_conditional_edges"] == ["edge.revision.review.draft"]
+
+
+def test_ready_revision_edge_is_not_ignored() -> None:
+    config = _config(
+        nodes=(
+            {"node_id": "review", "node_type": "agent"},
+            {"node_id": "draft", "node_type": "agent"},
+        ),
+        edges=(
+            {
+                **_edge("edge.revision.review.draft", "review", "draft"),
+                "edge_type": "revision_request",
+                "semantic_role": "revision",
+                "scheduler_role": "conditional_dependency",
+            },
+        ),
+    )
+
+    decision = GraphReadinessEvaluator().evaluate(
+        graph_config=config,
+        node_states=_node_states(review="completed", draft="pending"),
+        edge_states={"edge.revision.review.draft": {"edge_id": "edge.revision.review.draft", "status": "ready"}},
+    )
+
+    assert decision.ready_node_ids == ("draft",)

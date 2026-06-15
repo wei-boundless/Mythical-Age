@@ -116,11 +116,17 @@ def _edge_readiness_decision(
 ) -> dict[str, Any]:
     wait_policy = str(dict(node.get("execution") or {}).get("wait_policy") or node.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
     join_policy = str(dict(node.get("execution") or {}).get("join_policy") or node.get("join_policy") or "all_success").strip() or "all_success"
-    statuses = {
-        str(edge.get("edge_id") or ""): str(dict(edge_states.get(str(edge.get("edge_id") or "")) or {}).get("status") or "pending")
-        for edge in incoming_edges
-        if str(edge.get("edge_id") or "")
-    }
+    statuses = {}
+    ignored_conditional_edges: list[str] = []
+    for edge in incoming_edges:
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        status = str(dict(edge_states.get(edge_id) or {}).get("status") or "pending")
+        if status == "pending" and _is_inactive_revision_edge(edge):
+            ignored_conditional_edges.append(edge_id)
+            continue
+        statuses[edge_id] = status
     active_statuses = {edge_id: status for edge_id, status in statuses.items() if status != "skipped"}
     ready_count = sum(1 for status in active_statuses.values() if status == "ready")
     pending_count = sum(1 for status in active_statuses.values() if status == "pending")
@@ -133,6 +139,7 @@ def _edge_readiness_decision(
         "wait_policy": wait_policy,
         "join_policy": join_policy,
         "edge_statuses": statuses,
+        **({"ignored_conditional_edges": ignored_conditional_edges} if ignored_conditional_edges else {}),
         "authority": "harness.graph.readiness_evaluator.edge_decision",
     }
     if not active_statuses and statuses:
@@ -169,6 +176,20 @@ def _edge_readiness_decision(
     if active_statuses and all(status == "ready" for status in active_statuses.values()):
         return {**base, "decision": "ready", "reason": "all_incoming_edges_ready"}
     return {**base, "decision": "waiting", "reason": "unsupported_policy_waiting"}
+
+
+def _is_inactive_revision_edge(edge: dict[str, Any]) -> bool:
+    edge_type = str(edge.get("edge_type") or "").strip()
+    semantic_role = str(edge.get("semantic_role") or "").strip()
+    scheduler_role = str(edge.get("scheduler_role") or "").strip()
+    edge_id = str(edge.get("edge_id") or "").strip()
+    return bool(
+        edge_type == "revision_request"
+        or semantic_role == "revision"
+        or scheduler_role == "conditional_dependency"
+        or ".revision." in edge_id
+        or edge_id.startswith("edge.revision.")
+    )
 
 
 def _quorum_value(node: dict[str, Any]) -> int:

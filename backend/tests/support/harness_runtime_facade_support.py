@@ -253,17 +253,17 @@ class _TurnActionSequenceModelRuntime:
 
 
 class _UnexpectedNativeToolCallModelRuntime:
-    def __init__(self, tool_calls: list[dict[str, object]], *, repair_action: dict[str, object] | None = None) -> None:
+    def __init__(self, tool_calls: list[dict[str, object]], *, recovery_action: dict[str, object] | None = None) -> None:
         self.tool_calls = [dict(item) for item in tool_calls]
-        self.repair_action = dict(repair_action or {})
+        self.recovery_action = dict(recovery_action or {})
         self.invocation_count = 0
 
     async def invoke_messages(self, _messages, **_kwargs):
         self.invocation_count += 1
         if self.invocation_count == 1:
             return SimpleNamespace(content="", tool_calls=[dict(item) for item in self.tool_calls])
-        if self.repair_action:
-            return SimpleNamespace(content=json.dumps(self.repair_action, ensure_ascii=False))
+        if self.recovery_action:
+            return SimpleNamespace(content=json.dumps(self.recovery_action, ensure_ascii=False))
         return SimpleNamespace(content="")
 
 

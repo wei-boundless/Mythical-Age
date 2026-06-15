@@ -202,7 +202,10 @@ def _validate_writing_graph_payload(payload: dict[str, Any]) -> None:
         missing_frames = sorted(CHAPTER_CYCLE_REQUIRED_LOOP_FRAME_IDS - frame_ids)
         if missing_frames:
             raise ValueError(f"writing chapter_cycle graph missing required loop frames: {missing_frames}")
-        if not any(str(frame.get("progress_receipt_key") or "").strip() for frame in loop_frames):
+        if not _chapter_cycle_has_progress_receipt_key(
+            nodes=_list_dicts(payload.get("nodes") or payload.get("graph_nodes")),
+            loop_frames=loop_frames,
+        ):
             raise ValueError("writing chapter_cycle graph requires progress_receipt_key")
 
 
@@ -243,6 +246,20 @@ def _validate_quorum_policy(node: dict[str, Any]) -> None:
         raise ValueError(f"writing graph quorum join policy requires quorum count: {node.get('node_id')}")
     if str(node.get("join_policy") or "") not in NODE_JOIN_POLICIES:
         raise ValueError(f"unsupported join_policy: {node.get('join_policy')}")
+
+
+def _chapter_cycle_has_progress_receipt_key(*, nodes: list[dict[str, Any]], loop_frames: list[dict[str, Any]]) -> bool:
+    for frame in loop_frames:
+        if str(frame.get("progress_receipt_key") or "").strip():
+            return True
+    for node in nodes:
+        progress_policy = dict(node.get("progress_receipt_policy") or {})
+        if str(progress_policy.get("progress_receipt_key") or "").strip():
+            return True
+        route_policy = dict(dict(node.get("loop") or {}).get("route_policy") or {})
+        if str(route_policy.get("progress_receipt_key") or "").strip():
+            return True
+    return False
 
 
 def _nested(payload: dict[str, Any], dotted_key: str) -> Any:

@@ -44,7 +44,7 @@ IMAGE_OCR_MAX_TIMEOUT_SECONDS = 240
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
-        "model": "deepseek-v4-pro",
+        "model": "deepseek-v4-flash",
         "base_url": "https://api.deepseek.com",
         "adapter": "deepseek_langchain",
         "credential_envs": (

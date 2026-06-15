@@ -1528,13 +1528,21 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     _upsert_imported_module_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=FINALIZE_GRAPH_ID, nodes=FINALIZE_NODES, business_edges=FINALIZE_BUSINESS_EDGES)
     _upsert_master_graph(registry)
-    published_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=MASTER_GRAPH_ID)
+    published_configs = {
+        graph_id: publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph_id)
+        for graph_id in (DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID, MASTER_GRAPH_ID)
+    }
+    published_config = published_configs[MASTER_GRAPH_ID]
 
     configured = {
         "domain_id": DOMAIN_ID,
         "protocol_id": PROTOCOL_ID,
         "graph_ids": list(WRITING_GRAPH_IDS),
         "graph_harness_config_id": published_config.config_id,
+        "graph_harness_config_ids": {
+            graph_id: config.config_id
+            for graph_id, config in published_configs.items()
+        },
         "target_unit_count": CHAPTER_REQUESTED_COUNT,
         "target_group_count": TARGET_VOLUMES,
         "units_per_group": CHAPTERS_PER_VOLUME,

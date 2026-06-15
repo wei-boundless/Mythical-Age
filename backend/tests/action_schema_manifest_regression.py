@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from harness.runtime.action_schema_manifest import build_action_schema_manifest
-from harness.runtime.compiler import RuntimeCompiler, task_execution_action_schema
+from harness.runtime.compiler import RuntimeCompiler, model_action_request_schema, task_execution_action_schema
 
 
 def _backend_dir() -> Path:
@@ -40,6 +40,38 @@ def test_action_schema_manifest_renders_task_execution_model_visible_payload() -
     assert "必须回应用户当前输入本身" in str(schema["public_response_obligation"]["rule"])
     assert "must_explain_when" in schema["public_response_obligation"]["tool_observation_reporting"]
     assert manifest.to_model_visible_payload() == {"schema": schema}
+
+
+def test_action_schemas_keep_long_running_observation_feedback_obligation() -> None:
+    single_turn_schema = model_action_request_schema("turn:feedback-obligation")
+    task_schema = task_execution_action_schema()
+
+    for schema in (single_turn_schema, task_schema):
+        reporting = schema["public_response_obligation"]["tool_observation_reporting"]
+        assert any("多个工具批次" in item for item in reporting["must_explain_when"])
+        assert any("失败恢复、写入、验证" in item for item in reporting["must_explain_when"])
+        assert any("短链路" in item for item in reporting["may_keep_internal_when"])
+        assert "不允许长时间任务只剩工具列表" in reporting["explanation_shape"]
+
+
+def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> None:
+    schema = model_action_request_schema("turn:request-task-run-shape")
+
+    shape_rules = [str(item) for item in list(schema.get("request_task_run_shape_rules") or [])]
+    example = dict(schema.get("minimal_valid_request_task_run_example") or {})
+    seed = dict(example.get("task_contract_seed") or {})
+
+    assert any("不要使用 payload" in rule for rule in shape_rules)
+    assert any("必须放在 task_contract_seed 内" in rule for rule in shape_rules)
+    assert any("不要写 selected_groups" in rule for rule in shape_rules)
+    assert "capability_intent" not in example
+    assert "skill_intent" not in example
+    assert "observation_contract" not in example
+    assert "capability_intent" in seed
+    assert "skill_intent" in seed
+    assert "observation_contract" in seed
+    assert dict(seed["capability_intent"])["needed_capability_groups"] == ["file_work"]
+    assert dict(seed["observation_contract"])["evidence_policy"] == "observation_required"
 
 
 def test_task_execution_packet_attaches_action_schema_manifest_without_prompt_drift() -> None:

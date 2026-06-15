@@ -552,6 +552,42 @@ def test_terminal_nonzero_exit_returns_structured_failure_feedback(tmp_path: Pat
     assert "repair_instruction" in structured
 
 
+def test_terminal_command_snapshot_skips_runtime_private_directories(tmp_path: Path, monkeypatch) -> None:
+    from runtime.tool_runtime.native_tools import _capture_command_file_snapshot
+    from runtime.tool_runtime.tool_use_context import ToolUseContext
+
+    workspace = tmp_path / "project"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("public", encoding="utf-8")
+    private_events = workspace / "storage" / "runtime_state" / "events"
+    private_events.mkdir(parents=True)
+    (private_events / "turnrun-secret.jsonl").write_text("secret", encoding="utf-8")
+
+    visited_dirs: list[str] = []
+    original_iterdir = Path.iterdir
+
+    def _tracking_iterdir(path: Path):
+        try:
+            visited_dirs.append(path.resolve().relative_to(workspace.resolve()).as_posix())
+        except ValueError:
+            pass
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", _tracking_iterdir)
+
+    snapshot = _capture_command_file_snapshot(
+        ToolUseContext(workspace_root=workspace),
+        force=False,
+        command="New-Item -ItemType Directory -Path docs/reviews -Force",
+    )
+
+    assert snapshot is not None
+    assert "docs/note.md" in snapshot["entries"]
+    assert "storage/runtime_state" not in visited_dirs
+    assert "storage/runtime_state/events" not in visited_dirs
+    assert not any(str(path).startswith("storage/runtime_state/") for path in snapshot["entries"])
+
+
 def test_python_repl_nonzero_exit_returns_structured_failure_feedback(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"

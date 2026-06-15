@@ -188,7 +188,7 @@ class GraphLoop:
         max_requests: int | None = None,
     ) -> tuple[GraphNodeWorkOrder, ...]:
         limit = int(max_requests or dict(graph_config.control or {}).get("max_active_nodes") or 1)
-        allowed_ready = set(
+        allowed_ready = tuple(
             self._state_machine.ready_nodes(
                 graph_config=graph_config,
                 node_states={key: dict(value) for key, value in state.node_states.items()},
@@ -198,9 +198,8 @@ class GraphLoop:
         )
         selected = [
             node_id
-            for node_id in state.ready_node_ids
+            for node_id in allowed_ready
             if node_id not in state.active_work_orders
-            and node_id in allowed_ready
         ][: max(1, limit)]
         orders: list[GraphNodeWorkOrder] = []
         for node_id in selected:
@@ -1668,6 +1667,8 @@ def _state_after_loop_route(
         source = str(edge.get("source_node_id") or "")
         target = str(edge.get("target_node_id") or "")
         if source in reset_edge_node_ids or target in reset_edge_node_ids:
+            if target in reset_edge_node_ids and source not in reset_edge_node_ids:
+                continue
             edge_payload = dict(edge_states.get(edge_id) or {})
             edge_payload.update(
                 {
@@ -3499,6 +3500,10 @@ def _state_after_revision_requeue(
         target_node_ids=targets,
     )
     has_revision_target = bool(preserve_ready_revision_edges) and _has_ready_revision_target(graph_config=graph_config, state=state, target_node_ids=targets)
+    requires_execution_range = has_revision_target and _revision_targets_require_execution_range(
+        graph_config=graph_config,
+        target_node_ids=targets,
+    )
     if cursor_patch:
         initial_inputs.update(cursor_patch)
     initial_inputs = _apply_derived_fields(initial_inputs, _loop_derived_fields(graph_config))
@@ -3530,13 +3535,14 @@ def _state_after_revision_requeue(
         node = dict(node_states.get(node_id) or {})
         if not node:
             continue
-        node["status"] = "blocked" if has_revision_target and not cursor_patch and node_id in target_set else ("ready" if node_id in target_set else "pending")
-        if has_revision_target and not cursor_patch and node_id in target_set:
+        missing_required_range = requires_execution_range and not cursor_patch and node_id in target_set
+        node["status"] = "blocked" if missing_required_range else ("ready" if node_id in target_set else "pending")
+        if missing_required_range:
             node["blocked_reason"] = "revision_execution_range_missing"
         node["updated_at"] = now
         for key in ("result_ref", "work_order_id", "human_gate"):
             node.pop(key, None)
-        if not (has_revision_target and not cursor_patch and node_id in target_set):
+        if not missing_required_range:
             node.pop("blocked_reason", None)
         node_states[node_id] = node
         result_index.pop(node_id, None)
@@ -3546,6 +3552,8 @@ def _state_after_revision_requeue(
         source = str(edge.get("source_node_id") or "")
         target = str(edge.get("target_node_id") or "")
         if not edge_id or (source not in reset_set and target not in reset_set):
+            continue
+        if target in reset_set and source not in reset_set and not _edge_is_revision(dict(edge)):
             continue
         edge_state = dict(edge_states.get(edge_id) or {})
         edge_state.update(
@@ -3580,12 +3588,28 @@ def _state_after_revision_requeue(
         loop_state=loop_state,
         initial_inputs=initial_inputs,
         active_work_orders=active_work_orders,
-        ready_node_ids=() if has_revision_target and not cursor_patch else targets,
+        ready_node_ids=() if requires_execution_range and not cursor_patch else targets,
         running_node_ids=(),
         failed_node_ids=tuple(item for item in state.failed_node_ids if item not in reset_set),
-        blocked_node_ids=targets if has_revision_target and not cursor_patch else (),
+        blocked_node_ids=targets if requires_execution_range and not cursor_patch else (),
         terminal_reason="",
     )
+
+
+def _revision_targets_require_execution_range(
+    *,
+    graph_config: GraphHarnessConfig,
+    target_node_ids: tuple[str, ...],
+) -> bool:
+    for node_id in target_node_ids:
+        node = _node_by_id(graph_config, str(node_id)) or {}
+        node_tail = str(node.get("node_id") or "").split("::")[-1]
+        if node_tail == "chapter_draft":
+            return True
+        retry_policy = dict(node.get("retry") or {})
+        if str(retry_policy.get("requirements_input_key") or "").strip() == "chapter_revision_requirements":
+            return True
+    return False
 
 
 def _state_with_work_orders(

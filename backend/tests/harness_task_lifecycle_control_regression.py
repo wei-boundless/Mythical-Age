@@ -234,13 +234,13 @@ def test_task_run_pending_approval_preserves_model_tool_call_id(tmp_path) -> Non
     assert dict(updated_task.diagnostics)["pending_approval"]["tool_call_id"] == "call:write-file-model"
 
 
-def test_task_run_final_output_without_commit_ack_fails_lifecycle_instead_of_completed() -> None:
+def test_task_run_final_output_without_turn_id_uses_task_run_output_turn_id() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             content=json.dumps(
                 _action_request(
                     action_type="respond",
-                    final_answer="This answer cannot be committed without a turn id.",
+                    final_answer="This answer is committed with a task-run scoped output turn id.",
                     public_progress_note="Ready to complete.",
                 ),
                 ensure_ascii=False,
@@ -257,22 +257,22 @@ def test_task_run_final_output_without_commit_ack_fails_lifecycle_instead_of_com
 
     result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=2))
     events = host.event_log.list_events(task_run_id)
-    skipped_event = next(event for event in events if event.event_type == "session_output_commit_skipped")
+    ack_event = next(event for event in events if event.event_type == "session_output_commit_ack")
     lifecycle_event = next(event for event in events if event.event_type == "task_run_lifecycle_finished")
-    skipped_payload = dict(skipped_event.payload or {})
+    ack_payload = dict(ack_event.payload or {})
     lifecycle_payload = dict(dict(lifecycle_event.payload or {}).get("lifecycle") or {})
     finished_task = host.state_index.get_task_run(task_run_id)
+    messages = runtime.session_manager.load_session("session-output-missing-turn")
 
-    assert result["ok"] is False
-    assert result["error"] == "session_output_commit_not_committed"
-    assert finished_task.status == "failed"
-    assert finished_task.terminal_reason == "session_output_commit_not_committed"
-    assert lifecycle_payload["status"] == "failed"
-    assert int(skipped_event.offset) < int(lifecycle_event.offset)
-    assert skipped_payload["reason"] == "assistant_session_message_missing_turn_id"
+    assert result["ok"] is True
+    assert finished_task.status == "completed"
+    assert lifecycle_payload["status"] == "completed"
+    assert int(ack_event.offset) < int(lifecycle_event.offset)
+    assert ack_payload["reason"] == "committed"
+    assert str(ack_payload["turn_id"]).startswith("taskrun-final:")
     assert dict(finished_task.diagnostics)["execution_result_status"] == "completed"
-    assert dict(finished_task.diagnostics)["output_commit_status"] == "skipped"
-    assert runtime.session_manager.load_session("session-output-missing-turn") == []
+    assert dict(finished_task.diagnostics)["output_commit_status"] == "committed"
+    assert messages[-1]["turn_id"] == ack_payload["turn_id"]
 
 
 def test_running_stop_signal_is_observed_by_agent_before_closeout() -> None:
@@ -695,8 +695,16 @@ def test_invalid_single_agent_task_request_reports_error_without_task_run() -> N
         return events
 
     events = asyncio.run(_collect())
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
+    done = next(event for event in events if event.get("type") == "done")
 
-    assert any(event.get("type") == "error" for event in events)
+    assert not any(event.get("type") == "task_run_lifecycle_started" for event in events)
+    assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
+    assert str(done.get("content") or "").strip()
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
 
 def test_task_lifecycle_start_does_not_rewrite_request_to_current_session_handoff() -> None:
@@ -936,7 +944,7 @@ def test_single_agent_turn_native_request_task_run_repairs_to_json_before_lifecy
                 },
             }
         ],
-        repair_action=_action_request(
+        recovery_action=_action_request(
             action_type="request_task_run",
             public_progress_note="我先把页面目标转成可执行任务，然后推进实现和文件验证。",
             task_contract_seed=task_seed,
@@ -971,11 +979,20 @@ def test_single_agent_turn_native_request_task_run_repairs_to_json_before_lifecy
 
     assert branch.get("branch_kind") == "single_agent_turn"
     admissions = _admission_payloads(events)
+    control_signals = [
+        dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
+        for event in events
+        if event.get("type") == "turn_runtime_control_signal_observed"
+    ]
     assert admissions
     assert dict(admissions[0].get("admission") or {}).get("decision") == "allow"
     admitted_action = dict(admissions[0].get("model_action_request") or {})
     assert admitted_action.get("action_type") == "request_task_run"
-    assert dict(admitted_action.get("diagnostics") or {}).get("protocol_repair", {}).get("original_error_code") == "single_agent_turn_invalid_native_action"
+    assert any(
+        dict(signal or {}).get("signal_kind") == "model_protocol_violation"
+        and dict(dict(signal or {}).get("protocol_error") or {}).get("code") == "single_agent_turn_invalid_native_action"
+        for signal in control_signals
+    )
     assert "runtime_invocation_packet" not in stream_types
     assert "model_action_request" not in stream_types
     assert "task_run_lifecycle_started" in stream_types
