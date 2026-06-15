@@ -25,6 +25,10 @@ def test_runtime_cache_root_is_sibling_of_runtime_state_in_project_layout(tmp_pa
     assert manager.cache_root == (tmp_path / "storage" / "runtime_cache").resolve()
     assert sandbox == (tmp_path / "storage" / "runtime_cache" / "sandboxes" / "taskrun_demo").resolve()
     assert sandbox.exists()
+    manifest = json.loads((sandbox / ".runtime_cache_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["cache_key"] == "taskrun:demo"
+    assert manifest["owner"] == "runtime_sandbox"
+    assert manifest["ttl_seconds"] > 0
 
 
 def test_runtime_cache_cleanup_uses_manifest_ttl_and_protected_paths(tmp_path: Path) -> None:
@@ -122,6 +126,9 @@ def test_task_sandbox_policy_defaults_to_runtime_cache(tmp_path: Path) -> None:
     sandbox_root = Path(str(policy["sandbox_root"])).resolve()
     assert sandbox_root == (tmp_path / "storage" / "runtime_cache" / "sandboxes" / "taskrun_cache-root").resolve()
     assert "storage/runtime_state/sandboxes" not in sandbox_root.as_posix()
+    manifest = json.loads((sandbox_root / ".runtime_cache_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["owner"] == "task_run_sandbox"
+    assert manifest["source_refs"] == ["taskrun:cache-root"]
 
 
 def test_single_turn_sandbox_scope_defaults_to_runtime_cache(tmp_path: Path) -> None:
@@ -141,3 +148,6 @@ def test_single_turn_sandbox_scope_defaults_to_runtime_cache(tmp_path: Path) -> 
     sandbox_root = Path(str(policy["sandbox_root"])).resolve()
     assert sandbox_root == (tmp_path / "storage" / "runtime_cache" / "sandboxes" / "turn_cache-root").resolve()
     assert "storage/runtime_state/sandboxes" not in sandbox_root.as_posix()
+    manifest = json.loads((sandbox_root / ".runtime_cache_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["owner"] == "single_turn_sandbox"
+    assert manifest["source_refs"] == ["turn:cache-root"]

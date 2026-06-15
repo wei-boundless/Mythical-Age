@@ -20,6 +20,7 @@ from harness.graph.language import (
 from harness.graph.models import GraphHarnessConfig, safe_id, stable_hash
 from task_system.compiler.graph_compiler import build_graph_compilation_unit
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
+from task_system.compiler.writing_graph_config_migrator import normalize_writing_graph_for_transition_runtime
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 from task_system.graphs.graph_module_expansion import graph_module_expansion_plan_payloads
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
@@ -63,6 +64,7 @@ def build_graph_harness_config_from_graph(
     if graph_id in visited:
         raise ValueError(f"cyclic graph module expansion detected: {graph_id}")
     visited.add(graph_id)
+    graph = normalize_writing_graph_for_transition_runtime(graph)
 
     projection = _project_graph_for_harness(
         graph=graph,

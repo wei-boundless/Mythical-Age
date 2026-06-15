@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from artifact_system import ArtifactRepositoryService
+from harness.runtime.project_instructions import collect_project_instruction_bundle
 from memory_system import MemoryHeader
 from memory_system.governance_service import DEFAULT_GOVERNANCE_MIN_INTERVAL_SECONDS
 from memory_system.layout import durable_memory_namespace_id_for_task_environment
@@ -20,6 +22,8 @@ from request_intent.memory_intent import analyze_memory_intent
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
+
+PROJECT_INSTRUCTION_FILENAME = "AGENTS.md"
 
 
 class RecallPreviewRequest(BaseModel):
@@ -70,6 +74,11 @@ class DurableMemoryMergeRequest(BaseModel):
     reason: str = Field(default="", max_length=600)
     namespace_id: str = Field(default="", max_length=200)
     task_environment_id: str = Field(default="", max_length=200)
+
+
+class ProjectInstructionUpdateRequest(BaseModel):
+    path: str = Field(default=PROJECT_INSTRUCTION_FILENAME, min_length=1, max_length=500)
+    content: str = Field(default="", max_length=240_000)
 
 
 def _layout_from_runtime(runtime: Any) -> ProjectLayout:
@@ -132,6 +141,22 @@ async def get_memory_overview(
         "durable_memory": _durable_overview(headers, _durable_maintenance_runtime(runtime.memory_facade)),
         "session_memory": session_inspect,
     }
+
+
+@router.get("/memory/project-instructions")
+async def get_project_instruction_sources() -> dict[str, Any]:
+    runtime = require_runtime()
+    return _project_instruction_management_payload(runtime)
+
+
+@router.put("/memory/project-instructions")
+async def update_project_instruction_source(payload: ProjectInstructionUpdateRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    path = _resolve_project_instruction_source_path(runtime, payload.path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload.content, encoding="utf-8")
+    _refresh_runtime_index(runtime, _project_instruction_relative_path(runtime, path))
+    return _project_instruction_management_payload(runtime, selected_path=path)
 
 
 @router.get("/memory/formal/overview")
@@ -728,6 +753,117 @@ def _durable_note_display_path(namespace_id: str, filename: str) -> str:
     if normalized.startswith("env:"):
         return f"durable_memory/environments/{normalized.removeprefix('env:')}/notes/{filename}"
     return f"durable_memory/{normalized}/notes/{filename}"
+
+
+def _project_instruction_management_payload(runtime: Any, *, selected_path: Path | None = None) -> dict[str, Any]:
+    layout = _layout_from_runtime(runtime)
+    project_root = layout.project_root.resolve()
+    bundle = collect_project_instruction_bundle(base_dir=runtime.base_dir)
+    source_by_path = {Path(source.path).resolve(): source for source in bundle.sources}
+    canonical_path = selected_path.resolve() if selected_path is not None else (project_root / PROJECT_INSTRUCTION_FILENAME).resolve()
+    source_paths = list(source_by_path)
+    if canonical_path not in source_by_path:
+        source_paths.insert(0, canonical_path)
+
+    return {
+        "authority": "harness.runtime.project_instructions.management_api",
+        "project_root": str(project_root),
+        "canonical_filename": PROJECT_INSTRUCTION_FILENAME,
+        "runtime_loader": {
+            "authority": "harness.runtime.project_instructions",
+            "loaded_filename": PROJECT_INSTRUCTION_FILENAME,
+            "ignored_filenames": ["agent.md", "agents.md"],
+            "scope_rule": "project_root_to_target_path",
+        },
+        "model_visibility": {
+            "sent_to_model": bundle.has_content,
+            "slot": "project_instructions_stable",
+            "message_role": "system",
+            "cache_role": "session_stable",
+            "compression_role": "preserve",
+            "memory_write_policy": "disabled",
+        },
+        "memory_relation": {
+            "managed_in_memory_console": True,
+            "durable_memory_note": False,
+            "semantic_memory_write": "disabled",
+            "reason": "project instruction files are stable prompt sources, not long-term memory notes",
+        },
+        "bundle": bundle.to_manifest_dict(),
+        "sources": [
+            _project_instruction_source_payload(path, project_root=project_root, source=source_by_path.get(path))
+            for path in source_paths
+        ],
+    }
+
+
+def _project_instruction_source_payload(
+    path: Path,
+    *,
+    project_root: Path,
+    source: Any | None,
+) -> dict[str, Any]:
+    resolved = path.resolve()
+    exists = resolved.exists() and resolved.is_file()
+    content = resolved.read_text(encoding="utf-8") if exists else ""
+    stat = resolved.stat() if exists else None
+    return {
+        "path": _relative_to_project_root(resolved, project_root),
+        "absolute_path": str(resolved),
+        "scope_root": str(resolved.parent),
+        "source_kind": "project_instruction_file",
+        "exists": exists,
+        "loaded": source is not None,
+        "editable": True,
+        "content": content,
+        "content_hash": getattr(source, "content_hash", "") or _content_hash(content),
+        "mtime_ns": int(getattr(stat, "st_mtime_ns", 0)) if stat else 0,
+        "size_bytes": int(getattr(stat, "st_size", 0)) if stat else 0,
+    }
+
+
+def _resolve_project_instruction_source_path(runtime: Any, value: str) -> Path:
+    layout = _layout_from_runtime(runtime)
+    project_root = layout.project_root.resolve()
+    normalized = str(value or "").replace("\\", "/").strip("/")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Project instruction path is required")
+    candidate_ref = Path(normalized)
+    if candidate_ref.is_absolute() or candidate_ref.drive:
+        raise HTTPException(status_code=400, detail="Project instruction path must be project-relative")
+    if any(part in {"", ".", ".."} for part in candidate_ref.parts):
+        raise HTTPException(status_code=400, detail="Invalid project instruction path")
+    if candidate_ref.name != PROJECT_INSTRUCTION_FILENAME:
+        raise HTTPException(status_code=400, detail="Only AGENTS.md project instruction files are manageable")
+    candidate = (project_root / candidate_ref).resolve()
+    if candidate != project_root and project_root not in candidate.parents:
+        raise HTTPException(status_code=400, detail="Path traversal detected")
+    return candidate
+
+
+def _project_instruction_relative_path(runtime: Any, path: Path) -> str:
+    layout = _layout_from_runtime(runtime)
+    return _relative_to_project_root(path.resolve(), layout.project_root.resolve())
+
+
+def _relative_to_project_root(path: Path, project_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return str(path.resolve())
+
+
+def _content_hash(content: str) -> str:
+    normalized = str(content or "").strip()
+    if not normalized:
+        return ""
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _refresh_runtime_index(runtime: Any, relative_path: str) -> None:
+    refresh = getattr(runtime, "refresh_indexes_for_path", None)
+    if callable(refresh):
+        refresh(relative_path)
 
 
 def _govern_existing_note(

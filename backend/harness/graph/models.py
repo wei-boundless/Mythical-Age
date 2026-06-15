@@ -11,6 +11,15 @@ from .language import validate_harness_edge_config
 GRAPH_HARNESS_CONFIG_SCHEMA_VERSION = "graph_harness_config.v1"
 GRAPH_HARNESS_CONFIG_AUTHORITY = "harness.graph_harness_config"
 GRAPH_STRUCTURE_VERSION = "graph_structure.v1"
+GRAPH_EDGE_STATUSES = {"pending", "ready", "skipped", "source_failed", "waiting_human", "blocked"}
+GRAPH_TRANSITION_TRIGGER_TYPES = {
+    "initialize",
+    "node_result",
+    "human_gate_decision",
+    "human_edge_decision",
+    "failure_reset",
+    "resume_requeue",
+}
 
 
 def _session_scope_key(*, workspace_view: str, task_environment_id: str, project_id: str) -> str:
@@ -327,6 +336,118 @@ class GraphLoopState:
             diagnostics=dict(payload.get("diagnostics") or {}),
             authority=str(payload.get("authority") or "harness.graph_loop_state"),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphEdgeStateRecord:
+    edge_id: str
+    source_node_id: str
+    target_node_id: str
+    status: str = "pending"
+    reason: str = ""
+    decision_ref: str = ""
+    source_result_ref: str = ""
+    human_decision_ref: str = ""
+    selected_handle: str = ""
+    policy_snapshot: dict[str, Any] = field(default_factory=dict)
+    graph_clock_seq: int = 0
+    updated_at: float = 0.0
+    authority: str = "harness.graph.edge_state"
+
+    def __post_init__(self) -> None:
+        if self.status not in GRAPH_EDGE_STATUSES:
+            raise ValueError(f"unsupported GraphEdgeState status: {self.status}")
+        if not self.edge_id:
+            raise ValueError("GraphEdgeState requires edge_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(asdict(self))
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GraphEdgeStateRecord":
+        return cls(
+            edge_id=str(payload.get("edge_id") or ""),
+            source_node_id=str(payload.get("source_node_id") or ""),
+            target_node_id=str(payload.get("target_node_id") or ""),
+            status=str(payload.get("status") or "pending"),
+            reason=str(payload.get("reason") or ""),
+            decision_ref=str(payload.get("decision_ref") or ""),
+            source_result_ref=str(payload.get("source_result_ref") or ""),
+            human_decision_ref=str(payload.get("human_decision_ref") or ""),
+            selected_handle=str(payload.get("selected_handle") or ""),
+            policy_snapshot=dict(payload.get("policy_snapshot") or {}),
+            graph_clock_seq=_int_or_default(payload.get("graph_clock_seq"), 0),
+            updated_at=float(payload.get("updated_at") or 0.0),
+            authority=str(payload.get("authority") or "harness.graph.edge_state"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphTransitionInput:
+    trigger_type: str
+    graph_run_id: str
+    config_id: str
+    config_hash: str
+    graph_clock_seq: int = 0
+    payload: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.graph.transition_input"
+
+    def __post_init__(self) -> None:
+        if self.trigger_type not in GRAPH_TRANSITION_TRIGGER_TYPES:
+            raise ValueError(f"unsupported GraphTransitionInput trigger_type: {self.trigger_type}")
+        if not self.graph_run_id:
+            raise ValueError("GraphTransitionInput requires graph_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GraphTransitionInput":
+        return cls(
+            trigger_type=str(payload.get("trigger_type") or ""),
+            graph_run_id=str(payload.get("graph_run_id") or ""),
+            config_id=str(payload.get("config_id") or ""),
+            config_hash=str(payload.get("config_hash") or ""),
+            graph_clock_seq=_int_or_default(payload.get("graph_clock_seq"), 0),
+            payload=dict(payload.get("payload") or {}),
+            authority=str(payload.get("authority") or "harness.graph.transition_input"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphTransitionPlan:
+    edge_updates: tuple[dict[str, Any], ...] = ()
+    node_updates: tuple[dict[str, Any], ...] = ()
+    blocked_reasons: tuple[dict[str, Any], ...] = ()
+    events: tuple[dict[str, Any], ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.graph.transition_plan"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["edge_updates"] = [dict(item) for item in self.edge_updates]
+        payload["node_updates"] = [dict(item) for item in self.node_updates]
+        payload["blocked_reasons"] = [dict(item) for item in self.blocked_reasons]
+        payload["events"] = [dict(item) for item in self.events]
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class GraphReadinessDecision:
+    ready_node_ids: tuple[str, ...] = ()
+    blocked_node_ids: tuple[str, ...] = ()
+    waiting_node_ids: tuple[str, ...] = ()
+    skipped_node_ids: tuple[str, ...] = ()
+    reasons: dict[str, dict[str, Any]] = field(default_factory=dict)
+    authority: str = "harness.graph.readiness_decision"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["ready_node_ids"] = list(self.ready_node_ids)
+        payload["blocked_node_ids"] = list(self.blocked_node_ids)
+        payload["waiting_node_ids"] = list(self.waiting_node_ids)
+        payload["skipped_node_ids"] = list(self.skipped_node_ids)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

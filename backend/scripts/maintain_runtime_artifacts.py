@@ -2,13 +2,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
 from project_layout import ProjectLayout
+from runtime.cache_manager import (
+    DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+    SANDBOX_CACHE_NAMESPACE,
+    RuntimeCacheManager,
+    safe_cache_namespace,
+)
 
 
 DEBUG_TASK_PREFIXES = ("writing_graph_", "backend_8003_retest_")
@@ -49,14 +60,27 @@ class MaintenanceAction:
 
 
 class RuntimeArtifactMaintenance:
-    def __init__(self, project_root: Path, *, stamp: str = "20260530") -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        *,
+        stamp: str = "20260530",
+        runtime_cache_ttl_seconds: int = DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+    ) -> None:
         self.project_root = Path(project_root).resolve()
         self.stamp = stamp
+        self.runtime_cache_ttl_seconds = max(0, int(runtime_cache_ttl_seconds or 0))
 
     @classmethod
-    def from_backend_dir(cls, backend_dir: str | Path, *, stamp: str = "20260530") -> "RuntimeArtifactMaintenance":
+    def from_backend_dir(
+        cls,
+        backend_dir: str | Path,
+        *,
+        stamp: str = "20260530",
+        runtime_cache_ttl_seconds: int = DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+    ) -> "RuntimeArtifactMaintenance":
         layout = ProjectLayout.from_backend_dir(backend_dir)
-        return cls(layout.project_root, stamp=stamp)
+        return cls(layout.project_root, stamp=stamp, runtime_cache_ttl_seconds=runtime_cache_ttl_seconds)
 
     def plan(self) -> dict[str, Any]:
         return self._result(self._planned_actions(), mode="dry_run")
@@ -67,6 +91,7 @@ class RuntimeArtifactMaintenance:
         actions.extend(self._existing_task_debug_snapshot_delete_actions())
         actions.extend(self._diagnostic_delete_actions())
         actions.extend(self._frontend_cache_actions())
+        actions.extend(self._runtime_cache_actions())
         return actions
 
     def execute(self) -> dict[str, Any]:
@@ -170,6 +195,36 @@ class RuntimeArtifactMaintenance:
             )
         ]
 
+    def _runtime_cache_actions(self) -> list[MaintenanceAction]:
+        if self.runtime_cache_ttl_seconds <= 0:
+            return []
+        cache_root = self.project_root / "storage" / "runtime_cache"
+        if not cache_root.exists():
+            return []
+        manager = RuntimeCacheManager(cache_root)
+        cleanup = manager.cleanup(
+            namespace=SANDBOX_CACHE_NAMESPACE,
+            default_ttl_seconds=self.runtime_cache_ttl_seconds,
+            protected_paths=_active_runtime_cache_paths(self.project_root),
+            dry_run=True,
+        )
+        actions: list[MaintenanceAction] = []
+        for item in list(cleanup.get("actions") or []):
+            path = Path(str(dict(item).get("path") or "")).resolve()
+            try:
+                source = _relative(self.project_root, path)
+            except ValueError:
+                continue
+            actions.append(
+                MaintenanceAction(
+                    action="delete_tree",
+                    source=source,
+                    size_bytes=int(dict(item).get("size_bytes") or 0),
+                    reason=str(dict(item).get("reason") or "runtime_cache_ttl_expired"),
+                )
+            )
+        return actions
+
     def _result(self, actions: list[MaintenanceAction], *, mode: str) -> dict[str, Any]:
         return {
             "authority": "artifact_system.maintenance",
@@ -185,6 +240,8 @@ class RuntimeArtifactMaintenance:
                 "graph_checkpoints not deleted",
                 "prompt_accounting not deleted",
                 "task records stay under storage/tasks",
+                "runtime_cache/sandboxes deletes only rebuildable cache dirs older than ttl",
+                "active task_run sandbox cache dirs are protected",
             ],
             "actions": [item.to_dict() for item in actions],
             "updated_at": time.time(),
@@ -211,13 +268,42 @@ def _assert_inside(root: Path, path: Path) -> None:
     path.resolve().relative_to(root.resolve())
 
 
+def _active_runtime_cache_paths(project_root: Path) -> list[Path]:
+    runtime_root = project_root / "storage" / "runtime_state"
+    if not runtime_root.exists():
+        return []
+    try:
+        from runtime.memory.state_index import RuntimeStateIndex
+    except Exception:
+        return []
+    try:
+        task_runs = RuntimeStateIndex(runtime_root).list_recent_task_run_summaries(limit=800)
+    except Exception:
+        return []
+    terminal = {"completed", "failed", "aborted"}
+    sandbox_root = project_root / "storage" / "runtime_cache" / SANDBOX_CACHE_NAMESPACE
+    protected: list[Path] = []
+    for task_run in task_runs:
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+        status = str(getattr(task_run, "status", "") or "").strip()
+        if not task_run_id or status in terminal:
+            continue
+        protected.append((sandbox_root / safe_cache_namespace(task_run_id)).resolve())
+    return protected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Safe runtime artifact maintenance.")
     parser.add_argument("--backend-dir", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--stamp", default="20260530")
+    parser.add_argument("--runtime-cache-ttl-seconds", type=int, default=DEFAULT_SANDBOX_CACHE_TTL_SECONDS)
     args = parser.parse_args()
-    maintenance = RuntimeArtifactMaintenance.from_backend_dir(args.backend_dir, stamp=args.stamp)
+    maintenance = RuntimeArtifactMaintenance.from_backend_dir(
+        args.backend_dir,
+        stamp=args.stamp,
+        runtime_cache_ttl_seconds=args.runtime_cache_ttl_seconds,
+    )
     result = maintenance.execute() if args.execute else maintenance.plan()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

@@ -13,6 +13,7 @@ from project_layout import ProjectLayout
 
 RUNTIME_CACHE_DIR_NAME = "runtime_cache"
 SANDBOX_CACHE_NAMESPACE = "sandboxes"
+DEFAULT_SANDBOX_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,10 +67,25 @@ class RuntimeCacheManager:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
-    def sandbox_root(self, cache_key: str) -> Path:
+    def sandbox_root(
+        self,
+        cache_key: str,
+        *,
+        owner: str = "runtime_sandbox",
+        source_refs: tuple[str, ...] | list[str] = (),
+        ttl_seconds: int = DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+    ) -> Path:
         root = (self.namespace_root(SANDBOX_CACHE_NAMESPACE) / safe_cache_namespace(cache_key)).resolve()
         _assert_inside(root, self.cache_root)
         root.mkdir(parents=True, exist_ok=True)
+        self.write_manifest(
+            root,
+            cache_key=cache_key,
+            owner=owner,
+            source_refs=source_refs,
+            ttl_seconds=ttl_seconds,
+            measure_size=False,
+        )
         return root
 
     def delete_cache_entry(
@@ -120,16 +136,21 @@ class RuntimeCacheManager:
         owner: str,
         source_refs: tuple[str, ...] | list[str] = (),
         ttl_seconds: int = 0,
+        measure_size: bool = True,
     ) -> Path:
         path = Path(cache_path).resolve()
         _assert_inside(path, self.cache_root)
         path.mkdir(parents=True, exist_ok=True)
+        existing = _read_manifest(path)
+        now = time.time()
         manifest = RuntimeCacheManifest(
             cache_key=str(cache_key or ""),
             owner=str(owner or ""),
             source_refs=tuple(str(item) for item in tuple(source_refs or ()) if str(item).strip()),
             ttl_seconds=int(ttl_seconds or 0),
-            size_bytes=_tree_size(path),
+            created_at=float(existing.get("created_at") or now),
+            last_accessed_at=now,
+            size_bytes=_tree_size(path) if measure_size else int(existing.get("size_bytes") or 0),
         )
         manifest_path = path / ".runtime_cache_manifest.json"
         manifest_path.write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")

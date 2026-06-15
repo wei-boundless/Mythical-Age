@@ -56,6 +56,7 @@ def build_edge_contract(
     payload_contract_id = str(edge_protocol.get("payload_contract_id") or edge.get("payload_contract_id") or "").strip()
     packet_contract_id = str(edge_protocol.get("packet_contract_id") or edge.get("packet_contract_id") or payload_contract_id).strip()
     produces_flow_packet = _produces_flow_packet(protocol_kind)
+    metadata = dict(edge.get("metadata") or {})
     return _drop_empty(
         {
             "contract_id": f"edge-contract:{edge_id}",
@@ -119,6 +120,8 @@ def build_edge_contract(
             "failure": {
                 "propagation_policy": str(edge.get("failure_propagation_policy") or "fail_downstream"),
             },
+            "transition_policy": dict(metadata.get("transition_policy") or {}),
+            "readiness_policy": dict(metadata.get("readiness_policy") or {}),
             "human_control": _human_control_policy(
                 edge=edge,
                 edge_protocol=edge_protocol,

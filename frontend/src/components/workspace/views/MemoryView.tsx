@@ -27,16 +27,19 @@ import {
   disableDurableMemory,
   getDurableMemoryNote,
   getMemoryOverview,
+  getProjectInstructionManagement,
   mergeDurableMemories,
+  saveProjectInstructionSource,
   type DurableMemoryNoteDetail,
   type MemoryHeader,
   type MemoryOverview,
+  type ProjectInstructionManagement,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import type { TokenStats } from "@/lib/store/types";
 
 type DurableStatusFilter = "all" | "active" | "inactive" | "archived" | "deprecated";
-type MemoryLayer = "library" | "governance";
+type MemoryLayer = "library" | "governance" | "project-rules";
 
 const FRONTMATTER_FIELD_PATTERN = /^(note_id|memory_type|memory_class|title|description|status|confidence|created_at|updated_at|retrieval_hints|eligible_for_injection|canonical_statement|summary|source_kind|source_ref|source_message_excerpt|merged_from|invalidation_reason|deprecated_by):/i;
 const SEMANTIC_HEADING_PATTERN = /^#{1,3}\s*(正文|语义正文|memory|canonical|canonical statement|stable statement|长期记忆)\s*$/i;
@@ -61,6 +64,13 @@ const MEMORY_LAYER_DEFS: Array<{
     title: "治理",
     eyebrow: "manage",
     description: "整理候选、写入稳定记忆，并合并重复记录。"
+  },
+  {
+    id: "project-rules",
+    icon: FileText,
+    title: "项目规则源",
+    eyebrow: "prompt",
+    description: "管理 AGENTS.md 稳定项目指令源，与长期记忆分离。"
   }
 ];
 
@@ -179,7 +189,13 @@ function compactJson(value: Record<string, unknown> | null | undefined, limit = 
 function layerMetric(
   layer: MemoryLayer,
   overview: MemoryOverview | null,
+  projectInstructions: ProjectInstructionManagement | null,
 ) {
+  if (layer === "project-rules") {
+    if (!projectInstructions) return "未加载";
+    const loaded = projectInstructions.sources.filter((source) => source.loaded).length;
+    return `${loaded}/${projectInstructions.sources.length} 装载`;
+  }
   if (layer === "library") {
     const durable = overview?.durable_memory;
     return durable ? `${durable.active}/${durable.total} 启用` : "未加载";
@@ -197,6 +213,9 @@ export function MemoryView() {
   const [error, setError] = useState("");
   const [governanceBusy, setGovernanceBusy] = useState("");
   const [governanceMessage, setGovernanceMessage] = useState("");
+  const [projectInstructions, setProjectInstructions] = useState<ProjectInstructionManagement | null>(null);
+  const [projectInstructionDraft, setProjectInstructionDraft] = useState("");
+  const [projectInstructionBusy, setProjectInstructionBusy] = useState("");
   const [mergeFilenames, setMergeFilenames] = useState<string[]>([]);
   const [durableStatusFilter, setDurableStatusFilter] = useState<DurableStatusFilter>("all");
   const [selectedDurableNote, setSelectedDurableNote] = useState<DurableMemoryNoteDetail | null>(null);
@@ -219,6 +238,10 @@ export function MemoryView() {
   });
 
   const durable = overview?.durable_memory ?? null;
+  const projectInstructionSource = projectInstructions?.sources[0] ?? null;
+  const projectInstructionDirty = projectInstructionSource
+    ? projectInstructionDraft !== projectInstructionSource.content
+    : Boolean(projectInstructionDraft.trim());
 
   const durableStatusStats = useMemo(() => {
     const headers = overview?.durable_memory.headers ?? [];
@@ -271,12 +294,30 @@ export function MemoryView() {
     }
   }, []);
 
+  const loadProjectInstructions = useCallback(async () => {
+    setProjectInstructionBusy((current) => current || "读取项目规则源");
+    setError("");
+    try {
+      const payload = await getProjectInstructionManagement();
+      setProjectInstructions(payload);
+      setProjectInstructionDraft(payload.sources[0]?.content ?? "");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "项目规则源读取失败");
+    } finally {
+      setProjectInstructionBusy("");
+    }
+  }, []);
+
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
 
+  useEffect(() => {
+    void loadProjectInstructions();
+  }, [loadProjectInstructions]);
+
   async function refreshAll() {
-    await loadOverview();
+    await Promise.all([loadOverview(), loadProjectInstructions()]);
   }
 
   async function runGovernanceAction(label: string, action: () => Promise<unknown>, options?: { refreshSelected?: boolean }) {
@@ -439,6 +480,23 @@ export function MemoryView() {
       return;
     }
     await deleteMemoryNote(selectedDurableFilename);
+  }
+
+  async function saveProjectRules() {
+    const path = projectInstructionSource?.path || "AGENTS.md";
+    setProjectInstructionBusy("保存项目规则源");
+    setError("");
+    setGovernanceMessage("");
+    try {
+      const payload = await saveProjectInstructionSource(path, projectInstructionDraft);
+      setProjectInstructions(payload);
+      setProjectInstructionDraft(payload.sources[0]?.content ?? "");
+      setGovernanceMessage("项目规则源已保存；下一次 prompt 组装会读取最新内容。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "项目规则源保存失败");
+    } finally {
+      setProjectInstructionBusy("");
+    }
   }
 
   function renderStatusFilter() {
@@ -761,7 +819,135 @@ export function MemoryView() {
     );
   }
 
+  function renderProjectRulesLayer() {
+    const source = projectInstructionSource;
+    const modelVisibility = projectInstructions?.model_visibility;
+    return (
+      <section className="workspace-section memory-project-rules">
+        <div className="workspace-section__head memory-section-head">
+          <FileText size={18} />
+          <h3>项目规则源</h3>
+          <span className="memory-library-count">
+            {source ? source.path : "AGENTS.md"}
+            {projectInstructionDirty ? " · 未保存" : ""}
+          </span>
+          <div className="memory-governance-actions">
+            <button disabled={Boolean(projectInstructionBusy)} onClick={() => void loadProjectInstructions()} type="button">
+              {projectInstructionBusy === "读取项目规则源" ? <Loader2 className="spin" size={13} /> : <RefreshCw size={13} />}
+              刷新
+            </button>
+            <button
+              disabled={Boolean(projectInstructionBusy) || !projectInstructionDirty}
+              onClick={() => void saveProjectRules()}
+              type="button"
+            >
+              {projectInstructionBusy === "保存项目规则源" ? <Loader2 className="spin" size={13} /> : <FileText size={13} />}
+              保存
+            </button>
+          </div>
+        </div>
+
+        <div className="memory-project-rules__status memory-governance-status">
+          <article>
+            <span>模型 slot</span>
+            <strong>{modelVisibility?.slot || "project_instructions_stable"}</strong>
+            <em>{modelVisibility?.cache_role || "session_stable"} / {modelVisibility?.compression_role || "preserve"}</em>
+          </article>
+          <article>
+            <span>模型可见</span>
+            <strong>{modelVisibility?.sent_to_model ? "已装载" : "未装载"}</strong>
+            <em>{projectInstructions?.bundle.source_hash || "暂无 source hash"}</em>
+          </article>
+          <article>
+            <span>记忆写入</span>
+            <strong>{modelVisibility?.memory_write_policy || "disabled"}</strong>
+            <em>{projectInstructions?.memory_relation.semantic_memory_write || "disabled"} semantic write</em>
+          </article>
+        </div>
+
+        <div className="memory-project-rules__layout">
+          <aside className="memory-project-rules__sources">
+            {(projectInstructions?.sources.length ? projectInstructions.sources : [{
+              path: "AGENTS.md",
+              absolute_path: "",
+              scope_root: "",
+              source_kind: "project_instruction_file",
+              exists: false,
+              loaded: false,
+              editable: true,
+              content: "",
+              content_hash: "",
+              mtime_ns: 0,
+              size_bytes: 0,
+            }]).map((item) => (
+              <article className="memory-project-source-row" key={item.path}>
+                <span>{item.source_kind}</span>
+                <strong>{item.path}</strong>
+                <em>{item.loaded ? "runtime 已装载" : item.exists ? "文件存在但未装载" : "文件不存在"}</em>
+                <small>{item.content_hash || "空内容不会进入 project_instructions_stable"}</small>
+              </article>
+            ))}
+          </aside>
+
+          <article className="memory-project-rules__editor">
+            <div className="memory-detail-head">
+              <span>{source?.absolute_path || projectInstructions?.project_root || "项目根目录"}</span>
+              <strong>{source?.path || "AGENTS.md"}</strong>
+              <div className="memory-durable-reader__badges">
+                <b>{source?.exists ? "文件存在" : "待创建"}</b>
+                <b>{source?.loaded ? "模型可见" : "未进入模型"}</b>
+                <b>非长期记忆</b>
+              </div>
+            </div>
+
+            <textarea
+              aria-label="AGENTS.md 项目规则"
+              className="memory-project-rules__textarea"
+              onChange={(event) => setProjectInstructionDraft(event.target.value)}
+              placeholder="在这里维护 AGENTS.md 项目规则。"
+              spellCheck={false}
+              value={projectInstructionDraft}
+            />
+
+            <div className="memory-durable-reader__actions">
+              <button
+                disabled={Boolean(projectInstructionBusy) || !projectInstructionDirty}
+                onClick={() => void saveProjectRules()}
+                type="button"
+              >
+                {projectInstructionBusy === "保存项目规则源" ? <Loader2 className="spin" size={13} /> : <FileText size={13} />}
+                保存项目规则源
+              </button>
+              <button disabled={!source?.path} onClick={() => void loadInspectorFile(source?.path || "AGENTS.md")} type="button">
+                <FileText size={13} />
+                打开源文件
+              </button>
+              <button
+                disabled={!projectInstructionDirty}
+                onClick={() => setProjectInstructionDraft(source?.content ?? "")}
+                type="button"
+              >
+                撤销未保存
+              </button>
+            </div>
+
+            <details className="memory-raw-preview">
+              <summary>权威链路</summary>
+              <pre>{JSON.stringify({
+                loader: projectInstructions?.runtime_loader,
+                model_visibility: projectInstructions?.model_visibility,
+                memory_relation: projectInstructions?.memory_relation,
+                bundle: projectInstructions?.bundle,
+              }, null, 2)}</pre>
+            </details>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
   function renderActiveLayer() {
+    if (activeLayer === "project-rules") return renderProjectRulesLayer();
     if (activeLayer === "governance") return renderGovernanceLayer();
     return renderLibraryLayer();
   }
@@ -843,7 +1029,7 @@ export function MemoryView() {
                 <strong>{layer.title}</strong>
                 <small>{layer.description}</small>
               </span>
-              <b>{layerMetric(layer.id, overview)}</b>
+              <b>{layerMetric(layer.id, overview, projectInstructions)}</b>
             </button>
           );
         })}

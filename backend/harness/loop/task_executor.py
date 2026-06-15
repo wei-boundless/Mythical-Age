@@ -28,7 +28,7 @@ from runtime.model_gateway.assistant_stream_frame import (
     assistant_message_ref,
     assistant_text_final_event,
 )
-from runtime.cache_manager import runtime_cache_manager_for_host
+from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.tool_runtime import ToolInvocationRequest, build_tool_invocation_id
 from runtime.shared.tool_identity import (
@@ -3832,7 +3832,14 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = task_run_id.replace(":", "_")
-        sandbox_root = str(runtime_cache_manager_for_host(runtime_host).sandbox_root(namespace))
+        sandbox_root = str(
+            runtime_cache_manager_for_host(runtime_host).sandbox_root(
+                namespace,
+                owner="task_run_sandbox",
+                source_refs=(task_run_id,),
+                ttl_seconds=DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+            )
+        )
     return {
         **sandbox,
         "enabled": bool(sandbox.get("enabled") is True),

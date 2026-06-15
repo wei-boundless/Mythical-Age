@@ -34,6 +34,7 @@ class GraphSupervisor:
         snapshot = GraphStateMachine().status_snapshot(
             graph_config=graph_config,
             node_states=dict(state.node_states or {}),
+            edge_states=dict(state.edge_states or {}),
             active_work_orders=dict(state.active_work_orders or {}),
             loop_state=dict(state.loop_state or {}),
             graph_result_already_terminal=state.status in {"completed", "failed"},

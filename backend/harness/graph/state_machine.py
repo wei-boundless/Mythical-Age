@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphLoopState
+from .readiness_evaluator import GraphReadinessEvaluator
 from .scheduler_view import build_scheduler_view, is_executable_node
 
 
@@ -26,6 +27,9 @@ class GraphStateMachine:
     """Owns graph state classification and topology-derived readiness."""
 
     authority = "harness.graph.state_machine"
+
+    def __init__(self) -> None:
+        self._readiness_evaluator = GraphReadinessEvaluator()
 
     def initial_node_states(self, graph_config: GraphHarnessConfig) -> dict[str, dict[str, Any]]:
         start_ids = set(self.start_node_ids(graph_config))
@@ -66,31 +70,16 @@ class GraphStateMachine:
         *,
         graph_config: GraphHarnessConfig,
         node_states: dict[str, dict[str, Any]],
+        edge_states: dict[str, dict[str, Any]] | None = None,
         loop_state: dict[str, Any] | None = None,
     ) -> tuple[str, ...]:
-        ready: list[str] = []
-        scheduler_view = build_scheduler_view(graph_config)
-        executable_ids = set(scheduler_view.executable_node_ids)
-        gated_exit_ids = _active_loop_exit_node_ids(graph_config=graph_config, loop_state=loop_state)
-        closed_scope_ids = _closed_loop_scope_node_ids(graph_config=graph_config, loop_state=loop_state)
-        for node in graph_config.nodes:
-            node_id = str(node.get("node_id") or "")
-            if node_id not in executable_ids:
-                continue
-            if node_id in gated_exit_ids:
-                continue
-            if node_id in closed_scope_ids:
-                continue
-            status = str(dict(node_states.get(node_id) or {}).get("status") or "")
-            if status == "ready":
-                ready.append(node_id)
-                continue
-            if status not in {"pending", "blocked"}:
-                continue
-            upstream = self.upstream_node_ids(graph_config, node_id)
-            if upstream and all(str(dict(node_states.get(item) or {}).get("status") or "") == "completed" for item in upstream):
-                ready.append(node_id)
-        return tuple(dict.fromkeys(item for item in ready if item))
+        decision = self._readiness_evaluator.evaluate(
+            graph_config=graph_config,
+            node_states=node_states,
+            edge_states=edge_states if edge_states is not None else self.initial_edge_states(graph_config),
+            loop_state=loop_state,
+        )
+        return decision.ready_node_ids
 
     def blocked_nodes(
         self,
@@ -111,10 +100,11 @@ class GraphStateMachine:
         graph_config: GraphHarnessConfig,
         node_states: dict[str, dict[str, Any]],
         active_work_orders: dict[str, str] | None = None,
+        edge_states: dict[str, dict[str, Any]] | None = None,
         loop_state: dict[str, Any] | None = None,
         graph_result_already_terminal: bool = False,
     ) -> GraphStatusSnapshot:
-        ready = () if graph_result_already_terminal else self.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state)
+        ready = () if graph_result_already_terminal else self.ready_nodes(graph_config=graph_config, node_states=node_states, edge_states=edge_states, loop_state=loop_state)
         running = tuple(
             dict.fromkeys(
                 [

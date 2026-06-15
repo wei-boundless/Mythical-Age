@@ -8,10 +8,13 @@ def test_artifact_inventory_classifies_runtime_facts_and_diagnostics(tmp_path) -
     project = tmp_path
     (project / "backend").mkdir()
     events = project / "storage" / "runtime_state" / "events"
+    sandbox_cache = project / "storage" / "runtime_cache" / "sandboxes" / "taskrun-demo"
     traces = project / "output" / "local_traces" / "20260530"
     events.mkdir(parents=True)
+    sandbox_cache.mkdir(parents=True)
     traces.mkdir(parents=True)
     (events / "taskrun-test.jsonl").write_text("{}\n", encoding="utf-8")
+    (sandbox_cache / "scratch.txt").write_text("cache\n", encoding="utf-8")
     (traces / "local-test.json").write_text("{}", encoding="utf-8")
 
     inventory = ArtifactInventoryService(project).build_inventory()
@@ -19,6 +22,8 @@ def test_artifact_inventory_classifies_runtime_facts_and_diagnostics(tmp_path) -
 
     assert ports["runtime.events"]["artifact_class"] == "runtime_fact"
     assert ports["runtime.events"]["protected"] is True
+    assert ports["runtime.sandbox_cache"]["artifact_class"] == "sandbox_cache"
+    assert ports["runtime.sandbox_cache"]["protected"] is False
     assert ports["diagnostics.local_traces"]["artifact_class"] == "diagnostic_trace"
     assert "rebuildable_or_diagnostic" in ports["diagnostics.local_traces"]["protection_reasons"]
 

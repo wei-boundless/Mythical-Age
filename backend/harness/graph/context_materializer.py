@@ -97,6 +97,13 @@ class GraphContextMaterializer:
             agent_profile_id=str(node.get("agent_profile_id") or ""),
             message=str(input_package.get("agent_instruction") or ""),
             explicit_inputs=dict(input_package.get("initial_inputs") or {}),
+            idempotency_key=_work_order_idempotency_key(
+                graph_config=graph_config,
+                state=state,
+                node_id=node_id,
+                explicit_inputs=dict(input_package.get("initial_inputs") or {}),
+                graph_clock_seq=graph_clock_seq,
+            ),
             input_package=execution_input_package,
             graph_slot=graph_slot,
             graph_state={
@@ -374,6 +381,32 @@ class GraphContextMaterializer:
         context.extend(_loop_iteration_contexts_for_node(graph_config=graph_config, state=state, node_id=node_id))
         context.extend(_self_quality_failure_contexts_for_node(services=self._services, state=state, node_id=node_id))
         return context
+
+
+def _work_order_idempotency_key(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    node_id: str,
+    explicit_inputs: dict[str, Any],
+    graph_clock_seq: int,
+) -> str:
+    transition_refs: list[dict[str, Any]] = []
+    for edge in graph_config.edges:
+        if str(edge.get("target_node_id") or "") != node_id:
+            continue
+        edge_state = dict(state.edge_states.get(str(edge.get("edge_id") or "")) or {})
+        if str(edge_state.get("status") or "") != "ready":
+            continue
+        transition_refs.append(
+            {
+                "edge_id": str(edge.get("edge_id") or ""),
+                "decision_ref": str(edge_state.get("decision_ref") or ""),
+                "source_result_ref": str(edge_state.get("source_result_ref") or ""),
+                "graph_clock_seq": int(edge_state.get("graph_clock_seq") or 0),
+            }
+        )
+    return f"{state.graph_run_id}:{node_id}:{stable_hash([explicit_inputs, transition_refs, graph_clock_seq])}"
 
 
 def _current_chapter_execution_inputs(initial_inputs: dict[str, Any]) -> dict[str, Any]:

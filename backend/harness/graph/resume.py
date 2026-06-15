@@ -61,6 +61,7 @@ class GraphResumeService:
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
         assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
+        _assert_canonical_edge_states_present(graph_config=graph_config, state=state)
         active = _active_work_orders_from_state(state)
         recovered = _recover_stale_active_graph_node_executors(
             services=self._services,
@@ -182,6 +183,22 @@ def _active_work_orders_from_state(state: GraphLoopState) -> tuple[dict[str, Any
             payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
         result.append(payload)
     return tuple(result)
+
+
+def _assert_canonical_edge_states_present(*, graph_config: GraphHarnessConfig, state: GraphLoopState) -> None:
+    expected_edge_ids = {
+        str(edge.get("edge_id") or "").strip()
+        for edge in graph_config.edges
+        if str(edge.get("edge_id") or "").strip()
+    }
+    actual_edge_ids = {
+        str(edge_id or "").strip()
+        for edge_id in dict(state.edge_states or {})
+        if str(edge_id or "").strip()
+    }
+    missing = sorted(expected_edge_ids - actual_edge_ids)
+    if missing:
+        raise ValueError(f"canonical_edge_state_missing: {missing}")
 
 
 def _recover_stale_active_graph_node_executors(

@@ -30,7 +30,7 @@ from harness.runtime.sandbox_artifacts import (
     sandbox_publish_scopes,
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope
-from runtime.cache_manager import runtime_cache_manager_for_host
+from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cache_manager_for_host
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
@@ -4123,7 +4123,14 @@ def _single_turn_sandbox_scope(
     sandbox_root = str(sandbox.get("sandbox_root") or "").strip()
     if not sandbox_root:
         namespace = str(turn_id or assembly_payload.get("turn_id") or "single_turn").replace(":", "_")
-        sandbox_root = str(runtime_cache_manager_for_host(runtime_host).sandbox_root(namespace))
+        sandbox_root = str(
+            runtime_cache_manager_for_host(runtime_host).sandbox_root(
+                namespace,
+                owner="single_turn_sandbox",
+                source_refs=(str(turn_id or ""),),
+                ttl_seconds=DEFAULT_SANDBOX_CACHE_TTL_SECONDS,
+            )
+        )
     if storage.get("workspace_root") and "workspace_root" not in sandbox:
         sandbox["workspace_root"] = str(storage.get("workspace_root") or "")
     workspace_root = Path(str(sandbox.get("workspace_root") or project_root)).resolve()

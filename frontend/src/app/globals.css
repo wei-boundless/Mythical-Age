@@ -1540,7 +1540,7 @@ button:hover {
 
 .memory-layer-nav {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1619,7 +1619,8 @@ button:hover {
 }
 
 .memory-durable-reader,
-.memory-governance-workbench {
+.memory-governance-workbench,
+.memory-project-rules {
   overflow: hidden;
   border-color: var(--console-line, var(--color-border));
   background:
@@ -1808,11 +1809,91 @@ button:hover {
   background: var(--console-hover, color-mix(in srgb, var(--color-accent-primary) 9%, var(--color-panel-soft)));
 }
 
+.memory-project-rules__layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.memory-project-rules__sources {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.memory-project-source-row,
+.memory-project-rules__editor {
+  border: 1px solid var(--console-line, var(--color-border));
+  border-radius: 8px;
+  background: var(--console-surface, var(--color-panel-soft));
+  color: var(--console-text, var(--color-text));
+  box-shadow: var(--console-shadow, none);
+}
+
+.memory-project-source-row {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 10px;
+}
+
+.memory-project-source-row span,
+.memory-project-source-row em,
+.memory-project-source-row small {
+  overflow: hidden;
+  color: var(--console-muted, var(--color-text-muted));
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+}
+
+.memory-project-source-row span,
+.memory-project-source-row small {
+  font-family: var(--console-mono, var(--font-mono)), monospace;
+  white-space: nowrap;
+}
+
+.memory-project-source-row strong {
+  overflow: hidden;
+  color: var(--console-text, var(--color-text));
+  font-size: 13px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-project-rules__editor {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 10px;
+}
+
+.memory-project-rules__textarea {
+  width: 100%;
+  min-height: min(54vh, 520px);
+  resize: vertical;
+  border: 1px solid var(--console-line, var(--color-border));
+  border-radius: 8px;
+  background: var(--console-bg-raised, rgba(255, 255, 255, 0.045));
+  color: var(--console-text, var(--color-text));
+  font-family: var(--console-mono, var(--font-mono)), monospace;
+  font-size: 12px;
+  line-height: 1.58;
+  padding: 10px;
+}
+
+.memory-project-rules__textarea::placeholder {
+  color: var(--console-muted, var(--color-text-muted));
+}
+
 @media (max-width: 1180px) {
   .memory-command-strip,
   .memory-layer-nav,
   .memory-durable-reader__layout,
-  .memory-governance-editor__grid {
+  .memory-governance-editor__grid,
+  .memory-project-rules__layout {
     grid-template-columns: 1fr;
   }
 

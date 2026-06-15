@@ -10,11 +10,11 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.graph.context_materializer import GraphContextMaterializer
 from harness.graph.flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from harness.graph.flow_packet import build_flow_packet, edge_delivers_flow_packet
-from harness.graph.loop import _edge_states_after_node_result
-from harness.graph.models import GraphLoopState, NodeResultEnvelope
+from harness.graph.models import GraphLoopState, GraphTransitionInput, NodeResultEnvelope
 from harness.graph.runtime import _graph_runtime_scope
 from harness.graph.state_machine import GraphStateMachine
 from harness.graph.supervisor import GraphSupervisor
+from harness.graph.transition_processor import GraphTransitionProcessor, apply_transition_plan_to_edge_states
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
@@ -375,12 +375,21 @@ def test_loop_edge_states_persist_packets_only_for_packet_protocols() -> None:
         handoff_summary="source completed",
     )
 
-    next_edges = _edge_states_after_node_result(
+    plan = GraphTransitionProcessor().plan(
         graph_config=config,
         state=state,
-        result=result,
-        result_ref="rtobj:result:source",
+        trigger=GraphTransitionInput(
+            trigger_type="node_result",
+            graph_run_id=state.graph_run_id,
+            config_id=state.config_id,
+            config_hash=state.config_hash,
+            payload={
+                "result": result.to_dict(),
+                "result_ref": "rtobj:result:source",
+            },
+        ),
     )
+    next_edges = apply_transition_plan_to_edge_states(edge_states=state.edge_states, plan=plan)
 
     packet_edge_ids = {
         "edge.handoff",

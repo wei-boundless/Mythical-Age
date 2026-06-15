@@ -21,7 +21,6 @@ from .checkpoint_store import checkpoint_store_from_services
 from .context_materializer import GraphContextMaterializer
 from .edge_contracts import edge_contract_or_projection
 from .flow_edges import build_outbound_flow_edges
-from .flow_packet import build_flow_packet, edge_delivers_flow_packet
 from .language import REVISION_EDGE_TYPES
 from .model_overrides import merge_runtime_settings
 from .models import (
@@ -30,21 +29,24 @@ from .models import (
     GraphNodeWorkOrder,
     GraphResultEnvelope,
     GraphRuntimeEnvelope,
+    GraphTransitionInput,
     NodeResultEnvelope,
     safe_id,
     stable_hash,
 )
 from .runtime_objects import (
-    flow_packet_summary,
     load_node_result,
     node_result_summary,
-    store_flow_packet,
     store_node_result,
     store_work_order,
     work_order_summary,
 )
 from .scheduler_view import build_scheduler_view
 from .state_machine import GraphStateMachine
+from .transition_processor import (
+    GraphTransitionProcessor,
+    apply_transition_plan_to_edge_states,
+)
 
 
 _STATE_MACHINE = GraphStateMachine()
@@ -93,7 +95,7 @@ class GraphLoop:
     ) -> GraphLoopStart:
         node_states = _initial_node_states(graph_config)
         edge_states = _initial_edge_states(graph_config)
-        ready_node_ids = _ready_nodes(graph_config=graph_config, node_states=node_states)
+        ready_node_ids = _ready_nodes(graph_config=graph_config, node_states=node_states, edge_states=edge_states)
         scheduler_view = build_scheduler_view(graph_config)
         executable_node_ids = tuple(scheduler_view.executable_node_ids)
         terminal_status = ""
@@ -190,6 +192,7 @@ class GraphLoop:
             self._state_machine.ready_nodes(
                 graph_config=graph_config,
                 node_states={key: dict(value) for key, value in state.node_states.items()},
+                edge_states={key: dict(value) for key, value in state.edge_states.items()},
                 loop_state=state.loop_state,
             )
         )
@@ -284,9 +287,10 @@ class GraphLoop:
         edge_states = (
             {key: dict(value) for key, value in state.edge_states.items()}
             if post_node_gate
-            else _edge_states_after_node_result(
+            else _edge_states_after_transition(
                 graph_config=graph_config,
                 state=state,
+                trigger_type="node_result",
                 result=envelope,
                 result_ref=result_ref,
                 services=self._services,
@@ -367,6 +371,7 @@ class GraphLoop:
         status_snapshot = self._state_machine.status_snapshot(
             graph_config=graph_config,
             node_states=node_states,
+            edge_states=edge_states,
             active_work_orders=active_work_orders,
             loop_state=next_state.loop_state,
         )
@@ -705,6 +710,7 @@ class GraphLoop:
         state = self.get_state(graph_run_id)
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
+        assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
         node_id = str(decision.get("node_id") or "").strip()
         if not node_id:
             waiting = [item for item, payload in state.node_states.items() if str(dict(payload).get("status") or "") == "waiting_human_gate"]
@@ -739,9 +745,10 @@ class GraphLoop:
             node_state["status"] = "completed"
             node_state["updated_at"] = time.time()
             node_states[node_id] = node_state
-            edge_states = _edge_states_after_node_result(
+            edge_states = _edge_states_after_transition(
                 graph_config=graph_config,
                 state=state,
+                trigger_type="node_result",
                 result=result,
                 result_ref=result_ref,
                 services=self._services,
@@ -757,11 +764,36 @@ class GraphLoop:
             target_state = dict(node_states.get(target) or {})
             if not target_state:
                 raise ValueError(f"HumanGateDecision route target not found: {target}")
-            target_state["status"] = "ready"
-            target_state["updated_at"] = time.time()
-            target_state["human_gate_route_from"] = node_id
-            node_states[target] = target_state
-            status = "running"
+            route_edge = _human_gate_route_edge(
+                graph_config=graph_config,
+                source_node_id=node_id,
+                target_node_id=target,
+                action=action,
+            )
+            if route_edge is None:
+                node_state["status"] = "blocked"
+                node_state["blocked_reason"] = "route_edge_not_declared"
+                node_states[node_id] = node_state
+                status = "blocked"
+                terminal_reason = f"route_edge_not_declared:{node_id}->{target}"
+            else:
+                target_state["status"] = "pending"
+                target_state["updated_at"] = time.time()
+                target_state["human_gate_route_from"] = node_id
+                for key in ("result_ref", "work_order_id", "human_gate", "blocked_reason"):
+                    target_state.pop(key, None)
+                node_states[target] = target_state
+                edge_states = _edge_states_after_transition(
+                    graph_config=graph_config,
+                    state=state,
+                    trigger_type="human_gate_decision",
+                    result=result,
+                    result_ref=result_ref,
+                    services=self._services,
+                    edge_id=str(route_edge.get("edge_id") or ""),
+                    decision_ref=f"human_gate_decision:{node_id}:{action}:{target}",
+                )
+                status = "running"
         elif action == "abort_graph":
             node_state["updated_at"] = time.time()
             node_states[node_id] = node_state
@@ -782,10 +814,7 @@ class GraphLoop:
         )
         if status == "failed":
             graph_result = _graph_result(graph_config=graph_config, state=next_state, status="failed", terminal_reason=terminal_reason, services=self._services)
-        ready = _ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=state.loop_state)
-        if action in {"request_revision", "reroute_to_node"}:
-            target = str(decision.get("route_target_node_id") or decision.get("target_node_id") or "").strip()
-            ready = tuple(dict.fromkeys([target, *ready]))
+        ready = _ready_nodes(graph_config=graph_config, node_states=node_states, edge_states=edge_states, loop_state=state.loop_state)
         next_state = _replace_state(
             next_state,
             ready_node_ids=tuple([] if graph_result else ready),
@@ -794,7 +823,7 @@ class GraphLoop:
             failed_node_ids=tuple(node for node, payload in node_states.items() if str(payload.get("status") or "") == "failed"),
             blocked_node_ids=tuple(node for node, payload in node_states.items() if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}),
         )
-        work_orders = () if graph_result is not None or status == "waiting_human_gate" else self.dispatch_ready(graph_config=graph_config, state=next_state, max_requests=max_requests)
+        work_orders = () if graph_result is not None or status in {"blocked", "waiting_human_gate"} else self.dispatch_ready(graph_config=graph_config, state=next_state, max_requests=max_requests)
         if work_orders:
             next_state = _state_with_work_orders(next_state, work_orders, services=self._services)
         next_state = _advance_event_cursor(next_state)
@@ -875,13 +904,14 @@ class GraphLoop:
             source_state["human_edge_decision"] = _human_edge_decision_state(payload)
             source_state.pop("human_gate", None)
             node_states[source_node_id] = source_state
-            edge_states = _edge_states_after_result_for_edge(
+            edge_states = _edge_states_after_transition(
                 graph_config=graph_config,
                 state=state,
-                edge=edge,
+                trigger_type="human_edge_decision",
                 result=result,
                 result_ref=result_ref,
                 services=self._services,
+                edge_id=edge_id,
             )
             if edge_id in edge_states:
                 edge_states[edge_id]["human_edge_decision"] = _human_edge_decision_state(payload)
@@ -927,13 +957,14 @@ class GraphLoop:
                     targets=(target_node_id,),
                     reset_node_ids=reset_node_ids,
                 )
-            edge_states = _edge_states_after_result_for_edge(
+            edge_states = _edge_states_after_transition(
                 graph_config=graph_config,
                 state=next_state,
-                edge=edge,
+                trigger_type="human_edge_decision",
                 result=result,
                 result_ref=result_ref,
                 services=self._services,
+                edge_id=edge_id,
             )
             if edge_id in edge_states:
                 edge_states[edge_id]["human_edge_decision"] = _human_edge_decision_state(payload)
@@ -942,6 +973,7 @@ class GraphLoop:
         status_snapshot = self._state_machine.status_snapshot(
             graph_config=graph_config,
             node_states={key: dict(value) for key, value in next_state.node_states.items()},
+            edge_states={key: dict(value) for key, value in next_state.edge_states.items()},
             active_work_orders=dict(next_state.active_work_orders),
             loop_state=next_state.loop_state,
         )
@@ -1104,7 +1136,8 @@ class GraphLoop:
                 safe_id(graph_result.result_id),
                 graph_result.to_dict(),
             )
-        status = "completed" if graph_result is not None and graph_result.status == "completed" else ("failed" if graph_result is not None else state.status)
+        graph_status = "completed" if graph_result is not None and graph_result.status == "completed" else ("failed" if graph_result is not None else state.status)
+        task_run_status = _formal_task_run_status(graph_status)
         terminal_reason = (graph_result.terminal_reason or graph_result.status) if graph_result is not None else state.terminal_reason
         audit = _state_identity_audit(state)
         current_task = self._services.state_index.get_task_run(state.task_run_id)
@@ -1119,7 +1152,7 @@ class GraphLoop:
                 TaskRun(
                     **{
                         **current_task.to_dict(),
-                        "status": status,
+                        "status": task_run_status,
                         "updated_at": now,
                         "terminal_reason": terminal_reason,
                         "diagnostics": diagnostics,
@@ -1139,7 +1172,7 @@ class GraphLoop:
                 safe_id(state.graph_run_id),
                 {
                     **dict(graph_run),
-                    "status": status,
+                    "status": graph_status,
                     "updated_at": now,
                     "terminal_reason": terminal_reason,
                     "config_id": state.config_snapshot_id or state.config_id,
@@ -2744,9 +2777,10 @@ def _ready_nodes(
     *,
     graph_config: GraphHarnessConfig,
     node_states: dict[str, dict[str, Any]],
+    edge_states: dict[str, dict[str, Any]] | None = None,
     loop_state: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
-    return _STATE_MACHINE.ready_nodes(graph_config=graph_config, node_states=node_states, loop_state=loop_state)
+    return _STATE_MACHINE.ready_nodes(graph_config=graph_config, node_states=node_states, edge_states=edge_states, loop_state=loop_state)
 
 
 def _blocked_nodes(
@@ -3754,6 +3788,15 @@ def _state_identity_audit(state: GraphLoopState) -> dict[str, Any]:
     }
 
 
+def _formal_task_run_status(graph_status: str) -> str:
+    status = str(graph_status or "").strip()
+    if status == "waiting_human_gate":
+        return "waiting_approval"
+    if status in {"created", "running", "waiting_executor", "waiting_approval", "blocked", "completed", "failed", "aborted"}:
+        return status
+    return "running"
+
+
 def _replace_state(state: GraphLoopState, **patch: Any) -> GraphLoopState:
     payload = state.to_dict()
     payload.update(patch)
@@ -3807,6 +3850,38 @@ def _edge_is_revision(edge: dict[str, Any]) -> bool:
     return edge_type in REVISION_EDGE_TYPES or semantic_role == "revision"
 
 
+def _human_gate_route_edge(
+    *,
+    graph_config: GraphHarnessConfig,
+    source_node_id: str,
+    target_node_id: str,
+    action: str,
+) -> dict[str, Any] | None:
+    source = str(source_node_id or "").strip()
+    target = str(target_node_id or "").strip()
+    route_action = str(action or "").strip()
+    for raw_edge in graph_config.edges:
+        edge = dict(raw_edge)
+        if str(edge.get("source_node_id") or "").strip() != source:
+            continue
+        if str(edge.get("target_node_id") or "").strip() != target:
+            continue
+        if route_action == "request_revision":
+            if _edge_is_revision(edge):
+                return edge
+            continue
+        metadata = dict(edge.get("metadata") or {})
+        edge_type = str(edge.get("edge_type") or "").strip()
+        scheduler_role = str(edge.get("scheduler_role") or "").strip()
+        if (
+            bool(metadata.get("human_gate_reroute"))
+            or edge_type in {"control", "gate", "gate_pass", "repair_route"}
+            or scheduler_role == "conditional_dependency"
+        ):
+            return edge
+    return None
+
+
 def _assert_human_edge_decision_allowed(*, graph_config: GraphHarnessConfig, edge: dict[str, Any], action: str) -> None:
     contract = edge_contract_or_projection(graph_config, edge)
     policy = dict(contract.get("human_control") or {})
@@ -3841,62 +3916,38 @@ def _outgoing_state_edges(graph_config: GraphHarnessConfig, node_id: str) -> tup
     return tuple(edges)
 
 
-def _edge_states_after_result_for_edge(
+def _edge_states_after_transition(
     *,
     graph_config: GraphHarnessConfig,
     state: GraphLoopState,
-    edge: dict[str, Any],
+    trigger_type: str,
     result: NodeResultEnvelope,
     result_ref: str,
     services: Any | None = None,
+    edge_id: str = "",
+    decision_ref: str = "",
 ) -> dict[str, dict[str, Any]]:
-    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
-    now = time.time()
-    edge_id = str(edge.get("edge_id") or "")
-    if not edge_id:
-        return edge_states
-    edge_state = dict(edge_states.get(edge_id) or {})
-    packet_summary: dict[str, Any] = {}
-    if result.status == "completed" and edge_delivers_flow_packet(edge, graph_config=graph_config):
-        packet = build_flow_packet(
-            graph_config=graph_config,
-            state=state,
-            edge=edge,
-            result=result,
-            result_ref=result_ref,
-            created_at=now,
-        )
-        packet_ref = store_flow_packet(services, packet) if services is not None else ""
-        packet_summary = flow_packet_summary(packet, packet_ref=packet_ref)
-        existing_packets = [
-            dict(item)
-            for item in list(edge_state.get("packet_refs") or [])
-            if isinstance(item, dict) and str(item.get("packet_ref") or "")
-        ]
-        existing_packets.append(packet_summary)
-        edge_state["packet_refs"] = existing_packets
-        edge_state["latest_packet_id"] = packet.packet_id
-        edge_state["latest_packet_ref"] = packet_ref
-        edge_state["latest_packet"] = packet_summary
-    else:
-        edge_state.pop("packet_refs", None)
-        edge_state.pop("latest_packet_id", None)
-        edge_state.pop("latest_packet_ref", None)
-        edge_state.pop("latest_packet", None)
-    edge_state.update(
-        {
-            "edge_id": edge_id,
-            "source_node_id": result.node_id,
-            "target_node_id": str(edge.get("target_node_id") or ""),
-            "status": "ready" if result.status == "completed" else "source_failed",
-            "source_result_ref": result_ref,
-            "packet_persisted": bool(packet_summary),
-            "human_edge_decision": _human_edge_decision_state(dict(result.diagnostics.get("human_edge_decision") or {})),
-            "updated_at": now,
-        }
+    transition_payload = {
+        "result": result.to_dict(),
+        "result_ref": result_ref,
+        "decision_ref": decision_ref or f"{trigger_type}:{result.result_id}",
+    }
+    if edge_id:
+        transition_payload["edge_id"] = edge_id
+    trigger = GraphTransitionInput(
+        trigger_type=trigger_type,
+        graph_run_id=state.graph_run_id,
+        config_id=state.config_id,
+        config_hash=state.config_hash,
+        graph_clock_seq=state.event_cursor + 1,
+        payload=transition_payload,
     )
-    edge_states[edge_id] = edge_state
-    return edge_states
+    plan = GraphTransitionProcessor(services=services).plan(
+        graph_config=graph_config,
+        state=state,
+        trigger=trigger,
+    )
+    return apply_transition_plan_to_edge_states(edge_states=state.edge_states, plan=plan)
 
 
 def _human_edge_decision_result(
@@ -4006,79 +4057,6 @@ def _content_submission_summary(payload: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(payload).items()
         if key != "content"
     }
-
-
-def _edge_states_after_node_result(
-    *,
-    graph_config: GraphHarnessConfig,
-    state: GraphLoopState,
-    result: NodeResultEnvelope,
-    result_ref: str,
-    services: Any | None = None,
-) -> dict[str, dict[str, Any]]:
-    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
-    now = time.time()
-    outgoing_edges = _outgoing_state_edges(graph_config, result.node_id)
-    review_verdict = extract_review_verdict(result.handoff_summary)
-    review_rejected = review_verdict_is_rejected(review_verdict)
-    review_routes_revision = bool(review_verdict and any(_edge_is_revision(dict(edge)) for edge in outgoing_edges))
-    for edge in outgoing_edges:
-        edge_id = str(edge.get("edge_id") or "")
-        if not edge_id:
-            continue
-        is_revision_edge = _edge_is_revision(dict(edge))
-        edge_ready = result.status == "completed"
-        if edge_ready and review_routes_revision:
-            edge_ready = is_revision_edge if review_rejected else not is_revision_edge
-        edge_state = dict(edge_states.get(edge_id) or {})
-        packet_summary: dict[str, Any] = {}
-        if edge_ready and edge_delivers_flow_packet(edge, graph_config=graph_config):
-            packet = build_flow_packet(
-                graph_config=graph_config,
-                state=state,
-                edge=edge,
-                result=result,
-                result_ref=result_ref,
-                created_at=now,
-            )
-            packet_ref = store_flow_packet(services, packet) if services is not None else ""
-            packet_summary = flow_packet_summary(packet, packet_ref=packet_ref)
-            existing_packets = [
-                dict(item)
-                for item in list(edge_state.get("packet_refs") or [])
-                if isinstance(item, dict) and str(item.get("packet_ref") or "")
-            ]
-            existing_packets.append(packet_summary)
-            edge_state["packet_refs"] = existing_packets
-            edge_state["latest_packet_id"] = packet.packet_id
-            edge_state["latest_packet_ref"] = packet_ref
-            edge_state["latest_packet"] = packet_summary
-        else:
-            edge_state.pop("packet_refs", None)
-            edge_state.pop("latest_packet_id", None)
-            edge_state.pop("latest_packet_ref", None)
-            edge_state.pop("latest_packet", None)
-        edge_state.update(
-            {
-                "edge_id": edge_id,
-            "source_node_id": result.node_id,
-            "target_node_id": str(edge.get("target_node_id") or ""),
-            "status": "ready" if edge_ready else ("source_failed" if result.status != "completed" else "pending"),
-            "source_result_ref": result_ref,
-            "packet_persisted": bool(packet_summary),
-            "review_verdict_gate": _drop_empty(
-                {
-                    "verdict": review_verdict,
-                    "routed_to_revision": review_rejected,
-                    "edge_revision": is_revision_edge,
-                    "authority": "harness.graph.review_verdict_edge_gate",
-                }
-            ),
-            "updated_at": now,
-        }
-    )
-        edge_states[edge_id] = edge_state
-    return edge_states
 
 
 def _graph_result(

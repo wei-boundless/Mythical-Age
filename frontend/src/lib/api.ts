@@ -4015,6 +4015,55 @@ export type MemoryOverview = {
   session_memory: MemorySessionInspect | null;
 };
 
+export type ProjectInstructionSource = {
+  path: string;
+  absolute_path: string;
+  scope_root: string;
+  source_kind: "project_instruction_file" | string;
+  exists: boolean;
+  loaded: boolean;
+  editable: boolean;
+  content: string;
+  content_hash: string;
+  mtime_ns: number;
+  size_bytes: number;
+};
+
+export type ProjectInstructionManagement = {
+  authority: string;
+  project_root: string;
+  canonical_filename: string;
+  runtime_loader: {
+    authority: string;
+    loaded_filename: string;
+    ignored_filenames: string[];
+    scope_rule: string;
+  };
+  model_visibility: {
+    sent_to_model: boolean;
+    slot: string;
+    message_role: string;
+    cache_role: string;
+    compression_role: string;
+    memory_write_policy: string;
+  };
+  memory_relation: {
+    managed_in_memory_console: boolean;
+    durable_memory_note: boolean;
+    semantic_memory_write: string;
+    reason: string;
+  };
+  bundle: {
+    prompt_ref?: string;
+    source_count?: number;
+    source_hash?: string;
+    cache_scope?: string;
+    sources?: Array<Record<string, unknown>>;
+    authority?: string;
+  };
+  sources: ProjectInstructionSource[];
+};
+
 export type MemoryRecallPreview = {
   query: string;
   session_id: string;
@@ -4692,6 +4741,17 @@ export async function getMemoryOverview(sessionId?: string, query = "", scope?: 
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<MemoryOverview>(`/memory/overview${suffix}`);
+}
+
+export async function getProjectInstructionManagement() {
+  return request<ProjectInstructionManagement>("/memory/project-instructions");
+}
+
+export async function saveProjectInstructionSource(path: string, content: string) {
+  return request<ProjectInstructionManagement>("/memory/project-instructions", {
+    method: "PUT",
+    body: JSON.stringify({ path, content })
+  });
 }
 
 export async function getFormalMemoryOverview(payload?: {

@@ -140,7 +140,7 @@ def validate_harness_edge_config(edge: dict[str, Any], *, nodes_by_id: dict[str,
 def edge_is_scheduler_dependency(edge: dict[str, Any], *, nodes_by_id: dict[str, dict[str, Any]]) -> bool:
     scheduler_role = str(edge.get("scheduler_role") or "").strip()
     _validate_role("scheduler_role", scheduler_role, EDGE_SCHEDULER_ROLES)
-    if scheduler_role == "dependency":
+    if scheduler_role in {"dependency", "conditional_dependency"}:
         return True
     if scheduler_role == "commit":
         return _commit_edge_targets_commit_executor(edge=edge, nodes_by_id=nodes_by_id)
