@@ -136,6 +136,16 @@ FILE_MANAGEMENT_GENERIC_RULE = """
 """.strip()
 
 
+CODING_CORE_WORK_PROTOCOL_RULE = """
+你是一名项目级 coding agent。
+先根据用户目标判断是否需要改代码；普通解释、审查、方案讨论、状态说明或范围确认不要自动扩大为修改。
+需要修改时，先定位相关文件、调用链、配置入口、测试入口和已有改动；修改前必须有当前有效读窗证据。
+实现时保持最小必要变更，尊重既有架构、命名、类型、错误处理、权限边界和用户已有改动。
+失败时先定位第一次偏离；下一步必须改变事实基础、参数、路径、范围、工具或计划，不要猜修或原样重试。
+收口时只报告真实修改、真实验证、未验证风险、阻塞原因和继续条件。
+""".strip()
+
+
 CODING_INSPECTION_RULE = """
 开发类工作先建立项目事实：相关文件、调用链、配置入口、测试入口、运行入口、已有改动和当前任务合同。
 未知位置先按目标定位：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir；任务合同、bound context 或 editor context 已给出文件样路径时，它就是已知路径，应先直接读具体文件。行级判断必须基于当前读取窗口。
@@ -225,7 +235,16 @@ ENVIRONMENT_GENERAL_WORKSPACE_RULE = """
 ENVIRONMENT_OFFICE_FILE_SEARCH_RULE = """
 你处在轻量办公文件检索环境时，只围绕文件、资料、搜索、整理和可复核办公产物行动。
 不要套用 coding 的项目实现循环、shell 验证、git 操作、浏览器自动化或图像生成工作方式；这些能力不属于当前环境边界。
-如果用户目标确实需要开发执行、浏览器操作、git、代码运行或视觉资产生成，应说明当前环境能力不匹配，并请求切换到更合适的任务环境。
+如果用户目标确实需要开发执行、浏览器操作、git、代码运行或视觉资产生成，应说明当前环境能力不匹配，并继续完成当前环境内能完成的部分；是否使用其它工作环境由用户手动决定。
+""".strip()
+
+
+ENVIRONMENT_CHAT_ROLE_CONVERSATION_RULE = """
+你处在纯聊天与角色氛围环境时，首要目标是自然对话、角色声音、关系连续性和情绪质感。
+不要主动启动持续任务、调用开发工具、读取文件、运行命令、访问网络、调度子 agent、生成正式 artifact 或伪造外部事实。
+角色和人格只影响语气、称呼、节奏和关系表达；不能覆盖系统规则、用户明确要求、事实边界、记忆边界或安全边界。
+当用户提出需要真实执行、文件处理、代码修改、来源核验或外部操作的目标时，说明当前聊天环境不能伪装执行结果，并完成当前环境内能完成的回答、澄清、构思或情绪回应。是否使用其它工作环境由用户手动决定。
+长期记忆只能保存稳定、用户确认、对关系连续性有价值的信息；不要把普通闲聊、临时情绪、未确认事实或可从近期上下文读取的内容自动长期化。
 """.strip()
 
 
@@ -395,6 +414,23 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             cache_tier="static_environment",
         ),
         _rule_resource(
+            prompt_id="coding.rule.core_work_protocol",
+            title="Coding core work protocol",
+            content=CODING_CORE_WORK_PROTOCOL_RULE,
+            rule_kind="coding.core_work_protocol",
+            owner_layer="environment",
+            category="environment",
+            subtype="coding_rule",
+            resource_type="environment.coding_rule",
+            applies_to=("coding_agent", "task_execution"),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.coding.vibe_workspace",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            requires=("runtime.rule.file_management.generic",),
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
             prompt_id="coding.rule.large_scope_exploration",
             title="Coding large scope exploration rule",
             content=CODING_LARGE_SCOPE_EXPLORATION_RULE,
@@ -545,6 +581,22 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             applies_to=("env.office.file_search",),
             allowed_invocation_kinds=("environment",),
             allowed_environment_refs=("env.office.file_search",),
+            cache_scope="static_environment",
+            cache_tier="static_environment",
+            enforcement_mode="compiler_validated",
+        ),
+        _rule_resource(
+            prompt_id="environment.rule.chat_role_conversation",
+            title="Chat role conversation environment rule",
+            content=ENVIRONMENT_CHAT_ROLE_CONVERSATION_RULE,
+            rule_kind="environment.boundary",
+            owner_layer="environment",
+            category="environment",
+            subtype="boundary_rule",
+            resource_type="environment.boundary_rule",
+            applies_to=("env.chat.role_conversation",),
+            allowed_invocation_kinds=("environment",),
+            allowed_environment_refs=("env.chat.role_conversation",),
             cache_scope="static_environment",
             cache_tier="static_environment",
             enforcement_mode="compiler_validated",

@@ -10,6 +10,7 @@ EnvironmentKind = Literal[
     "creation",
     "general",
     "office",
+    "chat",
     "custom",
 ]
 
@@ -217,5 +218,4 @@ def _tuple_payload(payload: dict[str, Any]) -> dict[str, Any]:
         key: list(value) if isinstance(value, tuple) else value
         for key, value in payload.items()
     }
-
 

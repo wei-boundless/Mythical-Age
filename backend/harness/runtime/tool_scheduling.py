@@ -160,6 +160,8 @@ def environment_allowed_operations(environment: dict[str, Any] | str | None) -> 
         else:
             return set(_UNKNOWN_ENVIRONMENT_OPERATIONS)
     environment_kind = _environment_kind(payload)
+    if environment_kind == "chat":
+        return {"op.model_response"}
     if environment_kind == "general":
         return set(_GENERAL_ALL_OPERATIONS)
     operations: set[str] = set(_CONTROL_OPERATIONS)
@@ -285,7 +287,7 @@ def _environment_kind(payload: dict[str, Any]) -> str:
     if direct:
         return direct
     environment_id = str(payload.get("environment_id") or "").strip()
-    for kind in ("coding", "development", "creation", "general"):
+    for kind in ("coding", "development", "creation", "general", "office", "chat"):
         if environment_id.startswith(f"env.{kind}."):
             return kind
     record = payload.get("record")

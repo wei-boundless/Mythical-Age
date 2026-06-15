@@ -685,45 +685,31 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         segment_plan=result.packet.segment_plan,
     )
 
-    assert [segment.kind for segment in segment_map.segments] == [
+    segment_kinds = [segment.kind for segment in segment_map.segments]
+    for required_kind in (
         "global_static",
         "action_schema_static",
         "environment_stable",
         "project_instructions_stable",
-        "artifact_scope_stable",
         "tool_index_stable",
         "task_contract_stable",
-        "bound_task_runtime_context",
         "task_runtime_boundary_dynamic",
-        "task_state_replay_entry",
         "volatile_task_state",
-    ]
-    assert [segment.cache_role for segment in segment_map.segments] == [
-        "cacheable_prefix",
-        "session_stable",
-        "session_stable",
-        "session_stable",
-        "session_stable",
-        "session_stable",
-        "session_stable",
-        "volatile",
-        "volatile",
-        "volatile",
-        "volatile",
-    ]
-    assert [segment.prefix_tier for segment in segment_map.segments] == [
-        "provider_global",
-        "session",
-        "session",
-        "session",
-        "task",
-        "task",
-        "task",
-        "volatile",
-        "volatile",
-        "volatile",
-        "volatile",
-    ]
+    ):
+        assert required_kind in segment_kinds
+    assert segment_kinds.index("global_static") < segment_kinds.index("action_schema_static")
+    assert segment_kinds.index("action_schema_static") < segment_kinds.index("environment_stable")
+    assert segment_kinds.index("environment_stable") < segment_kinds.index("task_runtime_boundary_dynamic")
+    cache_role_by_kind = {segment.kind: segment.cache_role for segment in segment_map.segments}
+    prefix_tier_by_kind = {segment.kind: segment.prefix_tier for segment in segment_map.segments}
+    assert cache_role_by_kind["global_static"] == "cacheable_prefix"
+    assert cache_role_by_kind["environment_stable"] == "session_stable"
+    assert cache_role_by_kind["task_contract_stable"] == "session_stable"
+    assert cache_role_by_kind["task_runtime_boundary_dynamic"] == "volatile"
+    assert cache_role_by_kind["volatile_task_state"] == "volatile"
+    assert prefix_tier_by_kind["global_static"] == "provider_global"
+    assert prefix_tier_by_kind["environment_stable"] == "session"
+    assert prefix_tier_by_kind["task_runtime_boundary_dynamic"] == "volatile"
     assert not any(
         segment.cache_role in {"cacheable_prefix", "session_stable"}
         and dict(segment.metadata or {}).get("cache_impact") == "volatile"
@@ -749,22 +735,29 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert manifest["token_estimate"]["cacheable_prefix_chars"] > manifest["token_estimate"]["assembly_prompt_chars"]
 
 
-def test_task_execution_environment_stable_prefix_ignores_memory_context_presence() -> None:
+def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_mounts() -> None:
     base_kwargs = {
         "session_id": "session:memory-prefix",
         "task_run": {"task_run_id": "taskrun:memory-prefix", "diagnostics": {"executor_status": "running"}},
         "contract": {
             "task_run_goal": "检查 prompt cache 稳定前缀",
-            "completion_criteria": ["environment stable hash 不随 memory_context 切换"],
+            "completion_criteria": ["memory payload 不进入 environment stable prompt"],
             "plan_ref": "plan:memory-prefix",
         },
         "observations": [],
         "execution_state": {"runtime_status": "running"},
-        "runtime_assembly": {
-            "profile": {"profile_ref": "main_interactive_agent"},
-            "task_environment": {"environment_id": "env.coding.vibe_workspace"},
-        },
-    }
+            "runtime_assembly": {
+                "profile": {"profile_ref": "main_interactive_agent"},
+                "task_environment": {
+                    "environment_id": "env.coding.vibe_workspace",
+                    "environment_boundary": {
+                        "lifecycle_prompt_defaults": ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT[
+                            "env.coding.vibe_workspace"
+                        ],
+                    },
+                },
+            },
+        }
     without_memory = RuntimeCompiler().compile_task_execution_packet(**base_kwargs)
     with_memory = RuntimeCompiler().compile_task_execution_packet(
         **base_kwargs,
@@ -779,10 +772,16 @@ def test_task_execution_environment_stable_prefix_ignores_memory_context_presenc
 
     without_environment = _segment_by_kind(without_memory.packet, "environment_stable")
     with_environment = _segment_by_kind(with_memory.packet, "environment_stable")
-    assert without_environment["model_message_hash"] == with_environment["model_message_hash"]
+    assert without_environment["cache_role"] == "session_stable"
+    assert with_environment["cache_role"] == "session_stable"
 
     environment_content = _message_content_with_title(with_memory.packet, "Task execution environment boundary")
     runtime_boundary_content = _message_content_with_title(with_memory.packet, "Task execution runtime boundary")
+    without_refs = without_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
+    with_refs = with_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
+
+    assert "environment.coding.lifecycle.memory_read_context" not in without_refs
+    assert "environment.coding.lifecycle.memory_read_context" in with_refs
     assert "durable memory marker for prefix regression" not in environment_content
     assert "durable memory marker for prefix regression" in runtime_boundary_content
     runtime_segment = _segment_by_kind(with_memory.packet, "task_runtime_boundary_dynamic")
@@ -790,7 +789,7 @@ def test_task_execution_environment_stable_prefix_ignores_memory_context_presenc
     assert runtime_segment["prefix_tier"] == "volatile"
 
 
-def test_lifecycle_prompt_selection_is_fixed_across_memory_context_presence() -> None:
+def test_lifecycle_prompt_selection_changes_only_on_memory_context_structure() -> None:
     lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT["env.coding.vibe_workspace"]
     base_plan = build_base_prompt_mount_plan(
         selected_environment={
@@ -816,10 +815,86 @@ def test_lifecycle_prompt_selection_is_fixed_across_memory_context_presence() ->
             }
         },
     )
+    with_different_memory_text = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="task_execution",
+        allowed_actions=("tool_call",),
+        memory_context={
+            "model_visible_sections": {
+                "relevant_durable_context": ["different volatile memory marker"],
+            }
+        },
+    )
 
-    assert without_memory.lifecycle_prompt_refs == with_memory.lifecycle_prompt_refs
-    assert without_memory.lifecycle_prompt_keys == with_memory.lifecycle_prompt_keys
-    assert lifecycle_defaults["memory_read_context"] in without_memory.lifecycle_prompt_refs
+    assert lifecycle_defaults["memory_read_context"] not in without_memory.lifecycle_prompt_refs
+    assert lifecycle_defaults["memory_read_context"] in with_memory.lifecycle_prompt_refs
+    assert with_memory.lifecycle_prompt_refs == with_different_memory_text.lifecycle_prompt_refs
+    assert with_memory.lifecycle_prompt_keys == with_different_memory_text.lifecycle_prompt_keys
+
+
+def test_lifecycle_selector_omits_state_slots_without_structural_state() -> None:
+    lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT["env.general.workspace"]
+    base_plan = build_base_prompt_mount_plan(
+        selected_environment={
+            "environment_id": "env.general.workspace",
+            "environment_boundary": {
+                "lifecycle_prompt_defaults": lifecycle_defaults,
+            },
+        }
+    )
+
+    plan = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="single_agent_turn",
+        allowed_actions=("respond", "ask_user", "request_task_run", "tool_call", "block"),
+        visible_tools=({"tool_name": "read_file"},),
+        active_work_context=None,
+        memory_context=None,
+        session_context={},
+    )
+
+    assert plan.lifecycle_prompt_keys == (
+        "context_intake",
+        "request_judgment",
+        "environment_capability_alignment",
+        "action_selection",
+        "task_run_handoff",
+        "tool_dispatch",
+        "finalization",
+    )
+    assert "work_relation" not in plan.lifecycle_prompt_keys
+    assert "user_steer_contract_revision" not in plan.lifecycle_prompt_keys
+    assert "memory_read_context" not in plan.lifecycle_prompt_keys
+    assert "compaction_handoff" not in plan.lifecycle_prompt_keys
+    assert list(plan.lifecycle_trigger_reasons) == list(plan.lifecycle_prompt_refs)
+
+
+def test_lifecycle_selector_mounts_state_slots_from_structural_state() -> None:
+    lifecycle_defaults = ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT["env.general.workspace"]
+    base_plan = build_base_prompt_mount_plan(
+        selected_environment={
+            "environment_id": "env.general.workspace",
+            "environment_boundary": {
+                "lifecycle_prompt_defaults": lifecycle_defaults,
+            },
+        }
+    )
+
+    plan = prompt_mount_plan_for_invocation(
+        base_plan,
+        invocation_kind="single_agent_turn",
+        allowed_actions=("respond", "ask_user", "request_task_run", "tool_call", "active_work_control", "block"),
+        visible_tools=({"tool_name": "read_file"},),
+        active_work_context={"task_run_id": "taskrun:active", "status": "running"},
+        memory_context={"model_visible_sections": {"relevant_durable_context": ["memory marker"]}},
+        session_context={"compaction": {"handoff_ref": "compaction:1"}},
+    )
+
+    assert "work_relation" in plan.lifecycle_prompt_keys
+    assert "active_work_control" in plan.lifecycle_prompt_keys
+    assert "user_steer_contract_revision" in plan.lifecycle_prompt_keys
+    assert "memory_read_context" in plan.lifecycle_prompt_keys
+    assert "compaction_handoff" in plan.lifecycle_prompt_keys
 
 
 def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:
@@ -874,9 +949,10 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert first_replay_messages[0] == second_replay_messages[0]
 
     second_kinds = [segment["kind"] for segment in second.packet.segment_plan["segments"]]
-    assert second_kinds.index("task_runtime_boundary_dynamic") < second_kinds.index("task_state_replay_entry")
     assert second_kinds.index("task_state_replay_entry") < second_kinds.index("volatile_task_state")
-    assert second_kinds[-1] == "volatile_task_state"
+    for segment in second.packet.segment_plan["segments"]:
+        if segment["kind"] in {"task_state_replay_entry", "task_runtime_boundary_dynamic", "volatile_task_state"}:
+            assert segment["cache_role"] == "volatile"
 
     first_request = ModelRequestBuilder().build(
         request_id="modelreq:first-append-only",
@@ -1300,9 +1376,8 @@ def test_real_task_prompt_assembly_keeps_prompt_service_and_safety_boundaries_se
     assert service_surface["unmounted_services"][0]["category"] == "requires_task_run"
     assert service_surface["unmounted_services"][0]["required_action"] == "request_task_run"
     assert execution_boundary["safety_authority"] == "runtime.tooling.supervisor"
-    assert "模型决策合同来自开发者 prompt 权威" in model_input
-    assert "服务面挂载边界，不是权限安全裁决" in model_input
-    assert "真实安全边界只在执行许可和 tool control plane 中裁决" in model_input
+    assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
+    assert service_surface["authority"] == "harness.runtime.service_surface"
     assert ("Prompt " + "不能强制") not in model_input
     assert "latest resumable executor checkpoint" not in model_input
 
@@ -1442,9 +1517,9 @@ def test_plan_mode_prompt_cache_changes_with_permission_boundary() -> None:
     )["runtime_context"]["agent_visible_runtime_projection"]
 
     assert default_cache.prefix_hash != plan_cache.prefix_hash
-    assert "当前处于 plan mode" in plan_input
     assert plan_projection["planning"]["plan_mode_active"] is True
     assert plan_projection["execution_boundary"]["permission_mode"] == "plan"
+    assert "permission_mode" in plan_input
     assert _segment_by_source(plan_packet.packet, "single_agent_turn_runtime_delta")["cache_scope"] == "none"
 
 

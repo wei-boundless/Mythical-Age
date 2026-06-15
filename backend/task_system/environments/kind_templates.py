@@ -109,10 +109,25 @@ def default_task_environment_kind_templates() -> tuple[TaskEnvironmentKindTempla
         TaskEnvironmentKindTemplate(
             kind_id="general",
             title="General",
-            description="General workspace environments for lightweight context, documents, research, and bounded artifacts.",
+            description="General-purpose work environments for broad questions, mixed workflows, documents, research, and bounded artifacts.",
             group_id="environment_group.general",
             allowed_resource_refs=("file_profile.general_workspace",),
             allowed_task_graph_kinds=("single_agent", "coordination"),
+        ),
+        TaskEnvironmentKindTemplate(
+            kind_id="chat",
+            title="Chat",
+            description="Pure conversation environments for role atmosphere, relationship continuity, and natural dialogue without task execution tooling.",
+            group_id="environment_group.chat",
+            allowed_resource_refs=("conversation_context", "role_relationship_memory"),
+            allowed_task_graph_kinds=(),
+            default_execution_policy={
+                "shell_execution_policy": "denied",
+                "browser_execution_policy": "denied",
+                "network_execution_policy": "denied",
+                "write_scope_policy": "denied",
+            },
+            default_risk_policy={"default_permission_mode": "deny_by_default"},
         ),
         TaskEnvironmentKindTemplate(
             kind_id="custom",

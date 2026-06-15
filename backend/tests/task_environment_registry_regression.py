@@ -42,6 +42,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     groups = {item.group_id for item in registry.list_groups()}
 
     assert {
+        "environment_group.chat",
         "environment_group.coding",
         "environment_group.office",
         "environment_group.general",
@@ -50,6 +51,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     coding = registry.require("env.coding.vibe_workspace").spec
     office = registry.require("env.office.file_search").spec
     general = registry.require("env.general.workspace").spec
+    chat = registry.require("env.chat.role_conversation").spec
 
     assert coding.sandbox_policy.enabled is True
     assert coding.resource_space.storage_namespace == "coding/vibe-workspace"
@@ -60,6 +62,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert [item.prompt_id for item in coding.environment_prompts] == [
         "environment.coding.vibe_workspace.orientation",
         "environment.rule.coding_workspace",
+        "coding.rule.core_work_protocol",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -96,6 +99,15 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
         "environment.rule.general_workspace",
     ]
     assert all(item.prompt_kind != "lifecycle" for item in general.environment_prompts)
+    assert chat.sandbox_policy.shell_policy == "denied"
+    assert chat.sandbox_policy.browser_policy == "denied"
+    assert chat.execution_policy.network_execution_policy == "denied"
+    assert chat.file_management.file_profile_refs == ()
+    assert chat.lifecycle_policy["task_lifecycle_prompts"] == "disabled"
+    assert [item.prompt_id for item in chat.environment_prompts] == [
+        "environment.chat.role_conversation.orientation",
+        "environment.rule.chat_role_conversation",
+    ]
 
 
 def test_task_definitions_do_not_declare_skill_authority() -> None:
@@ -419,6 +431,7 @@ def test_development_environment_prompt_is_in_task_execution_packet() -> None:
         "environment.resource.sandbox_overlay.orientation",
         "environment.coding.vibe_workspace.orientation",
         "environment.rule.coding_workspace",
+        "coding.rule.core_work_protocol",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -481,6 +494,7 @@ def test_coding_environment_prompt_is_isolated_from_development_prompt() -> None
         "environment.resource.sandbox_overlay.orientation",
         "environment.coding.vibe_workspace.orientation",
         "environment.rule.coding_workspace",
+        "coding.rule.core_work_protocol",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -506,6 +520,7 @@ def test_coding_environment_prompt_text_uses_agent_facing_language() -> None:
         "environment.resource.sandbox_overlay.orientation",
         "environment.coding.vibe_workspace.orientation",
         "environment.rule.coding_workspace",
+        "coding.rule.core_work_protocol",
         "coding.rule.codebase_inspection",
         "coding.rule.large_scope_exploration",
         "coding.rule.editing",
@@ -592,8 +607,8 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     )
 
     assert management["authority"] == "task_system.task_environment_catalog"
-    assert management["summary"]["environment_count"] == 3
-    assert management["summary"]["builtin_template_count"] == 3
+    assert management["summary"]["environment_count"] == 4
+    assert management["summary"]["builtin_template_count"] == 4
     assert management["summary"]["workspace_environment_count"] == 0
     assert management["summary"]["system_internal_environment_count"] == 0
     assert writing_item["definition_source"] == "builtin_default"
@@ -856,7 +871,6 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
             "context_intake",
             "request_judgment",
             "environment_capability_alignment",
-            "plan_gate",
             "action_selection",
             "task_run_handoff",
             "tool_dispatch",
@@ -914,8 +928,12 @@ def test_general_single_agent_turn_packet_includes_lifecycle_environment_prompts
         packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"][
             "environment.general.lifecycle.tool_dispatch"
         ]
-        == "tool_call action is allowed"
+        == "capability: tool_call action is allowed and visible tools are present"
     )
+    assert "environment.general.lifecycle.plan_gate" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+    assert "environment.general.lifecycle.work_relation" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+    assert "environment.general.lifecycle.memory_read_context" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
+    assert "environment.general.lifecycle.compaction_handoff" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
     assert "environment.general.lifecycle.subagent_delegation" not in packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_trigger_reasons"]
     assert packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["personality_prompt_refs"] == [
         DEFAULT_PERSONALITY_PROMPT_REF
@@ -979,6 +997,49 @@ def test_task_execution_lifecycle_prompts_are_environment_specific() -> None:
         assert lifecycle_refs
         assert all(ref.startswith(str(expectation["prefix"])) for ref in lifecycle_refs)
         assert set(lifecycle_refs).issubset(set(ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT[environment_id]))
+
+
+def test_chat_environment_uses_role_prompt_boundary_without_task_lifecycle() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-chat-env",
+        turn_id="turn-chat-env",
+        agent_invocation_id="agent-chat-env",
+        runtime_contract={"task_environment_id": "env.chat.role_conversation"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+    packet = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session-chat-env",
+        turn_id="turn-chat-env",
+        agent_invocation_id="agent-chat-env",
+        user_message="今晚想聊会儿。",
+        history=[],
+        runtime_assembly=assembly,
+    ).packet
+    manifest = packet.diagnostics["prompt_manifest"]
+    model_input = _model_input_text(packet)
+
+    assert assembly.environment_prompt_refs == (
+        "environment.chat.role_conversation.orientation",
+        "environment.rule.chat_role_conversation",
+    )
+    assert tuple(packet.available_tools) == ()
+    assert "tool_call" not in packet.allowed_action_types
+    assert "request_task_run" not in packet.allowed_action_types
+    assert manifest["prompt_mount_plan"]["lifecycle_prompt_refs"] == []
+    assert manifest["prompt_mount_plan"]["base_prompt_refs"] == [
+        "environment.chat.role_conversation.orientation",
+        "environment.rule.chat_role_conversation",
+    ]
+    assert "environment.coding.lifecycle." not in model_input
+    assert "environment.office.lifecycle." not in model_input
+    assert "角色氛围" in model_input
 
 
 def test_environment_boundary_owns_lifecycle_defaults_over_prompt_policy() -> None:
@@ -1083,7 +1144,10 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     ).packet
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
-    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution runtime boundary")
+    dynamic_payload = _payload_after_title(
+        _message_content_with_title(packet, "Task execution runtime boundary"),
+        "Task execution runtime boundary",
+    )
 
     assert "task_environment" in stable_payload
     assert "storage" in stable_payload["task_environment"]
@@ -1127,6 +1191,9 @@ def test_all_default_task_environments_resolve_file_access_tables() -> None:
         resolved = resolve_task_environment(environment_id)
         assert resolved.spec.environment_id == environment_id
         assert resolved.file_access_tables
+    chat = resolve_task_environment("env.chat.role_conversation")
+    assert chat.spec.environment_id == "env.chat.role_conversation"
+    assert chat.file_access_tables == ()
 
 
 def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) -> None:

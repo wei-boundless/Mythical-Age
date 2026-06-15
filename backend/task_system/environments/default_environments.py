@@ -62,6 +62,11 @@ def default_task_environment_groups() -> tuple[TaskEnvironmentGroup, ...]:
             title="General",
             description="General-purpose work environment for broad tasks that should not narrow the agent profile.",
         ),
+        TaskEnvironmentGroup(
+            group_id="environment_group.chat",
+            title="Chat",
+            description="Pure conversation environments for role atmosphere, relationship continuity, and natural dialogue without task execution tooling.",
+        ),
     )
 
 
@@ -70,6 +75,7 @@ def default_task_environments() -> tuple[TaskEnvironmentDefinition, ...]:
         coding_vibe_workspace_environment(),
         office_file_search_environment(),
         general_workspace_environment(),
+        chat_role_conversation_environment(),
     )
 
 
@@ -91,6 +97,10 @@ def coding_vibe_workspace_environment() -> TaskEnvironmentDefinition:
             EnvironmentPrompt(
                 prompt_id="environment.rule.coding_workspace",
                 prompt_kind="boundary_rule",
+            ),
+            EnvironmentPrompt(
+                prompt_id="coding.rule.core_work_protocol",
+                prompt_kind="coding_rule",
             ),
             EnvironmentPrompt(
                 prompt_id="coding.rule.codebase_inspection",
@@ -374,6 +384,97 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         lifecycle_policy={
             "general_task_environment": True,
             "lifecycle_prompt_defaults": _lifecycle_prompt_defaults("general"),
+        },
+    )
+    return TaskEnvironmentDefinition(record=record, spec=spec)
+
+
+def chat_role_conversation_environment() -> TaskEnvironmentDefinition:
+    record = TaskEnvironmentRecord(
+        environment_id="env.chat.role_conversation",
+        title="角色氛围聊天",
+        description="Pure chat environment for role atmosphere, relationship continuity, personality prompts, and natural conversation without task execution workflows.",
+        group_id="environment_group.chat",
+        environment_kind="chat",
+    )
+    spec = TaskEnvironmentSpec(
+        spec_id="envspec.chat.role_conversation.default",
+        environment_id=record.environment_id,
+        environment_prompts=(
+            EnvironmentPrompt(
+                prompt_id="environment.chat.role_conversation.orientation",
+            ),
+            EnvironmentPrompt(
+                prompt_id="environment.rule.chat_role_conversation",
+                prompt_kind="boundary_rule",
+            ),
+        ),
+        sandbox_policy=SandboxPolicy(
+            enabled=False,
+            sandbox_mode="none",
+            workspace_access="none",
+            write_policy="denied",
+            shell_policy="denied",
+            browser_policy="denied",
+            network_policy="denied",
+            side_effect_policy="conversation_boundary",
+        ),
+        file_management=FileManagementBinding(
+            file_profile_refs=(),
+            required_repository_kinds=(),
+            canonical_write_policy="denied",
+            constraints={
+                "project_workspace_read": "denied",
+                "project_workspace_search": "denied",
+                "project_workspace_write": "denied",
+                "artifact_write": "denied",
+            },
+        ),
+        resource_space=ResourceSpace(
+            workspace_policy="none",
+            storage_namespace="chat/role-conversation",
+            material_mount_policy="none",
+            project_file_policy="none",
+            managed_file_environment_policy="none",
+            browser_environment_policy="none",
+            artifact_root_policy="none",
+        ),
+        memory_space=MemorySpace(
+            environment_memory_refs=("conversation_context", "role_relationship_memory"),
+            retrieval_index_refs=(),
+            read_policy="conversation_projection",
+            write_policy="role_memory_policy",
+            projection_policy="conversation_boundary",
+        ),
+        execution_policy=ExecutionPolicy(
+            sandbox_required=False,
+            sandbox_mode="none",
+            real_workspace_access="none",
+            write_scope_policy="denied",
+            shell_execution_policy="denied",
+            browser_execution_policy="denied",
+            network_execution_policy="denied",
+            side_effect_policy="conversation_boundary",
+        ),
+        risk_policy=RiskPolicy(
+            default_permission_mode="deny_by_default",
+            approval_required_risk_levels=(),
+            auto_denied_risk_levels=("tool_execution", "file_write", "external_write", "destructive_unbounded"),
+        ),
+        artifact_policy=ArtifactPolicy(
+            artifact_root="none",
+            publish_policy="conversation_only",
+        ),
+        lifecycle_policy={
+            "chat_conversation_environment": True,
+            "request_task_run": False,
+            "active_work_control": False,
+            "subagent_delegation": False,
+            "task_lifecycle_prompts": "disabled",
+        },
+        metadata={
+            "conversation_mode": "role_atmosphere",
+            "default_task_execution": "disabled",
         },
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)

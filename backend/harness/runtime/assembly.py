@@ -346,6 +346,7 @@ def assemble_runtime(
     control_capabilities = _control_capabilities_for_runtime(
         profile=profile,
         runtime_contract=runtime_contract_payload,
+        environment_payload=task_environment,
         visible_tool_names=visible_tool_names,
         engagement_contract=engagement_contract,
     )
@@ -898,6 +899,7 @@ def _control_capabilities_for_runtime(
     *,
     profile: RuntimeAssemblyProfile,
     runtime_contract: dict[str, Any],
+    environment_payload: dict[str, Any],
     visible_tool_names: tuple[str, ...],
     engagement_contract: dict[str, Any],
 ) -> dict[str, Any]:
@@ -909,6 +911,8 @@ def _control_capabilities_for_runtime(
     task_lifecycle = dict(profile.task_lifecycle_policy or {})
     context_policy = dict(profile.context_policy or {})
     subagent = dict(profile.subagent_policy or {})
+    environment_kind = str(environment_payload.get("environment_kind") or "").strip()
+    lifecycle_policy = dict(environment_payload.get("lifecycle_policy") or {})
     active_work_context = str(
         context_policy.get("active_work_context")
         or context_policy.get("task_run_context")
@@ -916,6 +920,19 @@ def _control_capabilities_for_runtime(
         or ""
     ).strip().lower()
     active_work_disabled = active_work_context in {"disabled", "none", "off", "false", "0", "readonly"}
+    environment_disables_tasks = (
+        environment_kind == "chat"
+        or lifecycle_policy.get("request_task_run") is False
+        or str(lifecycle_policy.get("task_lifecycle_prompts") or "").strip().lower() == "disabled"
+    )
+    environment_disables_active_work = (
+        environment_kind == "chat"
+        or lifecycle_policy.get("active_work_control") is False
+    )
+    environment_disables_subagents = (
+        environment_kind == "chat"
+        or lifecycle_policy.get("subagent_delegation") is False
+    )
     task_run_allowed = task_lifecycle.get("request_task_run") is not False
     subagent_enabled = bool(subagent.get("enabled") is True)
     may_emit_assistant_message = bool(explicit.get("may_emit_assistant_message", True) is not False)
@@ -925,19 +942,28 @@ def _control_capabilities_for_runtime(
         else bool(visible_tool_names)
     )
     may_request_task_run = bool(
-        explicit.get("may_request_task_run")
-        if "may_request_task_run" in explicit
-        else task_run_allowed
+        (
+            explicit.get("may_request_task_run")
+            if "may_request_task_run" in explicit
+            else task_run_allowed
+        )
+        and not environment_disables_tasks
     )
     may_control_active_work = bool(
-        explicit.get("may_control_active_work")
-        if "may_control_active_work" in explicit
-        else not active_work_disabled
+        (
+            explicit.get("may_control_active_work")
+            if "may_control_active_work" in explicit
+            else not active_work_disabled
+        )
+        and not environment_disables_active_work
     )
     may_use_subagents = bool(
-        explicit.get("may_use_subagents")
-        if "may_use_subagents" in explicit
-        else subagent_enabled
+        (
+            explicit.get("may_use_subagents")
+            if "may_use_subagents" in explicit
+            else subagent_enabled
+        )
+        and not environment_disables_subagents
     )
     has_explicit_contract = bool(engagement_contract or runtime_contract.get("task_contract") or runtime_contract.get("task_contract_seed"))
     requires_json_action_protocol_explicit = "requires_json_action_protocol" in explicit

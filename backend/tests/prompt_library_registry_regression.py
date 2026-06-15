@@ -95,6 +95,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "graph.rule.node_boundary.v1",
         "graph.rule.node_output_contract.v1",
         "runtime.rule.file_management.generic.v1",
+        "coding.rule.core_work_protocol.v1",
         "coding.rule.codebase_inspection.v1",
         "coding.rule.large_scope_exploration.v1",
         "coding.rule.editing.v1",
@@ -107,6 +108,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "environment.rule.coding_workspace.v1",
         "environment.rule.office_file_search.v1",
         "environment.rule.general_workspace.v1",
+        "environment.rule.chat_role_conversation.v1",
         "environment.resource.base_workspace.orientation.v1",
         "environment.resource.managed_project_workspace.orientation.v1",
         "environment.resource.sandbox_overlay.orientation.v1",
@@ -116,6 +118,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         "environment.coding.vibe_workspace.orientation.v1",
         "environment.office.file_search.orientation.v1",
         "environment.general.workspace.orientation.v1",
+        "environment.chat.role_conversation.orientation.v1",
     }
     migrated_legacy_packs = {
         "runtime.pack.single_agent_turn.v1",
@@ -159,6 +162,8 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
         not in resource_by_id["runtime.rule.output_boundary"].content
     )
     assert resource_by_id["runtime.rule.file_management.generic"].resource_type == "environment.file_management_rule"
+    assert resource_by_id["coding.rule.core_work_protocol"].resource_type == "environment.coding_rule"
+    assert resource_by_id["coding.rule.core_work_protocol"].cache_scope == "static_environment"
     assert resource_by_id["coding.rule.large_scope_exploration"].resource_type == "environment.coding_rule"
     assert resource_by_id["coding.rule.large_scope_exploration"].cache_scope == "static_environment"
     for pack_id in ("runtime.pack.single_agent_turn", "runtime.pack.task_execution"):
@@ -180,6 +185,12 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert resource_by_id[DEFAULT_PERSONALITY_PROMPT_REF].cache_scope == "session_stable"
     assert resource_by_id[DEFAULT_PERSONALITY_PROMPT_REF].metadata["authority_scope"] == "identity_and_style_only"
     assert resource_by_id["environment.general.workspace.orientation"].category == "environment"
+    assert resource_by_id["environment.chat.role_conversation.orientation"].category == "environment"
+    assert "角色氛围" in resource_by_id["environment.chat.role_conversation.orientation"].content
+    assert "不要声称已经读取文件" in resource_by_id["environment.chat.role_conversation.orientation"].content
+    assert resource_by_id["environment.rule.chat_role_conversation"].allowed_environment_refs == (
+        "env.chat.role_conversation",
+    )
     assert resource_by_id["environment.resource.general_workspace.orientation"].category == "environment"
     assert resource_by_id["environment.resource.general_workspace.orientation"].allowed_environment_refs == ()
     for environment_id, prompt_ids in ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT.items():
@@ -235,6 +246,8 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     )
     assert rule_by_id["runtime.rule.tool_use"].rule_kind == "runtime.tool_use"
     assert rule_by_id["runtime.rule.subagent_invocation_protocol"].rule_kind == "runtime.subagent_invocation_protocol"
+    assert rule_by_id["coding.rule.core_work_protocol"].rule_kind == "coding.core_work_protocol"
+    assert rule_by_id["coding.rule.core_work_protocol"].cache_tier == "static_environment"
     assert rule_by_id["coding.rule.large_scope_exploration"].rule_kind == "coding.large_scope_exploration"
     assert rule_by_id["coding.rule.large_scope_exploration"].cache_tier == "static_environment"
     assert rule_by_id["agent.main_interactive_agent.task_execution.work_role"].cache_tier == "session_stable"
@@ -242,6 +255,7 @@ def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_de
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].cache_tier == "session_stable"
     assert rule_by_id[DEFAULT_PERSONALITY_PROMPT_REF].owner_layer == "personality"
     assert rule_by_id["coding.rule.editing"].requires == ("runtime.rule.file_management.generic",)
+    assert rule_by_id["environment.rule.chat_role_conversation"].rule_kind == "environment.boundary"
 
 
 def test_builtin_model_visible_prompts_use_agent_runtime_situation_language(tmp_path: Path) -> None:

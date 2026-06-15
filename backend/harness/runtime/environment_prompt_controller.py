@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from prompt_library import ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS
+from prompt_library import ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS, ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS
 
 
 GENERAL_ENVIRONMENT_ID = "env.general.workspace"
-ENVIRONMENT_SWITCH_REQUEST_ACTION = "environment_switch_request"
 
 _LIFECYCLE_REFS = set(ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS)
 _SUBAGENT_TOOL_NAMES = {
@@ -157,6 +156,7 @@ def prompt_mount_plan_for_invocation(
 ) -> PromptMountPlan:
     plan = base_plan if isinstance(base_plan, PromptMountPlan) else prompt_mount_plan_from_payload(base_plan)
     lifecycle_selection = _lifecycle_prompt_selection_for_invocation(
+        selected_environment_id=plan.selected_environment_id,
         invocation_kind=invocation_kind,
         allowed_actions=allowed_actions,
         active_work_context=active_work_context,
@@ -199,6 +199,7 @@ def prompt_mount_plan_for_invocation(
 
 def _lifecycle_prompt_selection_for_invocation(
     *,
+    selected_environment_id: str,
     invocation_kind: str,
     allowed_actions: tuple[str, ...],
     active_work_context: dict[str, Any] | None,
@@ -214,12 +215,43 @@ def _lifecycle_prompt_selection_for_invocation(
     invocation = str(invocation_kind or "").strip()
     if "runtime.pack.graph_node_execution" in set(prompt_pack_refs):
         return LifecyclePromptSelection()
+    if not lifecycle_prompt_defaults and not lifecycle_prompt_overrides:
+        return LifecyclePromptSelection()
+
+    environment_kind = _environment_kind_for_id(selected_environment_id)
+    selected_reasons: dict[str, str] = {}
+    for lifecycle_key, reason in _core_lifecycle_reasons(
+        invocation_kind=invocation,
+        environment_kind=environment_kind,
+    ):
+        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+    for lifecycle_key, reason in _capability_lifecycle_reasons(
+        invocation_kind=invocation,
+        environment_kind=environment_kind,
+        allowed_actions=allowed_actions,
+        visible_tools=visible_tools,
+        active_work_context=active_work_context,
+    ):
+        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+    for lifecycle_key, reason in _state_lifecycle_reasons(
+        invocation_kind=invocation,
+        environment_kind=environment_kind,
+        active_work_context=active_work_context,
+        memory_context=memory_context,
+        observations=observations,
+        execution_state=execution_state,
+        session_context=session_context,
+        visible_tools=visible_tools,
+    ):
+        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+
     refs: list[str] = []
     keys: list[str] = []
     omitted_keys: list[str] = []
     trigger_reasons: dict[str, str] = {}
-
-    def add(lifecycle_key: str, reason: str) -> None:
+    for lifecycle_key in ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS:
+        if lifecycle_key not in selected_reasons:
+            continue
         prompt_ref = _resolve_prompt_slot(
             lifecycle_key,
             defaults=lifecycle_prompt_defaults,
@@ -228,71 +260,152 @@ def _lifecycle_prompt_selection_for_invocation(
         if not prompt_ref:
             if lifecycle_key not in omitted_keys:
                 omitted_keys.append(lifecycle_key)
-            return
+            continue
         if prompt_ref in trigger_reasons:
-            return
+            continue
         keys.append(lifecycle_key)
         refs.append(prompt_ref)
-        trigger_reasons[prompt_ref] = reason
+        trigger_reasons[prompt_ref] = selected_reasons[lifecycle_key]
+    return LifecyclePromptSelection(
+        refs=_dedupe(refs),
+        keys=_dedupe(keys),
+        trigger_reasons=trigger_reasons,
+        omitted_keys=_dedupe(omitted_keys),
+    )
 
+
+def _core_lifecycle_reasons(
+    *,
+    invocation_kind: str,
+    environment_kind: str,
+) -> tuple[tuple[str, str], ...]:
+    if environment_kind == "chat":
+        return ()
+    if invocation_kind == "single_agent_turn":
+        if environment_kind == "coding":
+            keys = (
+                "context_intake",
+                "request_judgment",
+                "environment_capability_alignment",
+                "plan_gate",
+                "action_selection",
+                "finalization",
+            )
+        else:
+            keys = (
+                "context_intake",
+                "request_judgment",
+                "environment_capability_alignment",
+                "action_selection",
+                "finalization",
+            )
+        return tuple((key, f"core: {environment_kind} single_agent_turn requires {key}") for key in keys)
+    if invocation_kind == "task_execution":
+        keys = (
+            "context_intake",
+            "environment_capability_alignment",
+            "tool_observation_recovery",
+            "action_selection",
+            "verification_gate",
+            "finalization",
+        )
+        return tuple((key, f"core: {environment_kind} task_execution requires {key}") for key in keys)
+    if invocation_kind == "tool_observation_followup":
+        keys = (
+            "context_intake",
+            "tool_observation_recovery",
+            "action_selection",
+            "finalization",
+        )
+        return tuple(
+            (key, f"core: {environment_kind} tool_observation_followup requires {key}")
+            for key in keys
+        )
+    return ()
+
+
+def _capability_lifecycle_reasons(
+    *,
+    invocation_kind: str,
+    environment_kind: str,
+    allowed_actions: tuple[str, ...],
+    visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    active_work_context: dict[str, Any] | None,
+) -> tuple[tuple[str, str], ...]:
+    if environment_kind == "chat":
+        return ()
     allowed = {str(item) for item in allowed_actions if str(item)}
-    has_tool_dispatch = "tool_call" in allowed
+    reasons: list[tuple[str, str]] = []
+    has_visible_tools = _has_visible_tools(visible_tools)
+    has_tool_dispatch = "tool_call" in allowed and has_visible_tools
     has_subagent_tools = _has_visible_tool_names(visible_tools, _SUBAGENT_TOOL_NAMES)
-    if invocation == "single_agent_turn":
-        add("context_intake", "single_agent_turn always needs context authority intake")
-        add("request_judgment", "single_agent_turn must judge the latest user request")
-        add("work_relation", "single_agent_turn must preserve current-work relation rules")
-        add("environment_capability_alignment", "environment boundary and runtime capabilities are visible")
-        add("plan_gate", "single_agent_turn must preserve planning gate rules")
-        add("action_selection", "single_agent_turn must choose one schema-valid action")
-        if "active_work_control" in allowed:
-            add("active_work_control", "active_work_control action is allowed")
-        add("user_steer_contract_revision", "current user message may steer visible active work")
+    has_active_work = _has_structural_payload(active_work_context)
+    if invocation_kind == "single_agent_turn":
+        if "active_work_control" in allowed and has_active_work:
+            reasons.append(("active_work_control", "capability: active_work_control action is allowed for visible active work"))
         if "request_task_run" in allowed:
-            add("task_run_handoff", "request_task_run action is allowed")
+            reasons.append(("task_run_handoff", "capability: request_task_run action is allowed"))
         if has_tool_dispatch:
-            add("tool_dispatch", "tool_call action is allowed")
+            reasons.append(("tool_dispatch", "capability: tool_call action is allowed and visible tools are present"))
         if has_subagent_tools:
-            add("subagent_delegation", "subagent control tools are visible")
-        add("memory_read_context", "single_agent_turn must preserve memory read boundary rules")
-        add("compaction_handoff", "single_agent_turn must preserve compaction handoff rules")
-        add("finalization", "single_agent_turn must check reply readiness before responding")
-        return LifecyclePromptSelection(refs=_dedupe(refs), keys=_dedupe(keys), trigger_reasons=trigger_reasons, omitted_keys=_dedupe(omitted_keys))
-    if invocation == "tool_observation_followup":
-        add("context_intake", "tool_observation_followup must preserve context authority")
-        add("environment_capability_alignment", "followup still runs inside current environment boundary")
-        add("tool_observation_recovery", "tool observations are available for followup")
-        add("subagent_result_integration", "followup must preserve subagent result integration rules")
-        add("action_selection", "followup must choose one schema-valid next action")
+            reasons.append(("subagent_delegation", "capability: subagent control tools are visible"))
+        return tuple(reasons)
+    if invocation_kind == "task_execution":
+        if has_tool_dispatch:
+            reasons.append(("tool_dispatch", "capability: tool_call action is allowed and visible tools are present"))
+        if has_subagent_tools:
+            reasons.append(("subagent_delegation", "capability: subagent control tools are visible"))
+        return tuple(reasons)
+    if invocation_kind == "tool_observation_followup":
         if "request_task_run" in allowed:
-            add("task_run_handoff", "followup may upgrade to request_task_run")
+            reasons.append(("task_run_handoff", "capability: followup action contract allows request_task_run"))
         if has_tool_dispatch:
-            add("tool_dispatch", "tool_call action is allowed after observation")
+            reasons.append(("tool_dispatch", "capability: tool_call action is allowed after observation"))
         if has_subagent_tools:
-            add("subagent_delegation", "subagent control tools are visible")
-        add("memory_read_context", "followup must preserve memory read boundary rules")
-        add("compaction_handoff", "followup must preserve compaction handoff rules")
-        add("finalization", "followup must check whether observation is sufficient to respond")
-        return LifecyclePromptSelection(refs=_dedupe(refs), keys=_dedupe(keys), trigger_reasons=trigger_reasons, omitted_keys=_dedupe(omitted_keys))
-    if invocation == "task_execution":
-        add("context_intake", "task_execution must preserve task and context authority")
-        add("environment_capability_alignment", "task_execution runs inside a selected environment boundary")
-        add("plan_gate", "task_execution must preserve planning gate rules")
-        add("user_steer_contract_revision", "task_execution must preserve steer contract revision rules")
-        add("tool_observation_recovery", "task_execution must preserve tool observation recovery rules")
-        add("subagent_result_integration", "task_execution must preserve subagent result integration rules")
-        add("action_selection", "task_execution must choose one schema-valid next action")
-        if has_tool_dispatch:
-            add("tool_dispatch", "tool_call action is allowed")
-        if has_subagent_tools:
-            add("subagent_delegation", "subagent control tools are visible")
-        add("verification_gate", "task_execution must verify readiness before final respond")
-        add("memory_read_context", "task_execution must preserve memory read boundary rules")
-        add("memory_write_handoff", "task_execution must preserve memory write handoff rules")
-        add("compaction_handoff", "task_execution must preserve compaction handoff rules")
-        add("finalization", "task_execution must report only true completion, risk, or blockage")
-        return LifecyclePromptSelection(refs=_dedupe(refs), keys=_dedupe(keys), trigger_reasons=trigger_reasons, omitted_keys=_dedupe(omitted_keys))
-    return LifecyclePromptSelection()
+            reasons.append(("subagent_delegation", "capability: subagent control tools are visible"))
+        return tuple(reasons)
+    return ()
+
+
+def _state_lifecycle_reasons(
+    *,
+    invocation_kind: str,
+    environment_kind: str,
+    active_work_context: dict[str, Any] | None,
+    memory_context: dict[str, Any] | None,
+    observations: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    execution_state: dict[str, Any] | None,
+    session_context: dict[str, Any] | None,
+    visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+) -> tuple[tuple[str, str], ...]:
+    if environment_kind == "chat":
+        return ()
+    reasons: list[tuple[str, str]] = []
+    has_active_work = _has_structural_payload(active_work_context)
+    has_pending_steer = _has_pending_steer(active_work_context, execution_state, session_context)
+    if invocation_kind == "single_agent_turn" and has_active_work:
+        reasons.append(("work_relation", "state: active_work_context is present"))
+    if has_pending_steer or (invocation_kind == "single_agent_turn" and has_active_work):
+        reasons.append(("user_steer_contract_revision", "state: active work or pending user steer is present"))
+    if _has_plan_boundary(execution_state, session_context):
+        reasons.append(("plan_gate", "state: plan or high-risk execution boundary is present"))
+    if invocation_kind == "tool_observation_followup" and _observations_include_recovery_boundary(observations):
+        reasons.append(("environment_capability_alignment", "state: observation shows capability, permission, or environment boundary"))
+    if _observations_include_subagent_result(observations):
+        reasons.append(("subagent_result_integration", "state: subagent result observation is present"))
+    if _has_structural_payload(memory_context):
+        reasons.append(("memory_read_context", "state: memory_context is present"))
+    if _has_memory_write_handoff(memory_context, execution_state, session_context, visible_tools):
+        reasons.append(("memory_write_handoff", "state: memory write candidate or capability is present"))
+    if _has_compaction_boundary(execution_state, session_context):
+        reasons.append(("compaction_handoff", "state: compaction or recovery boundary is present"))
+    return tuple(reasons)
+
+
+def _select_lifecycle_key(selected_reasons: dict[str, str], lifecycle_key: str, reason: str) -> None:
+    key = str(lifecycle_key or "").strip()
+    if key and key not in selected_reasons:
+        selected_reasons[key] = str(reason or "").strip()
 
 
 def _environment_id(payload: dict[str, Any]) -> str:
@@ -347,12 +460,6 @@ def _environment_switch_policy() -> dict[str, Any]:
     return {
         "mode": "user_or_session_controlled",
         "default_environment_id": GENERAL_ENVIRONMENT_ID,
-        "autonomous_switch_request": {
-            "designed": True,
-            "implemented": False,
-            "action_type": ENVIRONMENT_SWITCH_REQUEST_ACTION,
-            "handling": "future_ui_or_control_plane_confirmation_required",
-        },
         "model_may_switch_environment": False,
         "authority": "harness.runtime.environment_switch_policy",
     }
@@ -369,6 +476,197 @@ def _has_visible_tool_names(
         if tool_name in names:
             return True
     return False
+
+
+def _has_visible_tools(visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> bool:
+    for raw_tool in list(visible_tools or []):
+        if not isinstance(raw_tool, dict):
+            continue
+        if str(raw_tool.get("tool_name") or raw_tool.get("name") or "").strip():
+            return True
+    return False
+
+
+def _environment_kind_for_id(environment_id: str) -> str:
+    value = str(environment_id or "").strip()
+    if value.startswith("env.coding.") or value.startswith("env.development."):
+        return "coding"
+    if value.startswith("env.office."):
+        return "office"
+    if value.startswith("env.chat."):
+        return "chat"
+    if value.startswith("env.general."):
+        return "general"
+    return "general"
+
+
+def _has_structural_payload(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, dict):
+        for item in value.values():
+            if _has_structural_payload(item):
+                return True
+        return False
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            if _has_structural_payload(item):
+                return True
+        return False
+    return True
+
+
+def _has_pending_steer(
+    active_work_context: dict[str, Any] | None,
+    execution_state: dict[str, Any] | None,
+    session_context: dict[str, Any] | None,
+) -> bool:
+    return any(
+        _nested_payload_present(payload, _PENDING_STEER_KEYS)
+        for payload in (active_work_context, execution_state, session_context)
+    )
+
+
+def _has_plan_boundary(
+    execution_state: dict[str, Any] | None,
+    session_context: dict[str, Any] | None,
+) -> bool:
+    return any(
+        _nested_payload_present(payload, _PLAN_BOUNDARY_KEYS)
+        for payload in (execution_state, session_context)
+    )
+
+
+def _has_compaction_boundary(
+    execution_state: dict[str, Any] | None,
+    session_context: dict[str, Any] | None,
+) -> bool:
+    return any(
+        _nested_payload_present(payload, _COMPACTION_BOUNDARY_KEYS)
+        for payload in (execution_state, session_context)
+    )
+
+
+def _has_memory_write_handoff(
+    memory_context: dict[str, Any] | None,
+    execution_state: dict[str, Any] | None,
+    session_context: dict[str, Any] | None,
+    visible_tools: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+) -> bool:
+    if _has_visible_tool_names(visible_tools, _MEMORY_WRITE_TOOL_NAMES):
+        return True
+    return any(
+        _nested_payload_present(payload, _MEMORY_WRITE_KEYS)
+        for payload in (memory_context, execution_state, session_context)
+    )
+
+
+def _observations_include_subagent_result(observations: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> bool:
+    for observation in list(observations or []):
+        if not isinstance(observation, dict):
+            continue
+        if _nested_payload_present(observation, _SUBAGENT_RESULT_KEYS):
+            return True
+        source = str(observation.get("source") or observation.get("tool_name") or "").strip()
+        if "subagent" in source or source in _SUBAGENT_TOOL_NAMES:
+            return True
+    return False
+
+
+def _observations_include_recovery_boundary(observations: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> bool:
+    for observation in list(observations or []):
+        if not isinstance(observation, dict):
+            continue
+        status = str(observation.get("status") or "").strip().lower()
+        if status in {"error", "failed", "failure", "blocked", "denied", "timeout", "rejected"}:
+            return True
+        if _nested_payload_present(observation, _RECOVERY_BOUNDARY_KEYS):
+            return True
+    return False
+
+
+def _nested_payload_present(payload: Any, keys: set[str]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for key, value in payload.items():
+        normalized_key = str(key or "").strip()
+        if normalized_key in keys and _has_structural_payload(value):
+            return True
+        if isinstance(value, dict) and _nested_payload_present(value, keys):
+            return True
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                if _nested_payload_present(item, keys):
+                    return True
+    return False
+
+
+_PENDING_STEER_KEYS = {
+    "pending_user_steer",
+    "pending_steer",
+    "user_steer",
+    "contract_revision",
+    "contract_revision_request",
+    "steering_event",
+}
+_PLAN_BOUNDARY_KEYS = {
+    "plan_mode",
+    "planning_mode",
+    "requires_plan",
+    "planning_required",
+    "implementation_plan_required",
+    "plan_required",
+    "high_risk_change",
+    "structural_change",
+    "approved_plan_ref",
+    "plan_ref",
+}
+_COMPACTION_BOUNDARY_KEYS = {
+    "compaction",
+    "compaction_handoff",
+    "semantic_compaction",
+    "context_compaction",
+    "context_compression",
+    "recoverable_work",
+    "recovery_boundary",
+    "rehydration_plan",
+}
+_MEMORY_WRITE_KEYS = {
+    "memory_write_candidate",
+    "memory_write_candidates",
+    "memory_handoff",
+    "durable_memory_candidate",
+    "memory_candidate",
+}
+_MEMORY_WRITE_TOOL_NAMES = {
+    "memory_write",
+    "write_memory",
+    "save_memory",
+    "persist_memory",
+}
+_SUBAGENT_RESULT_KEYS = {
+    "subagent_result",
+    "subagent_run_ref",
+    "child_agent_run",
+    "subagent_control",
+    "result_available",
+}
+_RECOVERY_BOUNDARY_KEYS = {
+    "error",
+    "error_code",
+    "permission_denied",
+    "denied",
+    "tool_unavailable",
+    "capability_unavailable",
+    "timeout",
+    "recoverable_error",
+}
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
