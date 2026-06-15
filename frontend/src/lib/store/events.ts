@@ -5,6 +5,7 @@ import {
   type OrchestrationSnapshot,
   type RetrievalResult,
   type HarnessTaskRunTrace,
+  type ChatAttachment,
 } from "@/lib/api";
 import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 import {
@@ -1185,13 +1186,15 @@ function patchAssistant(
 export function startStreamingTurn(
   state: StoreState,
   userContent: string,
-  options: { existingUserMessageId?: string } = {},
+  options: { existingUserMessageId?: string; attachments?: ChatAttachment[] } = {},
 ): StreamTransition {
   const userId = options.existingUserMessageId || makeId();
+  const attachments = options.attachments ?? [];
   const userMessage: Message = {
     id: userId,
     role: "user",
     content: userContent.trim(),
+    attachments,
     toolCalls: [],
     retrievals: []
   };
@@ -1213,7 +1216,7 @@ export function startStreamingTurn(
         ...(options.existingUserMessageId
           ? state.messages.map((message) =>
               message.id === options.existingUserMessageId
-                ? { ...message, content: userContent.trim() }
+                ? { ...message, content: userContent.trim(), attachments }
                 : message
             )
           : [...state.messages, userMessage]),
@@ -1232,13 +1235,15 @@ export function startStreamingTurn(
 export function startQueuedActiveTurn(
   state: StoreState,
   userContent: string,
-  options: { existingUserMessageId?: string } = {},
+  options: { existingUserMessageId?: string; attachments?: ChatAttachment[] } = {},
 ): StreamTransition {
   const userId = options.existingUserMessageId || makeId();
+  const attachments = options.attachments ?? [];
   const userMessage: Message = {
     id: userId,
     role: "user",
     content: userContent.trim(),
+    attachments,
     toolCalls: [],
     retrievals: []
   };
@@ -1258,7 +1263,7 @@ export function startQueuedActiveTurn(
     ? [
         ...state.messages.map((message) =>
           message.id === options.existingUserMessageId
-            ? { ...message, content: userContent.trim() }
+            ? { ...message, content: userContent.trim(), attachments }
             : message
         ),
         assistantMessage,

@@ -81,6 +81,17 @@ TOOL_WEB_FETCH_GUIDANCE = """
 """.strip()
 
 
+TOOL_ATTACHMENT_EXTRACT_TEXT_GUIDANCE = """
+使用 attachment_extract_text 时，你是在读取用户上传或工作区中的受控图片附件，并通过本地 MCP OCR 能力提取文字。
+当用户要求识别、读取、转写图片文字，或本轮输入给出了图片附件路径时，先调用 attachment_extract_text，再基于工具返回的 OCR 结果回答。
+默认 OCR 语言是 chi_sim+eng；除非用户明确指定其它语言，保持默认。
+图片附件是受控本地资源，不是已经识别好的内容；不要把文件名、路径或用户描述当作图片文字。
+你必须把 OCR 文本当作工具证据，不得声称看到了工具未返回的视觉细节、物体、颜色、布局或含义。
+如果 OCR 文本为空、被截断、依赖缺失或语言包不可用，说明限制，并建议用户提供更清晰图片、裁剪目标区域或安装对应 OCR 依赖。
+attachment_extract_text 是只读工具；它不能生成、修改或保存新图片。
+""".strip()
+
+
 TOOL_PERSISTED_TOOL_RESULT_GUIDANCE = """
 使用 read_persisted_tool_result 时，你是在恢复系统曾经省略并持久化的旧工具输出原文。
 只使用 rehydration_plan、content_replacements 或工具观察中提供的 replacement_id、path、task_run_id、start_byte 和 max_bytes；不要猜测路径或构造未给出的引用。
@@ -176,6 +187,11 @@ def list_builtin_tool_prompt_resources() -> tuple[PromptResource, ...]:
             prompt_id="tool.guidance.web_fetch",
             title="Web search and fetch tool guidance",
             content=TOOL_WEB_FETCH_GUIDANCE,
+        ),
+        _tool_guidance_resource(
+            prompt_id="tool.guidance.attachment_extract_text",
+            title="Attachment OCR guidance",
+            content=TOOL_ATTACHMENT_EXTRACT_TEXT_GUIDANCE,
         ),
         _tool_guidance_resource(
             prompt_id="tool.guidance.read_persisted_tool_result",
@@ -348,6 +364,7 @@ _GIT_READ_TOOL_REFS = ("tool.guidance.git_read",)
 _GIT_WRITE_TOOL_REFS = ("tool.guidance.git_write",)
 _PERSISTED_TOOL_RESULT_REFS = ("tool.guidance.read_persisted_tool_result",)
 _LOCAL_SEARCH_TOOL_REFS = ("tool.guidance.local_search",)
+_ATTACHMENT_EXTRACT_TEXT_TOOL_REFS = ("tool.guidance.attachment_extract_text",)
 
 _TOOL_GUIDANCE_REFS_BY_NAME: dict[str, tuple[str, ...]] = {
     "read_file": ("tool.guidance.read_file",),
@@ -368,6 +385,7 @@ _TOOL_GUIDANCE_REFS_BY_NAME: dict[str, tuple[str, ...]] = {
     "browser_control": ("tool.guidance.browser",),
     "web_search": ("tool.guidance.web_fetch",),
     "fetch_url": ("tool.guidance.web_fetch",),
+    "attachment_extract_text": _ATTACHMENT_EXTRACT_TEXT_TOOL_REFS,
     "git_status": _GIT_READ_TOOL_REFS,
     "git_diff": _GIT_READ_TOOL_REFS,
     "git_log": _GIT_READ_TOOL_REFS,

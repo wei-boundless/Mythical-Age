@@ -60,6 +60,15 @@ describe("ChatInput", () => {
     expect(html).toContain("流式");
   });
 
+  it("renders an image input for uploads and pasted image handoff", () => {
+    const html = renderChatInput();
+
+    expect(html).toContain("aria-label=\"上传图片\"");
+    expect(html).toContain("aria-label=\"选择图片\"");
+    expect(html).toContain("accept=\".png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif");
+    expect(html).toContain("type=\"file\"");
+  });
+
   it("locks the stream display toggle to the next turn while streaming", () => {
     const html = renderChatInput({ streaming: true });
 

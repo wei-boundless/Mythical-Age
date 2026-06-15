@@ -101,6 +101,11 @@ class HealthTaskRecordPruneRequest(BaseModel):
     operation: str = Field(default="delete_expired", max_length=60)
 
 
+class HealthPromptAccountingRetentionRequest(BaseModel):
+    cutoff_days: int = Field(default=7, ge=1, le=3650)
+    dry_run: bool = Field(default=True)
+
+
 class HealthAgentConversationSessionCreateRequest(BaseModel):
     active_issue_ref: str = Field(default="")
     active_run_ref: str = Field(default="")
@@ -115,19 +120,19 @@ class HealthAgentConversationMessageCreateRequest(BaseModel):
 
 
 @router.get("/health-system/overview")
-async def health_system_overview() -> dict[str, Any]:
+def health_system_overview() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_overview()
 
 
 @router.get("/health-system/tasks")
-async def health_system_tasks(limit: int = 40) -> dict[str, Any]:
+def health_system_tasks(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_tasks(limit=limit)
 
 
 @router.get("/health-system/tasks/{task_run_id}")
-async def health_system_task_detail(task_run_id: str) -> dict[str, Any]:
+def health_system_task_detail(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
         return HealthGovernanceBuilder(runtime).build_task_detail(task_run_id)
@@ -136,7 +141,7 @@ async def health_system_task_detail(task_run_id: str) -> dict[str, Any]:
 
 
 @router.post("/health-system/task-records/prune")
-async def health_system_prune_task_records(payload: HealthTaskRecordPruneRequest) -> dict[str, Any]:
+def health_system_prune_task_records(payload: HealthTaskRecordPruneRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
         return HealthGovernanceBuilder(runtime).prune_task_records(
@@ -151,7 +156,7 @@ async def health_system_prune_task_records(payload: HealthTaskRecordPruneRequest
 
 
 @router.get("/health-system/task-records/maintenance")
-async def health_system_task_record_maintenance(
+def health_system_task_record_maintenance(
     bucket: str = "static",
     min_age_seconds: int = 24 * 60 * 60,
 ) -> dict[str, Any]:
@@ -165,44 +170,67 @@ async def health_system_task_record_maintenance(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/health-system/prompt-accounting/retention/preview")
+def health_system_prompt_accounting_retention_preview(cutoff_days: int = 7) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HealthGovernanceBuilder(runtime).build_prompt_accounting_retention(
+            cutoff_days=max(1, int(cutoff_days or 7)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/health-system/prompt-accounting/retention/compact")
+def health_system_prompt_accounting_retention_compact(payload: HealthPromptAccountingRetentionRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HealthGovernanceBuilder(runtime).compact_prompt_accounting_retention(
+            cutoff_days=payload.cutoff_days,
+            dry_run=payload.dry_run,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/health-system/risks")
-async def health_system_risks(limit: int = 40) -> dict[str, Any]:
+def health_system_risks(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_risks(limit=limit)
 
 
 @router.get("/health-system/system-risks")
-async def health_system_system_risks() -> dict[str, Any]:
+def health_system_system_risks() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_system_risks()
 
 
 @router.get("/health-system/monitor-governance")
-async def health_system_monitor_governance() -> dict[str, Any]:
+def health_system_monitor_governance() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_monitor_governance()
 
 
 @router.get("/health-system/artifact-governance")
-async def health_system_artifact_governance() -> dict[str, Any]:
+def health_system_artifact_governance() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_artifact_governance()
 
 
 @router.get("/health-system/token-usage")
-async def health_system_token_usage(limit: int = 40) -> dict[str, Any]:
+def health_system_token_usage(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_token_usage(limit=limit)
 
 
 @router.get("/health-system/efficiency")
-async def health_system_efficiency(limit: int = 40) -> dict[str, Any]:
+def health_system_efficiency(limit: int = 40) -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_efficiency(limit=limit)
 
 
 @router.get("/health-system/commands")
-async def health_system_commands() -> dict[str, Any]:
+def health_system_commands() -> dict[str, Any]:
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     return {"authority": "health_system.commands", "commands": [item.to_dict() for item in registry.list_commands()]}
@@ -224,7 +252,7 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
 
 
 @router.get("/health-system/commands/{command_id}")
-async def health_system_command(command_id: str) -> dict[str, Any]:
+def health_system_command(command_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     command = HealthRegistry(runtime.base_dir).get_command(command_id)
     if command is None:
@@ -233,7 +261,7 @@ async def health_system_command(command_id: str) -> dict[str, Any]:
 
 
 @router.get("/health-system/receipts/{receipt_id}")
-async def health_system_receipt(receipt_id: str) -> dict[str, Any]:
+def health_system_receipt(receipt_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     receipt = HealthRegistry(runtime.base_dir).get_receipt(receipt_id)
     if receipt is None:
@@ -242,14 +270,14 @@ async def health_system_receipt(receipt_id: str) -> dict[str, Any]:
 
 
 @router.get("/health-system/reports")
-async def health_system_reports() -> dict[str, Any]:
+def health_system_reports() -> dict[str, Any]:
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     return {"authority": "health_system.reports", "reports": [item.to_dict() for item in registry.list_reports()]}
 
 
 @router.get("/health-system/reports/{report_id}")
-async def health_system_report(report_id: str) -> dict[str, Any]:
+def health_system_report(report_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     report = HealthRegistry(runtime.base_dir).get_report(report_id)
     if report is None:
@@ -258,7 +286,7 @@ async def health_system_report(report_id: str) -> dict[str, Any]:
 
 
 @router.post("/health-system/conversation-sessions")
-async def health_system_create_conversation_session(
+def health_system_create_conversation_session(
     payload: HealthAgentConversationSessionCreateRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
@@ -271,7 +299,7 @@ async def health_system_create_conversation_session(
 
 
 @router.get("/health-system/conversation-sessions/{session_id}")
-async def health_system_conversation_session(session_id: str) -> dict[str, Any]:
+def health_system_conversation_session(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     session = registry.get_conversation_session(session_id)
@@ -314,7 +342,7 @@ async def health_system_append_conversation_message(
 
 
 @router.get("/health-system/issues")
-async def health_system_issues() -> dict[str, Any]:
+def health_system_issues() -> dict[str, Any]:
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     return {"authority": "health_system.issues", "issues": [item.to_dict() for item in registry.list_issues()]}
@@ -343,7 +371,7 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
 
 
 @router.get("/health-system/issues/{issue_id}")
-async def health_system_issue(issue_id: str) -> dict[str, Any]:
+def health_system_issue(issue_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     issue = HealthRegistry(runtime.base_dir).get_issue(issue_id)
     if issue is None:
@@ -352,7 +380,7 @@ async def health_system_issue(issue_id: str) -> dict[str, Any]:
 
 
 @router.get("/health-system/agent-runs/{run_id}")
-async def health_system_agent_run(run_id: str) -> dict[str, Any]:
+def health_system_agent_run(run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     run = HealthRegistry(runtime.base_dir).get_agent_run(run_id)
     if run is None:
@@ -361,7 +389,7 @@ async def health_system_agent_run(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/health-system/agent-runs/{run_id}/result")
-async def health_system_agent_run_result(run_id: str) -> dict[str, Any]:
+def health_system_agent_run_result(run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     run = registry.get_agent_run(run_id)
@@ -376,7 +404,7 @@ async def health_system_agent_run_result(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/health-system/agent-runs/{run_id}/trace-report")
-async def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
+def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
         return HealthRegistry(runtime.base_dir).build_agent_run_trace_report(
@@ -388,7 +416,7 @@ async def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/health-system/issues/{issue_id}/agent-runs/preview")
-async def health_system_agent_run_preview(issue_id: str, payload: HealthAgentRunPreviewRequest) -> dict[str, Any]:
+def health_system_agent_run_preview(issue_id: str, payload: HealthAgentRunPreviewRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
         return HealthRegistry(runtime.base_dir).preview_agent_run(issue_id=issue_id, health_action=payload.health_action)

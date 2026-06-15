@@ -135,6 +135,7 @@ export function ChatPanel() {
               canEdit={!currentSessionActive && message.id === lastEditableUserMessageId}
               content={message.content}
               image={message.image}
+              attachments={message.attachments}
               id={message.id}
               key={messageRenderKeys[index] ?? message.id}
               onResendEdit={resendEditedMessage}

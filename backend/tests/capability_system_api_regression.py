@@ -171,18 +171,20 @@ def test_operation_catalog_includes_mcps_without_prompt_authorization_lists() ->
     endpoints = catalog["capability_endpoints"]
     text = str(catalog)
 
-    assert catalog["summary"]["mcp_count"] == 3
+    assert catalog["summary"]["mcp_count"] == 4
     assert catalog["summary"]["capability_endpoint_count"] == len(endpoints)
     assert {mcp["operation_id"] for mcp in mcps} == {
         "op.mcp_retrieval",
         "op.mcp_pdf",
         "op.mcp_structured_data",
+        "op.mcp_image_ocr",
     }
     assert all(mcp["model_visibility"] == "not_direct_model_tool" for mcp in mcps)
     assert {endpoint["endpoint_id"] for endpoint in endpoints if endpoint["kind"] == "mcp_endpoint"} == {
         "endpoint:mcp:retrieval",
         "endpoint:mcp:pdf",
         "endpoint:mcp:structured_data",
+        "endpoint:mcp:image_ocr",
     }
 
 

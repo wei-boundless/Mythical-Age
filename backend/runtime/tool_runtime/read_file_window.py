@@ -61,7 +61,7 @@ def build_read_file_window_result(
         end_line = min(total_lines, start + count - 1)
         selected = lines[start - 1 : end_line]
     width = max(1, len(str(max(end_line, start, total_lines))))
-    text = "\n".join(f"{line_no:>{width}} | {line}" for line_no, line in enumerate(selected, start=start))
+    text = "\n".join(f"{line_no:>{width}} |{line}" for line_no, line in enumerate(selected, start=start))
     has_more = bool(total_lines and end_line < total_lines)
     return ReadFileWindowResult(
         path=str(path or "").strip(),

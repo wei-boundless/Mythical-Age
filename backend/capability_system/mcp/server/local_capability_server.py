@@ -15,6 +15,7 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from evidence.pdf_worker import PDFWorker
 from evidence.retrieval_worker import RetrievalWorker
 from evidence.structured_data_worker import StructuredDataWorker
+from evidence.image_ocr_worker import ImageOCRWorker
 from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 from capability_system.capabilities.retrieval import RetrievalService
 
@@ -62,6 +63,7 @@ class LocalCapabilityMCPExecutor:
             retrieval_worker=RetrievalWorker(retrieval_service=self.retrieval_service),
             pdf_worker=PDFWorker(root_dir=self.backend_dir),
             structured_data_worker=StructuredDataWorker(root_dir=self.backend_dir),
+            image_ocr_worker=ImageOCRWorker(root_dir=_workspace_root_for_mcp(self.backend_dir)),
             output_policy=output_policy,
         )
 

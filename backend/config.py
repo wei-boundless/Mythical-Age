@@ -15,6 +15,32 @@ from project_layout import ProjectLayout
 _LOGGER = logging.getLogger(__name__)
 _RUNTIME_CONFIG_WARNING_KEYS: set[tuple[str, str]] = set()
 
+ATTACHMENTS_DEFAULT_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "max_upload_bytes": 10 * 1024 * 1024,
+    "max_files_per_message": 8,
+    "allowed_mime_types": ("image/png", "image/jpeg", "image/webp", "image/bmp", "image/tiff"),
+    "storage_relative_dir": "storage/chat_attachments",
+}
+ATTACHMENTS_MIN_UPLOAD_BYTES = 1024
+ATTACHMENTS_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+ATTACHMENTS_MIN_FILES_PER_MESSAGE = 1
+ATTACHMENTS_MAX_FILES_PER_MESSAGE = 16
+
+IMAGE_OCR_DEFAULT_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "provider": "rapidocr",
+    "default_language": "chi_sim+eng",
+    "timeout_seconds": 60,
+    "max_text_chars": 12_000,
+    "mcp_route": "image_ocr",
+}
+IMAGE_OCR_PROVIDER_OPTIONS = ("rapidocr",)
+IMAGE_OCR_MIN_TEXT_CHARS = 1
+IMAGE_OCR_MAX_TEXT_CHARS = 120_000
+IMAGE_OCR_MIN_TIMEOUT_SECONDS = 5
+IMAGE_OCR_MAX_TIMEOUT_SECONDS = 240
+
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
@@ -701,6 +727,110 @@ def _resolve_bool(value: str | None, *, default: bool) -> bool:
     return default
 
 
+def _coerce_config_bool(value: Any, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
+    if value is None or value == "":
+        return default
+    return _resolve_bool(str(value), default=default)
+
+
+def _coerce_config_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    if value is None or value == "":
+        parsed = default
+    else:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _normalize_image_ocr_language(value: Any, *, default: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        normalized = default
+    return normalized[:120]
+
+
+def _normalize_mime_type_list(value: Any) -> list[str]:
+    raw_values = value if isinstance(value, (list, tuple)) else []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_values:
+        normalized = str(item or "").strip().lower()
+        if not normalized or "/" not in normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def _normalize_storage_relative_dir(value: Any, *, default: str) -> str:
+    normalized = str(value or "").replace("\\", "/").strip().strip("/")
+    if not normalized or normalized.startswith("../") or "/../" in normalized:
+        return default
+    return normalized[:180]
+
+
+def _normalize_attachments_config(payload: Any) -> dict[str, Any]:
+    values = dict(payload) if isinstance(payload, dict) else {}
+    defaults = dict(ATTACHMENTS_DEFAULT_CONFIG)
+    default_mime_types = list(defaults["allowed_mime_types"])
+    mime_types = _normalize_mime_type_list(values.get("allowed_mime_types")) or default_mime_types
+    return {
+        "enabled": _coerce_config_bool(values.get("enabled"), default=bool(defaults["enabled"])),
+        "max_upload_bytes": _coerce_config_int(
+            values.get("max_upload_bytes"),
+            default=int(defaults["max_upload_bytes"]),
+            minimum=ATTACHMENTS_MIN_UPLOAD_BYTES,
+            maximum=ATTACHMENTS_MAX_UPLOAD_BYTES,
+        ),
+        "max_files_per_message": _coerce_config_int(
+            values.get("max_files_per_message"),
+            default=int(defaults["max_files_per_message"]),
+            minimum=ATTACHMENTS_MIN_FILES_PER_MESSAGE,
+            maximum=ATTACHMENTS_MAX_FILES_PER_MESSAGE,
+        ),
+        "allowed_mime_types": mime_types,
+        "storage_relative_dir": _normalize_storage_relative_dir(
+            values.get("storage_relative_dir"),
+            default=str(defaults["storage_relative_dir"]),
+        ),
+    }
+
+
+def _normalize_image_ocr_config(payload: Any) -> dict[str, Any]:
+    values = dict(payload) if isinstance(payload, dict) else {}
+    defaults = dict(IMAGE_OCR_DEFAULT_CONFIG)
+    provider = str(values.get("provider") or defaults["provider"]).strip().lower()
+    if provider not in IMAGE_OCR_PROVIDER_OPTIONS:
+        provider = str(defaults["provider"])
+    return {
+        "enabled": _coerce_config_bool(values.get("enabled"), default=bool(defaults["enabled"])),
+        "provider": provider,
+        "default_language": _normalize_image_ocr_language(
+            values.get("default_language"),
+            default=str(defaults["default_language"]),
+        ),
+        "timeout_seconds": _coerce_config_int(
+            values.get("timeout_seconds"),
+            default=int(defaults["timeout_seconds"]),
+            minimum=IMAGE_OCR_MIN_TIMEOUT_SECONDS,
+            maximum=IMAGE_OCR_MAX_TIMEOUT_SECONDS,
+        ),
+        "max_text_chars": _coerce_config_int(
+            values.get("max_text_chars"),
+            default=int(defaults["max_text_chars"]),
+            minimum=IMAGE_OCR_MIN_TEXT_CHARS,
+            maximum=IMAGE_OCR_MAX_TEXT_CHARS,
+        ),
+        "mcp_route": str(values.get("mcp_route") or defaults["mcp_route"]).strip() or str(defaults["mcp_route"]),
+    }
+
+
 def _resolve_docling_enabled() -> bool:
     override = _runtime_system_value("document", "docling_enabled")
     if override not in {None, ""}:
@@ -953,6 +1083,8 @@ class RuntimeConfigManager:
             "permission_mode": "default",
             "orchestration_plan_mode": "primary",
             "context_budget_preset": "deepseek_1m",
+            "attachments": dict(ATTACHMENTS_DEFAULT_CONFIG),
+            "image_ocr": dict(IMAGE_OCR_DEFAULT_CONFIG),
             "code_environment": {
                 "enabled": True,
                 "workspace_root_policy": "project_root",
@@ -1047,6 +1179,22 @@ class RuntimeConfigManager:
 
         return self.save({"context_budget_preset": normalize_context_budget_preset_id(preset_id)})
 
+    def get_attachments_config(self) -> dict[str, Any]:
+        return _normalize_attachments_config(self.load().get("attachments"))
+
+    def set_attachments_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_attachments_config()
+        values = dict(payload or {})
+        return self.save({"attachments": _normalize_attachments_config({**current, **values})})
+
+    def get_image_ocr_config(self) -> dict[str, Any]:
+        return _normalize_image_ocr_config(self.load().get("image_ocr"))
+
+    def set_image_ocr_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_image_ocr_config()
+        values = dict(payload or {})
+        return self.save({"image_ocr": _normalize_image_ocr_config({**current, **values})})
+
     def get_code_environment_config(self) -> dict[str, Any]:
         payload = dict(self.load().get("code_environment") or {})
         default = dict(self._default_config.get("code_environment") or {})
@@ -1068,5 +1216,3 @@ class RuntimeConfigManager:
         return self.save({"code_environment": {**current, **next_payload}})
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")
-
-

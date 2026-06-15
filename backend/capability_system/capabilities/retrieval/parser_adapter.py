@@ -62,6 +62,7 @@ class MultimodalParserAdapter:
         self.max_xlsx_rows_per_chunk = max(5, max_xlsx_rows_per_chunk)
         self.cleaner = ParsedContentCleaner()
         self._pdf_parser = PdfTextParser(root_dir=self.backend_root)
+        self._image_ocr_engine: Any | None = None
 
     def is_supported_file(self, path: Path) -> bool:
         return path.is_file() and path.suffix.lower() in self._SUPPORTED_EXTENSIONS
@@ -506,15 +507,15 @@ class MultimodalParserAdapter:
         if not self._ocr_available():
             return ""
         try:
-            from PIL import Image  # type: ignore
-            import pytesseract  # type: ignore
+            if self._image_ocr_engine is None:
+                from rapidocr import RapidOCR  # type: ignore
 
-            tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
-            if tesseract_cmd:
-                pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-
-            with Image.open(path) as image:
-                text = pytesseract.image_to_string(image, lang=self.ocr_language)
+                self._image_ocr_engine = RapidOCR()
+            output = self._image_ocr_engine(str(path))
+            texts = getattr(output, "txts", None)
+            if texts is None:
+                texts = [item[1] for item in list(output or []) if isinstance(item, (list, tuple)) and len(item) >= 2]
+            text = "\n".join(str(item or "").strip() for item in list(texts or []) if str(item or "").strip())
         except Exception:
             return ""
         return self._normalize_ocr_text(text)
@@ -543,8 +544,7 @@ class MultimodalParserAdapter:
 
     def _ocr_available(self) -> bool:
         try:
-            import PIL  # type: ignore  # noqa: F401
-            import pytesseract  # type: ignore  # noqa: F401
+            from rapidocr import RapidOCR  # type: ignore  # noqa: F401
         except Exception:
             return False
         return True

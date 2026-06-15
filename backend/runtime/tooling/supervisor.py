@@ -216,13 +216,13 @@ def _capability_membership(
 ) -> str | None:
     if capability_table is None:
         return None
-    capability = capability_table.capability_for_operation(operation_id)
+    capability = capability_table.capability_for_tool(operation_id=operation_id, tool_name=tool_name)
     if capability is None:
-        return "operation not present in ToolCapabilityTable"
+        if capability_table.capability_for_operation(operation_id) is None:
+            return "operation not present in ToolCapabilityTable"
+        return "tool not present for operation in ToolCapabilityTable"
     if not capability.dispatchable:
         return "tool is not dispatchable in ToolCapabilityTable"
-    if capability.tool_name != str(tool_name or ""):
-        return "tool name does not match ToolCapabilityTable capability"
     return None
 
 

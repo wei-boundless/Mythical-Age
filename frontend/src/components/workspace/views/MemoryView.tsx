@@ -6,11 +6,9 @@ import {
   BookOpenCheck,
   ClipboardList,
   Database,
-  FileJson,
   FileText,
   Gauge,
   GitBranch,
-  Layers3,
   Loader2,
   RefreshCw,
   Search,
@@ -29,21 +27,16 @@ import {
   disableDurableMemory,
   getDurableMemoryNote,
   getMemoryOverview,
-  getSessionMemoryFiles,
   mergeDurableMemories,
-  recallMemoryPreview,
   type DurableMemoryNoteDetail,
   type MemoryHeader,
   type MemoryOverview,
-  type MemoryRecallPreview,
-  type MemorySessionFile,
-  type MemorySessionFilesResponse,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import type { TokenStats } from "@/lib/store/types";
 
 type DurableStatusFilter = "all" | "active" | "inactive" | "archived" | "deprecated";
-type MemoryLayer = "library" | "session" | "recall" | "governance";
+type MemoryLayer = "library" | "governance";
 
 const FRONTMATTER_FIELD_PATTERN = /^(note_id|memory_type|memory_class|title|description|status|confidence|created_at|updated_at|retrieval_hints|eligible_for_injection|canonical_statement|summary|source_kind|source_ref|source_message_excerpt|merged_from|invalidation_reason|deprecated_by):/i;
 const SEMANTIC_HEADING_PATTERN = /^#{1,3}\s*(正文|语义正文|memory|canonical|canonical statement|stable statement|长期记忆)\s*$/i;
@@ -61,20 +54,6 @@ const MEMORY_LAYER_DEFS: Array<{
     title: "长期库",
     eyebrow: "durable",
     description: "环境与全局长期记忆的读取、筛选和单条检查。"
-  },
-  {
-    id: "session",
-    icon: Layers3,
-    title: "会话记忆",
-    eyebrow: "session",
-    description: "当前会话的状态快照、模型可见片段和落盘文件。"
-  },
-  {
-    id: "recall",
-    icon: BookOpenCheck,
-    title: "召回预览",
-    eyebrow: "recall",
-    description: "按查询模拟记忆读取，检查会注入哪些长期记忆。"
   },
   {
     id: "governance",
@@ -192,25 +171,6 @@ function sessionContextMeterTitle(tokenStats: TokenStats | null, usagePercent: n
   ].filter(Boolean).join("；");
 }
 
-function formatFileSize(value: number) {
-  if (!value) return "0 B";
-  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
-  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${value} B`;
-}
-
-function formatTimestamp(value: number | null) {
-  if (!value) return "未生成";
-  const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
 function compactJson(value: Record<string, unknown> | null | undefined, limit = 1400) {
   if (!value || !Object.keys(value).length) return "";
   return compactText(JSON.stringify(value, null, 2), limit);
@@ -219,20 +179,10 @@ function compactJson(value: Record<string, unknown> | null | undefined, limit = 
 function layerMetric(
   layer: MemoryLayer,
   overview: MemoryOverview | null,
-  sessionFiles: MemorySessionFilesResponse | null,
-  recallPreview: MemoryRecallPreview | null,
-  currentSessionId: string | null
 ) {
   if (layer === "library") {
     const durable = overview?.durable_memory;
     return durable ? `${durable.active}/${durable.total} 启用` : "未加载";
-  }
-  if (layer === "session") {
-    if (!currentSessionId) return "未绑定";
-    return sessionFiles ? `${sessionFiles.existing_count} 个文件` : "待读取";
-  }
-  if (layer === "recall") {
-    return recallPreview ? `${recallPreview.selected_headers.length} 条命中` : "待预览";
   }
   return overview?.durable_memory ? `${overview.durable_memory.injectable} 可注入` : "待治理";
 }
@@ -242,14 +192,8 @@ export function MemoryView() {
   const { currentSessionId, loadInspectorFile, tokenStats } = useAppStore();
   const [activeLayer, setActiveLayer] = useState<MemoryLayer>("library");
   const [query, setQuery] = useState("");
-  const [recallQuery, setRecallQuery] = useState("");
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
-  const [sessionFiles, setSessionFiles] = useState<MemorySessionFilesResponse | null>(null);
-  const [selectedSessionFileId, setSelectedSessionFileId] = useState("");
-  const [recallPreview, setRecallPreview] = useState<MemoryRecallPreview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sessionFilesLoading, setSessionFilesLoading] = useState(false);
-  const [recallLoading, setRecallLoading] = useState(false);
   const [error, setError] = useState("");
   const [governanceBusy, setGovernanceBusy] = useState("");
   const [governanceMessage, setGovernanceMessage] = useState("");
@@ -275,11 +219,6 @@ export function MemoryView() {
   });
 
   const durable = overview?.durable_memory ?? null;
-  const sessionInspect = recallPreview?.context_result ?? null;
-  const selectedSessionFile = useMemo(
-    () => sessionFiles?.files.find((file) => file.id === selectedSessionFileId) ?? null,
-    [selectedSessionFileId, sessionFiles?.files]
-  );
 
   const durableStatusStats = useMemo(() => {
     const headers = overview?.durable_memory.headers ?? [];
@@ -332,39 +271,12 @@ export function MemoryView() {
     }
   }, []);
 
-  const loadSessionFiles = useCallback(async () => {
-    if (!currentSessionId) {
-      setSessionFiles(null);
-      setSelectedSessionFileId("");
-      return;
-    }
-    setSessionFilesLoading(true);
-    setError("");
-    try {
-      const payload = await getSessionMemoryFiles(currentSessionId);
-      setSessionFiles(payload);
-      setSelectedSessionFileId((current) => {
-        if (current && payload.files.some((file) => file.id === current)) return current;
-        return payload.files.find((file) => file.exists)?.id ?? payload.files[0]?.id ?? "";
-      });
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "会话记忆文件读取失败");
-    } finally {
-      setSessionFilesLoading(false);
-    }
-  }, [currentSessionId]);
-
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
 
-  useEffect(() => {
-    void loadSessionFiles();
-  }, [loadSessionFiles]);
-
   async function refreshAll() {
     await loadOverview();
-    await loadSessionFiles();
   }
 
   async function runGovernanceAction(label: string, action: () => Promise<unknown>, options?: { refreshSelected?: boolean }) {
@@ -475,29 +387,6 @@ export function MemoryView() {
       },
       { refreshSelected: selectedDurableFilename !== filename }
     );
-  }
-
-  async function runRecall() {
-    const trimmed = recallQuery.trim();
-    if (!trimmed) {
-      setError("召回预览需要输入查询内容。");
-      return;
-    }
-    setRecallLoading(true);
-    setError("");
-    setGovernanceMessage("");
-    try {
-      const payload = await recallMemoryPreview({
-        query: trimmed,
-        session_id: currentSessionId || undefined,
-        limit: 8
-      });
-      setRecallPreview(payload);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "召回预览失败");
-    } finally {
-      setRecallLoading(false);
-    }
   }
 
   function toggleMergeFilename(filename: string) {
@@ -751,204 +640,6 @@ export function MemoryView() {
     );
   }
 
-  function renderSessionFilePreview(file: MemorySessionFile | null) {
-    if (sessionFilesLoading) {
-      return (
-        <div className="workspace-record memory-empty-state">
-          <Loader2 className="spin" size={16} />
-          <h3>正在读取会话记忆文件</h3>
-        </div>
-      );
-    }
-    if (!currentSessionId) {
-      return (
-        <div className="workspace-record memory-empty-state">
-          <Layers3 size={18} />
-          <h3>当前没有绑定会话</h3>
-          <p>打开或创建会话后，这里会显示会话级记忆文件和模型可见片段。</p>
-        </div>
-      );
-    }
-    if (!file) {
-      return (
-        <div className="workspace-record memory-empty-state">
-          <FileJson size={18} />
-          <h3>没有会话记忆文件</h3>
-          <p>该会话暂时没有生成可检查的会话级记忆文件。</p>
-        </div>
-      );
-    }
-    return (
-      <>
-        <div className="memory-detail-head">
-          <span>{file.path}</span>
-          <strong>{file.label}</strong>
-          <div className="memory-durable-reader__badges">
-            <b>{file.kind}</b>
-            <b>{file.exists ? "已生成" : "缺失"}</b>
-            <b>{formatFileSize(file.size)}</b>
-            <b>{formatTimestamp(file.updated_at)}</b>
-          </div>
-        </div>
-        <p className="memory-session-description">{file.description}</p>
-        <pre className="memory-session-preview">{file.exists ? file.preview || "文件为空" : "文件尚未生成"}</pre>
-        <div className="memory-durable-reader__actions">
-          <button disabled={!file.exists} onClick={() => void loadInspectorFile(file.path)} type="button">
-            <FileText size={13} />
-            打开文件
-          </button>
-        </div>
-      </>
-    );
-  }
-
-  function renderSessionLayer() {
-    const modelPreview = sessionInspect?.model_preview || sessionInspect?.preview || "";
-    const debugPreview = sessionInspect?.debug_preview || compactJson(sessionInspect?.context_management);
-    return (
-      <section className="workspace-section memory-session-workbench">
-        <div className="workspace-section__head memory-section-head">
-          <Layers3 size={18} />
-          <h3>会话级记忆</h3>
-          <span className="memory-library-count">{currentSessionId || "未绑定会话"}</span>
-          <button className="action-button action-button--ghost" disabled={!currentSessionId || sessionFilesLoading} onClick={() => void loadSessionFiles()} type="button">
-            {sessionFilesLoading ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
-            刷新文件
-          </button>
-        </div>
-
-        <div className="memory-session-summary">
-          <article>
-            <span>会话状态</span>
-            <strong>{sessionInspect?.present ? "已构建" : "未构建"}</strong>
-            <em>{sessionInspect?.storage?.memory_runtime_view ? String(sessionInspect.storage.memory_runtime_view) : "暂无 runtime view"}</em>
-          </article>
-          <article>
-            <span>当前目标</span>
-            <strong>{sessionInspect?.active_goal || "未记录"}</strong>
-            <em>{compactJson(sessionInspect?.durable_matches, 160) || "无长期命中统计"}</em>
-          </article>
-          <article>
-            <span>文件</span>
-            <strong>{sessionFiles ? `${sessionFiles.existing_count}/${sessionFiles.files.length}` : "未读取"}</strong>
-            <em>{sessionFiles?.root || "session-memory"}</em>
-          </article>
-        </div>
-
-        <div className="memory-session-layout">
-          <aside className="memory-session-file-list">
-            {(sessionFiles?.files ?? []).map((file) => (
-              <button
-                className={selectedSessionFileId === file.id ? "memory-session-file--active" : ""}
-                key={file.id}
-                onClick={() => setSelectedSessionFileId(file.id)}
-                type="button"
-              >
-                <span>{file.exists ? "已生成" : "缺失"} · {file.kind}</span>
-                <strong>{file.label}</strong>
-                <em>{formatFileSize(file.size)} · {formatTimestamp(file.updated_at)}</em>
-              </button>
-            ))}
-            {!sessionFiles?.files.length ? (
-              <article className="workspace-record memory-empty-state">
-                <h3>没有文件清单</h3>
-                <p>后端没有返回可管理的会话记忆目标。</p>
-              </article>
-            ) : null}
-          </aside>
-          <article className="memory-session-inspector">
-            {renderSessionFilePreview(selectedSessionFile)}
-          </article>
-        </div>
-
-        <div className="memory-session-context-grid">
-          <section>
-            <strong>模型可见片段</strong>
-            <pre>{modelPreview || "当前会话没有可展示的模型可见记忆片段。"}</pre>
-          </section>
-          <section>
-            <strong>调试片段</strong>
-            <pre>{debugPreview || "暂无调试上下文。"}</pre>
-          </section>
-        </div>
-      </section>
-    );
-  }
-
-  function renderRecallLayer() {
-    return (
-      <section className="workspace-section memory-recall-workbench">
-        <div className="workspace-section__head memory-section-head">
-          <BookOpenCheck size={18} />
-          <h3>召回预览</h3>
-          <span className="memory-library-count">{currentSessionId ? `会话 ${currentSessionId}` : "仅长期记忆"}</span>
-        </div>
-        <div className="memory-recall-query">
-          <Search size={16} />
-          <input
-            onChange={(event) => setRecallQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void runRecall();
-            }}
-            placeholder="输入任务或用户问题，预览会读取哪些记忆"
-            value={recallQuery}
-          />
-          <button className="action-button action-button--primary" disabled={recallLoading} onClick={() => void runRecall()} type="button">
-            {recallLoading ? <Loader2 className="spin" size={14} /> : <BookOpenCheck size={14} />}
-            预览召回
-          </button>
-        </div>
-
-        {recallPreview ? (
-          <div className="memory-recall-layout">
-            <aside className="memory-recall-summary">
-              <article>
-                <span>读取意图</span>
-                <strong>{recallPreview.intent.intent}</strong>
-                <em>{recallPreview.intent.read_mode} / {recallPreview.intent.write_mode}</em>
-              </article>
-              <article>
-                <span>选择结果</span>
-                <strong>{recallPreview.selection.should_recall ? "会读取" : "不读取"}</strong>
-                <em>{recallPreview.selection.reason || "无原因说明"}</em>
-              </article>
-              <article>
-                <span>置信度</span>
-                <strong>{Math.round(Number(recallPreview.selection.confidence || 0) * 100)}%</strong>
-                <em>{recallPreview.selection.needs_verification ? "需要校验" : "无需额外校验"}</em>
-              </article>
-              <section>
-                <strong>渲染摘要</strong>
-                <pre>{recallPreview.rendered_summary || "没有渲染摘要。"}</pre>
-              </section>
-            </aside>
-            <div className="memory-recall-notes">
-              {recallPreview.selected_notes.length ? recallPreview.selected_notes.map((note) => (
-                <article className="memory-recall-note" key={`${note.note_id}-${note.filename}`}>
-                  <span>{statusLabel(note.status)} · {note.memory_class}/{note.memory_type}</span>
-                  <strong>{note.title || note.filename}</strong>
-                  <p>{note.canonical_statement || note.summary || compactText(note.content_preview, 220)}</p>
-                  <small>{note.retrieval_hints.join(" / ") || note.filename}</small>
-                </article>
-              )) : (
-                <article className="workspace-record memory-empty-state">
-                  <h3>没有命中长期记忆</h3>
-                  <p>本次查询没有选择任何可注入的长期记忆。</p>
-                </article>
-              )}
-            </div>
-          </div>
-        ) : (
-          <article className="workspace-record memory-empty-state">
-            <BookOpenCheck size={18} />
-            <h3>尚未运行召回预览</h3>
-            <p>输入查询后可以检查 intent、选择结果、命中记忆和最终渲染摘要。</p>
-          </article>
-        )}
-      </section>
-    );
-  }
-
   function renderGovernanceLayer() {
     return (
       <section className="workspace-section memory-governance-workbench">
@@ -1071,8 +762,6 @@ export function MemoryView() {
   }
 
   function renderActiveLayer() {
-    if (activeLayer === "session") return renderSessionLayer();
-    if (activeLayer === "recall") return renderRecallLayer();
     if (activeLayer === "governance") return renderGovernanceLayer();
     return renderLibraryLayer();
   }
@@ -1083,11 +772,11 @@ export function MemoryView() {
         <div>
           <p className="workspace-view__eyebrow">记忆管理工作台</p>
           <h2 className="workspace-view__title">记忆系统</h2>
-          <p className="workspace-view__subtitle">管理长期库、会话记忆、召回预览和人工治理入口。</p>
+          <p className="workspace-view__subtitle">管理长期库和人工治理入口。</p>
         </div>
         <div className="workspace-view__actions">
           <button className="action-button action-button--ghost" onClick={() => void refreshAll()} type="button">
-            {loading || sessionFilesLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
+            {loading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
             刷新
           </button>
           <button
@@ -1154,7 +843,7 @@ export function MemoryView() {
                 <strong>{layer.title}</strong>
                 <small>{layer.description}</small>
               </span>
-              <b>{layerMetric(layer.id, overview, sessionFiles, recallPreview, currentSessionId)}</b>
+              <b>{layerMetric(layer.id, overview)}</b>
             </button>
           );
         })}

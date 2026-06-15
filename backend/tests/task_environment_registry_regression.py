@@ -126,7 +126,7 @@ def test_obsolete_environment_ids_are_not_accepted() -> None:
         raise AssertionError(f"legacy environment id should not resolve: {environment_id}")
 
 
-def test_development_environment_exposes_shell_and_image_generation_tools_for_authorized_agent() -> None:
+def test_development_environment_exposes_shell_image_generation_and_image_read_tools_for_authorized_agent() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -147,7 +147,9 @@ def test_development_environment_exposes_shell_and_image_generation_tools_for_au
     sandbox_policy = dict(dict(assembly.get("task_environment") or {}).get("sandbox_policy") or {})
     assert "terminal" in tool_names
     assert "image_generate" in tool_names
+    assert "attachment_extract_text" in tool_names
     assert "op.image_generate" in list(sandbox_policy.get("side_effect_operations") or [])
+    assert "op.mcp_image_ocr" not in list(sandbox_policy.get("side_effect_operations") or [])
     operation_auth = dict(assembly.get("operation_authorization") or {})
     decisions = {
         str(item.get("operation_id") or ""): dict(item)
@@ -207,6 +209,7 @@ def test_coding_environment_operations_are_derived_from_registered_runtime_paylo
         "op.codebase_search",
         "op.python_symbol_search",
         "op.mcp_pdf",
+        "op.mcp_image_ocr",
     }.issubset(allowed)
     assert environment_allowed_operations("env.coding.vibe_workspace") == allowed
 

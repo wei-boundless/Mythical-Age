@@ -40,6 +40,7 @@ _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
     "tool.guidance.subagent": "tool.guidance.subagent",
     "tool.guidance.browser": "tool.guidance.browser",
     "tool.guidance.web_fetch": "tool.guidance.web_fetch",
+    "tool.guidance.attachment_extract_text": "tool.guidance.attachment_extract_text",
 }
 
 _BASE_RUNTIME_POLICY: dict[str, Any] = {
@@ -112,6 +113,10 @@ _CAPABILITY_GROUP_CATALOG: dict[str, dict[str, str]] = {
         "title": "产物生成",
         "use_when": "用于创建或修改文件、生成图片、写入交付物并保留证据。",
     },
+    "attachment_processing": {
+        "title": "附件处理",
+        "use_when": "用于读取受控附件资源，并通过本地 MCP 能力提取图片文字。",
+    },
     "source_control": {
         "title": "版本控制",
         "use_when": "用于查看 diff、日志、分支、暂存、提交和推送。",
@@ -156,6 +161,7 @@ _TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
     "op.write_file": "artifact_generation",
     "op.edit_file": "artifact_generation",
     "op.image_generate": "artifact_generation",
+    "op.mcp_image_ocr": "attachment_processing",
     "op.shell": "shell_execution",
     "op.python_repl": "shell_execution",
     "op.memory_read": "memory",
@@ -1063,7 +1069,7 @@ def _contract_input_schema(definition: Any | None) -> dict[str, Any]:
 
 def _contract_field_schema(field_name: str) -> dict[str, Any]:
     name = str(field_name or "").strip()
-    if name in {"start_line", "line_count", "max_results", "max_entries", "max_symbols", "max_bytes", "start_byte", "base_mtime_ns"}:
+    if name in {"start_line", "line_count", "max_results", "max_entries", "max_symbols", "max_bytes", "max_text_chars", "start_byte", "base_mtime_ns"}:
         return {"type": "integer"}
     if name in {"allow_overwrite", "dry_run"}:
         return {"type": "boolean"}

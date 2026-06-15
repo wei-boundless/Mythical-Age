@@ -456,13 +456,13 @@ def _membership_denial(request: ToolInvocationRequest, *, tool_plan: Any) -> str
         return "runtime tool plan has no ToolCapabilityTable"
     operation_id = _request_operation_id(request)
     tool_name = str(request.tool_name or "").strip()
-    capability = table.capability_for_operation(operation_id)
+    capability = table.capability_for_tool(operation_id=operation_id, tool_name=tool_name)
     if capability is None:
-        return "operation not present in RuntimeToolPlan"
+        if table.capability_for_operation(operation_id) is None:
+            return "operation not present in RuntimeToolPlan"
+        return "tool not present for operation in RuntimeToolPlan"
     if not capability.dispatchable:
         return "tool is not dispatchable in RuntimeToolPlan"
-    if capability.tool_name != tool_name:
-        return "tool name does not match RuntimeToolPlan capability"
     return ""
 
 

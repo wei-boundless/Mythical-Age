@@ -77,6 +77,9 @@ _DOCUMENT_ANALYSIS_OPERATIONS = {
     "op.mcp_pdf",
     "op.mcp_structured_data",
 }
+_ATTACHMENT_PROCESSING_OPERATIONS = {
+    "op.mcp_image_ocr",
+}
 _CREATIVE_ASSET_OPERATIONS = {
     "op.image_generate",
 }
@@ -88,6 +91,7 @@ _CREATION_WORKSPACE_OPERATIONS = (
     | _LOCAL_SEARCH_OPERATIONS
     | _NETWORK_SEARCH_OPERATIONS
     | _TEXT_UTILITY_OPERATIONS
+    | _ATTACHMENT_PROCESSING_OPERATIONS
 )
 _DEVELOPMENT_WORKSPACE_OPERATIONS = (
     _CREATION_WORKSPACE_OPERATIONS
@@ -97,6 +101,7 @@ _DEVELOPMENT_WORKSPACE_OPERATIONS = (
     | _LOCAL_EXECUTION_OPERATIONS
     | _BROWSER_OPERATIONS
     | _DOCUMENT_ANALYSIS_OPERATIONS
+    | _ATTACHMENT_PROCESSING_OPERATIONS
     | _CREATIVE_ASSET_OPERATIONS
 )
 _DEFAULT_ENVIRONMENT_ID = "env.general.workspace"
@@ -351,6 +356,7 @@ def _operations_from_environment_kind(payload: dict[str, Any]) -> set[str]:
             | _CODE_INTELLIGENCE_OPERATIONS
             | _GIT_READ_OPERATIONS
             | _DOCUMENT_ANALYSIS_OPERATIONS
+            | _ATTACHMENT_PROCESSING_OPERATIONS
         )
     if environment_kind == "creation":
         return set(_TEXT_UTILITY_OPERATIONS)

@@ -7,7 +7,7 @@ from capability_system.mcp.local_registry import build_local_mcp_unit_map
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 
-MCPRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orchestrator"]
+MCPRoute = Literal["none", "retrieval", "pdf", "structured_data", "image_ocr", "evidence_orchestrator"]
 MCPStatus = Literal["ok", "degraded", "clarify", "error"]
 MCPTaskStatus = Literal["submitted", "working", "completed", "failed", "requires_input"]
 

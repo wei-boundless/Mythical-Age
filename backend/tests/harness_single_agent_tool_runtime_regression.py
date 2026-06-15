@@ -521,7 +521,12 @@ def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_p
                 self.seen_tool_call_options.append(_kwargs.get("tool_call_options"))
                 self.closeout_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
                 self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
-                return SimpleNamespace(content="这两个文件都不存在，先停止继续读文件。")
+                return SimpleNamespace(
+                    content=json.dumps(
+                        _action_request(action_type="respond", final_answer="这两个文件都不存在，先停止继续读文件。"),
+                        ensure_ascii=False,
+                    )
+                )
             self.closeout_messages = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
             self.closeout_accounting = dict(_kwargs.get("accounting_context") or {})
             return await super().invoke_messages(messages, **_kwargs)
@@ -544,6 +549,7 @@ def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_p
     observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
     control_signal = next(event for event in events if event.get("type") == "turn_runtime_control_signal_observed")
     done = next(event for event in events if event.get("type") == "done")
+    assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
     assert model.calls == 3
     assert len(observations) == 2
@@ -553,5 +559,6 @@ def test_single_agent_turn_two_consecutive_tool_failures_closeout_to_agent(tmp_p
     assert done["terminal_reason"] == "single_turn_consecutive_tool_failures"
     assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert done["content"] == "这两个文件都不存在，先停止继续读文件。"
+    assert assistant_messages[-1]["content"] == "这两个文件都不存在，先停止继续读文件。"
     assert model.closeout_accounting["source"] == "harness.single_agent_turn.agent_closeout"
     assert model.closeout_accounting["prompt_manifest"]["invocation_kind"] == "single_agent_turn_agent_authored_closeout"

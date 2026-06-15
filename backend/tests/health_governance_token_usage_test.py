@@ -184,6 +184,59 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
 
 
+def test_health_token_usage_reads_prompt_accounting_summary_index_for_large_ledgers(tmp_path) -> None:
+    now = time.time()
+    task_run = TaskRun(
+        task_run_id="taskrun:indexed",
+        session_id="session:indexed",
+        task_id="task.indexed",
+        created_at=now - 20,
+        updated_at=now - 10,
+    )
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:indexed:local_prediction",
+            request_id="modelreq:indexed",
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=now - 15,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:indexed:provider_usage",
+            request_id="modelreq:indexed",
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=now - 14,
+        )
+    )
+    (ledger.ledger_dir / "segment_maps.jsonl").write_text("x" * (ledger.SUMMARY_SCAN_MAX_BYTES + 1), encoding="utf-8")
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([task_run]),
+        event_log=EventLogStub({"taskrun:indexed": [EventStub("step_summary_recorded", {"summary": "trace"})]}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
+
+    assert token_usage["summary"]["exact_total_tokens"] == 120
+    assert token_usage["summary"]["predicted_total_tokens"] == 300
+    assert token_usage["tasks"][0]["task_run_id"] == "taskrun:indexed"
+    assert token_usage["tasks"][0]["token_source"] == "provider_usage"
+
+
 def test_health_token_usage_includes_turn_runs_without_task_run_id(tmp_path) -> None:
     now = time.time()
     ledger = PromptAccountingLedger(tmp_path)
@@ -268,6 +321,98 @@ def test_health_token_usage_summary_counts_records_without_session_id(tmp_path) 
     assert token_usage["summary"]["session_count"] == 0
     assert token_usage["sessions"] == []
     assert token_usage["tasks"][0]["token_total"] == 120
+
+
+def test_health_token_usage_reads_retained_token_stats_after_detail_compaction(tmp_path) -> None:
+    now = 2_000_000.0
+    old = now - 20 * 24 * 60 * 60
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:retained:local_prediction",
+            request_id="modelreq:retained",
+            task_run_id="taskrun:retained",
+            session_id="session:retained",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=old,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:retained:provider_usage",
+            request_id="modelreq:retained",
+            task_run_id="taskrun:retained",
+            session_id="session:retained",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=old + 1,
+        )
+    )
+    ledger.compact_before(cutoff_days=15, dry_run=False, now=now)
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([]),
+        event_log=EventLogStub({}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    token_usage = HealthGovernanceBuilder(runtime).build_token_usage(limit=10)
+    record = token_usage["tasks"][0]
+
+    assert ledger.list_token_usage(task_run_id="taskrun:retained") == []
+    assert token_usage["summary"]["exact_total_tokens"] == 120
+    assert token_usage["summary"]["predicted_total_tokens"] == 300
+    assert record["task_run_id"] == "taskrun:retained"
+    assert record["token_source"] == "provider_usage"
+    assert record["token_total"] == 120
+
+
+def test_health_overview_uses_prompt_accounting_token_usage_not_visible_task_fallback(tmp_path) -> None:
+    now = time.time()
+    visible_task_without_tokens = TaskRun(
+        task_run_id="taskrun:visible-without-tokens",
+        session_id="session:visible",
+        task_id="task.visible",
+        status="running",
+        created_at=now - 100,
+        updated_at=now - 10,
+    )
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:ledger:provider_usage",
+            request_id="modelreq:ledger",
+            run_id="turnrun:ledger",
+            session_id="session:ledger",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=now - 5,
+        )
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([visible_task_without_tokens]),
+        event_log=EventLogStub({"taskrun:visible-without-tokens": [EventStub("step_summary_recorded", {"summary": "running"})]}),
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=ledger,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    overview = HealthGovernanceBuilder(runtime).build_overview()
+
+    assert overview["tasks"][0]["token_total"] == 0
+    assert overview["token_usage"]["summary"]["exact_total_tokens"] == 120
+    assert overview["token_usage"]["summary"]["total_tokens"] >= 120
+    assert overview["summary"]["token_total"] >= 120
+    assert any(item["task_run_id"] == "turnrun:ledger" for item in overview["token_usage"]["tasks"])
 
 
 def test_health_task_list_hides_graph_node_child_task_runs() -> None:

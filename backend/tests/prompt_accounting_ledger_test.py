@@ -10,6 +10,8 @@ from runtime.prompt_accounting import (
     PromptCacheBaselineTracker,
     PromptCachePlanner,
     PromptCacheRecord,
+    PromptSegment,
+    PromptSegmentMap,
     extract_provider_usage,
 )
 from runtime.model_gateway import ModelRequestBuilder
@@ -206,6 +208,207 @@ def test_prompt_accounting_ledger_filters_session_scoped_reads_before_json_proje
     assert session_summary["cache_savings_tokens"] == 80
     assert run_summary["total_tokens"] == 110
     assert [record.request_id for record in ledger.list_prompt_cache(session_id="session:target")] == ["modelreq:target"]
+
+
+def test_prompt_accounting_ledger_summary_index_serves_scoped_summaries_when_raw_ledger_is_large(tmp_path) -> None:
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:indexed:local_prediction",
+            request_id="modelreq:indexed",
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=1.0,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:indexed:provider_usage",
+            request_id="modelreq:indexed",
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=2.0,
+            diagnostics={"large": "diagnostics should not be copied into summary index"},
+        )
+    )
+    ledger.record_prompt_cache(
+        PromptCacheRecord(
+            cache_record_id="pcache:indexed",
+            request_id="modelreq:indexed",
+            task_run_id="taskrun:indexed",
+            session_id="session:indexed",
+            status="hit",
+            cached_tokens=50,
+            cache_savings_tokens=50,
+            created_at=2.0,
+            diagnostics={"large": "diagnostics should not be copied into summary index"},
+        )
+    )
+    (ledger.ledger_dir / "segment_maps.jsonl").write_text("x" * (ledger.SUMMARY_SCAN_MAX_BYTES + 1), encoding="utf-8")
+
+    indexed = ledger.summarize_tasks(["taskrun:indexed", "taskrun:missing"])
+    summaries = ledger.list_run_summaries(limit=10)
+
+    assert indexed["taskrun:indexed"]["total_tokens"] == 120
+    assert indexed["taskrun:indexed"]["predicted_total_tokens"] == 300
+    assert indexed["taskrun:indexed"]["cache_savings_tokens"] == 50
+    assert indexed["taskrun:missing"]["record_count"] == 0
+    assert summaries[0]["summary"]["total_tokens"] == 120
+    summary_payload = next(
+        payload
+        for payload in (
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in ledger.summary_index_dir.glob("*.json")
+        )
+        if payload["key"] == "taskrun:indexed"
+    )
+    assert "diagnostics" not in next(iter(summary_payload["usage_records"].values()))
+    assert "diagnostics" not in next(iter(summary_payload["cache_records"].values()))
+
+
+def test_prompt_accounting_retention_compacts_old_details_into_token_stats(tmp_path) -> None:
+    now = 2_000_000.0
+    old = now - 20 * 24 * 60 * 60
+    hot = now - 2 * 24 * 60 * 60
+    ledger = PromptAccountingLedger(tmp_path)
+    segment = PromptSegment(
+        segment_id="seg:old",
+        request_id="modelreq:old",
+        task_run_id="taskrun:old",
+        session_id="session:old",
+        created_at=old,
+    )
+    ledger.record_segment_map(
+        PromptSegmentMap(
+            request_id="modelreq:old",
+            task_run_id="taskrun:old",
+            session_id="session:old",
+            segments=(segment,),
+            created_at=old,
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:old:local_prediction",
+            request_id="modelreq:old",
+            task_run_id="taskrun:old",
+            session_id="session:old",
+            source="local_prediction",
+            prompt_tokens=300,
+            total_tokens=300,
+            created_at=old,
+            diagnostics={"large": "must not be retained"},
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:old:provider_usage",
+            request_id="modelreq:old",
+            task_run_id="taskrun:old",
+            session_id="session:old",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=old + 1,
+            diagnostics={"large": "must not be retained"},
+        )
+    )
+    ledger.record_prompt_cache(
+        PromptCacheRecord(
+            cache_record_id="pcache:old",
+            request_id="modelreq:old",
+            task_run_id="taskrun:old",
+            session_id="session:old",
+            status="hit",
+            cached_tokens=50,
+            cache_savings_tokens=50,
+            created_at=old + 1,
+            diagnostics={"large": "must not be retained"},
+        )
+    )
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:hot:provider_usage",
+            request_id="modelreq:hot",
+            task_run_id="taskrun:hot",
+            session_id="session:hot",
+            source="provider_usage",
+            prompt_tokens=30,
+            completion_tokens=10,
+            total_tokens=40,
+            created_at=hot,
+        )
+    )
+
+    preview = ledger.build_retention_preview(cutoff_days=15, now=now)
+    dry_run = ledger.compact_before(cutoff_days=15, dry_run=True, now=now)
+
+    assert preview["files"]["token_usage.jsonl"]["compactable_rows"] == 2
+    assert preview["files"]["prompt_cache.jsonl"]["compactable_rows"] == 1
+    assert preview["files"]["segment_maps.jsonl"]["compactable_rows"] == 1
+    assert preview["files"]["segments.jsonl"]["compactable_rows"] == 1
+    assert dry_run["mode"] == "dry_run"
+    assert len(ledger.list_token_usage(task_run_id="taskrun:old")) == 2
+    assert len(ledger.list_segment_maps(task_run_id="taskrun:old")) == 1
+
+    result = ledger.compact_before(cutoff_days=15, dry_run=False, now=now)
+    retained_stats = json.loads(ledger.retained_token_stats_path.read_text(encoding="utf-8"))
+    retained_old = next(item for item in retained_stats["run_summaries"] if item["key"] == "taskrun:old")
+
+    assert result["mode"] == "execute"
+    assert result["rewrite_results"]["deleted_counts"]["token_usage"] == 2
+    assert result["rewrite_results"]["deleted_counts"]["prompt_cache"] == 1
+    assert ledger.list_token_usage(task_run_id="taskrun:old") == []
+    assert ledger.list_prompt_cache(task_run_id="taskrun:old") == []
+    assert ledger.list_segment_maps(task_run_id="taskrun:old") == []
+    assert ledger.summarize_task("taskrun:old")["total_tokens"] == 120
+    assert ledger.summarize_task("taskrun:old")["predicted_total_tokens"] == 300
+    assert ledger.summarize_task("taskrun:old")["cache_savings_tokens"] == 50
+    assert ledger.summarize_task("taskrun:hot")["total_tokens"] == 40
+    assert retained_old["summary"]["total_tokens"] == 120
+    assert "usage_records" not in retained_old
+    assert "diagnostics" not in json.dumps(retained_stats, ensure_ascii=False)
+    assert {item["key"] for item in ledger.list_run_summaries(limit=10)} >= {"taskrun:old", "taskrun:hot"}
+
+
+def test_prompt_accounting_retention_keeps_protected_old_details(tmp_path) -> None:
+    now = 2_000_000.0
+    old = now - 20 * 24 * 60 * 60
+    ledger = PromptAccountingLedger(tmp_path)
+    ledger.record_token_usage(
+        ModelTokenUsageRecord(
+            usage_id="tokuse:modelreq:active:provider_usage",
+            request_id="modelreq:active",
+            task_run_id="taskrun:active",
+            session_id="session:active",
+            source="provider_usage",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            created_at=old,
+        )
+    )
+
+    result = ledger.compact_before(
+        cutoff_days=15,
+        dry_run=False,
+        now=now,
+        protected_task_run_ids=["taskrun:active"],
+        protected_session_ids=["session:active"],
+    )
+
+    assert result["files"]["token_usage.jsonl"]["compactable_rows"] == 0
+    assert result["retained_token_stats"]["run_summary_count"] == 0
+    assert ledger.list_token_usage(task_run_id="taskrun:active")[-1].total_tokens == 120
+    assert ledger.summarize_task("taskrun:active")["total_tokens"] == 120
 
 
 def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes() -> None:

@@ -151,7 +151,7 @@ def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> 
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "1 | copy through gateway"
+    assert result["observation"].payload["result"] == "1 |copy through gateway"
     assert (sandbox / "docs" / "source.md").read_text(encoding="utf-8") == "copy through gateway"
     assert tool_result["repository_id"] == "repo.managed_project.sandbox_workspace"
     assert envelope["structured_payload"]["file_gateway"]["access_decision"] == "allow"
@@ -175,7 +175,7 @@ def test_runtime_read_file_gateway_respects_line_window(tmp_path: Path) -> None:
     tool_result = envelope["structured_payload"]["tool_result"]
 
     assert result["error"] == ""
-    assert result["observation"].payload["result"] == "2 | line2\n3 | line3"
+    assert result["observation"].payload["result"] == "2 |line2\n3 |line3"
     assert tool_result["start_line"] == 2
     assert tool_result["end_line"] == 3
     assert tool_result["next_start_line"] == 4
@@ -226,7 +226,7 @@ def test_runtime_full_access_reads_project_workspace_after_project_edit(tmp_path
     envelope = second_read["observation"].payload["result_envelope"]
     tool_result = envelope["structured_payload"]["tool_result"]
     assert second_read["error"] == ""
-    assert second_read["observation"].payload["result"] == "1 | const label = 'new';"
+    assert second_read["observation"].payload["result"] == "1 |const label = 'new';"
     assert tool_result["repository_id"] == "repo.managed_project.project_workspace"
 
 

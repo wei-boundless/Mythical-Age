@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -12,9 +14,11 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
+from harness.continuation import select_session_continuation
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.projection.projector import ProjectionLifecycleState, attach_public_projection_event
 from harness.runtime.public_progress import public_runtime_progress_summary
+from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 from harness.task_run_status import is_stopped_or_terminal_task_run
 from integrations.vscode_connection import get_vscode_connection_store
 from runtime.output_boundary import (
@@ -48,6 +52,9 @@ from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope
+from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
+from config import runtime_config
+from project_layout import ProjectLayout
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -100,6 +107,11 @@ INTERNAL_PUBLIC_DATA_KEYS = {
     "segment_plan",
     "operation_authorization",
 }
+TOOL_FAILURE_FEEDBACK_RE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z0-9 _./-]{0,80}\s+failed|tool_policy_rejection):",
+    flags=re.IGNORECASE,
+)
+LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
 PUBLIC_EVENT_DATA_ALLOWLIST = {
     "chat_run_started": {"status"},
     CHAT_TURN_BOUND_EVENT: {
@@ -457,10 +469,14 @@ class ChatRequest(BaseModel):
     runtime_contract: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
     permission_mode: str = ""
     session_scope: dict[str, Any] | None = None
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
+    expected_task_run_id: str = ""
+    expected_continuation_id: str = ""
+    recovery_input_policy: str = "auto"
     editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -477,7 +493,7 @@ async def create_chat_run(payload: ChatRequest):
         allow_vscode_fallback=allow_vscode_context_fallback,
     )
     _bind_or_validate_editor_project(runtime, session_id, editor_context)
-    request = _query_request_from_payload(payload, session_id=session_id, editor_context=editor_context)
+    request = _query_request_from_payload(payload, session_id=session_id, editor_context=editor_context, base_dir=runtime.base_dir)
     run = _create_and_schedule_run(runtime, request)
     return _run_response(runtime, run)
 
@@ -509,10 +525,45 @@ async def get_latest_chat_run_for_session(
             return Response(status_code=204)
         raise HTTPException(status_code=404, detail="chat run not found")
     if active_only:
+        active_task_run_id = _active_session_task_run_id(runtime, validated_session_id)
+        if active_task_run_id:
+            active_task_candidates = [
+                run
+                for run in candidates
+                if _runtime_run_task_run_id(run) == active_task_run_id
+            ]
+            if active_task_candidates:
+                return _run_response(runtime, active_task_candidates[0])
+            return Response(status_code=204)
         primary_candidates = [run for run in candidates if not _is_active_turn_steer_run(run)]
         if primary_candidates:
             return _run_response(runtime, primary_candidates[0])
     return _run_response(runtime, candidates[0])
+
+
+@router.get("/chat/sessions/{session_id}/continuations/latest")
+async def get_latest_session_continuation(session_id: str):
+    runtime = require_runtime()
+    validated_session_id = validate_session_id(session_id)
+    host = runtime.harness_runtime.single_agent_runtime_host
+    active_work_present = False
+    try:
+        active_work_present = host.active_turn_registry.resolve_current(validated_session_id) is not None
+    except Exception:
+        active_work_present = False
+    selection = select_session_continuation(
+        host,
+        session_id=validated_session_id,
+        active_work_present=active_work_present,
+    )
+    record = selection.record.to_dict() if selection.record is not None else {}
+    return {
+        "session_id": validated_session_id,
+        "available": bool(record),
+        "record": record,
+        "reason": selection.reason,
+        "authority": "api.chat.session_continuation_projection",
+    }
 
 
 @router.get("/chat/runs/{stream_run_id}/events")
@@ -552,6 +603,7 @@ def _query_request_from_payload(
     *,
     session_id: str,
     editor_context: dict[str, Any] | None = None,
+    base_dir: str | Path | None = None,
 ) -> HarnessRuntimeRequest:
     return HarnessRuntimeRequest(
         session_id=session_id,
@@ -562,11 +614,93 @@ def _query_request_from_payload(
         runtime_contract=dict(payload.runtime_contract or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
+        attachments=_normalize_chat_attachments(payload.attachments, session_id=session_id, base_dir=base_dir),
         permission_mode=str(payload.permission_mode or ""),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
+        expected_task_run_id=str(payload.expected_task_run_id or ""),
+        expected_continuation_id=str(payload.expected_continuation_id or ""),
+        recovery_input_policy=str(payload.recovery_input_policy or "auto"),
         editor_context=dict(editor_context if editor_context is not None else payload.editor_context or {}),
     )
+
+
+def _normalize_chat_attachments(
+    attachments: list[dict[str, Any]] | None,
+    *,
+    session_id: str,
+    base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
+    raw_items = list(attachments or [])
+    attachment_config = runtime_config.get_attachments_config()
+    if raw_items and not bool(attachment_config.get("enabled", True)):
+        raise HTTPException(status_code=403, detail="Chat attachments are disabled")
+    max_files = int(attachment_config.get("max_files_per_message") or 8)
+    if len(raw_items) > max_files:
+        raise HTTPException(status_code=400, detail=f"At most {max_files} attachments are supported per message")
+    if not raw_items:
+        return []
+    project_root = ProjectLayout.from_backend_dir(base_dir or Path(__file__).resolve().parents[1]).project_root
+    normalized: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="Invalid attachment payload")
+        attachment_session_id = _clean_attachment_text(raw.get("session_id"), limit=120)
+        if attachment_session_id and attachment_session_id != session_id:
+            raise HTTPException(status_code=400, detail="Attachment session_id does not match chat session")
+        attachment_id = _clean_attachment_text(raw.get("attachment_id"), limit=80)
+        path = _clean_attachment_text(raw.get("path"), limit=500).replace("\\", "/")
+        if not attachment_id or not path:
+            raise HTTPException(status_code=400, detail="Attachment payload requires attachment_id and path")
+        storage_relative_dir = str(attachment_config.get("storage_relative_dir") or "storage/chat_attachments").replace("\\", "/").strip("/")
+        expected_prefix = f"{storage_relative_dir}/{session_id}/"
+        if not path.startswith(expected_prefix):
+            raise HTTPException(status_code=400, detail="Attachment path is outside this chat session")
+        suffix = Path(path).suffix.lower()
+        if suffix not in SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES:
+            raise HTTPException(status_code=400, detail="Unsupported attachment image suffix")
+        resolved = (project_root / path).resolve()
+        try:
+            resolved.relative_to(project_root.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Attachment path traversal detected") from exc
+        if not resolved.is_file():
+            raise HTTPException(status_code=400, detail="Attachment file does not exist")
+        normalized.append(
+            {
+                "attachment_id": attachment_id,
+                "session_id": session_id,
+                "filename": _clean_attachment_text(raw.get("filename"), limit=180),
+                "mime_type": _clean_attachment_text(raw.get("mime_type"), limit=120),
+                "size_bytes": _safe_int(raw.get("size_bytes")),
+                "path": path,
+                "created_at": _safe_float(raw.get("created_at")),
+                "width": _safe_int(raw.get("width")),
+                "height": _safe_int(raw.get("height")),
+                "authority": _clean_attachment_text(raw.get("authority"), limit=120) or "api.chat_attachments",
+                "storage_authority": _clean_attachment_text(raw.get("storage_authority"), limit=120) or "chat_attachment_store",
+            }
+        )
+    return normalized
+
+
+def _clean_attachment_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
+    return text[: max(0, int(limit))]
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _effective_editor_context(
@@ -757,6 +891,9 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "message_chars": len(str(request.message or "")),
             "expected_active_turn_id": str(request.expected_active_turn_id or ""),
             "active_turn_input_policy": str(request.active_turn_input_policy or "auto"),
+            "expected_task_run_id": str(request.expected_task_run_id or ""),
+            "expected_continuation_id": str(request.expected_continuation_id or ""),
+            "recovery_input_policy": str(request.recovery_input_policy or "auto"),
         },
     )
     request = replace(
@@ -1873,6 +2010,37 @@ def _is_active_turn_steer_run(run: RuntimeRun) -> bool:
     return bool(expected_active_turn_id and policy == "steer")
 
 
+def _runtime_run_task_run_id(run: RuntimeRun) -> str:
+    diagnostics = dict(run.diagnostics or {})
+    return str(
+        diagnostics.get("runtime_task_run_id")
+        or diagnostics.get("task_run_id")
+        or diagnostics.get("public_anchor_task_run_id")
+        or ""
+    ).strip()
+
+
+def _active_session_task_run_id(runtime: Any, session_id: str) -> str:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    monitor_service = getattr(host, "runtime_monitor_service", None)
+    if monitor_service is not None:
+        try:
+            monitor = monitor_service.get_session_live_monitor(session_id, limit=20)
+            active_task_run_id = str(monitor.get("active_task_run_id") or "").strip()
+            if active_task_run_id:
+                return active_task_run_id
+        except Exception:
+            logger.debug("Failed to read active session task run for latest chat run selection.", exc_info=True)
+    active_turn_registry = getattr(host, "active_turn_registry", None)
+    if active_turn_registry is not None:
+        try:
+            active_turn = active_turn_registry.resolve_current(session_id)
+            return str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
+        except Exception:
+            logger.debug("Failed to read active turn for latest chat run selection.", exc_info=True)
+    return ""
+
+
 def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload = run.to_dict()
     payload.pop("owner_process_id", None)
@@ -2287,12 +2455,13 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     operation_gate = _record(tool_observation.get("operation_gate") or observation.get("operation_gate"))
     admission = _record(operation_gate.get("admission"))
     refs = _record(raw_event.get("refs"))
-    error = _safe_public_action_text(
+    error_source = (
         tool_observation.get("error")
         or observation.get("error")
         or result_envelope.get("error")
         or execution_receipt.get("error")
     )
+    error = _safe_tool_feedback_text(error_source) or _safe_public_action_text(error_source)
     observation_text = _safe_tool_observation_text(
         tool_observation,
         result_envelope=result_envelope,
@@ -2571,15 +2740,31 @@ def _safe_tool_observation_text(
         result_envelope.get("summary"),
         result_envelope.get("result"),
     ):
-        text = _safe_public_action_text(value)
+        text = _safe_public_action_text(value) or _safe_tool_feedback_text(value)
         if text:
             return text[:500]
     structured = _record(result_envelope.get("structured_payload"))
     for key in ("summary", "message", "error"):
-        text = _safe_public_action_text(structured.get(key))
+        text = _safe_public_action_text(structured.get(key)) or _safe_tool_feedback_text(structured.get(key))
         if text:
             return text[:500]
     return ""
+
+
+def _safe_tool_feedback_text(value: Any) -> str:
+    text = sanitize_visible_assistant_content(str(value or "")).strip()
+    if not text:
+        return ""
+    if LINE_NUMBERED_TOOL_OUTPUT_RE.search(text):
+        return ""
+    normalized = " ".join(text.split()).strip()
+    if not TOOL_FAILURE_FEEDBACK_RE.match(normalized):
+        return ""
+    if looks_like_runtime_private_artifact_text(normalized):
+        return ""
+    if contains_internal_protocol(normalized) or contains_inline_pseudo_tool_call(normalized):
+        return ""
+    return normalized[:500]
 
 
 def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:

@@ -18,8 +18,12 @@ class TurnInputFacts:
     user_message: str
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
+    expected_task_run_id: str = ""
+    expected_continuation_id: str = ""
+    recovery_input_policy: str = "auto"
     active_turn: dict[str, Any] = field(default_factory=dict)
     active_work_candidate: dict[str, Any] = field(default_factory=dict)
+    recoverable_work_candidate: dict[str, Any] = field(default_factory=dict)
     recent_work_outcome_candidate: dict[str, Any] = field(default_factory=dict)
     environment_binding: dict[str, Any] = field(default_factory=dict)
     runtime_profile: dict[str, Any] = field(default_factory=dict)
@@ -49,8 +53,12 @@ def build_turn_input_facts(
     user_message: str,
     expected_active_turn_id: str = "",
     active_turn_input_policy: str = "auto",
+    expected_task_run_id: str = "",
+    expected_continuation_id: str = "",
+    recovery_input_policy: str = "auto",
     active_turn: Any | None = None,
     active_work_candidate: Any | None = None,
+    recoverable_work_candidate: Any | None = None,
     recent_work_outcome_candidate: dict[str, Any] | None = None,
     environment_binding: dict[str, Any] | None = None,
     runtime_profile: dict[str, Any] | None = None,
@@ -62,13 +70,24 @@ def build_turn_input_facts(
         user_message=str(user_message or ""),
         expected_active_turn_id=str(expected_active_turn_id or "").strip(),
         active_turn_input_policy=str(active_turn_input_policy or "auto").strip() or "auto",
+        expected_task_run_id=str(expected_task_run_id or "").strip(),
+        expected_continuation_id=str(expected_continuation_id or "").strip(),
+        recovery_input_policy=_external_recovery_input_policy(recovery_input_policy),
         active_turn=_payload_from_object(active_turn),
         active_work_candidate=_payload_from_object(active_work_candidate),
+        recoverable_work_candidate=_payload_from_object(recoverable_work_candidate),
         recent_work_outcome_candidate=dict(recent_work_outcome_candidate or {}),
         environment_binding=dict(environment_binding or {}),
         runtime_profile=dict(runtime_profile or {}),
         editor_context=dict(editor_context or {}),
     )
+
+
+def _external_recovery_input_policy(value: Any) -> str:
+    policy = str(value or "auto").strip().lower() or "auto"
+    if policy == "status":
+        return "status"
+    return "auto"
 
 
 def _payload_from_object(value: Any | None) -> dict[str, Any]:

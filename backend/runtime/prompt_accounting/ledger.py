@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
+import time
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
@@ -15,15 +17,36 @@ from .stability_models import PromptStabilityReport
 class PromptAccountingLedger:
     """Durable prompt/token/cache fact ledger for runtime consumers."""
 
+    SUMMARY_INDEX_VERSION = 1
+    SUMMARY_SCAN_MAX_BYTES = 64 * 1024 * 1024
+    RETAINED_TOKEN_STATS_VERSION = 1
+    DEFAULT_DETAIL_RETENTION_DAYS = 7
+    RETENTION_DETAIL_FILES = (
+        "segment_maps.jsonl",
+        "segments.jsonl",
+        "token_usage.jsonl",
+        "prompt_cache.jsonl",
+        "prompt_cache_breaks.jsonl",
+        "prompt_stability.jsonl",
+    )
+
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = Path(root_dir)
         self.ledger_dir = self.root_dir / "prompt_accounting"
         self.ledger_dir.mkdir(parents=True, exist_ok=True)
+        self.summary_index_dir = self.ledger_dir / "summary_index" / "by_key"
+        self.summary_index_dir.mkdir(parents=True, exist_ok=True)
+        self.summary_index_manifest_path = self.ledger_dir / "summary_index" / "manifest.json"
+        self.retention_dir = self.ledger_dir / "retention"
+        self.retention_dir.mkdir(parents=True, exist_ok=True)
+        self.retained_token_stats_path = self.retention_dir / "token_stats.json"
+        self.retention_receipts_path = self.retention_dir / "receipts.jsonl"
         self._lock = threading.RLock()
         self._filtered_read_cache: dict[
             tuple[str, str, str, str],
             tuple[tuple[int, int], list[dict[str, Any]]],
         ] = {}
+        self._retained_token_stats_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
 
     def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
         self._append_jsonl("segment_maps.jsonl", segment_map.to_dict())
@@ -35,9 +58,11 @@ class PromptAccountingLedger:
 
     def record_token_usage(self, record: ModelTokenUsageRecord) -> None:
         self._append_jsonl("token_usage.jsonl", record.to_dict())
+        self._upsert_usage_summary(record)
 
     def record_prompt_cache(self, record: PromptCacheRecord) -> None:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
+        self._upsert_cache_summary(record)
 
     def record_prompt_cache_baseline(self, record: PromptCacheBaselineRecord) -> None:
         self._append_jsonl("prompt_cache_baselines.jsonl", record.to_dict())
@@ -201,6 +226,11 @@ class PromptAccountingLedger:
         return sorted(records.values(), key=lambda item: item.created_at)
 
     def summarize_task(self, task_run_id: str) -> dict[str, Any]:
+        indexed = self._summary_for_key(task_run_id)
+        if indexed is not None:
+            return indexed
+        if not self._summary_scan_allowed():
+            return _empty_usage_summary()
         return summarize_usage_records(
             self.list_token_usage(task_run_id=task_run_id),
             cache_records=self.list_prompt_cache(task_run_id=task_run_id),
@@ -210,6 +240,20 @@ class PromptAccountingLedger:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
         if not targets:
             return {}
+        indexed: dict[str, dict[str, Any]] = {}
+        missing: set[str] = set()
+        for task_run_id in targets:
+            summary = self._summary_for_key(task_run_id)
+            if summary is None:
+                missing.add(task_run_id)
+            else:
+                indexed[task_run_id] = summary
+        if not missing:
+            return indexed
+        if not self._summary_scan_allowed():
+            for task_run_id in missing:
+                indexed[task_run_id] = _empty_usage_summary()
+            return indexed
         usage_by_task: dict[str, list[ModelTokenUsageRecord]] = {task_run_id: [] for task_run_id in targets}
         cache_by_task: dict[str, list[PromptCacheRecord]] = {task_run_id: [] for task_run_id in targets}
         latest_usage: dict[tuple[str, str], ModelTokenUsageRecord] = {}
@@ -236,15 +280,22 @@ class PromptAccountingLedger:
                 latest_cache[key] = record
         for (task_run_id, _key), record in latest_cache.items():
             cache_by_task.setdefault(task_run_id, []).append(record)
-        return {
+        scanned = {
             task_run_id: summarize_usage_records(
                 sorted(usage_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
                 cache_records=sorted(cache_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
             )
             for task_run_id in targets
         }
+        indexed.update(scanned)
+        return indexed
 
     def summarize_run(self, run_id: str) -> dict[str, Any]:
+        indexed = self._summary_for_key(run_id)
+        if indexed is not None:
+            return indexed
+        if not self._summary_scan_allowed():
+            return _empty_usage_summary()
         return summarize_usage_records(
             self.list_token_usage(run_id=run_id),
             cache_records=self.list_prompt_cache(run_id=run_id),
@@ -262,6 +313,82 @@ class PromptAccountingLedger:
             cache_records=self.list_prompt_cache(),
         )
 
+    def list_run_summaries(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        manifest_rows = self._read_summary_manifest()
+        if not manifest_rows:
+            rows: list[dict[str, Any]] = []
+            for path in self.summary_index_dir.glob("*.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, JSONDecodeError):
+                    continue
+                if self._valid_summary_payload(payload):
+                    rows.append(dict(payload))
+            if rows:
+                self._rewrite_summary_manifest(rows)
+            manifest_rows = rows
+        retained_rows = self.list_retained_token_summaries(limit=max(1, int(limit or 100)))
+        combined_rows = _merge_summary_rows([*retained_rows, *manifest_rows])
+        return sorted(combined_rows, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)[: max(1, int(limit or 100))]
+
+    def list_retained_token_summaries(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        stats = self._read_retained_token_stats()
+        rows = [
+            dict(item)
+            for item in list(stats.get("run_summaries") or [])
+            if isinstance(item, dict) and isinstance(item.get("summary"), dict)
+        ]
+        return sorted(rows, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)[: max(1, int(limit or 100))]
+
+    def scoped_reads_are_expensive(self) -> bool:
+        return not self._summary_scan_allowed()
+
+    def rebuild_summary_index(self) -> dict[str, Any]:
+        payloads: dict[str, dict[str, Any]] = {}
+        usage_count = 0
+        cache_count = 0
+        for row in self._iter_jsonl_rows("token_usage.jsonl"):
+            record = ModelTokenUsageRecord.from_dict(row)
+            key = _summary_key_for_usage(record)
+            if not key:
+                continue
+            payload = payloads.setdefault(key, _new_summary_payload(key))
+            usage_records = dict(payload.get("usage_records") or {})
+            usage_key = record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}"
+            previous = usage_records.get(usage_key)
+            if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
+                usage_records[usage_key] = _compact_usage_record(record)
+            payload["usage_records"] = usage_records
+            usage_count += 1
+        for row in self._iter_jsonl_rows("prompt_cache.jsonl"):
+            record = PromptCacheRecord.from_dict(row)
+            key = _summary_key_for_cache(record)
+            if not key:
+                continue
+            payload = payloads.setdefault(key, _new_summary_payload(key))
+            cache_records = dict(payload.get("cache_records") or {})
+            cache_key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
+            previous = cache_records.get(cache_key)
+            if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
+                cache_records[cache_key] = _compact_cache_record(record)
+            payload["cache_records"] = cache_records
+            cache_count += 1
+        with self._lock:
+            for existing in self.summary_index_dir.glob("*.json"):
+                try:
+                    existing.unlink()
+                except OSError:
+                    continue
+            for key, payload in payloads.items():
+                self._rewrite_summary_payload(key, payload, update_manifest=False)
+            self._rewrite_summary_manifest(payloads.values())
+        return {
+            "authority": "runtime.prompt_accounting.summary_index_rebuild",
+            "summary_key_count": len(payloads),
+            "token_usage_rows_scanned": usage_count,
+            "prompt_cache_rows_scanned": cache_count,
+        }
+
     def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
         targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
         if not targets:
@@ -278,6 +405,7 @@ class PromptAccountingLedger:
             "prompt_cache_baselines": self._rewrite_without_tasks("prompt_cache_baselines.jsonl", targets),
             "prompt_cache_breaks": self._rewrite_without_tasks("prompt_cache_breaks.jsonl", targets),
             "prompt_stability": self._rewrite_without_tasks("prompt_stability.jsonl", targets),
+            "summary_index": self._delete_summary_keys(targets),
         }
         return {
             "authority": "runtime.prompt_accounting.ledger.prune_task_runs",
@@ -303,6 +431,7 @@ class PromptAccountingLedger:
             "prompt_cache_baselines": self._rewrite_without_session_or_tasks("prompt_cache_baselines.jsonl", normalized, targets),
             "prompt_cache_breaks": self._rewrite_without_session_or_tasks("prompt_cache_breaks.jsonl", normalized, targets),
             "prompt_stability": self._rewrite_without_session_or_tasks("prompt_stability.jsonl", normalized, targets),
+            "summary_index": self._delete_summary_session_or_tasks(normalized, targets),
         }
         return {
             "authority": "runtime.prompt_accounting.ledger.prune_session",
@@ -311,12 +440,964 @@ class PromptAccountingLedger:
             "deleted_counts": {key: value for key, value in deleted_counts.items() if value},
         }
 
+    def build_retention_preview(
+        self,
+        *,
+        cutoff_days: int = DEFAULT_DETAIL_RETENTION_DAYS,
+        now: float | None = None,
+        protected_task_run_ids: set[str] | list[str] | tuple[str, ...] = (),
+        protected_session_ids: set[str] | list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        cutoff_timestamp = self._retention_cutoff_timestamp(cutoff_days=cutoff_days, now=timestamp)
+        protection = self._retention_protection(
+            protected_task_run_ids=protected_task_run_ids,
+            protected_session_ids=protected_session_ids,
+        )
+        plan = self._build_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection, now=timestamp)
+        return self._retention_response(plan=plan, mode="preflight", now=timestamp)
+
+    def compact_before(
+        self,
+        *,
+        cutoff_days: int = DEFAULT_DETAIL_RETENTION_DAYS,
+        dry_run: bool = True,
+        now: float | None = None,
+        protected_task_run_ids: set[str] | list[str] | tuple[str, ...] = (),
+        protected_session_ids: set[str] | list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        cutoff_timestamp = self._retention_cutoff_timestamp(cutoff_days=cutoff_days, now=timestamp)
+        protection = self._retention_protection(
+            protected_task_run_ids=protected_task_run_ids,
+            protected_session_ids=protected_session_ids,
+        )
+        plan = self._build_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection, now=timestamp)
+        mode = "dry_run" if dry_run else "execute"
+        result = self._retention_response(plan=plan, mode=mode, now=timestamp)
+        if dry_run:
+            return result
+
+        with self._lock:
+            existing_stats = self._read_retained_token_stats()
+            merged_stats = self._merge_retained_token_stats(
+                existing_stats,
+                list(plan["cold_token_stats"].get("run_summaries") or []),
+                policy=dict(plan.get("policy") or {}),
+                now=timestamp,
+            )
+            self._write_retained_token_stats(merged_stats)
+            rewrite_results = self._execute_retention_rewrites(plan=plan, cutoff_timestamp=cutoff_timestamp)
+            rebuild = self.rebuild_summary_index()
+            receipt = self._retention_receipt(
+                plan=plan,
+                rewrite_results=rewrite_results,
+                stats=merged_stats,
+                now=timestamp,
+            )
+            self._append_retention_receipt(receipt)
+
+        result["rewrite_results"] = rewrite_results
+        result["summary_index_rebuild"] = rebuild
+        result["retained_token_stats"] = {
+            "path": str(self.retained_token_stats_path),
+            "run_summary_count": int(merged_stats.get("run_summary_count") or 0),
+            "summary": dict(merged_stats.get("summary") or {}),
+            "checksum": str(merged_stats.get("checksum") or ""),
+        }
+        result["retention_receipt"] = receipt
+        return result
+
+    def _retention_cutoff_timestamp(self, *, cutoff_days: int, now: float) -> float:
+        days = max(1, int(cutoff_days or self.DEFAULT_DETAIL_RETENTION_DAYS))
+        return float(now) - float(days * 24 * 60 * 60)
+
+    def _retention_protection(
+        self,
+        *,
+        protected_task_run_ids: set[str] | list[str] | tuple[str, ...],
+        protected_session_ids: set[str] | list[str] | tuple[str, ...],
+    ) -> dict[str, set[str]]:
+        protected_keys = {
+            str(item).strip()
+            for item in list(protected_task_run_ids or [])
+            if str(item).strip()
+        }
+        protected_sessions = {
+            str(item).strip()
+            for item in list(protected_session_ids or [])
+            if str(item).strip()
+        }
+        return {
+            "keys": protected_keys,
+            "sessions": protected_sessions,
+        }
+
+    def _build_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]], now: float) -> dict[str, Any]:
+        usage_plan = self._token_usage_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection)
+        cache_plan = self._prompt_cache_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection)
+        retained_request_ids = set(usage_plan.get("retained_request_ids") or set()) | set(cache_plan.get("retained_request_ids") or set())
+        cold_stats = self._cold_token_stats_from_plans(
+            usage_by_key=dict(usage_plan.get("usage_by_key") or {}),
+            cache_by_key=dict(cache_plan.get("cache_by_key") or {}),
+            cutoff_timestamp=cutoff_timestamp,
+            now=now,
+        )
+        generic_files: dict[str, dict[str, Any]] = {}
+        for filename in self.RETENTION_DETAIL_FILES:
+            if filename in {"token_usage.jsonl", "prompt_cache.jsonl"}:
+                continue
+            generic_files[filename] = self._generic_detail_retention_plan(
+                filename,
+                cutoff_timestamp=cutoff_timestamp,
+                protection=protection,
+                retained_request_ids=retained_request_ids,
+            )
+        files = {
+            "token_usage.jsonl": dict(usage_plan.get("preview") or {}),
+            "prompt_cache.jsonl": dict(cache_plan.get("preview") or {}),
+            **{filename: dict(plan.get("preview") or {}) for filename, plan in generic_files.items()},
+        }
+        compactable_rows = sum(int(item.get("compactable_rows") or 0) for item in files.values())
+        return {
+            "authority": "runtime.prompt_accounting.retention_plan",
+            "policy": {
+                "authority": "runtime.prompt_accounting.retention_policy",
+                "detail_retention_days": max(1, int((now - cutoff_timestamp) // (24 * 60 * 60))),
+                "cutoff_timestamp": cutoff_timestamp,
+                "requires_token_stats_before_detail_prune": True,
+                "detail_files": list(self.RETENTION_DETAIL_FILES),
+                "state_files_retained": ["prompt_cache_baselines.jsonl"],
+                "protected_task_run_ids": sorted(protection.get("keys") or set()),
+                "protected_session_ids": sorted(protection.get("sessions") or set()),
+            },
+            "files": files,
+            "usage_plan": usage_plan,
+            "cache_plan": cache_plan,
+            "generic_files": generic_files,
+            "cold_token_stats": cold_stats,
+            "summary": {
+                "file_count": len(files),
+                "rows_scanned": sum(int(item.get("rows_scanned") or 0) for item in files.values()),
+                "compactable_detail_rows": compactable_rows,
+                "protected_rows": sum(int(item.get("protected_rows") or 0) for item in files.values()),
+                "undated_rows_kept": sum(int(item.get("undated_rows_kept") or 0) for item in files.values()),
+                "malformed_rows_kept": sum(int(item.get("malformed_rows_kept") or 0) for item in files.values()),
+                "retained_token_run_summary_count": int(cold_stats.get("run_summary_count") or 0),
+            },
+        }
+
+    def _token_usage_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
+        filename = "token_usage.jsonl"
+        path = self.ledger_dir / filename
+        groups: dict[str, dict[str, Any]] = {}
+        rows_scanned = 0
+        malformed_rows = 0
+        if path.exists():
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        row = json.loads(stripped)
+                    except JSONDecodeError:
+                        malformed_rows += 1
+                        continue
+                    if not isinstance(row, dict):
+                        malformed_rows += 1
+                        continue
+                    rows_scanned += 1
+                    record = ModelTokenUsageRecord.from_dict(row)
+                    summary_key = _summary_key_for_usage(record)
+                    group_id = _retention_group_id(row, primary_fields=("request_id", "usage_id"))
+                    group = groups.setdefault(
+                        group_id,
+                        {
+                            "rows": [],
+                            "row_count": 0,
+                            "summary_keys": set(),
+                            "request_ids": set(),
+                            "keep": False,
+                            "protected": False,
+                            "undated": False,
+                            "unkeyed": False,
+                        },
+                    )
+                    group["row_count"] = int(group["row_count"]) + 1
+                    group["rows"].append(_compact_usage_record(record))
+                    if summary_key:
+                        group["summary_keys"].add(summary_key)
+                    else:
+                        group["unkeyed"] = True
+                        group["keep"] = True
+                    if record.request_id:
+                        group["request_ids"].add(record.request_id)
+                    if _row_is_retention_protected(row, protection=protection):
+                        group["protected"] = True
+                        group["keep"] = True
+                    if float(record.created_at or 0.0) <= 0:
+                        group["undated"] = True
+                        group["keep"] = True
+                    elif float(record.created_at or 0.0) >= cutoff_timestamp:
+                        group["keep"] = True
+        usage_by_key: dict[str, list[dict[str, Any]]] = {}
+        compact_group_ids: set[str] = set()
+        retained_request_ids: set[str] = set()
+        kept_rows = 0
+        compactable_rows = 0
+        protected_rows = 0
+        undated_rows = 0
+        unkeyed_rows = 0
+        for group_id, group in groups.items():
+            row_count = int(group.get("row_count") or 0)
+            if group.get("protected"):
+                protected_rows += row_count
+            if group.get("undated"):
+                undated_rows += row_count
+            if group.get("unkeyed"):
+                unkeyed_rows += row_count
+            if group.get("keep"):
+                kept_rows += row_count
+                retained_request_ids.update(str(item) for item in set(group.get("request_ids") or set()) if str(item))
+                continue
+            summary_keys = sorted(str(item) for item in set(group.get("summary_keys") or set()) if str(item))
+            if not summary_keys:
+                kept_rows += row_count
+                continue
+            summary_key = summary_keys[0]
+            compact_group_ids.add(group_id)
+            compactable_rows += row_count
+            usage_by_key.setdefault(summary_key, []).extend(dict(item) for item in list(group.get("rows") or []))
+        return {
+            "filename": filename,
+            "drop_group_ids": compact_group_ids,
+            "retained_request_ids": retained_request_ids,
+            "usage_by_key": usage_by_key,
+            "preview": {
+                "filename": filename,
+                "exists": path.exists(),
+                "size_bytes": _file_signature(path)[1],
+                "rows_scanned": rows_scanned,
+                "kept_rows": kept_rows + malformed_rows,
+                "compactable_rows": compactable_rows,
+                "protected_rows": protected_rows,
+                "undated_rows_kept": undated_rows,
+                "unkeyed_rows_kept": unkeyed_rows,
+                "malformed_rows_kept": malformed_rows,
+                "rewrite_required": compactable_rows > 0,
+            },
+        }
+
+    def _prompt_cache_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
+        filename = "prompt_cache.jsonl"
+        path = self.ledger_dir / filename
+        groups: dict[str, dict[str, Any]] = {}
+        rows_scanned = 0
+        malformed_rows = 0
+        if path.exists():
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        row = json.loads(stripped)
+                    except JSONDecodeError:
+                        malformed_rows += 1
+                        continue
+                    if not isinstance(row, dict):
+                        malformed_rows += 1
+                        continue
+                    rows_scanned += 1
+                    record = PromptCacheRecord.from_dict(row)
+                    summary_key = _summary_key_for_cache(record)
+                    group_id = _retention_group_id(row, primary_fields=("request_id", "cache_record_id"))
+                    group = groups.setdefault(
+                        group_id,
+                        {
+                            "rows": [],
+                            "row_count": 0,
+                            "summary_keys": set(),
+                            "request_ids": set(),
+                            "keep": False,
+                            "protected": False,
+                            "undated": False,
+                            "unkeyed": False,
+                        },
+                    )
+                    group["row_count"] = int(group["row_count"]) + 1
+                    group["rows"].append(_compact_cache_record(record))
+                    if summary_key:
+                        group["summary_keys"].add(summary_key)
+                    else:
+                        group["unkeyed"] = True
+                        group["keep"] = True
+                    if record.request_id:
+                        group["request_ids"].add(record.request_id)
+                    if _row_is_retention_protected(row, protection=protection):
+                        group["protected"] = True
+                        group["keep"] = True
+                    if float(record.created_at or 0.0) <= 0:
+                        group["undated"] = True
+                        group["keep"] = True
+                    elif float(record.created_at or 0.0) >= cutoff_timestamp:
+                        group["keep"] = True
+        cache_by_key: dict[str, list[dict[str, Any]]] = {}
+        compact_group_ids: set[str] = set()
+        retained_request_ids: set[str] = set()
+        kept_rows = 0
+        compactable_rows = 0
+        protected_rows = 0
+        undated_rows = 0
+        unkeyed_rows = 0
+        for group_id, group in groups.items():
+            row_count = int(group.get("row_count") or 0)
+            if group.get("protected"):
+                protected_rows += row_count
+            if group.get("undated"):
+                undated_rows += row_count
+            if group.get("unkeyed"):
+                unkeyed_rows += row_count
+            if group.get("keep"):
+                kept_rows += row_count
+                retained_request_ids.update(str(item) for item in set(group.get("request_ids") or set()) if str(item))
+                continue
+            summary_keys = sorted(str(item) for item in set(group.get("summary_keys") or set()) if str(item))
+            if not summary_keys:
+                kept_rows += row_count
+                continue
+            summary_key = summary_keys[0]
+            compact_group_ids.add(group_id)
+            compactable_rows += row_count
+            cache_by_key.setdefault(summary_key, []).extend(dict(item) for item in list(group.get("rows") or []))
+        return {
+            "filename": filename,
+            "drop_group_ids": compact_group_ids,
+            "retained_request_ids": retained_request_ids,
+            "cache_by_key": cache_by_key,
+            "preview": {
+                "filename": filename,
+                "exists": path.exists(),
+                "size_bytes": _file_signature(path)[1],
+                "rows_scanned": rows_scanned,
+                "kept_rows": kept_rows + malformed_rows,
+                "compactable_rows": compactable_rows,
+                "protected_rows": protected_rows,
+                "undated_rows_kept": undated_rows,
+                "unkeyed_rows_kept": unkeyed_rows,
+                "malformed_rows_kept": malformed_rows,
+                "rewrite_required": compactable_rows > 0,
+            },
+        }
+
+    def _generic_detail_retention_plan(
+        self,
+        filename: str,
+        *,
+        cutoff_timestamp: float,
+        protection: dict[str, set[str]],
+        retained_request_ids: set[str],
+    ) -> dict[str, Any]:
+        path = self.ledger_dir / filename
+        rows_scanned = 0
+        kept_rows = 0
+        compactable_rows = 0
+        protected_rows = 0
+        undated_rows = 0
+        malformed_rows = 0
+        if path.exists():
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        row = json.loads(stripped)
+                    except JSONDecodeError:
+                        malformed_rows += 1
+                        kept_rows += 1
+                        continue
+                    if not isinstance(row, dict):
+                        malformed_rows += 1
+                        kept_rows += 1
+                        continue
+                    rows_scanned += 1
+                    decision = _row_retention_decision(
+                        row,
+                        cutoff_timestamp=cutoff_timestamp,
+                        protection=protection,
+                        retained_request_ids=retained_request_ids,
+                    )
+                    if decision == "compact":
+                        compactable_rows += 1
+                    else:
+                        kept_rows += 1
+                        if decision == "protected":
+                            protected_rows += 1
+                        elif decision == "undated":
+                            undated_rows += 1
+        return {
+            "filename": filename,
+            "preview": {
+                "filename": filename,
+                "exists": path.exists(),
+                "size_bytes": _file_signature(path)[1],
+                "rows_scanned": rows_scanned,
+                "kept_rows": kept_rows,
+                "compactable_rows": compactable_rows,
+                "protected_rows": protected_rows,
+                "undated_rows_kept": undated_rows,
+                "malformed_rows_kept": malformed_rows,
+                "rewrite_required": compactable_rows > 0,
+            },
+        }
+
+    def _cold_token_stats_from_plans(
+        self,
+        *,
+        usage_by_key: dict[str, list[dict[str, Any]]],
+        cache_by_key: dict[str, list[dict[str, Any]]],
+        cutoff_timestamp: float,
+        now: float,
+    ) -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        for key in sorted(set(usage_by_key) | set(cache_by_key)):
+            entry = _summary_entry_from_compact_records(
+                key,
+                usage_records=list(usage_by_key.get(key) or []),
+                cache_records=list(cache_by_key.get(key) or []),
+                authority="runtime.prompt_accounting.retained_token_summary",
+            )
+            summary = dict(entry.get("summary") or {})
+            if int(summary.get("record_count") or 0) <= 0 and int(summary.get("cache_record_count") or 0) <= 0:
+                continue
+            entries.append(entry)
+        summary = _aggregate_summary_entries(entries)
+        return {
+            "authority": "runtime.prompt_accounting.retention_cold_token_stats",
+            "version": self.RETAINED_TOKEN_STATS_VERSION,
+            "cutoff_timestamp": cutoff_timestamp,
+            "created_at": now,
+            "run_summary_count": len(entries),
+            "usage_rows_compacted": sum(len(list(value or [])) for value in usage_by_key.values()),
+            "cache_rows_compacted": sum(len(list(value or [])) for value in cache_by_key.values()),
+            "summary": summary,
+            "daily": _daily_token_stats(entries),
+            "run_summaries": sorted(entries, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True),
+            "sample_run_summaries": sorted(entries, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)[:20],
+            "checksum": _json_checksum(entries),
+        }
+
+    def _retention_response(self, *, plan: dict[str, Any], mode: str, now: float) -> dict[str, Any]:
+        cold_stats = dict(plan.get("cold_token_stats") or {})
+        return {
+            "authority": "runtime.prompt_accounting.retention",
+            "mode": mode,
+            "policy": dict(plan.get("policy") or {}),
+            "summary": dict(plan.get("summary") or {}),
+            "files": dict(plan.get("files") or {}),
+            "cold_token_stats": {
+                "authority": str(cold_stats.get("authority") or ""),
+                "version": int(cold_stats.get("version") or self.RETAINED_TOKEN_STATS_VERSION),
+                "run_summary_count": int(cold_stats.get("run_summary_count") or 0),
+                "usage_rows_compacted": int(cold_stats.get("usage_rows_compacted") or 0),
+                "cache_rows_compacted": int(cold_stats.get("cache_rows_compacted") or 0),
+                "summary": dict(cold_stats.get("summary") or {}),
+                "daily": list(cold_stats.get("daily") or []),
+                "sample_run_summaries": list(cold_stats.get("sample_run_summaries") or []),
+                "checksum": str(cold_stats.get("checksum") or ""),
+            },
+            "retained_token_stats_path": str(self.retained_token_stats_path),
+            "retention_receipts_path": str(self.retention_receipts_path),
+            "updated_at": now,
+        }
+
+    def _execute_retention_rewrites(self, *, plan: dict[str, Any], cutoff_timestamp: float) -> dict[str, Any]:
+        protection = {
+            "keys": set(dict(plan.get("policy") or {}).get("protected_task_run_ids") or []),
+            "sessions": set(dict(plan.get("policy") or {}).get("protected_session_ids") or []),
+        }
+        retained_request_ids = (
+            set(dict(plan.get("usage_plan") or {}).get("retained_request_ids") or set())
+            | set(dict(plan.get("cache_plan") or {}).get("retained_request_ids") or set())
+        )
+        results = {
+            "token_usage.jsonl": self._rewrite_jsonl_dropping_groups(
+                "token_usage.jsonl",
+                drop_group_ids=set(dict(plan.get("usage_plan") or {}).get("drop_group_ids") or set()),
+                primary_fields=("request_id", "usage_id"),
+            ),
+            "prompt_cache.jsonl": self._rewrite_jsonl_dropping_groups(
+                "prompt_cache.jsonl",
+                drop_group_ids=set(dict(plan.get("cache_plan") or {}).get("drop_group_ids") or set()),
+                primary_fields=("request_id", "cache_record_id"),
+            ),
+        }
+        for filename in dict(plan.get("generic_files") or {}):
+            results[filename] = self._rewrite_jsonl_for_retention(
+                filename,
+                cutoff_timestamp=cutoff_timestamp,
+                protection=protection,
+                retained_request_ids=retained_request_ids,
+            )
+        return {
+            "authority": "runtime.prompt_accounting.retention_rewrite",
+            "files": results,
+            "deleted_counts": {
+                filename.removesuffix(".jsonl"): int(result.get("deleted_rows") or 0)
+                for filename, result in results.items()
+                if int(result.get("deleted_rows") or 0) > 0
+            },
+        }
+
+    def _rewrite_jsonl_dropping_groups(
+        self,
+        filename: str,
+        *,
+        drop_group_ids: set[str],
+        primary_fields: tuple[str, ...],
+    ) -> dict[str, Any]:
+        path = self.ledger_dir / filename
+        if not path.exists() or not drop_group_ids:
+            return {
+                "filename": filename,
+                "exists": path.exists(),
+                "kept_rows": 0,
+                "deleted_rows": 0,
+                "malformed_rows_kept": 0,
+                "rewritten": False,
+            }
+        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.retention.tmp")
+        kept_rows = 0
+        deleted_rows = 0
+        malformed_rows = 0
+        with path.open("r", encoding="utf-8") as source, tmp_path.open("w", encoding="utf-8", newline="\n") as target:
+            for line in source:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except JSONDecodeError:
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                if not isinstance(row, dict):
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                group_id = _retention_group_id(row, primary_fields=primary_fields)
+                if group_id in drop_group_ids:
+                    deleted_rows += 1
+                    continue
+                target.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                kept_rows += 1
+        tmp_path.replace(path)
+        self._invalidate_filtered_read_cache(filename)
+        return {
+            "filename": filename,
+            "exists": True,
+            "kept_rows": kept_rows,
+            "deleted_rows": deleted_rows,
+            "malformed_rows_kept": malformed_rows,
+            "rewritten": True,
+        }
+
+    def _rewrite_jsonl_for_retention(
+        self,
+        filename: str,
+        *,
+        cutoff_timestamp: float,
+        protection: dict[str, set[str]],
+        retained_request_ids: set[str],
+    ) -> dict[str, Any]:
+        path = self.ledger_dir / filename
+        if not path.exists():
+            return {
+                "filename": filename,
+                "exists": False,
+                "kept_rows": 0,
+                "deleted_rows": 0,
+                "malformed_rows_kept": 0,
+                "rewritten": False,
+            }
+        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.retention.tmp")
+        kept_rows = 0
+        deleted_rows = 0
+        malformed_rows = 0
+        with path.open("r", encoding="utf-8") as source, tmp_path.open("w", encoding="utf-8", newline="\n") as target:
+            for line in source:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except JSONDecodeError:
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                if not isinstance(row, dict):
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                decision = _row_retention_decision(
+                    row,
+                    cutoff_timestamp=cutoff_timestamp,
+                    protection=protection,
+                    retained_request_ids=retained_request_ids,
+                )
+                if decision == "compact":
+                    deleted_rows += 1
+                    continue
+                target.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                kept_rows += 1
+        tmp_path.replace(path)
+        self._invalidate_filtered_read_cache(filename)
+        return {
+            "filename": filename,
+            "exists": True,
+            "kept_rows": kept_rows,
+            "deleted_rows": deleted_rows,
+            "malformed_rows_kept": malformed_rows,
+            "rewritten": deleted_rows > 0,
+        }
+
+    def _read_retained_token_stats(self) -> dict[str, Any]:
+        path = self.retained_token_stats_path
+        signature = _file_signature(path)
+        cached = self._retained_token_stats_cache
+        if cached is not None and cached[0] == signature:
+            return dict(cached[1])
+        if not path.exists():
+            payload = _empty_retained_token_stats(version=self.RETAINED_TOKEN_STATS_VERSION)
+            self._retained_token_stats_cache = (signature, dict(payload))
+            return payload
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError):
+            payload = _empty_retained_token_stats(version=self.RETAINED_TOKEN_STATS_VERSION)
+        if not isinstance(payload, dict) or int(payload.get("version") or 0) != self.RETAINED_TOKEN_STATS_VERSION:
+            payload = _empty_retained_token_stats(version=self.RETAINED_TOKEN_STATS_VERSION)
+        self._retained_token_stats_cache = (signature, dict(payload))
+        return dict(payload)
+
+    def _write_retained_token_stats(self, payload: dict[str, Any]) -> None:
+        self.retention_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.retained_token_stats_path.with_suffix(f"{self.retained_token_stats_path.suffix}.{threading.get_ident()}.tmp")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(self.retained_token_stats_path)
+        self._retained_token_stats_cache = (_file_signature(self.retained_token_stats_path), dict(payload))
+
+    def _retained_summary_payload_for_key(self, key: str) -> dict[str, Any] | None:
+        normalized = str(key or "").strip()
+        if not normalized:
+            return None
+        for payload in list(self._read_retained_token_stats().get("run_summaries") or []):
+            if not isinstance(payload, dict):
+                continue
+            keys = {
+                str(payload.get("key") or ""),
+                str(payload.get("task_run_id") or ""),
+                str(payload.get("run_id") or ""),
+            }
+            if normalized in keys:
+                return dict(payload)
+        return None
+
+    def _merge_retained_token_stats(
+        self,
+        existing: dict[str, Any],
+        additions: list[dict[str, Any]],
+        *,
+        policy: dict[str, Any],
+        now: float,
+    ) -> dict[str, Any]:
+        rows = _merge_summary_rows([
+            *[
+                dict(item)
+                for item in list(existing.get("run_summaries") or [])
+                if isinstance(item, dict)
+            ],
+            *[dict(item) for item in additions if isinstance(item, dict)],
+        ])
+        payload = {
+            "authority": "runtime.prompt_accounting.retained_token_stats",
+            "version": self.RETAINED_TOKEN_STATS_VERSION,
+            "retention_policy": dict(policy or {}),
+            "updated_at": now,
+            "run_summary_count": len(rows),
+            "summary": _aggregate_summary_entries(rows),
+            "daily": _daily_token_stats(rows),
+            "run_summaries": sorted(rows, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True),
+        }
+        payload["checksum"] = _json_checksum(payload["run_summaries"])
+        return payload
+
+    def _retention_receipt(
+        self,
+        *,
+        plan: dict[str, Any],
+        rewrite_results: dict[str, Any],
+        stats: dict[str, Any],
+        now: float,
+    ) -> dict[str, Any]:
+        deleted_counts = dict(dict(rewrite_results or {}).get("deleted_counts") or {})
+        checksum_input = {
+            "policy": dict(plan.get("policy") or {}),
+            "deleted_counts": deleted_counts,
+            "stats_checksum": str(stats.get("checksum") or ""),
+        }
+        return {
+            "authority": "runtime.prompt_accounting.retention_receipt",
+            "receipt_id": f"prompt-accounting-retention:{int(now * 1000)}",
+            "command_ref": "health-system/prompt-accounting/retention/compact",
+            "status": "completed",
+            "created_at": now,
+            "policy": dict(plan.get("policy") or {}),
+            "summary": dict(plan.get("summary") or {}),
+            "deleted_counts": deleted_counts,
+            "retained_token_stats": {
+                "path": str(self.retained_token_stats_path),
+                "run_summary_count": int(stats.get("run_summary_count") or 0),
+                "checksum": str(stats.get("checksum") or ""),
+            },
+            "checksum": _json_checksum(checksum_input),
+        }
+
+    def _append_retention_receipt(self, receipt: dict[str, Any]) -> None:
+        self.retention_dir.mkdir(parents=True, exist_ok=True)
+        with self.retention_receipts_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+
     def _append_jsonl(self, filename: str, payload: dict[str, Any]) -> None:
         path = self.ledger_dir / filename
         with self._lock:
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
             self._apply_append_to_filtered_read_cache(filename, _file_signature(path), payload)
+
+    def _summary_for_key(self, key: str) -> dict[str, Any] | None:
+        normalized = str(key or "").strip()
+        if not normalized:
+            return None
+        with self._lock:
+            payload = self._read_summary_payload(normalized)
+        retained = self._retained_summary_payload_for_key(normalized)
+        if payload is None and retained is None:
+            return None
+        if payload is None:
+            return dict(dict(retained or {}).get("summary") or _empty_usage_summary())
+        if retained is None:
+            return dict(payload.get("summary") or _empty_usage_summary())
+        merged = _merge_summary_rows([dict(retained), _summary_manifest_entry(payload)])
+        if not merged:
+            return _empty_usage_summary()
+        return dict(merged[0].get("summary") or _empty_usage_summary())
+
+    def _upsert_usage_summary(self, record: ModelTokenUsageRecord) -> None:
+        key = _summary_key_for_usage(record)
+        if not key:
+            return
+        with self._lock:
+            payload = self._read_summary_payload(key) or _new_summary_payload(key)
+            usage_records = dict(payload.get("usage_records") or {})
+            usage_key = record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}"
+            previous = usage_records.get(usage_key)
+            if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
+                usage_records[usage_key] = _compact_usage_record(record)
+            payload["usage_records"] = usage_records
+            self._rewrite_summary_payload(key, payload)
+
+    def _upsert_cache_summary(self, record: PromptCacheRecord) -> None:
+        key = _summary_key_for_cache(record)
+        if not key:
+            return
+        with self._lock:
+            payload = self._read_summary_payload(key) or _new_summary_payload(key)
+            cache_records = dict(payload.get("cache_records") or {})
+            cache_key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
+            previous = cache_records.get(cache_key)
+            if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
+                cache_records[cache_key] = _compact_cache_record(record)
+            payload["cache_records"] = cache_records
+            self._rewrite_summary_payload(key, payload)
+
+    def _rewrite_summary_payload(self, key: str, payload: dict[str, Any], *, update_manifest: bool = True) -> None:
+        normalized = str(key or "").strip()
+        if not normalized:
+            return
+        usage_records = [
+            ModelTokenUsageRecord.from_dict(dict(item))
+            for item in dict(payload.get("usage_records") or {}).values()
+        ]
+        cache_records = [
+            PromptCacheRecord.from_dict(dict(item))
+            for item in dict(payload.get("cache_records") or {}).values()
+        ]
+        sorted_usage = sorted(usage_records, key=lambda item: float(item.created_at or 0.0))
+        sorted_cache = sorted(cache_records, key=lambda item: float(item.created_at or 0.0))
+        timeline = list(sorted_usage) + list(sorted_cache)
+        first = min(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
+        last = max(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
+        summary = summarize_usage_records(sorted_usage, cache_records=sorted_cache)
+        payload = {
+            "authority": "runtime.prompt_accounting.summary_index",
+            "version": self.SUMMARY_INDEX_VERSION,
+            "key": normalized,
+            "summary": summary,
+            "usage_records": {
+                record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}": _compact_usage_record(record)
+                for record in sorted_usage
+            },
+            "cache_records": {
+                record.cache_record_id or f"{record.request_id}:{record.created_at}": _compact_cache_record(record)
+                for record in sorted_cache
+            },
+            "record_count": int(summary.get("record_count") or 0),
+            "task_run_id": str(getattr(last, "task_run_id", "") or getattr(first, "task_run_id", "") or ""),
+            "run_id": str(getattr(last, "run_id", "") or getattr(first, "run_id", "") or normalized),
+            "session_id": str(getattr(last, "session_id", "") or getattr(first, "session_id", "") or ""),
+            "provider": str(getattr(last, "provider", "") or getattr(first, "provider", "") or ""),
+            "model": str(getattr(last, "model", "") or getattr(first, "model", "") or ""),
+            "created_at": float(getattr(first, "created_at", 0.0) or 0.0),
+            "updated_at": float(getattr(last, "created_at", 0.0) or 0.0),
+        }
+        path = self._summary_index_path(normalized)
+        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.tmp")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+        if update_manifest:
+            self._upsert_summary_manifest_entry(payload)
+
+    def _read_summary_payload(self, key: str) -> dict[str, Any] | None:
+        path = self._summary_index_path(key)
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError):
+            return None
+        if not self._valid_summary_payload(payload):
+            return None
+        return dict(payload)
+
+    def _read_summary_manifest(self) -> list[dict[str, Any]]:
+        path = self.summary_index_manifest_path
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError):
+            return []
+        if not isinstance(payload, dict):
+            return []
+        if int(payload.get("version") or 0) != self.SUMMARY_INDEX_VERSION:
+            return []
+        rows = payload.get("summaries")
+        if not isinstance(rows, list):
+            return []
+        return [dict(item) for item in rows if isinstance(item, dict) and isinstance(item.get("summary"), dict)]
+
+    def _upsert_summary_manifest_entry(self, payload: dict[str, Any]) -> None:
+        rows = {
+            str(item.get("key") or ""): dict(item)
+            for item in self._read_summary_manifest()
+            if str(item.get("key") or "")
+        }
+        key = str(payload.get("key") or "")
+        if not key:
+            return
+        rows[key] = _summary_manifest_entry(payload)
+        self._rewrite_summary_manifest(rows.values())
+
+    def _rewrite_summary_manifest(self, payloads: Any) -> None:
+        rows = [_summary_manifest_entry(dict(payload)) for payload in payloads]
+        manifest = {
+            "authority": "runtime.prompt_accounting.summary_index_manifest",
+            "version": self.SUMMARY_INDEX_VERSION,
+            "summary_count": len(rows),
+            "summaries": sorted(rows, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True),
+        }
+        self.summary_index_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.summary_index_manifest_path.with_suffix(f"{self.summary_index_manifest_path.suffix}.{threading.get_ident()}.tmp")
+        tmp_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(self.summary_index_manifest_path)
+
+    def _valid_summary_payload(self, payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if int(payload.get("version") or 0) != self.SUMMARY_INDEX_VERSION:
+            return False
+        summary = payload.get("summary")
+        return isinstance(summary, dict)
+
+    def _summary_index_path(self, key: str) -> Path:
+        digest = hashlib.sha256(str(key or "").encode("utf-8")).hexdigest()
+        return self.summary_index_dir / f"{digest}.json"
+
+    def _summary_scan_allowed(self) -> bool:
+        total = 0
+        for filename in ("token_usage.jsonl", "prompt_cache.jsonl", "segment_maps.jsonl"):
+            total += _file_signature(self.ledger_dir / filename)[1]
+            if total > self.SUMMARY_SCAN_MAX_BYTES:
+                return False
+        return True
+
+    def _delete_summary_keys(self, keys: set[str]) -> int:
+        deleted = 0
+        with self._lock:
+            for key in {str(item).strip() for item in keys if str(item).strip()}:
+                path = self._summary_index_path(key)
+                if not path.exists():
+                    continue
+                try:
+                    path.unlink()
+                    deleted += 1
+                except OSError:
+                    continue
+            self._rewrite_summary_manifest(
+                payload
+                for payload in self._read_summary_manifest()
+                if str(payload.get("key") or "") not in keys
+            )
+        return deleted
+
+    def _delete_summary_session_or_tasks(self, session_id: str, task_run_ids: set[str]) -> int:
+        deleted = 0
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        normalized_session = str(session_id or "").strip()
+        with self._lock:
+            for path in self.summary_index_dir.glob("*.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, JSONDecodeError):
+                    continue
+                if not self._valid_summary_payload(payload):
+                    continue
+                payload_key = str(payload.get("key") or "")
+                payload_task_run_id = str(payload.get("task_run_id") or "")
+                payload_run_id = str(payload.get("run_id") or "")
+                payload_session_id = str(payload.get("session_id") or "")
+                if payload_key in targets or payload_task_run_id in targets or payload_run_id in targets or (normalized_session and payload_session_id == normalized_session):
+                    try:
+                        path.unlink()
+                        deleted += 1
+                    except OSError:
+                        continue
+            self._rewrite_summary_manifest(
+                payload
+                for payload in self._read_summary_manifest()
+                if str(payload.get("key") or "") not in targets
+                and str(payload.get("task_run_id") or "") not in targets
+                and str(payload.get("run_id") or "") not in targets
+                and not (normalized_session and str(payload.get("session_id") or "") == normalized_session)
+            )
+        return deleted
 
     def _read_jsonl(self, filename: str, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
         path = self.ledger_dir / filename
@@ -360,6 +1441,22 @@ class PromptAccountingLedger:
                 if len(self._filtered_read_cache) > 256:
                     self._filtered_read_cache.pop(next(iter(self._filtered_read_cache)))
             return rows
+
+    def _iter_jsonl_rows(self, filename: str):
+        path = self.ledger_dir / filename
+        if not path.exists():
+            return
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    payload = json.loads(stripped)
+                except JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    yield payload
 
     def _invalidate_filtered_read_cache(self, filename: str | None = None) -> None:
         if filename is None:
@@ -486,6 +1583,333 @@ def summarize_usage_records(
     return totals
 
 
+def _empty_usage_summary() -> dict[str, Any]:
+    return summarize_usage_records([])
+
+
+def _new_summary_payload(key: str) -> dict[str, Any]:
+    return {
+        "authority": "runtime.prompt_accounting.summary_index",
+        "version": PromptAccountingLedger.SUMMARY_INDEX_VERSION,
+        "key": str(key or ""),
+        "summary": _empty_usage_summary(),
+        "usage_records": {},
+        "cache_records": {},
+        "record_count": 0,
+        "task_run_id": "",
+        "run_id": str(key or ""),
+        "session_id": "",
+        "provider": "",
+        "model": "",
+        "created_at": 0.0,
+        "updated_at": 0.0,
+    }
+
+
+def _summary_key_for_usage(record: ModelTokenUsageRecord) -> str:
+    return str(record.task_run_id or record.run_id or record.request_id or record.usage_id or "").strip()
+
+
+def _summary_key_for_cache(record: PromptCacheRecord) -> str:
+    return str(record.task_run_id or record.run_id or record.request_id or record.cache_record_id or "").strip()
+
+
+def _compact_usage_record(record: ModelTokenUsageRecord) -> dict[str, Any]:
+    return {
+        "usage_id": record.usage_id,
+        "request_id": record.request_id,
+        "run_id": record.run_id,
+        "task_run_id": record.task_run_id,
+        "session_id": record.session_id,
+        "provider": record.provider,
+        "model": record.model,
+        "source": record.source,
+        "prompt_tokens": int(record.prompt_tokens or 0),
+        "completion_tokens": int(record.completion_tokens or 0),
+        "reasoning_tokens": int(record.reasoning_tokens or 0),
+        "cached_tokens": int(record.cached_tokens or 0),
+        "cache_creation_tokens": int(record.cache_creation_tokens or 0),
+        "cache_read_tokens": int(record.cache_read_tokens or 0),
+        "cache_miss_tokens": int(record.cache_miss_tokens or 0),
+        "total_tokens": int(record.total_tokens or 0),
+        "created_at": float(record.created_at or 0.0),
+        "authority": record.authority,
+    }
+
+
+def _compact_cache_record(record: PromptCacheRecord) -> dict[str, Any]:
+    return {
+        "cache_record_id": record.cache_record_id,
+        "request_id": record.request_id,
+        "provider": record.provider,
+        "model": record.model,
+        "run_id": record.run_id,
+        "task_run_id": record.task_run_id,
+        "session_id": record.session_id,
+        "scope": record.scope,
+        "status": record.status,
+        "cached_tokens": int(record.cached_tokens or 0),
+        "cache_savings_tokens": int(record.cache_savings_tokens or 0),
+        "cache_creation_tokens": int(record.cache_creation_tokens or 0),
+        "cache_read_tokens": int(record.cache_read_tokens or 0),
+        "created_at": float(record.created_at or 0.0),
+        "authority": record.authority,
+    }
+
+
+def _summary_manifest_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = dict(payload.get("summary") or {})
+    return {
+        "authority": str(payload.get("authority") or "runtime.prompt_accounting.summary_index"),
+        "key": str(payload.get("key") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "run_id": str(payload.get("run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "provider": str(payload.get("provider") or ""),
+        "model": str(payload.get("model") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+        "summary": {
+            "total_tokens": int(summary.get("total_tokens") or 0),
+            "effective_total_tokens": int(summary.get("effective_total_tokens") or summary.get("total_tokens") or 0),
+            "exact_total_tokens": int(summary.get("exact_total_tokens") or 0),
+            "predicted_total_tokens": int(summary.get("predicted_total_tokens") or 0),
+            "trace_estimate_total_tokens": int(summary.get("trace_estimate_total_tokens") or 0),
+            "prompt_tokens": int(summary.get("prompt_tokens") or 0),
+            "completion_tokens": int(summary.get("completion_tokens") or 0),
+            "reasoning_tokens": int(summary.get("reasoning_tokens") or 0),
+            "cached_tokens": int(summary.get("cached_tokens") or 0),
+            "cache_creation_tokens": int(summary.get("cache_creation_tokens") or 0),
+            "cache_read_tokens": int(summary.get("cache_read_tokens") or 0),
+            "cache_miss_tokens": int(summary.get("cache_miss_tokens") or 0),
+            "cache_savings_tokens": int(summary.get("cache_savings_tokens") or 0),
+            "record_count": int(summary.get("record_count") or 0),
+            "cache_record_count": int(summary.get("cache_record_count") or 0),
+            "provider_usage_record_count": int(summary.get("provider_usage_record_count") or 0),
+            "local_prediction_record_count": int(summary.get("local_prediction_record_count") or 0),
+            "trace_estimate_record_count": int(summary.get("trace_estimate_record_count") or 0),
+            "billing_truth_available": bool(summary.get("billing_truth_available") is True),
+        },
+    }
+
+
+def _summary_entry_from_compact_records(
+    key: str,
+    *,
+    usage_records: list[dict[str, Any]],
+    cache_records: list[dict[str, Any]],
+    authority: str,
+) -> dict[str, Any]:
+    usage = [
+        ModelTokenUsageRecord.from_dict(dict(item))
+        for item in list(usage_records or [])
+        if isinstance(item, dict)
+    ]
+    cache = [
+        PromptCacheRecord.from_dict(dict(item))
+        for item in list(cache_records or [])
+        if isinstance(item, dict)
+    ]
+    sorted_usage = sorted(usage, key=lambda item: float(item.created_at or 0.0))
+    sorted_cache = sorted(cache, key=lambda item: float(item.created_at or 0.0))
+    timeline = [*sorted_usage, *sorted_cache]
+    first = min(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
+    last = max(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
+    summary = summarize_usage_records(sorted_usage, cache_records=sorted_cache)
+    summary["cache_record_count"] = len(sorted_cache)
+    payload = {
+        "authority": authority,
+        "version": PromptAccountingLedger.SUMMARY_INDEX_VERSION,
+        "key": str(key or ""),
+        "summary": summary,
+        "task_run_id": str(getattr(last, "task_run_id", "") or getattr(first, "task_run_id", "") or ""),
+        "run_id": str(getattr(last, "run_id", "") or getattr(first, "run_id", "") or str(key or "")),
+        "session_id": str(getattr(last, "session_id", "") or getattr(first, "session_id", "") or ""),
+        "provider": str(getattr(last, "provider", "") or getattr(first, "provider", "") or ""),
+        "model": str(getattr(last, "model", "") or getattr(first, "model", "") or ""),
+        "created_at": float(getattr(first, "created_at", 0.0) or 0.0),
+        "updated_at": float(getattr(last, "created_at", 0.0) or 0.0),
+    }
+    return _summary_manifest_entry(payload)
+
+
+def _merge_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for row in list(rows or []):
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key") or row.get("task_run_id") or row.get("run_id") or "").strip()
+        if not key:
+            continue
+        entry = _summary_manifest_entry({**dict(row), "key": key})
+        existing = by_key.get(key)
+        by_key[key] = entry if existing is None else _merge_summary_entry(existing, entry)
+    return list(by_key.values())
+
+
+def _merge_summary_entry(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    left_entry = _summary_manifest_entry(left)
+    right_entry = _summary_manifest_entry(right)
+    left_summary = dict(left_entry.get("summary") or {})
+    right_summary = dict(right_entry.get("summary") or {})
+    numeric_keys = {
+        "total_tokens",
+        "effective_total_tokens",
+        "exact_total_tokens",
+        "predicted_total_tokens",
+        "trace_estimate_total_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "reasoning_tokens",
+        "cached_tokens",
+        "cache_creation_tokens",
+        "cache_read_tokens",
+        "cache_miss_tokens",
+        "cache_savings_tokens",
+        "record_count",
+        "cache_record_count",
+        "provider_usage_record_count",
+        "local_prediction_record_count",
+        "trace_estimate_record_count",
+    }
+    summary = {
+        key: int(left_summary.get(key) or 0) + int(right_summary.get(key) or 0)
+        for key in numeric_keys
+    }
+    summary["billing_truth_available"] = bool(summary["provider_usage_record_count"] > 0)
+    created_candidates = [
+        float(item.get("created_at") or 0.0)
+        for item in (left_entry, right_entry)
+        if float(item.get("created_at") or 0.0) > 0
+    ]
+    updated_at = max(float(left_entry.get("updated_at") or 0.0), float(right_entry.get("updated_at") or 0.0))
+    latest = right_entry if float(right_entry.get("updated_at") or 0.0) >= float(left_entry.get("updated_at") or 0.0) else left_entry
+    earliest = min(created_candidates) if created_candidates else 0.0
+    return {
+        "authority": "runtime.prompt_accounting.merged_token_summary",
+        "key": str(latest.get("key") or left_entry.get("key") or right_entry.get("key") or ""),
+        "task_run_id": str(latest.get("task_run_id") or left_entry.get("task_run_id") or right_entry.get("task_run_id") or ""),
+        "run_id": str(latest.get("run_id") or left_entry.get("run_id") or right_entry.get("run_id") or ""),
+        "session_id": str(latest.get("session_id") or left_entry.get("session_id") or right_entry.get("session_id") or ""),
+        "provider": str(latest.get("provider") or left_entry.get("provider") or right_entry.get("provider") or ""),
+        "model": str(latest.get("model") or left_entry.get("model") or right_entry.get("model") or ""),
+        "created_at": earliest,
+        "updated_at": updated_at,
+        "summary": summary,
+    }
+
+
+def _aggregate_summary_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "total_tokens": 0,
+        "overall_total_tokens": 0,
+        "effective_total_tokens": 0,
+        "exact_total_tokens": 0,
+        "predicted_total_tokens": 0,
+        "trace_estimate_total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_miss_tokens": 0,
+        "cache_savings_tokens": 0,
+        "record_count": 0,
+        "cache_record_count": 0,
+        "provider_usage_record_count": 0,
+        "local_prediction_record_count": 0,
+        "trace_estimate_record_count": 0,
+        "run_summary_count": len(entries),
+        "session_count": len({str(item.get("session_id") or "") for item in entries if str(item.get("session_id") or "")}),
+    }
+    for entry in list(entries or []):
+        item_summary = dict(entry.get("summary") or {})
+        for key in (
+            "total_tokens",
+            "effective_total_tokens",
+            "exact_total_tokens",
+            "predicted_total_tokens",
+            "trace_estimate_total_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "reasoning_tokens",
+            "cached_tokens",
+            "cache_creation_tokens",
+            "cache_read_tokens",
+            "cache_miss_tokens",
+            "cache_savings_tokens",
+            "record_count",
+            "cache_record_count",
+            "provider_usage_record_count",
+            "local_prediction_record_count",
+            "trace_estimate_record_count",
+        ):
+            summary[key] = int(summary.get(key) or 0) + int(item_summary.get(key) or 0)
+    summary["overall_total_tokens"] = int(summary.get("total_tokens") or 0)
+    summary["billing_truth_available"] = bool(int(summary.get("provider_usage_record_count") or 0) > 0)
+    return summary
+
+
+def _daily_token_stats(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_day: dict[int, dict[str, Any]] = {}
+    for entry in list(entries or []):
+        updated_at = float(entry.get("updated_at") or entry.get("created_at") or 0.0)
+        if updated_at <= 0:
+            continue
+        day_start = int(updated_at // 86400) * 86400
+        summary = dict(entry.get("summary") or {})
+        bucket = by_day.setdefault(
+            day_start,
+            {
+                "bucket_start": day_start,
+                "bucket_end": day_start + 86400,
+                "bucket": time.strftime("%Y-%m-%d", time.localtime(day_start)),
+                "tokens": 0,
+                "exact_tokens": 0,
+                "predicted_tokens": 0,
+                "trace_estimate_tokens": 0,
+                "cache_savings_tokens": 0,
+                "records": 0,
+                "sessions": set(),
+            },
+        )
+        bucket["tokens"] = int(bucket["tokens"]) + int(summary.get("total_tokens") or 0)
+        bucket["exact_tokens"] = int(bucket["exact_tokens"]) + int(summary.get("exact_total_tokens") or 0)
+        bucket["predicted_tokens"] = int(bucket["predicted_tokens"]) + int(summary.get("predicted_total_tokens") or 0)
+        bucket["trace_estimate_tokens"] = int(bucket["trace_estimate_tokens"]) + int(summary.get("trace_estimate_total_tokens") or 0)
+        bucket["cache_savings_tokens"] = int(bucket["cache_savings_tokens"]) + int(summary.get("cache_savings_tokens") or 0)
+        bucket["records"] = int(bucket["records"]) + int(summary.get("record_count") or 0)
+        session_id = str(entry.get("session_id") or "")
+        if session_id:
+            bucket["sessions"].add(session_id)
+    rows: list[dict[str, Any]] = []
+    for bucket in sorted(by_day.values(), key=lambda item: int(item.get("bucket_start") or 0)):
+        payload = dict(bucket)
+        payload["sessions"] = len(set(payload.get("sessions") or set()))
+        rows.append(payload)
+    return rows
+
+
+def _empty_retained_token_stats(*, version: int) -> dict[str, Any]:
+    return {
+        "authority": "runtime.prompt_accounting.retained_token_stats",
+        "version": version,
+        "retention_policy": {},
+        "updated_at": 0.0,
+        "run_summary_count": 0,
+        "summary": _aggregate_summary_entries([]),
+        "daily": [],
+        "run_summaries": [],
+        "checksum": _json_checksum([]),
+    }
+
+
+def _json_checksum(payload: Any) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
     return PromptSegment(
         segment_id=str(payload.get("segment_id") or ""),
@@ -541,6 +1965,61 @@ def _row_matches_filter(row: dict[str, Any], *, run_id: str, task_run_id: str, s
         row_task_run_id = str(row.get("task_run_id") or "")
         return run_id in {row_run_id, row_task_run_id}
     return True
+
+
+def _retention_group_id(row: dict[str, Any], *, primary_fields: tuple[str, ...]) -> str:
+    for field in primary_fields:
+        value = str(row.get(field) or "").strip()
+        if value:
+            return f"{field}:{value}"
+    for field in ("request_id", "task_run_id", "run_id", "cache_record_id", "usage_id", "report_id", "segment_id"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            return f"{field}:{value}"
+    return "row:" + hashlib.sha256(json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _row_is_retention_protected(row: dict[str, Any], *, protection: dict[str, set[str]]) -> bool:
+    protected_keys = set(protection.get("keys") or set())
+    protected_sessions = set(protection.get("sessions") or set())
+    row_keys = {
+        str(row.get("task_run_id") or "").strip(),
+        str(row.get("run_id") or "").strip(),
+        str(row.get("request_id") or "").strip(),
+    }
+    row_session = str(row.get("session_id") or "").strip()
+    return bool((protected_keys & row_keys) or (row_session and row_session in protected_sessions))
+
+
+def _row_retention_decision(
+    row: dict[str, Any],
+    *,
+    cutoff_timestamp: float,
+    protection: dict[str, set[str]],
+    retained_request_ids: set[str],
+) -> str:
+    if _row_is_retention_protected(row, protection=protection):
+        return "protected"
+    request_id = str(row.get("request_id") or "").strip()
+    if request_id and request_id in retained_request_ids:
+        return "protected"
+    created_at = _row_created_at(row)
+    if created_at <= 0:
+        return "undated"
+    if created_at < cutoff_timestamp:
+        return "compact"
+    return "hot"
+
+
+def _row_created_at(row: dict[str, Any]) -> float:
+    for field in ("created_at", "updated_at", "recorded_at"):
+        try:
+            value = float(row.get(field) or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        if value > 0:
+            return value
+    return 0.0
 
 
 def _file_signature(path: Path) -> tuple[int, int]:

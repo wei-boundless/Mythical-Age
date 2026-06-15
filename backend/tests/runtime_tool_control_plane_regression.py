@@ -109,6 +109,31 @@ def test_runtime_tool_plan_single_turn_keeps_authorized_side_effect_tools_visibl
     assert "write_file" not in filtered
 
 
+def test_runtime_tool_plan_allows_multiple_tools_for_same_operation_id() -> None:
+    plan = build_runtime_tool_plan(
+        runtime_assembly=_assembly(
+            available_tools=[
+                {"name": "edit_file", "operation_id": "op.edit_file", "read_only": False},
+                {"name": "batch_edit_file", "operation_id": "op.edit_file", "read_only": False},
+            ],
+        ),
+        invocation_kind="task_execution",
+        tool_definitions_by_name={
+            "edit_file": SimpleNamespace(operation_id="op.edit_file", is_read_only=False),
+            "batch_edit_file": SimpleNamespace(operation_id="op.edit_file", is_read_only=False),
+        },
+    )
+
+    assert plan.capability_table.capability_for_tool(
+        operation_id="op.edit_file",
+        tool_name="edit_file",
+    ).tool_name == "edit_file"
+    assert plan.capability_table.capability_for_tool(
+        operation_id="op.edit_file",
+        tool_name="batch_edit_file",
+    ).tool_name == "batch_edit_file"
+
+
 def test_runtime_tool_plan_hides_subagent_lifecycle_tools_outside_task_execution() -> None:
     definitions = {
         "spawn_subagent": SimpleNamespace(operation_id="op.subagent_spawn", is_read_only=False),

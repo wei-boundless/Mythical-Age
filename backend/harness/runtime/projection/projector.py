@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .authority import build_public_projection_frame
 from .guards import compact, public_text, record, stable_id, text
 from .items import action_kind_for_tool
+from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 from runtime.output_stream.public_contract import (
     ASSISTANT_BODY_EVENT_FAMILY,
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -30,6 +32,11 @@ from runtime.output_stream.public_contract import (
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
 _TRACE_ONLY_RUNTIME_STEP_SOURCES = {"runtime.protocol_repair", "system.tool_call_status", "tool_observation.summary"}
+_TOOL_FAILURE_FEEDBACK_RE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z0-9 _./-]{0,80}\s+failed|tool_policy_rejection):",
+    flags=re.IGNORECASE,
+)
+_LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
 
 
 class ProjectionLifecycleState:
@@ -563,7 +570,7 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     raw_state = text(data.get("state")).lower()
     failed = raw_state in {"error", "failed", "blocked"}
-    detail = public_text(data.get("error") or data.get("observation"), limit=360)
+    detail = _tool_completion_detail(data.get("error") or data.get("observation"), limit=360)
     if _is_agent_todo_tool(tool_name):
         return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)
     if not tool_call_id or not permission_decision_id:
@@ -1058,6 +1065,23 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
     if tool_label:
         return f"{tool_label}完成"
     return "工具执行完成"
+
+
+def _tool_completion_detail(value: Any, *, limit: int) -> str:
+    visible = public_text(value, limit=limit)
+    if visible:
+        return visible
+    raw_text = text(value)
+    if _LINE_NUMBERED_TOOL_OUTPUT_RE.search(raw_text):
+        return ""
+    raw = " ".join(raw_text.split()).strip()
+    if not _TOOL_FAILURE_FEEDBACK_RE.match(raw):
+        return ""
+    if looks_like_runtime_private_artifact_text(raw):
+        return ""
+    if limit > 0 and len(raw) > limit:
+        return raw[: max(1, limit - 1)] + "..."
+    return raw
 
 
 def _tool_display_label(tool_name: str) -> str:

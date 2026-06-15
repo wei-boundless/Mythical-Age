@@ -32,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ocr-language",
         default="eng",
-        help="OCR language passed to pytesseract when image OCR is available",
+        help="OCR language hint used by image OCR when available",
     )
     parser.add_argument(
         "--query",

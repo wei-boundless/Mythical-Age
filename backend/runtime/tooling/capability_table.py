@@ -74,6 +74,18 @@ class ToolCapabilityTable:
         target = str(operation_id or "").strip()
         return next((item for item in self.capabilities if item.operation_id == target), None)
 
+    def capability_for_tool(self, *, operation_id: str, tool_name: str) -> ToolCapability | None:
+        target_operation = str(operation_id or "").strip()
+        target_tool = str(tool_name or "").strip()
+        return next(
+            (
+                item
+                for item in self.capabilities
+                if item.operation_id == target_operation and item.tool_name == target_tool
+            ),
+            None,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "table_id": self.table_id,

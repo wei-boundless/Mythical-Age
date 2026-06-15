@@ -901,6 +901,65 @@ def test_tool_completion_uses_request_ref_for_permission_identity() -> None:
     assert completed["permission_decision_id"] == "admission:request:read"
 
 
+def test_tool_failure_feedback_survives_completion_projection_detail() -> None:
+    error_text = "Edit failed: old_text not found"
+    events = _project_public_stream_event(
+        "turn_tool_observation_recorded",
+        {
+            "event": {
+                "event_id": "event:tool-observation:edit-failed",
+                "payload": {
+                    "tool_observation": {
+                        "caller_ref": "turnrun:turn:test:1",
+                        "task_run_id": "taskrun:turn:test:1",
+                        "invocation_id": "toolinv:edit:1",
+                        "tool_name": "edit_file",
+                        "status": "error",
+                        "text": error_text,
+                        "tool_call_id": "call:edit",
+                        "result_envelope": {
+                            "tool_name": "edit_file",
+                            "tool_call_id": "call:edit",
+                            "text": error_text,
+                        },
+                        "execution_receipt": {
+                            "tool_call_id": "call:edit",
+                            "admission_ref": "admission:request:edit",
+                            "error": error_text,
+                        },
+                    }
+                },
+                "refs": {"turn_run_ref": "turnrun:turn:test:1", "task_run_ref": "taskrun:turn:test:1"},
+            }
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == [TOOL_ITEM_COMPLETED_EVENT]
+    completed = events[0][1]
+    assert completed["state"] == "error"
+    assert completed["error"] == error_text
+    assert completed["observation"] == error_text
+
+    frame = project_public_projection_event(
+        TOOL_ITEM_COMPLETED_EVENT,
+        {
+            **completed,
+            "public_anchor": {
+                "session_id": "session:test",
+                "turn_id": "turn:test",
+                "task_run_id": "taskrun:turn:test:1",
+            },
+        },
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "pinned"
+    assert frame["state"] == "failed"
+    assert frame["detail"] == error_text
+
+
 def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permission_ref_drifts() -> None:
     lifecycle = ProjectionLifecycleState()
     anchor = {

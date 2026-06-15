@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
+ApplyRecoverableWorkResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 8
@@ -87,7 +88,7 @@ _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
 _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 2
-_CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "ask_user", "block"}
+_CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "resume_recoverable_work", "ask_user", "block"}
 _CONTROL_ACTION_ALIASES = {
     "task_run_request": "request_task_run",
 }
@@ -125,6 +126,13 @@ class FinalMessageCommit:
     receipt: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AgentAuthoredCloseoutContent:
+    content: str
+    answer_channel: str = "conversation"
+    terminal_status: str = "completed"
+
+
 def _meaningful_visible_answer(content: str) -> bool:
     visible = sanitize_visible_assistant_content(str(content or "")).strip()
     if not visible:
@@ -136,10 +144,10 @@ def _meaningful_visible_answer(content: str) -> bool:
     return any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in visible)
 
 
-def _looks_like_structured_closeout_payload(content: str) -> bool:
+def _structured_closeout_payload(content: str) -> Any | None:
     text = str(content or "").strip()
     if not text:
-        return False
+        return None
     candidate = text
     if candidate.startswith("```"):
         candidate = candidate.replace("\r\n", "\n")
@@ -148,15 +156,50 @@ def _looks_like_structured_closeout_payload(content: str) -> bool:
             candidate = candidate[:-3]
         candidate = candidate.strip()
     if not ((candidate.startswith("{") and candidate.endswith("}")) or (candidate.startswith("[") and candidate.endswith("]"))):
-        return False
+        return None
     try:
-        parsed = json.loads(candidate)
+        return json.loads(candidate)
     except Exception:
-        return False
+        return None
+
+
+def _looks_like_structured_closeout_payload(content: str) -> bool:
+    parsed = _structured_closeout_payload(content)
     if isinstance(parsed, dict):
         keys = {str(key) for key in parsed.keys()}
-        return bool(keys & {"authority", "action_type", "tool_call", "tool_calls", "active_work_control"})
+        return bool(keys & {"authority", "action_type", "tool_call", "tool_calls", "active_work_control", "recovery_resume"})
     return isinstance(parsed, list) and any(isinstance(item, dict) for item in parsed)
+
+
+def _agent_authored_closeout_content_from_structured_payload(
+    content: str,
+    *,
+    turn_id: str,
+) -> AgentAuthoredCloseoutContent | None:
+    parsed = _structured_closeout_payload(content)
+    if not isinstance(parsed, dict) or not _is_model_action_json_payload(parsed):
+        return None
+    action_request, _diagnostics = model_action_request_from_payload(
+        parsed,
+        turn_id=turn_id,
+        allowed_action_types=_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES,
+    )
+    if action_request is None:
+        return None
+    if action_request.action_type == "respond":
+        return AgentAuthoredCloseoutContent(content=str(action_request.final_answer or "").strip())
+    if action_request.action_type == "ask_user":
+        return AgentAuthoredCloseoutContent(
+            content=str(action_request.user_question or "").strip(),
+            answer_channel="ask_user",
+        )
+    if action_request.action_type == "block":
+        return AgentAuthoredCloseoutContent(
+            content=str(action_request.blocking_reason or "").strip(),
+            answer_channel="blocked",
+            terminal_status="blocked",
+        )
+    return None
 
 
 def _tool_limit_closeout_control_signal(
@@ -378,6 +421,7 @@ async def run_single_agent_turn(
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
     apply_active_work_control: ApplyActiveWorkControl | None = None,
+    apply_recoverable_work_resume: ApplyRecoverableWorkResume | None = None,
     compact_session_context: CompactSessionContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
@@ -580,12 +624,19 @@ async def run_single_agent_turn(
                 if isinstance(closeout_response, dict) and closeout_response.get("type") == "error":
                     break
                 content = stringify_content(getattr(closeout_response, "content", closeout_response)).strip()
-                if _looks_like_structured_closeout_payload(content):
+                closeout_content = _agent_authored_closeout_content_from_structured_payload(content, turn_id=turn_id)
+                answer_channel = "conversation"
+                terminal_status = "completed"
+                if closeout_content is not None:
+                    content = closeout_content.content
+                    answer_channel = closeout_content.answer_channel
+                    terminal_status = closeout_content.terminal_status
+                elif _looks_like_structured_closeout_payload(content):
                     previous_invalid_response = content[:1200]
                     continue
                 decision = canonical_output_decision_for_final_text(
                     content,
-                    answer_channel="conversation",
+                    answer_channel=answer_channel,
                     answer_source=_AGENT_CLOSEOUT_SOURCE,
                     execution_posture="single_agent_turn",
                     terminal_reason=terminal_reason,
@@ -603,7 +654,7 @@ async def run_single_agent_turn(
                         session_id=session_id,
                         turn_id=turn_id,
                         content=content,
-                        answer_channel="conversation",
+                        answer_channel=answer_channel,
                         answer_source=_AGENT_CLOSEOUT_SOURCE,
                         api_protocol_messages=[
                             *api_protocol_messages,
@@ -612,9 +663,9 @@ async def run_single_agent_turn(
                     )
                     async for event in emit_terminal_then_final(
                         content=content,
-                        answer_channel="conversation",
+                        answer_channel=answer_channel,
                         answer_source=_AGENT_CLOSEOUT_SOURCE,
-                        terminal_status="completed",
+                        terminal_status=terminal_status,
                         terminal_reason=terminal_reason,
                         final_extra={
                             "runtime_branch": dict(runtime_branch or {}),
@@ -1739,6 +1790,47 @@ async def run_single_agent_turn(
                 ):
                     yield event
                 return
+            if action_request.action_type == "resume_recoverable_work":
+                if apply_recoverable_work_resume is None:
+                    async for event in emit_agent_authored_closeout(
+                        reason="recoverable_work_resume_executor_missing",
+                        phase="recoverable_work_resume_executor_missing",
+                        terminal_reason="recoverable_work_resume_executor_missing",
+                        protocol_error=_single_agent_protocol_error(
+                            code="recoverable_work_resume_executor_missing",
+                            reason="single_agent_turn_missing_recoverable_work_resume_callback",
+                            diagnostics={"action_request": action_request.to_dict()},
+                        ),
+                    ):
+                        yield event
+                    terminal_recorded = True
+                    return
+                terminal_reason = "recoverable_work_resume"
+                terminal_status = "completed"
+                buffered_resume_events: list[dict[str, Any]] = []
+                async for event in apply_recoverable_work_resume(action_request):
+                    event_payload = dict(event or {})
+                    event_type = str(event_payload.get("type") or "").strip()
+                    if event_type == "error":
+                        terminal_status = "failed"
+                        terminal_reason = str(event_payload.get("code") or terminal_reason)
+                    elif event_type == "done":
+                        terminal_reason = str(event_payload.get("terminal_reason") or terminal_reason)
+                    buffered_resume_events.append(event_payload)
+                for event in buffered_resume_events:
+                    yield event
+                if runtime_host is not None and turn_run is not None:
+                    terminal = _record_turn_terminal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        status=terminal_status,
+                        terminal_reason=terminal_reason,
+                        payload={"action_request_ref": action_request.request_id},
+                    )
+                    terminal_recorded = True
+                    yield {"type": "agent_turn_terminal", "event": terminal}
+                return
             if action_request.action_type == "active_work_control":
                 if apply_active_work_control is None:
                     async for event in emit_agent_authored_closeout(
@@ -2361,7 +2453,7 @@ def _single_agent_protocol_repair_messages(
     if "request_task_run" in set(allowed_action_types or ()):
         non_tool_alternatives.insert(1, "请求持续任务")
     tool_repair_instruction = (
-        "如果需要普通工具，只能输出一个 action_type=tool_call 的动作；不要混入 ask_user、block、request_task_run 或 active_work_control。\n"
+        "如果需要普通工具，只能输出一个 action_type=tool_call 的动作；不要混入 ask_user、block、request_task_run、resume_recoverable_work 或 active_work_control。\n"
         if tool_repair_allowed
         else f"当前是协议修复或收口阶段，普通工具服务面未开放；这不是执行安全结论。如需更多执行能力，只能在允许动作内选择{'、'.join(non_tool_alternatives)}。\n"
     )
@@ -2370,7 +2462,7 @@ def _single_agent_protocol_repair_messages(
         f"你只负责把上一轮模型输出修复为{repair_target_text}。\n"
         "系统没有执行上一轮违规输出；这是一条发给你的协议修复信号，不是给用户的正文。\n"
         + (
-            "本次修复仍处在公开反馈义务内；如果输出 tool_call、request_task_run 或 active_work_control，必须写入 public_progress_note 或 public_action_state.current_judgment。"
+            "本次修复仍处在公开反馈义务内；如果输出 tool_call、request_task_run、resume_recoverable_work 或 active_work_control，必须写入 public_progress_note 或 public_action_state.current_judgment。"
             "首次工具调用前要回应用户当前输入；工具观察返回后，尤其是失败、拒绝、取消或缺合同观察后，要基于观察说明已确认的公开事实、影响和下一步。\n"
             if public_response_required
             else ""
@@ -2524,6 +2616,26 @@ def _single_agent_protocol_repair_contract(allowed_action_types: tuple[str, ...]
                     "public_action_state": {
                         "current_judgment": "用户要求继续当前工作。",
                         "next_action": "继续当前工作。",
+                    },
+                },
+            }
+        )
+    if "resume_recoverable_work" in allowed:
+        shapes.append(
+            {
+                "action_type": "resume_recoverable_work",
+                "shape": {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "resume_recoverable_work",
+                    "recovery_resume": {
+                        "task_run_id": "taskrun:...",
+                        "continuation_id": "cont:...",
+                        "reason": "用户要求继续当前可恢复任务。",
+                    },
+                    "public_progress_note": "我会从已恢复的任务断点继续，并先核对当前文件状态。",
+                    "public_action_state": {
+                        "current_judgment": "用户要求继续可恢复任务，且当前上下文提供了恢复句柄。",
+                        "next_action": "提交恢复动作，由系统校验 continuation handle。",
                     },
                 },
             }
@@ -2934,7 +3046,6 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
                 turn_id=turn_id,
                 packet_ref=packet_ref,
                 iteration=iteration,
-                public_progress_note=packet_public_progress_note,
             )
             error = None
         if error is not None:
@@ -3218,7 +3329,6 @@ def _tool_action_request_from_native_tool_calls(
     turn_id: str,
     packet_ref: str,
     iteration: int,
-    public_progress_note: str = "",
 ) -> ModelActionRequest | None:
     for call in tool_calls:
         tool_name = str(call.get("name") or "").strip()
@@ -3226,7 +3336,7 @@ def _tool_action_request_from_native_tool_calls(
             continue
         args = dict(call.get("args") or {})
         call_id = str(call.get("id") or f"call:{tool_name}:{iteration}")
-        public_note = _native_tool_public_note(args) or public_runtime_progress_summary(public_progress_note).strip()
+        public_note = _native_tool_public_note(args)
         public_action_state = {"completion_status": "waiting_for_tool"}
         diagnostics: dict[str, Any] = {
             "origin_kind": "single_agent_turn_native_tool_call",

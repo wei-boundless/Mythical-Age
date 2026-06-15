@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 40,
+  "tool_count": 41,
   "tools": [
     {
       "name": "agent_todo",
@@ -1581,6 +1581,76 @@
       "is_concurrency_safe": false
     },
     {
+      "name": "attachment_extract_text",
+      "display_name": "提取附件文字",
+      "operation_id": "op.mcp_image_ocr",
+      "module": "runtime.tool_runtime.native_tools",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "language",
+          "max_text_chars"
+        ],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "path",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "attachment",
+        "image",
+        "ocr",
+        "local_mcp",
+        "text_extraction"
+      ],
+      "supported_modalities": [
+        "image",
+        "text"
+      ],
+      "safety_tags": [
+        "read",
+        "local_read",
+        "ocr",
+        "mcp_execution"
+      ],
+      "route_hints": [
+        "tool",
+        "attachment_text",
+        "image_ocr",
+        "uploaded_image"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/attachment_extract_text",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
       "name": "git_status",
       "display_name": "查看 Git 状态",
       "operation_id": "op.git_status",
@@ -2844,19 +2914,21 @@
     {
       "package_id": "pkg.mcp.local",
       "title": "本地能力端点",
-      "description": "调用本地检索、PDF 和结构化数据 MCP 能力。",
+      "description": "调用本地检索、PDF、结构化数据和附件 OCR MCP 能力。",
       "category": "文档数据",
       "operation_ids": [
         "op.mcp_retrieval",
         "op.mcp_pdf",
-        "op.mcp_structured_data"
+        "op.mcp_structured_data",
+        "op.mcp_image_ocr"
       ],
       "risk_level": "中",
       "managed": true,
       "default_enabled": true,
       "tags": [
         "mcp",
-        "local"
+        "local",
+        "attachment"
       ],
       "metadata": {}
     }

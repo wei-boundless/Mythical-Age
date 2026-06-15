@@ -11,6 +11,8 @@ const api = vi.hoisted(() => ({
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getProjectWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
+  getLatestChatRunForSession: vi.fn(),
+  getLatestSessionContinuation: vi.fn(),
   getRunMonitor: vi.fn(),
   executeRunMonitorAction: vi.fn(),
   preflightRunMonitorAction: vi.fn(),
@@ -64,6 +66,8 @@ vi.mock("@/lib/api", () => ({
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getProjectWorkspaceTree: api.getProjectWorkspaceTree,
   getChatRun: api.getChatRun,
+  getLatestChatRunForSession: api.getLatestChatRunForSession,
+  getLatestSessionContinuation: api.getLatestSessionContinuation,
   getRunMonitor: api.getRunMonitor,
   executeRunMonitorAction: api.executeRunMonitorAction,
   preflightRunMonitorAction: api.preflightRunMonitorAction,
@@ -564,6 +568,17 @@ function conversationState(environmentId: string, label = environmentId, source 
 describe("WorkspaceRuntime task graph monitor polling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    api.getChatRun.mockReset();
+    api.getChatRun.mockResolvedValue(null);
+    api.getLatestChatRunForSession.mockReset();
+    api.getLatestChatRunForSession.mockResolvedValue(null);
+    api.getLatestSessionContinuation.mockReset();
+    api.getLatestSessionContinuation.mockResolvedValue({
+      session_id: "",
+      available: false,
+      reason: "no_recoverable_work",
+      authority: "session.continuation.latest",
+    });
     api.getRunMonitor.mockReset();
     api.getRunMonitor.mockResolvedValue(monitorForTest([]));
     api.executeRunMonitorAction.mockReset();
@@ -2960,6 +2975,77 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  it("sends a durable continuation handle as model context without choosing recovery itself", async () => {
+    const taskRunId = "taskrun:turn:session-recovery:1:abc";
+    const continuationId = "cont:session-recovery:1";
+    api.getLatestSessionContinuation.mockResolvedValue({
+      session_id: "session-recovery",
+      available: true,
+      authority: "session.continuation.latest",
+      record: {
+        authority: "session.continuation.record.v1",
+        continuation_id: continuationId,
+        session_id: "session-recovery",
+        task_run_id: taskRunId,
+        state: "recoverable_waiting",
+        resume_allowed: true,
+        resume_strategy: "resume_paused_task_run",
+        recovery_cause: "runtime_restart_waiting_resume",
+        task_status: "waiting_executor",
+        user_visible_goal: "继续完成当前任务",
+        latest_progress: "已经完成前置检查。",
+        event_cursor: 12,
+        updated_at: 1,
+      },
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-recovery",
+      activeTurnSnapshot: null,
+      taskGraphLiveMonitor: itemForMonitor({
+        session_id: "session-recovery",
+        task_run_id: taskRunId,
+        status: "waiting_executor",
+        lifecycle: "waiting",
+        bucket: "waiting",
+        execution_runtime_kind: "single_agent_task",
+        is_running: false,
+        is_waiting: true,
+        is_resumable: true,
+        is_interruptible: false,
+        control_reason: "runtime_restart_waiting_resume",
+        activity: {
+          is_resumable: true,
+          control_reason: "runtime_restart_waiting_resume",
+        },
+        control_capability: {
+          is_resumable: true,
+          control_reason: "runtime_restart_waiting_resume",
+        },
+        task_run: {
+          task_run_id: taskRunId,
+          status: "waiting_executor",
+          execution_runtime_kind: "single_agent_task",
+        },
+      }) as any,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("继续");
+
+    expect(api.getLatestSessionContinuation).toHaveBeenCalledWith("session-recovery", undefined);
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+      message: "继续",
+      session_id: "session-recovery",
+      expected_active_turn_id: "",
+      active_turn_input_policy: "auto",
+      expected_task_run_id: taskRunId,
+      expected_continuation_id: continuationId,
+      recovery_input_policy: "auto",
+    });
   });
 
   it("sends running active task input as a steer request with visible status feedback", async () => {

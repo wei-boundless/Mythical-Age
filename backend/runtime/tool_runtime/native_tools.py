@@ -72,6 +72,7 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "list_dir",
     "stat_path",
     "path_exists",
+    "attachment_extract_text",
     "write_file",
     "edit_file",
     "batch_edit_file",
@@ -118,6 +119,8 @@ def build_native_runtime_tool(
         return NativeStatPathTool(capability_definition)
     if name == "path_exists":
         return NativePathExistsTool(capability_definition)
+    if name == "attachment_extract_text":
+        return NativeAttachmentExtractTextTool(capability_definition)
     return None
 
 
@@ -480,6 +483,115 @@ class NativeReadFileTool(_NativeToolBase):
                 },
             },
             observed_paths=(result.logical_path,),
+            execution_receipt=context.execution_receipt,
+        )
+
+
+class NativeAttachmentExtractTextTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        allowed = {"path", "language", "max_text_chars"}
+        unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
+        if unexpected:
+            return ToolValidationResult(
+                allowed=False,
+                reason="unexpected_tool_inputs",
+                repair_instruction=(
+                    "attachment_extract_text accepts only path, language, and max_text_chars. "
+                    "Remove unsupported argument(s): " + ", ".join(unexpected) + "."
+                ),
+                normalized_args=payload,
+                diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
+            )
+        max_text_chars: int | None = None
+        raw_max_text_chars = payload.get("max_text_chars")
+        if raw_max_text_chars is not None and raw_max_text_chars != "":
+            max_text_chars, max_text_chars_error = _coerce_read_window_int(
+                raw_max_text_chars,
+                default=12_000,
+                minimum=1,
+                maximum=120_000,
+                field_name="max_text_chars",
+            )
+            if max_text_chars_error:
+                return ToolValidationResult(
+                    allowed=False,
+                    reason="invalid_tool_input",
+                    repair_instruction=max_text_chars_error,
+                    normalized_args=payload,
+                    diagnostics={"field": "max_text_chars"},
+                )
+        normalized_args: dict[str, Any] = {
+            "path": str(payload.get("path") or "").strip(),
+        }
+        language = str(payload.get("language") or "").strip()
+        if language:
+            normalized_args["language"] = language
+        if max_text_chars is not None:
+            normalized_args["max_text_chars"] = max_text_chars
+        return ToolValidationResult(allowed=True, normalized_args=normalized_args)
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        try:
+            from capability_system.mcp.server.local_capability_server import (
+                LocalCapabilityMCPExecutor,
+                LocalMCPToolRequest,
+                build_local_mcp_resource_policy,
+            )
+
+            constraints: dict[str, Any] = {}
+            language = str(args.get("language") or "").strip()
+            if language:
+                constraints["language"] = language
+            if args.get("max_text_chars") is not None:
+                constraints["max_text_chars"] = args.get("max_text_chars")
+            backend_dir = Path(str(context.runtime_base_dir or "")).resolve() if context.runtime_base_dir else context.workspace_root.resolve()
+            executor = LocalCapabilityMCPExecutor(
+                backend_dir=backend_dir,
+                resource_policy=build_local_mcp_resource_policy(
+                    "op.mcp_image_ocr",
+                    task_id=str(context.task_run_id or context.tool_call_id or "native-tool"),
+                ),
+                permission_mode=str(context.permission_mode or "default"),
+            )
+            result = await executor.execute(
+                LocalMCPToolRequest(
+                    route="image_ocr",
+                    query="Extract text from this image attachment.",
+                    session_id=str(context.session_id or "mcp-session"),
+                    path=str(args.get("path") or "").strip(),
+                    constraints=constraints,
+                )
+            )
+        except Exception as exc:
+            payload = {
+                "tool_result": {
+                    "ok": False,
+                    "summary": str(exc),
+                    "authority": "runtime.tool_runtime.native_tools.attachment_extract_text",
+                }
+            }
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=str(exc),
+                structured_payload=payload,
+                execution_receipt=context.execution_receipt,
+            )
+        canonical = dict(result.get("canonical_result") or {})
+        degraded_reason = str(canonical.get("degraded_reason") or result.get("error") or "").strip()
+        visible_text = str(result.get("answer") or canonical.get("answer") or degraded_reason or "OCR completed with no text.").strip()
+        tool_status = "ok" if canonical or str(result.get("status") or "") == "ok" else "error"
+        observed_path = str(args.get("path") or "").strip()
+        return self._envelope(
+            tool_args=args,
+            status=tool_status,
+            text=visible_text,
+            structured_payload={"tool_result": result},
+            observed_paths=(observed_path,) if observed_path else (),
             execution_receipt=context.execution_receipt,
         )
 

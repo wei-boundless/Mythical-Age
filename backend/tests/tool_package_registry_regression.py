@@ -27,6 +27,7 @@ def test_tool_package_registry_resolves_operation_packages() -> None:
     assert "pkg.git.read" in packages
     assert "pkg.git.write" in packages
     assert "pkg.git.remote" in packages
+    assert "pkg.mcp.local" in packages
     assert packages["pkg.development.python"].category == "开发工具"
     assert packages["pkg.development.python"].default_enabled is True
     assert packages["pkg.development.python"].metadata["parser_authority"] == "python.stdlib.ast"
@@ -41,6 +42,8 @@ def test_tool_package_registry_resolves_operation_packages() -> None:
     assert "op.shell" not in packages["pkg.development.python"].operation_ids
     assert packages["pkg.git.read"].category == "版本控制"
     assert packages["pkg.git.remote"].default_enabled is False
+    assert "op.mcp_image_ocr" in packages["pkg.mcp.local"].operation_ids
+    assert "op.mcp_image_ocr" not in packages["pkg.multimodal"].operation_ids
 
     resolved = resolve_tool_package_operations(
         (

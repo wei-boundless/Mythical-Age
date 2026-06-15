@@ -12,6 +12,13 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from harness import GraphHarness
+from harness.continuation import (
+    build_recovery_boundary_input,
+    build_recovery_packet,
+    decide_recovery_boundary,
+    recovery_boundary_receipt_from_decision,
+    select_session_continuation,
+)
 from harness.runtime import AgentRuntimeServices, RuntimeCompiler, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
 from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -384,6 +391,11 @@ class HarnessRuntimeFacade:
         editor_context = dict(getattr(request, "editor_context", {}) or {})
         if editor_context:
             session_context["editor_context"] = editor_context
+        attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
+        if attachments:
+            session_context["turn_input_attachments"] = attachments
+        model_user_message = _model_user_message_with_attachments(request.message, attachments)
+        semantic_request = replace(request, message=model_user_message)
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         started_active_turn_id = ""
@@ -397,6 +409,8 @@ class HarnessRuntimeFacade:
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
+                api_content=model_user_message,
+                attachments=attachments,
                 turn_id=turn_id,
             )
             if active_turn is None:
@@ -409,7 +423,7 @@ class HarnessRuntimeFacade:
                 started_active_turn_id = turn_id
             with start_turn_trace(
                 session_id=request.session_id,
-                user_message=request.message,
+                user_message=model_user_message,
                 history_length=len(history),
                 metadata={
                     "request_kind": "chat",
@@ -480,19 +494,39 @@ class HarnessRuntimeFacade:
                 }
 
                 runtime_branch = _runtime_branch_projection(runtime_assembly=runtime_assembly)
+                continuation_selection = select_session_continuation(
+                    self.single_agent_runtime_host,
+                    session_id=request.session_id,
+                    active_work_present=active_work_context is not None,
+                )
+                continuation_record = continuation_selection.record
+                if continuation_record is not None:
+                    session_context["continuation_selection"] = continuation_selection.to_dict()
                 recent_work_outcome: dict[str, Any] = {}
-                if active_work_context is None:
+                recoverable_work_candidate: dict[str, Any] = {}
+                if continuation_record is not None and continuation_record.state != "terminal_read_only":
+                    recoverable_work_candidate = continuation_record.to_dict()
+                    session_context["recoverable_work"] = recoverable_work_candidate
+                elif continuation_record is not None and continuation_record.state == "terminal_read_only":
+                    recent_work_outcome = self._recent_work_outcome_from_continuation_record(continuation_record.to_dict())
+                    if recent_work_outcome:
+                        session_context["recent_work_outcome"] = recent_work_outcome
+                elif active_work_context is None:
                     recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
                     if recent_work_outcome:
                         session_context["recent_work_outcome"] = recent_work_outcome
                 turn_input_facts = build_turn_input_facts(
                     session_id=request.session_id,
                     turn_id=turn_id,
-                    user_message=request.message,
+                    user_message=model_user_message,
                     expected_active_turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
                     active_turn_input_policy=str(getattr(request, "active_turn_input_policy", "") or "auto").strip() or "auto",
+                    expected_task_run_id=str(getattr(request, "expected_task_run_id", "") or "").strip(),
+                    expected_continuation_id=str(getattr(request, "expected_continuation_id", "") or "").strip(),
+                    recovery_input_policy=str(getattr(request, "recovery_input_policy", "") or "auto").strip() or "auto",
                     active_turn=active_turn,
                     active_work_candidate=active_work_context,
+                    recoverable_work_candidate=recoverable_work_candidate,
                     recent_work_outcome_candidate=recent_work_outcome,
                     environment_binding=request_environment_binding,
                     runtime_profile=dict(request.runtime_profile or {}),
@@ -501,7 +535,7 @@ class HarnessRuntimeFacade:
                 session_context["turn_id"] = turn_id
                 session_context["turn_input_facts"] = turn_input_facts.to_dict()
                 current_work_decision, current_work_receipt = await self._decide_current_work_boundary_for_turn(
-                    request=request,
+                    request=semantic_request,
                     turn_id=turn_id,
                     turn_input_facts=turn_input_facts,
                     active_work_context=active_work_context,
@@ -518,7 +552,7 @@ class HarnessRuntimeFacade:
                 session_emphasis = self._session_emphasis_for_turn(
                     session_id=request.session_id,
                     turn_id=turn_id,
-                    user_message=request.message,
+                    user_message=model_user_message,
                     environment_binding=request_environment_binding,
                     active_work_context=active_work_context,
                     recent_work_outcome=recent_work_outcome,
@@ -529,7 +563,7 @@ class HarnessRuntimeFacade:
                 memory_context = await self._runtime_memory_context_for_turn(
                     session_id=request.session_id,
                     turn_id=turn_id,
-                    user_message=request.message,
+                    user_message=model_user_message,
                     session_context=session_context,
                     agent_runtime_profile=agent_runtime_profile,
                     runtime_assembly=runtime_assembly,
@@ -545,7 +579,7 @@ class HarnessRuntimeFacade:
                 }
                 if runtime_branch.get("branch_kind") == "single_agent_turn":
                     async for event in self._run_single_agent_turn(
-                        request=request,
+                        request=semantic_request,
                         turn_id=turn_id,
                         history=history,
                         session_context=session_context,
@@ -555,12 +589,13 @@ class HarnessRuntimeFacade:
                         runtime_branch=runtime_branch,
                         active_work_context=active_work_context,
                         current_work_boundary_receipt=current_work_receipt.to_dict(),
+                        continuation_record=continuation_record,
                     ):
                         yield event
                     return
                 if runtime_branch.get("branch_kind") == "explicit_contract_task":
                     async for event in self._run_explicit_contract_task_turn(
-                        request=request,
+                        request=semantic_request,
                         turn_id=turn_id,
                         history=history,
                         session_context=session_context,
@@ -574,15 +609,32 @@ class HarnessRuntimeFacade:
                         yield event
                     return
                 if runtime_branch.get("branch_kind") == "blocked_runtime":
+                    blocked_content = "当前运行环境未能完成装配，无法继续执行本轮请求。"
+                    output_decision = canonical_output_decision_for_final_text(
+                        blocked_content,
+                        answer_channel="conversation",
+                        answer_source="harness.entrypoint.blocked_runtime",
+                        execution_posture="runtime_blocked",
+                        terminal_reason=str(runtime_branch.get("reason") or "runtime_assembly_blocked"),
+                    )
+                    await self._apply_assistant_message_commit_async(
+                        request.session_id,
+                        {
+                            "role": "assistant",
+                            "content": output_decision.content,
+                            "turn_id": turn_id,
+                            **output_decision.to_payload(),
+                        },
+                    )
                     yield error_event(
-                        content="运行中断",
+                        content=output_decision.content,
                         code="blocked_runtime",
                         reason=str(runtime_branch.get("reason") or "runtime_assembly_blocked"),
                         extra={
                             "runtime_branch": dict(runtime_branch or {}),
                             "answer_source": "harness.entrypoint.blocked_runtime",
-                            "answer_persist_policy": "runtime_status_only",
-                            "answer_finalization_policy": "no_agent_answer_runtime_unavailable",
+                            "answer_persist_policy": "assistant_message_committed",
+                            "answer_finalization_policy": "fail_closed_visible_message",
                             "diagnostics": {
                                 "runtime_unavailable": True,
                                 "runtime_branch": dict(runtime_branch or {}),
@@ -643,6 +695,7 @@ class HarnessRuntimeFacade:
         runtime_branch: dict[str, Any],
         active_work_context: ActiveWorkContext | None,
         current_work_boundary_receipt: dict[str, Any],
+        continuation_record: Any | None = None,
     ):
         async def start_task(action_request: ModelActionRequest):
             async for event in start_task_lifecycle_from_action_request(
@@ -698,9 +751,351 @@ class HarnessRuntimeFacade:
                 current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                 active_work_context=active_work_context,
             ),
+            apply_recoverable_work_resume=lambda action_request: self._run_recoverable_work_resume_action_request(
+                request=request,
+                turn_id=turn_id,
+                action_request=action_request,
+                continuation_record=continuation_record,
+                current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+            ),
             compact_session_context=self._compact_session_context_for_single_agent_followup,
         ):
             yield event
+
+    async def _run_recoverable_work_resume_action_request(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        action_request: ModelActionRequest,
+        continuation_record: Any | None,
+        current_work_boundary_receipt: dict[str, Any],
+    ):
+        resume_payload = dict(action_request.recovery_resume or {})
+        expected_task_run_id = str(resume_payload.get("task_run_id") or getattr(request, "expected_task_run_id", "") or "").strip()
+        expected_continuation_id = str(resume_payload.get("continuation_id") or getattr(request, "expected_continuation_id", "") or "").strip()
+        recovery_boundary_input = build_recovery_boundary_input(
+            session_id=request.session_id,
+            turn_id=turn_id,
+            recovery_input_policy="resume",
+            expected_task_run_id=expected_task_run_id,
+            expected_continuation_id=expected_continuation_id,
+            continuation_record=continuation_record,
+            current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+        )
+        recovery_decision = decide_recovery_boundary(recovery_boundary_input)
+        recovery_receipt = recovery_boundary_receipt_from_decision(recovery_decision)
+        yield {
+            "type": "recovery_boundary_decided",
+            "decision": recovery_decision.to_dict(),
+            "receipt": recovery_receipt.to_dict(),
+            "model_action_request": action_request.to_dict(),
+        }
+        if recovery_decision.action == "resume_recoverable_work":
+            async for event in self._run_recovery_resume_request(
+                request=request,
+                turn_id=turn_id,
+                recovery_decision=recovery_decision.to_dict(),
+                recovery_receipt=recovery_receipt.to_dict(),
+            ):
+                yield event
+            return
+        async for event in self._run_recovery_boundary_status_response(
+            request=request,
+            turn_id=turn_id,
+            recovery_decision=recovery_decision.to_dict(),
+            recovery_receipt=recovery_receipt.to_dict(),
+        ):
+            yield event
+
+    async def _run_recovery_boundary_status_response(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        recovery_decision: dict[str, Any],
+        recovery_receipt: dict[str, Any],
+    ):
+        content = str(
+            recovery_decision.get("response")
+            or recovery_decision.get("reason")
+            or "当前恢复请求没有执行。"
+        ).strip()
+        output_decision = canonical_output_decision_for_final_text(
+            content,
+            answer_channel="conversation",
+            answer_source="harness.continuation.recovery_boundary",
+            execution_posture="recovery_boundary_status",
+            terminal_reason=str(recovery_decision.get("reason") or recovery_decision.get("action") or "recovery_boundary_status"),
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": output_decision.content,
+                "turn_id": turn_id,
+                **output_decision.to_payload(),
+            },
+        )
+        yield {
+            "type": "runtime_status",
+            "title": "恢复请求未执行",
+            "detail": output_decision.content,
+            "state": "warning",
+            "phase": "recovery_boundary",
+            "terminal_reason": str(recovery_decision.get("reason") or ""),
+            "recovery_boundary_receipt": recovery_receipt,
+        }
+        yield final_answer_event(
+            content=output_decision.content,
+            answer_channel="conversation",
+            answer_source="harness.continuation.recovery_boundary",
+            terminal_reason=str(recovery_decision.get("reason") or ""),
+            execution_posture="recovery_boundary_status",
+            extra={"recovery_boundary_receipt": recovery_receipt},
+        )
+
+    async def _run_recovery_resume_request(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        recovery_decision: dict[str, Any],
+        recovery_receipt: dict[str, Any],
+    ):
+        record = dict(recovery_decision.get("continuation_record") or {})
+        task_run_id = str(recovery_decision.get("task_run_id") or record.get("task_run_id") or "").strip()
+        if not task_run_id:
+            for event in await self._recovery_resume_failure_events(
+                request=request,
+                turn_id=turn_id,
+                content="恢复请求缺少 task_run_id。",
+                title="恢复请求未执行",
+                terminal_reason="recovery_task_run_missing",
+                recovery_receipt=recovery_receipt,
+            ):
+                yield event
+            return
+        recovery_packet = build_recovery_packet(record, resume_intent="user_requested_resume")
+        packet_ref = self._attach_recovery_packet_to_task_run(
+            task_run_id=task_run_id,
+            recovery_packet=recovery_packet,
+            recovery_receipt=recovery_receipt,
+        )
+        try:
+            self.single_agent_runtime_host.event_log.append(
+                task_run_id,
+                "task_run_recovery_packet_attached",
+                payload={
+                    "task_run_id": task_run_id,
+                    "continuation_id": str(record.get("continuation_id") or ""),
+                    "recovery_packet_ref": packet_ref,
+                    "turn_id": turn_id,
+                },
+                refs={"task_run_ref": task_run_id, "turn_ref": turn_id, "recovery_packet_ref": packet_ref},
+            )
+        except Exception:
+            logger.debug("failed to append recovery packet event", exc_info=True)
+        resume_result = resume_paused_task_run(
+            self.single_agent_runtime_host,
+            task_run_id,
+            reason="conversation_recovery_resume",
+            requested_by="user",
+            turn_id=turn_id,
+        )
+        if not resume_result.get("ok"):
+            payload = _active_work_resume_failure_payload(resume_result)
+            for event in await self._recovery_resume_failure_events(
+                request=request,
+                turn_id=turn_id,
+                content=str(payload.get("content") or "当前工作没有成功恢复。"),
+                title="恢复请求未执行",
+                terminal_reason=str(payload.get("terminal_reason") or "recovery_resume_failed"),
+                recovery_receipt=recovery_receipt,
+                extra={"resume_result": resume_result},
+            ):
+                yield event
+            return
+        self._attach_recovery_packet_to_task_run(
+            task_run_id=task_run_id,
+            recovery_packet=recovery_packet,
+            recovery_receipt=recovery_receipt,
+            recovery_packet_ref=packet_ref,
+        )
+        self._bind_current_turn_to_task_run(
+            session_id=request.session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            state="waiting_executor",
+        )
+        schedule_result = self.schedule_task_run_executor(
+            task_run_id,
+            scheduler="conversation_recovery_resume",
+            turn_id=turn_id,
+            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
+        )
+        if not _schedule_result_allows_progress(schedule_result):
+            payload = _active_work_schedule_failure_payload(schedule_result)
+            for event in await self._recovery_resume_failure_events(
+                request=request,
+                turn_id=turn_id,
+                content=str(payload.get("content") or "恢复请求已记录，但任务调度没有启动。"),
+                title="恢复调度失败",
+                terminal_reason=str(payload.get("terminal_reason") or "recovery_schedule_failed"),
+                recovery_receipt=recovery_receipt,
+                extra={"schedule_result": schedule_result},
+            ):
+                yield event
+            return
+        self._bind_current_turn_to_task_run(
+            session_id=request.session_id,
+            turn_id=turn_id,
+            task_run_id=task_run_id,
+            state="running_task",
+        )
+        response = str(recovery_decision.get("response") or "已接入恢复断点，我会从原任务进度继续调度。").strip()
+        output_decision = canonical_output_decision_for_final_text(
+            response,
+            answer_channel="conversation",
+            answer_source="harness.continuation.recovery_boundary",
+            execution_posture="recovery_resume",
+            terminal_reason="conversation_recovery_resume",
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": output_decision.content,
+                "turn_id": turn_id,
+                **output_decision.to_payload(),
+            },
+        )
+        yield {
+            "type": "recovery_resume_accepted",
+            "summary": output_decision.content,
+            "status": "accepted",
+            "runtime_task_run_id": task_run_id,
+            "task_run_id": task_run_id,
+            "turn_id": turn_id,
+            "recovery_packet_ref": packet_ref,
+            "recovery_boundary_receipt": recovery_receipt,
+            "schedule_result": schedule_result,
+        }
+        yield {
+            "type": "runtime_status",
+            "title": "恢复续跑已启动",
+            "detail": output_decision.content,
+            "state": "running",
+            "phase": "recovery_resume",
+            "terminal_reason": "conversation_recovery_resume",
+            "runtime_task_run_id": task_run_id,
+            "task_run_id": task_run_id,
+            "turn_id": turn_id,
+            "recovery_packet_ref": packet_ref,
+            "recovery_boundary_receipt": recovery_receipt,
+        }
+        yield final_answer_event(
+            content=output_decision.content,
+            answer_channel="conversation",
+            answer_source="harness.continuation.recovery_boundary",
+            terminal_reason="conversation_recovery_resume",
+            execution_posture="recovery_resume",
+            extra={
+                "runtime_task_run_id": task_run_id,
+                "task_run_id": task_run_id,
+                "recovery_packet_ref": packet_ref,
+                "recovery_boundary_receipt": recovery_receipt,
+            },
+        )
+
+    async def _recovery_resume_failure_events(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        content: str,
+        title: str,
+        terminal_reason: str,
+        recovery_receipt: dict[str, Any],
+        extra: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        output_decision = canonical_output_decision_for_final_text(
+            str(content or "恢复请求未执行。").strip(),
+            answer_channel="conversation",
+            answer_source="harness.continuation.recovery_boundary",
+            execution_posture="recovery_resume_failed",
+            terminal_reason=terminal_reason,
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": output_decision.content,
+                "turn_id": turn_id,
+                **output_decision.to_payload(),
+            },
+        )
+        event_extra = {
+            "recovery_boundary_receipt": recovery_receipt,
+            **dict(extra or {}),
+        }
+        return [
+            {
+                "type": "runtime_status",
+                "title": title,
+                "detail": output_decision.content,
+                "state": "blocked",
+                "phase": "recovery_resume",
+                "terminal_reason": terminal_reason,
+                **event_extra,
+            },
+            final_answer_event(
+                content=output_decision.content,
+                answer_channel="conversation",
+                answer_source="harness.continuation.recovery_boundary",
+                terminal_reason=terminal_reason,
+                execution_posture="recovery_resume_failed",
+                extra=event_extra,
+            ),
+        ]
+
+    def _attach_recovery_packet_to_task_run(
+        self,
+        *,
+        task_run_id: str,
+        recovery_packet: dict[str, Any],
+        recovery_receipt: dict[str, Any],
+        recovery_packet_ref: str = "",
+    ) -> str:
+        task_run = self.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return recovery_packet_ref
+        packet = dict(recovery_packet or {})
+        packet_id = str(packet.get("packet_id") or f"recpacket:{task_run_id}").strip()
+        packet_ref = str(recovery_packet_ref or "").strip()
+        if not packet_ref and packet:
+            try:
+                packet_ref = self.single_agent_runtime_host.runtime_objects.put_object(
+                    "recovery_packet",
+                    packet_id,
+                    packet,
+                )
+            except Exception:
+                packet_ref = ""
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        updated = replace(
+            task_run,
+            diagnostics={
+                **diagnostics,
+                "continuation_id": str(packet.get("continuation_id") or diagnostics.get("continuation_id") or ""),
+                "recovery_packet": packet,
+                "recovery_packet_ref": packet_ref,
+                "recovery_boundary_receipt": dict(recovery_receipt or {}),
+                "recovery_resume_authority": "harness.continuation.recovery_boundary",
+            },
+        )
+        self.single_agent_runtime_host.state_index.upsert_task_run(updated)
+        return packet_ref
 
     async def _decide_current_work_boundary_for_turn(
         self,
@@ -1260,11 +1655,35 @@ class HarnessRuntimeFacade:
                 "updated_at": float(getattr(latest, "updated_at", 0.0) or 0.0),
                 "continuation_state": "terminal_or_interrupted_task_record",
                 "decision_boundary": (
-                    "This is a read-only result from the most recent terminal, blocked, or interrupted task. "
-                    "Use it to answer status or failure questions before using tools. "
-                    "Do not treat it as active work and do not resume that task unless the user starts a new task or the runtime exposes a current active-work context."
+                    "只读事实：这是最近一个已结束、受阻或中断任务的结果记录。"
+                    "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
+                    "也不能基于这条记录直接续跑任务。"
                 ),
                 "authority": "harness.runtime.recent_work_outcome",
+            }
+        )
+
+    def _recent_work_outcome_from_continuation_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(record or {})
+        if str(payload.get("state") or "") != "terminal_read_only":
+            return {}
+        return _drop_empty_entrypoint_payload(
+            {
+                "task_run_id": str(payload.get("task_run_id") or ""),
+                "status": str(payload.get("task_status") or ""),
+                "terminal_reason": str(dict(payload.get("diagnostics") or {}).get("terminal_reason") or ""),
+                "user_visible_goal": _public_status_text(payload.get("user_visible_goal")),
+                "latest_progress": _public_status_text(payload.get("latest_progress") or payload.get("model_visible_summary")),
+                "latest_step_name": str(payload.get("last_completed_step") or ""),
+                "artifact_refs": list(payload.get("artifact_refs") or [])[:6],
+                "updated_at": float(payload.get("updated_at") or 0.0),
+                "continuation_state": "terminal_read_only",
+                "decision_boundary": (
+                    "只读事实：这是最近一个已结束任务的结果记录。"
+                    "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
+                    "也不能基于这条记录直接续跑任务。"
+                ),
+                "authority": "harness.continuation.recent_work_outcome",
             }
         )
 
@@ -1893,7 +2312,15 @@ class HarnessRuntimeFacade:
             raise ValueError(f"AgentRuntimeProfile not found for agent_id: {node_agent_id}")
         return profile
 
-    def _commit_user_message(self, *, session_id: str, content: str, turn_id: str):
+    def _commit_user_message(
+        self,
+        *,
+        session_id: str,
+        content: str,
+        turn_id: str,
+        api_content: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ):
         decision = build_user_message_commit_decision(
             session_id=session_id,
             content=content,
@@ -1909,6 +2336,7 @@ class HarnessRuntimeFacade:
                         "role": payload.get("role"),
                         "content": payload.get("content"),
                         "turn_id": turn_id,
+                        "attachments": [dict(item) for item in list(attachments or []) if isinstance(item, dict)],
                     }
                 ],
             )
@@ -1919,7 +2347,7 @@ class HarnessRuntimeFacade:
                     [
                         {
                             "role": payload.get("role"),
-                            "content": payload.get("content"),
+                            "content": str(api_content if api_content is not None else payload.get("content") or ""),
                             "turn_id": turn_id,
                         }
                     ],
@@ -2657,6 +3085,85 @@ def _explicit_contract_invalid_observation(
         "needs_model_followup": True,
         "authority": "harness.entrypoint.runtime_observation",
     }
+
+
+def _normalized_turn_attachments(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        path = _attachment_text(raw.get("path"), limit=500)
+        attachment_id = _attachment_text(raw.get("attachment_id"), limit=80)
+        if not path or not attachment_id:
+            continue
+        result.append(
+            {
+                "attachment_id": attachment_id,
+                "session_id": _attachment_text(raw.get("session_id"), limit=120),
+                "filename": _attachment_text(raw.get("filename"), limit=180),
+                "mime_type": _attachment_text(raw.get("mime_type"), limit=120),
+                "size_bytes": _attachment_int(raw.get("size_bytes")),
+                "path": path.replace("\\", "/"),
+                "created_at": _attachment_float(raw.get("created_at")),
+                "width": _attachment_int(raw.get("width")),
+                "height": _attachment_int(raw.get("height")),
+                "authority": _attachment_text(raw.get("authority"), limit=120),
+                "storage_authority": _attachment_text(raw.get("storage_authority"), limit=120),
+            }
+        )
+    return result
+
+
+def _model_user_message_with_attachments(message: str, attachments: list[dict[str, Any]]) -> str:
+    base = str(message or "").strip()
+    if not attachments:
+        return base
+    lines = [
+        "用户随本轮上传了图片附件。它们是受控本地资源，不是已识别内容：",
+    ]
+    for attachment in attachments:
+        filename = _attachment_text(attachment.get("filename"), limit=180) or "未命名图片"
+        path = _attachment_text(attachment.get("path"), limit=500)
+        mime_type = _attachment_text(attachment.get("mime_type"), limit=120) or "unknown"
+        size_bytes = _attachment_int(attachment.get("size_bytes"))
+        width = _attachment_int(attachment.get("width"))
+        height = _attachment_int(attachment.get("height"))
+        lines.append(f"- 文件名：{filename}")
+        lines.append(f"  可读取路径：{path}")
+        lines.append(f"  MIME：{mime_type}")
+        if size_bytes:
+            lines.append(f"  大小：{size_bytes} bytes")
+        if width and height:
+            lines.append(f"  尺寸：{width}x{height}")
+    lines.extend(
+        [
+            "如果用户要求识别、读取或转写图片文字，你需要调用 attachment_extract_text，并只基于工具返回的 OCR 结果回答。",
+            "不要声称看到了工具没有返回的视觉细节；OCR 为空或失败时说明限制和下一步处理建议。",
+        ]
+    )
+    attachment_note = "\n".join(lines).strip()
+    return f"{base}\n\n{attachment_note}" if base else attachment_note
+
+
+def _attachment_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
+    return text[: max(0, int(limit))]
+
+
+def _attachment_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _attachment_float(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _session_context_with_runtime_observation(

@@ -204,12 +204,12 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
         ToolPackageDefinition(
             package_id="pkg.mcp.local",
             title="本地能力端点",
-            description="调用本地检索、PDF 和结构化数据 MCP 能力。",
+            description="调用本地检索、PDF、结构化数据和附件 OCR MCP 能力。",
             category="文档数据",
-            operation_ids=("op.mcp_retrieval", "op.mcp_pdf", "op.mcp_structured_data"),
+            operation_ids=("op.mcp_retrieval", "op.mcp_pdf", "op.mcp_structured_data", "op.mcp_image_ocr"),
             risk_level="中",
             default_enabled=True,
-            tags=("mcp", "local"),
+            tags=("mcp", "local", "attachment"),
         ),
     )
 

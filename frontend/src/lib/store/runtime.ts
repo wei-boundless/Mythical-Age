@@ -7,6 +7,8 @@ import {
   createSession,
   deleteSession,
   getChatRun,
+  getLatestChatRunForSession,
+  getLatestSessionContinuation,
   getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
   getImageAssetConfig,
@@ -45,9 +47,10 @@ import {
   readChatStreamCursor,
   streamChat,
   streamExistingChatRun,
-  truncateSessionMessages
+  truncateSessionMessages,
+  uploadChatAttachment
 } from "@/lib/api";
-import type { ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatAttachment, ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
@@ -84,6 +87,17 @@ const ACTIVE_TURN_STATES = new Set([
   "interrupting",
   "terminal",
 ]);
+
+type ActiveChatStreamBinding = {
+  streamRunId: string;
+  taskRunId: string;
+  turnId: string;
+};
+
+type RecoverableContinuationHandle = {
+  continuationId: string;
+  taskRunId: string;
+};
 
 function recoveredChatRunActivityDetail() {
   return "检测到同一会话的流式 cursor，正在按事件时序重放公开投影。";
@@ -532,6 +546,8 @@ export class WorkspaceRuntime {
   private tokenStatsRefreshInFlight = false;
   private lastMonitorTokenStatsRefreshAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
+  private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
+  private chatStreamEpochBySession = new Map<string, number>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
@@ -598,8 +614,8 @@ export class WorkspaceRuntime {
       selectSession: async (ref) => {
         await this.selectSession(ref);
       },
-      sendMessage: async (value) => {
-        await this.sendMessage(value);
+      sendMessage: async (value, options) => {
+        await this.sendMessage(value, options);
       },
       stopCurrentStream: () => {
         this.stopCurrentStream();
@@ -1688,6 +1704,14 @@ export class WorkspaceRuntime {
     });
   }
 
+  private async uploadChatAttachmentsForSession(sessionId: string, files: File[]) {
+    const uploaded: ChatAttachment[] = [];
+    for (const file of files) {
+      uploaded.push(await uploadChatAttachment(sessionId, file));
+    }
+    return uploaded;
+  }
+
   private enqueueUserInputForSession(sessionId: string, content: string) {
     const messageId = makeId();
     const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
@@ -2519,20 +2543,42 @@ export class WorkspaceRuntime {
     if (this.recoveringStreamSessionIds.has(sessionId)) {
       return true;
     }
-    if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-      if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
-        await this.refreshSessionDetails(sessionId).catch(() => undefined);
-      }
-      return true;
-    }
     this.recoveringStreamSessionIds.add(sessionId);
     try {
+      const latestRun = await getLatestChatRunForSession(sessionId, this.sessionScopeForSession(sessionId)).catch(() => undefined);
+      if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+        if (latestRun === null) {
+          this.releaseActiveChatStreamForSwitch(sessionId);
+          clearChatStreamCursor(sessionId);
+          await this.refreshSessionDetails(sessionId).catch(() => undefined);
+          return false;
+        }
+        if (latestRun && !this.activeChatStreamMatchesRun(sessionId, latestRun)) {
+          this.releaseActiveChatStreamForSwitch(sessionId);
+          clearChatStreamCursor(sessionId);
+        } else {
+          if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
+            await this.refreshSessionDetails(sessionId).catch(() => undefined);
+          }
+          return true;
+        }
+      }
       let cursor = readChatStreamCursor(sessionId);
+      if (latestRun?.stream_run_id && latestRun.stream_run_id !== cursor?.streamRunId) {
+        cursor = {
+          streamRunId: latestRun.stream_run_id,
+          eventLogId: latestRun.event_log_id,
+          lastEventOffset: -1,
+          lastEventId: "",
+        };
+      }
       let streamRunId = cursor?.streamRunId || "";
       if (!streamRunId) {
         return false;
       }
-      const cursorRun = await getChatRun(streamRunId).catch(() => null);
+      const cursorRun = latestRun?.stream_run_id === streamRunId
+        ? latestRun
+        : await getChatRun(streamRunId).catch(() => null);
       if (
         !cursorRun
         || cursorRun.session_id !== sessionId
@@ -2547,6 +2593,7 @@ export class WorkspaceRuntime {
         return false;
       }
       this.applyActiveTurnSnapshotFromChatRun(cursorRun);
+      this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(cursorRun));
       await this.refreshSessionDetails(sessionId).catch(() => undefined);
       this.startRecoveredChatRunStream(sessionId, streamRunId, cursor, cursorRun);
       return true;
@@ -2604,6 +2651,108 @@ export class WorkspaceRuntime {
   private activeTurnStateFromPayload(value: unknown): ActiveTurnState | undefined {
     const normalized = String(value ?? "").trim();
     return ACTIVE_TURN_STATES.has(normalized) ? normalized as ActiveTurnState : undefined;
+  }
+
+  private chatRunBinding(run: ChatRun | null | undefined): ActiveChatStreamBinding | null {
+    if (!run) {
+      return null;
+    }
+    const diagnostics: Record<string, unknown> = run.diagnostics && typeof run.diagnostics === "object" && !Array.isArray(run.diagnostics)
+      ? run.diagnostics
+      : {};
+    const activeTurn = run.active_turn_snapshot ?? null;
+    const streamRunId = runtimeText(run.stream_run_id);
+    const taskRunId = runtimeText(activeTurn?.bound_task_run_id)
+      || runtimeText(activeTurn?.task_run_id)
+      || runtimeText(diagnostics.runtime_task_run_id)
+      || runtimeText(diagnostics.task_run_id)
+      || runtimeText(diagnostics.public_anchor_task_run_id);
+    const turnId = runtimeText(activeTurn?.turn_id)
+      || runtimeText(diagnostics.active_turn_id)
+      || runtimeText(diagnostics.public_anchor_turn_id);
+    if (!streamRunId) {
+      return null;
+    }
+    return { streamRunId, taskRunId, turnId };
+  }
+
+  private eventChatStreamBinding(data: Record<string, unknown>, fallbackStreamRunId = ""): Partial<ActiveChatStreamBinding> {
+    const frame = data.public_projection_frame && typeof data.public_projection_frame === "object" && !Array.isArray(data.public_projection_frame)
+      ? data.public_projection_frame as Record<string, unknown>
+      : {};
+    const frameAnchor = frame.anchor && typeof frame.anchor === "object" && !Array.isArray(frame.anchor)
+      ? frame.anchor as Record<string, unknown>
+      : {};
+    return {
+      streamRunId: runtimeText(data.stream_run_id)
+        || runtimeText(data.streamRunId)
+        || runtimeText(frameAnchor.stream_run_id)
+        || fallbackStreamRunId,
+      taskRunId: runtimeText(data.runtime_task_run_id)
+        || runtimeText(data.task_run_id)
+        || runtimeText(data.bound_task_run_id)
+        || runtimeText(frameAnchor.task_run_id),
+      turnId: runtimeText(data.active_turn_id)
+        || runtimeText(data.turn_id)
+        || runtimeText(frameAnchor.turn_id),
+    };
+  }
+
+  private updateActiveChatStreamBinding(
+    sessionId: string,
+    patch: Partial<ActiveChatStreamBinding> | null | undefined,
+  ) {
+    if (!sessionId || !patch) {
+      return;
+    }
+    const current = this.activeChatStreamBindings.get(sessionId) ?? { streamRunId: "", taskRunId: "", turnId: "" };
+    const next = {
+      streamRunId: patch.streamRunId || current.streamRunId,
+      taskRunId: patch.taskRunId || current.taskRunId,
+      turnId: patch.turnId || current.turnId,
+    };
+    if (!next.streamRunId && !next.taskRunId && !next.turnId) {
+      return;
+    }
+    this.activeChatStreamBindings.set(sessionId, next);
+  }
+
+  private nextChatStreamEpoch(sessionId: string) {
+    const next = (this.chatStreamEpochBySession.get(sessionId) ?? 0) + 1;
+    this.chatStreamEpochBySession.set(sessionId, next);
+    return next;
+  }
+
+  private isCurrentChatStreamEpoch(sessionId: string, epoch: number) {
+    return this.chatStreamEpochBySession.get(sessionId) === epoch;
+  }
+
+  private activeChatStreamMatchesRun(sessionId: string, run: ChatRun | null | undefined) {
+    const current = this.activeChatStreamBindings.get(sessionId);
+    const next = this.chatRunBinding(run);
+    if (!current || !next) {
+      return true;
+    }
+    if (current.streamRunId && next.streamRunId && current.streamRunId !== next.streamRunId) {
+      return false;
+    }
+    if (current.taskRunId && next.taskRunId && current.taskRunId !== next.taskRunId) {
+      return false;
+    }
+    if (current.turnId && next.turnId && current.turnId !== next.turnId) {
+      return false;
+    }
+    return true;
+  }
+
+  private releaseActiveChatStreamForSwitch(sessionId: string) {
+    this.nextChatStreamEpoch(sessionId);
+    this.removedStreamingSessionIds.add(sessionId);
+    this.streamAbortControllers.get(sessionId)?.abort();
+    this.streamAbortControllers.delete(sessionId);
+    this.streamingSessionCache.delete(sessionId);
+    this.activeChatStreamBindings.delete(sessionId);
+    this.store.setState((prev) => this.removeActiveStreamSession(prev, sessionId));
   }
 
   private recordProjectionCommitAck(sessionId: string, data: Record<string, unknown>) {
@@ -2688,6 +2837,7 @@ export class WorkspaceRuntime {
     if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
       return;
     }
+    const streamEpoch = this.nextChatStreamEpoch(sessionId);
     const abortController = new AbortController();
     this.streamAbortControllers.set(sessionId, abortController);
     this.removedStreamingSessionIds.delete(sessionId);
@@ -2725,6 +2875,10 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
+    this.updateActiveChatStreamBinding(
+      sessionId,
+      this.chatRunBinding(run) ?? { streamRunId, taskRunId: "", turnId: "" },
+    );
     this.addActiveStreamSession(sessionId);
     this.deferMonitorPollingForActiveStream();
     if (this.store.getState().currentSessionId === sessionId) {
@@ -2739,9 +2893,13 @@ export class WorkspaceRuntime {
           streamRunId,
           {
             onEvent: (event, data) => {
+              if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+                return;
+              }
               if (this.removedStreamingSessionIds.has(sessionId)) {
                 return;
               }
+              this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data, streamRunId));
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
               const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
               const transition = reduceStreamEvent(baseState, transitionSession, event, data);
@@ -2778,6 +2936,9 @@ export class WorkspaceRuntime {
           this.stoppedStreamingSessionIds.add(sessionId);
         }
       } catch (error) {
+        if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+          return;
+        }
         if (this.removedStreamingSessionIds.has(sessionId)) {
           return;
         }
@@ -2811,7 +2972,14 @@ export class WorkspaceRuntime {
           this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
         }
       } finally {
+        if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+          return;
+        }
         this.streamAbortControllers.delete(sessionId);
+        const currentBinding = this.activeChatStreamBindings.get(sessionId);
+        if (!currentBinding || currentBinding.streamRunId === streamRunId) {
+          this.activeChatStreamBindings.delete(sessionId);
+        }
         this.store.setState((prev) => {
           const next = this.removeActiveStreamSession(prev, sessionId);
           next.sessionActivitiesById = {
@@ -2849,8 +3017,10 @@ export class WorkspaceRuntime {
     })();
   }
 
-  private async sendMessage(value: string, options: { queuedUserMessageId?: string } = {}) {
-    const trimmed = value.trim();
+  private async sendMessage(value: string, options: { queuedUserMessageId?: string; files?: File[] } = {}) {
+    const files = (options.files ?? []).filter(Boolean);
+    const hasFiles = files.length > 0;
+    const trimmed = value.trim() || (hasFiles ? "请识别图片中的文字。" : "");
     const state = this.store.getState();
     if (!trimmed) {
       return;
@@ -2881,6 +3051,54 @@ export class WorkspaceRuntime {
       throw error;
     }
     const activeStreamState = this.store.getState();
+    if (hasFiles && activeStreamState.activeStreamSessionIds.includes(sessionId)) {
+      const message = "当前运行中暂不支持追加图片，请等待本轮结束。";
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "error",
+          title: "图片暂不能排队发送",
+          detail: message,
+          event: "chat_attachment_active_stream_rejected",
+          receipt: {
+            level: "error",
+            title: "图片暂不能排队发送",
+            body: message,
+            debug: {
+              event: "chat_attachment_active_stream_rejected",
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      throw new Error(message);
+    }
+    let attachments: ChatAttachment[] = [];
+    if (hasFiles) {
+      try {
+        attachments = await this.uploadChatAttachmentsForSession(sessionId, files);
+      } catch (error) {
+        this.store.setState((prev) => ({
+          ...prev,
+          sessionActivity: {
+            level: "error",
+            title: "图片上传失败",
+            detail: this.errorMessage(error, "无法上传图片，请确认文件格式和后端服务。"),
+            event: "chat_attachment_upload_failed",
+            receipt: {
+              level: "error",
+              title: "图片上传失败",
+              body: this.errorMessage(error, "无法上传图片，请确认文件格式和后端服务。"),
+              debug: {
+                event: "chat_attachment_upload_failed",
+              },
+            },
+            updatedAt: Date.now(),
+          },
+        }));
+        throw error;
+      }
+    }
     if (activeStreamState.activeStreamSessionIds.includes(sessionId)) {
       if (this.activeTaskSteerStreamSessionIds.has(sessionId)) {
         if (options.queuedUserMessageId) {
@@ -2911,28 +3129,33 @@ export class WorkspaceRuntime {
     }
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
+    const streamEpoch = this.nextChatStreamEpoch(sessionId);
     const abortController = new AbortController();
     this.streamAbortControllers.set(sessionId, abortController);
     const imageGeneration = this.chatImageGenerationPayload(state);
     const isImageGenerationTurn = Boolean(imageGeneration);
     let streamEndedWithError = false;
+    let completedStreamRunId = "";
     const preflightState = this.store.getState();
     const activeTurnSnapshotForTransition = preflightState.currentSessionId === sessionId
       ? preflightState.activeTurnSnapshot
       : null;
     const queueActiveTurnInput = this.shouldQueueActiveTurnInput(preflightState, sessionId);
     const activeTurnInputPolicy = this.activeTurnInputPolicyForSession(preflightState, sessionId);
+    const recoverableContinuation = queueActiveTurnInput
+      ? null
+      : await this.recoverableContinuationForSession(preflightState, sessionId);
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      taskGraphLiveMonitor: queueActiveTurnInput ? prev.taskGraphLiveMonitor : null,
+      taskGraphLiveMonitor: queueActiveTurnInput || recoverableContinuation ? prev.taskGraphLiveMonitor : null,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
     }));
     let transition = queueActiveTurnInput
-      ? startQueuedActiveTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId })
-      : startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId });
+      ? startQueuedActiveTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments })
+      : startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments });
     const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
     transition = {
       ...transition,
@@ -2998,7 +3221,11 @@ export class WorkspaceRuntime {
           permission_mode: permissionMode,
           expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
           active_turn_input_policy: activeTurnInputPolicy,
+          expected_task_run_id: recoverableContinuation?.taskRunId ?? "",
+          expected_continuation_id: recoverableContinuation?.continuationId ?? "",
+          recovery_input_policy: "auto",
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
+          attachments,
           image_generation: imageGeneration
             ? {
                 ...imageGeneration,
@@ -3009,9 +3236,13 @@ export class WorkspaceRuntime {
         },
         {
           onEvent: (event, data) => {
+            if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+              return;
+            }
             if (this.removedStreamingSessionIds.has(sessionId)) {
               return;
             }
+            this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data));
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
@@ -3042,11 +3273,15 @@ export class WorkspaceRuntime {
         },
         { signal: abortController.signal }
       );
+      completedStreamRunId = streamResult.streamRunId;
       streamEndedWithError = streamResult.terminalStatus === "failed";
       if (streamResult.terminalStatus === "stopped") {
         this.stoppedStreamingSessionIds.add(sessionId);
       }
     } catch (error) {
+      if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+        return;
+      }
       if (this.removedStreamingSessionIds.has(sessionId)) {
         return;
       }
@@ -3079,8 +3314,15 @@ export class WorkspaceRuntime {
         this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
       }
     } finally {
+      if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+        return;
+      }
       this.streamAbortControllers.delete(sessionId);
       this.activeTaskSteerStreamSessionIds.delete(sessionId);
+      const currentBinding = this.activeChatStreamBindings.get(sessionId);
+      if (!currentBinding || !completedStreamRunId || currentBinding.streamRunId === completedStreamRunId) {
+        this.activeChatStreamBindings.delete(sessionId);
+      }
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
         next.sessionActivitiesById = {
@@ -3301,6 +3543,59 @@ export class WorkspaceRuntime {
 
   private activeTurnInputPolicyForSession(state: StoreState, sessionId: string) {
     return this.shouldQueueActiveTurnInput(state, sessionId) ? "steer" : "auto";
+  }
+
+  private async recoverableContinuationForSession(
+    state: StoreState,
+    sessionId: string,
+  ): Promise<RecoverableContinuationHandle | null> {
+    if (state.currentSessionId !== sessionId) {
+      return null;
+    }
+    if (this.shouldQueueActiveTurnInput(state, sessionId)) {
+      return null;
+    }
+    const monitor = state.taskGraphLiveMonitor;
+    if (!monitor) {
+      return null;
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+    if (!taskRunId) {
+      return null;
+    }
+    const monitorRecord = monitor as unknown as Record<string, unknown>;
+    const status = String(monitor.status ?? taskRun.status ?? "").trim();
+    const activity = monitorRecord.activity && typeof monitorRecord.activity === "object" && !Array.isArray(monitorRecord.activity)
+      ? monitorRecord.activity as Record<string, unknown>
+      : {};
+    const controlCapability = monitorRecord.control_capability && typeof monitorRecord.control_capability === "object" && !Array.isArray(monitorRecord.control_capability)
+      ? monitorRecord.control_capability as Record<string, unknown>
+      : {};
+    const controlReason = String(monitorRecord.control_reason ?? activity.control_reason ?? controlCapability.control_reason ?? "").trim();
+    const isRecoverableStatus = status === "waiting_executor"
+      || controlReason === "runtime_restart_waiting_resume"
+      || activity.is_resumable === true
+      || controlCapability.is_resumable === true;
+    if (!isRecoverableStatus) {
+      return null;
+    }
+    const projection = await getLatestSessionContinuation(sessionId, this.sessionScopeForSession(sessionId)).catch(() => null);
+    const record = projection?.record ?? null;
+    const continuationId = String(record?.continuation_id ?? "").trim();
+    const continuationTaskRunId = String(record?.task_run_id ?? "").trim();
+    const stateName = String(record?.state ?? "").trim();
+    if (
+      !projection?.available
+      || !continuationId
+      || !continuationTaskRunId
+      || continuationTaskRunId !== taskRunId
+      || record?.resume_allowed !== true
+      || stateName === "terminal_read_only"
+    ) {
+      return null;
+    }
+    return { continuationId, taskRunId: continuationTaskRunId };
   }
 
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {

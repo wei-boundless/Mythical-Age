@@ -156,6 +156,7 @@ export function toUiMessages(history: SessionHistory["messages"]) {
           ? message.answer_leak_flags.map((item) => String(item ?? "").trim()).filter(Boolean)
           : undefined,
         image: message.image ?? null,
+        attachments: message.attachments ?? [],
       };
     })
     .filter(Boolean) as Message[];

@@ -45,6 +45,16 @@ class StructuredDataInput(BaseModel):
     semantic_hints: dict[str, Any] = Field(default_factory=dict, description="Optional domain hints for analysis.")
 
 
+class ImageOCRInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    query: str = Field(default="Extract text from this image.", description="OCR request or user instruction.")
+    path: str = Field(..., description="Workspace-relative image attachment path.", min_length=1)
+    session_id: str = Field(default="mcp-session", description="Optional caller session id.")
+    language: str = Field(default="", description="Optional OCR language; omit for configured default.")
+    max_text_chars: int = Field(default=0, description="Optional maximum OCR text characters.", ge=0, le=120000)
+
+
 def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMCPExecutor | None = None) -> FastMCP:
     server = FastMCP(
         "langchain_agent_mcp",
@@ -208,6 +218,29 @@ def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMC
                 path=params.path,
                 session_id=params.session_id,
                 constraints={"semantic_hints": dict(params.semantic_hints or {})},
+            )
+        )
+
+    @server.tool(
+        name="langchain_agent_extract_image_text",
+        description="Extract text from a local image attachment through the image OCR MCP unit.",
+        annotations=readonly_annotations,
+        structured_output=True,
+    )
+    async def extract_image_text(params: ImageOCRInput) -> dict[str, Any]:
+        constraints: dict[str, Any] = {}
+        if params.language:
+            constraints["language"] = params.language
+        if params.max_text_chars:
+            constraints["max_text_chars"] = params.max_text_chars
+        return await active_executor.execute(
+            LocalMCPToolRequest(
+                route="image_ocr",
+                query=params.query,
+                path=params.path,
+                session_id=params.session_id,
+                mode="ocr",
+                constraints=constraints,
             )
         )
 

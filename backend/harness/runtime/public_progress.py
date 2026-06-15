@@ -117,7 +117,7 @@ def _looks_like_raw_tool_output(text: str) -> bool:
         return False
     if looks_like_runtime_private_artifact_text(raw):
         return True
-    if re.search(r"(?m)^\s*\d{1,6}\s*\|\s+", raw):
+    if re.search(r"(?m)^\s*\d{1,6}\s*\|", raw):
         return True
     if re.search(r"\b(?:Exit code|Wall time|Output):", raw, flags=re.IGNORECASE):
         return True

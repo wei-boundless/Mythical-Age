@@ -9,6 +9,7 @@ ModelActionType = Literal[
     "tool_call",
     "request_task_run",
     "active_work_control",
+    "resume_recoverable_work",
     "block",
 ]
 TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block"]
@@ -36,6 +37,7 @@ class ModelActionRequest:
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
     active_work_control: dict[str, Any] = field(default_factory=dict)
+    recovery_resume: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
 
@@ -51,6 +53,7 @@ class ModelActionRequest:
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
         payload["active_work_control"] = dict(self.active_work_control or {})
+        payload["recovery_resume"] = dict(self.recovery_resume or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -100,7 +103,7 @@ def model_action_request_from_payload(
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_recoverable_work", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
     if allowed and action_type and action_type not in allowed:
@@ -115,6 +118,7 @@ def model_action_request_from_payload(
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
     active_work_control = raw.get("active_work_control") or {}
+    recovery_resume = raw.get("recovery_resume") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
         tool_call = {}
@@ -130,6 +134,9 @@ def model_action_request_from_payload(
     if not isinstance(active_work_control, dict):
         errors.append("active_work_control_must_be_object")
         active_work_control = {}
+    if not isinstance(recovery_resume, dict):
+        errors.append("recovery_resume_must_be_object")
+        recovery_resume = {}
     selected_skill_ids = raw_selected_skill_ids
     if action_type == "request_task_run" and isinstance(task_contract_seed, dict):
         normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_contract_seed)
@@ -190,6 +197,12 @@ def model_action_request_from_payload(
             errors.append("active_work_action_required")
         elif action != raw_action:
             errors.append("active_work_action_must_be_canonical")
+    if action_type == "resume_recoverable_work":
+        resume_payload = dict(recovery_resume or {})
+        if not str(resume_payload.get("task_run_id") or "").strip():
+            errors.append("recovery_resume.task_run_id_required")
+        if not str(resume_payload.get("continuation_id") or "").strip():
+            errors.append("recovery_resume.continuation_id_required")
     if errors:
         return None, {
             "status": "invalid",
@@ -217,6 +230,7 @@ def model_action_request_from_payload(
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
+        recovery_resume=dict(recovery_resume),
         diagnostics=normalized_diagnostics,
     ), {
         "status": "accepted",
@@ -233,6 +247,7 @@ _TASK_EXECUTION_CROSS_CONTEXT_FIELDS = (
     "permission_request",
     "engagement_request",
     "active_work_control",
+    "recovery_resume",
     "plan_id",
 )
 

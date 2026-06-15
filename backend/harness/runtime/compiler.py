@@ -384,6 +384,13 @@ class RuntimeCompiler:
             active_work_context=active_work_context,
             current_work_boundary_receipt=current_work_boundary_receipt,
         )
+        session_context_payload = dict(session_context or {})
+        if (
+            _has_recoverable_work_candidate(session_context_payload)
+            and "resume_recoverable_work" not in set(allowed_actions)
+            and "active_work_control" not in set(allowed_actions)
+        ):
+            allowed_actions = (*allowed_actions, "resume_recoverable_work")
         single_turn_tool_plan = _single_agent_turn_tool_plan(
             assembly_payload=assembly_payload,
             control_capabilities=control_capabilities,
@@ -459,7 +466,6 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
         )
-        session_context_payload = dict(session_context or {})
         prompt_mount_plan = prompt_mount_plan_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="single_agent_turn",
@@ -572,6 +578,16 @@ class RuntimeCompiler:
             dynamic_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
                 current_work_boundary_receipt
             )
+        recoverable_work_payload = _continuation_record_model_visible_payload(
+            session_context_payload.get("recoverable_work")
+        )
+        if recoverable_work_payload:
+            dynamic_payload["recoverable_work"] = recoverable_work_payload
+        recovery_boundary_receipt_payload = _recovery_boundary_receipt_model_visible_payload(
+            session_context_payload.get("recovery_boundary_receipt")
+        )
+        if recovery_boundary_receipt_payload:
+            dynamic_payload["recovery_boundary_receipt"] = recovery_boundary_receipt_payload
         runtime_observations_payload = _runtime_observations_model_visible_payload(
             session_context_payload.get("runtime_observations")
         )
@@ -764,6 +780,8 @@ class RuntimeCompiler:
             "active_work_context",
             "recent_work_outcome",
             "current_work_boundary_receipt",
+            "recoverable_work",
+            "recovery_boundary_receipt",
             "runtime_observations",
             "file_evidence_scope",
             "file_state",
@@ -1121,6 +1139,11 @@ class RuntimeCompiler:
         memory_context_payload = _memory_context_model_visible_payload(memory_context)
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
+        recovery_packet_payload = _recovery_packet_model_visible_payload(
+            task_run_diagnostics.get("recovery_packet")
+        )
+        if recovery_packet_payload:
+            dynamic_payload["recovery_packet"] = recovery_packet_payload
         volatile_payload = dict(dynamic_context.volatile_state_projection or {})
         execution_projection = dict(dict(execution_state or {}).get("system_projection") or {})
         runtime_control_signals = [
@@ -1503,6 +1526,7 @@ class RuntimeCompiler:
             "agent_visible_runtime_projection",
             "operation_authorization",
             "active_skills",
+            "recovery_packet",
         )
         task_volatile_refs = (
             "runtime_envelope",
@@ -2427,6 +2451,20 @@ def _single_agent_turn_allowed_actions(
     return tuple(dict.fromkeys(actions))
 
 
+def _has_recoverable_work_candidate(session_context: dict[str, Any] | None) -> bool:
+    payload = dict(session_context or {})
+    record = dict(payload.get("recoverable_work") or {})
+    if not record:
+        return False
+    state = str(record.get("state") or "").strip()
+    return bool(
+        str(record.get("continuation_id") or "").strip()
+        and str(record.get("task_run_id") or "").strip()
+        and state
+        and state != "terminal_read_only"
+    )
+
+
 def _receipt_available_action_types(receipt: dict[str, Any] | None) -> tuple[str, ...]:
     payload = dict(receipt or {})
     if not payload:
@@ -2459,6 +2497,87 @@ def _current_work_boundary_receipt_model_visible_payload(receipt: dict[str, Any]
         "boundary_code": "runtime_state_observation_only",
         "authority": "harness.runtime.current_work_boundary_receipt_projection",
     }
+
+
+def _continuation_record_model_visible_payload(record: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(record or {})
+    if not payload:
+        return {}
+    return _drop_empty_payload(
+        {
+            "continuation_id": str(payload.get("continuation_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or ""),
+            "state": str(payload.get("state") or ""),
+            "resume_allowed": bool(payload.get("resume_allowed") is True),
+            "resume_strategy": str(payload.get("resume_strategy") or ""),
+            "recovery_cause": str(payload.get("recovery_cause") or ""),
+            "task_status": str(payload.get("task_status") or ""),
+            "user_visible_goal": str(payload.get("user_visible_goal") or ""),
+            "latest_progress": str(payload.get("latest_progress") or ""),
+            "last_completed_step": str(payload.get("last_completed_step") or ""),
+            "next_recommended_step": str(payload.get("next_recommended_step") or ""),
+            "model_visible_summary": str(payload.get("model_visible_summary") or ""),
+            "read_only_context": True,
+            "boundary_code": "recoverable_task_record_observation_only",
+            "authority": "harness.runtime.continuation_record_projection",
+        }
+    )
+
+
+def _recovery_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(receipt or {})
+    if not payload:
+        return {}
+    operations = dict(payload.get("operation_availability") or {})
+    return _drop_empty_payload(
+        {
+            "receipt_id": str(payload.get("receipt_id") or ""),
+            "boundary_decision": str(payload.get("boundary_decision") or ""),
+            "continuation_ref": str(payload.get("continuation_ref") or ""),
+            "task_run_ref": str(payload.get("task_run_ref") or ""),
+            "operation_availability": operations,
+            "resume_execution_route": str(payload.get("resume_execution_route") or ""),
+            "read_only_context": not bool(operations.get("resume_recoverable_work") is True),
+            "state_reason": str(payload.get("state_reason") or ""),
+            "boundary_code": "recovery_boundary_receipt",
+            "authority": "harness.runtime.recovery_boundary_receipt_projection",
+        }
+    )
+
+
+def _recovery_packet_model_visible_payload(packet: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(packet or {})
+    if not payload:
+        return {}
+    return _drop_empty_payload(
+        {
+            "packet_id": str(payload.get("packet_id") or ""),
+            "continuation_id": str(payload.get("continuation_id") or ""),
+            "task_run_id": str(payload.get("task_run_id") or ""),
+            "resume_intent": str(payload.get("resume_intent") or ""),
+            "user_visible_goal": str(payload.get("user_visible_goal") or ""),
+            "confirmed_progress": [
+                str(item)
+                for item in list(payload.get("confirmed_progress") or [])
+                if str(item or "").strip()
+            ][:5],
+            "interruption_summary": str(payload.get("interruption_summary") or ""),
+            "next_step_contract": str(payload.get("next_step_contract") or ""),
+            "artifact_refs": [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)][:8],
+            "resume_constraints": [
+                str(item)
+                for item in list(payload.get("resume_constraints") or [])
+                if str(item or "").strip()
+            ][:8],
+            "forbidden_actions": [
+                str(item)
+                for item in list(payload.get("forbidden_actions") or [])
+                if str(item or "").strip()
+            ][:8],
+            "model_instruction": str(payload.get("model_instruction") or ""),
+            "authority": "harness.runtime.recovery_packet_projection",
+        }
+    )
 
 
 def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
@@ -2717,11 +2836,16 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
             "session_id": str(payload.get("session_id") or ""),
             "turn_id": str(payload.get("turn_id") or ""),
             "expected_active_turn_id": str(payload.get("expected_active_turn_id") or ""),
+            "active_turn_input_policy": str(payload.get("active_turn_input_policy") or ""),
+            "expected_task_run_id": str(payload.get("expected_task_run_id") or ""),
+            "expected_continuation_id": str(payload.get("expected_continuation_id") or ""),
+            "recovery_input_policy": str(payload.get("recovery_input_policy") or ""),
             "active_turn_present": bool(active_turn),
             "active_turn_id": str(active_turn.get("turn_id") or ""),
             "active_turn_state": str(active_turn.get("state") or ""),
             "active_turn_bound_task_run_id": str(active_turn.get("bound_task_run_id") or ""),
             "active_work_candidate_present": bool(payload.get("active_work_candidate")),
+            "recoverable_work_candidate_present": bool(payload.get("recoverable_work_candidate")),
             "recent_work_outcome_candidate_present": bool(payload.get("recent_work_outcome_candidate")),
             "boundary_code": "observable_request_facts_only",
             "authority": "harness.runtime.turn_input_facts.model_projection",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from harness.entrypoint.current_work_boundary import (
     build_current_work_boundary_input,
     current_work_boundary_receipt_allows_active_work_control,
@@ -41,6 +43,18 @@ def _accepted_check() -> dict[str, object]:
         "actual_task_run_id": "taskrun:active",
         "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
     }
+
+
+def _message_payload_with_title(packet, title: str) -> dict[str, object]:
+    marker = title + "\n"
+    for message in packet.model_messages:
+        content = str(message.get("content") or "")
+        if content.startswith(marker):
+            return json.loads(content.split("\n", 1)[1])
+        inner_marker = "\n" + marker
+        if inner_marker in content:
+            return json.loads(content.split(inner_marker, 1)[1])
+    raise AssertionError(f"message title not found: {title}")
 
 
 def test_no_current_work_allows_ordinary_turn_without_active_work_control() -> None:
@@ -198,3 +212,41 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
     assert result.packet.allowed_action_types == ("respond", "ask_user", "block", "active_work_control")
     assert result.packet.diagnostics["current_work_boundary_receipt"]["receipt_id"] == "cwreceipt:active"
     assert result.packet.diagnostics["current_work_boundary_receipt"]["operation_availability"]["active_work_control"] is True
+
+
+def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_control() -> None:
+    recoverable_work = {
+        "continuation_id": "cont:recoverable:17:0",
+        "task_run_id": "taskrun:recoverable",
+        "state": "recoverable",
+        "resume_allowed": True,
+        "resume_strategy": "same_run_resume",
+        "task_status": "waiting_executor",
+        "latest_progress": "后端运行时已重启，任务停在可恢复边界。",
+        "next_recommended_step": "恢复前核对文件状态。",
+        "model_visible_summary": "任务目标：修复断线恢复。",
+        "authority": "harness.continuation.record",
+    }
+
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:recoverable-work",
+        turn_id="turn:recoverable-work",
+        agent_invocation_id="aginvoke:recoverable-work",
+        user_message="继续。",
+        history=[],
+        session_context={"recoverable_work": recoverable_work},
+        runtime_assembly={
+            "profile": {"mode": "conversation"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+        },
+    )
+
+    assert "resume_recoverable_work" in result.packet.allowed_action_types
+    assert "active_work_control" not in result.packet.allowed_action_types
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["recoverable_work"])
+    assert projected["continuation_id"] == "cont:recoverable:17:0"
+    assert projected["task_run_id"] == "taskrun:recoverable"
+    assert projected["read_only_context"] is True
+    assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]

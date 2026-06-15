@@ -179,7 +179,22 @@ export type SessionHistory = {
       alt?: string;
       caption?: string;
     } | null;
+    attachments?: ChatAttachment[];
   }>;
+};
+
+export type ChatAttachment = {
+  attachment_id: string;
+  session_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  path: string;
+  created_at: number;
+  width?: number;
+  height?: number;
+  authority?: string;
+  storage_authority?: string;
 };
 
 export type PublicTodoItem = {
@@ -4080,6 +4095,7 @@ export type ChatRun = {
   event_log_id: string;
   root_request_ref: string;
   status: string;
+  diagnostics?: Record<string, unknown>;
   latest_event_offset: number;
   active_turn_snapshot?: {
     turn_id?: string;
@@ -4091,6 +4107,33 @@ export type ChatRun = {
   is_reconnectable?: boolean;
   terminal_event?: string;
   stream_url: string;
+};
+
+export type LatestChatRunResult = ChatRun | null;
+
+export type SessionContinuationRecord = {
+  continuation_id?: string;
+  session_id?: string;
+  task_run_id?: string;
+  state?: string;
+  resume_allowed?: boolean;
+  resume_strategy?: string;
+  recovery_cause?: string;
+  task_status?: string;
+  user_visible_goal?: string;
+  latest_progress?: string;
+  event_cursor?: number;
+  updated_at?: number;
+  authority?: string;
+  [key: string]: unknown;
+};
+
+export type SessionContinuationProjection = {
+  session_id: string;
+  available: boolean;
+  record?: SessionContinuationRecord;
+  reason?: string;
+  authority?: string;
 };
 
 export type ChatStreamCursor = {
@@ -5957,11 +6000,25 @@ export type ChatRunCreatePayload = {
   runtime_contract?: Record<string, unknown>;
   model_selection?: Record<string, unknown>;
   image_generation?: Record<string, unknown>;
+  attachments?: ChatAttachment[];
   permission_mode?: string;
   expected_active_turn_id?: string;
   active_turn_input_policy?: string;
+  expected_task_run_id?: string;
+  expected_continuation_id?: string;
+  recovery_input_policy?: string;
   editor_context?: Record<string, unknown>;
 };
+
+export async function uploadChatAttachment(sessionId: string, file: File) {
+  const formData = new FormData();
+  formData.set("session_id", sessionId);
+  formData.set("file", file);
+  return request<ChatAttachment>("/chat/attachments", {
+    method: "POST",
+    body: formData,
+  });
+}
 
 export async function createChatRun(payload: ChatRunCreatePayload) {
   return request<ChatRun>("/chat/runs", {
@@ -5975,6 +6032,20 @@ export async function createChatRun(payload: ChatRunCreatePayload) {
 
 export async function getChatRun(streamRunId: string) {
   return request<ChatRun>(`/chat/runs/${encodeURIComponent(streamRunId)}`);
+}
+
+export async function getLatestChatRunForSession(sessionId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  params.set("active_only", "true");
+  return request<LatestChatRunResult>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
+}
+
+export async function getLatestSessionContinuation(sessionId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  const query = params.toString();
+  return request<SessionContinuationProjection>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/continuations/latest${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function resumeChatRun(streamRunId: string) {

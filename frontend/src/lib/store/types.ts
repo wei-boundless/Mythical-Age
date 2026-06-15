@@ -20,7 +20,8 @@ import type {
   ToolCall,
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree,
-  ProjectWorkspaceSummary
+  ProjectWorkspaceSummary,
+  ChatAttachment
 } from "@/lib/api";
 
 export type {
@@ -66,6 +67,7 @@ export type Message = {
     alt?: string;
     caption?: string;
   } | null;
+  attachments?: ChatAttachment[];
 };
 
 export type AssistantTextStreamState = {
@@ -474,7 +476,7 @@ export type StoreActions = {
   refreshProjectSessions: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (ref: SessionRef) => Promise<void>;
-  sendMessage: (value: string) => Promise<void>;
+  sendMessage: (value: string, options?: { files?: File[] }) => Promise<void>;
   stopCurrentStream: () => void;
   pauseActiveTaskRun: () => Promise<void>;
   resumeActiveTaskRun: () => Promise<void>;

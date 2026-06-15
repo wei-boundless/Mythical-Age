@@ -4,10 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import EMBEDDING_PROVIDER_DEFAULTS, LLM_PROVIDER_DEFAULTS, Settings, get_settings, runtime_config
+from config import EMBEDDING_PROVIDER_DEFAULTS, IMAGE_OCR_PROVIDER_OPTIONS, LLM_PROVIDER_DEFAULTS, Settings, get_settings, runtime_config
 from context_system.budget.presets import (
     get_context_budget_preset,
     list_context_budget_presets,
+)
+from capability_system.capabilities.attachments import (
+    SUPPORTED_ATTACHMENT_IMAGE_MIME_TYPES,
+    SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES,
 )
 from capability_system.capabilities.image_generation.image_asset_service import ImageAssetService
 
@@ -175,7 +179,9 @@ class AppSettingsService:
                 "base_url": str(image_payload.get("base_url") or ""),
                 "model": str(image_payload.get("model") or ""),
                 "api_key_present": bool(image_payload.get("api_key_present")),
-            }
+            },
+            "attachments": runtime_config.get_attachments_config(),
+            "image_ocr": runtime_config.get_image_ocr_config(),
         }
 
     def model_provider_payload(self) -> dict[str, Any]:
@@ -311,6 +317,10 @@ class AppSettingsService:
         image_service = ImageAssetService(self.base_dir)
         image_payload = image_service.config_summary()
         image_overrides = dict(runtime_config.load().get("image_assets") or {})
+        attachment_payload = runtime_config.get_attachments_config()
+        attachment_overrides = dict(runtime_config.load().get("attachments") or {})
+        ocr_payload = runtime_config.get_image_ocr_config()
+        ocr_overrides = dict(runtime_config.load().get("image_ocr") or {})
 
         model_group = {
             "group_id": "model",
@@ -457,6 +467,115 @@ class AppSettingsService:
                 "asset_route_prefix": image_payload["asset_route_prefix"],
             },
         }
+        attachment_group = {
+            "group_id": "attachments",
+            "title": "聊天附件",
+            "description": "控制聊天框上传和粘贴图片附件的接收、校验与本地存储；附件本身不执行 OCR。",
+            "status": "开启" if bool(attachment_payload.get("enabled")) else "关闭",
+            "fields": [
+                {
+                    "key": "enabled",
+                    "label": "启用附件",
+                    "type": "boolean",
+                    "value": bool(attachment_payload.get("enabled")),
+                    "source": "runtime_override" if "enabled" in attachment_overrides else "env_or_default",
+                    "description": "关闭后聊天框不再接收图片附件。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "max_upload_bytes",
+                    "label": "单文件上限",
+                    "type": "number",
+                    "value": int(attachment_payload.get("max_upload_bytes") or 10 * 1024 * 1024),
+                    "source": "runtime_override" if "max_upload_bytes" in attachment_overrides else "env_or_default",
+                    "description": "聊天框单个附件的字节上限。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "max_files_per_message",
+                    "label": "单条消息附件数",
+                    "type": "number",
+                    "value": int(attachment_payload.get("max_files_per_message") or 8),
+                    "source": "runtime_override" if "max_files_per_message" in attachment_overrides else "env_or_default",
+                    "description": "单条用户消息允许携带的附件数量。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "storage_relative_dir",
+                    "label": "存储目录",
+                    "type": "text",
+                    "value": str(attachment_payload.get("storage_relative_dir") or "storage/chat_attachments"),
+                    "source": "runtime_override" if "storage_relative_dir" in attachment_overrides else "env_or_default",
+                    "description": "相对项目根目录的附件存储位置。",
+                    "restart_required": False,
+                },
+            ],
+            "metadata": {
+                "supported_suffixes": sorted(SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES),
+                "supported_mime_types": sorted(SUPPORTED_ATTACHMENT_IMAGE_MIME_TYPES),
+                "authority": "runtime.attachments",
+            },
+        }
+        ocr_group = {
+            "group_id": "image_ocr",
+            "title": "图片 OCR",
+            "description": "控制本地 MCP 图片文字识别能力；OCR 只消费附件系统提供的受控图片路径。",
+            "status": f"开启 / {ocr_payload['provider']}" if bool(ocr_payload.get("enabled")) else "关闭",
+            "fields": [
+                {
+                    "key": "enabled",
+                    "label": "启用 OCR",
+                    "type": "boolean",
+                    "value": bool(ocr_payload.get("enabled")),
+                    "source": "runtime_override" if "enabled" in ocr_overrides else "env_or_default",
+                    "description": "关闭后 attachment_extract_text 会返回明确的配置关闭错误。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "provider",
+                    "label": "OCR Provider",
+                    "type": "select",
+                    "value": str(ocr_payload.get("provider") or "rapidocr"),
+                    "options": list(IMAGE_OCR_PROVIDER_OPTIONS),
+                    "source": "runtime_override" if "provider" in ocr_overrides else "env_or_default",
+                    "description": "当前正式链路复用项目已有 RapidOCR 能力。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "default_language",
+                    "label": "默认语言",
+                    "type": "text",
+                    "value": str(ocr_payload.get("default_language") or "chi_sim+eng"),
+                    "source": "runtime_override" if "default_language" in ocr_overrides else "env_or_default",
+                    "description": "默认支持中文和英文；该字段作为 provider 的语言提示传入。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "max_text_chars",
+                    "label": "最大返回字符",
+                    "type": "number",
+                    "value": int(ocr_payload.get("max_text_chars") or 12000),
+                    "source": "runtime_override" if "max_text_chars" in ocr_overrides else "env_or_default",
+                    "description": "限制单次 OCR 返回给 Agent 的文本长度，防止图片内长文本挤占上下文。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "timeout_seconds",
+                    "label": "OCR 超时秒数",
+                    "type": "number",
+                    "value": int(ocr_payload.get("timeout_seconds") or 60),
+                    "source": "runtime_override" if "timeout_seconds" in ocr_overrides else "env_or_default",
+                    "description": "单次 OCR 能力调用的超时预算。",
+                    "restart_required": False,
+                },
+            ],
+            "metadata": {
+                "tool_name": "attachment_extract_text",
+                "mcp_route": str(ocr_payload.get("mcp_route") or "image_ocr"),
+                "local_mcp_unit": "local_mcp:image_ocr",
+                "authority": "runtime.image_ocr",
+            },
+        }
         rerank_mode = "disabled"
         if settings.rerank_enabled:
             provider = (settings.rerank_provider or "heuristic").strip().lower()
@@ -546,6 +665,8 @@ class AppSettingsService:
                     ],
                 },
                 image_group,
+                attachment_group,
+                ocr_group,
                 context_group,
             ],
         }
@@ -572,6 +693,12 @@ class AppSettingsService:
                 api_key=str(values.get("api_key") or "").strip() or None,
                 request_timeout_seconds=values.get("request_timeout_seconds"),
             )
+            return self.runtime_config_console_payload()
+        if group_id == "image_ocr":
+            runtime_config.set_image_ocr_config(dict(values or {}))
+            return self.runtime_config_console_payload()
+        if group_id == "attachments":
+            runtime_config.set_attachments_config(dict(values or {}))
             return self.runtime_config_console_payload()
         allowed_groups = {"embedding", "retrieval", "document", "runtime"}
         if group_id not in allowed_groups:

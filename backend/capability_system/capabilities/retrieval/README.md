@@ -16,7 +16,7 @@ The active chat/retrieval path is:
 ## Supported inputs
 
 - PDF: local extraction with `pdfplumber` / `pypdf`, or MinerU API when configured
-- Images: OCR with `Pillow + pytesseract` when available
+- Images: OCR with RapidOCR when available
 - Markdown / text
 - JSON
 - CSV
@@ -77,8 +77,7 @@ python -m capability_system.capabilities.retrieval.cli query --query "What is de
 ## Notes
 
 - MinerU API is optional. When `MINERU_API_ENABLED=true`, PDF parsing will try the remote MinerU service first and fall back to local extraction if the API is unavailable or returns unusable content.
-- OCR is optional. If `pytesseract` is not installed, image parsing still keeps image metadata but will not extract text.
-- On Windows, you can set `TESSERACT_CMD` to the full path of `tesseract.exe` if it is not on PATH.
+- OCR is optional. If RapidOCR is not installed, image parsing still keeps image metadata but will not extract text.
 - PDF extraction is optional. If `pypdf` is not installed, PDFs will be skipped.
 - Embedding settings still come from the current backend config.
 - The `clean` command lets you preview cleaned chunks before rebuilding the index.

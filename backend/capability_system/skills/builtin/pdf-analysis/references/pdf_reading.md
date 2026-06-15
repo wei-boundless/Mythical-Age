@@ -15,7 +15,7 @@
 - `pdfplumber`：文本与表格抽取
 - `pypdf`：轻量文本与元数据读取
 - `pypdfium2`：页面渲染
-- `pytesseract`：OCR 兜底
+- `RapidOCR`：OCR 兜底
 
 ## 示例
 

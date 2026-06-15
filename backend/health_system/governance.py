@@ -7,8 +7,9 @@ from runtime.prompt_accounting import TokenCounterRegistry
 from runtime.prompt_accounting.ledger import summarize_usage_records
 
 from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
+from .models import HealthManagementReceipt
 from .store import HealthStore
-from .task_record_maintenance import HealthTaskRecordMaintenanceService
+from .task_record_maintenance import ACTIVE_TASK_STATUSES, HealthTaskRecordMaintenanceService
 
 
 class HealthGovernanceBuilder:
@@ -21,15 +22,16 @@ class HealthGovernanceBuilder:
         self.monitor_projector = getattr(self.runtime_host, "monitor_projector", None) or _runtime_monitor_projector(self.runtime_host.event_log)
         self.now = time.time()
         self.store = self._build_store()
+        self._recent_task_runs_cache: dict[int, list[Any]] = {}
 
     def build_overview(self, *, limit: int = 20) -> dict[str, Any]:
         overview_limit = max(1, min(int(limit or 20), 30))
         tasks = self.build_tasks(limit=overview_limit, event_limit=12)["tasks"]
         monitor = self._global_monitor(limit=overview_limit)
         risks = self._risk_events(tasks=tasks, monitor=monitor)
-        token_usage = self._token_usage(tasks)
+        token_usage = self.build_token_usage(limit=max(40, overview_limit))
         efficiency = self._efficiency(tasks)
-        system_risks = self._system_risks(monitor=monitor)
+        system_risks = self._system_risks(monitor=monitor, include_environment=False)
         monitor_governance = self._monitor_governance(monitor=monitor)
         artifact_governance = self._artifact_governance_summary()
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
@@ -144,7 +146,7 @@ class HealthGovernanceBuilder:
 
     def build_system_risks(self) -> dict[str, Any]:
         monitor = self._global_monitor(limit=80)
-        risks = self._system_risks(monitor=monitor)
+        risks = self._system_risks(monitor=monitor, include_environment=True)
         return {
             "authority": "health_system.governance.system_risks",
             "system_risks": risks,
@@ -185,6 +187,25 @@ class HealthGovernanceBuilder:
 
     def _ledger_token_run_records(self, *, limit: int, task_runs: list[Any]) -> list[dict[str, Any]]:
         ledger = self.prompt_accounting_ledger
+        list_summaries = getattr(ledger, "list_run_summaries", None)
+        if callable(list_summaries):
+            try:
+                summary_records = list(list_summaries(limit=max(1, min(int(limit or 100), 100))))
+            except Exception:
+                summary_records = []
+            if summary_records:
+                return self._ledger_token_summary_records(
+                    summary_records,
+                    limit=max(1, min(int(limit or 100), 100)),
+                    task_runs=task_runs,
+                )
+        reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
+        if callable(reads_are_expensive):
+            try:
+                if bool(reads_are_expensive()):
+                    return []
+            except Exception:
+                return []
         list_usage = getattr(ledger, "list_token_usage", None)
         if not callable(list_usage):
             return []
@@ -256,6 +277,82 @@ class HealthGovernanceBuilder:
                 "status": str(getattr(task_run, "status", "") or "completed"),
                 "created_at": min(float(getattr(record, "created_at", 0.0) or 0.0) for record in records),
                 "updated_at": max(float(getattr(record, "created_at", 0.0) or 0.0) for record in records),
+                "duration_seconds": 0.0,
+                "agent_count": 1 if str(getattr(task_run, "agent_id", "") or "") else 0,
+                "worker_request_count": 0,
+                "worker_result_count": 0,
+                "tool_call_count": 0,
+                "event_count": int(summary.get("record_count") or 0),
+                "error_count": 0,
+                "token_total": token_total,
+                "token_source": self._token_source(summary),
+                "exact_token_total": int(summary.get("exact_total_tokens") or 0),
+                "predicted_token_total": int(summary.get("predicted_total_tokens") or 0),
+                "trace_estimate_token_total": int(summary.get("trace_estimate_total_tokens") or 0),
+                "cached_tokens": int(summary.get("cached_tokens") or 0),
+                "cache_savings_tokens": int(summary.get("cache_savings_tokens") or 0),
+                "token_record_count": int(summary.get("record_count") or 0),
+                "provider_usage_record_count": int(summary.get("provider_usage_record_count") or 0),
+                "local_prediction_record_count": int(summary.get("local_prediction_record_count") or 0),
+                "risk_level": self._token_record_risk_level(token_total),
+                "latest_risk_event": "",
+                "supervision_count": 0,
+                "latest_event_type": "prompt_accounting_recorded",
+                "monitor_ref": f"prompt_accounting:{key}",
+                "record_refs": {
+                    "task_run": task_run_id,
+                    "run": run_id,
+                    "session": session_id,
+                    "prompt_accounting": key,
+                },
+            })
+        return rows
+
+    def _ledger_token_summary_records(
+        self,
+        summary_records: list[dict[str, Any]],
+        *,
+        limit: int,
+        task_runs: list[Any],
+    ) -> list[dict[str, Any]]:
+        task_by_id = {
+            str(getattr(task_run, "task_run_id", "") or ""): task_run
+            for task_run in list(task_runs or [])
+            if str(getattr(task_run, "task_run_id", "") or "")
+        }
+        rows: list[dict[str, Any]] = []
+        for payload in list(summary_records or [])[: max(1, min(int(limit or 100), 100))]:
+            summary = dict(payload.get("summary") or {})
+            if int(summary.get("record_count") or 0) <= 0:
+                continue
+            key = str(payload.get("key") or payload.get("run_id") or payload.get("task_run_id") or "").strip()
+            task_run_id = str(payload.get("task_run_id") or "")
+            run_id = str(payload.get("run_id") or task_run_id or key)
+            session_id = str(payload.get("session_id") or "")
+            task_run = task_by_id.get(task_run_id) or task_by_id.get(run_id)
+            token_total = int(summary.get("effective_total_tokens") or summary.get("total_tokens") or 0)
+            record_kind = self._ledger_record_kind(key=key, run_id=run_id, task_run_id=task_run_id)
+            rows.append({
+                "record_key": key,
+                "record_kind": record_kind,
+                "task_run_id": task_run_id or run_id or key,
+                "run_id": run_id,
+                "session_id": session_id,
+                "task_contract_ref": str(getattr(task_run, "task_contract_ref", "") or "") if task_run is not None else "",
+                "title": self._ledger_run_title(
+                    key=key,
+                    run_id=run_id,
+                    task_run_id=task_run_id,
+                    task_run=task_run,
+                    record_kind=record_kind,
+                ),
+                "task_id": str(getattr(task_run, "task_id", "") or ""),
+                "agent_id": str(getattr(task_run, "agent_id", "") or ""),
+                "agent_profile_id": str(getattr(task_run, "agent_profile_id", "") or ""),
+                "runtime_lane": str(getattr(task_run, "execution_runtime_kind", "") or record_kind),
+                "status": str(getattr(task_run, "status", "") or "completed"),
+                "created_at": float(payload.get("created_at") or 0.0),
+                "updated_at": float(payload.get("updated_at") or payload.get("created_at") or 0.0),
                 "duration_seconds": 0.0,
                 "agent_count": 1 if str(getattr(task_run, "agent_id", "") or "") else 0,
                 "worker_request_count": 0,
@@ -417,6 +514,67 @@ class HealthGovernanceBuilder:
         result["monitor"] = self._global_monitor(limit=80)
         return result
 
+    def build_prompt_accounting_retention(self, *, cutoff_days: int = 7) -> dict[str, Any]:
+        ledger = self.prompt_accounting_ledger
+        preview = getattr(ledger, "build_retention_preview", None)
+        if not callable(preview):
+            return {
+                "authority": "health_system.prompt_accounting_retention",
+                "mode": "unavailable",
+                "available": False,
+                "error": "prompt_accounting_ledger_retention_unavailable",
+            }
+        protection = self._prompt_accounting_retention_protection()
+        result = dict(
+            preview(
+                cutoff_days=max(1, int(cutoff_days or 7)),
+                protected_task_run_ids=protection["task_run_ids"],
+                protected_session_ids=protection["session_ids"],
+            )
+            or {}
+        )
+        result["available"] = True
+        result["protection"] = protection
+        return result
+
+    def compact_prompt_accounting_retention(self, *, cutoff_days: int = 7, dry_run: bool = True) -> dict[str, Any]:
+        ledger = self.prompt_accounting_ledger
+        compact = getattr(ledger, "compact_before", None)
+        if not callable(compact):
+            return {
+                "authority": "health_system.prompt_accounting_retention",
+                "mode": "unavailable",
+                "available": False,
+                "error": "prompt_accounting_ledger_retention_unavailable",
+            }
+        protection = self._prompt_accounting_retention_protection()
+        result = dict(
+            compact(
+                cutoff_days=max(1, int(cutoff_days or 7)),
+                dry_run=bool(dry_run),
+                protected_task_run_ids=protection["task_run_ids"],
+                protected_session_ids=protection["session_ids"],
+            )
+            or {}
+        )
+        result["available"] = True
+        result["protection"] = protection
+        if not dry_run and self.store is not None:
+            receipt_payload = dict(result.get("retention_receipt") or {})
+            receipt = HealthManagementReceipt(
+                receipt_id=str(receipt_payload.get("receipt_id") or f"prompt-accounting-retention:{int(time.time() * 1000)}"),
+                command_ref="health-system/prompt-accounting/retention/compact",
+                accepted=True,
+                status=str(receipt_payload.get("status") or "completed"),
+                admission_status="accepted",
+                run_status=str(receipt_payload.get("status") or "completed"),
+                diagnostics={"prompt_accounting_retention": receipt_payload},
+                created_at=float(receipt_payload.get("created_at") or time.time()),
+            )
+            self.store.append_receipt(receipt)
+            result["health_management_receipt"] = receipt.to_dict()
+        return result
+
     def _maintenance_service(self) -> HealthTaskRecordMaintenanceService:
         return HealthTaskRecordMaintenanceService(
             runtime_host=self.runtime_host,
@@ -430,6 +588,49 @@ class HealthGovernanceBuilder:
         if base_dir is None:
             return None
         return HealthStore(base_dir)
+
+    def _prompt_accounting_retention_protection(self) -> dict[str, list[str]]:
+        protected_task_run_ids: set[str] = set()
+        protected_session_ids: set[str] = set()
+        for task_run in self._recent_task_runs(limit=500):
+            status = str(getattr(task_run, "status", "") or "")
+            if status not in ACTIVE_TASK_STATUSES:
+                continue
+            task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
+            session_id = str(getattr(task_run, "session_id", "") or "").strip()
+            if task_run_id:
+                protected_task_run_ids.add(task_run_id)
+            if session_id:
+                protected_session_ids.add(session_id)
+        try:
+            monitor = dict(self._global_monitor(limit=500) or {})
+        except Exception:
+            monitor = {}
+        for item in list(monitor.get("task_runs") or []):
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "")
+            activity_state = str(item.get("activity_state") or "")
+            resource_class = str(item.get("resource_class") or "")
+            active = (
+                status in ACTIVE_TASK_STATUSES
+                or activity_state in {"running", "waiting", "paused", "stale"}
+                or resource_class == "dynamic"
+                or item.get("is_running") is True
+                or item.get("is_waiting") is True
+            )
+            if not active:
+                continue
+            task_run_id = str(item.get("task_run_id") or "").strip()
+            session_id = str(item.get("session_id") or "").strip()
+            if task_run_id:
+                protected_task_run_ids.add(task_run_id)
+            if session_id:
+                protected_session_ids.add(session_id)
+        return {
+            "task_run_ids": sorted(protected_task_run_ids),
+            "session_ids": sorted(protected_session_ids),
+        }
 
     def _task_record(
         self,
@@ -593,16 +794,23 @@ class HealthGovernanceBuilder:
         return []
 
     def _recent_task_runs(self, *, limit: int) -> list[Any]:
-        reader = getattr(self.state_index, "list_recent_task_runs", None)
+        requested = max(1, int(limit or 80))
+        cached = self._recent_task_runs_cache.get(requested)
+        if cached is not None:
+            return list(cached)
+        reader = getattr(self.state_index, "list_recent_task_run_summaries", None)
+        if not callable(reader):
+            reader = getattr(self.state_index, "list_recent_task_runs", None)
         if not callable(reader):
             return []
-        requested = max(1, int(limit or 80))
         try:
-            return list(reader(limit=requested))
+            rows = list(reader(limit=requested))
         except TypeError:
-            return list(reader(requested))
+            rows = list(reader(requested))
         except Exception:
             return []
+        self._recent_task_runs_cache[requested] = list(rows)
+        return rows
 
     def _event_count(self, task_run_id: str, *, fallback: int) -> int:
         estimator = getattr(self.runtime_host.event_log, "estimated_event_count", None)
@@ -659,7 +867,7 @@ class HealthGovernanceBuilder:
         risks: list[dict[str, Any]] = []
         for task in tasks:
             risks.extend(self._task_risks(task, monitor={}, graph_monitor={}))
-        risks.extend(self._system_risks(monitor=monitor))
+        risks.extend(self._system_risks(monitor=monitor, include_environment=False))
         severity_order = {"critical": 0, "high": 1, "warning": 2, "info": 3}
         return sorted(
             risks,
@@ -716,7 +924,7 @@ class HealthGovernanceBuilder:
         except Exception:
             return False
 
-    def _system_risks(self, *, monitor: dict[str, Any]) -> list[dict[str, Any]]:
+    def _system_risks(self, *, monitor: dict[str, Any], include_environment: bool = True) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []
         summary = dict(monitor.get("summary") or {})
         if monitor.get("error"):
@@ -728,8 +936,9 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("system", "warning", "runtime_monitor", "存在停滞运行", f"{stale_count} 个运行长时间未更新。"))
         if action_required_count > 0:
             risks.append(self._risk("task", "high", "runtime_monitor", "存在等待处理任务", f"{action_required_count} 个任务正在等待确认或人工处理。"))
-        risks.extend(self._environment_risks())
-        risks.extend(self._instrumentation_risks())
+        if include_environment:
+            risks.extend(self._environment_risks())
+            risks.extend(self._instrumentation_risks())
         return risks
 
     def _monitor_governance(self, *, monitor: dict[str, Any]) -> dict[str, Any]:

@@ -29,6 +29,13 @@ def test_tool_definition_risk_flags_derive_from_operation_registry() -> None:
     assert python_repl_operation is not None
     assert by_name["python_repl"].is_destructive is True
     assert by_name["python_repl"].is_destructive is python_repl_operation.destructive
+    image_ocr_operation = registry.get_operation("op.mcp_image_ocr")
+    assert image_ocr_operation is not None
+    assert image_ocr_operation.read_only is True
+    assert image_ocr_operation.idempotent is True
+    assert image_ocr_operation.operation_type == "mcp"
+    assert "ocr" in image_ocr_operation.risk_tags
+    assert image_ocr_operation.metadata["source_class"] == "attachment"
 
 
 def test_tool_definition_rejects_unknown_operation() -> None:

@@ -14,6 +14,7 @@ from .pdf_worker import PDFWorker
 from .projection import MCPProjectionAdapter
 from .retrieval_worker import RetrievalWorker
 from .structured_data_worker import StructuredDataWorker
+from .image_ocr_worker import ImageOCRWorker
 from .mcp_models import (
     CanonicalResult,
     MCPExecutionPlan,
@@ -32,6 +33,7 @@ class EvidenceOrchestrator:
         retrieval_worker: RetrievalWorker,
         pdf_worker: PDFWorker | None = None,
         structured_data_worker: StructuredDataWorker | None = None,
+        image_ocr_worker: ImageOCRWorker | None = None,
         candidate_store=None,
         graph_store=None,
         output_policy,
@@ -39,10 +41,12 @@ class EvidenceOrchestrator:
         self.retrieval_worker = retrieval_worker
         self.pdf_worker = pdf_worker
         self.structured_data_worker = structured_data_worker
+        self.image_ocr_worker = image_ocr_worker
         self.worker_by_slot = {
             "retrieval_worker": retrieval_worker,
             "pdf_worker": pdf_worker,
             "structured_data_worker": structured_data_worker,
+            "image_ocr_worker": image_ocr_worker,
         }
         self.candidate_store = candidate_store
         self.graph_store = graph_store

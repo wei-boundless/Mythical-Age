@@ -30,13 +30,13 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
     writer = WriteFileTool(root_dir=backend_dir)
     editor = EditFileTool(root_dir=backend_dir)
 
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | root knowledge"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |root knowledge"
 
     write_result = writer.invoke({"path": "knowledge/note.md", "content": "updated from workspace", "allow_overwrite": True})
     assert write_result == "Write succeeded: knowledge/note.md"
     assert (root_knowledge / "note.md").read_text(encoding="utf-8") == "updated from workspace"
     assert (backend_knowledge / "note.md").read_text(encoding="utf-8") == "backend knowledge"
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | updated from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |updated from workspace"
 
     edit_result = editor.invoke(
         {
@@ -46,7 +46,7 @@ def test_workspace_file_tools_use_external_knowledge_root_when_initialized_from_
         }
     )
     assert edit_result == "Edit succeeded: knowledge/note.md"
-    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 | edited from workspace"
+    assert _read_file_text(backend_dir, "knowledge/note.md") == "1 |edited from workspace"
 
 
 def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: Path) -> None:

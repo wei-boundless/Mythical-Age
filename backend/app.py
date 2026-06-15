@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.chat import router as chat_router
+from api.chat_attachments import router as chat_attachments_router
 from api.config_api import router as config_router
 from api.files import router as files_router
 from api.file_changes import router as file_changes_router
@@ -50,6 +51,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/api", tags=["chat"])
+app.include_router(chat_attachments_router, prefix="/api", tags=["chat"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(file_changes_router, prefix="/api", tags=["file-changes"])

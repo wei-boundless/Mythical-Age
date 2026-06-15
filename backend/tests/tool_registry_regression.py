@@ -38,6 +38,10 @@ def test_tool_registry_snapshot_and_selection_contract() -> None:
     assert any(item["package_id"] == "pkg.development.python" and item["category"] == "开发工具" for item in payload["tool_packages"])
     assert any(item["package_id"] == "pkg.git.read" for item in payload["tool_packages"])
     assert any(item["package_id"] == "pkg.git.write" for item in payload["tool_packages"])
+    assert any(
+        item["package_id"] == "pkg.mcp.local" and "op.mcp_image_ocr" in item["operation_ids"]
+        for item in payload["tool_packages"]
+    )
 
     by_name = {tool["name"]: tool for tool in payload["tools"]}
     assert "get_weather" not in by_name
@@ -88,6 +92,14 @@ def test_tool_registry_snapshot_and_selection_contract() -> None:
     assert by_name["terminal"]["safe_for_auto_route"] is False
     assert by_name["text_metric"]["operation_id"] == "op.text_metric"
     assert "length_budget" in by_name["text_metric"]["capability_tags"]
+    assert by_name["attachment_extract_text"]["operation_id"] == "op.mcp_image_ocr"
+    assert by_name["attachment_extract_text"]["is_read_only"] is True
+    assert by_name["attachment_extract_text"]["is_destructive"] is False
+    assert by_name["attachment_extract_text"]["contract"]["required_inputs"] == ["path"]
+    assert "max_text_chars" in by_name["attachment_extract_text"]["contract"]["optional_inputs"]
+    assert by_name["attachment_extract_text"]["resource_exposure_policy"] == "explicit_resource"
+    assert by_name["attachment_extract_text"]["prompt_exposure_policy"] == "schema_plus_guidance"
+    assert by_name["attachment_extract_text"]["native_runtime_only"] is True
 
     runtime_registry = registry_module.ToolRegistry(ROOT)
     assert runtime_registry.select_best(
