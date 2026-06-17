@@ -481,6 +481,57 @@ def test_protocol_repair_status_stays_trace_only_without_public_surface() -> Non
     assert frame["slot"] != "body"
 
 
+def test_assistant_final_and_protocol_feedback_projection_do_not_cross_body_channel() -> None:
+    assistant_events = _project_public_stream_event(
+        ASSISTANT_TEXT_FINAL_EVENT,
+        {
+            "content": "OCR 已读取题目，下面给出完整解法。",
+            "turn_run_id": "turnrun:test",
+            "terminal_reason": "assistant_message",
+            "answer_source": "harness.single_agent_turn",
+            "answer_channel": "conversation",
+        },
+    )
+    protocol_events = _project_public_stream_event(
+        "turn_runtime_control_signal_observed",
+        {
+            "event": {
+                "event_id": "event:protocol",
+                "payload": {
+                    "runtime_control_signal": {
+                        "signal_kind": "model_protocol_violation",
+                        "protocol_error": {"code": "single_agent_turn_invalid_json_action"},
+                    }
+                },
+                "refs": {"turn_run_ref": "turnrun:test"},
+            }
+        },
+    )
+
+    assert [event_type for event_type, _ in assistant_events] == [ASSISTANT_TEXT_FINAL_EVENT]
+    assert len(protocol_events) == 1
+    body_frame = project_public_projection_event(
+        assistant_events[0][0],
+        assistant_events[0][1],
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+    protocol_frame = project_public_projection_event(
+        protocol_events[0][0],
+        protocol_events[0][1],
+        session_id="session:test",
+        sequence=2,
+    )["public_projection_frame"]
+
+    assert body_frame["op"] == "body_finalize"
+    assert body_frame["slot"] == "body"
+    assert body_frame["main_visibility"] == "visible_final"
+    assert body_frame["text"] == "OCR 已读取题目，下面给出完整解法。"
+    assert protocol_frame["slot"] == "trace"
+    assert protocol_frame["main_visibility"] == "hidden"
+    assert "OCR 已读取题目" not in str(protocol_frame)
+
+
 def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
     first = _frame(
         "runtime_step_summary",

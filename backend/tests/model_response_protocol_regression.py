@@ -28,7 +28,7 @@ def test_model_response_protocol_extracts_json_action_candidate() -> None:
     assert protocol.protocol_errors == ()
 
 
-def test_model_response_protocol_reports_json_requirement_without_parsing_in_harness() -> None:
+def test_model_response_protocol_keeps_plain_text_as_transport_content() -> None:
     response = SimpleNamespace(content="not json")
 
     protocol = model_response_protocol_from_response(
@@ -40,7 +40,7 @@ def test_model_response_protocol_reports_json_requirement_without_parsing_in_har
     )
 
     assert protocol.json_payload == {}
-    assert "json_action_required" in protocol.protocol_errors
+    assert protocol.protocol_errors == ()
     assert protocol.parse_diagnostics["parse_error"]
 
 

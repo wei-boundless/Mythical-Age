@@ -16,6 +16,7 @@ export function hydrateSessionRuntimeProjection(
   for (const attachment of attachments ?? []) {
     for (const slice of attachment.projection_slices ?? []) {
       if (slice.schema_version !== "chronological_projection") continue;
+      if (!projectionSliceCanHydrate(slice)) continue;
       for (const record of slice.frames ?? []) {
         const frame = projectionFrameFromRecord(record);
         if (!frame) continue;
@@ -33,6 +34,37 @@ export function hydrateSessionRuntimeProjection(
     hydratedState = applyProjectionFramesToState(hydratedState, orderedFrames, { createMessages: true });
   }
   return hydratedState;
+}
+
+function projectionSliceCanHydrate(
+  slice: NonNullable<SessionRuntimeAttachment["projection_slices"]>[number],
+) {
+  const frames = Array.isArray(slice.frames) ? slice.frames : [];
+  if (!sliceRequiresCommittedIntegrity(slice)) {
+    return true;
+  }
+  if (String(slice.integrity ?? "").trim() === "incomplete") {
+    return false;
+  }
+  if (String(slice.integrity ?? "").trim() === "bounded") {
+    return false;
+  }
+  const cursorFrameCount = Number(slice.cursor?.frame_count);
+  if (Number.isFinite(cursorFrameCount) && cursorFrameCount !== frames.length) {
+    return false;
+  }
+  return frames.some((frame) =>
+    String(frame?.op ?? "").trim() === "commit_ack"
+    || String(frame?.source_event_type ?? "").trim() === "session_output_commit_ack"
+  );
+}
+
+function sliceRequiresCommittedIntegrity(
+  slice: NonNullable<SessionRuntimeAttachment["projection_slices"]>[number],
+) {
+  const lifecycle = String(slice.display_hint?.lifecycle ?? "").trim();
+  const surface = String(slice.display_hint?.main_surface_hint ?? "").trim();
+  return slice.committed === true || lifecycle === "committed" || surface === "closeout";
 }
 
 function frameWithRuntimeAttachmentAnchor(

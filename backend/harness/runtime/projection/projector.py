@@ -31,7 +31,12 @@ from runtime.output_stream.public_contract import (
 
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
-_TRACE_ONLY_RUNTIME_STEP_SOURCES = {"runtime.protocol_repair", "system.tool_call_status", "tool_observation.summary"}
+_TRACE_ONLY_RUNTIME_STEP_SOURCES = {
+    "model_action.assistant_content_preamble",
+    "runtime.protocol_repair",
+    "system.tool_call_status",
+    "tool_observation.summary",
+}
 _TOOL_FAILURE_FEEDBACK_RE = re.compile(
     r"^(?:[A-Za-z][A-Za-z0-9 _./-]{0,80}\s+failed|tool_policy_rejection):",
     flags=re.IGNORECASE,

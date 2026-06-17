@@ -562,6 +562,86 @@ def test_session_runtime_projection_filters_body_only_history_and_bounds_frames(
     assert len(_projection_frames(attachments[0])) == 12
 
 
+def test_session_runtime_projection_keeps_complete_committed_slice_beyond_frame_limit() -> None:
+    stream_run_id = "strun:session-a:closed-many-tools"
+    task_run_id = "taskrun:turn:session-a:3:abc"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:closed-many-tools",
+        status="completed",
+        diagnostics={"active_turn_id": "turn:session-a:3", "runtime_task_run_id": task_run_id},
+        created_at=3.0,
+        updated_at=60.0,
+    )
+    tool_records = [
+        _public_ledger_record(
+            TOOL_CALL_REQUESTED_EVENT,
+            {"tool_call_id": f"call:{index}", "tool_name": "read_file", "target": f"file-{index}.py"},
+            offset=index,
+            turn_id="turn:session-a:3",
+            stream_run_id=stream_run_id,
+            task_run_id=task_run_id,
+            message_id="assistant:turn:3",
+        )
+        for index in range(1, 51)
+    ]
+    public_events = [
+        *tool_records,
+        _public_ledger_record(
+            ASSISTANT_TEXT_FINAL_EVENT,
+            {"content": "最终正文。"},
+            offset=51,
+            turn_id="turn:session-a:3",
+            stream_run_id=stream_run_id,
+            task_run_id=task_run_id,
+            message_id="assistant:turn:3",
+        ),
+        _public_ledger_record(
+            SESSION_OUTPUT_COMMIT_ACK_EVENT,
+            {"state": "committed", "content_sha256": "sha256:final"},
+            offset=52,
+            turn_id="turn:session-a:3",
+            stream_run_id=stream_run_id,
+            task_run_id=task_run_id,
+            message_id="assistant:turn:3",
+        ),
+    ]
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={stream_run_id: public_events},
+    )
+
+    projection = build_session_runtime_projection(
+        session_id="session-a",
+        history={
+            "messages": [
+                {"role": "user", "content": "closed", "turn_id": "turn:session-a:3"},
+                {"id": "assistant:turn:3", "role": "assistant", "content": "最终正文。", "turn_id": "turn:session-a:3"},
+            ]
+        },
+        runtime_host=runtime_host,
+        max_projection_frames_per_attachment=12,
+    )
+
+    attachment = projection["runtime_attachments"][0]
+    frames = _projection_frames(attachment)
+    slice_ = _projection_slice(attachment)
+
+    assert attachment["main_chat_surface"] == "closeout_summary"
+    assert attachment["tool_event_count"] == 50
+    assert attachment["log_ref"] == "chatrun:session-a:closed-many-tools"
+    assert len(frames) == 52
+    assert frames[0]["tool_call_id"] == "call:1"
+    assert frames[-1]["op"] == "commit_ack"
+    assert slice_["integrity"] == "complete"
+    assert slice_["committed"] is True
+    assert slice_["cursor"]["frame_count"] == 52
+    assert slice_["display_hint"]["tool_event_count"] == 50
+
+
 def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summaries() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"

@@ -2884,10 +2884,8 @@ def _single_agent_turn_effective_control_capabilities(
         and set(visible_tool_names).intersection(_SUBAGENT_TOOL_NAMES)
     )
     effective["supports_json_action_protocol"] = supports_json_action_protocol
-    control_actions = {"ask_user", "block", "request_task_run", "active_work_control"}
     effective["requires_json_action_protocol"] = bool(
         effective.get("requires_json_action_protocol") is True
-        or bool(control_actions.intersection(allowed))
     )
     effective["visible_tool_count"] = visible_tool_count
     effective["may_request_task_run"] = "request_task_run" in allowed
@@ -2933,7 +2931,7 @@ def _single_agent_turn_output_contract(
             "如果任务承接条件成立但本轮没有挂载 request_task_run，必须用可用动作公开说明持续任务生命周期未挂载或补齐缺口；不能假装已经进入持续任务。"
         )
     return {
-        "format": "json_action" if json_action_required else "structured_action",
+        "format": "assistant_message_or_action",
         "allowed_actions": list(allowed_actions),
         "forbidden": list(dict.fromkeys(forbidden)),
         "action_selection_rules": action_selection_rules,
@@ -2942,7 +2940,14 @@ def _single_agent_turn_output_contract(
             "json_action": {
                 "enabled": json_action_enabled,
                 "required": json_action_required,
+                "required_for": "explicit_control_phase_only" if json_action_required else "control_or_task_action_only",
                 "authority": "harness.loop.model_action_request",
+            },
+            "assistant_messages": {
+                "enabled": bool(control_capabilities.get("may_emit_assistant_message") is not False),
+                "transport": "assistant_message",
+                "terminal_when_no_action": True,
+                "raw_text_is_not_a_control_action": True,
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
@@ -2995,8 +3000,8 @@ def _single_agent_turn_output_contract(
                     "multi_tool_calls_allowed": "tool_call" in allowed_actions,
                 },
                 "assistant_body": {
-                    "enabled_when": "non_json_control_phase_or_final_commit",
-                    "disabled_reason_when_json_required": "avoid_publishing_invalid_protocol_text",
+                    "enabled_when": "model_has_no_tool_or_control_action_and_is_answering_user",
+                    "disabled_reason_when_json_required": "explicit_control_phase_requires_structured_control_decision",
                     "raw_text_is_not_a_control_action": True,
                 },
             },
@@ -4887,7 +4892,12 @@ def _model_decision_contract_payload(
         "invocation_kind": str(invocation_kind or ""),
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
-        "required_transport": "json_action" if control_actions else "assistant_message_or_tool_call",
+        "assistant_response_transport": "assistant_message",
+        "ordinary_tool_transport": "provider_native_tool_call_or_json_tool_call",
+        "control_action_transport": "json_action",
+        "json_action_required_for": "control_or_task_action_only",
+        "assistant_text_allowed_when_no_action": True,
+        "required_transport": "assistant_message_or_tool_call_or_json_action",
         "json_action_shape": {
             "authority": "harness.loop.model_action_request",
             "single_json_object_only": True,
@@ -5041,6 +5051,7 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     lines = [
         "当前运行事实：",
         f"你本轮可以选择：{allowed_text}。",
+        "如果你已经可以回答用户，且不需要工具或控制动作，直接用普通助手正文回答；不要把自然回复包进 JSON action。",
     ]
     if control_actions:
         lines.append(

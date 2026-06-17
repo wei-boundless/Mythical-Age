@@ -1007,9 +1007,9 @@ body {
   width: min(100%, 800px);
   max-width: 100%;
   min-height: 30px;
-  padding: 4px 6px;
-  border: 1px solid rgba(107, 124, 146, 0.16);
-  border-radius: 7px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: #405068;
   font-size: 12px;
@@ -1018,12 +1018,12 @@ body {
   overflow-wrap: anywhere;
   box-shadow: none;
   user-select: none;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .agent-workbench .public-run-activity__tool-round summary:hover {
-  border-color: rgba(47, 111, 189, 0.24);
-  background: rgba(248, 250, 252, 0.42);
+  border: 0;
+  background: transparent;
   color: #26364c;
 }
 
@@ -1048,15 +1048,15 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-round[open] summary {
-  border-color: rgba(47, 111, 189, 0.24);
-  background: rgba(248, 250, 252, 0.32);
+  border: 0;
+  background: transparent;
 }
 
 .agent-workbench .public-run-activity__tool-round-icon {
   position: relative;
   width: 15px;
   height: 15px;
-  border: 1px solid var(--tool-accent-line);
+  border: 0;
   border-radius: 4px;
   color: var(--tool-accent);
   background: transparent;
@@ -1109,8 +1109,8 @@ body {
   align-items: center;
   justify-self: end;
   min-height: 19px;
-  padding: 1px 6px;
-  border: 1px solid rgba(107, 124, 146, 0.16);
+  padding: 1px 0;
+  border: 0;
   border-radius: 999px;
   color: #66758a;
   font-size: 10.8px;
@@ -1296,9 +1296,9 @@ body {
   width: min(100%, 780px);
   max-width: 100%;
   min-height: 28px;
-  padding: 3px 6px;
-  border: 1px solid rgba(107, 124, 146, 0.16);
-  border-radius: 7px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: #46566d;
   font-size: 12px;
@@ -1307,12 +1307,12 @@ body {
   overflow-wrap: anywhere;
   box-shadow: none;
   user-select: none;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .agent-workbench .public-run-activity__tool-window summary:hover {
-  border-color: rgba(47, 111, 189, 0.22);
-  background: rgba(248, 250, 252, 0.42);
+  border: 0;
+  background: transparent;
   color: #26364c;
 }
 
@@ -1321,7 +1321,7 @@ body {
   position: relative;
   width: 15px;
   height: 15px;
-  border: 1px solid var(--tool-accent-line);
+  border: 0;
   border-radius: 4px;
   color: var(--tool-accent);
   background: transparent;
@@ -1369,8 +1369,8 @@ body {
   justify-self: end;
   min-height: 19px;
   margin-left: 0;
-  padding: 1px 6px;
-  border: 1px solid var(--tool-accent-line);
+  padding: 1px 0;
+  border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--tool-accent);
@@ -1393,8 +1393,8 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window[open] summary {
-  border-color: rgba(47, 111, 189, 0.24);
-  background: rgba(248, 250, 252, 0.35);
+  border: 0;
+  background: transparent;
 }
 
 .agent-workbench .public-run-activity__tool-window-body {

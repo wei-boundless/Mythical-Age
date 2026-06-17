@@ -260,7 +260,7 @@ def test_native_request_task_run_requires_json_action_transport() -> None:
     assert native_errors[0]["repairable"] is True
 
 
-def test_single_agent_parser_normalizes_nested_respond_payload_final_answer() -> None:
+def test_single_agent_parser_rejects_nested_respond_payload_final_answer() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -287,15 +287,14 @@ def test_single_agent_parser_normalizes_nested_respond_payload_final_answer() ->
         public_response_required=True,
     )
 
-    assert parsed.error is None
-    assert parsed.action_request is not None
-    assert parsed.action_request.action_type == "respond"
-    assert parsed.action_request.final_answer == "OCR 已提取题目，答案是 C。"
-    normalized = parsed.action_request.diagnostics["json_action_envelope_normalized"]
-    assert {"field": "final_answer", "source": "payload.final_answer"} in normalized
+    assert parsed.action_request is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    validation_errors = parsed.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "final_answer_required_for_respond" in validation_errors
 
 
-def test_single_agent_parser_normalizes_nested_content_and_question_envelopes() -> None:
+def test_single_agent_parser_rejects_nested_content_and_question_envelopes() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -343,12 +342,46 @@ def test_single_agent_parser_normalizes_nested_content_and_question_envelopes() 
         public_response_required=True,
     )
 
-    assert respond.error is None
-    assert respond.action_request is not None
-    assert respond.action_request.final_answer == "这是可直接发布的回答。"
-    assert ask.error is None
-    assert ask.action_request is not None
-    assert ask.action_request.user_question == "请补充第 8 题的完整选项。"
+    assert respond.action_request is None
+    assert respond.error is not None
+    assert respond.error["code"] == "single_agent_turn_invalid_json_action"
+    respond_errors = respond.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "final_answer_required_for_respond" in respond_errors
+
+    assert ask.action_request is None
+    assert ask.error is not None
+    assert ask.error["code"] == "single_agent_turn_invalid_json_action"
+    ask_errors = ask.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "user_question_required_for_ask_user" in ask_errors
+
+
+def test_single_agent_parser_accepts_plain_assistant_text_when_no_action_is_present() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content=(
+                "现在我看到了题目，这是一道无线通信中平衰落信道容量计算的经典题。\n\n"
+                "结论：容量按给定信噪比代入香农公式计算。"
+            ),
+            tool_calls=[],
+        ),
+        request_id="model-response:test:plain-assistant-final",
+        turn_id="turn:test:plain-assistant-final",
+        packet_ref="packet:test:plain-assistant-final",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
+        phase="tool_loop",
+        require_json_action=False,
+        public_response_required=True,
+    )
+
+    assert parsed.error is None
+    assert parsed.action_request is None
+    assert parsed.tool_actions == ()
+    assert parsed.assistant_final_text.startswith("现在我看到了题目")
 
 
 def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_signal() -> None:
@@ -767,7 +800,7 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
     assert parsed.error["diagnostics"]["action_issue"]["category"] == "service_unavailable"
     assert parsed.error["diagnostics"]["action_issue"]["code"] == "native_tool_call_transport_not_available"
 
-def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
+def test_malformed_agent_action_request_can_recover_to_plain_assistant_message() -> None:
     class MalformedThenCloseoutRuntime:
         def __init__(self) -> None:
             self.invocations = 0
@@ -799,12 +832,11 @@ def test_malformed_agent_action_request_uses_agent_authored_closeout() -> None:
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
     assert "重新确认输入" in done_text
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
-    assert done["terminal_reason"] == "single_agent_turn_model_protocol_error"
-    assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert done["terminal_reason"] == "assistant_message"
+    assert done["answer_source"] == "harness.single_agent_turn"
     assert done["answer_channel"] == "conversation"
-    assert done["completion_state"] == "protocol_recovery_exhausted"
     assert assistant_messages
-    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.agent_closeout"
+    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn"
     assert "重新确认输入" in str(assistant_messages[-1].get("content") or "")
     assert not any(event.get("type") == "done" and "authority" in str(event.get("content") or "") for event in events)
     assert any(event.get("type") == "single_agent_turn_started" for event in events)
@@ -888,14 +920,14 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
         "你当前打开的 `mario.html` 已经有一些落地改动。"
     )
 
-    class PlainTextThenLeakyRepairRuntime:
+    class InvalidActionThenLeakyRepairRuntime:
         def __init__(self) -> None:
             self.invocation_count = 0
 
         async def invoke_messages(self, _messages, **_kwargs):
             self.invocation_count += 1
             if self.invocation_count == 1:
-                return SimpleNamespace(content="我先说明一下当前情况。")
+                return SimpleNamespace(content=json.dumps({"authority": "bad"}, ensure_ascii=False))
             return SimpleNamespace(
                 content=json.dumps(
                     _action_request(action_type="respond", final_answer=leaked_answer),
@@ -904,7 +936,7 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
             )
 
     session_id = "session-turn-protocol-repair-leak"
-    runtime = build_harness_runtime(model_runtime=PlainTextThenLeakyRepairRuntime())
+    runtime = build_harness_runtime(model_runtime=InvalidActionThenLeakyRepairRuntime())
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -929,7 +961,7 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
     assert admissions
     assert any(
         dict(signal or {}).get("signal_kind") == "model_protocol_violation"
-        and dict(dict(signal or {}).get("protocol_error") or {}).get("reason") == "json_action_required"
+        and dict(dict(signal or {}).get("protocol_error") or {}).get("code") == "single_agent_turn_invalid_json_action"
         for signal in control_signals
     )
     assert any(dict(signal or {}).get("signal_kind") == "final_output_not_committable" for signal in control_signals)
@@ -1035,8 +1067,8 @@ def test_single_agent_turn_native_control_actions_do_not_execute_original_when_r
     assert str(done.get("content") or "") == ""
     assert feedback_payloads
     feedback_text = str(feedback_payloads[-1]["agent_feedback"])
-    assert "无法把上一条输出可靠归类" in feedback_text
-    assert "JSON action" in feedback_text
+    assert "single_agent_turn_empty_response" in feedback_text
+    assert "上一条输出没有满足当前动作合同" in feedback_text
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
     assert not assistant_messages
 
@@ -1489,7 +1521,9 @@ def test_single_agent_parser_rejects_bare_active_work_control_payload() -> None:
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_json_action_required"
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    validation_errors = parsed.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "action_type_unsupported:" in validation_errors
 
 
 def test_single_agent_parser_rejects_minimal_bare_active_work_control_payload() -> None:
@@ -1510,7 +1544,9 @@ def test_single_agent_parser_rejects_minimal_bare_active_work_control_payload() 
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_json_action_required"
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    validation_errors = parsed.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "action_type_unsupported:" in validation_errors
 
 
 def test_single_agent_parser_requires_action_type_before_checking_active_work_allowed_actions() -> None:
@@ -1533,7 +1569,9 @@ def test_single_agent_parser_requires_action_type_before_checking_active_work_al
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_json_action_required"
+    assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
+    validation_errors = parsed.error["diagnostics"]["model_action_diagnostics"]["validation_errors"]
+    assert "action_type_unsupported:" in validation_errors
 
 
 def test_active_work_turn_decision_preserves_control_only_reply_contract() -> None:

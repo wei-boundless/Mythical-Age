@@ -90,9 +90,17 @@ _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
 _AGENT_CONTRACT_FEEDBACK_SOURCE = "harness.single_agent_turn.agent_contract_feedback"
+_ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE = "model_action.assistant_content_preamble"
 _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 3
 _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS = 3
 _CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "resume_recoverable_work", "ask_user", "block"}
+_ACTIVE_WORK_CONTROL_ACTIONS = {
+    "continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "append_instruction_to_active_work",
+    "answer_then_continue_active_work",
+}
 _CONTROL_ACTION_ALIASES = {
     "task_run_request": "request_task_run",
 }
@@ -919,6 +927,7 @@ class SingleAgentActionParse:
     error: dict[str, Any] | None = None
     tool_actions: tuple[ModelActionRequest, ...] = ()
     control_action: ModelActionRequest | None = None
+    assistant_final_text: str = ""
     packet_public_progress_note: str = ""
 
 
@@ -1665,7 +1674,7 @@ async def run_single_agent_turn(
             ):
                 tool_actions = [action_parse.action_request]
             if not tool_actions:
-                if action_parse.action_request is not None:
+                if action_parse.action_request is not None or action_parse.assistant_final_text:
                     repaired_or_parsed_final_action = action_parse
                 break
             if tool_iteration >= _MAX_SINGLE_TURN_TOOL_ITERATIONS:
@@ -1687,7 +1696,7 @@ async def run_single_agent_turn(
                     step="model_action_public_feedback",
                     status="running",
                     summary=action_parse.packet_public_progress_note,
-                    presentation_source="model_action.public_progress_note",
+                    presentation_source=_ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE,
                     feedback_identity=_model_public_feedback_identity(
                         packet_ref=current_packet_ref,
                         tool_iteration=tool_iteration,
@@ -2072,7 +2081,12 @@ async def run_single_agent_turn(
                 current_packet_ref = str(followup_compilation.packet.packet_id)
                 current_allowed_action_types = tuple(followup_compilation.packet.allowed_action_types)
                 current_available_tools = tuple(followup_compilation.packet.available_tools or ())
-                current_requires_json_action = True
+                current_requires_json_action = bool(
+                    dict(followup_compilation.packet.diagnostics.get("control_capabilities") or {}).get(
+                        "requires_json_action_protocol"
+                    )
+                    is True
+                )
                 if runtime_host is not None and turn_run is not None:
                     compaction_payload = dict(mid_turn_compaction.get("compaction") or {})
                     recovery_package = dict(session_context.get("context_recovery_package") or {})
@@ -2682,7 +2696,7 @@ async def run_single_agent_turn(
             terminal_recorded = True
             return
 
-        content = stringify_content(getattr(response, "content", response)).strip()
+        content = (action_parse.assistant_final_text or stringify_content(getattr(response, "content", response))).strip()
         if not content:
             async for event in emit_agent_authored_closeout(
                 reason="single_agent_turn_empty_response",
@@ -2921,6 +2935,12 @@ async def _invoke_single_turn_model_with_stream_events(
                 accounting_context=accounting_context,
                 native_tools=native_tools,
             )
+            for frame_event in _assistant_stream_end_events(
+                assistant_normalizer,
+                response,
+                response_already_observed=False,
+            ):
+                yield frame_event
             yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": assistant_normalizer}
             return
     except Exception as exc:
@@ -2936,7 +2956,30 @@ async def _invoke_single_turn_model_with_stream_events(
         }
         return
     response = aggregated_response if aggregated_response is not None else raw_content
+    for frame_event in _assistant_stream_end_events(
+        assistant_normalizer,
+        response,
+        response_already_observed=True,
+    ):
+        yield frame_event
     yield {"type": _INTERNAL_MODEL_RESPONSE_EVENT, "response": response, "assistant_stream_normalizer": assistant_normalizer}
+
+
+def _assistant_stream_end_events(
+    assistant_normalizer: AssistantStreamNormalizer | None,
+    response: Any,
+    *,
+    response_already_observed: bool,
+) -> list[dict[str, Any]]:
+    if assistant_normalizer is None:
+        return []
+    events: list[dict[str, Any]] = []
+    if not response_already_observed:
+        content = _model_stream_chunk_text(response)
+        if content:
+            events.extend(assistant_normalizer.observe_delta(content))
+    events.extend(assistant_normalizer.flush())
+    return events
 
 
 def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
@@ -3105,13 +3148,14 @@ def _single_agent_action_request_from_response(
         allow_native_tool_calls=True,
     )
     native_tool_calls = [dict(item) for item in protocol.native_tool_calls]
-    json_payload = _normalize_single_agent_json_payload(
-        dict(protocol.json_payload or {}),
-        request_id=request_id,
-        turn_id=turn_id,
-        packet_ref=packet_ref,
-    )
+    assistant_text = str(protocol.content or "").strip()
+    json_payload = dict(protocol.json_payload or {})
     json_action_like = _is_model_action_json_payload(json_payload)
+    malformed_action_like = (
+        bool(json_payload)
+        and not json_action_like
+        and _looks_like_malformed_single_agent_action_payload(json_payload)
+    )
     if protocol.protocol_errors:
         return SingleAgentActionParse(
             action_request=None,
@@ -3200,7 +3244,40 @@ def _single_agent_action_request_from_response(
             control_action=parsed_action if parsed_action.action_type != "tool_call" else None,
             tool_actions=(parsed_action,) if parsed_action.action_type == "tool_call" else (),
         )
+    if malformed_action_like:
+        action_request, diagnostics = model_action_request_from_payload(
+            json_payload,
+            turn_id=turn_id,
+            public_response_required=public_response_required,
+            allowed_action_types=allowed_action_types,
+        )
+        del action_request
+        return SingleAgentActionParse(
+            action_request=None,
+            native_tool_calls=native_tool_calls,
+            error=_single_agent_protocol_error(
+                code="single_agent_turn_invalid_json_action",
+                reason=";".join(str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or []))
+                or "single_agent_turn_invalid_json_action",
+                diagnostics={
+                    "model_action_diagnostics": dict(diagnostics or {}),
+                    "parse_diagnostics": dict(protocol.parse_diagnostics or {}),
+                    "action_issue": _protocol_action_issue(
+                        category="protocol_violation",
+                        code="invalid_json_action",
+                        repair_instruction="这看起来像控制/工具动作，但缺少 harness.loop.model_action_request 契约；请提交顶层 action_type 和对应动作字段，或改用普通助手正文回答用户。",
+                    ),
+                    "phase": phase,
+                },
+            ),
+        )
     if not native_tool_calls:
+        if assistant_text and not require_json_action:
+            return SingleAgentActionParse(
+                action_request=None,
+                native_tool_calls=[],
+                assistant_final_text=assistant_text,
+            )
         if require_json_action:
             return SingleAgentActionParse(
                 action_request=None,
@@ -3392,110 +3469,33 @@ def _is_model_action_json_payload(payload: dict[str, Any]) -> bool:
     return authority.startswith("harness.loop.") and "action" in payload
 
 
-def _normalize_single_agent_json_payload(
-    payload: dict[str, Any],
-    *,
-    request_id: str,
-    turn_id: str,
-    packet_ref: str,
-) -> dict[str, Any]:
-    del request_id, turn_id, packet_ref
-    raw = dict(payload or {})
-    normalized = dict(raw)
-    envelope = _dict_payload(raw.get("payload"))
-    action = _dict_payload(raw.get("action"))
-    copied: list[dict[str, str]] = []
-    ignored_conflicts: list[dict[str, str]] = []
-
-    def copy_if_missing(field: str, value: Any, *, source: str) -> None:
-        if not _json_action_field_has_value(value):
-            return
-        existing = normalized.get(field)
-        if not _json_action_field_has_value(existing):
-            normalized[field] = value
-            copied.append({"field": field, "source": source})
-            return
-        if _json_action_field_signature(existing) != _json_action_field_signature(value):
-            ignored_conflicts.append({"field": field, "source": source})
-
-    copy_if_missing("action_type", envelope.get("action_type"), source="payload.action_type")
-    copy_if_missing("action_type", action.get("action_type"), source="action.action_type")
-    action_type = str(normalized.get("action_type") or "").strip()
-
-    copy_if_missing("public_progress_note", envelope.get("public_progress_note"), source="payload.public_progress_note")
-    copy_if_missing("public_progress_note", action.get("public_progress_note"), source="action.public_progress_note")
-    copy_if_missing("public_action_state", envelope.get("public_action_state"), source="payload.public_action_state")
-    copy_if_missing("public_action_state", action.get("public_action_state"), source="action.public_action_state")
-
-    copy_if_missing("final_answer", envelope.get("final_answer"), source="payload.final_answer")
-    copy_if_missing("final_answer", action.get("final_answer"), source="action.final_answer")
-    if action_type == "respond":
-        copy_if_missing("final_answer", envelope.get("content"), source="payload.content")
-        copy_if_missing("final_answer", action.get("content"), source="action.content")
-
-    copy_if_missing("user_question", envelope.get("user_question"), source="payload.user_question")
-    copy_if_missing("user_question", action.get("user_question"), source="action.user_question")
-    if action_type == "ask_user":
-        copy_if_missing("user_question", envelope.get("question"), source="payload.question")
-        copy_if_missing("user_question", action.get("question"), source="action.question")
-
-    copy_if_missing("blocking_reason", envelope.get("blocking_reason"), source="payload.blocking_reason")
-    copy_if_missing("blocking_reason", action.get("blocking_reason"), source="action.blocking_reason")
-    if action_type == "block":
-        copy_if_missing("blocking_reason", envelope.get("reason"), source="payload.reason")
-        copy_if_missing("blocking_reason", action.get("reason"), source="action.reason")
-
-    copy_if_missing("tool_call", envelope.get("tool_call"), source="payload.tool_call")
-    copy_if_missing("tool_call", action.get("tool_call"), source="action.tool_call")
-    if action_type == "tool_call":
-        copy_if_missing("tool_call", _tool_call_from_action_envelope(envelope), source="payload")
-        copy_if_missing("tool_call", _tool_call_from_action_envelope(action), source="action")
-
-    if copied or ignored_conflicts:
-        diagnostics = normalized.get("diagnostics")
-        normalized_diagnostics = dict(diagnostics) if isinstance(diagnostics, dict) else {}
-        if copied:
-            normalized_diagnostics["json_action_envelope_normalized"] = copied
-        if ignored_conflicts:
-            normalized_diagnostics["json_action_envelope_ignored_conflicts"] = ignored_conflicts
-        normalized["diagnostics"] = normalized_diagnostics
-    return normalized
-
-
-def _dict_payload(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _json_action_field_has_value(value: Any) -> bool:
-    if isinstance(value, dict):
-        return bool(value)
-    if isinstance(value, (list, tuple)):
-        return bool(value)
-    return bool(str(value or "").strip())
-
-
-def _json_action_field_signature(value: Any) -> str:
-    try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _tool_call_from_action_envelope(value: dict[str, Any]) -> dict[str, Any]:
-    tool_name = str(value.get("tool_name") or value.get("name") or "").strip()
-    if not tool_name:
-        return {}
-    args = value.get("args") or value.get("tool_args") or {}
-    return {
-        key: val
-        for key, val in {
-            "id": str(value.get("id") or value.get("tool_call_id") or "").strip(),
-            "tool_name": tool_name,
-            "name": tool_name,
-            "args": args if isinstance(args, dict) else {},
-        }.items()
-        if val not in ("", None, {})
+def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -> bool:
+    if not payload:
+        return False
+    action_contract_keys = {
+        "active_work_control",
+        "blocking_reason",
+        "capability_intent",
+        "completion_contract",
+        "final_answer",
+        "observation_contract",
+        "permission_request",
+        "public_action_state",
+        "public_progress_note",
+        "recovery_resume",
+        "selected_skill_ids",
+        "skill_intent",
+        "task_contract_seed",
+        "tool_call",
+        "tool_calls",
+        "user_question",
     }
+    if action_contract_keys.intersection(payload):
+        return True
+    raw_action = str(payload.get("action") or "").strip()
+    if not raw_action:
+        return False
+    return raw_action in _ACTIVE_WORK_CONTROL_ACTIONS
 
 
 def _action_requests_from_native_tool_calls(

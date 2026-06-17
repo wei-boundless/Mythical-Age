@@ -82,7 +82,7 @@ def build_session_runtime_projection(
     max_stream_runs: int = 6,
     max_task_runs: int = 6,
     max_turn_runs: int = 3,
-    max_projection_frames_per_attachment: int = 48,
+    max_projection_frames_per_attachment: int = 60,
 ) -> dict[str, Any]:
     """Build the bounded main-chat runtime projection used by session hydration."""
     timeline = build_session_runtime_timeline(
@@ -192,15 +192,16 @@ def _stream_runtime_attachment(
         for frame in frames
         if isinstance(frame, dict)
     ]
-    if max_projection_frames is not None:
-        anchored_frames = _bounded_projection_frames(anchored_frames, max_projection_frames)
     display = _display_state_for_stream_run(run, public_events=public_events, frames=anchored_frames, projection_anchor=projection_anchor)
-    tool_event_count = _tool_event_count(anchored_frames)
-    closeout_summary = _closeout_summary(public_events=public_events, frames=anchored_frames)
+    projection_frames = anchored_frames
+    if max_projection_frames is not None and display["main_chat_surface"] != _CLOSEOUT_SUMMARY_SURFACE:
+        projection_frames = _bounded_projection_frames(anchored_frames, max_projection_frames)
+    tool_event_count = _tool_event_count(projection_frames)
+    closeout_summary = _closeout_summary(public_events=public_events, frames=projection_frames)
     projection_slices = _projection_slices(
         slice_ref=event_log_id or stream_run_id,
         projection_anchor=projection_anchor,
-        frames=anchored_frames,
+        frames=projection_frames,
         display_state=display["display_state"],
         main_chat_surface=display["main_chat_surface"],
         closeout_summary=closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
@@ -305,6 +306,18 @@ def _projection_slices(
         "frame_count": len(ordered_frames),
     }
     event_log_id = str(projection_anchor.get("event_log_id") or "").strip()
+    lifecycle = _projection_lifecycle_hint(
+        display_state=display_state,
+        main_chat_surface=main_chat_surface,
+        frames=ordered_frames,
+    )
+    main_surface_hint = _projection_main_surface_hint(main_chat_surface)
+    integrity = _projection_slice_integrity(
+        lifecycle=lifecycle,
+        main_surface_hint=main_surface_hint,
+        frames=ordered_frames,
+        cursor=cursor,
+    )
     return [
         {
             "slice_id": f"projection-slice:{slice_ref}",
@@ -312,16 +325,14 @@ def _projection_slices(
             "event_log_id": event_log_id,
             "start_offset": cursor["min_event_offset"],
             "end_offset": cursor["max_event_offset"],
+            "integrity": integrity,
+            "committed": lifecycle == "committed",
             "projection_key": projection_key,
             "cursor": cursor,
             "frames": ordered_frames,
             "display_hint": {
-                "lifecycle": _projection_lifecycle_hint(
-                    display_state=display_state,
-                    main_chat_surface=main_chat_surface,
-                    frames=ordered_frames,
-                ),
-                "main_surface_hint": _projection_main_surface_hint(main_chat_surface),
+                "lifecycle": lifecycle,
+                "main_surface_hint": main_surface_hint,
                 "closeout_summary": closeout_summary,
                 "log_ref": log_ref,
                 "tool_event_count": tool_event_count,
@@ -329,6 +340,20 @@ def _projection_slices(
             "authority": "session_runtime_timeline.projection_slice",
         }
     ]
+
+
+def _projection_slice_integrity(
+    *,
+    lifecycle: str,
+    main_surface_hint: str,
+    frames: list[dict[str, Any]],
+    cursor: dict[str, Any],
+) -> str:
+    frame_count = _int_value(cursor.get("frame_count"), fallback=-1)
+    has_commit_ack = any(str(frame.get("op") or "") == "commit_ack" for frame in frames)
+    if lifecycle == "committed" or main_surface_hint == "closeout":
+        return "complete" if frame_count == len(frames) and has_commit_ack else "incomplete"
+    return "bounded" if frame_count == len(frames) else "incomplete"
 
 
 def _projection_lifecycle_hint(

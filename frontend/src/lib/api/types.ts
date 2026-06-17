@@ -397,6 +397,8 @@ export type ProjectionSlice = {
   event_log_id: string;
   start_offset: number;
   end_offset: number;
+  integrity?: "complete" | "bounded" | "incomplete" | string;
+  committed?: boolean;
   projection_key?: {
     session_id?: string;
     turn_id?: string;

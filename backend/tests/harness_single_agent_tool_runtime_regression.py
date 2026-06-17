@@ -29,7 +29,7 @@ def test_native_tool_call_action_keeps_agent_text_out_of_tool_projection() -> No
         "args": {"query": "requestAnimationFrame"},
     }
 
-def test_single_agent_turn_projection_requires_json_action_and_hides_native_control_transport(tmp_path: Path) -> None:
+def test_single_agent_turn_projection_separates_assistant_text_from_control_actions(tmp_path: Path) -> None:
     class RecordingTurnModelRuntime:
         def __init__(self) -> None:
             self.last_messages: list[dict[str, object]] = []
@@ -99,7 +99,10 @@ def test_single_agent_turn_projection_requires_json_action_and_hides_native_cont
     assert effective_capabilities.get("may_call_tools") is True
     assert effective_capabilities.get("may_use_subagents") is False
     assert effective_capabilities.get("supports_json_action_protocol") is True
-    assert effective_capabilities.get("requires_json_action_protocol") is True
+    assert effective_capabilities.get("requires_json_action_protocol") is False
+    assert output_contract.get("format") == "assistant_message_or_action"
+    assert dict(action_protocol.get("assistant_messages") or {}).get("transport") == "assistant_message"
+    assert dict(action_protocol.get("assistant_messages") or {}).get("terminal_when_no_action") is True
     assert ordinary_tool_contract.get("multi_tool_calls_allowed") is True
     assert ordinary_tool_contract.get("runtime_execution_policy") == "tool_batch_plan_scheduled_by_safety_and_resource_locks"
     assert "parallel_allowed" not in ordinary_tool_contract
@@ -111,13 +114,14 @@ def test_single_agent_turn_projection_requires_json_action_and_hides_native_cont
     assert dict(transport_table.get("control_actions") or {}).get("native_tool_transport_enabled") is False
     assert dict(transport_table.get("ordinary_tool_calls") or {}).get("transport") == "provider_native_tool_call_or_json_tool_call"
     assert dict(transport_table.get("ordinary_tool_calls") or {}).get("native_tool_transport_enabled") is True
-    assert dict(transport_table.get("assistant_body") or {}).get("disabled_reason_when_json_required") == "avoid_publishing_invalid_protocol_text"
+    assert dict(transport_table.get("assistant_body") or {}).get("disabled_reason_when_json_required") == "explicit_control_phase_requires_structured_control_decision"
     assert feedback_contract.get("feedback_must_be_model_authored") is True
     assert feedback_contract.get("system_must_not_synthesize_user_semantic_text") is True
     assert "public_progress_note" in list(feedback_contract.get("json_action_feedback_fields") or [])
     assert native_feedback_contract.get("assistant_content_preamble_is_public_feedback") is True
     assert native_feedback_contract.get("projection_target") == "runtime_step_summary"
     assert native_feedback_contract.get("missing_preamble_policy") == "record_contract_gap_without_synthesizing_body"
+    assert "直接用普通助手正文回答" in model_input
     assert "控制动作必须输出" in model_input
     assert "provider-native tool call" in model_input
     assert "preamble 作为 public_progress_note" in model_input
@@ -142,10 +146,7 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
                 ]
             },
             {
-                "content": json.dumps(
-                    _action_request(action_type="respond", final_answer="已经读取 requirements.txt。"),
-                    ensure_ascii=False,
-                ),
+                "content": "已经读取 requirements.txt。",
                 "additional_kwargs": {"reasoning_content": "The file result is enough to answer."},
             },
             {
@@ -171,6 +172,8 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
 
     events = asyncio.run(_collect())
     tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
+    done = next(event for event in events if event.get("type") == "done")
+    assistant_finals = [dict(event) for event in events if event.get("type") == "assistant_text_final"]
     runtime_step_summaries = [
         dict(event)
         for event in events
@@ -193,6 +196,10 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     followup_kinds = [str(item.get("kind") or "") for item in list(followup_segment_plan.get("segments") or [])]
 
     assert model.calls == 2
+    assert done["terminal_reason"] == "assistant_message"
+    assert done["answer_source"] == "harness.single_agent_turn"
+    assert "已经读取 requirements.txt。" in str(done.get("content") or "")
+    assert assistant_finals and assistant_finals[-1]["content"] == "已经读取 requirements.txt。"
     assert len(runtime_step_summaries) == 1
     assert runtime_step_summaries[0]["public_progress_note"] == "我先读取 requirements.txt，再回答依赖状态。"
     projected_feedback = project_public_projection_event(

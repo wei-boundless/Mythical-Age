@@ -117,6 +117,46 @@ describe("chronological projection frame reducer contract", () => {
     expect(transition.state.sessionActivity).toBe(activityBeforeBody);
   });
 
+  it("keeps assistant final body separate from turn terminal projection", () => {
+    let transition = startBoundProjectionTurn();
+    transition = reduceStreamEvent(transition.state, transition.session, "assistant_text_final", {
+      sequence: 1,
+      content: "OCR 已读取题目，下面给出完整解法。",
+      event_offset: 1,
+      public_projection_frame: projectionFrame({
+        source_event_type: "assistant_text_final",
+        op: "body_finalize",
+        slot: "body",
+        source_authority: "model",
+        main_visibility: "visible_final",
+        retention: "final",
+        text: "OCR 已读取题目，下面给出完整解法。",
+      }),
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "turn_completed", {
+      status: "completed",
+      terminal_reason: "assistant_message",
+      event_offset: 2,
+      public_projection_frame: projectionFrame({
+        source_event_type: "turn_completed",
+        op: "item_upsert",
+        slot: "terminal",
+        source_authority: "runtime",
+        main_visibility: "hidden",
+        retention: "trace",
+        item_id: "terminal:assistant-message",
+        state: "completed",
+      }),
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.canonicalContent).toBe("OCR 已读取题目，下面给出完整解法。");
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toHaveLength(1);
+    expect(view?.blocks.some((block) => block.kind === "terminal_event")).toBe(false);
+  });
+
   it("folds tool request, start, and completion into one chronological tool event", () => {
     let transition = startBoundProjectionTurn();
     const activityBeforeTool = transition.state.sessionActivity;
