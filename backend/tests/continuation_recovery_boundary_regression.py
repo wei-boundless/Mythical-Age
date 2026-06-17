@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from runtime.shared.models import TaskRun
+from runtime.shared.models import TaskRun, TurnRun
 
 from harness.continuation import (
     build_recovery_packet,
@@ -32,11 +32,15 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
 
 
 class _StateIndex:
-    def __init__(self, task_runs):
+    def __init__(self, task_runs, turn_runs=None):
         self._task_runs = list(task_runs)
+        self._turn_runs = list(turn_runs or [])
 
     def list_session_task_runs(self, session_id: str):
         return [item for item in self._task_runs if item.session_id == session_id]
+
+    def list_session_turn_runs(self, session_id: str):
+        return [item for item in self._turn_runs if item.session_id == session_id]
 
 
 class _RuntimeObjects:
@@ -45,8 +49,8 @@ class _RuntimeObjects:
 
 
 class _Host:
-    def __init__(self, task_runs):
-        self.state_index = _StateIndex(task_runs)
+    def __init__(self, task_runs, turn_runs=None):
+        self.state_index = _StateIndex(task_runs, turn_runs=turn_runs)
         self.runtime_objects = _RuntimeObjects()
 
 
@@ -74,6 +78,44 @@ def _recoverable_task() -> TaskRun:
     )
 
 
+def _interrupted_turn() -> TurnRun:
+    return TurnRun(
+        turn_run_id="turnrun:session-continuation:4:def",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:4",
+        execution_runtime_kind="single_agent_turn",
+        status="blocked",
+        latest_event_offset=21,
+        updated_at=120.0,
+        terminal_reason="single_turn_tool_iteration_limit",
+        diagnostics={
+            "turn_id": "turn:session-continuation:4",
+            "stream_run_id": "strun:session-continuation:4",
+            "latest_step": "tool_budget_closeout",
+            "latest_step_summary": "已读取 fps_game.html 的敌人生成和移动逻辑，尚未完成最终修复判断。",
+            "latest_runtime_control_signal": {"signal_kind": "tool_budget_exhausted"},
+        },
+    )
+
+
+def _completed_turn() -> TurnRun:
+    return TurnRun(
+        turn_run_id="turnrun:session-continuation:5:ghi",
+        session_id="session-continuation",
+        turn_id="turn:session-continuation:5",
+        execution_runtime_kind="single_agent_turn",
+        status="completed",
+        latest_event_offset=24,
+        updated_at=140.0,
+        terminal_reason="respond",
+        diagnostics={
+            "turn_id": "turn:session-continuation:5",
+            "latest_step": "respond",
+            "latest_step_summary": "已完成上一轮答复。",
+        },
+    )
+
+
 def test_selector_builds_recoverable_continuation_record_from_waiting_executor() -> None:
     selection = select_session_continuation(
         _Host([_recoverable_task()]),
@@ -86,6 +128,32 @@ def test_selector_builds_recoverable_continuation_record_from_waiting_executor()
     assert selection.record.task_run_id == "taskrun:session-continuation:3:abc"
     assert selection.record.recovery_cause == "runtime_restart"
     assert selection.record.latest_progress
+
+
+def test_selector_builds_read_only_interrupted_turn_context_from_tool_limit() -> None:
+    selection = select_session_continuation(
+        _Host([], turn_runs=[_interrupted_turn()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.record is None
+    assert selection.interrupted_turn is not None
+    assert selection.interrupted_turn.state == "interrupted_read_only"
+    assert selection.interrupted_turn.resume_allowed is False
+    assert selection.interrupted_turn.turn_run_id == "turnrun:session-continuation:4:def"
+    assert selection.interrupted_turn.interruption_kind == "tool_budget_exhausted"
+    assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
+
+
+def test_selector_does_not_reuse_old_interrupted_turn_after_newer_completed_turn() -> None:
+    selection = select_session_continuation(
+        _Host([], turn_runs=[_interrupted_turn(), _completed_turn()]),
+        session_id="session-continuation",
+    )
+
+    assert selection.record is None
+    assert selection.interrupted_turn is None
+    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
 
 
 def test_recovery_boundary_requires_explicit_handle_for_resume() -> None:

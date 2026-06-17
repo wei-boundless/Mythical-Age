@@ -37,4 +37,15 @@ describe("internal control text boundary", () => {
 
     expect(isInternalControlProtocolText(prompt)).toBe(true);
   });
+
+  it("hides legacy deterministic closeout prose that was written by runtime fallback", () => {
+    const closeout = [
+      "本轮没有拿到可继续执行的有效下一步，我已停止继续动作，避免重复执行或误执行。",
+      "已完成：已有 2 个工具结果成功返回。",
+      "未完成：后续验证或收口动作没有继续执行，因为本轮可用工具步数已经用完。",
+      "下一步：你可以直接说“继续”，我会从已确认事实继续，并优先核对上一步产物或失败点。",
+    ].join("\n");
+
+    expect(isInternalControlProtocolText(closeout)).toBe(true);
+  });
 });

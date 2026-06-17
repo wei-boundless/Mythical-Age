@@ -1,4 +1,9 @@
-from .record import ContinuationRecord, continuation_record_from_payload
+from .record import (
+    ContinuationRecord,
+    InterruptedTurnContinuationRecord,
+    continuation_record_from_payload,
+    interrupted_turn_record_from_payload,
+)
 from .recovery_boundary import (
     RecoveryBoundaryDecision,
     RecoveryBoundaryInput,
@@ -12,6 +17,7 @@ from .selector import select_session_continuation
 
 __all__ = [
     "ContinuationRecord",
+    "InterruptedTurnContinuationRecord",
     "RecoveryBoundaryDecision",
     "RecoveryBoundaryInput",
     "RecoveryBoundaryReceipt",
@@ -19,6 +25,7 @@ __all__ = [
     "build_recovery_packet",
     "continuation_record_from_payload",
     "decide_recovery_boundary",
+    "interrupted_turn_record_from_payload",
     "recovery_boundary_receipt_from_decision",
     "select_session_continuation",
 ]

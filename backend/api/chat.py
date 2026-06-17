@@ -176,6 +176,12 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "summary",
         "status",
     },
+    "agent_contract_feedback_required": {
+        "turn_id",
+        "model_visible",
+        "agent_contract_feedback",
+        "event",
+    },
     "runtime_status": {
         "title",
         "detail",
@@ -2082,6 +2088,9 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
         return []
     if normalized in {"model_action_request", "agent_turn_terminal"}:
         return []
+    if normalized == "agent_contract_feedback_required":
+        data = _agent_contract_feedback_required_data(raw_data)
+        return [(normalized, data)] if data else []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
     raw_data = {key: value for key, value in dict(event).items() if key != "type"}
@@ -2160,6 +2169,22 @@ def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> 
     if event_type == ASSISTANT_STREAM_REPAIR_EVENT and not str(data.get("replacement_content") or ""):
         return {}
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
+
+
+def _agent_contract_feedback_required_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    raw_event = _record(raw_data.get("event"))
+    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
+    feedback = _record(payload.get("agent_contract_feedback") or raw_data.get("agent_contract_feedback"))
+    if not feedback:
+        return {}
+    return _redact_public_stream_data(
+        {
+            "turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or ""),
+            "model_visible": bool(payload.get("model_visible", True)),
+            "agent_contract_feedback": feedback,
+            "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
+        }
+    )
 
 
 def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:

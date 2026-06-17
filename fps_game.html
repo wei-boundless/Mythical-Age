@@ -81,7 +81,7 @@ canvas { display: block; }
 <div id="message">按鼠标左键开始</div>
 <div id="overlay">
   <div style="font-size:36px;margin-bottom:12px;">🎯 3D 第一人称射击</div>
-  <div style="margin-bottom:8px;">自由准心模式 | 10波挑战 | 每波敌人更强 | 枪械自动升级</div>
+  <div style="margin-bottom:8px;">自由准心模式 | 无限模式 | 每波敌人更强 | 枪械自动升级</div>
   <div style="font-size:14px;color:#aaa;margin-bottom:6px;">WASD 移动 | 鼠标瞄准 | 左键射击 | 空格跳跃 | 拾取掉落补给</div>
   <button id="startBtn">开始游戏</button>
 </div>
@@ -454,7 +454,11 @@ function spawnEnemy() {
   const scaleFactor = 1.0 + waveScale * 0.03;
 
   const enemy = new THREE.Mesh(enemyGeo, mat);
-  enemy.position.set(x, 0.9, z);
+  enemy.position.set(
+    Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, x)),
+    0.9,
+    Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, z))
+  );
   enemy.scale.set(scaleFactor, scaleFactor, scaleFactor);
   enemy.castShadow = true;
   enemy.userData = {
@@ -519,7 +523,11 @@ function spawnFlyingEnemy() {
     emissiveIntensity: 0.3,
   });
   const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.set(x, 3 + Math.random() * 4, z);
+  body.position.set(
+    Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, x)),
+    3 + Math.random() * 4,
+    Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, z))
+  );
   body.castShadow = true;
 
   // 翅膀
@@ -1043,6 +1051,8 @@ function updatePlayerMovement(delta) {
       if (!checkEnemyObstacleCollision(enemy, dir.x, dir.z)) {
         enemy.position.x += dir.x;
         enemy.position.z += dir.z;
+        enemy.position.x = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, enemy.position.x));
+        enemy.position.z = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, enemy.position.z));
       }
     }
     enemy.userData.attackCooldown -= delta;
@@ -1070,6 +1080,8 @@ function updatePlayerMovement(delta) {
       const dir = toPlayer.clone().normalize().multiplyScalar(fly.userData.speed * delta);
       fly.position.x += dir.x;
       fly.position.z += dir.z;
+      fly.position.x = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, fly.position.x));
+      fly.position.z = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, fly.position.z));
       // 高度追踪玩家
       fly.userData.baseY = Math.max(2, Math.min(6, fly.userData.baseY + (camera.position.y + 2 - fly.userData.baseY) * delta * 0.3));
     }

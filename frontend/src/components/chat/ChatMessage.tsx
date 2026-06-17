@@ -10,7 +10,7 @@ import { RuntimeLogEntry } from "@/components/chat/RuntimeLogEntry";
 import { UserMessage } from "@/components/chat/UserMessage";
 import { orderedProjectionMessageBlocksFromView } from "@/components/chat/projectionMessageBlocks";
 import { isInternalControlProtocolText } from "@/lib/internalControlText";
-import type { ChronologicalProjectionView } from "@/lib/projection/chronological";
+import type { ChronologicalProjectionView, ProjectionRenderBlock } from "@/lib/projection/chronological";
 import type {
   RetrievalResult,
   ToolCall,
@@ -105,15 +105,10 @@ function ChatMessageComponent({
     () => publicTimelineHasDisplayableActivity(projectionBlocks),
     [projectionBlocks],
   );
-  const renderProjectionTimeline =
-    !isUser
-    && !taskClosed
-    && (
-      projectionMode === "live"
-      || projectionMode === "recovery"
-      || (streamingContent && projectionBlocks.length > 0)
-      || (!projectionBodyText && !assistantContentText && hasPublicTimelineActivity)
-    );
+  const hasAssistantAnchoredProjection = useMemo(
+    () => projectionBlocks.some(projectionBlockCanAnchorAssistantMessage),
+    [projectionBlocks],
+  );
   const baseDisplayContent = isUser
     ? content
     : taskClosed
@@ -128,11 +123,23 @@ function ChatMessageComponent({
     || Boolean(image?.src)
     || imageUnavailable
     || Boolean(visibleMessageDisplayContent.trim());
+  const projectionCanRenderInAssistantMessage = shouldRenderContent || hasAssistantAnchoredProjection;
+  const renderProjectionTimeline =
+    !isUser
+    && !taskClosed
+    && projectionCanRenderInAssistantMessage
+    && (
+      projectionMode === "live"
+      || projectionMode === "recovery"
+      || (streamingContent && projectionBlocks.length > 0)
+      || (!projectionBodyText && !assistantContentText && hasAssistantAnchoredProjection)
+    );
+  const renderClosedTimeline = hasPublicTimelineActivity && projectionCanRenderInAssistantMessage;
   const showThinkingPlaceholder =
     !isUser
     && streamingContent
     && !shouldRenderContent
-    && !hasPublicTimelineActivity;
+    && !hasAssistantAnchoredProjection;
   const copyableReplyText = !isUser && shouldRenderContent ? visibleMessageDisplayContent.trim() : "";
   const draftValue = draft.trim();
   const sendEditDisabled = submittingEdit || !canEdit || !draftValue;
@@ -234,7 +241,7 @@ function ChatMessageComponent({
   const firstBodyBlockKey = orderedMessageBlocks.find((block) => block.kind === "body")?.key ?? "";
   const renderClosedMessage = () => (
     <>
-      {hasPublicTimelineActivity ? (
+      {renderClosedTimeline ? (
         <PublicTimelineActivity
           ariaLabel="本轮记录"
           blocks={projectionBlocks}
@@ -243,6 +250,17 @@ function ChatMessageComponent({
       {renderMessageContent()}
     </>
   );
+  const shouldRenderMessageShell =
+    isUser
+    || shouldRenderContent
+    || renderProjectionTimeline
+    || (taskClosed && renderClosedTimeline)
+    || showThinkingPlaceholder
+    || (!isUser && retrievals.length > 0);
+
+  if (!shouldRenderMessageShell) {
+    return null;
+  }
 
   return (
     <article
@@ -286,7 +304,7 @@ function ChatMessageComponent({
                   />
                 )
             ))}
-      {!isUser && taskClosed ? (
+      {!isUser && taskClosed && projectionCanRenderInAssistantMessage ? (
         <RuntimeLogEntry
           onOpen={onOpenRuntimeLog}
           runtimeLogRef={projectionLogRef}
@@ -375,4 +393,17 @@ function assistantDisplayContent(
 
 function cleanText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function projectionBlockCanAnchorAssistantMessage(block: ProjectionRenderBlock): boolean {
+  if (block.kind === "body_segment") {
+    return Boolean(cleanText(block.text)) && !isInternalControlProtocolText(block.text);
+  }
+  if (block.kind === "tool_event" || block.kind === "todo_plan") {
+    return true;
+  }
+  if (block.kind === "activity_archive") {
+    return block.blocks.some((child) => child.kind === "tool_event" || child.kind === "todo_plan");
+  }
+  return false;
 }

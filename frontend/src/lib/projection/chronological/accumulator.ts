@@ -95,12 +95,19 @@ function applyBodyFinalize(ledger: ChronologicalProjectionLedger, normalized: No
   const body = rawText(normalized.frame.text);
   const previous = ledger.bodyText;
   if (body) {
-    const missingSuffix = body.startsWith(previous) ? body.slice(previous.length) : "";
+    const previousSegment = ledger.bodySegments[ledger.bodySegments.length - 1];
+    const replacesTransientBody = Boolean(
+      previous
+      && previousSegment
+      && normalized.retention !== "transient"
+      && (previousSegment.retention === "transient" || previousSegment.sourceEventType === "runtime_step_summary")
+    );
+    const missingSuffix = !replacesTransientBody && body.startsWith(previous) ? body.slice(previous.length) : "";
     ledger.bodyText = body;
     if (missingSuffix) {
       appendBodySegment(ledger, normalized, missingSuffix, "finalized");
-    } else if (!ledger.bodySegments.length) {
-      appendBodySegment(ledger, normalized, body, "finalized");
+    } else if (!ledger.bodySegments.length || replacesTransientBody || (previous && !body.startsWith(previous))) {
+      appendBodySegment(ledger, normalized, body, "finalized", { forceNewSegment: true });
     } else {
       markLatestBodySegment(ledger, normalized.offset, "finalized");
     }
@@ -162,6 +169,7 @@ function appendBodySegment(
   normalized: NormalizedProjectionFrame,
   body: string,
   state: BodySegment["state"],
+  options: { forceNewSegment?: boolean } = {},
 ) {
   const semanticKey = bodySemanticKey(normalized);
   const sourceKeys = uniqueStrings([normalized.identity.key, semanticKey]);
@@ -169,7 +177,13 @@ function appendBodySegment(
   if (previous && sourceKeys.some((key) => previous.sourceKeys.includes(key))) {
     return;
   }
-  if (ledger.displayCursor?.kind === "body" && previous) {
+  if (
+    !options.forceNewSegment
+    && ledger.displayCursor?.kind === "body"
+    && previous
+    && previous.sourceEventType === normalized.sourceEventType
+    && previous.retention === normalized.retention
+  ) {
     previous.text += body;
     previous.lastOffset = normalized.offset;
     previous.state = state;
@@ -183,6 +197,9 @@ function appendBodySegment(
       firstOffset: normalized.offset,
       lastOffset: normalized.offset,
       state,
+      sourceEventType: normalized.sourceEventType,
+      retention: normalized.retention,
+      mainVisibility: normalized.mainVisibility,
       sourceKeys,
     });
   }
@@ -329,7 +346,7 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
 
 function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecycle {
   const incomingIsOlder = incoming.lastOffset < existing.lastOffset;
-  return {
+  const merged = {
     ...existing,
     ...(incomingIsOlder ? {} : withoutEmpty(incoming)),
     firstOffset: Math.min(existing.firstOffset, incoming.firstOffset),
@@ -338,6 +355,14 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
     pinned: existing.pinned || incoming.pinned,
     state: mergeLifecycleState(existing.state, incoming.state, incomingIsOlder),
   };
+  const incomingCommandIsOnlyToolName = sameCompactText(incoming.commandLine, incoming.toolName);
+  if (!incomingIsOlder && incomingCommandIsOnlyToolName && existing.commandLine && existing.commandLine !== incoming.commandLine) {
+    merged.commandLine = existing.commandLine;
+  }
+  if (!incomingIsOlder && incoming.output === GENERIC_TOOL_DONE_OUTPUT) {
+    merged.output = completedToolOutput(merged) || incoming.output;
+  }
+  return merged;
 }
 
 function frameIsTool(normalized: NormalizedProjectionFrame) {
@@ -472,7 +497,22 @@ function toolOutput(normalized: NormalizedProjectionFrame, state: string) {
   if (normalized.sourceEventType === "tool_permission_decided") return "系统调用已通过准入。";
   if (state === "running" || normalized.sourceEventType === "tool_item_started") return "系统调用运行中。";
   if (["failed", "error", "blocked"].includes(state)) return "系统调用失败。";
-  return "系统调用已完成。";
+  return GENERIC_TOOL_DONE_OUTPUT;
+}
+
+const GENERIC_TOOL_DONE_OUTPUT = "系统调用已完成。";
+
+function completedToolOutput(tool: Pick<ToolLifecycle, "target" | "toolName">) {
+  const target = text(tool.target);
+  if (!target) return "";
+  const label = toolLabel(tool.toolName) || "工具";
+  if (["读取文件", "检查路径", "列出目录", "搜索文件", "搜索文本", "匹配路径"].includes(label)) {
+    return `${label}完成：${target}`;
+  }
+  if (["写入文件", "更新文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) {
+    return `${label}完成：${target}`;
+  }
+  return `${label}完成：${target}`;
 }
 
 function mergeLifecycleState(existing: string, incoming: string, incomingIsOlder: boolean) {
@@ -570,6 +610,14 @@ function quote(value: string) {
 
 function rawText(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function sameCompactText(left: string, right: string) {
+  return Boolean(left) && Boolean(right) && compactText(left) === compactText(right);
+}
+
+function compactText(value: string) {
+  return text(value).replace(/\s+/g, "").toLowerCase();
 }
 
 function uniqueStrings(values: string[]) {

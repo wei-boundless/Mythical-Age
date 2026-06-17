@@ -15,6 +15,8 @@ ContinuationState = Literal[
     "terminal_read_only",
 ]
 
+InterruptedTurnContinuationState = Literal["interrupted_read_only"]
+
 
 @dataclass(frozen=True, slots=True)
 class ContinuationRecord:
@@ -66,6 +68,50 @@ class ContinuationRecord:
         return payload
 
 
+@dataclass(frozen=True, slots=True)
+class InterruptedTurnContinuationRecord:
+    """Read-only continuity context for an interrupted ordinary conversation turn."""
+
+    continuation_id: str
+    session_id: str
+    turn_run_id: str
+    turn_id: str
+    previous_stream_run_id: str = ""
+    state: InterruptedTurnContinuationState = "interrupted_read_only"
+    resume_allowed: bool = False
+    resume_strategy: str = "read_only_next_turn_continuation"
+    interruption_kind: str = ""
+    terminal_status: str = ""
+    terminal_reason: str = ""
+    latest_progress: str = ""
+    latest_step: str = ""
+    next_recommended_step: str = ""
+    event_log_ref: str = ""
+    event_cursor: int = -1
+    model_visible_summary: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.continuation.interrupted_turn_record"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.continuation.interrupted_turn_record":
+            raise ValueError("InterruptedTurnContinuationRecord authority must be harness.continuation.interrupted_turn_record")
+        if self.state != "interrupted_read_only":
+            raise ValueError("InterruptedTurnContinuationRecord state must be interrupted_read_only")
+        if not self.session_id:
+            raise ValueError("InterruptedTurnContinuationRecord requires session_id")
+        if not self.turn_run_id:
+            raise ValueError("InterruptedTurnContinuationRecord requires turn_run_id")
+        if not self.turn_id:
+            raise ValueError("InterruptedTurnContinuationRecord requires turn_id")
+        if not self.continuation_id:
+            raise ValueError("InterruptedTurnContinuationRecord requires continuation_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def continuation_record_from_payload(payload: dict[str, Any] | None) -> ContinuationRecord | None:
     data = dict(payload or {})
     if not data:
@@ -107,12 +153,51 @@ def continuation_record_from_payload(payload: dict[str, Any] | None) -> Continua
         return None
 
 
+def interrupted_turn_record_from_payload(payload: dict[str, Any] | None) -> InterruptedTurnContinuationRecord | None:
+    data = dict(payload or {})
+    if not data:
+        return None
+    try:
+        return InterruptedTurnContinuationRecord(
+            continuation_id=str(data.get("continuation_id") or ""),
+            session_id=str(data.get("session_id") or ""),
+            turn_run_id=str(data.get("turn_run_id") or ""),
+            turn_id=str(data.get("turn_id") or ""),
+            previous_stream_run_id=str(data.get("previous_stream_run_id") or ""),
+            state="interrupted_read_only",
+            resume_allowed=False,
+            resume_strategy=str(data.get("resume_strategy") or "read_only_next_turn_continuation"),
+            interruption_kind=str(data.get("interruption_kind") or ""),
+            terminal_status=str(data.get("terminal_status") or ""),
+            terminal_reason=str(data.get("terminal_reason") or ""),
+            latest_progress=str(data.get("latest_progress") or ""),
+            latest_step=str(data.get("latest_step") or ""),
+            next_recommended_step=str(data.get("next_recommended_step") or ""),
+            event_log_ref=str(data.get("event_log_ref") or data.get("turn_run_id") or ""),
+            event_cursor=_int_value(data.get("event_cursor"), -1),
+            model_visible_summary=str(data.get("model_visible_summary") or ""),
+            created_at=float(data.get("created_at") or 0.0),
+            updated_at=float(data.get("updated_at") or 0.0),
+            diagnostics=dict(data.get("diagnostics") or {}),
+        )
+    except Exception:
+        return None
+
+
 def continuation_id_for_task_run(task_run_id: str, *, event_cursor: int = -1, control_version: int = 0) -> str:
     normalized = str(task_run_id or "").strip()
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
     cursor = max(-1, int(event_cursor or -1))
     version = max(0, int(control_version or 0))
     return f"cont:{digest}:{cursor}:{version}"
+
+
+def continuation_id_for_turn_run(turn_run_id: str, *, event_cursor: int = -1, control_version: int = 0) -> str:
+    normalized = str(turn_run_id or "").strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    cursor = max(-1, int(event_cursor or -1))
+    version = max(0, int(control_version or 0))
+    return f"turncont:{digest}:{cursor}:{version}"
 
 
 def now_timestamp() -> float:

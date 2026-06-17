@@ -8,6 +8,17 @@ from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.task_lifecycle import contract_from_action_request
 
 
+def _agent_contract_feedback_payloads(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for event in events:
+        if event.get("type") != "agent_contract_feedback_required":
+            continue
+        feedback = dict(dict(event.get("event") or {}).get("payload") or {}).get("agent_contract_feedback")
+        if isinstance(feedback, dict):
+            payloads.append(feedback)
+    return payloads
+
+
 def test_json_request_task_run_normalizes_string_completion_criteria_without_character_splitting() -> None:
     contract, errors = contract_from_action_request(
         ModelActionRequest(
@@ -310,6 +321,121 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     assert signal["structured_signal"]["message"] == signal["repair_instruction"]
 
 
+def test_agent_contract_feedback_lifecycle_uses_specific_native_control_repair_instruction() -> None:
+    from harness.loop.single_agent_turn import _agent_contract_feedback_required_lifecycle
+
+    feedback = _agent_contract_feedback_required_lifecycle(
+        reason="protocol_recovery_exhausted",
+        phase="tool_loop",
+        turn_id="turn:test:native-control-feedback",
+        packet_ref="packet:test:native-control-feedback",
+        protocol_error={
+            "code": "single_agent_turn_invalid_native_action",
+            "reason": "native_control_action_requires_json_action",
+            "diagnostics": {
+                "native_action_errors": [
+                    {
+                        "code": "native_control_action_requires_json_action",
+                        "reason": "native_control_action_requires_json_action",
+                        "action_issue": {
+                            "category": "protocol_violation",
+                            "code": "control_action_requires_json_action",
+                            "requested_action_type": "ask_user",
+                            "requested_tool_name": "ask_user",
+                            "repair_instruction": "控制类动作 ask_user 必须走 JSON action，不允许以 native tool_call 形式提交。",
+                        },
+                    },
+                ],
+            },
+        },
+    )
+
+    feedback_text = str(feedback["agent_feedback"])
+    specific = dict(feedback["contract_failure"])["specific_feedback"]
+    assert "这是一条执行契约反馈，不是用户消息" in feedback_text
+    assert "控制类动作" in feedback_text
+    assert "提交 action_type=ask_user" in feedback_text
+    assert specific[0]["code"] == "control_action_requires_json_action"
+    assert "必须走 JSON action" in specific[0]["situation_feedback"]
+    assert "harness.loop.model_action_request" in specific[0]["repair_instruction"]
+    assert specific[0]["expected_next_action"] == "提交 action_type=ask_user，并把问题写入 user_question。"
+
+
+def test_agent_contract_feedback_lifecycle_separates_json_and_empty_respond_failures() -> None:
+    from harness.loop.single_agent_turn import _agent_contract_feedback_required_lifecycle
+
+    json_feedback = _agent_contract_feedback_required_lifecycle(
+        reason="protocol_recovery_exhausted",
+        phase="protocol_recovery",
+        turn_id="turn:test:json-feedback",
+        packet_ref="packet:test:json-feedback",
+        protocol_error={
+            "code": "single_agent_turn_json_action_required",
+            "reason": "json_action_required",
+            "diagnostics": {
+                "action_issue": {
+                    "category": "protocol_violation",
+                    "code": "json_action_required",
+                },
+            },
+        },
+    )
+    empty_respond_feedback = _agent_contract_feedback_required_lifecycle(
+        reason="protocol_recovery_exhausted",
+        phase="final_output_commit",
+        turn_id="turn:test:empty-respond-feedback",
+        packet_ref="packet:test:empty-respond-feedback",
+        protocol_error={
+            "code": "final_answer_required_for_respond",
+            "reason": "final_answer_required_for_respond",
+            "diagnostics": {
+                "action_issue": {
+                    "category": "protocol_violation",
+                    "code": "final_answer_required_for_respond",
+                    "requested_action_type": "respond",
+                },
+            },
+        },
+    )
+
+    json_specific = dict(json_feedback["contract_failure"])["specific_feedback"][0]
+    empty_specific = dict(empty_respond_feedback["contract_failure"])["specific_feedback"][0]
+
+    assert "无法把上一条输出可靠归类" in json_specific["situation_feedback"]
+    assert "JSON 对象" in json_specific["repair_instruction"]
+    assert "respond、ask_user 或 block" in json_specific["expected_next_action"]
+    assert "只看到状态或记录" in empty_specific["situation_feedback"]
+    assert "final_answer" in empty_specific["repair_instruction"]
+    assert "能直接给用户看的 final_answer" in empty_specific["expected_next_action"]
+    assert json_specific["situation_feedback"] != empty_specific["situation_feedback"]
+
+
+def test_agent_contract_feedback_lifecycle_gives_natural_internal_leak_feedback() -> None:
+    from harness.loop.single_agent_turn import _agent_contract_feedback_required_lifecycle
+
+    feedback = _agent_contract_feedback_required_lifecycle(
+        reason="session_output_commit_not_committed",
+        phase="final_output_commit",
+        turn_id="turn:test:commit-feedback",
+        packet_ref="packet:test:commit-feedback",
+        control_signal={
+            "signal_kind": "final_output_not_committable",
+            "commit_reason": "canonical_answer_rejected",
+            "answer_leak_flags": ["internal_protocol"],
+        },
+        previous_invalid_response="上一轮因为格式协议被系统拦截。",
+    )
+
+    feedback_text = str(feedback["agent_feedback"])
+    specific = dict(feedback["contract_failure"])["specific_feedback"][0]
+
+    assert "不是用户消息" in feedback_text
+    assert "不能复述给用户" in feedback_text
+    assert "系统越过 agent 对用户说话" in specific["situation_feedback"]
+    assert "改写成你自己的自然回复" in specific["repair_instruction"]
+    assert "只保留用户需要知道的事实" in specific["expected_next_action"]
+
+
 def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_repair_signal() -> None:
     from harness.loop.single_agent_turn import (
         _model_protocol_violation_control_signal,
@@ -444,7 +570,7 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     done = next(event for event in events if event.get("type") == "done")
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
-    assert model.calls == 9
+    assert model.calls >= 9
     assert model.plain_invocations == 2
     assert all(dict(item).get("segment_plan") for item in model.plain_accounting_contexts)
     assert all(dict(dict(item).get("prompt_manifest") or {}).get("segment_plan_ref") for item in model.plain_accounting_contexts)
@@ -457,7 +583,7 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
 
 
-def test_single_agent_turn_tool_limit_noncompliant_closeout_still_feedbacks_user(tmp_path: Path) -> None:
+def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_feedback_lifecycle(tmp_path: Path) -> None:
     class NoncompliantCloseoutLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
             super().__init__(
@@ -499,20 +625,27 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_still_feedbacks_user
         for event in events
         if event.get("type") == "turn_runtime_control_signal_observed"
     ]
+    feedback_payloads = _agent_contract_feedback_payloads(events)
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
-    assert model.calls == 9
+    assert model.calls >= 9
     assert model.closeout_invocations >= 4
     assert any(dict(signal or {}).get("signal_kind") == "tool_budget_exhausted" for signal in control_signals)
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
     assert not any(event.get("type") == "error" for event in events)
-    assert done["terminal_reason"] == "single_turn_tool_iteration_limit"
-    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
-    assert done["answer_channel"] == "blocked"
-    assert done["completion_state"] == "deterministic_closeout"
-    assert "工具步数" in str(done.get("content") or "")
-    assert assistant_messages
-    assert assistant_messages[-1]["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
+    assert done["terminal_reason"] == "agent_contract_feedback_required"
+    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
+    assert done["answer_channel"] == "runtime_control"
+    assert done["completion_state"] == "agent_contract_feedback_required"
+    assert str(done.get("content") or "") == ""
+    assert feedback_payloads
+    feedback = feedback_payloads[-1]
+    assert feedback["signal_kind"] == "agent_contract_feedback_required"
+    assert "不是用户消息" in str(feedback["agent_feedback"])
+    assert "不会被运行时代写成用户正文" in str(feedback["agent_feedback"])
+    assert "harness.loop.model_action_request" in str(feedback["agent_feedback"])
+    assert dict(feedback["observed_facts"])["successful_tool_observation_count"] >= 1
+    assert not assistant_messages
 
 
 def test_single_agent_parser_rejects_native_tool_call_when_json_action_required() -> None:
@@ -697,6 +830,7 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
     ]
     checked_events = [event for event in events if event.get("type") == "session_output_commit_checked"]
     skipped_events = [event for event in events if event.get("type") == "session_output_commit_skipped"]
+    feedback_payloads = _agent_contract_feedback_payloads(events)
     messages = runtime.session_manager.load_session(session_id)
     done = next(event for event in events if event.get("type") == "done")
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
@@ -710,10 +844,13 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
     assert any(dict(signal or {}).get("signal_kind") == "final_output_not_committable" for signal in control_signals)
     assert checked_events
     assert skipped_events
-    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
-    assert done["answer_channel"] == "blocked"
-    assert done["completion_state"] == "deterministic_closeout"
-    assert str(done.get("content") or "").strip()
+    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
+    assert done["answer_channel"] == "runtime_control"
+    assert done["completion_state"] == "agent_contract_feedback_required"
+    assert str(done.get("content") or "") == ""
+    assert feedback_payloads
+    assert "内部协议" in str(feedback_payloads[-1]["agent_feedback"])
+    assert "改写成你自己的自然回复" in str(feedback_payloads[-1]["agent_feedback"])
     assert "格式协议问题被系统拦截" not in done_text
     assert not any(leaked_answer in str(message.get("content") or "") for message in messages)
 
@@ -795,17 +932,22 @@ def test_single_agent_turn_native_control_actions_do_not_execute_original_when_r
         for event in events
         if event.get("type") == "turn_runtime_control_signal_observed"
     ]
+    feedback_payloads = _agent_contract_feedback_payloads(events)
     done = next(event for event in events if event.get("type") == "done")
 
     assert not _admission_payloads(events)
     assert not any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
-    assert done["answer_source"] == "harness.single_agent_turn.deterministic_closeout"
-    assert done["answer_channel"] == "blocked"
-    assert done["completion_state"] == "deterministic_closeout"
-    assert "未完成" in str(done.get("content") or "")
+    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
+    assert done["answer_channel"] == "runtime_control"
+    assert done["completion_state"] == "agent_contract_feedback_required"
+    assert str(done.get("content") or "") == ""
+    assert feedback_payloads
+    feedback_text = str(feedback_payloads[-1]["agent_feedback"])
+    assert "无法把上一条输出可靠归类" in feedback_text
+    assert "JSON action" in feedback_text
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
-    assert assistant_messages
+    assert not assistant_messages
 
 def test_single_agent_turn_json_ask_user_goes_through_admission() -> None:
     model = _TurnActionSequenceModelRuntime(

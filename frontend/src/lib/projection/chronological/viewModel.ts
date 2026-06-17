@@ -68,10 +68,16 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     firstOffset: segment.firstOffset,
     lastOffset: segment.lastOffset,
     state: segment.state,
+    sourceEventType: segment.sourceEventType,
+    retention: segment.retention,
+    mainVisibility: segment.mainVisibility,
   }));
+  const closeoutMode = displayMode === "committed" || displayMode === "closeout";
+  const closeoutBodyBlocks = closeoutMode ? bodyBlocks.filter(isCloseoutBodyBlock) : bodyBlocks;
+  const archivedBodyBlocks = closeoutMode ? bodyBlocks.filter((block) => !isCloseoutBodyBlock(block)) : [];
   const activityBlocks = [...todoBlocks, ...toolBlocks, ...statusBlocks];
-  const lifecycleBlocks = displayMode === "committed" || displayMode === "closeout"
-    ? activityArchiveBlocks(ledger, activityBlocks)
+  const lifecycleBlocks = closeoutMode
+    ? activityArchiveBlocks(ledger, [...archivedBodyBlocks, ...activityBlocks])
     : activityBlocks;
   const recoveryOrTerminalBlocks = statusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
   const logBlocks = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
@@ -84,7 +90,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       }]
     : [];
   const blocks = [
-    ...bodyBlocks,
+    ...closeoutBodyBlocks,
     ...lifecycleBlocks,
     ...logBlocks,
   ].sort(compareBlocks);
@@ -137,7 +143,7 @@ function activityArchiveBlocks(
 }
 
 function archiveDetail(blocks: ActivityArchiveChildBlock[]) {
-  return `${blocks.length} 条投影记录`;
+  return `${blocks.length} 条记录`;
 }
 
 function archiveState(blocks: ActivityArchiveChildBlock[]) {
@@ -167,4 +173,13 @@ function blockOffset(block: ProjectionRenderBlock) {
 
 function blockId(block: ProjectionRenderBlock) {
   return block.id;
+}
+
+function isCloseoutBodyBlock(block: { id?: string; retention?: string; sourceEventType?: string }) {
+  const sourceEventType = String(block.sourceEventType ?? "");
+  const retention = String(block.retention ?? "");
+  const id = String(block.id ?? "");
+  if (sourceEventType === "runtime_step_summary") return false;
+  if (id.startsWith("model-action-feedback-body:")) return false;
+  return retention !== "transient";
 }

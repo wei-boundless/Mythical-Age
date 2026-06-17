@@ -68,7 +68,7 @@ ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, 
 ApplyRecoverableWorkResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
-_DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 8
+_DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 16
 _MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 32
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
@@ -89,8 +89,8 @@ _MAX_SINGLE_TURN_TOOL_ITERATIONS = _configured_single_turn_tool_iterations()
 _TOOL_LIMIT_CLOSEOUT_ACTION_TYPES = ("respond", "ask_user", "block")
 _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
-_DETERMINISTIC_CLOSEOUT_SOURCE = "harness.single_agent_turn.deterministic_closeout"
-_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 2
+_AGENT_CONTRACT_FEEDBACK_SOURCE = "harness.single_agent_turn.agent_contract_feedback"
+_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 3
 _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS = 3
 _CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "resume_recoverable_work", "ask_user", "block"}
 _CONTROL_ACTION_ALIASES = {
@@ -288,7 +288,7 @@ def _consecutive_tool_failure_closeout_control_signal(
 ) -> dict[str, Any]:
     attempted_payloads = [item.to_dict() for item in list(attempted_actions or []) if item is not None]
     instruction = (
-        "最近连续两轮工具观察均为失败、拒绝、取消、缺合同或运行错误。"
+        f"最近连续 {_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD} 轮工具观察均为失败、拒绝、取消、缺合同或运行错误。"
         "你必须停止继续发起工具调用，基于已经观察到的失败事实向用户反馈。"
         "如果可以解释清楚，选择 respond 并说明失败原因、影响和可继续方向；"
         "如果需要用户补充或确认，选择 ask_user；"
@@ -503,41 +503,335 @@ def _agent_authored_closeout_messages(
     )
 
 
-def _deterministic_closeout_content(
+def _agent_contract_feedback_required_lifecycle(
     *,
     reason: str,
     phase: str,
+    turn_id: str,
+    packet_ref: str,
     control_signal: dict[str, Any] | None = None,
     protocol_error: dict[str, Any] | None = None,
     observations: list[dict[str, Any]] | None = None,
-) -> str:
+    previous_invalid_response: str = "",
+    closeout_attempts: int = 0,
+) -> dict[str, Any]:
     signal = dict(control_signal or {})
     signal_kind = str(signal.get("signal_kind") or "").strip()
-    observation_summary = _deterministic_observation_summary(list(observations or []))
-    lines = [
-        "本轮没有拿到可继续执行的有效下一步，我已停止继续动作，避免重复执行或误执行。",
+    protocol = dict(protocol_error or {})
+    feedback_items = _agent_contract_feedback_items(protocol_error=protocol, control_signal=signal)
+    feedback = _agent_contract_feedback_message(
+        reason=reason,
+        phase=phase,
+        signal_kind=signal_kind,
+        protocol_error=protocol,
+        control_signal=signal,
+        previous_invalid_response=previous_invalid_response,
+        feedback_items=feedback_items,
+    )
+    return {
+        "observation_type": "agent_contract_feedback_lifecycle",
+        "source": "system:execution_contract_feedback",
+        "signal_kind": "agent_contract_feedback_required",
+        "lifecycle": "agent_contract_feedback_required",
+        "runtime_control_state": "execution_contract_feedback_required",
+        "turn_id": str(turn_id or ""),
+        "packet_ref": str(packet_ref or ""),
+        "phase": str(phase or ""),
+        "reason": str(reason or ""),
+        "triggering_signal_kind": signal_kind,
+        "visible_assistant_message_allowed": False,
+        "tool_calls_allowed_after_signal": False,
+        "agent_closeout_required": True,
+        "contract_failure": {
+            "kind": "agent_output_contract_not_satisfied",
+            "closeout_attempts": int(closeout_attempts or 0),
+            "phase": str(phase or ""),
+            "reason": str(reason or ""),
+            "previous_invalid_response_preview": _compact_text(previous_invalid_response, limit=1200),
+            "protocol_error": protocol,
+            "specific_feedback": feedback_items,
+            "runtime_control_signal": signal,
+        },
+        "observed_facts": _contract_feedback_observed_facts(list(observations or [])),
+        "required_action_protocol": {
+            "authority": "harness.loop.model_action_request",
+            "allowed_action_types": list(_TOOL_LIMIT_CLOSEOUT_ACTION_TYPES),
+            "tool_call_allowed": False,
+            "json_only": True,
+            "visible_user_body_allowed_only_from_agent_action": True,
+        },
+        "agent_feedback": feedback,
+        "structured_signal": {
+            "code": "single_agent_turn_agent_contract_feedback_required",
+            "message": feedback,
+            "origin": "single_agent_turn_output_contract_boundary",
+            "retryable": True,
+        },
+        "authority": "harness.loop.single_agent_turn.agent_contract_feedback_lifecycle",
+    }
+
+
+def _agent_contract_feedback_message(
+    *,
+    reason: str,
+    phase: str,
+    signal_kind: str,
+    protocol_error: dict[str, Any],
+    control_signal: dict[str, Any],
+    previous_invalid_response: str,
+    feedback_items: list[dict[str, str]],
+) -> str:
+    del control_signal
+    items = list(feedback_items or [])
+    phase_text = _contract_feedback_phase_text(phase)
+    pieces = [
+        "这是一条执行契约反馈，不是用户消息。",
+        "上一条输出没有进入会话，也不会被运行时代写成用户正文；你仍然负责判断、调度和最终表达。",
+        f"当前阶段：{phase_text}",
     ]
-    if observation_summary:
-        lines.extend(observation_summary)
-    if signal_kind == "tool_budget_exhausted":
-        lines.append("未完成：后续验证或收口动作没有继续执行，因为本轮可用工具步数已经用完。")
-    elif signal_kind == "consecutive_tool_failures":
-        lines.append("未完成：最近的工具结果连续失败，我没有继续重复相同方向的动作。")
-    elif signal_kind == "final_output_not_committable":
-        lines.append("未完成：上一轮最终输出没有通过可见回复提交检查，我已改为停止并给出安全收口。")
-    elif signal_kind == "model_protocol_violation" or protocol_error:
-        lines.append("未完成：后续动作没有形成可执行的合法下一步，因此没有继续调用工具。")
+    if signal_kind:
+        pieces.append(f"触发信号：{signal_kind}。")
+    if items:
+        pieces.append("未通过的契约：")
+        for index, item in enumerate(items[:4], start=1):
+            situation = str(item.get("situation_feedback") or item.get("reason") or item.get("code") or "").strip()
+            repair = str(item.get("repair_instruction") or "").strip()
+            expected = str(item.get("expected_next_action") or "").strip()
+            line = f"{index}. {situation}"
+            if repair:
+                line += f" 修正方式：{repair}"
+            if expected:
+                line += f" 下一步：{expected}"
+            pieces.append(line)
     else:
-        lines.append(f"未完成：当前阶段未能可靠收口，原因是 {str(reason or phase or '运行边界停止').strip()}。")
-    lines.append("下一步：你可以直接说“继续”，我会从已确认事实继续，并优先核对上一步产物或失败点。")
-    return "\n".join(line for line in lines if str(line or "").strip()).strip()
+        fallback_reason = str(protocol_error.get("reason") or protocol_error.get("code") or reason or "agent_output_contract_not_satisfied").strip()
+        pieces.append(f"未通过的契约：{fallback_reason}。请按本轮 required_action_protocol 重新提交一个合法动作。")
+    if previous_invalid_response:
+        pieces.append("上一条不可发布输出已保存在 previous_invalid_response_preview，只能用于你定位错误，不能复述给用户。")
+    pieces.append(
+        "恢复要求：下一次只输出一个 authority 为 harness.loop.model_action_request 的 JSON action；"
+        "action_type 只能是 respond、ask_user 或 block；不能调用工具，不能输出 provider-native tool_calls，也不能在 JSON 外写正文。"
+    )
+    pieces.append(
+        "选择动作时按真实情况来：事实足够就用 respond.final_answer 写自然、可发布的收口；"
+        "需要用户决定就用 ask_user.user_question；事实、权限或证据不足就用 block.blocking_reason。"
+    )
+    return "\n".join(piece for piece in pieces if str(piece or "").strip()).strip()
 
 
-def _deterministic_observation_summary(observations: list[dict[str, Any]]) -> list[str]:
+def _agent_contract_feedback_items(
+    *,
+    protocol_error: dict[str, Any],
+    control_signal: dict[str, Any],
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    diagnostics = dict(protocol_error.get("diagnostics") or {})
+    action_issue = dict(diagnostics.get("action_issue") or protocol_error.get("action_issue") or {})
+    if action_issue:
+        items.append(_contract_feedback_item_from_action_issue(action_issue, fallback_reason=protocol_error.get("reason") or protocol_error.get("code")))
+    for native_error in list(diagnostics.get("native_action_errors") or []):
+        if not isinstance(native_error, dict):
+            continue
+        native_issue = dict(native_error.get("action_issue") or {})
+        items.append(_contract_feedback_item_from_action_issue(native_issue, fallback_reason=native_error.get("reason") or native_error.get("code")))
+    if not items:
+        reason = str(protocol_error.get("reason") or protocol_error.get("code") or "").strip()
+        if reason:
+            items.append(_contract_feedback_item_for_reason(reason, diagnostics=diagnostics))
+    commit_reason = str(control_signal.get("commit_reason") or "").strip()
+    if commit_reason:
+        leak_flags = [str(item) for item in list(control_signal.get("answer_leak_flags") or []) if str(item)]
+        items.append(
+            {
+                "category": "session_output_contract",
+                "code": commit_reason,
+                "reason": commit_reason,
+                "situation_feedback": _commit_feedback_situation(commit_reason=commit_reason, leak_flags=leak_flags),
+                "repair_instruction": _commit_feedback_instruction(commit_reason=commit_reason, leak_flags=leak_flags),
+                "expected_next_action": _commit_feedback_expected_next_action(commit_reason=commit_reason, leak_flags=leak_flags),
+            }
+        )
+    return _unique_feedback_items(items)
+
+
+def _contract_feedback_item_from_action_issue(action_issue: dict[str, Any], *, fallback_reason: Any = "") -> dict[str, str]:
+    code = str(action_issue.get("code") or fallback_reason or "action_contract_failed").strip()
+    category = str(action_issue.get("category") or "protocol_violation").strip()
+    requested_action = str(action_issue.get("requested_action_type") or "").strip()
+    requested_tool = str(action_issue.get("requested_tool_name") or "").strip()
+    repair = str(action_issue.get("repair_instruction") or "").strip()
+    if _uses_standard_contract_feedback_template(code) or not repair:
+        repair = _repair_instruction_for_contract_code(code, requested_action=requested_action, requested_tool=requested_tool)
+    reason = code
+    if requested_action:
+        reason = f"{code}（请求动作：{requested_action}）"
+    elif requested_tool:
+        reason = f"{code}（请求工具：{requested_tool}）"
+    return {
+        "category": category,
+        "code": code,
+        "reason": reason,
+        "situation_feedback": _situation_feedback_for_contract_code(code, requested_action=requested_action, requested_tool=requested_tool),
+        "repair_instruction": repair,
+        "expected_next_action": _expected_next_action_for_contract_code(code, requested_action=requested_action, requested_tool=requested_tool),
+    }
+
+
+def _contract_feedback_item_for_reason(reason: str, *, diagnostics: dict[str, Any]) -> dict[str, str]:
+    tool_names = [
+        str(item).strip()
+        for item in list(diagnostics.get("tool_names") or [])
+        if str(item).strip()
+    ]
+    return {
+        "category": "protocol_violation",
+        "code": str(reason or "action_contract_failed").strip(),
+        "reason": str(reason or "action_contract_failed").strip(),
+        "situation_feedback": _situation_feedback_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
+        "repair_instruction": _repair_instruction_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
+        "expected_next_action": _expected_next_action_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
+    }
+
+
+def _contract_feedback_phase_text(phase: str) -> str:
+    normalized = str(phase or "").strip()
+    labels = {
+        "tool_limit_closeout": "工具预算已耗尽后的收口阶段，不能再发起工具，只能基于已观察事实回应、询问或阻塞。",
+        "consecutive_tool_failure_closeout": "连续工具失败后的收口阶段，不能重复同类失败动作，只能解释失败、询问用户或阻塞。",
+        "protocol_recovery": "协议恢复阶段，上一轮输出未满足动作合同，需要重新提交合法动作。",
+        "tool_loop": "工具执行循环阶段，模型输出必须能被运行时唯一解释为一个合法动作。",
+        "final_output_commit": "最终回复提交阶段，候选正文必须是 agent 自己写出的自然用户回复，且不能泄露内部协议。",
+    }
+    return labels.get(normalized, normalized or "unknown")
+
+
+def _uses_standard_contract_feedback_template(code: str) -> bool:
+    return str(code or "").strip() in {
+        "json_action_required",
+        "single_agent_turn_json_action_required",
+        "native_tool_call_transport_not_available",
+        "native_tool_call_not_allowed_for_context",
+        "native_control_action_requires_json_action",
+        "control_action_requires_json_action",
+        "single_agent_turn_multiple_action_sources",
+        "final_answer_required_for_respond",
+        "native_respond_final_answer_required",
+        "blocking_reason_required_for_block",
+        "user_question_required_for_ask_user",
+    }
+
+
+def _situation_feedback_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
+    normalized = str(code or "").strip()
+    if normalized in {"json_action_required", "single_agent_turn_json_action_required"}:
+        return "你没有提交本阶段要求的 JSON action，运行时无法把上一条输出可靠归类为回答、询问或阻塞。"
+    if normalized in {"native_tool_call_transport_not_available", "native_tool_call_not_allowed_for_context"}:
+        tool_hint = f"（{requested_tool}）" if requested_tool else ""
+        return f"你尝试继续调用工具{tool_hint}，但当前阶段的工具通道已经关闭；这次工具意图不会被执行。"
+    if normalized in {"native_control_action_requires_json_action", "control_action_requires_json_action"}:
+        action_hint = f"（{requested_action}）" if requested_action else ""
+        return f"你把控制类动作{action_hint}作为 provider-native tool_call 发出；这类动作会改变会话/任务状态，必须走 JSON action 合同。"
+    if normalized in {"single_agent_turn_multiple_action_sources"}:
+        return "同一轮同时出现 JSON action 和 provider-native tool_call，运行时无法判断哪一个才是你的真实决定。"
+    if normalized in {"final_answer_required_for_respond", "native_respond_final_answer_required"}:
+        return "你选择了 respond，但没有提供 final_answer；这样会让用户只看到状态或记录，而不是 agent 的自然回复。"
+    if normalized in {"blocking_reason_required_for_block"}:
+        return "你选择了 block，但没有说明具体阻塞事实；用户和后续 agent 都无法判断卡点是权限、证据、环境还是目标不清。"
+    if normalized in {"user_question_required_for_ask_user"}:
+        return "你选择了 ask_user，但没有给出用户可以直接回答的问题。"
+    return "上一条输出没有满足当前动作合同，运行时不能安全地执行或发布它。"
+
+
+def _repair_instruction_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
+    normalized = str(code or "").strip()
+    if normalized in {"json_action_required", "single_agent_turn_json_action_required"}:
+        return "只输出一个 authority 为 harness.loop.model_action_request 的 JSON 对象，不要写 Markdown、解释文字或自然语言正文。"
+    if normalized in {"native_tool_call_transport_not_available", "native_tool_call_not_allowed_for_context"}:
+        tool_hint = f"（刚才请求的是 {requested_tool}）" if requested_tool else ""
+        return f"不要重复 provider-native tool_calls{tool_hint}；把当前意图改写为 respond、ask_user 或 block。"
+    if normalized in {"native_control_action_requires_json_action", "control_action_requires_json_action"}:
+        action_label = f" {requested_action} " if requested_action else "该动作"
+        return f"保留控制意图，但把{action_label}重发为 harness.loop.model_action_request JSON action。"
+    if normalized in {"single_agent_turn_multiple_action_sources"}:
+        return "只保留一个动作来源；如果是收口/恢复阶段，优先提交 JSON action，并清除 native tool_call。"
+    if normalized in {"final_answer_required_for_respond", "native_respond_final_answer_required"}:
+        return "如果选择 respond，必须填写 final_answer；如果事实不足，不要空答，改用 ask_user 或 block。"
+    if normalized in {"blocking_reason_required_for_block"}:
+        return "如果选择 block，必须填写 blocking_reason，并说明具体阻塞事实、缺少的权限或缺失信息。"
+    if normalized in {"user_question_required_for_ask_user"}:
+        return "如果选择 ask_user，必须填写 user_question，并提出用户能直接回答的具体问题。"
+    return "根据本轮 required_action_protocol 重新提交一个允许动作，保留已确认事实，避免泄露内部协议或重复无效动作。"
+
+
+def _expected_next_action_for_contract_code(code: str, *, requested_action: str = "", requested_tool: str = "") -> str:
+    normalized = str(code or "").strip()
+    if normalized in {"json_action_required", "single_agent_turn_json_action_required"}:
+        return "重新选择 respond、ask_user 或 block，并把对应正文放入 final_answer、user_question 或 blocking_reason。"
+    if normalized in {"native_tool_call_transport_not_available", "native_tool_call_not_allowed_for_context"}:
+        return "承认当前不能继续执行该工具；基于已有观察收口，或说明需要用户/环境提供什么条件。"
+    if normalized in {"native_control_action_requires_json_action", "control_action_requires_json_action"}:
+        if requested_action == "ask_user":
+            return "提交 action_type=ask_user，并把问题写入 user_question。"
+        if requested_action == "block":
+            return "提交 action_type=block，并把真实阻塞写入 blocking_reason。"
+        if requested_action == "request_task_run":
+            return "当前收口阶段不能新开控制工具；若仍需任务化，先用 ask_user 或 block 说明需要用户确认的任务边界。"
+        return "提交同等语义的 JSON action，不要通过工具通道表达控制决定。"
+    if normalized in {"single_agent_turn_multiple_action_sources"}:
+        return "删掉冲突动作，只提交一个可执行的决定。"
+    if normalized in {"final_answer_required_for_respond", "native_respond_final_answer_required"}:
+        return "写出能直接给用户看的 final_answer，内容应包含结果、依据、未完成项或风险。"
+    if normalized in {"blocking_reason_required_for_block"}:
+        return "写出具体 blocking_reason，并说明恢复条件。"
+    if normalized in {"user_question_required_for_ask_user"}:
+        return "写出一个具体、短句、用户能直接回答的 user_question。"
+    if requested_tool:
+        return f"不要重复提交 {requested_tool}；按当前允许动作给出下一步。"
+    return "按当前允许动作重新提交，不要复述内部错误码给用户。"
+
+
+def _commit_feedback_situation(*, commit_reason: str, leak_flags: list[str]) -> str:
+    if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
+        return "你的候选 final_answer 混入了内部协议、运行时拦截或系统处理细节；这会变成系统越过 agent 对用户说话。"
+    if commit_reason in {"empty_final_text", "missing_answer"}:
+        return "候选正文为空或没有形成可发布答案；用户会只看到运行记录，而不是你的收口表达。"
+    return "候选正文没有通过会话提交门禁；它不能作为最终用户回复保存。"
+
+
+def _commit_feedback_expected_next_action(*, commit_reason: str, leak_flags: list[str]) -> str:
+    if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
+        return "重新写 final_answer，只保留用户需要知道的事实、影响、你自己的判断和下一步。"
+    if commit_reason in {"empty_final_text", "missing_answer"}:
+        return "补写真实 final_answer；如果不能可靠回答，改用 ask_user 或 block。"
+    return "不要复述被拒绝文本，重新生成一个自然、完整、可发布的 agent 输出。"
+
+
+def _commit_feedback_instruction(*, commit_reason: str, leak_flags: list[str]) -> str:
+    if any("runtime_protocol" in flag or "internal_protocol" in flag for flag in leak_flags):
+        return "不要解释内部协议或运行时拦截，不要说“系统替你处理”；把事实、结果、风险和下一步改写成你自己的自然回复。"
+    if commit_reason in {"empty_final_text", "missing_answer"}:
+        return "给出真实 final_answer；如果无法可靠回答，改用 ask_user 或 block。"
+    return "不要复述被拒绝内容，按 respond、ask_user 或 block 合同生成新的 agent 输出。"
+
+
+def _unique_feedback_items(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, str]] = []
+    for item in items:
+        key = (str(item.get("category") or ""), str(item.get("code") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def _contract_feedback_observed_facts(observations: list[dict[str, Any]]) -> dict[str, Any]:
     ok_count = 0
     failed_count = 0
     written_paths: list[str] = []
     observed_paths: list[str] = []
+    failed_observations: list[dict[str, str]] = []
     for observation in list(observations or []):
         payload = dict(observation or {})
         status = _normalized_tool_status(payload.get("status"))
@@ -545,6 +839,19 @@ def _deterministic_observation_summary(observations: list[dict[str, Any]]) -> li
             ok_count += 1
         elif status in _TOOL_OBSERVATION_FAILURE_STATUSES:
             failed_count += 1
+            failed_observations.append(
+                {
+                    "tool_name": str(payload.get("tool_name") or "").strip(),
+                    "status": str(payload.get("status") or "").strip(),
+                    "error": _compact_text(
+                        dict(payload.get("result_envelope") or {}).get("error")
+                        or payload.get("text")
+                        or payload.get("error")
+                        or "",
+                        limit=240,
+                    ),
+                }
+            )
         envelope = dict(payload.get("result_envelope") or {})
         for path in list(envelope.get("written_paths") or []):
             text = str(path or "").strip()
@@ -571,16 +878,14 @@ def _deterministic_observation_summary(observations: list[dict[str, Any]]) -> li
                     written_paths.append(path)
             elif path not in observed_paths:
                 observed_paths.append(path)
-    lines: list[str] = []
-    if written_paths:
-        lines.append("已完成：已写入 " + "、".join(written_paths[:5]) + (" 等文件。" if len(written_paths) > 5 else "。"))
-    elif ok_count:
-        lines.append(f"已完成：已有 {ok_count} 个工具结果成功返回。")
-    if failed_count:
-        lines.append(f"遇到的问题：有 {failed_count} 个工具结果失败或被中止。")
-    elif observed_paths and not written_paths:
-        lines.append("已确认：已读取 " + "、".join(observed_paths[:5]) + (" 等路径。" if len(observed_paths) > 5 else "。"))
-    return lines
+    return {
+        "tool_observation_count": len(list(observations or [])),
+        "successful_tool_observation_count": ok_count,
+        "failed_tool_observation_count": failed_count,
+        "written_paths": written_paths[:20],
+        "observed_paths": observed_paths[:20],
+        "recent_failed_observations": failed_observations[-5:],
+    }
 
 
 def _is_public_terminal_event(event: dict[str, Any]) -> bool:
@@ -901,45 +1206,45 @@ async def run_single_agent_turn(
                         yield event
                     return
                 previous_invalid_response = content[:1200]
-            content = _deterministic_closeout_content(
+            contract_feedback = _agent_contract_feedback_required_lifecycle(
                 reason=reason,
                 phase=phase,
+                turn_id=turn_id,
+                packet_ref=current_packet_ref,
                 control_signal=control_signal,
                 protocol_error=protocol_error,
                 observations=tool_observation_payloads,
+                previous_invalid_response=previous_invalid_response,
+                closeout_attempts=2,
             )
-            commit_decision = await _commit_final_message(
-                commit_assistant_message,
-                runtime_host=runtime_host,
-                turn_run=turn_run,
-                session_id=session_id,
-                turn_id=turn_id,
-                content=content,
-                answer_channel="blocked",
-                answer_source=_DETERMINISTIC_CLOSEOUT_SOURCE,
-                api_protocol_messages=[
-                    *api_protocol_messages,
-                    _assistant_protocol_message_from_content(content, turn_id=turn_id),
-                ],
-            )
+            if runtime_host is not None and turn_run is not None:
+                lifecycle_event = _record_agent_contract_feedback_required(
+                    runtime_host,
+                    turn_run=turn_run,
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    contract_feedback=contract_feedback,
+                )
+                yield {"type": "agent_contract_feedback_required", "event": lifecycle_event}
             async for event in emit_terminal_then_final(
-                content=content,
-                answer_channel="blocked",
-                answer_source=_DETERMINISTIC_CLOSEOUT_SOURCE,
-                terminal_status="blocked",
-                terminal_reason=terminal_reason,
+                content="",
+                answer_channel="runtime_control",
+                answer_source=_AGENT_CONTRACT_FEEDBACK_SOURCE,
+                terminal_status="failed",
+                terminal_reason="agent_contract_feedback_required",
                 final_extra={
                     "runtime_branch": dict(runtime_branch or {}),
-                    "completion_state": "deterministic_closeout",
+                    "completion_state": "agent_contract_feedback_required",
                     "agent_closeout_attempts": 2,
+                    "agent_contract_feedback": contract_feedback,
                 },
                 terminal_payload={
-                    "completion_state": "deterministic_closeout",
+                    "completion_state": "agent_contract_feedback_required",
                     "agent_closeout_attempts": 2,
+                    "agent_contract_feedback": contract_feedback,
                     **({"runtime_control_signal": dict(control_signal or {})} if control_signal else {}),
                     **({"protocol_error": dict(protocol_error or {})} if protocol_error else {}),
                 },
-                commit_decision=commit_decision,
             ):
                 yield event
 
@@ -5173,6 +5478,45 @@ def _record_turn_runtime_control_signal(
                 **dict(current.diagnostics or {}),
                 "latest_runtime_control_signal": dict(control_signal or {}),
                 "latest_step": "runtime_control_signal_observed",
+            },
+        )
+    )
+    return event.to_dict()
+
+
+def _record_agent_contract_feedback_required(
+    runtime_host: Any,
+    *,
+    turn_run: TurnRun,
+    turn_id: str,
+    packet_ref: str,
+    contract_feedback: dict[str, Any],
+) -> dict[str, Any]:
+    feedback = dict(contract_feedback or {})
+    event = runtime_host.event_log.append(
+        turn_run.turn_run_id,
+        "agent_contract_feedback_required",
+        payload={
+            "turn_id": turn_id,
+            "model_visible": True,
+            "agent_contract_feedback": feedback,
+        },
+        refs={
+            "turn_ref": turn_id,
+            "turn_run_ref": turn_run.turn_run_id,
+            "runtime_invocation_packet_ref": packet_ref,
+        },
+    )
+    current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    runtime_host.state_index.upsert_turn_run(
+        replace(
+            current,
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            diagnostics={
+                **dict(current.diagnostics or {}),
+                "latest_agent_contract_feedback": feedback,
+                "latest_step": "agent_contract_feedback_required",
             },
         )
     )

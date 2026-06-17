@@ -34,6 +34,13 @@ const INTERNAL_RUNTIME_FALLBACK_TEXT = new Set([
   "本轮工具预算已经耗尽，但收口动作生成失败。已停止继续调用工具。",
 ]);
 
+const LEGACY_DETERMINISTIC_CLOSEOUT_MARKERS = [
+  "本轮没有拿到可继续执行的有效下一步",
+  "避免重复执行或误执行",
+  "你可以直接说“继续”",
+  "从已确认事实继续",
+];
+
 export function isInternalActiveWorkControlText(value: unknown) {
   return isInternalControlProtocolText(value);
 }
@@ -50,6 +57,9 @@ export function isInternalControlProtocolText(value: unknown) {
   if (INTERNAL_RUNTIME_FALLBACK_TEXT.has(text)) {
     return true;
   }
+  if (looksLikeLegacyDeterministicCloseout(text)) {
+    return true;
+  }
   if (containsInternalControlProtocolObject(parseJsonLike(text))) {
     return true;
   }
@@ -57,6 +67,18 @@ export function isInternalControlProtocolText(value: unknown) {
     return true;
   }
   return looksLikeWholeInternalContractPrompt(text);
+}
+
+function looksLikeLegacyDeterministicCloseout(value: string) {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) {
+    return false;
+  }
+  const markerCount = LEGACY_DETERMINISTIC_CLOSEOUT_MARKERS.reduce(
+    (count, marker) => count + (text.includes(marker) ? 1 : 0),
+    0,
+  );
+  return markerCount >= 2 && /(?:未完成|遇到的问题|已完成|下一步)[：:]/.test(text);
 }
 
 function parseJsonLike(value: string): unknown {

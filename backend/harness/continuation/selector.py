@@ -8,18 +8,47 @@ from harness.loop.work_rollout import work_rollout_ref, work_rollout_summary
 from harness.task_run_state_view import task_run_state_view
 from harness.task_run_status import is_stopped_or_terminal_task_run
 
-from .record import ContinuationRecord, continuation_id_for_task_run, now_timestamp
+from .record import (
+    ContinuationRecord,
+    InterruptedTurnContinuationRecord,
+    continuation_id_for_task_run,
+    continuation_id_for_turn_run,
+    now_timestamp,
+)
+
+
+_RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS = frozenset(
+    {
+        "tool_budget_exhausted",
+        "consecutive_tool_failures",
+        "model_protocol_violation",
+        "final_output_not_committable",
+        "agent_contract_feedback_required",
+    }
+)
+_RECOVERABLE_TURN_TERMINAL_REASONS = frozenset(
+    {
+        "single_turn_tool_iteration_limit",
+        "single_turn_consecutive_tool_failures",
+        "single_agent_turn_protocol_error",
+        "final_output_not_committable",
+        "session_output_commit_not_committed",
+        "agent_contract_feedback_required",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class ContinuationSelection:
     record: ContinuationRecord | None = None
+    interrupted_turn: InterruptedTurnContinuationRecord | None = None
     reason: str = ""
     authority: str = "harness.continuation.selector"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "record": self.record.to_dict() if self.record is not None else {},
+            "interrupted_turn": self.interrupted_turn.to_dict() if self.interrupted_turn is not None else {},
             "reason": self.reason,
             "authority": self.authority,
         }
@@ -41,21 +70,30 @@ def select_session_continuation(
         for item in list(getattr(runtime_host.state_index, "list_session_task_runs", lambda _session_id: [])(normalized_session_id) or [])
         if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_task"
     ]
-    if not task_runs:
-        return ContinuationSelection(reason="session_task_run_missing")
     candidates = sorted(
         task_runs,
         key=lambda item: (float(getattr(item, "updated_at", 0.0) or 0.0), float(getattr(item, "created_at", 0.0) or 0.0)),
         reverse=True,
     )
+    selected_record: ContinuationRecord | None = None
     for task_run in candidates:
         view = task_run_state_view(task_run)
         if bool(view.get("graph_controlled")):
             continue
         record = _record_from_task_run(runtime_host, task_run=task_run, view=view)
         if record is not None:
-            return ContinuationSelection(record=record, reason="latest_session_task_run_selected")
-    return ContinuationSelection(reason="no_supported_session_task_run")
+            selected_record = record
+            break
+    selected_interrupted_turn = _latest_interrupted_turn_record(runtime_host, session_id=normalized_session_id)
+    if selected_record is not None or selected_interrupted_turn is not None:
+        return ContinuationSelection(
+            record=selected_record,
+            interrupted_turn=selected_interrupted_turn,
+            reason=_selection_reason(task_record=selected_record, interrupted_turn=selected_interrupted_turn),
+        )
+    if not task_runs:
+        return ContinuationSelection(reason="session_task_run_missing_or_interrupted_turn_missing")
+    return ContinuationSelection(reason="no_supported_session_task_or_interrupted_turn")
 
 
 def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, Any]) -> ContinuationRecord | None:
@@ -169,6 +207,155 @@ def _record_from_task_run(runtime_host: Any, *, task_run: Any, view: dict[str, A
             },
         },
     )
+
+
+def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> InterruptedTurnContinuationRecord | None:
+    turn_runs = [
+        item
+        for item in list(getattr(runtime_host.state_index, "list_session_turn_runs", lambda _session_id: [])(session_id) or [])
+        if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_turn"
+    ]
+    if not turn_runs:
+        return None
+    candidates = sorted(
+        turn_runs,
+        key=lambda item: (float(getattr(item, "updated_at", 0.0) or 0.0), float(getattr(item, "created_at", 0.0) or 0.0)),
+        reverse=True,
+    )
+    return _record_from_interrupted_turn_run(candidates[0])
+
+
+def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuationRecord | None:
+    turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "").strip()
+    session_id = str(getattr(turn_run, "session_id", "") or "").strip()
+    turn_id = str(getattr(turn_run, "turn_id", "") or "").strip()
+    if not turn_run_id or not session_id or not turn_id:
+        return None
+    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
+    terminal_reason = str(
+        getattr(turn_run, "terminal_reason", "")
+        or diagnostics.get("terminal_reason")
+        or diagnostics.get("terminal_reason_detail")
+        or ""
+    ).strip()
+    status = str(getattr(turn_run, "status", "") or diagnostics.get("terminal_status") or "").strip()
+    interruption_kind = _interrupted_turn_kind(terminal_reason=terminal_reason, status=status, diagnostics=diagnostics)
+    if not interruption_kind:
+        return None
+    latest_signal = dict(diagnostics.get("latest_runtime_control_signal") or {})
+    feedback = dict(diagnostics.get("latest_agent_contract_feedback") or {})
+    latest_progress = _first_text(
+        diagnostics.get("latest_public_progress_note"),
+        diagnostics.get("latest_step_summary"),
+        feedback.get("agent_feedback"),
+        dict(feedback.get("structured_signal") or {}).get("message"),
+        latest_signal.get("message"),
+        terminal_reason,
+        status,
+    )
+    latest_step = _first_text(
+        diagnostics.get("latest_step"),
+        diagnostics.get("latest_tool_batch_event"),
+        diagnostics.get("terminal_event_type"),
+    )
+    event_cursor = _int_value(getattr(turn_run, "latest_event_offset", -1), -1)
+    control_version = _int_value(diagnostics.get("continuation_control_version"), 0)
+    now = now_timestamp()
+    return InterruptedTurnContinuationRecord(
+        continuation_id=continuation_id_for_turn_run(turn_run_id, event_cursor=event_cursor, control_version=control_version),
+        session_id=session_id,
+        turn_run_id=turn_run_id,
+        turn_id=turn_id,
+        previous_stream_run_id=str(diagnostics.get("stream_run_id") or ""),
+        interruption_kind=interruption_kind,
+        terminal_status=status,
+        terminal_reason=terminal_reason,
+        latest_progress=latest_progress,
+        latest_step=latest_step,
+        next_recommended_step=_interrupted_turn_next_step(interruption_kind),
+        event_log_ref=turn_run_id,
+        event_cursor=event_cursor,
+        model_visible_summary=_interrupted_turn_model_visible_summary(
+            latest_progress=latest_progress,
+            latest_step=latest_step,
+            interruption_kind=interruption_kind,
+            terminal_reason=terminal_reason,
+            status=status,
+        ),
+        created_at=now,
+        updated_at=float(getattr(turn_run, "updated_at", 0.0) or now),
+        diagnostics={
+            "terminal_reason": terminal_reason,
+            "terminal_status": status,
+            "latest_runtime_control_signal_kind": str(latest_signal.get("signal_kind") or ""),
+            "latest_step_status": str(diagnostics.get("latest_step_status") or ""),
+            "has_agent_contract_feedback": bool(feedback),
+        },
+    )
+
+
+def _interrupted_turn_kind(*, terminal_reason: str, status: str, diagnostics: dict[str, Any]) -> str:
+    reason = str(terminal_reason or "").strip()
+    latest_signal = dict(diagnostics.get("latest_runtime_control_signal") or {})
+    signal_kind = str(latest_signal.get("signal_kind") or "").strip()
+    if reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
+        if reason == "single_turn_tool_iteration_limit":
+            return "tool_budget_exhausted"
+        if reason == "single_turn_consecutive_tool_failures":
+            return "consecutive_tool_failures"
+        if reason == "agent_contract_feedback_required":
+            return "agent_contract_feedback_required"
+        return "interrupted_turn_runtime_boundary"
+    if signal_kind in _RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS:
+        return signal_kind
+    if dict(diagnostics.get("latest_agent_contract_feedback") or {}):
+        return "agent_contract_feedback_required"
+    if str(status or "").strip() in {"failed", "aborted"} and reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
+        return "interrupted_turn_runtime_boundary"
+    return ""
+
+
+def _interrupted_turn_next_step(interruption_kind: str) -> str:
+    if interruption_kind == "tool_budget_exhausted":
+        return "继续上一轮普通对话工作；优先复用当前 packet 中未过期的 exact read evidence，再完成上轮未收口的验证或回复。"
+    if interruption_kind == "agent_contract_feedback_required":
+        return "继续上一轮普通对话工作；根据合同反馈产出合法 action，不要让系统代写用户正文。"
+    return "继续上一轮普通对话工作；把该记录当作同一 session 的只读上下文，必要时再读取缺失或过期证据。"
+
+
+def _interrupted_turn_model_visible_summary(
+    *,
+    latest_progress: str,
+    latest_step: str,
+    interruption_kind: str,
+    terminal_reason: str,
+    status: str,
+) -> str:
+    parts = ["上下文：上一轮普通对话 turn 在运行边界中断，属于同一会话的可延续工作上下文。"]
+    if latest_progress:
+        parts.append(f"已确认进度：{latest_progress}")
+    if latest_step:
+        parts.append(f"最近步骤：{latest_step}")
+    if interruption_kind:
+        parts.append(f"中断类型：{interruption_kind}")
+    if terminal_reason:
+        parts.append(f"结束原因：{terminal_reason}")
+    if status:
+        parts.append(f"当前状态：{status}")
+    parts.append("证据规则：优先复用本次 packet 可见的 exact read evidence；只有证据缺失、stale 或文件已变更时才重新读取。")
+    return "\n".join(parts)
+
+
+def _selection_reason(
+    *,
+    task_record: ContinuationRecord | None,
+    interrupted_turn: InterruptedTurnContinuationRecord | None,
+) -> str:
+    if task_record is not None and interrupted_turn is not None:
+        return "latest_session_task_run_and_interrupted_turn_selected"
+    if task_record is not None:
+        return "latest_session_task_run_selected"
+    return "latest_interrupted_single_agent_turn_selected"
 
 
 def _load_contract(runtime_host: Any, ref: str) -> dict[str, Any]:

@@ -49,6 +49,9 @@ export type BodySegment = {
   firstOffset: number;
   lastOffset: number;
   state: "streaming" | "finalized" | "committed" | string;
+  sourceEventType: string;
+  retention: string;
+  mainVisibility: string;
   sourceKeys: string[];
 };
 
@@ -138,6 +141,9 @@ export type BodyProjectionBlock = {
   firstOffset: number;
   lastOffset: number;
   state: string;
+  sourceEventType?: string;
+  retention?: string;
+  mainVisibility?: string;
 };
 
 export type ToolProjectionBlock = {
@@ -186,6 +192,7 @@ export type LogProjectionBlock = {
 };
 
 export type ActivityArchiveChildBlock =
+  | BodyProjectionBlock
   | ToolProjectionBlock
   | TodoPlanProjectionBlock
   | StatusProjectionBlock;

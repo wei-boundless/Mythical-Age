@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { StatusLine, toolRoundStatusLabel } from "./AssistantTrace";
 import { TodoPlan } from "./TodoPlan";
@@ -27,7 +29,7 @@ export type ActivityEntry = {
   consoleLabel?: string;
   detail?: string;
   id: string;
-  kind: "activity_archive" | "status_line" | "todo_plan" | "tool_window";
+  kind: "activity_archive" | "body_note" | "status_line" | "todo_plan" | "tool_window";
   outputText?: string;
   sections: Array<{ label: string; text: string }>;
   statusKind?: string;
@@ -41,6 +43,7 @@ export type ActivityEntry = {
   toolRoundKey?: string;
   archivedEntries?: ActivityEntry[];
   archiveCount?: number;
+  bodyText?: string;
 };
 
 export type ActivityRenderUnit =
@@ -84,7 +87,7 @@ export function publicTimelineHasDisplayableActivity(
 
 function publicTimelineActivityView(blocks: ProjectionRenderBlock[] | null | undefined) {
   const entries = (blocks ?? [])
-    .map(activityEntryFromBlock)
+    .map((block, index) => activityEntryFromBlock(block, index, { allowBody: false }))
     .filter((entry): entry is ActivityEntry => Boolean(entry));
   return {
     entries,
@@ -138,6 +141,9 @@ function renderActivityRow(row: ActivityRenderUnit): React.ReactNode {
   if (entry.kind === "activity_archive") {
     return <ActivityArchive entry={entry} key={entry.id} />;
   }
+  if (entry.kind === "body_note") {
+    return <BodyNote entry={entry} key={entry.id} />;
+  }
   if (entry.kind === "tool_window") {
     return <ToolWindow entry={entry} key={entry.id} />;
   }
@@ -187,6 +193,26 @@ function ActivityArchive({ entry }: { entry: ActivityEntry }) {
         {rows.map((row) => renderActivityRow(row))}
       </div>
     </details>
+  );
+}
+
+function BodyNote({ entry }: { entry: ActivityEntry }) {
+  const statusTone = entry.statusTone ?? "done";
+  const bodyText = entry.bodyText || entry.text;
+  return (
+    <div
+      className={`public-run-activity__body-note public-run-activity__body-note--${statusTone}`}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.kind}
+      data-status-tone={statusTone}
+    >
+      <div className="public-run-activity__body-note-label">{entry.statusLabel || "正文记录"}</div>
+      <div className="public-run-activity__body markdown">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {bodyText}
+        </ReactMarkdown>
+      </div>
+    </div>
   );
 }
 
@@ -245,8 +271,15 @@ function toolPreviewPart(entry: ActivityEntry) {
   return { action: "", target: text };
 }
 
-function activityEntryFromBlock(block: ProjectionRenderBlock, index: number): ActivityEntry | null {
-  if (block.kind === "body_segment" || block.kind === "log_entry") {
+function activityEntryFromBlock(
+  block: ProjectionRenderBlock,
+  index: number,
+  options: { allowBody: boolean },
+): ActivityEntry | null {
+  if (block.kind === "body_segment") {
+    return options.allowBody ? bodyEntryFromBlock(block, index) : null;
+  }
+  if (block.kind === "log_entry") {
     return null;
   }
   if (block.kind === "activity_archive") {
@@ -266,7 +299,7 @@ function activityEntryFromBlock(block: ProjectionRenderBlock, index: number): Ac
 
 function archiveEntryFromBlock(block: ActivityArchiveProjectionBlock, index: number): ActivityEntry | null {
   const entries = (block.blocks ?? [])
-    .map((item, childIndex) => activityEntryFromBlock(item, childIndex))
+    .map((item, childIndex) => activityEntryFromBlock(item, childIndex, { allowBody: true }))
     .filter((entry): entry is ActivityEntry => Boolean(entry));
   if (!entries.length) {
     return null;
@@ -284,6 +317,22 @@ function archiveEntryFromBlock(block: ActivityArchiveProjectionBlock, index: num
     statusLabel: toolRoundStatusLabel(statusTone),
     statusTone,
     text: firstText(block.title) || "本轮记录",
+  };
+}
+
+function bodyEntryFromBlock(block: Extract<ProjectionRenderBlock, { kind: "body_segment" }>, index: number): ActivityEntry | null {
+  const bodyText = displayText(block.text);
+  if (!bodyText) return null;
+  const stableId = cleanText(block.id) || `body:${index}`;
+  return {
+    bodyText,
+    id: `body-note:${stableId}`,
+    kind: "body_note",
+    sections: [],
+    state: cleanText(block.state).toLowerCase() || "done",
+    statusLabel: "正文记录",
+    statusTone: "done",
+    text: bodyText,
   };
 }
 

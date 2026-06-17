@@ -203,8 +203,7 @@ function frameCreatesVisibleMessage(frame: PublicProjectionFrame) {
   if (!frameIsMainVisible(frame)) return false;
   return (frame.slot === "body" && Boolean(text(frame.text)))
     || frameIsToolProjection(frame)
-    || frameIsTodoPlanProjection(frame)
-    || frameIsTypedStatusProjection(frame);
+    || frameIsTodoPlanProjection(frame);
 }
 
 function frameIsMainVisible(frame: PublicProjectionFrame) {

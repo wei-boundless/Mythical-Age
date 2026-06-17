@@ -27,13 +27,13 @@ function projectionView(patch: Partial<ChronologicalProjectionView> = {}): Chron
   };
 }
 
-function bodyBlock(): BodyBlock {
+function bodyBlock(text = "已经完成的正文。", firstOffset = 10): BodyBlock {
   return {
     kind: "body_segment",
-    id: "body:1",
-    text: "已经完成的正文。",
-    firstOffset: 10,
-    lastOffset: 10,
+    id: `body:${firstOffset}`,
+    text,
+    firstOffset,
+    lastOffset: firstOffset,
     state: "committed",
   };
 }
@@ -123,23 +123,27 @@ function renderChatMessage(options: {
 
 describe("ChatMessage", () => {
   it("renders completed projection messages with prior activity folded before the closeout body", () => {
+    const progressBody = bodyBlock("收口前的过程正文。", 8);
     const html = renderChatMessage({
       streamingContent: false,
       projectionView: projectionView({
         blocks: [
-          bodyBlock(),
-          activityArchiveBlock(),
+          activityArchiveBlock([progressBody, toolBlock()]),
+          bodyBlock("已经完成的正文。", 10),
         ],
       }),
     });
 
     expect(html).toContain("已经完成的正文。");
+    expect(html).toContain("收口前的过程正文。");
     expect(html).toContain("aria-label=\"本轮记录\"");
     expect(html).toContain("public-run-activity__archive");
+    expect(html).toContain("public-run-activity__body-note");
     expect(html).toContain("本轮记录");
     expect(html).toContain("读取文件 ChatMessage.tsx");
     expect(html).toContain("public-run-activity__tool-window");
     expect(html.indexOf("public-run-activity__archive")).toBeLessThan(html.indexOf("已经完成的正文。"));
+    expect(html.indexOf("收口前的过程正文。")).toBeLessThan(html.indexOf("已经完成的正文。"));
   });
 
   it("renders projection timeline only for the active streaming task message", () => {
@@ -241,6 +245,33 @@ describe("ChatMessage", () => {
     expect(html).toContain("需处理");
     expect(html).toContain("aria-label=\"运行状态\"");
     expect(html).toContain("public-run-activity__line--status");
+  });
+
+  it("does not render a status-only recovery projection as assistant prose", () => {
+    const html = renderChatMessage({
+      streamingContent: false,
+      content: "",
+      projectionView: projectionView({
+        displayMode: "recovery",
+        blocks: [{
+          kind: "recovery_event",
+          id: "recovery:only",
+          title: "需要处理",
+          detail: "处理失败",
+          state: "failed",
+          offset: 18,
+          sourceEventType: "turn_completed",
+          sourceEventId: "event:terminal",
+        }],
+        canonicalContent: "",
+        copyText: "",
+        bodyState: "finalized",
+        toolEventCount: 0,
+        traceAvailable: true,
+      }),
+    });
+
+    expect(html).toBe("");
   });
 
   it("shows the thinking placeholder only from the active live stream", () => {

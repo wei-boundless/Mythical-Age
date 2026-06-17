@@ -899,6 +899,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__line,
+.agent-workbench .public-run-activity__body-note,
 .agent-workbench .public-run-activity__todo-block,
 .agent-workbench .public-run-activity__archive,
 .agent-workbench .public-run-activity__tool-round,
@@ -1233,8 +1234,32 @@ body {
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round,
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window,
 .agent-workbench .public-run-activity__archive-body .public-run-activity__todo-block,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__body-note,
 .agent-workbench .public-run-activity__archive-body .public-run-activity__line {
   width: min(100%, 760px);
+}
+
+.agent-workbench .public-run-activity__body-note {
+  display: grid;
+  gap: 5px;
+  padding: 5px 0 6px;
+  color: #39475c;
+}
+
+.agent-workbench .public-run-activity__body-note-label {
+  color: #6a7788;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.agent-workbench .public-run-activity__body-note .public-run-activity__body {
+  max-width: 88ch;
+  color: #425168;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
 }
 
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round summary,

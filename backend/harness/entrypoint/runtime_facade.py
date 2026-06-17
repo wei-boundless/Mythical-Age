@@ -500,8 +500,11 @@ class HarnessRuntimeFacade:
                     active_work_present=active_work_context is not None,
                 )
                 continuation_record = continuation_selection.record
-                if continuation_record is not None:
+                interrupted_turn_record = continuation_selection.interrupted_turn
+                if continuation_record is not None or interrupted_turn_record is not None:
                     session_context["continuation_selection"] = continuation_selection.to_dict()
+                if interrupted_turn_record is not None:
+                    session_context["interrupted_turn_work"] = interrupted_turn_record.to_dict()
                 recent_work_outcome: dict[str, Any] = {}
                 recoverable_work_candidate: dict[str, Any] = {}
                 if continuation_record is not None and continuation_record.state != "terminal_read_only":

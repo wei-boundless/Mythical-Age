@@ -590,6 +590,11 @@ class RuntimeCompiler:
         )
         if recoverable_work_payload:
             dynamic_payload["recoverable_work"] = recoverable_work_payload
+        interrupted_turn_payload = _interrupted_turn_work_model_visible_payload(
+            session_context_payload.get("interrupted_turn_work")
+        )
+        if interrupted_turn_payload:
+            dynamic_payload["interrupted_turn_work"] = interrupted_turn_payload
         recovery_boundary_receipt_payload = _recovery_boundary_receipt_model_visible_payload(
             session_context_payload.get("recovery_boundary_receipt")
         )
@@ -806,6 +811,7 @@ class RuntimeCompiler:
             "recent_work_outcome",
             "current_work_boundary_receipt",
             "recoverable_work",
+            "interrupted_turn_work",
             "recovery_boundary_receipt",
             "runtime_observations",
             "file_evidence_scope",
@@ -2692,6 +2698,45 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
             "read_only_context": True,
             "boundary_code": "recoverable_task_record_observation_only",
             "authority": "harness.runtime.continuation_record_projection",
+        }
+    )
+
+
+def _interrupted_turn_work_model_visible_payload(record: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(record or {})
+    if not payload:
+        return {}
+    if str(payload.get("authority") or "") != "harness.continuation.interrupted_turn_record":
+        return {}
+    if str(payload.get("state") or "") != "interrupted_read_only":
+        return {}
+    return _drop_empty_payload(
+        {
+            "continuation_id": str(payload.get("continuation_id") or ""),
+            "turn_run_id": str(payload.get("turn_run_id") or ""),
+            "turn_id": str(payload.get("turn_id") or ""),
+            "state": "interrupted_read_only",
+            "resume_allowed": False,
+            "resume_strategy": str(payload.get("resume_strategy") or "read_only_next_turn_continuation"),
+            "interruption_kind": str(payload.get("interruption_kind") or ""),
+            "terminal_status": str(payload.get("terminal_status") or ""),
+            "terminal_reason": str(payload.get("terminal_reason") or ""),
+            "latest_progress": str(payload.get("latest_progress") or ""),
+            "latest_step": str(payload.get("latest_step") or ""),
+            "next_recommended_step": str(payload.get("next_recommended_step") or ""),
+            "model_visible_summary": str(payload.get("model_visible_summary") or ""),
+            "evidence_continuity": {
+                "current_packet_exact_evidence_ref": "Task current exact read evidence",
+                "reuse_rule": (
+                    "Treat current packet read_evidence_injection entries as inherited same-session evidence. "
+                    "Reuse visible exact evidence when it is present and not stale; re-read only when missing, stale, changed, or too coarse for the requested judgment."
+                ),
+            },
+            "allowed_followup_posture": "ordinary_turn_decision_context_only",
+            "forbidden_action": "resume_recoverable_work",
+            "read_only_context": True,
+            "boundary_code": "interrupted_single_agent_turn_observation_only",
+            "authority": "harness.runtime.interrupted_turn_work_projection",
         }
     )
 

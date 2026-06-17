@@ -176,6 +176,53 @@ describe("chronological projection frame reducer contract", () => {
     expect(transition.state.sessionActivity).toBe(activityBeforeTool);
   });
 
+  it("preserves request command details after a trace-only tool completion frame", () => {
+    let transition = startBoundProjectionTurn();
+
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      event_offset: 10,
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "call:read-flow-edges",
+      tool_call_id: "call:read-flow-edges",
+      tool_lifecycle_id: "call:read-flow-edges",
+      tool_name: "read_file",
+      title: "读取文件：backend/harness/graph/flow_edges.py",
+      target: "backend/harness/graph/flow_edges.py",
+      arguments_preview: "path=backend/harness/graph/flow_edges.py, line_count=80",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      event_offset: 20,
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "call:read-flow-edges",
+      tool_call_id: "call:read-flow-edges",
+      tool_lifecycle_id: "toolinv:read-flow-edges",
+      tool_name: "read_file",
+      state: "done",
+    });
+
+    const tool = latestProjection(transition.state)?.blocks.find((block) => block.kind === "tool_event");
+    expect(tool).toMatchObject({
+      kind: "tool_event",
+      target: "backend/harness/graph/flow_edges.py",
+      commandLine: "read_file backend/harness/graph/flow_edges.py path=backend/harness/graph/flow_edges.py, line_count=80",
+      output: "读取文件完成：backend/harness/graph/flow_edges.py",
+      state: "done",
+    });
+    expect(tool?.commandLine).not.toBe("read_file");
+    expect(tool?.output).not.toBe("系统调用已完成。");
+  });
+
   it("keeps body and tool activity as ordered render blocks", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
@@ -604,15 +651,17 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.canonicalContent).not.toContain("旧时序内容");
   });
 
-  it("uses commit_ack as the commit authority and folds prior activity into an archive", () => {
+  it("uses commit_ack as the commit authority and folds pre-closeout content into an archive", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
-      op: "body_finalize",
+      source_event_type: "runtime_step_summary",
+      op: "body_append",
       slot: "body",
       source_authority: "model",
-      main_visibility: "visible_final",
-      retention: "final",
-      text: "最终正文。",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "model-action-feedback-body:before-closeout",
+      text: "收口前的过程正文。",
     });
     transition = project(transition, {
       op: "item_upsert",
@@ -624,6 +673,14 @@ describe("chronological projection frame reducer contract", () => {
       tool_call_id: "call:verify",
       title: "运行验证",
       state: "running",
+    });
+    transition = project(transition, {
+      op: "body_finalize",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_final",
+      retention: "final",
+      text: "最终正文。",
     });
     transition = project(transition, {
       source_event_type: "commit_ack",
@@ -647,14 +704,15 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.displayMode).toBe("committed");
     expect(view?.blocks.some((block) => block.kind === "tool_event")).toBe(false);
     expect(view?.blocks).toEqual([
-      expect.objectContaining({ kind: "body_segment", text: "最终正文。" }),
       expect.objectContaining({
         kind: "activity_archive",
         title: "本轮记录",
         blocks: [
+          expect.objectContaining({ kind: "body_segment", text: "收口前的过程正文。" }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:verify" }),
         ],
       }),
+      expect.objectContaining({ kind: "body_segment", text: "最终正文。" }),
       expect.objectContaining({ kind: "log_entry" }),
     ]);
     expect(view?.blocks.some((block) => block.kind === "log_entry")).toBe(true);
@@ -681,6 +739,36 @@ describe("chronological projection frame reducer contract", () => {
         item_id: "status:history-noise",
         title: "history noise",
         state: "running",
+      }),
+    ], { createMessages: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("user");
+  });
+
+  it("does not hydrate empty assistant messages from typed recovery projection history", () => {
+    const messages = applyProjectionFramesToMessages([
+      {
+        id: "user:projection:history",
+        role: "user",
+        content: "inspect projection",
+        toolCalls: [],
+        retrievals: [],
+        sourceTurnId: "turn:projection:1",
+      },
+    ], [
+      projectionFrame({
+        source_event_type: "turn_completed",
+        op: "item_upsert",
+        slot: "status",
+        source_authority: "runtime",
+        main_visibility: "visible_live",
+        retention: "final",
+        item_id: "status:recovery-only",
+        status_kind: "recovery_event",
+        title: "需要处理",
+        detail: "处理失败",
+        state: "failed",
       }),
     ], { createMessages: true });
 

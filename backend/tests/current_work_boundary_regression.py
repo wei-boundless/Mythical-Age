@@ -250,3 +250,69 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
     assert projected["task_run_id"] == "taskrun:recoverable"
     assert projected["read_only_context"] is True
     assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+
+
+def test_compiler_exposes_interrupted_turn_work_as_volatile_read_only_context() -> None:
+    interrupted_turn_work = {
+        "continuation_id": "turncont:interrupted:21:0",
+        "session_id": "session:interrupted-turn",
+        "turn_run_id": "turnrun:interrupted",
+        "turn_id": "turn:interrupted",
+        "state": "interrupted_read_only",
+        "resume_allowed": False,
+        "resume_strategy": "read_only_next_turn_continuation",
+        "interruption_kind": "tool_budget_exhausted",
+        "terminal_status": "blocked",
+        "terminal_reason": "single_turn_tool_iteration_limit",
+        "latest_progress": "已读取目标文件，尚未完成最终判断。",
+        "next_recommended_step": "继续上一轮普通对话工作；优先复用 exact read evidence。",
+        "model_visible_summary": "上一轮普通 turn 在工具预算边界中断。",
+        "authority": "harness.continuation.interrupted_turn_record",
+    }
+    runtime_assembly = {
+        "profile": {"mode": "conversation"},
+        "task_environment": {"environment_id": "env.general.workspace"},
+        "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
+    }
+
+    baseline = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:interrupted-turn",
+        turn_id="turn:interrupted-followup",
+        agent_invocation_id="aginvoke:interrupted-followup",
+        user_message="继续。",
+        history=[],
+        runtime_assembly=runtime_assembly,
+    )
+    result = RuntimeCompiler().compile_single_agent_turn_packet(
+        session_id="session:interrupted-turn",
+        turn_id="turn:interrupted-followup",
+        agent_invocation_id="aginvoke:interrupted-followup",
+        user_message="继续。",
+        history=[],
+        session_context={"interrupted_turn_work": interrupted_turn_work},
+        runtime_assembly=runtime_assembly,
+    )
+
+    assert "resume_recoverable_work" not in result.packet.allowed_action_types
+    assert "active_work_control" not in result.packet.allowed_action_types
+    dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
+    projected = dict(dynamic_payload["interrupted_turn_work"])
+    assert projected["turn_run_id"] == "turnrun:interrupted"
+    assert projected["read_only_context"] is True
+    assert projected["forbidden_action"] == "resume_recoverable_work"
+    assert "interrupted_turn_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+
+    def stable_fingerprint(packet) -> list[tuple[str, str, str]]:
+        return [
+            (str(segment.get("kind") or ""), str(segment.get("cache_role") or ""), str(segment.get("content_hash") or ""))
+            for segment in list(packet.segment_plan.get("segments") or [])
+            if str(segment.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}
+        ]
+
+    assert stable_fingerprint(result.packet) == stable_fingerprint(baseline.packet)
+    dynamic_segment = next(
+        segment
+        for segment in list(result.packet.segment_plan.get("segments") or [])
+        if str(segment.get("kind") or "") == "dynamic_projection"
+    )
+    assert dynamic_segment["cache_role"] == "volatile"

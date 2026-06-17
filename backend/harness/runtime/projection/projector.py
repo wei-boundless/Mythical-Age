@@ -271,6 +271,8 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_status":
         return _hidden_trace_spec(event_type, data)
+    if event_type == "agent_contract_feedback_required":
+        return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_spec(data)
     if event_type == "active_task_steer_accepted":
@@ -869,10 +871,14 @@ def _is_agent_closeout_recovery_terminal(data: dict[str, Any]) -> bool:
     completion_state = text(data.get("completion_state"))
     terminal_reason = text(data.get("terminal_reason"))
     signal = record(data.get("runtime_control_signal"))
+    contract_feedback = record(data.get("agent_contract_feedback"))
     return (
         completion_state == "agent_closeout_recovery_required"
+        or completion_state == "agent_contract_feedback_required"
         or terminal_reason == "agent_closeout_recovery_required"
+        or terminal_reason == "agent_contract_feedback_required"
         or text(signal.get("signal_kind")) == "agent_closeout_recovery_required"
+        or text(contract_feedback.get("signal_kind")) == "agent_contract_feedback_required"
     )
 
 
