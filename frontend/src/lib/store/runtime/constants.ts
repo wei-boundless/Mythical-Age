@@ -27,4 +27,4 @@ export const ACTIVE_TURN_STATES = new Set<ActiveTurnState | string>([
   "interrupting",
   "terminal",
 ]);
-export const VISIBLE_STREAM_BODY_FLUSH_DELAY_MS = 40;
+export const VISIBLE_STREAM_BODY_FLUSH_DELAY_MS = 16;

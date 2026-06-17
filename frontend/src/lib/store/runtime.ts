@@ -7,6 +7,7 @@ import {
   createSession,
   deleteSession,
   deriveSessionTitleFromSummary,
+  enqueueQueuedChatInput,
   getChatRun,
   getLatestChatRunForSession,
   getCodeEnvironmentWorkspaceTree,
@@ -54,7 +55,7 @@ import type { ChatAttachment, ChatRun, ChatStreamCursor, PublicProjectionFrame, 
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
-import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
+import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { projectionFrameFromRecord, rebuildProjectionViews } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
 import { allRunMonitorSignals } from "../run-monitor/reducer";
@@ -113,14 +114,6 @@ type ActiveChatStreamBinding = {
   turnId: string;
 };
 
-type QueuedUserInput = {
-  content: string;
-  messageId: string;
-  inputPolicy?: "auto" | "steer";
-  expectedActiveTurnId?: string;
-  taskRunId?: string;
-};
-
 type VisibleStreamStateOptions = {
   preserveTaskGraphLiveMonitor?: boolean;
   rebuildProjectionViews?: boolean;
@@ -161,10 +154,7 @@ export class WorkspaceRuntime {
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
-  private activeTaskSteerStreamSessionIds = new Set<string>();
   private pendingVisibleStreamFlushes = new Map<string, PendingVisibleStreamFlush>();
-  private queuedUserInputsBySession = new Map<string, QueuedUserInput[]>();
-  private flushingQueuedUserInputs = new Set<string>();
   private pendingProjectionCommitHydrates = new Map<string, string>();
   private hydratedProjectionCommitKeys = new Set<string>();
   private summaryTitleRequests = new Set<string>();
@@ -1467,55 +1457,75 @@ export class WorkspaceRuntime {
     return uploaded;
   }
 
-  private activeTaskQueueTarget(state: StoreState, sessionId: string): Partial<QueuedUserInput> {
-    if (!this.shouldQueueActiveTurnInput(state, sessionId)) {
-      return {};
+  private async enqueueUserInputForSession(sessionId: string, content: string, messageId = makeId()) {
+    this.applyQueuedUserInputVisibleState(sessionId, content, messageId);
+    try {
+      const requestState = this.store.getState();
+      const response = await enqueueQueuedChatInput(sessionId, {
+        message: content,
+        client_message_id: messageId,
+        session_scope: this.sessionScopeForSession(sessionId),
+        environment_binding: this.chatEnvironmentBindingPayload(requestState),
+        model_selection: this.chatModelSelectionPayload(requestState),
+        permission_mode: this.permissionModeForSession(sessionId, requestState),
+        editor_context: this.chatEditorContextPayload(requestState, sessionId),
+      });
+      const streamRunId = String(response.item?.dispatch_stream_run_id ?? "").trim();
+      if (streamRunId && !this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+        const run = await getChatRun(streamRunId).catch(() => null);
+        const eventLogId = String(run?.event_log_id ?? "").trim();
+        this.startRecoveredChatRunStream(
+          sessionId,
+          streamRunId,
+          {
+            streamRunId,
+            eventLogId,
+            lastEventOffset: -1,
+            lastEventId: "",
+          },
+          run,
+        );
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: prev.currentSessionId === sessionId
+          ? {
+              level: "error",
+              title: "队列提交失败",
+              detail: this.errorMessage(error, "无法把输入加入后端队列，请确认后端服务仍在 127.0.0.1:8003。"),
+              event: "user_input_queue_failed",
+              receipt: {
+                level: "error",
+                title: "队列提交失败",
+                body: this.errorMessage(error, "无法把输入加入后端队列，请确认后端服务仍在 127.0.0.1:8003。"),
+                debug: { event: "user_input_queue_failed" },
+              },
+              updatedAt: Date.now(),
+            }
+          : prev.sessionActivity,
+      }));
+      throw error;
     }
-    const monitorInfo = this.singleAgentTaskMonitorInfo(state.taskGraphLiveMonitor);
-    const taskRunId = String(state.activeTurnSnapshot?.task_run_id ?? monitorInfo?.taskRunId ?? "").trim();
-    const expectedActiveTurnId = this.expectedActiveTurnIdForSession(state, sessionId, taskRunId);
-    return {
-      inputPolicy: "steer",
-      expectedActiveTurnId,
-      taskRunId,
-    };
   }
 
-  private queuedUserInputForSession(
-    sessionId: string,
-    content: string,
-    messageId: string,
-    target: Partial<QueuedUserInput> = this.activeTaskQueueTarget(this.store.getState(), sessionId),
-  ): QueuedUserInput {
-    return {
-      content,
-      messageId,
-      inputPolicy: target.inputPolicy,
-      expectedActiveTurnId: target.expectedActiveTurnId,
-      taskRunId: target.taskRunId,
-    };
-  }
-
-  private enqueueUserInputForSession(sessionId: string, content: string, target?: Partial<QueuedUserInput>) {
-    const messageId = makeId();
-    const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
-    this.queuedUserInputsBySession.set(sessionId, [
-      ...queued,
-      this.queuedUserInputForSession(sessionId, content, messageId, target),
-    ]);
+  private applyQueuedUserInputVisibleState(sessionId: string, content: string, messageId: string) {
     this.store.setState((prev) => {
       const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
+      const alreadyVisible = prev.messages.some((message) => message.id === messageId);
       const nextMessages = shouldPatchVisibleMessages
-        ? [
-            ...prev.messages,
-            {
-              id: messageId,
-              role: "user" as const,
-              content,
-              toolCalls: [],
-              retrievals: [],
-            },
-          ]
+        ? alreadyVisible
+          ? prev.messages.map((message) => message.id === messageId ? { ...message, content } : message)
+          : [
+              ...prev.messages,
+              {
+                id: messageId,
+                role: "user" as const,
+                content,
+                toolCalls: [],
+                retrievals: [],
+              },
+            ]
         : prev.messages;
       return {
         ...prev,
@@ -1553,215 +1563,6 @@ export class WorkspaceRuntime {
         },
       };
     });
-  }
-
-  private async flushQueuedUserInputsForSession(sessionId: string) {
-    if (this.flushingQueuedUserInputs.has(sessionId) || this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-      return;
-    }
-    const queue = this.queuedUserInputsBySession.get(sessionId) ?? [];
-    const next = queue.shift();
-    if (!next) {
-      this.queuedUserInputsBySession.delete(sessionId);
-      return;
-    }
-    if (queue.length) {
-      this.queuedUserInputsBySession.set(sessionId, queue);
-    } else {
-      this.queuedUserInputsBySession.delete(sessionId);
-    }
-    this.flushingQueuedUserInputs.add(sessionId);
-    try {
-      await this.sendMessage(next.content, {
-        queuedUserMessageId: next.messageId,
-        activeTurnInputPolicy: next.inputPolicy,
-        expectedActiveTurnId: next.expectedActiveTurnId,
-        taskRunId: next.taskRunId,
-      });
-    } finally {
-      this.flushingQueuedUserInputs.delete(sessionId);
-      if ((this.queuedUserInputsBySession.get(sessionId) ?? []).length) {
-        void this.flushQueuedUserInputsForSession(sessionId);
-      }
-    }
-  }
-
-  private async submitActiveTurnSteerDuringActiveStream(
-    sessionId: string,
-    content: string,
-    options: {
-      queuedUserMessageId?: string;
-      activeTurnInputPolicy?: "auto" | "steer";
-      expectedActiveTurnId?: string;
-      taskRunId?: string;
-    } = {},
-  ) {
-    const preflightState = this.store.getState();
-    if (!this.shouldQueueActiveTurnInput(preflightState, sessionId)) {
-      if (options.queuedUserMessageId) {
-        const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
-        this.queuedUserInputsBySession.set(sessionId, [
-          this.queuedUserInputForSession(sessionId, content, options.queuedUserMessageId, {
-            inputPolicy: options.activeTurnInputPolicy,
-            expectedActiveTurnId: options.expectedActiveTurnId,
-            taskRunId: options.taskRunId,
-          }),
-          ...queued,
-        ]);
-      } else {
-        this.enqueueUserInputForSession(sessionId, content);
-      }
-      return;
-    }
-
-    const expectedActiveTurnId = options.expectedActiveTurnId || this.expectedActiveTurnIdForSession(preflightState, sessionId, options.taskRunId);
-    const activeStreamSessionIds = this.store.getState().activeStreamSessionIds;
-    let transition = startQueuedActiveTurn(preflightState, content, { existingUserMessageId: options.queuedUserMessageId });
-    const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
-    transition = {
-      ...transition,
-      state: {
-        ...transition.state,
-        messages: transition.state.messages.map((message) =>
-          transition.session.userId && message.id === transition.session.userId
-            ? { ...message, sourceIndex: nextSourceIndex }
-            : transition.session.assistantId && message.id === transition.session.assistantId
-              ? { ...message, sourceIndex: nextSourceIndex + 1 }
-              : message
-        ),
-      },
-    };
-    let streamState: StoreState = {
-      ...transition.state,
-      activeStreamSessionIds,
-      isStreaming: activeStreamSessionIds.length > 0,
-    };
-    streamState = this.captureSessionActivity(streamState, sessionId);
-    this.streamingSessionCache.set(sessionId, {
-      messages: streamState.messages,
-      activeProjectionsByKey: streamState.activeProjectionsByKey,
-      orchestrationSnapshot: streamState.orchestrationSnapshot,
-      activeTurnSnapshot: streamState.activeTurnSnapshot,
-    });
-    if (this.store.getState().currentSessionId === sessionId) {
-      this.applyVisibleStreamState(streamState, activeStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
-    }
-    const streamEpoch = this.chatStreamEpochBySession.get(sessionId) ?? 0;
-
-    try {
-      const requestState = this.store.getState();
-      const permissionMode = this.permissionModeForSession(sessionId, requestState);
-      await streamChat(
-        {
-          message: content,
-          session_id: sessionId,
-          session_scope: this.sessionScopeForSession(sessionId),
-          environment_binding: this.chatEnvironmentBindingPayload(requestState),
-          model_selection: this.chatModelSelectionPayload(requestState),
-          permission_mode: permissionMode,
-          expected_active_turn_id: expectedActiveTurnId,
-          active_turn_input_policy: "steer",
-          editor_context: this.chatEditorContextPayload(requestState, sessionId),
-        },
-        {
-          onEvent: (event, data) => {
-            if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
-              return;
-            }
-            if (this.removedStreamingSessionIds.has(sessionId)) {
-              return;
-            }
-            if (this.stoppedStreamingSessionIds.has(sessionId)) {
-              return;
-            }
-            const eventBinding = this.eventChatStreamBinding(data);
-            this.updateActiveChatStreamBinding(sessionId, eventBinding);
-            const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
-            const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
-            const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
-              ? this.store.getState()
-              : streamState;
-            transition = reduceStreamEvent(baseState, transition.session, event, data, { deferProjectionViewBuild });
-            const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
-            streamState = {
-              ...transition.state,
-              currentSessionId: sessionId,
-              activeStreamSessionIds: currentActiveStreamSessionIds,
-              isStreaming: currentActiveStreamSessionIds.length > 0,
-            };
-            streamState = this.captureSessionActivity(streamState, sessionId);
-            if (currentActiveStreamSessionIds.includes(sessionId)) {
-              this.streamingSessionCache.set(sessionId, {
-                messages: streamState.messages,
-                activeProjectionsByKey: streamState.activeProjectionsByKey,
-                orchestrationSnapshot: streamState.orchestrationSnapshot,
-                activeTurnSnapshot: streamState.activeTurnSnapshot,
-              });
-            }
-            if (isCurrentStreamSession) {
-              this.presentVisibleStreamState(
-                sessionId,
-                streamState,
-                currentActiveStreamSessionIds,
-                event,
-                data,
-                { preserveTaskGraphLiveMonitor: true },
-              );
-            }
-            if (streamEventStopsActiveWork(event, data)) {
-              this.releaseStoppedChatStreamBoundary(sessionId, "active_work_stopped", {
-                taskRunId: eventBinding.taskRunId,
-                turnId: eventBinding.turnId,
-              });
-            }
-          },
-        },
-        { persistCursor: false },
-      );
-    } catch (error) {
-      const transitionAfterError = reduceStreamEvent(
-        this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
-        transition.session,
-        "error",
-        { error: error instanceof Error ? error.message : "unknown error" },
-      );
-      const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
-      streamState = {
-        ...transitionAfterError.state,
-        currentSessionId: sessionId,
-        activeStreamSessionIds: currentActiveStreamSessionIds,
-        isStreaming: currentActiveStreamSessionIds.length > 0,
-      };
-      streamState = this.captureSessionActivity(streamState, sessionId);
-      if (currentActiveStreamSessionIds.includes(sessionId)) {
-        this.streamingSessionCache.set(sessionId, {
-          messages: streamState.messages,
-          activeProjectionsByKey: streamState.activeProjectionsByKey,
-          orchestrationSnapshot: streamState.orchestrationSnapshot,
-          activeTurnSnapshot: streamState.activeTurnSnapshot,
-        });
-      }
-      if (this.store.getState().currentSessionId === sessionId) {
-        this.flushVisibleStreamStateNow(
-          sessionId,
-          streamState,
-          currentActiveStreamSessionIds,
-          { preserveTaskGraphLiveMonitor: true },
-        );
-      }
-    } finally {
-      if (this.store.getState().currentSessionId === sessionId) {
-        this.flushVisibleStreamStateNow(
-          sessionId,
-          streamState,
-          this.store.getState().activeStreamSessionIds,
-          { preserveTaskGraphLiveMonitor: true },
-        );
-      }
-      if (!this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-        this.streamingSessionCache.delete(sessionId);
-      }
-    }
   }
 
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
@@ -1994,13 +1795,10 @@ export class WorkspaceRuntime {
       });
     };
     if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      pending.timer = window.setTimeout(() => {
-        pending.timer = null;
-        pending.frame = window.requestAnimationFrame(() => {
-          pending.frame = null;
-          flush();
-        });
-      }, VISIBLE_STREAM_BODY_FLUSH_DELAY_MS);
+      pending.frame = window.requestAnimationFrame(() => {
+        pending.frame = null;
+        flush();
+      });
       return;
     }
     pending.timer = setTimeout(() => {
@@ -3139,7 +2937,7 @@ export class WorkspaceRuntime {
         }
         this.refreshMainSessionPoolInBackground();
         this.scheduleSessionRefreshes();
-        void this.flushQueuedUserInputsForSession(sessionId);
+        void this.reattachChatRunForSession(sessionId);
       }
     })();
   }
@@ -3149,9 +2947,6 @@ export class WorkspaceRuntime {
     options: {
       queuedUserMessageId?: string;
       files?: File[];
-      activeTurnInputPolicy?: "auto" | "steer";
-      expectedActiveTurnId?: string;
-      taskRunId?: string;
     } = {},
   ) {
     const files = (options.files ?? []).filter(Boolean);
@@ -3235,36 +3030,11 @@ export class WorkspaceRuntime {
         throw error;
       }
     }
-    if (activeStreamState.activeStreamSessionIds.includes(sessionId)) {
-      if (this.activeTaskSteerStreamSessionIds.has(sessionId)) {
-        if (options.queuedUserMessageId) {
-          const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
-          this.queuedUserInputsBySession.set(sessionId, [
-            this.queuedUserInputForSession(sessionId, trimmed, options.queuedUserMessageId),
-            ...queued,
-          ]);
-          return;
-        }
-        this.enqueueUserInputForSession(sessionId, trimmed);
-        return;
-      }
-      if (this.shouldQueueActiveTurnInput(activeStreamState, sessionId)) {
-        await this.submitActiveTurnSteerDuringActiveStream(sessionId, trimmed, options);
-        return;
-      }
-      if (options.queuedUserMessageId) {
-        const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
-        this.queuedUserInputsBySession.set(sessionId, [
-          this.queuedUserInputForSession(sessionId, trimmed, options.queuedUserMessageId, {
-            inputPolicy: options.activeTurnInputPolicy,
-            expectedActiveTurnId: options.expectedActiveTurnId,
-            taskRunId: options.taskRunId,
-          }),
-          ...queued,
-        ]);
-        return;
-      }
-      this.enqueueUserInputForSession(sessionId, trimmed);
+    if (
+      activeStreamState.activeStreamSessionIds.includes(sessionId)
+      || this.shouldQueueActiveTurnInput(activeStreamState, sessionId)
+    ) {
+      await this.enqueueUserInputForSession(sessionId, trimmed, options.queuedUserMessageId);
       return;
     }
     const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromSummary(sessionId);
@@ -3278,32 +3048,15 @@ export class WorkspaceRuntime {
     let streamEndedWithError = false;
     let completedStreamRunId = "";
     const preflightState = this.store.getState();
-    const activeTurnSnapshotForTransition = preflightState.currentSessionId === sessionId
-      ? preflightState.activeTurnSnapshot
-      : null;
-    const forcedSteerInput = options.activeTurnInputPolicy === "steer";
-    const queueActiveTurnInput = forcedSteerInput || this.shouldQueueActiveTurnInput(preflightState, sessionId);
-    const activeTurnInputPolicy = forcedSteerInput ? "steer" : this.activeTurnInputPolicyForSession(preflightState, sessionId);
-    const expectedActiveTurnIdForRequest = activeTurnInputPolicy === "steer"
-      ? options.expectedActiveTurnId || this.expectedActiveTurnIdForSession(preflightState, sessionId, options.taskRunId)
-      : "";
-    if (forcedSteerInput) {
-      this.updateActiveChatStreamBinding(sessionId, {
-        taskRunId: options.taskRunId || "",
-        turnId: expectedActiveTurnIdForRequest,
-      });
-    }
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      taskGraphLiveMonitor: queueActiveTurnInput ? prev.taskGraphLiveMonitor : null,
+      taskGraphLiveMonitor: null,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
     }));
-    let transition = queueActiveTurnInput
-      ? startQueuedActiveTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments })
-      : startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments });
+    let transition = startStreamingTurn(this.store.getState(), trimmed, { existingUserMessageId: options.queuedUserMessageId, attachments });
     const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
     transition = {
       ...transition,
@@ -3338,12 +3091,7 @@ export class WorkspaceRuntime {
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
     this.addActiveStreamSession(sessionId);
-    if (queueActiveTurnInput) {
-      this.activeTaskSteerStreamSessionIds.add(sessionId);
-    }
-    if (!queueActiveTurnInput) {
-      this.deferMonitorPollingForActiveStream();
-    }
+    this.deferMonitorPollingForActiveStream();
     if (isImageGenerationTurn) {
       this.store.setState((prev) => ({
         ...prev,
@@ -3356,12 +3104,6 @@ export class WorkspaceRuntime {
 
     try {
       const requestState = this.store.getState();
-      const activeTurnForRequest = activeTurnSnapshotForTransition ?? (
-        requestState.currentSessionId === sessionId ? requestState.activeTurnSnapshot : null
-      );
-      const expectedActiveTurnId = activeTurnInputPolicy === "steer"
-        ? expectedActiveTurnIdForRequest
-        : String(activeTurnForRequest?.turn_id ?? "");
       const permissionMode = this.permissionModeForSession(sessionId, requestState);
       const streamResult = await streamChat(
         {
@@ -3371,8 +3113,8 @@ export class WorkspaceRuntime {
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
-          expected_active_turn_id: expectedActiveTurnId,
-          active_turn_input_policy: activeTurnInputPolicy,
+          expected_active_turn_id: "",
+          active_turn_input_policy: "auto",
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
           attachments,
           image_generation: imageGeneration
@@ -3483,7 +3225,6 @@ export class WorkspaceRuntime {
       }
       this.flushVisibleStreamStateNow(sessionId, streamState, this.store.getState().activeStreamSessionIds);
       this.streamAbortControllers.delete(sessionId);
-      this.activeTaskSteerStreamSessionIds.delete(sessionId);
       const currentBinding = this.activeChatStreamBindings.get(sessionId);
       if (!currentBinding || !completedStreamRunId || currentBinding.streamRunId === completedStreamRunId) {
         this.activeChatStreamBindings.delete(sessionId);
@@ -3529,7 +3270,7 @@ export class WorkspaceRuntime {
       }
       this.refreshMainSessionPoolInBackground();
       this.scheduleSessionRefreshes();
-      void this.flushQueuedUserInputsForSession(sessionId);
+      void this.reattachChatRunForSession(sessionId);
     }
   }
 
@@ -3560,7 +3301,6 @@ export class WorkspaceRuntime {
       this.streamAbortControllers.delete(normalizedSessionId);
     }
     this.streamingSessionCache.delete(normalizedSessionId);
-    this.activeTaskSteerStreamSessionIds.delete(normalizedSessionId);
     const streamBinding = this.activeChatStreamBindings.get(normalizedSessionId);
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
@@ -3577,7 +3317,6 @@ export class WorkspaceRuntime {
         updatedAt: Date.now(),
       },
     }));
-    void this.flushQueuedUserInputsForSession(normalizedSessionId);
     return true;
   }
 
@@ -3858,10 +3597,6 @@ export class WorkspaceRuntime {
     return !snapshotState || snapshotState === "starting" || this.activeSnapshotIsTaskBound(snapshot);
   }
 
-  private activeTurnInputPolicyForSession(state: StoreState, sessionId: string) {
-    return this.shouldQueueActiveTurnInput(state, sessionId) ? "steer" : "auto";
-  }
-
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
     if (state.currentSessionId !== sessionId) {
       return false;
@@ -3873,7 +3608,7 @@ export class WorkspaceRuntime {
     const snapshotIsTaskBound = this.activeSnapshotIsTaskBound(snapshot);
     const monitorInfo = this.singleAgentTaskMonitorInfo(monitor);
     if (!monitorInfo) {
-      return Boolean(activeTurnId && snapshotIsTaskBound);
+      return Boolean(activeTurnId && activeTaskRunId && snapshotIsTaskBound);
     }
     if (!activeTurnId && !this.activeSnapshotCanDeferToMonitor(snapshot)) {
       return false;
@@ -4066,11 +3801,11 @@ export class WorkspaceRuntime {
       enabled: true,
       mode: liveDisplayEnabled ? "model_text_stream" : "public_projection_stream",
       emit_assistant_text_delta: true,
-      max_flush_interval_ms: 40,
-      max_pending_utf8_bytes: 128,
+      max_flush_interval_ms: 24,
+      max_pending_utf8_bytes: 64,
       max_pending_line_count: 1,
-      min_event_interval_ms: 16,
-      event_budget_per_second: 30,
+      min_event_interval_ms: 8,
+      event_budget_per_second: 60,
       source: "frontend.chat_stream_display_toggle",
     };
   }

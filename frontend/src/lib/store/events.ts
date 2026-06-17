@@ -690,11 +690,16 @@ function patchActiveTaskTurnGate(
 ): StoreState {
   const turnId = stringValue(session.boundTurnId) || stringValue(data.active_turn_id) || stringValue(data.turn_id);
   const taskRunId = stringValue(session.boundTaskRunId) || stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id);
+  const currentTaskRunId = stringValue(state.activeTurnSnapshot?.task_run_id);
   if (!turnId && !taskRunId) {
     return state;
   }
   if (streamEventReleasesActiveTaskTurnGate(event, data)) {
     return releaseActiveTaskTurnGate(state, turnId, taskRunId);
+  }
+  const effectiveTaskRunId = taskRunId || currentTaskRunId;
+  if (!effectiveTaskRunId) {
+    return state;
   }
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
@@ -705,7 +710,7 @@ function patchActiveTaskTurnGate(
     ...state,
     activeTurnSnapshot: {
       turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
-      task_run_id: taskRunId || state.activeTurnSnapshot?.task_run_id,
+      task_run_id: effectiveTaskRunId,
       state: nextState as NonNullable<StoreState["activeTurnSnapshot"]>["state"],
       turn_run_id: stringValue(session.boundTurnRunId) || state.activeTurnSnapshot?.turn_run_id,
       updated_at: Date.now() / 1000,
@@ -1209,58 +1214,6 @@ export function startStreamingTurn(
     session: {
       assistantId: assistantMessage.id,
       userId,
-    }
-  };
-}
-
-export function startQueuedActiveTurn(
-  state: StoreState,
-  userContent: string,
-  options: { existingUserMessageId?: string; attachments?: ChatAttachment[] } = {},
-): StreamTransition {
-  const userId = options.existingUserMessageId || makeId();
-  const attachments = options.attachments ?? [];
-  const userMessage: Message = {
-    id: userId,
-    role: "user",
-    content: userContent.trim(),
-    attachments,
-    toolCalls: [],
-    retrievals: []
-  };
-  const assistantMessage: Message = {
-    id: makeId(),
-    role: "assistant",
-    content: "",
-    toolCalls: [],
-    retrievals: [],
-    runtimeProgress: [],
-    stageStatus: "",
-    answerChannel: "runtime_control",
-    answerCanonicalState: "progress_only",
-    answerPersistPolicy: "persist_debug_only",
-  };
-  const messages = options.existingUserMessageId
-    ? [
-        ...state.messages.map((message) =>
-          message.id === options.existingUserMessageId
-            ? { ...message, content: userContent.trim(), attachments }
-            : message
-        ),
-        assistantMessage,
-      ]
-    : [...state.messages, userMessage, assistantMessage];
-
-  return {
-    state: {
-      ...state,
-      messages,
-      sessionActivity: silentSessionActivity(Date.now()),
-    },
-    session: {
-      assistantId: assistantMessage.id,
-      userId,
-      queueOnly: true,
     }
   };
 }

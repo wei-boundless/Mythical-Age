@@ -24,6 +24,7 @@ from runtime.prompt_accounting import PromptAccountingLedger
 from runtime.observability import RuntimeObservabilityKernel
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
+from runtime.shared.queued_user_input_store import QueuedUserInputStore
 from runtime.shared.runtime_run_registry import RuntimeRun, RuntimeRunRegistry
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.stream_replay import RuntimeStreamReplayService
@@ -70,6 +71,7 @@ class SingleAgentRuntimeHost:
         self.session_manager = session_manager
         self.prompt_accounting_ledger = PromptAccountingLedger(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
+        self.queued_user_inputs = QueuedUserInputStore(self.root_dir)
         self.file_state_store = FileStateAuthorityStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)

@@ -420,6 +420,50 @@ export type ChatRunCreatePayload = {
   editor_context?: Record<string, unknown>;
 };
 
+export type QueuedChatInput = {
+  queue_item_id: string;
+  session_id: string;
+  client_message_id: string;
+  content: string;
+  input_policy: "auto" | "steer";
+  status: "queued" | "dispatching" | "dispatched" | "failed" | "canceled";
+  created_at: number;
+  updated_at: number;
+  attachments?: ChatAttachment[];
+  session_scope?: Record<string, unknown>;
+  environment_binding?: Record<string, unknown>;
+  runtime_contract?: Record<string, unknown>;
+  explicit_subtasks?: Record<string, unknown>[];
+  model_selection?: Record<string, unknown>;
+  permission_mode?: string;
+  expected_active_turn_id?: string;
+  task_run_id?: string;
+  editor_context?: Record<string, unknown>;
+  dispatch_stream_run_id?: string;
+  failure_reason?: string;
+  authority?: string;
+};
+
+export type QueuedChatInputPayload = {
+  message: string;
+  client_message_id?: string;
+  session_scope?: Partial<SessionScope>;
+  environment_binding?: Record<string, unknown>;
+  runtime_contract?: Record<string, unknown>;
+  explicit_subtasks?: Record<string, unknown>[];
+  model_selection?: Record<string, unknown>;
+  attachments?: ChatAttachment[];
+  permission_mode?: string;
+  editor_context?: Record<string, unknown>;
+};
+
+export type QueuedChatInputResponse = {
+  session_id: string;
+  item: QueuedChatInput;
+  items: QueuedChatInput[];
+  authority: string;
+};
+
 export async function uploadChatAttachment(sessionId: string, file: File) {
   const formData = new FormData();
   formData.set("session_id", sessionId);
@@ -438,6 +482,30 @@ export async function createChatRun(payload: ChatRunCreatePayload) {
       stream: true,
     }),
   });
+}
+
+export async function enqueueQueuedChatInput(sessionId: string, payload: QueuedChatInputPayload) {
+  return request<QueuedChatInputResponse>(`/chat/sessions/${encodeURIComponent(sessionId)}/queued-inputs`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listQueuedChatInputs(sessionId: string, scope?: Partial<SessionScope>, includeTerminal = true) {
+  const params = sessionScopeQuery(scope);
+  params.set("include_terminal", includeTerminal ? "true" : "false");
+  return request<{ session_id: string; items: QueuedChatInput[]; authority: string }>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/queued-inputs?${params.toString()}`,
+  );
+}
+
+export async function cancelQueuedChatInput(sessionId: string, queueItemId: string, scope?: Partial<SessionScope>) {
+  const params = sessionScopeQuery(scope);
+  const query = params.toString();
+  return request<{ session_id: string; item: QueuedChatInput; authority: string }>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/queued-inputs/${encodeURIComponent(queueItemId)}${query ? `?${query}` : ""}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getChatRun(streamRunId: string) {

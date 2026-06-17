@@ -49,10 +49,17 @@ from runtime.output_stream.public_contract import (
     event_requires_public_projection,
 )
 from runtime.shared.tool_identity import ensure_tool_call_id, permission_decision_id
+from runtime.shared.queued_user_input_dispatcher import (
+    has_active_primary_chat_run,
+    has_active_steer_chat_run,
+    queued_input_admission_target,
+    validate_queued_steer,
+)
+from runtime.shared.queued_user_input_store import QueuedUserInput
 from runtime.shared.runtime_run_registry import RuntimeRun
 from runtime.shared.stream_replay import parse_stream_event_id
 from sessions import SessionProjectBindingConflict, validate_session_id
-from task_system.session_scope import assert_optional_session_scope
+from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
 from config import runtime_config
 from project_layout import ProjectLayout
@@ -498,6 +505,21 @@ class ChatRequest(BaseModel):
     editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
+class QueuedChatInputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(..., min_length=1)
+    client_message_id: str = Field(default="", max_length=240)
+    explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
+    runtime_contract: dict[str, Any] = Field(default_factory=dict)
+    environment_binding: dict[str, Any] = Field(default_factory=dict)
+    model_selection: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    permission_mode: str = ""
+    session_scope: dict[str, Any] | None = None
+    editor_context: dict[str, Any] = Field(default_factory=dict)
+
+
 @router.post("/chat/runs")
 async def create_chat_run(payload: ChatRequest):
     runtime = require_runtime()
@@ -514,6 +536,101 @@ async def create_chat_run(payload: ChatRequest):
     request = _query_request_from_payload(payload, session_id=session_id, editor_context=editor_context, base_dir=runtime.base_dir)
     run = _create_and_schedule_run(runtime, request)
     return _run_response(runtime, run)
+
+
+@router.post("/chat/sessions/{session_id}/queued-inputs")
+async def enqueue_queued_chat_input(session_id: str, payload: QueuedChatInputRequest):
+    runtime = require_runtime()
+    validated_session_id = validate_session_id(session_id)
+    assert_optional_session_scope(runtime.session_manager, validated_session_id, payload.session_scope)
+    allow_vscode_context_fallback = bool(runtime.session_manager.get_project_binding(validated_session_id))
+    editor_context = _effective_editor_context(
+        validated_session_id,
+        dict(payload.editor_context or {}),
+        session_manager=runtime.session_manager,
+        allow_vscode_fallback=allow_vscode_context_fallback,
+    )
+    _bind_or_validate_editor_project(runtime, validated_session_id, editor_context)
+    attachments = _normalize_chat_attachments(payload.attachments, session_id=validated_session_id, base_dir=runtime.base_dir)
+    host = runtime.harness_runtime.single_agent_runtime_host
+    admission = queued_input_admission_target(host, session_id=validated_session_id)
+    item = await asyncio.to_thread(
+        host.queued_user_inputs.enqueue,
+        session_id=validated_session_id,
+        content=payload.message,
+        client_message_id=payload.client_message_id,
+        input_policy=str(admission.get("input_policy") or "auto"),
+        expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
+        task_run_id=str(admission.get("task_run_id") or ""),
+        attachments=attachments,
+        session_scope=dict(payload.session_scope or {}),
+        environment_binding=dict(payload.environment_binding or {}),
+        runtime_contract=dict(payload.runtime_contract or {}),
+        explicit_subtasks=list(payload.explicit_subtasks or []),
+        model_selection=dict(payload.model_selection or {}),
+        permission_mode=str(payload.permission_mode or ""),
+        editor_context=editor_context,
+    )
+    await _dispatch_next_queued_input(runtime, validated_session_id, reason="queued_input_enqueued")
+    return _queued_input_response(runtime, validated_session_id, item)
+
+
+@router.get("/chat/sessions/{session_id}/queued-inputs")
+async def list_queued_chat_inputs(
+    session_id: str,
+    include_terminal: bool = Query(default=True),
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+):
+    runtime = require_runtime()
+    validated_session_id = validate_session_id(session_id)
+    await asyncio.to_thread(
+        assert_optional_session_scope,
+        runtime.session_manager,
+        validated_session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    items = await asyncio.to_thread(
+        runtime.harness_runtime.single_agent_runtime_host.queued_user_inputs.list_session,
+        validated_session_id,
+        include_terminal=bool(include_terminal),
+    )
+    return {
+        "session_id": validated_session_id,
+        "items": [item.to_dict() for item in items],
+        "authority": "api.chat.queued_user_inputs",
+    }
+
+
+@router.delete("/chat/sessions/{session_id}/queued-inputs/{queue_item_id}")
+async def cancel_queued_chat_input(
+    session_id: str,
+    queue_item_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+):
+    runtime = require_runtime()
+    validated_session_id = validate_session_id(session_id)
+    await asyncio.to_thread(
+        assert_optional_session_scope,
+        runtime.session_manager,
+        validated_session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    item = await asyncio.to_thread(
+        runtime.harness_runtime.single_agent_runtime_host.queued_user_inputs.cancel,
+        validated_session_id,
+        queue_item_id,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="queued input not found")
+    return {
+        "session_id": validated_session_id,
+        "item": item.to_dict(),
+        "authority": "api.chat.queued_user_inputs",
+    }
 
 
 @router.get("/chat/runs/{stream_run_id}")
@@ -930,6 +1047,7 @@ def _bind_or_validate_editor_project(runtime: Any, session_id: str, editor_conte
 
 def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> RuntimeRun:
     host = runtime.harness_runtime.single_agent_runtime_host
+    request_runtime_profile = dict(request.runtime_profile or {})
     run = host.run_registry.create_run(
         session_id=request.session_id,
         owner_process_id=getattr(host, "owner_process_id", None),
@@ -939,12 +1057,15 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "message_chars": len(str(request.message or "")),
             "expected_active_turn_id": str(request.expected_active_turn_id or ""),
             "active_turn_input_policy": str(request.active_turn_input_policy or "auto"),
+            "queued_input_id": str(request_runtime_profile.get("queued_input_id") or ""),
+            "queued_client_message_id": str(request_runtime_profile.get("queued_client_message_id") or ""),
+            "queue_dispatch_reason": str(request_runtime_profile.get("queue_dispatch_reason") or ""),
         },
     )
     request = replace(
         request,
         runtime_profile={
-            **dict(request.runtime_profile or {}),
+            **request_runtime_profile,
             "stream_run_id": run.stream_run_id,
         },
     )
@@ -953,6 +1074,122 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
         name=f"chat-run-{run.stream_run_id}",
     )
     return run
+
+
+def _queued_input_response(runtime: Any, session_id: str, item: QueuedUserInput) -> dict[str, Any]:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    current = host.queued_user_inputs.get_item(session_id, item.queue_item_id) or item
+    items = host.queued_user_inputs.list_session(session_id)
+    return {
+        "session_id": session_id,
+        "item": current.to_dict(),
+        "items": [entry.to_dict() for entry in items],
+        "authority": "api.chat.queued_user_inputs",
+    }
+
+
+def _schedule_queued_input_dispatch(runtime: Any, session_id: str, *, reason: str) -> None:
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        return
+    host = runtime.harness_runtime.single_agent_runtime_host
+    if not hasattr(host, "queued_user_inputs"):
+        return
+    host.spawn_background_task(
+        _dispatch_next_queued_input(runtime, normalized, reason=reason),
+        name=f"queued-input-dispatch:{normalized}",
+    )
+
+
+async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: str) -> RuntimeRun | None:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    store = getattr(host, "queued_user_inputs", None)
+    if store is None:
+        return None
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        return None
+    await asyncio.to_thread(store.reset_stale_dispatching, normalized)
+    for _attempt in range(8):
+        queued_items = [
+            item
+            for item in await asyncio.to_thread(store.list_session, normalized, include_terminal=False)
+            if item.status == "queued"
+        ]
+        if not queued_items:
+            return None
+        next_item = queued_items[0]
+        if next_item.input_policy == "auto":
+            if has_active_primary_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
+                return None
+            if has_active_steer_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
+                return None
+            claimed = await asyncio.to_thread(store.claim_next, normalized, policy="auto")
+            if claimed is None:
+                continue
+            return await _dispatch_claimed_queued_input(runtime, claimed, reason=reason)
+        if has_active_steer_chat_run(
+            host,
+            session_id=normalized,
+            terminal_statuses=TERMINAL_RUN_STATUSES,
+            expected_active_turn_id=next_item.expected_active_turn_id,
+        ):
+            return None
+        steer_allowed, denied_reason = validate_queued_steer(host, next_item)
+        claimed = await asyncio.to_thread(store.claim_next, normalized, policy="steer")
+        if claimed is None:
+            continue
+        if not steer_allowed:
+            await asyncio.to_thread(store.mark_failed, normalized, claimed.queue_item_id, reason=denied_reason or "queued_steer_not_dispatchable")
+            continue
+        return await _dispatch_claimed_queued_input(runtime, claimed, reason=reason)
+    return None
+
+
+async def _dispatch_claimed_queued_input(runtime: Any, item: QueuedUserInput, *, reason: str) -> RuntimeRun | None:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    try:
+        await asyncio.to_thread(
+            assert_optional_session_scope,
+            runtime.session_manager,
+            item.session_id,
+            dict(item.session_scope or {}),
+        )
+        request = _request_from_queued_input(item, reason=reason)
+        run = _create_and_schedule_run(runtime, request)
+        await asyncio.to_thread(host.queued_user_inputs.mark_dispatched, item.session_id, item.queue_item_id, stream_run_id=run.stream_run_id)
+        return run
+    except Exception as exc:
+        logger.exception("Failed to dispatch queued chat input.", extra={"queue_item_id": item.queue_item_id, "session_id": item.session_id})
+        await asyncio.to_thread(
+            host.queued_user_inputs.mark_failed,
+            item.session_id,
+            item.queue_item_id,
+            reason=str(exc) or "queued_input_dispatch_failed",
+        )
+        return None
+
+
+def _request_from_queued_input(item: QueuedUserInput, *, reason: str) -> HarnessRuntimeRequest:
+    return HarnessRuntimeRequest(
+        session_id=item.session_id,
+        message=item.content,
+        explicit_subtasks=[dict(entry) for entry in list(item.explicit_subtasks or []) if isinstance(entry, dict)],
+        runtime_profile={
+            "queued_input_id": item.queue_item_id,
+            "queued_client_message_id": item.client_message_id,
+            "queue_dispatch_reason": str(reason or ""),
+        },
+        environment_binding=dict(item.environment_binding or {}),
+        runtime_contract=dict(item.runtime_contract or {}),
+        model_selection=dict(item.model_selection or {}),
+        attachments=[dict(entry) for entry in list(item.attachments or []) if isinstance(entry, dict)],
+        permission_mode=str(item.permission_mode or ""),
+        expected_active_turn_id=str(item.expected_active_turn_id or "") if item.input_policy == "steer" else "",
+        active_turn_input_policy=str(item.input_policy or "auto"),
+        expected_task_run_id=str(item.task_run_id or "") if item.input_policy == "steer" else "",
+        editor_context=dict(item.editor_context or {}),
+    )
 
 
 async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: HarnessRuntimeRequest) -> None:
@@ -1166,6 +1403,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     "chat_stream_bridge": "task_run",
                 },
             )
+            _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_after_exception")
             return
         logged = replay.append_public_event(
             current,
@@ -1185,6 +1423,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="stream_exception",
             reason=str(exc) or "Chat stream failed.",
         )
+        _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_failed")
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
@@ -1202,6 +1441,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                     "chat_stream_bridge": "task_run",
                 },
             )
+            _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_orphaned_missing_terminal")
             return
         logged = replay.append_public_event(
             current,
@@ -1221,6 +1461,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             code="missing_terminal_event",
             reason="Chat stream ended without a terminal event.",
         )
+    _schedule_queued_input_dispatch(runtime, request.session_id, reason="chat_run_terminal")
 
 
 def _append_chat_public_event(
