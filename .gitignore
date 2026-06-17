@@ -33,6 +33,7 @@ frontend/public/souls/generated/chat-*.png
 frontend/public/souls/generated/debug-*.png
 frontend/public/souls/generated/*test*.png
 frontend/public/souls/generated/tile-*.png
+frontend/src/app/adventure-island/
 tmp_projection*.txt
 backend/.env
 backend/storage/
@@ -80,6 +81,7 @@ backend/tests/_artifacts/scifact_v2_*.json
 mythical-agent
 docs/
 backend/maintenance/
+backend/scripts/live_five_floor_dungeon_prompt_cache_e2e.py
 extensions/vscode/out/
 adventure-island-standalone/
 runtime_state/
