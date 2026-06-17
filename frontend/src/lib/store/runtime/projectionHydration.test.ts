@@ -149,12 +149,12 @@ function completeCommittedFrames() {
       state: "running",
     }),
     frame({
-      frame_id: "frame:streaming-final-body",
+      frame_id: "frame:after-tool-progress-body",
       event_offset: 3,
       source_event_type: "assistant_public_feedback",
       retention: "transient",
-      item_id: "assistant-public-feedback:closeout-shadow",
-      text: "最终正文。",
+      item_id: "assistant-public-feedback:after-tool-before-final",
+      text: "收口前继续输出的正文。",
     }),
     frame({
       frame_id: "frame:streaming-final-delta",
@@ -224,12 +224,12 @@ describe("hydrateSessionRuntimeProjection", () => {
             text: "收口前的过程正文。",
           }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:read" }),
+          expect.objectContaining({
+            kind: "body_segment",
+            sourceEventType: "assistant_public_feedback",
+            text: "收口前继续输出的正文。",
+          }),
         ]),
-      }),
-      expect.objectContaining({
-        kind: "body_segment",
-        sourceEventType: "assistant_text_final",
-        text: "最终正文。",
       }),
       expect.objectContaining({ kind: "log_entry", toolEventCount: 1 }),
     ]));
@@ -239,20 +239,9 @@ describe("hydrateSessionRuntimeProjection", () => {
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_delta" }),
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_stream_repair" }),
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_final" }),
-        expect.objectContaining({
-          kind: "body_segment",
-          sourceEventType: "assistant_public_feedback",
-          text: "最终正文。",
-        }),
       ]),
     }));
-    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([
-      expect.objectContaining({
-        kind: "body_segment",
-        sourceEventType: "assistant_text_final",
-        text: "最终正文。",
-      }),
-    ]);
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([]);
     expect(view?.traceAvailable).toBe(true);
     expect(view?.toolEventCount).toBe(1);
   });

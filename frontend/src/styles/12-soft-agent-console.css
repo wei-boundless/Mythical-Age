@@ -1006,7 +1006,7 @@ body {
   list-style: none;
   width: min(100%, 800px);
   max-width: 100%;
-  min-height: 30px;
+  min-height: 26px;
   padding: 2px 0;
   border: 0;
   border-radius: 0;
@@ -1077,29 +1077,15 @@ body {
 .agent-workbench .public-run-activity__tool-round-copy {
   display: flex;
   align-items: baseline;
-  gap: 6px;
   min-width: 0;
-}
-
-.agent-workbench .public-run-activity__tool-round-title {
-  flex: 0 0 auto;
-  color: #314056;
-  font-weight: 720;
-  white-space: nowrap;
-}
-
-.agent-workbench .public-run-activity__tool-round-separator {
-  flex: 0 0 auto;
-  color: #9aa5b4;
-  font-weight: 620;
 }
 
 .agent-workbench .public-run-activity__tool-round-preview {
   min-width: 0;
   overflow: hidden;
-  color: #7b8796;
-  font-size: 11.5px;
-  font-weight: 520;
+  color: #435269;
+  font-size: 12px;
+  font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1120,25 +1106,25 @@ body {
 
 .agent-workbench .public-run-activity__tool-round-body {
   display: grid;
-  gap: 2px;
-  margin: 1px 0 2px 7px;
-  padding: 4px 0 3px 15px;
-  border-left: 1px solid rgba(107, 124, 146, 0.16);
+  gap: 1px;
+  margin: 0 0 2px 8px;
+  padding: 3px 0 3px 14px;
+  border-left: 1px solid rgba(107, 124, 146, 0.12);
 }
 
 .agent-workbench .public-run-activity__archive {
   width: min(100%, 800px);
-  margin: 0 0 9px;
+  margin: 0 0 10px;
   color: #5b687a;
 }
 
 .agent-workbench .public-run-activity__archive summary {
   display: grid;
-  grid-template-columns: minmax(24px, 1fr) auto auto;
+  grid-template-columns: auto minmax(24px, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
-  padding: 0;
+  min-height: 26px;
+  padding: 1px 0;
   cursor: pointer;
   list-style: none;
   color: #566477;
@@ -1151,10 +1137,20 @@ body {
   display: none;
 }
 
+.agent-workbench .public-run-activity__archive-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  color: #3f4f66;
+  font-size: 12px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
 .agent-workbench .public-run-activity__archive-rule {
   height: 1px;
   min-width: 18px;
-  background: rgba(107, 124, 146, 0.2);
+  background: linear-gradient(90deg, rgba(107, 124, 146, 0.2), rgba(107, 124, 146, 0.08));
 }
 
 .agent-workbench .public-run-activity__archive-meta {
@@ -1197,10 +1193,10 @@ body {
 .agent-workbench .public-run-activity__archive-body {
   display: grid;
   width: min(100%, 780px);
-  gap: 3px;
-  margin: 3px 0 2px 7px;
-  padding: 4px 0 3px 15px;
-  border-left: 1px solid rgba(107, 124, 146, 0.14);
+  gap: 2px;
+  margin: 2px 0 2px 8px;
+  padding: 4px 0 3px 14px;
+  border-left: 1px solid rgba(107, 124, 146, 0.1);
 }
 
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round,
@@ -1229,8 +1225,8 @@ body {
 
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round summary,
 .agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window summary {
-  min-height: 24px;
-  padding: 2px 0;
+  min-height: 23px;
+  padding: 1px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1260,8 +1256,8 @@ body {
   list-style: none;
   width: min(100%, 780px);
   max-width: 100%;
-  min-height: 28px;
-  padding: 2px 0;
+  min-height: 25px;
+  padding: 1px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1363,7 +1359,7 @@ body {
 }
 
 .agent-workbench .public-run-activity__tool-window-body {
-  padding: 5px 0 7px 21px;
+  padding: 3px 0 6px 21px;
 }
 
 .agent-workbench .public-run-activity__tool-console {
@@ -1373,8 +1369,8 @@ body {
   margin: 0;
   overflow: auto;
   width: min(100%, 740px);
-  padding: 1px 0 1px 10px;
-  border-left: 1px solid rgba(100, 116, 139, 0.2);
+  padding: 1px 0 1px 9px;
+  border-left: 1px solid rgba(100, 116, 139, 0.14);
   border-radius: 0;
   background: transparent;
   color: #243044;
@@ -1679,10 +1675,6 @@ body {
   .agent-workbench .public-run-activity__tool-round-copy {
     display: grid;
     gap: 2px;
-  }
-
-  .agent-workbench .public-run-activity__tool-round-separator {
-    display: none;
   }
 
   .agent-workbench .public-run-activity__tool-round-preview {

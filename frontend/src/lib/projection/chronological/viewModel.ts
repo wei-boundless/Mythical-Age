@@ -73,16 +73,22 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     mainVisibility: segment.mainVisibility,
   }));
   const activityBlocks = [...todoBlocks, ...toolBlocks, ...statusBlocks];
+  const finalBodyBoundaryOffset = finalBodyBoundaryOffsetFrom(bodyBlocks);
+  const hasFinalBodyBoundary = finalBodyBoundaryOffset !== undefined;
   const closeoutMode = displayMode === "committed" || displayMode === "closeout";
-  const closeoutBoundaryOffset = closeoutMode ? closeoutBodyBoundaryOffset(bodyBlocks, activityBlocks) : undefined;
-  const closeoutBodyBlocks = closeoutMode
-    ? bodyBlocks.filter((block) => isCloseoutBodyBlock(block, ledger.bodyText, closeoutBoundaryOffset))
-    : bodyBlocks;
-  const archivedBodyBlocks = closeoutMode
-    ? bodyBlocks.filter((block) => isArchivedBodyBlock(block, ledger.bodyText, closeoutBoundaryOffset))
+  const closeoutViewMode = closeoutMode || hasFinalBodyBoundary;
+  const visibleBodyBlocks = visibleTimelineBodyBlocks(bodyBlocks, finalBodyBoundaryOffset, closeoutViewMode);
+  const archivedBodyBlocks = closeoutViewMode
+    ? bodyBlocks.filter((block) => isArchivedBodyBlock(block, finalBodyBoundaryOffset))
     : [];
-  const lifecycleBlocks = closeoutMode
-    ? activityArchiveBlocks(ledger, [...archivedBodyBlocks, ...activityBlocks])
+  const lifecycleBlocks = closeoutViewMode
+    ? activityArchiveBlocks(
+        ledger,
+        [
+          ...archivedBodyBlocks,
+          ...activityBlocks.filter((block) => !hasFinalBodyBoundary || blockOffset(block) < finalBodyBoundaryOffset),
+        ],
+      )
     : activityBlocks;
   const recoveryOrTerminalBlocks = statusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
   const logBlocks = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
@@ -95,7 +101,7 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       }]
     : [];
   const blocks = [
-    ...closeoutBodyBlocks,
+    ...visibleBodyBlocks,
     ...lifecycleBlocks,
     ...logBlocks,
   ].sort(compareBlocks);
@@ -180,20 +186,14 @@ function blockId(block: ProjectionRenderBlock) {
   return block.id;
 }
 
-function closeoutBodyBoundaryOffset(
+function finalBodyBoundaryOffsetFrom(
   bodyBlocks: Array<{ firstOffset: number; sourceEventType?: string; mainVisibility?: string }>,
-  activityBlocks: ProjectionRenderBlock[],
 ) {
   const finalOffsets = bodyBlocks
     .filter(isExplicitFinalBodyBlock)
     .map((block) => block.firstOffset);
   if (!finalOffsets.length) return undefined;
-  const firstFinalOffset = Math.min(...finalOffsets);
-  const priorActivityOffsets = activityBlocks
-    .map(blockOffset)
-    .filter((offset) => Number.isFinite(offset) && offset < firstFinalOffset);
-  if (!priorActivityOffsets.length) return Number.NEGATIVE_INFINITY;
-  return Math.max(...priorActivityOffsets);
+  return Math.min(...finalOffsets);
 }
 
 function isExplicitFinalBodyBlock(block: { sourceEventType?: string; mainVisibility?: string }) {
@@ -202,25 +202,27 @@ function isExplicitFinalBodyBlock(block: { sourceEventType?: string; mainVisibil
   return sourceEventType === "assistant_text_final" || mainVisibility === "visible_final";
 }
 
-function isCloseoutBodyBlock(
-  block: { id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string },
-  finalBodyText = "",
-  closeoutBoundaryOffset?: number,
+function visibleTimelineBodyBlocks(
+  bodyBlocks: Array<{ id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string }>,
+  finalBodyBoundaryOffset?: number,
+  closeoutMode = false,
 ) {
-  const retention = String(block.retention ?? "");
-  if (isExplicitFinalBodyBlock(block)) return true;
-  if (isSupersededCloseoutBody(block, finalBodyText, closeoutBoundaryOffset)) return false;
-  return retention !== "transient" && !isProcessBodyBlock(block);
+  if (finalBodyBoundaryOffset === undefined) return bodyBlocks;
+  if (closeoutMode) return [];
+  return bodyBlocks.filter((block) =>
+    Number(block.firstOffset ?? Number.MAX_SAFE_INTEGER) < finalBodyBoundaryOffset
+    && isProcessBodyBlock(block)
+  );
 }
 
 function isArchivedBodyBlock(
-  block: { id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string },
-  finalBodyText = "",
-  closeoutBoundaryOffset?: number,
+  block: { id?: string; firstOffset?: number; sourceEventType?: string; mainVisibility?: string },
+  finalBodyBoundaryOffset?: number,
 ) {
-  if (isCloseoutBodyBlock(block, finalBodyText, closeoutBoundaryOffset)) return false;
-  if (isSupersededCloseoutBody(block, finalBodyText, closeoutBoundaryOffset)) return false;
-  return isProcessBodyBlock(block) || String(block.retention ?? "") === "transient";
+  if (finalBodyBoundaryOffset === undefined) return false;
+  if (isExplicitFinalBodyBlock(block)) return false;
+  return Number(block.firstOffset ?? Number.MAX_SAFE_INTEGER) < finalBodyBoundaryOffset
+    && isProcessBodyBlock(block);
 }
 
 function isProcessBodyBlock(block: { id?: string; sourceEventType?: string }) {
@@ -230,45 +232,4 @@ function isProcessBodyBlock(block: { id?: string; sourceEventType?: string }) {
     || sourceEventType === "runtime_step_summary"
     || id.startsWith("assistant-public-feedback:")
     || id.startsWith("model-action-feedback-body:");
-}
-
-function isSupersededCloseoutBody(
-  block: { firstOffset?: number; sourceEventType?: string; text?: string },
-  finalBodyText = "",
-  closeoutBoundaryOffset?: number,
-) {
-  const sourceEventType = String(block.sourceEventType ?? "");
-  const finalText = normalizeBodyText(finalBodyText);
-  if (!finalText) return false;
-  if (!bodyIsInCloseoutPhase(block, closeoutBoundaryOffset)) {
-    return false;
-  }
-  if (sourceEventType === "assistant_public_feedback" || sourceEventType === "runtime_step_summary") {
-    return true;
-  }
-  if (sourceEventType === "assistant_stream_repair") {
-    return true;
-  }
-  if (sourceEventType !== "assistant_text_delta") {
-    return false;
-  }
-  const blockText = normalizeBodyText(block.text);
-  return Boolean(
-    blockText
-    && finalText
-    && (
-      blockText === finalText
-      || finalText.startsWith(blockText)
-      || (blockText.length >= 80 && finalText.includes(blockText))
-    )
-  );
-}
-
-function bodyIsInCloseoutPhase(block: { firstOffset?: number }, closeoutBoundaryOffset?: number) {
-  if (closeoutBoundaryOffset === undefined) return false;
-  return Number(block.firstOffset ?? Number.NEGATIVE_INFINITY) > closeoutBoundaryOffset;
-}
-
-function normalizeBodyText(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
 }

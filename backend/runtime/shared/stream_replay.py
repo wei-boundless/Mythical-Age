@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -105,6 +106,15 @@ class RuntimeStreamReplayService:
                 "event_log_id": run.event_log_id,
                 "event_offset": event.offset,
                 "runtime_event_id": event.event_id,
+                "diagnostics": {
+                    **(
+                        data.get("diagnostics")
+                        if isinstance(data.get("diagnostics"), dict)
+                        else {}
+                    ),
+                    "server_event_created_at": float(event.created_at),
+                    "server_sse_sent_at": time.time(),
+                },
             }
         )
         return format_sse(

@@ -27,7 +27,6 @@ from .tool_prompts import list_builtin_tool_prompt_resources, tool_guidance_payl
 from .utility_prompts import (
     DURABLE_MEMORY_RECALL_SELECTOR_PROMPT,
     EVIDENCE_DISTILLER_PROMPT,
-    HISTORY_SUMMARY_RECOVERY_PROMPT,
     MCP_CAPABILITY_USAGE_PROMPT,
     MCP_SERVER_INSTRUCTIONS_PROMPT,
     RAG_FINALIZER_SYSTEM_PROMPT,
@@ -62,7 +61,6 @@ __all__ = [
     "EVIDENCE_DISTILLER_PROMPT",
     "DURABLE_MEMORY_RECALL_SELECTOR_PROMPT",
     "SESSION_TITLE_GENERATION_PROMPT",
-    "HISTORY_SUMMARY_RECOVERY_PROMPT",
     "READONLY_PLANNER_ROLE_PROMPT",
     "READONLY_DELIVERY_VERIFIER_ROLE_PROMPT",
     "SINGLE_AGENT_ADMISSION_REPAIR_PROMPT",
@@ -94,5 +92,4 @@ __all__ = [
     "RuntimePromptManifest",
     "build_runtime_prompt_manifest",
 ]
-
 

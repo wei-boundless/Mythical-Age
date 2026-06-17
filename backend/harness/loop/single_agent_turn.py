@@ -1689,6 +1689,10 @@ async def run_single_agent_turn(
                 action_parse.packet_public_progress_note
                 and runtime_host is not None
                 and turn_run is not None
+                and not _assistant_stream_has_emitted_public_feedback(
+                    assistant_stream_normalizer,
+                    action_parse.packet_public_progress_note,
+                )
             ):
                 yield _record_assistant_public_feedback(
                     runtime_host,
@@ -2887,12 +2891,13 @@ async def _invoke_single_turn_model_with_stream_events(
     plain_streamer = getattr(model_runtime, "astream_messages", None)
     emit_assistant_text_delta = bool(stream_policy.get("emit_assistant_text_delta", True) is not False) and bool(allow_assistant_text_delta)
     stream_ref = str(accounting_context.get("request_id") or "")
-    assistant_normalizer = AssistantStreamNormalizer(
+    assistant_normalizer = AssistantStreamNormalizer.from_policy(
         stream_ref=stream_ref,
         message_ref=assistant_message_ref(turn_id=str(accounting_context.get("turn_id") or ""), stream_ref=stream_ref),
         turn_run_id=str(accounting_context.get("run_id") or accounting_context.get("turn_run_id") or ""),
         task_run_id=str(accounting_context.get("task_run_id") or ""),
         answer_source=str(accounting_context.get("source") or "harness.single_agent_turn"),
+        stream_policy=stream_policy,
     ) if emit_assistant_text_delta else None
     raw_content = ""
     aggregated_response: Any = None
@@ -5548,6 +5553,17 @@ def _model_public_feedback_identity(
     ]
     action_ref = "|".join(action_refs) if action_refs else "no-action-ref"
     return f"model-packet-public-feedback:{packet_ref}:tool-iteration:{int(tool_iteration or 0)}:actions:{action_ref}"
+
+
+def _assistant_stream_has_emitted_public_feedback(
+    assistant_stream_normalizer: AssistantStreamNormalizer | None,
+    public_progress_note: str,
+) -> bool:
+    if assistant_stream_normalizer is None:
+        return False
+    return assistant_stream_normalizer.has_emitted_public_text(
+        public_runtime_progress_summary(public_progress_note)
+    )
 
 
 def _record_model_action_admission(

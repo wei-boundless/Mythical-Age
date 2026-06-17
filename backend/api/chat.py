@@ -600,6 +600,11 @@ async def get_chat_run_events(
     return StreamingResponse(
         _stream_run_events(runtime, run, after_offset=effective_after_offset),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

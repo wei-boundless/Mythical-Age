@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 from bootstrap.settings import AppSettingsService
 from config import LLM_PROVIDER_DEFAULTS
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
-from prompt_library import HISTORY_SUMMARY_RECOVERY_PROMPT, SESSION_TITLE_GENERATION_PROMPT
+from prompt_library import SESSION_TITLE_GENERATION_PROMPT
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 _UTILITY_PROMPT_REFS_BY_PURPOSE: dict[str, tuple[str, ...]] = {
     "utility.generate_title": ("utility.title_generation.session",),
-    "utility.summarize_history": ("utility.summarize_history.context_recovery",),
     "utility.rag_answer_finalizer": ("utility.finalizer.rag_answer",),
     "memory.durable_recall_selector": ("utility.memory.durable_recall_selector",),
     "memory.maintenance_after_commit": ("agent.memory_system_agent.memory_maintenance.work_role",),
@@ -715,35 +714,6 @@ class ModelRuntime:
             return (first_user_message.strip() or "新会话")[:10]
         except Exception:
             return (first_user_message.strip() or "新会话")[:10]
-
-    async def summarize_history(self, messages: list[dict[str, Any]]) -> str:
-        transcript_lines: list[str] = []
-        for item in messages:
-            role = item.get("role", "assistant")
-            content = str(item.get("content", "") or "")
-            if content:
-                transcript_lines.append(f"{role}: {content}")
-        transcript = "\n".join(transcript_lines)
-
-        try:
-            messages = [
-                {"role": "system", "content": HISTORY_SUMMARY_RECOVERY_PROMPT},
-                {"role": "user", "content": transcript},
-            ]
-            response = await self.invoke_messages(
-                messages,
-                accounting_context=_utility_accounting_context(
-                    source="model_runtime.summarize_history",
-                    messages=messages,
-                    purpose="utility.summarize_history",
-                ),
-            )
-            summary = stringify_content(getattr(response, "content", "")).strip()
-            return summary[:500]
-        except ModelRuntimeError:
-            return transcript[:500]
-        except Exception:
-            return transcript[:500]
 
     def _candidate_specs(self, *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> list[ModelSpec]:
         if model_spec is not None:
@@ -2152,5 +2122,4 @@ def _exception_chain_text(exc: Exception) -> str:
         parts.append(f"{current.__class__.__name__}: {current}")
         current = current.__cause__ or current.__context__
     return " | ".join(parts) or exc.__class__.__name__
-
 

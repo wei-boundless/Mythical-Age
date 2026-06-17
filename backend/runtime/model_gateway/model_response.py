@@ -82,12 +82,13 @@ class ModelResponseRuntimeExecutor:
         )
         stream_ref = str(accounting_context.get("request_id") or directive.directive_id)
         message_ref = assistant_message_ref(turn_id=str(accounting_context.get("turn_id") or ""), stream_ref=stream_ref)
-        assistant_normalizer = AssistantStreamNormalizer(
+        assistant_normalizer = AssistantStreamNormalizer.from_policy(
             stream_ref=stream_ref,
             message_ref=message_ref,
             turn_run_id=str(accounting_context.get("turn_run_id") or ""),
             task_run_id=str(accounting_context.get("task_run_id") or ""),
             answer_source="runtime_directive:model_response",
+            stream_policy=stream_policy,
         ) if stream_enabled and emit_assistant_text_delta else None
         response_timeout_seconds = _model_response_timeout_seconds(
             self.model_runtime,
@@ -1070,5 +1071,4 @@ def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:
             }
         )
     return normalized
-
 

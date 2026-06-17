@@ -159,7 +159,7 @@ describe("streamChat", () => {
       streamReader(
         [
           'id: strun:test:chatrun:test:1\nevent: assistant_text_delta\ndata: {"content":"你好","event_offset":1,"sequence":1}\n\n',
-          'id: strun:test:chatrun:test:2\nevent: turn_completed\ndata: {"status":"completed","event_offset":2}\n\n',
+          'id: strun:test:chatrun:test:2\nevent: turn_completed\ndata: {"status":"completed","event_offset":2,"diagnostics":{"server_event_created_at":123.4,"server_sse_sent_at":123.5}}\n\n',
         ],
         { cancel, openEnded: true },
       ),
@@ -180,6 +180,11 @@ describe("streamChat", () => {
     });
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(events.map((item) => item.event)).toEqual(["assistant_text_delta", "turn_completed"]);
+    expect(events[1]?.data.diagnostics).toEqual(expect.objectContaining({
+      server_event_created_at: 123.4,
+      server_sse_sent_at: 123.5,
+      client_received_at: expect.any(Number),
+    }));
   });
 
   it("parses CRLF-delimited SSE terminal events", async () => {
@@ -196,7 +201,18 @@ describe("streamChat", () => {
     expect(result.terminalEvent).toBe("turn_completed");
     expect(result.terminalStatus).toBe("completed");
     expect(reader.cancel).toHaveBeenCalledTimes(1);
-    expect(events).toEqual([{ event: "turn_completed", data: { status: "completed", event_offset: 1 } }]);
+    expect(events).toEqual([
+      {
+        event: "turn_completed",
+        data: expect.objectContaining({
+          status: "completed",
+          event_offset: 1,
+          diagnostics: expect.objectContaining({
+            client_received_at: expect.any(Number),
+          }),
+        }),
+      },
+    ]);
   });
 
   it("can consume a short stream without replacing the session reconnect cursor", async () => {
@@ -388,7 +404,19 @@ describe("streamChat", () => {
     expect(result.terminalEvent).toBe("turn_completed");
     expect(result.terminalStatus).toBe("failed");
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events).toEqual([{ event: "turn_completed", data: { event_offset: 1, status: "failed", error_summary: "backend failed" } }]);
+    expect(events).toEqual([
+      {
+        event: "turn_completed",
+        data: expect.objectContaining({
+          event_offset: 1,
+          status: "failed",
+          error_summary: "backend failed",
+          diagnostics: expect.objectContaining({
+            client_received_at: expect.any(Number),
+          }),
+        }),
+      },
+    ]);
   });
 });
 
@@ -434,4 +462,3 @@ function streamReader(chunks: string[], options: { cancel?: () => Promise<void>;
     cancel: options.cancel ?? vi.fn(async () => undefined),
   };
 }
-

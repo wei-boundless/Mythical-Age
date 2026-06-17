@@ -498,6 +498,13 @@ function terminalStatusFromTurnCompleted(data: Record<string, unknown>) {
   return "completed";
 }
 
+function clientNow() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 async function consumeChatRunStream(
   run: ChatRun,
   sessionId: string,
@@ -532,6 +539,15 @@ async function consumeChatRunStream(
     if (!parsed) {
       return "";
     }
+    parsed.data = {
+      ...parsed.data,
+      diagnostics: {
+        ...(typeof parsed.data.diagnostics === "object" && parsed.data.diagnostics !== null && !Array.isArray(parsed.data.diagnostics)
+          ? parsed.data.diagnostics
+          : {}),
+        client_received_at: clientNow(),
+      },
+    };
     const eventOffset = Number(parsed.data.event_offset);
     if (Number.isFinite(eventOffset)) {
       if (eventOffset <= lastEventOffset) {

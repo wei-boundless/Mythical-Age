@@ -153,7 +153,7 @@ describe("chronological projection frame reducer contract", () => {
     const view = latestProjection(transition.state);
     expect(assistant?.content).toBe("");
     expect(view?.canonicalContent).toBe("OCR 已读取题目，下面给出完整解法。");
-    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toHaveLength(1);
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toHaveLength(0);
     expect(view?.blocks.some((block) => block.kind === "terminal_event")).toBe(false);
   });
 
@@ -721,8 +721,8 @@ describe("chronological projection frame reducer contract", () => {
       source_authority: "model",
       main_visibility: "visible_live",
       retention: "transient",
-      item_id: "assistant-public-feedback:closeout-shadow",
-      text: "最终正文。",
+      item_id: "assistant-public-feedback:after-tool-before-final",
+      text: "收口前继续输出的正文。",
     });
     transition = project(transition, {
       source_event_type: "assistant_text_delta",
@@ -783,12 +783,12 @@ describe("chronological projection frame reducer contract", () => {
             text: "收口前的过程正文。",
           }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:verify" }),
+          expect.objectContaining({
+            kind: "body_segment",
+            sourceEventType: "assistant_public_feedback",
+            text: "收口前继续输出的正文。",
+          }),
         ],
-      }),
-      expect.objectContaining({
-        kind: "body_segment",
-        sourceEventType: "assistant_text_final",
-        text: "最终正文。",
       }),
       expect.objectContaining({ kind: "log_entry" }),
     ]);
@@ -798,20 +798,9 @@ describe("chronological projection frame reducer contract", () => {
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_delta" }),
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_stream_repair" }),
         expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_final" }),
-        expect.objectContaining({
-          kind: "body_segment",
-          sourceEventType: "assistant_public_feedback",
-          text: "最终正文。",
-        }),
       ]),
     }));
-    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([
-      expect.objectContaining({
-        kind: "body_segment",
-        sourceEventType: "assistant_text_final",
-        text: "最终正文。",
-      }),
-    ]);
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([]);
     expect(view?.blocks.some((block) => block.kind === "log_entry")).toBe(true);
   });
 

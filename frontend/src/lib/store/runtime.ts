@@ -55,7 +55,7 @@ import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { projectionFrameFromRecord } from "@/lib/projection/reducer";
+import { projectionFrameFromRecord, rebuildProjectionViews } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
 import { allRunMonitorSignals } from "../run-monitor/reducer";
 import { chatThinkingModeFromProviderConfig, isOpenAIReasoningModel, normalizeChatThinkingMode } from "./runtime/chatThinking";
@@ -123,12 +123,15 @@ type QueuedUserInput = {
 
 type VisibleStreamStateOptions = {
   preserveTaskGraphLiveMonitor?: boolean;
+  rebuildProjectionViews?: boolean;
 };
 
 type PendingVisibleStreamFlush = {
   streamState: StoreState;
   activeStreamSessionIds: string[];
   options: VisibleStreamStateOptions;
+  event: string;
+  data: Record<string, unknown>;
   timer: number | ReturnType<typeof setTimeout> | null;
   frame: number | null;
 };
@@ -1674,10 +1677,11 @@ export class WorkspaceRuntime {
             const eventBinding = this.eventChatStreamBinding(data);
             this.updateActiveChatStreamBinding(sessionId, eventBinding);
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
+            const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
             const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
               ? this.store.getState()
               : streamState;
-            transition = reduceStreamEvent(baseState, transition.session, event, data);
+            transition = reduceStreamEvent(baseState, transition.session, event, data, { deferProjectionViewBuild });
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
             streamState = {
               ...transition.state,
@@ -1881,23 +1885,38 @@ export class WorkspaceRuntime {
     streamState: StoreState,
     activeStreamSessionIds: string[],
     options: VisibleStreamStateOptions = {},
+    latency?: { sessionId: string; event: string; data: Record<string, unknown> },
   ) {
+    const visibleStreamState = options.rebuildProjectionViews
+      ? rebuildProjectionViews(streamState)
+      : streamState;
     this.store.setState((prev) => ({
       ...prev,
-      messages: streamState.messages,
-      activeProjectionsByKey: streamState.activeProjectionsByKey,
-      orchestrationSnapshot: streamState.orchestrationSnapshot,
-      activeTurnSnapshot: streamState.activeTurnSnapshot,
+      messages: visibleStreamState.messages,
+      activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
+      orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
+      activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
       taskGraphLiveMonitor: options.preserveTaskGraphLiveMonitor ? prev.taskGraphLiveMonitor : null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
-      chatStreamConnectionStatus: streamState.chatStreamConnectionStatus,
-      sessionActivity: streamState.sessionActivity,
+      chatStreamConnectionStatus: visibleStreamState.chatStreamConnectionStatus,
+      sessionActivity: visibleStreamState.sessionActivity,
       sessionActivitiesById: {
         ...prev.sessionActivitiesById,
-        ...streamState.sessionActivitiesById,
+        ...visibleStreamState.sessionActivitiesById,
       },
     }));
+    if (latency?.sessionId) {
+      this.streamingSessionCache.set(latency.sessionId, {
+        messages: visibleStreamState.messages,
+        activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
+        orchestrationSnapshot: visibleStreamState.orchestrationSnapshot,
+        activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
+      });
+    }
+    if (latency) {
+      this.recordChatStreamLatency(latency.sessionId, latency.event, latency.data);
+    }
   }
 
   private presentVisibleStreamState(
@@ -1912,10 +1931,13 @@ export class WorkspaceRuntime {
       return;
     }
     if (this.streamEventCanUseDeferredVisibleFlush(event, data)) {
-      this.deferVisibleStreamState(sessionId, streamState, activeStreamSessionIds, options);
+      this.deferVisibleStreamState(sessionId, streamState, activeStreamSessionIds, {
+        ...options,
+        rebuildProjectionViews: true,
+      }, event, data);
       return;
     }
-    this.flushVisibleStreamStateNow(sessionId, streamState, activeStreamSessionIds, options);
+    this.flushVisibleStreamStateNow(sessionId, streamState, activeStreamSessionIds, options, event, data);
   }
 
   private streamEventCanUseDeferredVisibleFlush(event: string, data: Record<string, unknown>) {
@@ -1931,18 +1953,24 @@ export class WorkspaceRuntime {
     streamState: StoreState,
     activeStreamSessionIds: string[],
     options: VisibleStreamStateOptions,
+    event: string,
+    data: Record<string, unknown>,
   ) {
     const existing = this.pendingVisibleStreamFlushes.get(sessionId);
     if (existing) {
       existing.streamState = streamState;
       existing.activeStreamSessionIds = activeStreamSessionIds;
       existing.options = options;
+      existing.event = event;
+      existing.data = data;
       return;
     }
     const pending: PendingVisibleStreamFlush = {
       streamState,
       activeStreamSessionIds,
       options,
+      event,
+      data,
       timer: null,
       frame: null,
     };
@@ -1959,7 +1987,11 @@ export class WorkspaceRuntime {
       if (this.removedStreamingSessionIds.has(sessionId)) {
         return;
       }
-      this.applyVisibleStreamState(latest.streamState, latest.activeStreamSessionIds, latest.options);
+      this.applyVisibleStreamState(latest.streamState, latest.activeStreamSessionIds, latest.options, {
+        sessionId,
+        event: latest.event,
+        data: latest.data,
+      });
     };
     if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
       pending.timer = window.setTimeout(() => {
@@ -1982,12 +2014,19 @@ export class WorkspaceRuntime {
     streamState: StoreState,
     activeStreamSessionIds: string[],
     options: VisibleStreamStateOptions = {},
+    event?: string,
+    data?: Record<string, unknown>,
   ) {
     this.clearPendingVisibleStreamFlush(sessionId);
     if (this.store.getState().currentSessionId !== sessionId) {
       return;
     }
-    this.applyVisibleStreamState(streamState, activeStreamSessionIds, options);
+    this.applyVisibleStreamState(
+      streamState,
+      activeStreamSessionIds,
+      options,
+      event && data ? { sessionId, event, data } : undefined,
+    );
   }
 
   private clearPendingVisibleStreamFlush(sessionId: string) {
@@ -2010,6 +2049,30 @@ export class WorkspaceRuntime {
     for (const sessionId of Array.from(this.pendingVisibleStreamFlushes.keys())) {
       this.clearPendingVisibleStreamFlush(sessionId);
     }
+  }
+
+  private recordChatStreamLatency(sessionId: string, event: string, data: Record<string, unknown>) {
+    const diagnostics = data.diagnostics && typeof data.diagnostics === "object" && !Array.isArray(data.diagnostics)
+      ? data.diagnostics as Record<string, unknown>
+      : {};
+    const hasDiagnostics = Object.keys(diagnostics).length > 0;
+    if (!hasDiagnostics) {
+      return;
+    }
+    const summary = {
+      sessionId,
+      event,
+      eventOffset: finiteNumber(data.event_offset),
+      serverEventCreatedAt: finiteNumber(diagnostics.server_event_created_at),
+      serverSseSentAt: finiteNumber(diagnostics.server_sse_sent_at),
+      clientReceivedAt: finiteNumber(diagnostics.client_received_at),
+      clientVisibleFlushedAt: clientNow(),
+      updatedAt: Date.now(),
+    };
+    this.store.setState((prev) => ({
+      ...prev,
+      chatStreamLatencySummary: summary,
+    }));
   }
 
   private async createFreshSession() {
@@ -2944,10 +3007,11 @@ export class WorkspaceRuntime {
               }
               this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data, streamRunId));
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
+              const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
               const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
                 ? this.store.getState()
                 : streamState;
-              const transition = reduceStreamEvent(baseState, transitionSession, event, data);
+              const transition = reduceStreamEvent(baseState, transitionSession, event, data, { deferProjectionViewBuild });
               this.recordProjectionCommitAck(sessionId, data);
               transitionSession = transition.session;
               const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
@@ -3332,10 +3396,11 @@ export class WorkspaceRuntime {
             }
             this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data));
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
+            const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
             const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
               ? this.store.getState()
               : streamState;
-            transition = reduceStreamEvent(baseState, transition.session, event, data);
+            transition = reduceStreamEvent(baseState, transition.session, event, data, { deferProjectionViewBuild });
             this.recordProjectionCommitAck(sessionId, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
@@ -4001,6 +4066,11 @@ export class WorkspaceRuntime {
       enabled: true,
       mode: liveDisplayEnabled ? "model_text_stream" : "public_projection_stream",
       emit_assistant_text_delta: true,
+      max_flush_interval_ms: 40,
+      max_pending_utf8_bytes: 128,
+      max_pending_line_count: 1,
+      min_event_interval_ms: 16,
+      event_budget_per_second: 30,
       source: "frontend.chat_stream_display_toggle",
     };
   }
@@ -5584,4 +5654,16 @@ export class WorkspaceRuntime {
     }
     return message;
   }
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function clientNow() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
 }

@@ -221,7 +221,10 @@ def test_runtime_feedback_prompts_do_not_force_tool_loop_public_judgment() -> No
     assert "如果还要继续调用工具，必须在 public_action_state.current_judgment" not in contents
     assert "继续工具时，public_action_state.current_judgment 必须" not in contents
     assert "如果你继续请求工具，public_action_state.current_judgment 必须" not in contents
-    assert "普通读取、搜索、缓存恢复、todo 更新和连续工具推进由系统工具生命周期展示" in contents
+    assert "普通读取、搜索、缓存恢复、todo 更新和短链路连续工具推进由系统工具生命周期展示" in contents
+    assert "普通内部读取、搜索、缓存恢复、todo 更新或短链路连续工具推进，不要重复公开判断" in contents
+    assert "跨多个文件、多个工具批次或多轮观察推进" in contents
+    assert "必须先给用户一个基于已观察事实的阶段反馈" in contents
 
 
 def test_exploration_advisory_and_read_resource_state_remain_non_deciding_facts() -> None:

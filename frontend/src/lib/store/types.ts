@@ -112,6 +112,17 @@ export type ChatStreamConnectionStatus = {
   updatedAt: number;
 };
 
+export type ChatStreamLatencySummary = {
+  sessionId: string;
+  event: string;
+  eventOffset?: number;
+  serverEventCreatedAt?: number;
+  serverSseSentAt?: number;
+  clientReceivedAt?: number;
+  clientVisibleFlushedAt?: number;
+  updatedAt: number;
+};
+
 export type UserReceiptArtifact = {
   label: string;
   path?: string;
@@ -419,6 +430,7 @@ export type StoreState = {
   isStreaming: boolean;
   activeStreamSessionIds: string[];
   chatStreamConnectionStatus: ChatStreamConnectionStatus;
+  chatStreamLatencySummary: ChatStreamLatencySummary | null;
   sessionActivity: SessionActivityState;
   sessionActivitiesById: Record<string, SessionActivityState>;
   permissionMode: PermissionMode;
@@ -530,5 +542,4 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
-
 

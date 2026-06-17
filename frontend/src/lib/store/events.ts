@@ -34,6 +34,10 @@ type StreamTransition = {
   session: StreamSession;
 };
 
+type ReduceStreamEventOptions = {
+  deferProjectionViewBuild?: boolean;
+};
+
 const TOOL_ITEM_STARTED_EVENT = "tool_item_started";
 const TOOL_ITEM_COMPLETED_EVENT = "tool_item_completed";
 const TURN_COMPLETED_EVENT = "turn_completed";
@@ -1275,7 +1279,8 @@ export function reduceStreamEvent(
   state: StoreState,
   session: StreamSession,
   event: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  options: ReduceStreamEventOptions = {},
 ): StreamTransition {
   const projectionFrame = projectionFrameFromRecord(data.public_projection_frame);
   const boundSession = bindStreamSessionAnchor(session, data);
@@ -1288,6 +1293,7 @@ export function reduceStreamEvent(
     ? applyProjectionFrame(stateWithOrchestrationBase, projectionFrame, {
         assistantId: boundSession.assistantId,
         streamAnchor: streamAnchorFromSession(boundSession),
+        deferViewBuild: options.deferProjectionViewBuild === true,
       })
     : stateWithOrchestrationBase;
   const stateWithTimelineDraft = applyChatStreamConnectionStatus(

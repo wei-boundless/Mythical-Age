@@ -13,6 +13,7 @@ type ApplyProjectionOptions = {
   assistantId?: string;
   createMessage?: boolean;
   streamAnchor?: ProjectionStreamAnchor;
+  deferViewBuild?: boolean;
 };
 
 type ProjectionStreamAnchor = {
@@ -55,9 +56,12 @@ export function applyProjectionFramesToState<T extends ProjectionPatchState>(
     activeProjectionsByKey: state.activeProjectionsByKey ?? {},
   };
   for (const frame of frames) {
-    nextState = patchProjectionMessage(nextState, frame, { createMessage: options.createMessages === true });
+    nextState = patchProjectionMessage(nextState, frame, {
+      createMessage: options.createMessages === true,
+      deferViewBuild: true,
+    });
   }
-  return nextState;
+  return rebuildProjectionViews(nextState);
 }
 
 export function applyProjectionFramesToMessages(
@@ -94,7 +98,9 @@ function patchProjectionMessage<T extends ProjectionPatchState>(
     previousProjection?.ledger,
     frame,
   );
-  const projectionView = projectionViewFromLedger(chronologicalProjectionLedger);
+  const projectionView = options.deferViewBuild
+    ? previousProjection?.view
+    : projectionViewFromLedger(chronologicalProjectionLedger);
   const keyString = chronologicalProjectionLedger.keyString || previousKey;
   const activeProjectionsByKey = keyString
     ? {
@@ -121,6 +127,27 @@ function patchProjectionMessage<T extends ProjectionPatchState>(
     sourceTurnRunId: message.sourceTurnRunId || text(frame.anchor?.turn_run_id) || undefined,
   };
   return { ...stateWithProjectionMessage, messages: nextMessages, activeProjectionsByKey };
+}
+
+export function rebuildProjectionViews<T extends ProjectionPatchState>(state: T): T {
+  const projections = state.activeProjectionsByKey ?? {};
+  const entries = Object.entries(projections);
+  if (!entries.length) {
+    return state;
+  }
+  let changed = false;
+  const activeProjectionsByKey: ProjectionPatchState["activeProjectionsByKey"] = {};
+  for (const [key, projection] of entries) {
+    const view = projectionViewFromLedger(projection.ledger);
+    activeProjectionsByKey[key] = projection.view === view
+      ? projection
+      : {
+          ...projection,
+          view,
+        };
+    changed ||= activeProjectionsByKey[key] !== projection;
+  }
+  return changed ? { ...state, activeProjectionsByKey } : state;
 }
 
 function ensureProjectionMessage<T extends ProjectionPatchState>(state: T, frame: PublicProjectionFrame, options: ApplyProjectionOptions): T {

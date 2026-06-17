@@ -129,7 +129,6 @@ describe("ChatMessage", () => {
       projectionView: projectionView({
         blocks: [
           activityArchiveBlock([progressBody, toolBlock()]),
-          bodyBlock("已经完成的正文。", 10),
         ],
       }),
     });
@@ -138,6 +137,7 @@ describe("ChatMessage", () => {
     expect(html).toContain("收口前的过程正文。");
     expect(html).toContain("aria-label=\"收口前轨迹\"");
     expect(html).toContain("public-run-activity__archive");
+    expect(html).toContain("记录");
     expect(html).toContain("public-run-activity__body-note");
     expect(html).not.toContain("本轮记录");
     expect(html).toContain("读取文件 ChatMessage.tsx");

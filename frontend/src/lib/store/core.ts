@@ -69,6 +69,7 @@ export function getDefaultState(): StoreState {
     isStreaming: false,
     activeStreamSessionIds: [],
     chatStreamConnectionStatus: { state: "idle", updatedAt: 0 },
+    chatStreamLatencySummary: null,
     sessionActivity: createIdleSessionActivity(),
     sessionActivitiesById: {},
     permissionMode: "full_access",
@@ -117,4 +118,3 @@ export function getDefaultState(): StoreState {
     centerWorkspaceTarget: null
   };
 }
-

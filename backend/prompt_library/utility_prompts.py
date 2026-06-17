@@ -33,15 +33,6 @@ SESSION_TITLE_GENERATION_PROMPT = (
     "要求不超过 10 个汉字，不要带引号，不要解释。"
 )
 
-HISTORY_SUMMARY_RECOVERY_PROMPT = (
-    "你是一名上下文压缩员。"
-    "你只负责把已有运行历史整理成后续模型可以继续工作的恢复点。"
-    "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。"
-    "请输出中文上下文恢复包，保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。"
-    "丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。"
-    "控制在 900 字以内，不要解释压缩过程。"
-)
-
 READONLY_PLANNER_ROLE_PROMPT = "\n".join(
     [
         "你是一名只读任务计划员。",
@@ -109,7 +100,6 @@ def list_builtin_utility_prompt_resources() -> tuple[PromptResource, ...]:
         ("utility.distiller.search_evidence", "Search evidence distiller", EVIDENCE_DISTILLER_PROMPT, "distiller", "deepsearch_distiller"),
         ("utility.memory.durable_recall_selector", "Durable memory recall selector", DURABLE_MEMORY_RECALL_SELECTOR_PROMPT, "memory", "durable_memory_recall"),
         ("utility.title_generation.session", "Session title generator", SESSION_TITLE_GENERATION_PROMPT, "title_generation", "model_runtime_generate_title"),
-        ("utility.summarize_history.context_recovery", "History recovery summarizer", HISTORY_SUMMARY_RECOVERY_PROMPT, "history_summary", "model_runtime_summarize_history"),
         ("utility.planner.readonly_task_plan", "Read-only task planner role", READONLY_PLANNER_ROLE_PROMPT, "planner", "readonly_planner"),
         ("utility.verifier.readonly_delivery", "Read-only delivery verifier role", READONLY_DELIVERY_VERIFIER_ROLE_PROMPT, "verifier", "readonly_delivery_verifier"),
         ("utility.repair.single_agent_admission", "Single-agent admission repair", SINGLE_AGENT_ADMISSION_REPAIR_PROMPT, "repair", "single_agent_admission_repair"),

@@ -23,6 +23,7 @@ from runtime.memory.file_evidence_scope import task_run_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 from runtime.output_boundary import canonical_output_decision_for_final_text
+from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.model_gateway.assistant_stream_frame import (
     allows_assistant_body_projection,
     assistant_message_ref,
@@ -130,7 +131,10 @@ _REPEATED_TOOL_FAILURE_BLOCK_COUNT = 4
 _DEFAULT_TASK_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TASK_TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
 _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
+_TASK_MODEL_THINKING_FEEDBACK_FIRST_DELAY_SECONDS = 0.8
+_TASK_MODEL_THINKING_FEEDBACK_INTERVAL_SECONDS = 1.5
 _TASK_MODEL_WAIT_PRESENTATION_SOURCE = "runtime.model_wait"
+_TASK_MODEL_THINKING_PRESENTATION_SOURCE = "runtime.no_public_event"
 _TASK_RUN_CONTROL_KEY = "runtime_control"
 _TASK_RUN_PAUSE_REQUESTED = "pause_requested"
 _TASK_RUN_PAUSED = "paused"
@@ -3326,7 +3330,10 @@ async def _await_task_model_action_with_status(
     )
     attach_model_task(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch, model_task=task)
     wait_round = 0
+    public_feedback_count = 0
+    started_at = time.monotonic()
     last_progress_at = time.monotonic()
+    last_public_feedback_at = 0.0
     try:
         while not task.done():
             signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
@@ -3342,6 +3349,23 @@ async def _await_task_model_action_with_status(
             if done:
                 break
             now = time.monotonic()
+            public_feedback_due = (
+                public_feedback_count == 0
+                and now - started_at >= _TASK_MODEL_THINKING_FEEDBACK_FIRST_DELAY_SECONDS
+            ) or (
+                public_feedback_count > 0
+                and now - last_public_feedback_at >= _TASK_MODEL_THINKING_FEEDBACK_INTERVAL_SECONDS
+            )
+            if public_feedback_due and public_feedback_count < 3:
+                public_feedback_count += 1
+                last_public_feedback_at = now
+                _record_task_model_thinking_public_feedback(
+                    runtime_host,
+                    task_run_id=task_run_id,
+                    step_index=step_index,
+                    wait_round=public_feedback_count,
+                    refs={"runtime_invocation_packet_ref": packet_ref},
+                )
             if now - last_progress_at >= _TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS:
                 wait_round += 1
                 last_progress_at = now
@@ -3744,9 +3768,22 @@ def _stream_policy_for_task_model_requirement(
             "enabled": True,
             "mode": str(policy.get("mode") or "model_text_stream"),
             "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+            "max_flush_interval_ms": _stream_policy_int(policy.get("max_flush_interval_ms"), default=40),
+            "max_pending_utf8_bytes": _stream_policy_int(policy.get("max_pending_utf8_bytes"), default=128),
+            "max_pending_line_count": _stream_policy_int(policy.get("max_pending_line_count"), default=1),
+            "min_event_interval_ms": _stream_policy_int(policy.get("min_event_interval_ms"), default=16),
+            "event_budget_per_second": _stream_policy_int(policy.get("event_budget_per_second"), default=30),
             "source": str(policy.get("source") or "node.contract_bindings.runtime.model_requirement.streaming_required"),
         }
     return policy
+
+
+def _stream_policy_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return int(default)
+    return parsed if parsed > 0 else int(default)
 
 
 def _truthy_config_bool(value: Any) -> bool:
@@ -8618,6 +8655,45 @@ def _record_task_model_wait_heartbeat(
                     **dict(current.diagnostics or {}),
                     "latest_step": step,
                     "latest_step_status": "running",
+                },
+            )
+        )
+    return event.to_dict()
+
+
+def _record_task_model_thinking_public_feedback(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    step_index: int,
+    wait_round: int,
+    refs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    event = runtime_host.event_log.append(
+        task_run_id,
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        payload={
+            "task_run_id": task_run_id,
+            "step": f"no_public_event_thinking:{int(step_index)}",
+            "status": "running",
+            "summary": "正在思考。",
+            "public_progress_note": "正在思考。",
+            "presentation_source": _TASK_MODEL_THINKING_PRESENTATION_SOURCE,
+            "feedback_identity": f"no-public-event-thinking:{task_run_id}:{int(step_index)}",
+            "wait_round": int(wait_round),
+        },
+        refs={"task_run_ref": task_run_id, **dict(refs or {})},
+    )
+    current = runtime_host.state_index.get_task_run(task_run_id)
+    if current is not None:
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                current,
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
+                diagnostics={
+                    **dict(current.diagnostics or {}),
+                    "latest_public_step_summary": "正在思考。",
                 },
             )
         )

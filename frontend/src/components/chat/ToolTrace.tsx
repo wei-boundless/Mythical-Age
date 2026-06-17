@@ -23,11 +23,9 @@ export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind
       <summary>
         <span className="public-run-activity__tool-round-icon" aria-hidden="true" />
         <span className="public-run-activity__tool-round-copy">
-          <span className="public-run-activity__tool-round-title">工具调用</span>
-          <span className="public-run-activity__tool-round-separator" aria-hidden="true">·</span>
           <span className="public-run-activity__tool-round-preview">{group.preview}</span>
         </span>
-        <span className="public-run-activity__tool-round-count">{group.count} 个工具</span>
+        <span className="public-run-activity__tool-round-count">{group.count} 个</span>
         <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${group.statusTone}`}>
           {group.statusLabel}
         </span>

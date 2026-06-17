@@ -293,6 +293,103 @@ def test_single_agent_turn_stream_policy_does_not_emit_json_action_delta(tmp_pat
 
     assert [event for event in events if event.get("type") == "assistant_text_delta"] == []
 
+
+class _NativeToolStreamChunk:
+    def __init__(self, content: str = "", tool_calls: list[dict[str, object]] | None = None) -> None:
+        self.content = content
+        self.tool_calls = [dict(item) for item in list(tool_calls or [])]
+
+    def __add__(self, other: object) -> "_NativeToolStreamChunk":
+        return _NativeToolStreamChunk(
+            self.content + str(getattr(other, "content", "") or ""),
+            [*self.tool_calls, *[dict(item) for item in list(getattr(other, "tool_calls", []) or [])]],
+        )
+
+
+class _StreamingNativeToolSequenceModel:
+    def __init__(self, responses: list[list[_NativeToolStreamChunk]]) -> None:
+        self.responses = [list(item) for item in responses]
+        self.calls = 0
+        self.seen_tools: list[object] = []
+
+    async def astream_messages_with_tools(self, _messages, tools, **_kwargs):
+        self.calls += 1
+        self.seen_tools.append(list(tools or []))
+        chunks = self.responses[min(self.calls - 1, max(0, len(self.responses) - 1))] if self.responses else []
+        for chunk in chunks:
+            yield chunk
+
+    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+        self.calls += 1
+        self.seen_tools.append(list(tools or []))
+        chunks = self.responses[min(self.calls - 1, max(0, len(self.responses) - 1))] if self.responses else []
+        current = _NativeToolStreamChunk()
+        for chunk in chunks:
+            current = current + chunk
+        return SimpleNamespace(content=current.content, tool_calls=current.tool_calls)
+
+
+def test_single_agent_turn_streamed_native_tool_preamble_has_single_body_source(tmp_path: Path) -> None:
+    preamble = "我先读取 requirements.txt，再回答依赖状态。"
+    model = _StreamingNativeToolSequenceModel(
+        [
+            [
+                _NativeToolStreamChunk(preamble),
+                _NativeToolStreamChunk(
+                    "",
+                    [
+                        {
+                            "id": "call-read-requirements",
+                            "name": "read_file",
+                            "args": {"path": "requirements.txt"},
+                        }
+                    ],
+                ),
+            ],
+            [_NativeToolStreamChunk("已经读取 requirements.txt。")],
+        ]
+    )
+    tool_base_dir = _project_backend_dir()
+    runtime = build_harness_runtime(
+        base_dir=_runtime_test_root(tmp_path),
+        model_runtime=model,
+        tool_runtime=_tool_runtime_for_names(tool_base_dir, {"read_file"}),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            HarnessRuntimeRequest(
+                session_id="session-streamed-native-preamble",
+                message="看看依赖文件。",
+                model_selection={
+                    "stream_policy": {
+                        "enabled": True,
+                        "emit_assistant_text_delta": True,
+                        "max_flush_interval_ms": 0,
+                    }
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    streamed_preamble = "".join(
+        str(event.get("content") or "")
+        for event in events
+        if event.get("type") == "assistant_text_delta"
+    )
+    duplicate_feedback_events = [
+        dict(event)
+        for event in events
+        if event.get("type") == "assistant_public_feedback"
+        and event.get("public_progress_note") == preamble
+    ]
+
+    assert preamble in streamed_preamble
+    assert duplicate_feedback_events == []
+
 def test_single_agent_turn_mid_turn_context_replacement_persists_recovery_package_and_recompiles_followup(tmp_path: Path) -> None:
     runtime_root = _runtime_test_root(tmp_path)
     session_manager = SessionManager(runtime_root)

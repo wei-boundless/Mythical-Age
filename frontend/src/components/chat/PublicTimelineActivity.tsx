@@ -174,6 +174,7 @@ function ActivityArchive({ entry }: { entry: ActivityEntry }) {
       open={open}
     >
       <summary>
+        <span className="public-run-activity__archive-label">记录</span>
         <span className="public-run-activity__archive-rule" aria-hidden="true" />
         <span className="public-run-activity__archive-meta">
           {entry.detail || `${entry.archiveCount ?? entries.length} 条`}

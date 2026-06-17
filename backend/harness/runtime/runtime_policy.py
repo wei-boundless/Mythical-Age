@@ -40,6 +40,11 @@ def model_stream_policy_from_task_execution_assembly(
         "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),
         "fallback_timeout_seconds": float(policy.get("fallback_timeout_seconds") or 0),
         "forced_tool_timeout_seconds": float(policy.get("forced_tool_timeout_seconds") or 0),
+        "max_flush_interval_ms": _safe_int(policy.get("max_flush_interval_ms")),
+        "max_pending_utf8_bytes": _safe_int(policy.get("max_pending_utf8_bytes")),
+        "max_pending_line_count": _safe_int(policy.get("max_pending_line_count")),
+        "min_event_interval_ms": _safe_int(policy.get("min_event_interval_ms")),
+        "event_budget_per_second": _safe_int(policy.get("event_budget_per_second")),
         "authority": "harness.runtime.agent_stream_policy",
     }
 

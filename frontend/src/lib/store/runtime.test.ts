@@ -3924,6 +3924,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:fresh");
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
+    expect(api.streamChat.mock.calls[0]?.[0]?.model_selection?.stream_policy).toEqual(expect.objectContaining({
+      enabled: true,
+      max_flush_interval_ms: 40,
+      max_pending_utf8_bytes: 128,
+      min_event_interval_ms: 16,
+      event_budget_per_second: 30,
+    }));
   });
 
   it("coalesces visible assistant body deltas and flushes immediately on final text", async () => {
@@ -3941,12 +3948,22 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         sequence: 1,
         content: "甲",
         event_offset: 1,
+        diagnostics: {
+          server_event_created_at: 10,
+          server_sse_sent_at: 11,
+          client_received_at: 12,
+        },
         public_projection_frame: publicBodyFrame({ text: "甲" }),
       });
       streamHandlers.onEvent("assistant_text_delta", {
         sequence: 2,
         content: "乙",
         event_offset: 2,
+        diagnostics: {
+          server_event_created_at: 20,
+          server_sse_sent_at: 21,
+          client_received_at: 22,
+        },
         public_projection_frame: publicBodyFrame({ text: "乙" }),
       });
       return new Promise((resolve) => {
@@ -3979,6 +3996,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(store.getState().messages.at(-1)?.content).toBe("");
     expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙");
+    expect(store.getState().chatStreamLatencySummary).toEqual(expect.objectContaining({
+      sessionId: "session:visible-stream",
+      event: "assistant_text_delta",
+      eventOffset: 2,
+      serverEventCreatedAt: 20,
+      serverSseSentAt: 21,
+      clientReceivedAt: 22,
+      clientVisibleFlushedAt: expect.any(Number),
+    }));
 
     const activeHandlers = requireStreamHandlers(handlers);
     activeHandlers.onEvent("assistant_text_final", {
@@ -5756,6 +5782,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: true,
         mode: "model_text_stream",
         emit_assistant_text_delta: true,
+        max_flush_interval_ms: 40,
+        max_pending_utf8_bytes: 128,
+        max_pending_line_count: 1,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 30,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5893,6 +5924,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: true,
         mode: "model_text_stream",
         emit_assistant_text_delta: true,
+        max_flush_interval_ms: 40,
+        max_pending_utf8_bytes: 128,
+        max_pending_line_count: 1,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 30,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5982,6 +6018,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         enabled: true,
         mode: "public_projection_stream",
         emit_assistant_text_delta: true,
+        max_flush_interval_ms: 40,
+        max_pending_utf8_bytes: 128,
+        max_pending_line_count: 1,
+        min_event_interval_ms: 16,
+        event_budget_per_second: 30,
         source: "frontend.chat_stream_display_toggle",
       },
     });

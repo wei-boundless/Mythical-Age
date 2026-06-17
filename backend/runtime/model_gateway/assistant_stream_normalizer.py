@@ -38,6 +38,26 @@ class AssistantStreamDiagnostics:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class AssistantStreamPolicy:
+    max_flush_interval_ms: int = 80
+    max_pending_utf8_bytes: int = 256
+    max_pending_line_count: int = 1
+    min_event_interval_ms: int = 0
+    event_budget_per_second: int = 0
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any] | None) -> "AssistantStreamPolicy":
+        policy = dict(value or {})
+        return cls(
+            max_flush_interval_ms=_bounded_int(policy.get("max_flush_interval_ms"), default=80, minimum=0, maximum=1000),
+            max_pending_utf8_bytes=_bounded_int(policy.get("max_pending_utf8_bytes"), default=256, minimum=1, maximum=4096),
+            max_pending_line_count=_bounded_int(policy.get("max_pending_line_count"), default=1, minimum=1, maximum=20),
+            min_event_interval_ms=_bounded_int(policy.get("min_event_interval_ms"), default=0, minimum=0, maximum=1000),
+            event_budget_per_second=_bounded_int(policy.get("event_budget_per_second"), default=0, minimum=0, maximum=240),
+        )
+
+
 class AssistantStreamNormalizer:
     def __init__(
         self,
@@ -51,6 +71,8 @@ class AssistantStreamNormalizer:
         max_flush_interval_ms: int = 80,
         max_pending_utf8_bytes: int = 256,
         max_pending_line_count: int = 1,
+        min_event_interval_ms: int = 0,
+        event_budget_per_second: int = 0,
         safety_prefix_utf8_limit: int = 512,
     ) -> None:
         self.stream_ref = str(stream_ref or "")
@@ -62,6 +84,8 @@ class AssistantStreamNormalizer:
         self.max_flush_interval_ms = max(0, int(max_flush_interval_ms))
         self.max_pending_utf8_bytes = max(1, int(max_pending_utf8_bytes))
         self.max_pending_line_count = max(1, int(max_pending_line_count))
+        self.min_event_interval_ms = max(0, int(min_event_interval_ms))
+        self.event_budget_per_second = max(0, int(event_budget_per_second))
         self.safety_prefix_utf8_limit = max(1, int(safety_prefix_utf8_limit))
         self.latest_sequence = 0
         self.safety_gate_open = False
@@ -74,6 +98,37 @@ class AssistantStreamNormalizer:
         self._pending_since = time.monotonic()
         self._last_flush = self._pending_since
         self._coalesce_latency_ms_total = 0.0
+        self._event_budget_window_started = self._pending_since
+        self._event_budget_window_count = 0
+
+    @classmethod
+    def from_policy(
+        cls,
+        *,
+        stream_ref: str,
+        message_ref: str = "",
+        turn_run_id: str = "",
+        task_run_id: str = "",
+        answer_source: str = "",
+        answer_channel: str = "conversation",
+        stream_policy: dict[str, Any] | None = None,
+        safety_prefix_utf8_limit: int = 512,
+    ) -> "AssistantStreamNormalizer":
+        policy = AssistantStreamPolicy.from_dict(stream_policy)
+        return cls(
+            stream_ref=stream_ref,
+            message_ref=message_ref,
+            turn_run_id=turn_run_id,
+            task_run_id=task_run_id,
+            answer_source=answer_source,
+            answer_channel=answer_channel,
+            max_flush_interval_ms=policy.max_flush_interval_ms,
+            max_pending_utf8_bytes=policy.max_pending_utf8_bytes,
+            max_pending_line_count=policy.max_pending_line_count,
+            min_event_interval_ms=policy.min_event_interval_ms,
+            event_budget_per_second=policy.event_budget_per_second,
+            safety_prefix_utf8_limit=safety_prefix_utf8_limit,
+        )
 
     def observe_delta(self, delta: str) -> list[dict[str, Any]]:
         text = str(delta or "")
@@ -99,6 +154,11 @@ class AssistantStreamNormalizer:
     def mark_final_content(self, final_content: str) -> None:
         if self.latest_sequence > 0 and content_sha256(self.emitted_content) != content_sha256(str(final_content or "")):
             self.final_checksum_mismatch_total += 1
+
+    def has_emitted_public_text(self, value: str) -> bool:
+        target = _normalized_public_text(value)
+        emitted = _normalized_public_text(self.emitted_content)
+        return bool(target and emitted and target == emitted)
 
     def diagnostics(self) -> AssistantStreamDiagnostics:
         latency = self._coalesce_latency_ms_total / self.latest_sequence if self.latest_sequence > 0 else 0.0
@@ -140,12 +200,15 @@ class AssistantStreamNormalizer:
     def _drain_pending(self, *, force: bool, now: float) -> list[AssistantStreamFrame]:
         frames: list[AssistantStreamFrame] = []
         while self.pending_content:
+            if not force and not self._can_emit_event(now):
+                break
             chunk = self._next_slice(force=force, now=now)
             if not chunk:
                 break
             frames.append(self._frame_from_chunk(chunk, now=now))
             self.pending_content = self.pending_content[len(chunk):]
             self._last_flush = now
+            self._record_event_budget(now)
             if not force:
                 break
         return frames
@@ -204,6 +267,26 @@ class AssistantStreamNormalizer:
             return _take_codepoints(pending, min(len([*pending]), 24))
         return ""
 
+    def _can_emit_event(self, now: float) -> bool:
+        if self.latest_sequence > 0 and self.min_event_interval_ms > 0:
+            elapsed_ms = (now - self._last_flush) * 1000
+            if elapsed_ms < self.min_event_interval_ms:
+                return False
+        if self.event_budget_per_second <= 0:
+            return True
+        if now - self._event_budget_window_started >= 1.0:
+            self._event_budget_window_started = now
+            self._event_budget_window_count = 0
+        return self._event_budget_window_count < self.event_budget_per_second
+
+    def _record_event_budget(self, now: float) -> None:
+        if self.event_budget_per_second <= 0:
+            return
+        if now - self._event_budget_window_started >= 1.0:
+            self._event_budget_window_started = now
+            self._event_budget_window_count = 0
+        self._event_budget_window_count += 1
+
 
 def _markdown_state(text: str) -> dict[str, Any]:
     fences = str(text or "").count("```")
@@ -230,6 +313,10 @@ def _display_hint(chunk: str) -> dict[str, Any]:
         "pause": pause,
         "atomic": atomic,
     }
+
+
+def _normalized_public_text(value: str) -> str:
+    return " ".join(str(value or "").split()).strip()
 
 
 def _line_slice(text: str, *, max_lines: int) -> str:
@@ -294,3 +381,11 @@ def _take_utf8_budget(text: str, budget: int) -> str:
             break
         collected = candidate
     return collected or _take_codepoints(text, 1)
+
+
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return min(max(parsed, int(minimum)), int(maximum))

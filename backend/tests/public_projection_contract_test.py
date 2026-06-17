@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
+
 from api.chat import (
     _agent_todo_observation_summary,
     _append_chat_public_event,
     _is_task_executor_handoff_terminal,
     _project_public_stream_event,
+    get_chat_run_events,
 )
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
@@ -21,6 +25,8 @@ from runtime.output_stream.public_contract import (
     TURN_COMPLETED_EVENT,
 )
 from runtime.shared.runtime_run_registry import RuntimeRun
+from runtime.shared.events import RuntimeEvent
+from runtime.shared.stream_replay import RuntimeStreamReplayService
 from runtime.tool_runtime import ToolObservation
 
 
@@ -77,6 +83,77 @@ class _ReplaySpy:
             offset = run.latest_event_offset + 1
 
         return _Logged()
+
+
+def test_chat_run_events_uses_unbuffered_sse_headers(monkeypatch) -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+
+    async def empty_stream(*_args: object, **_kwargs: object):
+        if False:
+            yield ""
+
+    monkeypatch.setattr("api.chat.require_runtime", lambda: object())
+    monkeypatch.setattr("api.chat._get_run_or_404", lambda _runtime, _stream_run_id: run)
+    monkeypatch.setattr("api.chat._resolve_after_offset", lambda *_args, **_kwargs: -1)
+    monkeypatch.setattr("api.chat._stream_run_events", empty_stream)
+
+    response = asyncio.run(get_chat_run_events("strun:test"))
+
+    assert response.media_type == "text/event-stream"
+    assert response.headers["Cache-Control"] == "no-cache, no-transform"
+    assert response.headers["Connection"] == "keep-alive"
+    assert response.headers["X-Accel-Buffering"] == "no"
+
+
+def test_stream_replay_sse_diagnostics_do_not_mutate_projection_frame() -> None:
+    run = RuntimeRun(
+        stream_run_id="strun:test",
+        session_id="session:test",
+        event_log_id="chatrun:test",
+        root_request_ref="chatreq:test",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    event = RuntimeEvent(
+        event_id="event:test",
+        run_id="chatrun:test",
+        event_type="chat_stream_event",  # type: ignore[arg-type]
+        offset=7,
+        created_at=123.456,
+        payload={
+            "public_event_type": ASSISTANT_TEXT_FINAL_EVENT,
+            "data": {
+                "content": "完成。",
+                "public_projection_frame": {
+                    "authority": PUBLIC_PROJECTION_AUTHORITY,
+                    "frame_id": "frame:test",
+                    "op": "body_finalize",
+                    "slot": "body",
+                    "main_visibility": "visible_final",
+                    "retention": "final",
+                    "text": "完成。",
+                },
+            },
+        },
+    )
+
+    sse = RuntimeStreamReplayService(event_log=None).to_public_sse(run, event)  # type: ignore[arg-type]
+    data_line = next(line for line in sse.splitlines() if line.startswith("data: "))
+    payload = json.loads(data_line.removeprefix("data: "))
+
+    assert payload["diagnostics"]["server_event_created_at"] == 123.456
+    assert "server_sse_sent_at" in payload["diagnostics"]
+    assert payload["public_projection_frame"]["text"] == "完成。"
+    assert "diagnostics" not in payload["public_projection_frame"]
 
 
 def test_public_projection_frame_exposes_dual_channel_contract() -> None:
@@ -616,6 +693,41 @@ def test_assistant_public_feedback_projects_as_body_frame() -> None:
     assert frame["source_authority"] == "model"
     assert frame["main_visibility"] == "visible_live"
     assert frame["text"] == "已确认目标文件完整可用。"
+
+
+def test_no_public_event_feedback_projects_only_thinking_text() -> None:
+    events = _project_public_stream_event(
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        {
+            "runtime_event_id": "event:thinking:1",
+            "task_run_id": "taskrun:thinking",
+            "step": "no_public_event_thinking:1",
+            "status": "running",
+            "summary": "正在思考。",
+            "public_progress_note": "正在思考。",
+            "presentation_source": "runtime.no_public_event",
+            "feedback_identity": "no-public-event-thinking:taskrun:thinking:1",
+        },
+    )
+
+    frame = project_public_projection_event(
+        events[0][0],
+        events[0][1],
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+
+    assert frame["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
+    assert frame["text"] == "正在思考。"
+    assert "action" not in frame["text"].lower()
+    assert "tool" not in frame["text"].lower()
+    replay_frame = project_public_projection_event(
+        events[0][0],
+        events[0][1],
+        session_id="session:test",
+        sequence=2,
+    )["public_projection_frame"]
+    assert replay_frame["item_id"] == frame["item_id"]
 
 
 def test_model_action_feedback_identity_keeps_replayed_body_frame_stable() -> None:
