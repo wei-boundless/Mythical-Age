@@ -94,6 +94,13 @@ def _interrupted_turn() -> TurnRun:
             "latest_step": "tool_budget_closeout",
             "latest_step_summary": "已读取 fps_game.html 的敌人生成和移动逻辑，尚未完成最终修复判断。",
             "latest_runtime_control_signal": {"signal_kind": "tool_budget_exhausted"},
+            "assistant_visible_stream_continuity": {
+                "content": "我已经定位到敌人生成逻辑，接下来",
+                "content_sha256": "sha256:test-visible-prefix",
+                "content_utf8_bytes": 54,
+                "truncated_from_start": False,
+                "authority": "harness.loop.single_agent_turn.assistant_stream_continuity",
+            },
         },
     )
 
@@ -130,7 +137,7 @@ def test_selector_builds_recoverable_continuation_record_from_waiting_executor()
     assert selection.record.latest_progress
 
 
-def test_selector_builds_read_only_interrupted_turn_context_from_tool_limit() -> None:
+def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit() -> None:
     selection = select_session_continuation(
         _Host([], turn_runs=[_interrupted_turn()]),
         session_id="session-continuation",
@@ -138,11 +145,14 @@ def test_selector_builds_read_only_interrupted_turn_context_from_tool_limit() ->
 
     assert selection.record is None
     assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.state == "interrupted_read_only"
+    assert selection.interrupted_turn.state == "interrupted_continuation_context"
     assert selection.interrupted_turn.resume_allowed is False
     assert selection.interrupted_turn.turn_run_id == "turnrun:session-continuation:4:def"
     assert selection.interrupted_turn.interruption_kind == "tool_budget_exhausted"
+    assert selection.interrupted_turn.visible_assistant_prefix == "我已经定位到敌人生成逻辑，接下来"
+    assert selection.interrupted_turn.visible_assistant_prefix_sha256 == "sha256:test-visible-prefix"
     assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
+    assert "已公开" in selection.interrupted_turn.model_visible_summary
 
 
 def test_selector_does_not_reuse_old_interrupted_turn_after_newer_completed_turn() -> None:
@@ -290,7 +300,11 @@ def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_
         session_id="session-continuation",
     ).record
     assert record is not None
-    recovery_packet = build_recovery_packet(record, resume_intent="user_requested_resume")
+    recovery_packet = build_recovery_packet(
+        record,
+        resume_intent="user_requested_resume",
+        user_resume_instruction="继续，并优先处理刚才新增的 steer。",
+    )
 
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session-continuation",
@@ -318,4 +332,5 @@ def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_
     assert projected["continuation_id"] == record.continuation_id
     assert projected["task_run_id"] == record.task_run_id
     assert projected["resume_intent"] == "user_requested_resume"
+    assert projected["user_resume_instruction"] == "继续，并优先处理刚才新增的 steer。"
     assert "recovery_packet" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]

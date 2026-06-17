@@ -3801,11 +3801,14 @@ export class WorkspaceRuntime {
       enabled: true,
       mode: liveDisplayEnabled ? "model_text_stream" : "public_projection_stream",
       emit_assistant_text_delta: true,
-      max_flush_interval_ms: 24,
-      max_pending_utf8_bytes: 64,
+      upstream_reconnect_enabled: true,
+      partial_stream_recovery: "continue_from_visible_prefix",
+      chunk_strategy: "typing",
+      max_flush_interval_ms: 16,
+      max_pending_utf8_bytes: 24,
       max_pending_line_count: 1,
-      min_event_interval_ms: 8,
-      event_budget_per_second: 60,
+      min_event_interval_ms: 0,
+      event_budget_per_second: 120,
       source: "frontend.chat_stream_display_toggle",
     };
   }

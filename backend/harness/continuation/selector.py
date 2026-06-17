@@ -258,6 +258,8 @@ def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuat
         diagnostics.get("latest_tool_batch_event"),
         diagnostics.get("terminal_event_type"),
     )
+    visible_stream = dict(diagnostics.get("assistant_visible_stream_continuity") or {})
+    visible_prefix = str(visible_stream.get("content") or "").strip()
     event_cursor = _int_value(getattr(turn_run, "latest_event_offset", -1), -1)
     control_version = _int_value(diagnostics.get("continuation_control_version"), 0)
     now = now_timestamp()
@@ -273,6 +275,10 @@ def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuat
         latest_progress=latest_progress,
         latest_step=latest_step,
         next_recommended_step=_interrupted_turn_next_step(interruption_kind),
+        visible_assistant_prefix=visible_prefix,
+        visible_assistant_prefix_sha256=str(visible_stream.get("content_sha256") or ""),
+        visible_assistant_prefix_truncated=bool(visible_stream.get("truncated_from_start") is True),
+        visible_assistant_prefix_utf8_bytes=_int_value(visible_stream.get("content_utf8_bytes"), 0),
         event_log_ref=turn_run_id,
         event_cursor=event_cursor,
         model_visible_summary=_interrupted_turn_model_visible_summary(
@@ -281,6 +287,7 @@ def _record_from_interrupted_turn_run(turn_run: Any) -> InterruptedTurnContinuat
             interruption_kind=interruption_kind,
             terminal_reason=terminal_reason,
             status=status,
+            visible_assistant_prefix_present=bool(visible_prefix),
         ),
         created_at=now,
         updated_at=float(getattr(turn_run, "updated_at", 0.0) or now),
@@ -317,10 +324,10 @@ def _interrupted_turn_kind(*, terminal_reason: str, status: str, diagnostics: di
 
 def _interrupted_turn_next_step(interruption_kind: str) -> str:
     if interruption_kind == "tool_budget_exhausted":
-        return "继续上一轮普通对话工作；优先复用当前 packet 中未过期的 exact read evidence，再完成上轮未收口的验证或回复。"
+        return "继续上一轮普通对话工作；优先复用当前 packet 中未过期的 exact read evidence，并接续已公开但未提交的 assistant 前缀。"
     if interruption_kind == "agent_contract_feedback_required":
-        return "继续上一轮普通对话工作；根据合同反馈产出合法 action，不要让系统代写用户正文。"
-    return "继续上一轮普通对话工作；把该记录当作同一 session 的只读上下文，必要时再读取缺失或过期证据。"
+        return "继续上一轮普通对话工作；根据合同反馈产出合法 action，不要让系统代写用户正文，不要重复已公开前缀。"
+    return "继续上一轮普通对话工作；把该记录当作同一 session 的连续上下文，必要时再读取缺失或过期证据。"
 
 
 def _interrupted_turn_model_visible_summary(
@@ -330,8 +337,11 @@ def _interrupted_turn_model_visible_summary(
     interruption_kind: str,
     terminal_reason: str,
     status: str,
+    visible_assistant_prefix_present: bool = False,
 ) -> str:
     parts = ["上下文：上一轮普通对话 turn 在运行边界中断，属于同一会话的可延续工作上下文。"]
+    if visible_assistant_prefix_present:
+        parts.append("已公开输出：上一轮存在已显示给用户但尚未最终提交的 assistant 正文前缀，本轮需要从该前缀之后继续，不要重复。")
     if latest_progress:
         parts.append(f"已确认进度：{latest_progress}")
     if latest_step:

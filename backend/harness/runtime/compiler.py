@@ -591,7 +591,8 @@ class RuntimeCompiler:
         if recoverable_work_payload:
             dynamic_payload["recoverable_work"] = recoverable_work_payload
         interrupted_turn_payload = _interrupted_turn_work_model_visible_payload(
-            session_context_payload.get("interrupted_turn_work")
+            session_context_payload.get("interrupted_turn_work"),
+            current_user_message=user_message,
         )
         if interrupted_turn_payload:
             dynamic_payload["interrupted_turn_work"] = interrupted_turn_payload
@@ -2716,22 +2717,42 @@ def _continuation_record_model_visible_payload(record: dict[str, Any] | None) ->
     )
 
 
-def _interrupted_turn_work_model_visible_payload(record: dict[str, Any] | None) -> dict[str, Any]:
+def _interrupted_turn_work_model_visible_payload(
+    record: dict[str, Any] | None,
+    *,
+    current_user_message: str = "",
+) -> dict[str, Any]:
     payload = dict(record or {})
     if not payload:
         return {}
     if str(payload.get("authority") or "") != "harness.continuation.interrupted_turn_record":
         return {}
-    if str(payload.get("state") or "") != "interrupted_read_only":
+    if str(payload.get("state") or "") != "interrupted_continuation_context":
         return {}
+    visible_prefix = str(payload.get("visible_assistant_prefix") or "")
+    visible_prefix_payload = _drop_empty_payload(
+        {
+            "content": visible_prefix,
+            "content_sha256": str(payload.get("visible_assistant_prefix_sha256") or ""),
+            "content_utf8_bytes": _safe_int(payload.get("visible_assistant_prefix_utf8_bytes")),
+            "truncated_from_start": bool(payload.get("visible_assistant_prefix_truncated") is True),
+            "continuation_rule": (
+                "Do not repeat this already visible assistant prefix. Continue from the next useful token, "
+                "and only restate context if the user explicitly asks for a recap."
+            )
+            if visible_prefix
+            else "",
+        }
+    )
     return _drop_empty_payload(
         {
             "continuation_id": str(payload.get("continuation_id") or ""),
             "turn_run_id": str(payload.get("turn_run_id") or ""),
             "turn_id": str(payload.get("turn_id") or ""),
-            "state": "interrupted_read_only",
+            "state": "interrupted_continuation_context",
+            "continuation_allowed": True,
             "resume_allowed": False,
-            "resume_strategy": str(payload.get("resume_strategy") or "read_only_next_turn_continuation"),
+            "resume_strategy": str(payload.get("resume_strategy") or "continue_next_single_agent_turn"),
             "interruption_kind": str(payload.get("interruption_kind") or ""),
             "terminal_status": str(payload.get("terminal_status") or ""),
             "terminal_reason": str(payload.get("terminal_reason") or ""),
@@ -2739,6 +2760,8 @@ def _interrupted_turn_work_model_visible_payload(record: dict[str, Any] | None) 
             "latest_step": str(payload.get("latest_step") or ""),
             "next_recommended_step": str(payload.get("next_recommended_step") or ""),
             "model_visible_summary": str(payload.get("model_visible_summary") or ""),
+            "current_user_instruction": _compact_text(current_user_message, limit=4000),
+            "visible_assistant_prefix": visible_prefix_payload,
             "evidence_continuity": {
                 "current_packet_exact_evidence_ref": "Task current exact read evidence",
                 "reuse_rule": (
@@ -2746,10 +2769,15 @@ def _interrupted_turn_work_model_visible_payload(record: dict[str, Any] | None) 
                     "Reuse visible exact evidence when it is present and not stale; re-read only when missing, stale, changed, or too coarse for the requested judgment."
                 ),
             },
-            "allowed_followup_posture": "ordinary_turn_decision_context_only",
+            "followup_contract": [
+                "Treat the current user request as a continuation of the interrupted ordinary conversation turn.",
+                "Continue from latest_progress, exact read evidence, and visible_assistant_prefix instead of starting a new unrelated answer.",
+                "If visible_assistant_prefix.content is present, do not repeat that prefix; append the missing continuation.",
+            ],
+            "allowed_followup_posture": "ordinary_turn_continuation",
             "forbidden_action": "resume_recoverable_work",
-            "read_only_context": True,
-            "boundary_code": "interrupted_single_agent_turn_observation_only",
+            "read_only_context": False,
+            "boundary_code": "interrupted_single_agent_turn_continuation_context",
             "authority": "harness.runtime.interrupted_turn_work_projection",
         }
     )
@@ -2786,6 +2814,7 @@ def _recovery_packet_model_visible_payload(packet: dict[str, Any] | None) -> dic
             "continuation_id": str(payload.get("continuation_id") or ""),
             "task_run_id": str(payload.get("task_run_id") or ""),
             "resume_intent": str(payload.get("resume_intent") or ""),
+            "user_resume_instruction": _compact_text(payload.get("user_resume_instruction") or "", limit=4000),
             "user_visible_goal": str(payload.get("user_visible_goal") or ""),
             "confirmed_progress": [
                 str(item)

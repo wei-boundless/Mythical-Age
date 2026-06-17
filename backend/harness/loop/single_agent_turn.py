@@ -34,13 +34,15 @@ from runtime.cache_manager import DEFAULT_SANDBOX_CACHE_TTL_SECONDS, runtime_cac
 from runtime.prompt_accounting.serializer import normalize_messages
 from runtime.prompt_accounting import ContextUsageMeter
 from runtime.model_gateway.assistant_stream_frame import (
+    ASSISTANT_STREAM_REPAIR_EVENT,
+    ASSISTANT_TEXT_DELTA_EVENT,
     assistant_final_stream_events,
     assistant_message_ref,
 )
 from runtime.model_gateway.assistant_stream_normalizer import AssistantStreamNormalizer
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
-from runtime.model_gateway.model_runtime import stringify_content
+from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
 from runtime.output_boundary import (
     CanonicalFinalTextDecision,
     canonical_output_decision_for_final_text,
@@ -73,6 +75,7 @@ _DEFAULT_SINGLE_TURN_TOOL_ITERATIONS = 16
 _MAX_CONFIGURED_SINGLE_TURN_TOOL_ITERATIONS = 32
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
 _TOOL_BATCH_CANCEL_DRAIN_SECONDS = 1.0
+_ASSISTANT_VISIBLE_STREAM_CONTEXT_MAX_CHARS = 12000
 
 
 def _configured_single_turn_tool_iterations() -> int:
@@ -92,6 +95,7 @@ _TOOL_LIMIT_CLOSEOUT_SOURCE = "harness.single_agent_turn.tool_limit_closeout"
 _AGENT_CLOSEOUT_SOURCE = "harness.single_agent_turn.agent_closeout"
 _AGENT_CONTRACT_FEEDBACK_SOURCE = "harness.single_agent_turn.agent_contract_feedback"
 _ASSISTANT_CONTENT_PREAMBLE_PROGRESS_SOURCE = "model_action.assistant_content_preamble"
+_PARTIAL_STREAM_RECOVERY_SOURCE = "harness.single_agent_turn.partial_stream_recovery"
 _CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD = 3
 _MAX_SINGLE_TURN_PROTOCOL_RECOVERY_ATTEMPTS = 3
 _CONTROL_ACTION_NAMES = {"request_task_run", "active_work_control", "resume_recoverable_work", "ask_user", "block"}
@@ -1029,12 +1033,31 @@ async def run_single_agent_turn(
         )
         api_protocol_messages: list[dict[str, Any]] = []
         assistant_stream_normalizer: AssistantStreamNormalizer | None = None
+        assistant_visible_stream_continuity: dict[str, Any] = {}
         current_packet_ref = str(compilation.packet.packet_id)
         current_allowed_action_types = tuple(compilation.packet.allowed_action_types)
         current_available_tools = tuple(compilation.packet.available_tools or ())
         current_requires_json_action = single_agent_requires_json_action
         protocol_recovery_attempts = 0
         tool_observation_payloads: list[dict[str, Any]] = []
+
+        def capture_assistant_stream_event(event: dict[str, Any]) -> None:
+            nonlocal assistant_visible_stream_continuity
+            assistant_visible_stream_continuity = _assistant_stream_continuity_after_event(
+                assistant_visible_stream_continuity,
+                event,
+                turn_id=turn_id,
+            )
+
+        def terminal_payload_with_stream_continuity(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            continuity = dict(assistant_visible_stream_continuity or {})
+            if not continuity:
+                return dict(payload or {})
+            return {
+                **dict(payload or {}),
+                "assistant_visible_stream_continuity": continuity,
+            }
+
         async def emit_terminal_then_final(
             *,
             content: str,
@@ -1092,7 +1115,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     status=effective_terminal_status,
                     terminal_reason=effective_terminal_reason,
-                    payload=terminal_payload,
+                    payload=terminal_payload_with_stream_continuity(terminal_payload),
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
@@ -1361,6 +1384,7 @@ async def run_single_agent_turn(
                     closeout_response = model_event.get("response")
                     assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                     continue
+                capture_assistant_stream_event(model_event)
                 yield model_event
 
             answer_source = _TOOL_LIMIT_CLOSEOUT_SOURCE
@@ -1447,6 +1471,7 @@ async def run_single_agent_turn(
                             recovery_response = model_event.get("response")
                             assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                             continue
+                        capture_assistant_stream_event(model_event)
                         yield model_event
                     closeout_parse = _single_agent_action_request_from_response(
                         recovery_response,
@@ -1565,6 +1590,7 @@ async def run_single_agent_turn(
                 response = model_event.get("response")
                 assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                 continue
+            capture_assistant_stream_event(model_event)
             yield model_event
         tool_iteration = 0
         tool_observation_payloads = []
@@ -1665,6 +1691,7 @@ async def run_single_agent_turn(
                         response = model_event.get("response")
                         assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                         continue
+                    capture_assistant_stream_event(model_event)
                     yield model_event
                 continue
             tool_actions = list(action_parse.tool_actions)
@@ -2139,6 +2166,7 @@ async def run_single_agent_turn(
                     response = model_event.get("response")
                     assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                     continue
+                capture_assistant_stream_event(model_event)
                 yield model_event
         if isinstance(response, dict) and response.get("type") == "error":
             if runtime_host is not None and turn_run is not None:
@@ -2148,6 +2176,7 @@ async def run_single_agent_turn(
                     turn_id=turn_id,
                     status="failed",
                     terminal_reason=str(response.get("code") or "single_agent_turn_failed"),
+                    payload=terminal_payload_with_stream_continuity(),
                 )
                 terminal_recorded = True
                 yield {"type": "agent_turn_terminal", "event": terminal}
@@ -2249,6 +2278,7 @@ async def run_single_agent_turn(
                         response = model_event.get("response")
                         assistant_stream_normalizer = model_event.get("assistant_stream_normalizer")
                         continue
+                    capture_assistant_stream_event(model_event)
                     yield model_event
         if action_parse.error:
             async for event in emit_agent_authored_closeout(
@@ -2463,7 +2493,7 @@ async def run_single_agent_turn(
                         turn_id=turn_id,
                         status=request_task_terminal_status,
                         terminal_reason=request_task_terminal_reason,
-                        payload={"action_request_ref": action_request.request_id},
+                        payload=terminal_payload_with_stream_continuity({"action_request_ref": action_request.request_id}),
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
@@ -2616,7 +2646,7 @@ async def run_single_agent_turn(
                         turn_id=turn_id,
                         status=terminal_status,
                         terminal_reason=terminal_reason,
-                        payload={"action_request_ref": action_request.request_id},
+                        payload=terminal_payload_with_stream_continuity({"action_request_ref": action_request.request_id}),
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
@@ -2677,7 +2707,7 @@ async def run_single_agent_turn(
                         turn_id=turn_id,
                         status=terminal_status,
                         terminal_reason=terminal_reason,
-                        payload={"action_request_ref": action_request.request_id},
+                        payload=terminal_payload_with_stream_continuity({"action_request_ref": action_request.request_id}),
                     )
                     terminal_recorded = True
                     yield {"type": "agent_turn_terminal", "event": terminal}
@@ -2762,6 +2792,7 @@ async def run_single_agent_turn(
                 turn_id=turn_id,
                 status="aborted",
                 terminal_reason="stream_cancelled",
+                payload=terminal_payload_with_stream_continuity(),
             )
             terminal_recorded = True
         raise
@@ -2951,6 +2982,119 @@ async def _invoke_single_turn_model_with_stream_events(
             return
     except Exception as exc:
         logger.exception("single agent turn streaming model invocation failed")
+        if _partial_stream_recovery_enabled(
+            stream_policy,
+            raw_content=raw_content,
+            emit_assistant_text_delta=emit_assistant_text_delta,
+            require_json_action=require_json_action,
+            error=exc,
+        ):
+            if assistant_normalizer is not None:
+                for frame_event in assistant_normalizer.flush():
+                    yield frame_event
+            recovery_context = {
+                **dict(accounting_context or {}),
+                "request_id": f"{stream_ref}:partial-stream-recovery",
+                "source": _PARTIAL_STREAM_RECOVERY_SOURCE,
+                "stream_recovery": {
+                    "mode": "continue_from_visible_prefix",
+                    "visible_prefix_utf8_bytes": len(raw_content.encode("utf-8")),
+                    "error_code": _stream_error_code(exc),
+                },
+            }
+            yield {
+                "type": "stream_recovery",
+                "status": "started",
+                "reason": "partial_stream_error",
+                "code": _stream_error_code(exc),
+                "detail": str(exc),
+                "stream_ref": stream_ref,
+                "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                "recovery_mode": "continue_from_visible_prefix",
+            }
+            recovery_response: Any = None
+            recovery_attempts = max(1, int(stream_policy.get("partial_stream_recovery_attempts") or 2))
+            for recovery_attempt in range(1, recovery_attempts + 1):
+                recovery_response = await _invoke_single_turn_model(
+                    model_runtime=model_runtime,
+                    model_messages=_partial_stream_recovery_messages(
+                        model_messages,
+                        visible_prefix=raw_content,
+                        error=exc,
+                        turn_id=str(accounting_context.get("turn_id") or ""),
+                    ),
+                    model_selection=_model_selection_for_partial_stream_recovery(model_selection),
+                    accounting_context={
+                        **recovery_context,
+                        "request_id": f"{stream_ref}:partial-stream-recovery:{recovery_attempt}",
+                        "stream_recovery": {
+                            **dict(recovery_context.get("stream_recovery") or {}),
+                            "attempt": recovery_attempt,
+                            "max_attempts": recovery_attempts,
+                        },
+                    },
+                    native_tools=[],
+                )
+                if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+                    break
+            if not (isinstance(recovery_response, dict) and recovery_response.get("type") == "error"):
+                recovered_text = stringify_content(getattr(recovery_response, "content", recovery_response))
+                continuation = _continuation_after_visible_prefix(raw_content, recovered_text)
+                if continuation:
+                    if assistant_normalizer is not None:
+                        for frame_event in assistant_normalizer.observe_delta(continuation):
+                            yield frame_event
+                        for frame_event in assistant_normalizer.flush():
+                            yield frame_event
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "completed",
+                        "reason": "continued_from_visible_prefix",
+                        "stream_ref": stream_ref,
+                        "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                        "continuation_utf8_bytes": len(continuation.encode("utf-8")),
+                        "recovery_mode": "continue_from_visible_prefix",
+                    }
+                    yield {
+                        "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                        "assistant_stream_normalizer": assistant_normalizer,
+                        "response": SimpleNamespace(content=raw_content + continuation),
+                    }
+                    return
+                yield {
+                    "type": "stream_recovery",
+                    "status": "completed",
+                    "reason": "visible_prefix_committed_without_extra_continuation",
+                    "stream_ref": stream_ref,
+                    "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                    "continuation_utf8_bytes": 0,
+                    "recovery_mode": "continue_from_visible_prefix",
+                }
+                yield {
+                    "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                    "assistant_stream_normalizer": assistant_normalizer,
+                    "response": SimpleNamespace(content=raw_content),
+                }
+                return
+            recovery_error_reason = str(recovery_response.get("reason") or recovery_response.get("code") or "partial_stream_recovery_failed") if isinstance(recovery_response, dict) else "partial_stream_recovery_failed"
+            yield {
+                "type": "stream_recovery",
+                "status": "completed",
+                "reason": "visible_prefix_committed_after_recovery_error",
+                "code": _stream_error_code(exc),
+                "detail": recovery_error_reason,
+                "stream_ref": stream_ref,
+                "partial_utf8_bytes": len(raw_content.encode("utf-8")),
+                "continuation_utf8_bytes": 0,
+                "recovery_mode": "continue_from_visible_prefix",
+                "recovery_call_status": "failed",
+            }
+            yield {
+                "type": _INTERNAL_MODEL_RESPONSE_EVENT,
+                "assistant_stream_normalizer": assistant_normalizer,
+                "response": SimpleNamespace(content=raw_content),
+            }
+            return
         yield {
             "type": _INTERNAL_MODEL_RESPONSE_EVENT,
             "assistant_stream_normalizer": assistant_normalizer,
@@ -3001,6 +3145,96 @@ def _merge_model_stream_chunk(current: Any, chunk: Any) -> Any:
 
 def _model_stream_chunk_text(chunk: Any) -> str:
     return stringify_content(getattr(chunk, "content", chunk))
+
+
+def _partial_stream_recovery_enabled(
+    stream_policy: dict[str, Any],
+    *,
+    raw_content: str,
+    emit_assistant_text_delta: bool,
+    require_json_action: bool,
+    error: Exception,
+) -> bool:
+    policy = dict(stream_policy or {})
+    if policy.get("upstream_reconnect_enabled") is False:
+        return False
+    if str(policy.get("partial_stream_recovery") or "continue_from_visible_prefix").strip().lower() in {"", "disabled", "off", "false"}:
+        return False
+    if require_json_action or not emit_assistant_text_delta:
+        return False
+    if not _meaningful_visible_answer(raw_content):
+        return False
+    if isinstance(error, ModelRuntimeError):
+        return bool(error.retryable)
+    return True
+
+
+def _partial_stream_recovery_messages(
+    model_messages: list[dict[str, Any]],
+    *,
+    visible_prefix: str,
+    error: Exception,
+    turn_id: str,
+) -> list[dict[str, Any]]:
+    prefix = str(visible_prefix or "")
+    instruction = (
+        "上一条助手回复的模型流在网络层中断。下面这段文字已经公开显示给用户：\n\n"
+        f"{prefix}\n\n"
+        "你仍然是同一个助手，继续完成同一条回复。"
+        "不要重复已经公开的文字，不要从头改写，不要解释网络错误。"
+        "从断点之后直接续写用户应当看到的正文。"
+    )
+    prefix_message = _assistant_protocol_message_from_content(prefix, turn_id=turn_id)
+    prefix_message["prefix"] = True
+    prefix_message["additional_kwargs"] = {
+        **dict(prefix_message.get("additional_kwargs") or {}),
+        "prefix": True,
+    }
+    return _sanitize_model_messages(
+        [
+            *[dict(item) for item in list(model_messages or []) if isinstance(item, dict)],
+            {"role": "system", "content": instruction, "turn_id": turn_id},
+            prefix_message,
+        ],
+        turn_id=turn_id,
+        source=_PARTIAL_STREAM_RECOVERY_SOURCE,
+    )
+
+
+def _model_selection_for_partial_stream_recovery(model_selection: dict[str, Any]) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection.pop("structured_output", None)
+    selection.pop("response_format", None)
+    completion_profile = dict(selection.get("completion_profile") or {})
+    completion_profile.setdefault("mode", "chat_prefix")
+    completion_profile.setdefault("provider_mode", "deepseek_chat_prefix")
+    completion_profile.setdefault("source", "partial_stream_recovery")
+    selection["completion_profile"] = completion_profile
+    stream_policy = dict(selection.get("stream_policy") or {})
+    stream_policy["enabled"] = False
+    selection["stream_policy"] = stream_policy
+    return selection
+
+
+def _continuation_after_visible_prefix(visible_prefix: str, recovered_text: str) -> str:
+    prefix = str(visible_prefix or "")
+    recovered = str(recovered_text or "")
+    if not recovered:
+        return ""
+    if recovered.startswith(prefix):
+        return recovered[len(prefix):]
+    max_overlap = min(len(prefix), len(recovered))
+    for overlap in range(max_overlap, 0, -1):
+        if prefix.endswith(recovered[:overlap]):
+            return recovered[overlap:]
+    return recovered
+
+
+def _stream_error_code(error: Exception) -> str:
+    if isinstance(error, ModelRuntimeError):
+        return str(error.code or "model_stream_error")
+    return error.__class__.__name__ or "model_stream_error"
+
 
 async def _repair_single_agent_admission_failure(
     action_request: ModelActionRequest,
@@ -5566,6 +5800,67 @@ def _assistant_stream_has_emitted_public_feedback(
     )
 
 
+def _assistant_stream_continuity_after_event(
+    current: dict[str, Any] | None,
+    event: dict[str, Any] | None,
+    *,
+    turn_id: str,
+) -> dict[str, Any]:
+    payload = dict(event or {})
+    event_type = str(payload.get("type") or payload.get("event_type") or "").strip()
+    if event_type == ASSISTANT_TEXT_DELTA_EVENT:
+        delta = str(payload.get("content") or "")
+        if not delta:
+            return dict(current or {})
+        previous = dict(current or {})
+        content = str(previous.get("content") or "") + delta
+    elif event_type == ASSISTANT_STREAM_REPAIR_EVENT:
+        content = str(payload.get("replacement_content") or "")
+        if not content:
+            return dict(current or {})
+        previous = dict(current or {})
+    else:
+        return dict(current or {})
+
+    bounded_content, truncated = _bounded_assistant_visible_stream_content(content)
+    stream_refs = _append_unique_ref(
+        list(dict(previous or {}).get("stream_refs") or []),
+        str(payload.get("stream_ref") or ""),
+        limit=8,
+    )
+    latest_sequence = payload.get("sequence")
+    if latest_sequence in (None, ""):
+        latest_sequence = payload.get("repair_sequence")
+    return {
+        "turn_id": str(turn_id or ""),
+        "message_ref": str(payload.get("message_ref") or dict(previous or {}).get("message_ref") or ""),
+        "stream_refs": stream_refs,
+        "content": bounded_content,
+        "content_sha256": _text_sha256(bounded_content),
+        "content_utf8_bytes": len(bounded_content.encode("utf-8")),
+        "truncated_from_start": bool(truncated or dict(previous or {}).get("truncated_from_start") is True),
+        "latest_event_type": event_type,
+        "latest_sequence": latest_sequence,
+        "updated_at": time.time(),
+        "authority": "harness.loop.single_agent_turn.assistant_stream_continuity",
+    }
+
+
+def _bounded_assistant_visible_stream_content(content: str) -> tuple[str, bool]:
+    text = str(content or "")
+    if len(text) <= _ASSISTANT_VISIBLE_STREAM_CONTEXT_MAX_CHARS:
+        return text, False
+    return text[-_ASSISTANT_VISIBLE_STREAM_CONTEXT_MAX_CHARS:], True
+
+
+def _append_unique_ref(refs: list[Any], ref: str, *, limit: int) -> list[str]:
+    values = [str(item) for item in refs if str(item or "").strip()]
+    normalized = str(ref or "").strip()
+    if normalized and normalized not in values:
+        values.append(normalized)
+    return values[-max(1, int(limit or 1)):]
+
+
 def _record_model_action_admission(
     runtime_host: Any,
     *,
@@ -5785,6 +6080,7 @@ def _record_turn_terminal(
     terminal_reason: str,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    terminal_payload = dict(payload or {})
     event = runtime_host.event_log.append(
         turn_run.turn_run_id,
         "agent_turn_terminal",
@@ -5792,11 +6088,13 @@ def _record_turn_terminal(
             "turn_id": turn_id,
             "status": status,
             "terminal_reason": terminal_reason,
-            **dict(payload or {}),
+            **terminal_payload,
         },
         refs={"turn_ref": turn_id},
     )
     current = runtime_host.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
+    continuity = dict(terminal_payload.get("assistant_visible_stream_continuity") or {})
+    diagnostic_updates = {"assistant_visible_stream_continuity": continuity} if continuity else {}
     runtime_host.state_index.upsert_turn_run(
         replace(
             current,
@@ -5809,6 +6107,7 @@ def _record_turn_terminal(
                 "terminal_event_type": "agent_turn_terminal",
                 "terminal_status": status,
                 "terminal_reason_detail": terminal_reason,
+                **diagnostic_updates,
             },
         )
     )

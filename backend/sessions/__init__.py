@@ -140,6 +140,20 @@ class SessionManager:
     def set_title(self, session_id: str, title: str) -> dict[str, Any]:
         return self.rename_session(session_id, title)
 
+    def set_title_if_default(self, session_id: str, title: str, *, default_title: str = "New Session") -> dict[str, Any]:
+        with self._session_lock(session_id):
+            payload = self._read_payload(session_id)
+            current_title = str(payload.get("title") or "").strip() or default_title
+            if current_title != default_title:
+                return self._summary_from_payload(payload)
+            next_title = str(title or "").strip()
+            if not next_title:
+                return self._summary_from_payload(payload)
+            payload["title"] = next_title
+            payload["updated_at"] = time.time()
+            self._write_payload(session_id, payload)
+            return self._summary_from_payload(payload)
+
     def delete_session(self, session_id: str) -> bool:
         with self._session_lock(session_id):
             path = self._session_path(session_id)
@@ -1026,5 +1040,4 @@ def validate_session_id(value: str) -> str:
     if normalized != _safe_session_id(normalized):
         raise InvalidSessionId("Invalid session_id")
     return normalized
-
 

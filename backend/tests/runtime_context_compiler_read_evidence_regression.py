@@ -147,7 +147,7 @@ def test_single_agent_turn_compiler_inherits_session_read_evidence_with_interrup
                 "session_id": session_id,
                 "turn_run_id": "turnrun:previous",
                 "turn_id": "turn:previous",
-                "state": "interrupted_read_only",
+                "state": "interrupted_continuation_context",
                 "interruption_kind": "tool_budget_exhausted",
                 "terminal_status": "blocked",
                 "terminal_reason": "single_turn_tool_iteration_limit",

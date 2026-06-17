@@ -187,6 +187,79 @@ describe("streamChat", () => {
     }));
   });
 
+  it("consumes buffered assistant text deltas without waiting for a paint frame", async () => {
+    const requestAnimationFrame = vi.fn((callback: (time: number) => void) => {
+      callback(1);
+      return 1;
+    });
+    vi.stubGlobal("window", {
+      requestAnimationFrame,
+    });
+    const cancel = vi.fn(async () => undefined);
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader(
+        [
+          [
+            'id: strun:test:chatrun:test:1\nevent: assistant_text_delta\ndata: {"content":"你","event_offset":1,"sequence":1}\n\n',
+            'id: strun:test:chatrun:test:2\nevent: assistant_text_delta\ndata: {"content":"好","event_offset":2,"sequence":2}\n\n',
+            'id: strun:test:chatrun:test:3\nevent: turn_completed\ndata: {"status":"completed","event_offset":3}\n\n',
+          ].join(""),
+        ],
+        { cancel, openEnded: true },
+      ),
+    ]));
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "你好", session_id: "session:burst-consume" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+
+    const result = await pending;
+    expect(result.terminalEvent).toBe("turn_completed");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    expect(events.map((item) => item.event)).toEqual(["assistant_text_delta", "assistant_text_delta", "turn_completed"]);
+  });
+
+  it("continues consuming buffered SSE events after bounded event-loop yields", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    const deltas = Array.from({ length: 65 }, (_item, index) => {
+      const offset = index + 1;
+      return `id: strun:test:chatrun:test:${offset}\nevent: assistant_text_delta\ndata: {"content":"${offset}","event_offset":${offset},"sequence":${offset}}\n\n`;
+    });
+    vi.stubGlobal("fetch", mockChatRunFetch([
+      streamReader([
+        [
+          ...deltas,
+          'id: strun:test:chatrun:test:66\nevent: turn_completed\ndata: {"status":"completed","event_offset":66}\n\n',
+        ].join(""),
+      ]),
+    ]));
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    const pending = streamChat(
+      { message: "你好", session_id: "session:bounded-burst" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    );
+    for (let index = 0; index < 10 && events.length === 0; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.length).toBeLessThan(66);
+
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.terminalEvent).toBe("turn_completed");
+    expect(events.map((item) => item.event)).toEqual([
+      ...Array.from({ length: 65 }, () => "assistant_text_delta"),
+      "turn_completed",
+    ]);
+  });
+
   it("parses CRLF-delimited SSE terminal events", async () => {
     vi.stubGlobal("window", {});
     const reader = streamReader(['id: strun:test:chatrun:test:1\r\nevent: turn_completed\r\ndata: {"status":"completed","event_offset":1}\r\n\r\n']);

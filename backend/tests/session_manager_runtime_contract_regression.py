@@ -117,6 +117,20 @@ def test_session_manager_atomic_write_preserves_existing_payload_on_replace_fail
     assert list(session_path.parent.glob(f".{session_path.name}.*.tmp")) == []
 
 
+def test_session_manager_sets_title_only_while_default(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    manager = SessionManager(backend_dir)
+    default_session_id = manager.create_session()["id"]
+    renamed_session_id = manager.create_session(title="User title")["id"]
+
+    updated = manager.set_title_if_default(default_session_id, "Derived title")
+    preserved = manager.set_title_if_default(renamed_session_id, "Should not replace")
+
+    assert updated["title"] == "Derived title"
+    assert preserved["title"] == "User title"
+
+
 def test_session_manager_serializes_concurrent_message_appends(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
@@ -448,5 +462,4 @@ def test_session_manager_public_history_filters_structured_tool_protocol_message
     truncated = manager.truncate_messages_from(session_id, 1)
 
     assert truncated["messages"] == [{"role": "user", "content": "修复 bug", "turn_id": "turn:1"}]
-
 

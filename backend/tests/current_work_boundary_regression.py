@@ -252,20 +252,23 @@ def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_
     assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
 
 
-def test_compiler_exposes_interrupted_turn_work_as_volatile_read_only_context() -> None:
+def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context() -> None:
     interrupted_turn_work = {
         "continuation_id": "turncont:interrupted:21:0",
         "session_id": "session:interrupted-turn",
         "turn_run_id": "turnrun:interrupted",
         "turn_id": "turn:interrupted",
-        "state": "interrupted_read_only",
+        "state": "interrupted_continuation_context",
         "resume_allowed": False,
-        "resume_strategy": "read_only_next_turn_continuation",
+        "resume_strategy": "continue_next_single_agent_turn",
         "interruption_kind": "tool_budget_exhausted",
         "terminal_status": "blocked",
         "terminal_reason": "single_turn_tool_iteration_limit",
         "latest_progress": "已读取目标文件，尚未完成最终判断。",
         "next_recommended_step": "继续上一轮普通对话工作；优先复用 exact read evidence。",
+        "visible_assistant_prefix": "我已经检查了目标文件，下一步",
+        "visible_assistant_prefix_sha256": "sha256:visible-prefix",
+        "visible_assistant_prefix_utf8_bytes": 42,
         "model_visible_summary": "上一轮普通 turn 在工具预算边界中断。",
         "authority": "harness.continuation.interrupted_turn_record",
     }
@@ -298,7 +301,11 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_read_only_context() 
     dynamic_payload = _message_payload_with_title(result.packet, "Single agent turn dynamic runtime")
     projected = dict(dynamic_payload["interrupted_turn_work"])
     assert projected["turn_run_id"] == "turnrun:interrupted"
-    assert projected["read_only_context"] is True
+    assert projected["state"] == "interrupted_continuation_context"
+    assert projected["read_only_context"] is False
+    assert projected["allowed_followup_posture"] == "ordinary_turn_continuation"
+    assert projected["current_user_instruction"] == "继续。"
+    assert projected["visible_assistant_prefix"]["content"] == "我已经检查了目标文件，下一步"
     assert projected["forbidden_action"] == "resume_recoverable_work"
     assert "interrupted_turn_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
 

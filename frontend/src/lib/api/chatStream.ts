@@ -296,6 +296,8 @@ const TERMINAL_STREAM_EVENTS = new Set([TURN_COMPLETED_EVENT]);
 const MAX_STREAM_BUFFER_CHARS = 1_000_000;
 const CHAT_STREAM_RECONNECT_INITIAL_DELAY_MS = 500;
 const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
+const CHAT_STREAM_CONSUME_BURST_EVENT_LIMIT = 64;
+const CHAT_STREAM_CONSUME_BURST_TIME_MS = 12;
 
 type ChatStreamError = Error & {
   status?: number;
@@ -573,6 +575,33 @@ function clientNow() {
   return Date.now();
 }
 
+type ChatStreamConsumeBudget = {
+  eventsSinceYield: number;
+  burstStartedAt: number;
+};
+
+function resetChatStreamConsumeBudget(budget: ChatStreamConsumeBudget) {
+  budget.eventsSinceYield = 0;
+  budget.burstStartedAt = clientNow();
+}
+
+async function yieldAfterBufferedStreamBurst(budget: ChatStreamConsumeBudget, signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+  budget.eventsSinceYield += 1;
+  const elapsed = clientNow() - budget.burstStartedAt;
+  if (
+    budget.eventsSinceYield < CHAT_STREAM_CONSUME_BURST_EVENT_LIMIT
+    && elapsed < CHAT_STREAM_CONSUME_BURST_TIME_MS
+  ) {
+    return;
+  }
+  resetChatStreamConsumeBudget(budget);
+  await delay(0, signal);
+  resetChatStreamConsumeBudget(budget);
+}
+
 async function consumeChatRunStream(
   run: ChatRun,
   sessionId: string,
@@ -592,6 +621,10 @@ async function consumeChatRunStream(
   let terminalEvent: StreamResult["terminalEvent"] | "" = "";
   let terminalStatus: StreamResult["terminalStatus"] = "";
   let reconnectAttempt = 0;
+  const consumeBudget: ChatStreamConsumeBudget = {
+    eventsSinceYield: 0,
+    burstStartedAt: clientNow(),
+  };
 
   if (persistCursor) {
     saveChatStreamCursor(sessionId, {
@@ -602,7 +635,7 @@ async function consumeChatRunStream(
     });
   }
 
-  const consumeBlock = (block: string) => {
+  const consumeBlock = async (block: string) => {
     const parsed = parseSseBlock(block);
     if (!parsed) {
       return "";
@@ -644,6 +677,8 @@ async function consumeChatRunStream(
     handlers.onEvent(parsed.event, parsed.data);
     if (TERMINAL_STREAM_EVENTS.has(parsed.event)) {
       terminalStatus = terminalStatusFromTurnCompleted(parsed.data);
+    } else {
+      await yieldAfterBufferedStreamBurst(consumeBudget, options.signal);
     }
     return parsed.event;
   };
@@ -679,6 +714,7 @@ async function consumeChatRunStream(
       let buffer = "";
       while (true) {
         const { value, done } = await reader.read();
+        resetChatStreamConsumeBudget(consumeBudget);
         buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
         if (buffer.length > MAX_STREAM_BUFFER_CHARS) {
           throw new Error("Chat stream SSE buffer exceeded 1MB without a complete event boundary.");
@@ -686,7 +722,7 @@ async function consumeChatRunStream(
 
         let boundary = findSseBoundary(buffer);
         while (boundary) {
-          const event = consumeBlock(buffer.slice(0, boundary.index));
+          const event = await consumeBlock(buffer.slice(0, boundary.index));
           buffer = buffer.slice(boundary.index + boundary.length);
           if (TERMINAL_STREAM_EVENTS.has(event)) {
             terminalEvent = event as StreamResult["terminalEvent"];
@@ -708,7 +744,7 @@ async function consumeChatRunStream(
         if (done) {
           readerClosed = true;
           if (buffer.trim()) {
-            const event = consumeBlock(buffer);
+            const event = await consumeBlock(buffer);
             if (TERMINAL_STREAM_EVENTS.has(event)) {
               terminalEvent = event as StreamResult["terminalEvent"];
             }

@@ -880,7 +880,11 @@ class HarnessRuntimeFacade:
             ):
                 yield event
             return
-        recovery_packet = build_recovery_packet(record, resume_intent="user_requested_resume")
+        recovery_packet = build_recovery_packet(
+            record,
+            resume_intent="user_requested_resume",
+            user_resume_instruction=str(getattr(request, "message", "") or ""),
+        )
         packet_ref = self._attach_recovery_packet_to_task_run(
             task_run_id=task_run_id,
             recovery_packet=recovery_packet,

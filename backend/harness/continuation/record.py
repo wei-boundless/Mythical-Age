@@ -15,7 +15,7 @@ ContinuationState = Literal[
     "terminal_read_only",
 ]
 
-InterruptedTurnContinuationState = Literal["interrupted_read_only"]
+InterruptedTurnContinuationState = Literal["interrupted_continuation_context"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,22 +70,26 @@ class ContinuationRecord:
 
 @dataclass(frozen=True, slots=True)
 class InterruptedTurnContinuationRecord:
-    """Read-only continuity context for an interrupted ordinary conversation turn."""
+    """Continuity context for an interrupted ordinary conversation turn."""
 
     continuation_id: str
     session_id: str
     turn_run_id: str
     turn_id: str
     previous_stream_run_id: str = ""
-    state: InterruptedTurnContinuationState = "interrupted_read_only"
+    state: InterruptedTurnContinuationState = "interrupted_continuation_context"
     resume_allowed: bool = False
-    resume_strategy: str = "read_only_next_turn_continuation"
+    resume_strategy: str = "continue_next_single_agent_turn"
     interruption_kind: str = ""
     terminal_status: str = ""
     terminal_reason: str = ""
     latest_progress: str = ""
     latest_step: str = ""
     next_recommended_step: str = ""
+    visible_assistant_prefix: str = ""
+    visible_assistant_prefix_sha256: str = ""
+    visible_assistant_prefix_truncated: bool = False
+    visible_assistant_prefix_utf8_bytes: int = 0
     event_log_ref: str = ""
     event_cursor: int = -1
     model_visible_summary: str = ""
@@ -97,8 +101,8 @@ class InterruptedTurnContinuationRecord:
     def __post_init__(self) -> None:
         if self.authority != "harness.continuation.interrupted_turn_record":
             raise ValueError("InterruptedTurnContinuationRecord authority must be harness.continuation.interrupted_turn_record")
-        if self.state != "interrupted_read_only":
-            raise ValueError("InterruptedTurnContinuationRecord state must be interrupted_read_only")
+        if self.state != "interrupted_continuation_context":
+            raise ValueError("InterruptedTurnContinuationRecord state must be interrupted_continuation_context")
         if not self.session_id:
             raise ValueError("InterruptedTurnContinuationRecord requires session_id")
         if not self.turn_run_id:
@@ -164,15 +168,19 @@ def interrupted_turn_record_from_payload(payload: dict[str, Any] | None) -> Inte
             turn_run_id=str(data.get("turn_run_id") or ""),
             turn_id=str(data.get("turn_id") or ""),
             previous_stream_run_id=str(data.get("previous_stream_run_id") or ""),
-            state="interrupted_read_only",
+            state="interrupted_continuation_context",
             resume_allowed=False,
-            resume_strategy=str(data.get("resume_strategy") or "read_only_next_turn_continuation"),
+            resume_strategy=str(data.get("resume_strategy") or "continue_next_single_agent_turn"),
             interruption_kind=str(data.get("interruption_kind") or ""),
             terminal_status=str(data.get("terminal_status") or ""),
             terminal_reason=str(data.get("terminal_reason") or ""),
             latest_progress=str(data.get("latest_progress") or ""),
             latest_step=str(data.get("latest_step") or ""),
             next_recommended_step=str(data.get("next_recommended_step") or ""),
+            visible_assistant_prefix=str(data.get("visible_assistant_prefix") or ""),
+            visible_assistant_prefix_sha256=str(data.get("visible_assistant_prefix_sha256") or ""),
+            visible_assistant_prefix_truncated=bool(data.get("visible_assistant_prefix_truncated") is True),
+            visible_assistant_prefix_utf8_bytes=_int_value(data.get("visible_assistant_prefix_utf8_bytes"), 0),
             event_log_ref=str(data.get("event_log_ref") or data.get("turn_run_id") or ""),
             event_cursor=_int_value(data.get("event_cursor"), -1),
             model_visible_summary=str(data.get("model_visible_summary") or ""),
