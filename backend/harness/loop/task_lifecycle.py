@@ -11,6 +11,7 @@ from harness.task_contract_normalization import contract_string_tuple
 
 from .presentation import error_event, turn_completed_event
 from .model_action_protocol import ModelActionRequest
+from .turn_to_task_context_handoff import record_turn_to_task_context_handoff
 
 
 TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executor", "waiting_approval", "completed", "failed", "blocked", "aborted"]
@@ -317,6 +318,7 @@ def start_task_lifecycle(
     model_selection: dict[str, Any] | None = None,
     runtime_assembly: Any | None = None,
     editor_context: dict[str, Any] | None = None,
+    start_context_handoff: dict[str, Any] | None = None,
 ) -> tuple[TaskRun, AgentRun, TaskLifecycleRecord, list[dict[str, Any]]]:
     now = time.time()
     task_run_id = f"taskrun:{turn_id}:{uuid.uuid4().hex[:8]}"
@@ -387,6 +389,29 @@ def start_task_lifecycle(
             },
         },
     )
+    handoff_record = record_turn_to_task_context_handoff(
+        runtime_host,
+        session_id=session_id,
+        turn_id=turn_id,
+        task_run_id=task_run_id,
+        task_id=task_run.task_id,
+        start_context_handoff=dict(start_context_handoff or {}),
+    )
+    task_run = replace(
+        task_run,
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "turn_to_task_context_handoff_ref": handoff_record.handoff_ref,
+            "turn_to_task_context_handoff": {
+                "handoff_id": handoff_record.handoff_id,
+                "source_packet_ref": str(handoff_record.payload.get("source_packet_ref") or ""),
+                "inherited_observation_count": len(list(handoff_record.payload.get("inherited_observations") or [])),
+                "inherited_file_state_count": len(list(handoff_record.payload.get("inherited_file_state_snapshot") or [])),
+                "inherited_memory_context_refs": dict(handoff_record.payload.get("inherited_memory_context_refs") or {}),
+                "authority": "harness.loop.turn_to_task_context_handoff",
+            },
+        },
+    )
     agent_run = AgentRun(
         agent_run_id=agent_run_id,
         task_run_id=task_run_id,
@@ -443,9 +468,11 @@ def start_task_lifecycle(
             "action_request_ref": action_request.request_id,
             "task_contract_ref": contract_ref,
             "task_lifecycle_ref": lifecycle_ref,
+            "turn_to_task_context_handoff_ref": handoff_record.handoff_ref,
         },
     )
     return task_run, agent_run, lifecycle, [
+        {"type": "task_run_lifecycle_event", "event": handoff_record.event.to_dict()},
         {"type": "harness_run_started", "task_run": task_run.to_dict(), "event": started_event.to_dict()},
         {"type": "task_run_lifecycle_started", "event": started_event.to_dict()},
     ]
@@ -598,6 +625,7 @@ async def start_task_lifecycle_from_action_request(
     initialize_task_todo: InitializeTaskTodo,
     schedule_task_run_executor: ScheduleTaskRunExecutor,
     editor_context: dict[str, Any] | None = None,
+    start_context_handoff: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     api_protocol_prefix_messages = _api_protocol_prefix_from_action_request(action_request)
     contract, contract_errors = contract_from_action_request(
@@ -632,6 +660,7 @@ async def start_task_lifecycle_from_action_request(
         commit_assistant_message=commit_assistant_message,
         initialize_task_todo=initialize_task_todo,
         schedule_task_run_executor=schedule_task_run_executor,
+        start_context_handoff=dict(start_context_handoff or {}),
     ):
         yield event
 
@@ -655,6 +684,7 @@ async def start_task_lifecycle_from_contract(
     initialize_task_todo: InitializeTaskTodo,
     schedule_task_run_executor: ScheduleTaskRunExecutor,
     editor_context: dict[str, Any] | None = None,
+    start_context_handoff: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     agent_profile_ref = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
     task_run, _agent_run, lifecycle, lifecycle_events = start_task_lifecycle(
@@ -668,6 +698,7 @@ async def start_task_lifecycle_from_contract(
         model_selection=dict(model_selection or {}),
         runtime_assembly=runtime_assembly,
         editor_context=editor_context,
+        start_context_handoff=dict(start_context_handoff or {}),
     )
     for event in lifecycle_events:
         yield event

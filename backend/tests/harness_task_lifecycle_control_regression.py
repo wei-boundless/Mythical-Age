@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from tests.support.harness_runtime_facade_support import *
 from harness.runtime.assembly import build_runtime_assembly_profile
-from harness.loop.model_action_protocol import TaskExecutionModelActionRequest
+from harness.loop.model_action_protocol import ModelActionRequest, TaskExecutionModelActionRequest
 from harness.loop.task_executor import _pause_executor_for_tool_approval
+from harness.loop.task_lifecycle import contract_from_action_request, start_task_lifecycle
+from harness.loop.turn_to_task_context_handoff import build_turn_to_task_context_handoff_seed
 from harness.task_run_state_view import task_run_state_view
+from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
 from runtime.shared.models import AgentRun
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields() -> None:
@@ -33,6 +37,124 @@ def test_assistant_task_run_final_commit_preserves_structural_lifecycle_fields()
     assert messages[0]["completion_state"] == "completed"
     assert messages[0]["terminal_reason"] == "completed"
     assert messages[0]["answer_channel"] == "final_answer"
+
+
+def test_task_lifecycle_records_turn_to_task_handoff_and_materializes_file_state(tmp_path) -> None:
+    runtime = build_harness_runtime(base_dir=_runtime_test_root(tmp_path))
+    host = runtime.single_agent_runtime_host
+    session_id = "session-turn-task-handoff"
+    turn_id = "turn:session-turn-task-handoff:1"
+    read_event = {
+        "event_type": "read",
+        "path": "backend/harness/loop/single_agent_turn.py",
+        "start_line": 1,
+        "end_line": 3,
+        "total_lines": 500,
+        "content_sha256": "sha256:turn-read",
+        "read_intent": "inspect",
+        "visible_exact": True,
+        "artifact_ref_status": "exact",
+    }
+    host.file_state_store.apply_events_scope(
+        session_file_evidence_scope(session_id),
+        [read_event],
+        observation_ref="toolobs:turn-read",
+        tool_call_id="call:turn-read",
+    )
+    result_envelope = build_tool_result_envelope(
+        tool_name="read_file",
+        tool_args={"path": "backend/harness/loop/single_agent_turn.py", "start_line": 1, "line_count": 3},
+        result={
+            "text": "read ok",
+            "structured_payload": {
+                "observed_paths": ["backend/harness/loop/single_agent_turn.py"],
+                "file_state_events": [read_event],
+            },
+        },
+        status="ok",
+        tool_call_id="call:turn-read",
+        action_request_id="model-action:turn-read",
+        caller_kind="agent_turn",
+        caller_ref=f"turnrun:{turn_id}",
+    ).to_dict()
+    handoff_seed = build_turn_to_task_context_handoff_seed(
+        runtime_host=host,
+        session_id=session_id,
+        turn_id=turn_id,
+        source_packet_ref="rtpacket:parent-turn",
+        tool_observation_payloads=[
+            {
+                "observation_id": "toolobs:turn-read",
+                "invocation_id": "toolinvoke:turn-read",
+                "caller_kind": "agent_turn",
+                "caller_ref": f"turnrun:{turn_id}",
+                "tool_name": "read_file",
+                "operation_id": "read_file",
+                "status": "ok",
+                "text": "read ok",
+                "result_envelope": result_envelope,
+                "tool_call_id": "call:turn-read",
+                "authority": "runtime.tool_runtime.tool_observation",
+            }
+        ],
+        session_context={
+            "memory_context": {
+                "memory_runtime_view_ref": "memview:turn",
+                "context_package_ref": "mempkg:turn",
+                "selected_sections": ["relevant_durable_context"],
+                "model_visible_sections": {
+                    "relevant_durable_context": ["turn-selected memory fact"],
+                },
+            },
+            "turn_input_facts": {"user_intent": "start task with inherited context"},
+        },
+    )
+    action_request = ModelActionRequest(
+        request_id="model-action:start-task",
+        turn_id=turn_id,
+        action_type="request_task_run",
+        public_progress_note="Start task.",
+        task_contract_seed=_canonical_task_contract_seed(
+            {
+                "user_visible_goal": "Verify handoff",
+                "task_run_goal": "Verify task start handoff",
+                "completion_criteria": ["handoff recorded"],
+            }
+        ),
+        diagnostics={"packet_ref": "rtpacket:parent-turn"},
+    )
+    contract, errors = contract_from_action_request(
+        action_request,
+        packet_ref="rtpacket:parent-turn",
+    )
+
+    assert contract is not None, errors
+    task_run, _agent_run, _lifecycle, lifecycle_events = start_task_lifecycle(
+        host,
+        session_id=session_id,
+        turn_id=turn_id,
+        task_id="task:handoff",
+        action_request=action_request,
+        contract=contract,
+        agent_profile_ref="main_interactive_agent",
+        start_context_handoff=handoff_seed,
+    )
+    stored_task = host.state_index.get_task_run(task_run.task_run_id)
+    diagnostics = dict(stored_task.diagnostics)
+    handoff_ref = diagnostics["turn_to_task_context_handoff_ref"]
+    handoff = host.runtime_objects.get_object(handoff_ref)
+    lifecycle_started = next(event for event in lifecycle_events if event["type"] == "task_run_lifecycle_started")
+    file_state = host.file_state_store.snapshot_scope(
+        task_run_file_evidence_scope(task_run.task_run_id, session_id=session_id)
+    )
+
+    assert handoff["source_packet_ref"] == "rtpacket:parent-turn"
+    assert handoff["inherited_memory_context"]["memory_runtime_view_ref"] == "memview:turn"
+    assert handoff["inherited_observation_refs"] == ["toolobs:turn-read"]
+    assert dict(lifecycle_started["event"]["refs"])["turn_to_task_context_handoff_ref"] == handoff_ref
+    assert any(event["type"] == "task_run_lifecycle_event" and dict(event["event"])["event_type"] == "turn_to_task_context_handoff_recorded" for event in lifecycle_events)
+    assert file_state
+    assert file_state[-1]["path"] == "backend/harness/loop/single_agent_turn.py"
 
 
 def test_task_run_success_commits_session_output_before_completed_lifecycle() -> None:

@@ -389,7 +389,8 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 },
                 "usage_hint": (
                     "Use for multiple precise edits to the same file planned from the same current read evidence. "
-                    "Do not split same-file independent edits into several edit_file calls."
+                    "Do not split same-file independent edits into several edit_file calls. "
+                    "If rejected_edits is returned, only reread and retry those edit indexes."
                 ),
             }
         )

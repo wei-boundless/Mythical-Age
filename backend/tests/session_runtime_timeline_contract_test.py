@@ -215,6 +215,73 @@ def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surfac
     assert "public_projection_status" not in attachment
 
 
+def test_session_runtime_projection_keeps_tool_activity_without_task_run_anchor() -> None:
+    stream_run_id = "strun:session-a:no-task-anchor"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:no-task-anchor",
+        status="completed",
+        diagnostics={"active_turn_id": "turn:session-a:1"},
+        created_at=1.0,
+        updated_at=3.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    TOOL_CALL_REQUESTED_EVENT,
+                    {"tool_call_id": "call:read", "tool_name": "read_file", "target": "README.md"},
+                    offset=1,
+                    stream_run_id=stream_run_id,
+                    task_run_id="",
+                ),
+                _public_ledger_record(
+                    ASSISTANT_TEXT_FINAL_EVENT,
+                    {"content": "done"},
+                    offset=2,
+                    stream_run_id=stream_run_id,
+                    task_run_id="",
+                ),
+                _public_ledger_record(
+                    SESSION_OUTPUT_COMMIT_ACK_EVENT,
+                    {"state": "committed", "content_sha256": "sha256:final"},
+                    offset=3,
+                    stream_run_id=stream_run_id,
+                    task_run_id="",
+                ),
+            ],
+        },
+    )
+
+    projection = build_session_runtime_projection(
+        session_id="session-a",
+        history={
+            "messages": [
+                {"role": "user", "content": "run", "turn_id": "turn:session-a:1"},
+                {"role": "assistant", "content": "done", "turn_id": "turn:session-a:1"},
+            ]
+        },
+        runtime_host=runtime_host,
+    )
+
+    attachment = projection["runtime_attachments"][0]
+    assert attachment["stream_run_id"] == stream_run_id
+    assert attachment["display_state"] == "task_closed"
+    assert attachment["main_chat_surface"] == "closeout_summary"
+    assert attachment["tool_event_count"] == 1
+    assert attachment["closeout_summary"] == "done"
+    assert _projection_slice(attachment)["display_hint"]["main_surface_hint"] == "closeout"
+    assert [frame["event_family"] for frame in _projection_frames(attachment)] == [
+        "tool_control",
+        "assistant_body",
+        "runtime_commit",
+    ]
+
+
 def test_session_runtime_timeline_running_task_replays_live_timeline_surface() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"

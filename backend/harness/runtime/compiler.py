@@ -498,6 +498,12 @@ class RuntimeCompiler:
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
         )
+        runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+        )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = render_environment_instruction(
@@ -505,6 +511,7 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
         )
         lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
+        runtime_lifecycle_instruction = render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="single_agent_turn")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
@@ -705,6 +712,24 @@ class RuntimeCompiler:
                 )
                 if skill_candidate_instruction.strip()
                 else None,
+                _message_spec(
+                    role="system",
+                    content=runtime_lifecycle_instruction,
+                    kind="lifecycle_runtime_guidance",
+                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_guidance",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                        "volatility_reason": "runtime lifecycle guidance is selected from active state such as memory, observations, steering, or recovery",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if runtime_lifecycle_instruction.strip()
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
@@ -795,6 +820,7 @@ class RuntimeCompiler:
             "user_message",
             "recent_work_outcome",
             "editor_context",
+            "lifecycle_runtime_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="single_agent_turn",
@@ -803,6 +829,7 @@ class RuntimeCompiler:
                 personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
+                runtime_lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="single_agent_turn",
             ),
@@ -890,6 +917,7 @@ class RuntimeCompiler:
         available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
         runtime_assembly: Any | None = None,
         memory_context: dict[str, Any] | None = None,
+        inherited_start_context: dict[str, Any] | None = None,
         invocation_index: int = 1,
     ) -> RuntimeCompilationResult:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
@@ -1038,9 +1066,16 @@ class RuntimeCompiler:
                 prompt_mount_plan=prompt_mount_plan,
                 agent_profile_ref=agent_profile_ref,
             )
+            runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+                invocation_kind="environment",
+                prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+                agent_profile_ref=agent_profile_ref,
+                task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+            )
         else:
             environment_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:environment_policy_hidden")
             lifecycle_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:lifecycle_policy_hidden")
+            runtime_lifecycle_prompt_assembly = _empty_prompt_assembly("environment", "promptasm:empty:runtime_lifecycle_policy_hidden")
         project_instruction_bundle = (
             collect_project_instruction_bundle(
                 base_dir=self.base_dir,
@@ -1066,6 +1101,11 @@ class RuntimeCompiler:
         )
         lifecycle_instruction = (
             render_lifecycle_instruction(lifecycle_prompt_assembly)
+            if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
+            else ""
+        )
+        runtime_lifecycle_instruction = (
+            render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
             if _prompt_policy_visible(prompt_policy, "environment_prompt_visibility", default=True)
             else ""
         )
@@ -1129,6 +1169,7 @@ class RuntimeCompiler:
                 observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
                 execution_state=dict(execution_state or {}),
                 work_rollout=dict(work_rollout or {}),
+                inherited_start_context=dict(inherited_start_context or {}),
                 runtime_assembly=assembly_payload,
                 runtime_envelope=envelope.to_dict(),
                 editor_context=_editor_context_from_task_run(task_run),
@@ -1136,6 +1177,7 @@ class RuntimeCompiler:
             )
         )
         dynamic_payload = dict(dynamic_context.dynamic_runtime_projection or {})
+        inherited_start_context_payload = dict(dynamic_context.inherited_start_context_projection or {})
         memory_context_payload = _memory_context_model_visible_payload(memory_context)
         if memory_context_payload:
             dynamic_payload["memory_context"] = memory_context_payload
@@ -1388,7 +1430,38 @@ class RuntimeCompiler:
                 )
                 if active_skill_instruction.strip()
                 else None,
+                _message_spec(
+                    role="system",
+                    content=runtime_lifecycle_instruction,
+                    kind="lifecycle_runtime_guidance",
+                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_guidance",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                        "volatility_reason": "runtime lifecycle guidance is selected from active task state such as memory, observations, steering, or recovery and must not enter the cacheable task prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if runtime_lifecycle_instruction.strip()
+                else None,
                 *task_state_replay_specs,
+                _runtime_payload_spec(
+                    role="system",
+                    title="Task start inherited context",
+                    payload=inherited_start_context_payload,
+                    kind="task_start_inherited_context",
+                    source_ref=str(inherited_start_context_payload.get("handoff_ref") or inherited_start_context_payload.get("handoff_id") or ""),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="ref_only",
+                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="turn_to_task_context_handoff"),
+                )
+                if inherited_start_context_payload
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task execution bound runtime context",
@@ -1527,14 +1600,17 @@ class RuntimeCompiler:
             "operation_authorization",
             "active_skills",
             "recovery_packet",
+            "task_start_inherited_context",
         )
         task_volatile_refs = (
             "runtime_envelope",
             "task_state",
+            "turn_to_task_context_handoff",
             "user_steering_updates",
             "pending_user_steers",
             "active_contract_revisions",
             "runtime_control_signals",
+            "lifecycle_runtime_guidance",
             "editor_context",
         )
         prompt_manifest = build_runtime_prompt_manifest(
@@ -1544,6 +1620,7 @@ class RuntimeCompiler:
                 personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
+                runtime_lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 task_prompt_assembly,
                 invocation_kind="task_execution",
@@ -1732,6 +1809,12 @@ class RuntimeCompiler:
             prompt_mount_plan=prompt_mount_plan,
             agent_profile_ref=agent_profile_ref,
         )
+        runtime_lifecycle_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=tuple(prompt_mount_plan.runtime_lifecycle_prompt_refs or ()),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=str(prompt_mount_plan.selected_environment_id or ""),
+        )
         project_instruction_bundle = collect_project_instruction_bundle(base_dir=self.base_dir)
         runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
         environment_instruction = render_environment_instruction(
@@ -1739,6 +1822,7 @@ class RuntimeCompiler:
             environment_prompt_assembly=environment_prompt_assembly,
         )
         lifecycle_instruction = render_lifecycle_instruction(lifecycle_prompt_assembly)
+        runtime_lifecycle_instruction = render_lifecycle_instruction(runtime_lifecycle_prompt_assembly)
         personality_instruction = render_personality_prompt_instruction(personality_prompt_assembly)
         agent_instruction = render_agent_prompt_instruction(agent_prompt_assembly, invocation_kind="tool_observation_followup")
         skill_candidate_instruction = _skill_candidate_instruction(assembly_payload)
@@ -1888,6 +1972,24 @@ class RuntimeCompiler:
                         "cache_impact": "volatile_suffix_only",
                     },
                 ),
+                _message_spec(
+                    role="system",
+                    content=runtime_lifecycle_instruction,
+                    kind="lifecycle_runtime_guidance",
+                    source_ref=",".join(prompt_mount_plan.runtime_lifecycle_prompt_refs),
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="preserve",
+                    metadata={
+                        "authority_class": "runtime_lifecycle_guidance",
+                        "lifecycle_prompt_keys": list(prompt_mount_plan.runtime_lifecycle_prompt_keys),
+                        "lifecycle_trigger_reasons": dict(prompt_mount_plan.runtime_lifecycle_trigger_reasons),
+                        "volatility_reason": "runtime lifecycle guidance is selected from observation followup state and must remain outside the cacheable prefix",
+                        "cache_impact": "volatile_suffix_only",
+                    },
+                )
+                if runtime_lifecycle_instruction.strip()
+                else None,
                 _runtime_payload_spec(
                     role="system",
                     title="Task current exact read evidence",
@@ -1959,6 +2061,7 @@ class RuntimeCompiler:
             "user_message",
             "observations",
             "editor_context",
+            "lifecycle_runtime_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="tool_observation_followup",
@@ -1967,6 +2070,7 @@ class RuntimeCompiler:
                 personality_prompt_assembly,
                 environment_prompt_assembly,
                 lifecycle_prompt_assembly,
+                runtime_lifecycle_prompt_assembly,
                 agent_prompt_assembly,
                 invocation_kind="tool_observation_followup",
             ),
@@ -4275,10 +4379,20 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
     hidden_base_refs = list(payload.get("base_prompt_refs") or [])
     hidden_overlay_refs = list(payload.get("overlay_prompt_refs") or [])
     hidden_lifecycle_refs = list(payload.get("lifecycle_prompt_refs") or [])
+    hidden_runtime_lifecycle_refs = list(payload.get("runtime_lifecycle_prompt_refs") or [])
+    hidden_lifecycle_keys = list(payload.get("lifecycle_prompt_keys") or [])
+    hidden_runtime_lifecycle_keys = list(payload.get("runtime_lifecycle_prompt_keys") or [])
+    hidden_lifecycle_trigger_reasons = dict(payload.get("lifecycle_trigger_reasons") or {})
+    hidden_runtime_lifecycle_trigger_reasons = dict(payload.get("runtime_lifecycle_trigger_reasons") or {})
     payload["environment_prompt_refs"] = []
     payload["base_prompt_refs"] = []
     payload["overlay_prompt_refs"] = []
     payload["lifecycle_prompt_refs"] = []
+    payload["runtime_lifecycle_prompt_refs"] = []
+    payload["lifecycle_prompt_keys"] = []
+    payload["runtime_lifecycle_prompt_keys"] = []
+    payload["lifecycle_trigger_reasons"] = {}
+    payload["runtime_lifecycle_trigger_reasons"] = {}
     diagnostics = dict(payload.get("diagnostics") or {})
     diagnostics.update(
         {
@@ -4287,6 +4401,11 @@ def _prompt_mount_plan_manifest_payload(prompt_mount_plan: Any, *, prompt_policy
             "hidden_base_prompt_refs": hidden_base_refs,
             "hidden_overlay_prompt_refs": hidden_overlay_refs,
             "hidden_lifecycle_prompt_refs": hidden_lifecycle_refs,
+            "hidden_runtime_lifecycle_prompt_refs": hidden_runtime_lifecycle_refs,
+            "hidden_lifecycle_prompt_keys": hidden_lifecycle_keys,
+            "hidden_runtime_lifecycle_prompt_keys": hidden_runtime_lifecycle_keys,
+            "hidden_lifecycle_trigger_reasons": hidden_lifecycle_trigger_reasons,
+            "hidden_runtime_lifecycle_trigger_reasons": hidden_runtime_lifecycle_trigger_reasons,
             "authority": "runtime.prompt_policy",
         }
     )

@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { ChronologicalProjectionView } from "@/lib/projection/chronological";
 import { ChatMessage } from "./ChatMessage";
 
+type ProjectionBlock = ChronologicalProjectionView["blocks"][number];
+type ActivityArchiveBlock = Extract<ProjectionBlock, { kind: "activity_archive" }>;
+type BodyBlock = Extract<ProjectionBlock, { kind: "body_segment" }>;
+type ToolBlock = Extract<ProjectionBlock, { kind: "tool_event" }>;
+
 function projectionView(patch: Partial<ChronologicalProjectionView> = {}): ChronologicalProjectionView {
   return {
     displayMode: "committed",
@@ -12,14 +17,7 @@ function projectionView(patch: Partial<ChronologicalProjectionView> = {}): Chron
     copyText: "已经完成的正文。",
     bodyState: "committed",
     blocks: [
-      {
-        kind: "body_segment",
-        id: "body:1",
-        text: "已经完成的正文。",
-        firstOffset: 10,
-        lastOffset: 10,
-        state: "committed",
-      },
+      bodyBlock(),
       toolBlock(),
     ],
     toolEventCount: 1,
@@ -29,7 +27,18 @@ function projectionView(patch: Partial<ChronologicalProjectionView> = {}): Chron
   };
 }
 
-function toolBlock(): ChronologicalProjectionView["blocks"][number] {
+function bodyBlock(): BodyBlock {
+  return {
+    kind: "body_segment",
+    id: "body:1",
+    text: "已经完成的正文。",
+    firstOffset: 10,
+    lastOffset: 10,
+    state: "committed",
+  };
+}
+
+function toolBlock(): ToolBlock {
   return {
     kind: "tool_event",
     id: "tool:read-project",
@@ -52,7 +61,19 @@ function toolBlock(): ChronologicalProjectionView["blocks"][number] {
   };
 }
 
-function todoPlanBlock(): ChronologicalProjectionView["blocks"][number] {
+function activityArchiveBlock(blocks: ActivityArchiveBlock["blocks"] = [toolBlock()]): ActivityArchiveBlock {
+  return {
+    kind: "activity_archive",
+    id: "activity-archive:test",
+    title: "本轮记录",
+    detail: "1 个工具",
+    state: "done",
+    blocks,
+    offset: 9,
+  };
+}
+
+function todoPlanBlock(): Extract<ProjectionBlock, { kind: "todo_plan" }> {
   return {
     kind: "todo_plan",
     id: "todo-plan:taskrun:test",
@@ -101,13 +122,24 @@ function renderChatMessage(options: {
 }
 
 describe("ChatMessage", () => {
-  it("renders completed projection messages as frozen body snapshots", () => {
-    const html = renderChatMessage({ streamingContent: false });
+  it("renders completed projection messages with prior activity folded before the closeout body", () => {
+    const html = renderChatMessage({
+      streamingContent: false,
+      projectionView: projectionView({
+        blocks: [
+          bodyBlock(),
+          activityArchiveBlock(),
+        ],
+      }),
+    });
 
     expect(html).toContain("已经完成的正文。");
-    expect(html).not.toContain("运行状态");
-    expect(html).not.toContain("读取项目文件");
-    expect(html).not.toContain("public-run-activity");
+    expect(html).toContain("aria-label=\"本轮记录\"");
+    expect(html).toContain("public-run-activity__archive");
+    expect(html).toContain("本轮记录");
+    expect(html).toContain("读取文件 ChatMessage.tsx");
+    expect(html).toContain("public-run-activity__tool-window");
+    expect(html.indexOf("public-run-activity__archive")).toBeLessThan(html.indexOf("已经完成的正文。"));
   });
 
   it("renders projection timeline only for the active streaming task message", () => {

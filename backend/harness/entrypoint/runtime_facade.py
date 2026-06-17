@@ -697,7 +697,7 @@ class HarnessRuntimeFacade:
         current_work_boundary_receipt: dict[str, Any],
         continuation_record: Any | None = None,
     ):
-        async def start_task(action_request: ModelActionRequest):
+        async def start_task(action_request: ModelActionRequest, start_context_handoff: dict[str, Any]):
             async for event in start_task_lifecycle_from_action_request(
                 runtime_host=self.single_agent_runtime_host,
                 session_id=request.session_id,
@@ -709,6 +709,7 @@ class HarnessRuntimeFacade:
                 runtime_assembly=runtime_assembly,
                 runtime_branch=runtime_branch,
                 editor_context=dict(getattr(request, "editor_context", {}) or {}),
+                start_context_handoff=dict(start_context_handoff or {}),
                 answer_source="harness.single_agent_turn.request_task_run",
                 scheduler="single_agent_turn",
                 max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,

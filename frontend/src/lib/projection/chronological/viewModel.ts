@@ -1,4 +1,5 @@
 import type {
+  ActivityArchiveChildBlock,
   ChronologicalProjectionLedger,
   ChronologicalProjectionView,
   ProjectionDisplayMode,
@@ -68,9 +69,10 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     lastOffset: segment.lastOffset,
     state: segment.state,
   }));
+  const activityBlocks = [...todoBlocks, ...toolBlocks, ...statusBlocks];
   const lifecycleBlocks = displayMode === "committed" || displayMode === "closeout"
-    ? []
-    : [...todoBlocks, ...toolBlocks, ...statusBlocks];
+    ? activityArchiveBlocks(ledger, activityBlocks)
+    : activityBlocks;
   const recoveryOrTerminalBlocks = statusBlocks.filter((block) => block.kind === "recovery_event" || block.kind === "terminal_event");
   const logBlocks = (displayMode === "committed" || displayMode === "closeout" || displayMode === "recovery")
     && (toolBlocks.length || recoveryOrTerminalBlocks.length)
@@ -116,6 +118,36 @@ function displayModeFromLedger(ledger: ChronologicalProjectionLedger): Projectio
   return "live";
 }
 
+function activityArchiveBlocks(
+  ledger: ChronologicalProjectionLedger,
+  blocks: ActivityArchiveChildBlock[],
+): ProjectionRenderBlock[] {
+  if (!blocks.length) return [];
+  const sortedBlocks = [...blocks].sort(compareBlocks);
+  const offset = sortedBlocks.reduce((earliest, block) => Math.min(earliest, blockOffset(block)), Number.MAX_SAFE_INTEGER);
+  return [{
+    kind: "activity_archive",
+    id: `activity-archive:${ledger.keyString ?? "projection"}`,
+    title: "本轮记录",
+    detail: archiveDetail(sortedBlocks),
+    state: archiveState(sortedBlocks),
+    blocks: sortedBlocks,
+    offset,
+  }];
+}
+
+function archiveDetail(blocks: ActivityArchiveChildBlock[]) {
+  return `${blocks.length} 条投影记录`;
+}
+
+function archiveState(blocks: ActivityArchiveChildBlock[]) {
+  const states = blocks.map((block) => String(block.state ?? "").toLowerCase());
+  if (states.some((state) => ["failed", "error", "blocked"].includes(state))) return "failed";
+  if (states.some((state) => ["stopped", "aborted", "cancelled", "canceled"].includes(state))) return "stopped";
+  if (states.some((state) => ["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state))) return "waiting";
+  return "done";
+}
+
 function compareBlocks(left: ProjectionRenderBlock, right: ProjectionRenderBlock) {
   const leftOffset = blockOffset(left);
   const rightOffset = blockOffset(right);
@@ -128,6 +160,7 @@ function blockOffset(block: ProjectionRenderBlock) {
   if (block.kind === "tool_event") return block.firstOffset;
   if (block.kind === "todo_plan") return block.offset;
   if (block.kind === "status_event" || block.kind === "recovery_event" || block.kind === "terminal_event") return block.offset;
+  if (block.kind === "activity_archive") return block.offset;
   if (block.kind === "log_entry") return Number.MAX_SAFE_INTEGER;
   return Number.MAX_SAFE_INTEGER;
 }

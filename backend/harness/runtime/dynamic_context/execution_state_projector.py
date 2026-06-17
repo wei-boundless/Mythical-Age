@@ -23,6 +23,7 @@ class ExecutionStateProjector:
             "last_action_receipts": _bounded_dicts(system_projection.get("last_action_receipts"), limit=12),
             "pending_user_steers": _bounded_dicts(system_projection.get("pending_user_steers"), limit=8),
             "active_contract_revisions": _bounded_dicts(system_projection.get("active_contract_revisions"), limit=8),
+            "turn_to_task_context_handoff": _compact_handoff(system_projection.get("turn_to_task_context_handoff")),
             "exploration_advisory": _exploration_advisory(system_projection.get("exploration_advisory")),
             "recoverable_error": _recoverable_error(system_projection, state, diagnostics),
             "validation_status": _validation_status(system_projection, state, diagnostics),
@@ -30,7 +31,7 @@ class ExecutionStateProjector:
         }
         unknown_keys = sorted(
             key for key in state.keys()
-            if key not in {"system_projection", "runtime_status", "status", "step", "current_step", "recoverable_error", "validation_status", "memory_summary", "context_summary", "file_state", "authority"}
+            if key not in {"system_projection", "runtime_status", "status", "step", "current_step", "recoverable_error", "validation_status", "memory_summary", "context_summary", "file_state", "turn_to_task_context_handoff", "authority"}
         )
         if unknown_keys:
             projected["omitted_unknown_key_count"] = len(unknown_keys)
@@ -119,6 +120,29 @@ def _exploration_advisory(value: Any) -> dict[str, Any]:
             "decision_questions": [compact_text(item, limit=180) for item in list(value.get("decision_questions") or [])[:4] if str(item).strip()],
             "non_blocking": value.get("non_blocking") if isinstance(value.get("non_blocking"), bool) else None,
             "authority": compact_text(value.get("authority") or "", limit=160),
+        }
+    )
+
+
+def _compact_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return drop_empty(
+        {
+            "handoff_id": compact_text(value.get("handoff_id") or "", limit=160),
+            "turn_id": compact_text(value.get("turn_id") or "", limit=160),
+            "task_run_id": compact_text(value.get("task_run_id") or "", limit=180),
+            "source_packet_ref": compact_text(value.get("source_packet_ref") or "", limit=260),
+            "inherited_observation_refs": [compact_text(item, limit=220) for item in list(value.get("inherited_observation_refs") or [])[:12]],
+            "inherited_observation_count": value.get("inherited_observation_count"),
+            "inherited_file_state_count": value.get("inherited_file_state_count"),
+            "inherited_memory_context_refs": {
+                str(key): compact_text(item, limit=220)
+                for key, item in dict(value.get("inherited_memory_context_refs") or {}).items()
+                if str(item).strip()
+            },
+            "selected_memory_sections": [compact_text(item, limit=120) for item in list(value.get("selected_memory_sections") or [])[:8]],
+            "authority": compact_text(value.get("authority") or "harness.loop.turn_to_task_context_handoff", limit=160),
         }
     )
 

@@ -29,7 +29,8 @@ TOOL_BATCH_EDIT_FILE_GUIDANCE = """
 调用前必须具备目标文件当前有效读窗证据；每个 edits[].old_text 都必须来自已覆盖且未过期的当前读取窗口，并且在文件中唯一。
 如果工具 schema 暴露 base_sha256 或 base_mtime_ns，优先填入最近 read_file 返回的当前文件 hash/mtime，用来证明批量修改基于同一文件版本。
 不要把会相互覆盖、相互包含或依赖前一个 new_text 结果的修改塞进同一批；这类情况应重新规划为一个更大的唯一 old_text，或先读取当前内容后再提交。
-任一 old_text 不存在、不唯一、读证据过期、base hash/mtime 不匹配或编辑范围重叠时，整个批次会失败且不应写入；失败后重新读取目标窗口并修正批次。
+文件版本、权限、路径、整体读证据过期、base hash/mtime 不匹配时，整个批次会失败且不应写入；失败后重新读取当前文件并修正批次。
+如果只有个别 edits[].old_text 不存在、不唯一、缺少必要字段、读窗不足或编辑范围重叠，工具会尽量应用其他安全编辑，并在 tool_result.rejected_edits 中按 edit_index 返回需要单独返工的项。看到 rejected_edits 后，只重读这些目标区域并重试失败项，不要原样重复整个旧批次。
 """.strip()
 
 

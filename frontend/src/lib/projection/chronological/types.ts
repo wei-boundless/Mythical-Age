@@ -185,6 +185,21 @@ export type LogProjectionBlock = {
   toolEventCount: number;
 };
 
+export type ActivityArchiveChildBlock =
+  | ToolProjectionBlock
+  | TodoPlanProjectionBlock
+  | StatusProjectionBlock;
+
+export type ActivityArchiveProjectionBlock = {
+  kind: "activity_archive";
+  id: string;
+  title: string;
+  detail: string;
+  state: string;
+  blocks: ActivityArchiveChildBlock[];
+  offset: number;
+};
+
 export type StatusProjectionBlock = {
   kind: "status_event" | "recovery_event" | "terminal_event";
   id: string;
@@ -202,6 +217,7 @@ export type ProjectionRenderBlock =
   | ToolProjectionBlock
   | TodoPlanProjectionBlock
   | StatusProjectionBlock
+  | ActivityArchiveProjectionBlock
   | LogProjectionBlock;
 
 export type ChronologicalProjectionView = {

@@ -9,6 +9,7 @@ export {
 export type {
   ChronologicalProjectionLedger,
   ChronologicalProjectionView,
+  ActivityArchiveProjectionBlock,
   StatusProjectionBlock,
   TodoPlanProjectionBlock,
   ProjectionRenderBlock,

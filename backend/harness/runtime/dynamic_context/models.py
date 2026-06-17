@@ -21,6 +21,7 @@ class DynamicContextInput:
     execution_state: dict[str, Any] = field(default_factory=dict)
     work_rollout: dict[str, Any] = field(default_factory=dict)
     session_context: dict[str, Any] = field(default_factory=dict)
+    inherited_start_context: dict[str, Any] = field(default_factory=dict)
     runtime_assembly: dict[str, Any] = field(default_factory=dict)
     runtime_envelope: dict[str, Any] = field(default_factory=dict)
     current_user_message: str = ""
@@ -59,6 +60,7 @@ class DynamicContextProjection:
     stable_runtime_baseline_refs: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_delta: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_projection: dict[str, Any] = field(default_factory=dict)
+    inherited_start_context_projection: dict[str, Any] = field(default_factory=dict)
     task_state_replay_entries: tuple[dict[str, Any], ...] = ()
     volatile_request_projection: dict[str, Any] = field(default_factory=dict)
     volatile_state_projection: dict[str, Any] = field(default_factory=dict)
@@ -77,6 +79,7 @@ class DynamicContextProjection:
                 "authority": self.authority,
                 "stable_runtime_baseline_refs": dict(self.stable_runtime_baseline_refs),
                 "dynamic_runtime_delta": dict(self.dynamic_runtime_delta),
+                "inherited_start_context": dict(self.inherited_start_context_projection),
                 "task_state_replay_entry_count": len(self.task_state_replay_entries),
                 "task_state_replay_entry_refs": [
                     str(item.get("observation_ref") or item.get("entry_ref") or "")

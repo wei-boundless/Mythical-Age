@@ -16,6 +16,7 @@ from .models import (
     drop_empty,
     estimate_chars,
     json_clone,
+    string_tuple,
 )
 from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
@@ -77,6 +78,7 @@ class DynamicContextManager:
             request.work_rollout,
             projection_policy=request.projection_policy,
         )
+        inherited_start_context_projection = self._inherited_start_context_projection(request)
         volatile_request = self._volatile_request_projection(
             request,
             envelope_projection=envelope_projection,
@@ -97,7 +99,12 @@ class DynamicContextManager:
         budget_report = build_budget_report(
             invocation_kind=request.invocation_kind,
             projection_policy=request.projection_policy,
-            volatile_payload=volatile_state or volatile_request,
+            volatile_payload=drop_empty(
+                {
+                    **dict(volatile_state or volatile_request),
+                    **({"inherited_start_context": inherited_start_context_projection} if inherited_start_context_projection else {}),
+                }
+            ),
             dynamic_payload=dynamic_payload,
         )
         if task_state_replay_entries:
@@ -115,6 +122,7 @@ class DynamicContextManager:
             stable_runtime_baseline_refs=baseline_refs,
             dynamic_runtime_delta=runtime_delta,
             dynamic_runtime_projection=dynamic_payload,
+            inherited_start_context_projection=inherited_start_context_projection,
             task_state_replay_entries=task_state_replay_entries,
             volatile_request_projection=volatile_request,
             volatile_state_projection=volatile_state,
@@ -128,6 +136,7 @@ class DynamicContextManager:
                 dynamic_payload=dynamic_payload,
                 volatile_request=volatile_request,
                 volatile_state=volatile_state,
+                inherited_start_context_projection=inherited_start_context_projection,
                 task_state_replay_entries=task_state_replay_entries,
                 tool_record_count=len(tool_records),
                 observation_record_count=len(observation_records),
@@ -242,6 +251,44 @@ class DynamicContextManager:
             payload["editor_context"] = editor_context
         return drop_empty(payload), replay_entries
 
+    def _inherited_start_context_projection(self, request: DynamicContextInput) -> dict[str, Any]:
+        if request.invocation_kind != "task_execution":
+            return {}
+        payload = dict(request.inherited_start_context or {})
+        if not payload:
+            return {}
+        memory_context = _inherited_memory_context_projection(payload.get("memory_context"))
+        observations = _inherited_observation_summaries(payload.get("observations"))
+        file_state = _inherited_file_state_projection(payload.get("file_state"))
+        return drop_empty(
+            {
+                "handoff_id": compact_text(payload.get("handoff_id") or "", limit=160),
+                "handoff_ref": compact_text(payload.get("handoff_ref") or "", limit=260),
+                "source": compact_text(payload.get("source") or "harness.loop.turn_to_task_context_handoff", limit=160),
+                "turn_id": compact_text(payload.get("turn_id") or "", limit=160),
+                "task_run_id": compact_text(payload.get("task_run_id") or request.task_run_id, limit=180),
+                "source_packet_ref": compact_text(payload.get("source_packet_ref") or "", limit=260),
+                "memory_context": memory_context,
+                "memory_context_refs": dict(payload.get("memory_context_refs") or {}),
+                "observation_refs": string_tuple(payload.get("observation_refs"))[:24],
+                "observations": observations,
+                "file_state": file_state,
+                "turn_input_facts": _bounded_projection_dict(payload.get("turn_input_facts"), limit=12, chars=1200),
+                "editor_context": _bounded_projection_dict(payload.get("editor_context"), limit=8, chars=1200),
+                "current_work_boundary_receipt": _bounded_projection_dict(
+                    payload.get("current_work_boundary_receipt"),
+                    limit=8,
+                    chars=1200,
+                ),
+                "artifact_refs": [
+                    _bounded_projection_dict(item, limit=12, chars=500)
+                    for item in list(payload.get("artifact_refs") or [])[:12]
+                    if isinstance(item, dict)
+                ],
+                "authority": "harness.runtime.dynamic_context.turn_to_task_context_handoff_projection",
+            }
+        )
+
     def _section_reports(
         self,
         request: DynamicContextInput,
@@ -249,6 +296,7 @@ class DynamicContextManager:
         dynamic_payload: dict[str, Any],
         volatile_request: dict[str, Any],
         volatile_state: dict[str, Any],
+        inherited_start_context_projection: dict[str, Any],
         task_state_replay_entries: tuple[dict[str, Any], ...],
         tool_record_count: int,
         observation_record_count: int,
@@ -301,6 +349,25 @@ class DynamicContextManager:
                     output_chars=estimate_chars(volatile_state),
                     projection_strategy="white_listed_task_state_projection",
                     refs=(),
+                )
+            )
+        if inherited_start_context_projection:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:turn_to_task_context_handoff",
+                    source="turn_to_task_context_handoff",
+                    volatility_reason="task start handoff is inherited from the parent turn and varies by turn, packet, memory selection, and tool observations",
+                    input_chars=estimate_chars(request.inherited_start_context),
+                    output_chars=estimate_chars(inherited_start_context_projection),
+                    projection_strategy="bounded_turn_to_task_handoff_projection",
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(inherited_start_context_projection.get("handoff_ref") or ""),
+                            str(inherited_start_context_projection.get("source_packet_ref") or ""),
+                        )
+                        if ref
+                    ),
                 )
             )
         if task_state_replay_entries:
@@ -406,6 +473,144 @@ def _task_state_replay_entry_limit(projection_policy: dict[str, Any] | None) -> 
     except (TypeError, ValueError):
         parsed = 12
     return max(1, parsed)
+
+
+def _inherited_memory_context_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    visible = payload.get("model_visible_sections")
+    if not isinstance(visible, dict):
+        visible = {}
+    sections: dict[str, list[str]] = {}
+    for section, items in visible.items():
+        clean_items = [
+            compact_text(item, limit=1200)
+            for item in list(items or [])[:8]
+            if str(item).strip()
+        ]
+        if clean_items:
+            sections[str(section)] = clean_items
+    selected_sections = [
+        str(item)
+        for item in list(payload.get("selected_sections") or sections.keys())
+        if str(item) in sections
+    ]
+    diagnostics = dict(payload.get("diagnostics") or {}) if isinstance(payload.get("diagnostics"), dict) else {}
+    return drop_empty(
+        {
+            "memory_runtime_view_ref": compact_text(payload.get("memory_runtime_view_ref") or "", limit=220),
+            "context_package_ref": compact_text(payload.get("context_package_ref") or "", limit=220),
+            "selected_sections": selected_sections,
+            "model_visible_sections": sections,
+            "diagnostics": _bounded_projection_dict(diagnostics, limit=8, chars=500),
+            "authority": compact_text(payload.get("authority") or "memory_system.runtime_memory_context", limit=160),
+        }
+    )
+
+
+def _inherited_observation_summaries(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in list(value or [])[:24]:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item.get("payload") or {})
+        envelope = dict(payload.get("result_envelope") or {})
+        result.append(
+            drop_empty(
+                {
+                    "observation_ref": compact_text(item.get("observation_id") or item.get("observation_ref") or "", limit=220),
+                    "tool_name": compact_text(payload.get("tool_name") or envelope.get("tool_name") or item.get("tool_name") or "", limit=120),
+                    "status": compact_text(payload.get("status") or envelope.get("status") or item.get("status") or "", limit=80),
+                    "summary": compact_text(
+                        envelope.get("summary")
+                        or envelope.get("text")
+                        or payload.get("text")
+                        or item.get("summary")
+                        or item.get("text")
+                        or "",
+                        limit=900,
+                    ),
+                    "result_ref": compact_text(payload.get("result_ref") or "", limit=220),
+                    "artifact_refs": [
+                        _bounded_projection_dict(ref, limit=8, chars=500)
+                        for ref in list(payload.get("artifact_refs") or [])[:8]
+                        if isinstance(ref, dict)
+                    ],
+                    "inherited_from_turn": True,
+                    "authority": "harness.runtime.dynamic_context.inherited_observation_summary",
+                }
+            )
+        )
+    return [item for item in result if item]
+
+
+def _inherited_file_state_projection(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in list(value or [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            drop_empty(
+                {
+                    "path": compact_text(item.get("path") or "", limit=400),
+                    "status": compact_text(item.get("status") or "", limit=80),
+                    "read_ranges": [
+                        _bounded_projection_dict(read_range, limit=12, chars=600)
+                        for read_range in list(item.get("read_ranges") or [])[:12]
+                        if isinstance(read_range, dict)
+                    ],
+                    "search_hits": [
+                        _bounded_projection_dict(hit, limit=8, chars=500)
+                        for hit in list(item.get("search_hits") or [])[:8]
+                        if isinstance(hit, dict)
+                    ],
+                    "coverage": _bounded_projection_dict(item.get("coverage"), limit=12, chars=800),
+                    "exact_coverage": _bounded_projection_dict(item.get("exact_coverage"), limit=12, chars=800),
+                    "next_suggested_read": _bounded_projection_dict(item.get("next_suggested_read"), limit=8, chars=500),
+                    "content_sha256": compact_text(item.get("content_sha256") or "", limit=120),
+                    "last_observation_ref": compact_text(item.get("last_observation_ref") or "", limit=220),
+                    "authority": compact_text(item.get("authority") or "runtime.memory.file_state_authority.task_file_state", limit=160),
+                }
+            )
+        )
+    return [item for item in result if item]
+
+
+def _bounded_projection_dict(value: Any, *, limit: int, chars: int) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    result: dict[str, Any] = {}
+    remaining = max(0, int(chars or 0))
+    for key, item in list(value.items())[: max(1, int(limit or 1))]:
+        if remaining <= 0:
+            break
+        projected = _bounded_projection_value(item, chars=remaining)
+        if projected in ("", None, [], {}, ()):
+            continue
+        result[str(key)] = projected
+        remaining -= len(str(projected))
+    return result
+
+
+def _bounded_projection_value(value: Any, *, chars: int) -> Any:
+    if isinstance(value, str):
+        return compact_text(value, limit=chars)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return _bounded_projection_dict(value, limit=12, chars=chars)
+    if isinstance(value, (list, tuple)):
+        result: list[Any] = []
+        remaining = max(0, int(chars or 0))
+        for item in list(value)[:12]:
+            if remaining <= 0:
+                break
+            projected = _bounded_projection_value(item, chars=remaining)
+            if projected in ("", None, [], {}, ()):
+                continue
+            result.append(projected)
+            remaining -= len(str(projected))
+        return result
+    return compact_text(value, limit=chars)
 
 
 def _editor_context_projection(value: Any) -> dict[str, Any]:

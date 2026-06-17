@@ -57,11 +57,13 @@ from orchestration.commit_gate import build_assistant_session_message_commit_dec
 from permissions.policy import normalize_permission_mode
 from prompt_library import SINGLE_AGENT_ADMISSION_REPAIR_PROMPT
 
+from .turn_to_task_context_handoff import build_turn_to_task_context_handoff_seed
+
 
 logger = logging.getLogger(__name__)
 
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
-StartTaskFromActionRequest = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
+StartTaskFromActionRequest = Callable[[ModelActionRequest, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 ApplyRecoverableWorkResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
@@ -2114,7 +2116,16 @@ async def run_single_agent_turn(
                 request_task_terminal_reason = "task_executor_scheduled"
                 request_task_terminal_status = "completed"
                 lifecycle_public_terminal_events: list[dict[str, Any]] = []
-                async for event in start_task_from_action_request(action_request):
+                start_context_handoff = build_turn_to_task_context_handoff_seed(
+                    runtime_host=runtime_host,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    source_packet_ref=current_packet_ref,
+                    tool_observation_payloads=tool_observation_payloads,
+                    session_context=session_context,
+                    current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
+                )
+                async for event in start_task_from_action_request(action_request, start_context_handoff):
                     if _is_public_terminal_event(event):
                         lifecycle_public_terminal_events.append(dict(event))
                         request_task_terminal_reason = _terminal_reason_from_public_event(event, fallback=request_task_terminal_reason)

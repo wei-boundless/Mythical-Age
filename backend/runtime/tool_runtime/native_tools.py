@@ -1133,25 +1133,85 @@ def _batch_edit_guard_failure(
     return payload
 
 
-def _normalize_batch_edit_items(value: Any) -> tuple[list[dict[str, str]], str]:
+def _batch_edit_rejected_edit(
+    *,
+    edit_index: int,
+    code: str,
+    message: str,
+    repair_instruction: str,
+) -> dict[str, Any]:
+    return {
+        "edit_index": int(edit_index),
+        "code": str(code or "batch_edit_edit_rejected"),
+        "message": str(message or ""),
+        "repair_instruction": str(repair_instruction or ""),
+        "retryable": True,
+        "authority": "runtime.tool_runtime.batch_edit_file_guard",
+    }
+
+
+def _normalize_batch_edit_items(value: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
     if not isinstance(value, list):
-        return [], "edits must be an array of objects with old_text and new_text."
-    edits: list[dict[str, str]] = []
+        return [], [], "edits must be an array of objects with old_text and new_text."
+    edits: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
-            return [], f"edits[{index}] must be an object."
-        if "old_text" not in item or "new_text" not in item:
-            return [], f"edits[{index}] must include old_text and new_text."
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_invalid_edit_item",
+                    message=f"Batch edit item rejected: edits[{index}] must be an object.",
+                    repair_instruction=f"Rebuild edits[{index}] as an object with old_text and new_text from the current file.",
+                )
+            )
+            continue
+        if "old_text" not in item:
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_missing_old_text",
+                    message=f"Batch edit item rejected: edits[{index}] must include old_text.",
+                    repair_instruction=f"Read the target span again and retry edits[{index}] with exact old_text from the current file.",
+                )
+            )
+            continue
+        if "new_text" not in item:
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_missing_new_text",
+                    message=f"Batch edit item rejected: edits[{index}] must include new_text.",
+                    repair_instruction=f"Retry edits[{index}] with the intended replacement as new_text.",
+                )
+            )
+            continue
         old_text = str(item.get("old_text") or "")
         new_text = str(item.get("new_text") or "")
         if old_text == "":
-            return [], f"edits[{index}].old_text must be non-empty for batch_edit_file."
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_empty_old_text",
+                    message=f"Batch edit item rejected: edits[{index}].old_text must be non-empty.",
+                    repair_instruction=f"Read the target span again and retry edits[{index}] with non-empty exact old_text from the current file.",
+                )
+            )
+            continue
         if old_text == new_text:
-            return [], f"edits[{index}] old_text and new_text are identical."
-        edits.append({"old_text": old_text, "new_text": new_text})
-    if not edits:
-        return [], "edits must contain at least one edit."
-    return edits, ""
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_item_no_effect",
+                    message=f"Batch edit item rejected: edits[{index}] old_text and new_text are identical.",
+                    repair_instruction=f"Remove edits[{index}] or provide a replacement that changes the file.",
+                )
+            )
+            continue
+        edits.append({"index": index, "old_text": old_text, "new_text": new_text})
+    if not edits and not rejected:
+        return [], [], "edits must contain at least one edit."
+    return edits, rejected, ""
 
 
 def _coerce_optional_int(value: Any, *, field_name: str) -> tuple[int | None, str]:
@@ -1173,23 +1233,45 @@ def _find_unique_edit_span(content: str, old_text: str) -> tuple[int, int, str]:
     return start, start + len(old_text), ""
 
 
-def _apply_batch_edits_to_content(content: str, edits: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
+def _apply_batch_edits_to_content(
+    content: str,
+    edits: list[dict[str, Any]],
+    *,
+    rejected_edits: list[dict[str, Any]] | None = None,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     spans: list[dict[str, Any]] = []
-    for index, edit in enumerate(edits):
+    rejected: list[dict[str, Any]] = [dict(item) for item in list(rejected_edits or []) if isinstance(item, dict)]
+    rejected_indices = {int(item.get("edit_index")) for item in rejected if _native_int_or_none(item.get("edit_index")) is not None}
+    for fallback_index, edit in enumerate(edits):
+        index = _native_int_or_none(edit.get("index"))
+        if index is None:
+            index = fallback_index
+        if int(index) in rejected_indices:
+            continue
         old_text = str(edit.get("old_text") or "")
         start, end, error = _find_unique_edit_span(content, old_text)
         if error == "not_found":
-            return "", [], {
-                "code": "batch_edit_old_text_not_found",
-                "message": "Batch edit rejected: one old_text value was not found in the current file.",
-                "edit_index": index,
-            }
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=int(index),
+                    code="batch_edit_old_text_not_found",
+                    message="Batch edit item rejected: old_text was not found in the current file.",
+                    repair_instruction="Read the current target range again and retry only this edit with exact old_text from the current file.",
+                )
+            )
+            rejected_indices.add(int(index))
+            continue
         if error == "not_unique":
-            return "", [], {
-                "code": "batch_edit_old_text_not_unique",
-                "message": "Batch edit rejected: one old_text value matches multiple locations; provide more surrounding context.",
-                "edit_index": index,
-            }
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=int(index),
+                    code="batch_edit_old_text_not_unique",
+                    message="Batch edit item rejected: old_text matches multiple locations in the current file.",
+                    repair_instruction="Retry only this edit with a larger unique old_text span from the current file.",
+                )
+            )
+            rejected_indices.add(int(index))
+            continue
         spans.append(
             {
                 "index": index,
@@ -1200,19 +1282,38 @@ def _apply_batch_edits_to_content(content: str, edits: list[dict[str, str]]) -> 
             }
         )
     ordered = sorted(spans, key=lambda item: (int(item["start"]), int(item["end"])))
+    overlapping_indices: set[int] = set()
     previous_end = -1
+    previous_item: dict[str, Any] | None = None
     for item in ordered:
         if int(item["start"]) < previous_end:
-            return "", [], {
-                "code": "batch_edit_overlapping_ranges",
-                "message": "Batch edit rejected: edit ranges overlap in the base file.",
-                "edit_index": int(item["index"]),
-            }
-        previous_end = int(item["end"])
+            overlapping_indices.add(int(item["index"]))
+            if previous_item is not None:
+                overlapping_indices.add(int(previous_item["index"]))
+        if int(item["end"]) > previous_end:
+            previous_end = int(item["end"])
+            previous_item = item
+    if overlapping_indices:
+        for item in ordered:
+            index = int(item["index"])
+            if index not in overlapping_indices or index in rejected_indices:
+                continue
+            rejected.append(
+                _batch_edit_rejected_edit(
+                    edit_index=index,
+                    code="batch_edit_overlapping_ranges",
+                    message="Batch edit item rejected: its range overlaps another edit in the same batch.",
+                    repair_instruction="Retry the overlapping edits as one larger unique replacement, or reread the target area and submit non-overlapping edits.",
+                )
+            )
+            rejected_indices.add(index)
+    applied_spans = [item for item in spans if int(item["index"]) not in rejected_indices]
+    if not applied_spans:
+        return content, [], rejected
     updated = content
-    for item in sorted(spans, key=lambda value: int(value["start"]), reverse=True):
+    for item in sorted(applied_spans, key=lambda value: int(value["start"]), reverse=True):
         updated = updated[: int(item["start"])] + str(item["new_text"]) + updated[int(item["end"]) :]
-    return updated, spans, None
+    return updated, applied_spans, rejected
 
 
 class NativeWriteFileTool(_NativeToolBase):
@@ -1628,7 +1729,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 normalized_args=payload,
                 diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
             )
-        edits, edits_error = _normalize_batch_edit_items(payload.get("edits"))
+        edits, rejected_edits, edits_error = _normalize_batch_edit_items(payload.get("edits"))
         if edits_error:
             return ToolValidationResult(
                 allowed=False,
@@ -1651,6 +1752,8 @@ class NativeBatchEditFileTool(_NativeToolBase):
             normalized_args={
                 "path": str(payload.get("path") or "").strip(),
                 "edits": edits,
+                "rejected_edits": rejected_edits,
+                "requested_edit_count": len(payload.get("edits") or []) if isinstance(payload.get("edits"), list) else len(edits) + len(rejected_edits),
                 "base_sha256": str(payload.get("base_sha256") or "").strip().lower(),
                 "base_mtime_ns": base_mtime_ns,
             },
@@ -1687,7 +1790,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
             before_sha256 = _sha256_text(before_content)
             before_mtime_ns = int(before_stat.st_mtime_ns)
             rel = files.relative_path(target_path)
-            guard_failure = self._preflight_guard(
+            guard_failure, preflight_rejected_edits = self._preflight_guard(
                 context=context,
                 path=rel,
                 edits=list(args.get("edits") or []),
@@ -1700,24 +1803,19 @@ class NativeBatchEditFileTool(_NativeToolBase):
             )
             if guard_failure:
                 return self._error_envelope(args=args, path=rel, guard_failure=guard_failure, context=context)
-            after_content, spans, error = _apply_batch_edits_to_content(before_content, list(args.get("edits") or []))
-            if error:
+            after_content, spans, rejected_edits = _apply_batch_edits_to_content(
+                before_content,
+                list(args.get("edits") or []),
+                rejected_edits=list(args.get("rejected_edits") or []) + list(preflight_rejected_edits),
+            )
+            if not spans:
                 guard = _batch_edit_guard_failure(
-                    code=str(error.get("code") or ""),
+                    code="batch_edit_no_applicable_edits",
                     path=rel,
-                    message=str(error.get("message") or ""),
-                    repair_instruction="Read the current file target ranges again and retry batch_edit_file with unique old_text spans from the current file.",
-                    edit_index=error.get("edit_index") if isinstance(error.get("edit_index"), int) else None,
+                    message="Batch edit rejected: no requested edits could be safely applied.",
+                    repair_instruction="Review rejected_edits, reread the current target ranges, and retry only the rejected edit indexes.",
                 )
-                return self._error_envelope(args=args, path=rel, guard_failure=guard, context=context)
-            if after_content == before_content:
-                guard = _batch_edit_guard_failure(
-                    code="batch_edit_no_effect",
-                    path=rel,
-                    message="Batch edit rejected: the resulting file content is unchanged.",
-                    repair_instruction="Remove no-op edits or provide a replacement that changes the file.",
-                )
-                return self._error_envelope(args=args, path=rel, guard_failure=guard, context=context)
+                return self._error_envelope(args=args, path=rel, guard_failure=guard, context=context, rejected_edits=rejected_edits)
             target_path.write_text(after_content, encoding="utf-8")
             after_stat = target_path.stat()
             after_sha256 = _sha256_text(after_content)
@@ -1751,8 +1849,9 @@ class NativeBatchEditFileTool(_NativeToolBase):
             size_bytes=int(after_stat.st_size),
             sha256=after_sha256,
             mtime_ns=after_mtime_ns,
-            edit_count=len(list(args.get("edits") or [])),
+            requested_edit_count=int(args.get("requested_edit_count") or len(list(args.get("edits") or [])) + len(list(args.get("rejected_edits") or []))),
             spans=spans,
+            rejected_edits=rejected_edits,
             artifact_refs=(artifact,),
             file_change=file_change,
             after_content=after_content,
@@ -1780,7 +1879,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
             before_content = str(before_result.content or "")
             before_sha256 = str(before_result.managed_file_ref.content_hash or "") or _sha256_text(before_content)
             before_mtime_ns = int(current_stat.st_mtime_ns) if current_stat is not None else None
-            guard_failure = self._preflight_guard(
+            guard_failure, preflight_rejected_edits = self._preflight_guard(
                 context=context,
                 path=before_result.logical_path,
                 edits=list(args.get("edits") or []),
@@ -1793,24 +1892,19 @@ class NativeBatchEditFileTool(_NativeToolBase):
             )
             if guard_failure:
                 return self._error_envelope(args=args, path=before_result.logical_path, guard_failure=guard_failure, context=context)
-            after_content, spans, error = _apply_batch_edits_to_content(before_content, list(args.get("edits") or []))
-            if error:
+            after_content, spans, rejected_edits = _apply_batch_edits_to_content(
+                before_content,
+                list(args.get("edits") or []),
+                rejected_edits=list(args.get("rejected_edits") or []) + list(preflight_rejected_edits),
+            )
+            if not spans:
                 guard = _batch_edit_guard_failure(
-                    code=str(error.get("code") or ""),
+                    code="batch_edit_no_applicable_edits",
                     path=before_result.logical_path,
-                    message=str(error.get("message") or ""),
-                    repair_instruction="Read the current file target ranges again and retry batch_edit_file with unique old_text spans from the current file.",
-                    edit_index=error.get("edit_index") if isinstance(error.get("edit_index"), int) else None,
+                    message="Batch edit rejected: no requested edits could be safely applied.",
+                    repair_instruction="Review rejected_edits, reread the current target ranges, and retry only the rejected edit indexes.",
                 )
-                return self._error_envelope(args=args, path=before_result.logical_path, guard_failure=guard, context=context)
-            if after_content == before_content:
-                guard = _batch_edit_guard_failure(
-                    code="batch_edit_no_effect",
-                    path=before_result.logical_path,
-                    message="Batch edit rejected: the resulting file content is unchanged.",
-                    repair_instruction="Remove no-op edits or provide a replacement that changes the file.",
-                )
-                return self._error_envelope(args=args, path=before_result.logical_path, guard_failure=guard, context=context)
+                return self._error_envelope(args=args, path=before_result.logical_path, guard_failure=guard, context=context, rejected_edits=rejected_edits)
             result = gateway.write_text(
                 repository_id,
                 path,
@@ -1857,8 +1951,9 @@ class NativeBatchEditFileTool(_NativeToolBase):
             size_bytes=len(result.content.encode("utf-8")),
             sha256=result.managed_file_ref.content_hash,
             mtime_ns=result_mtime_ns,
-            edit_count=len(list(args.get("edits") or [])),
+            requested_edit_count=int(args.get("requested_edit_count") or len(list(args.get("edits") or [])) + len(list(args.get("rejected_edits") or []))),
             spans=spans,
+            rejected_edits=rejected_edits,
             artifact_refs=(artifact,),
             file_change=file_change,
             after_content=result.content,
@@ -1881,14 +1976,14 @@ class NativeBatchEditFileTool(_NativeToolBase):
         *,
         context: ToolUseContext,
         path: str,
-        edits: list[dict[str, str]],
+        edits: list[dict[str, Any]],
         before_content: str,
         size_bytes: int,
         content_sha256: str,
         mtime_ns: int | None,
         base_sha256: str,
         base_mtime_ns: Any,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         normalized_path = str(path or "").replace("\\", "/").strip().strip("/")
         expected_hash = str(base_sha256 or "").strip().lower()
         if expected_hash and expected_hash != str(content_sha256 or "").strip().lower():
@@ -1897,7 +1992,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 path=normalized_path,
                 message="Batch edit rejected: base_sha256 does not match the current file.",
                 repair_instruction="Read the current file again and retry with the latest base_sha256 and exact old_text spans.",
-            )
+            ), []
         expected_mtime = _native_int_or_none(base_mtime_ns)
         if expected_mtime is not None and mtime_ns is not None and int(expected_mtime) != int(mtime_ns):
             return _batch_edit_guard_failure(
@@ -1905,7 +2000,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 path=normalized_path,
                 message="Batch edit rejected: base_mtime_ns does not match the current file.",
                 repair_instruction="Read the current file again and retry with the latest base_mtime_ns and exact old_text spans.",
-            )
+            ), []
         file_state = _current_file_state_for_path(
             context=context,
             path=normalized_path,
@@ -1918,7 +2013,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 path=normalized_path,
                 message="Batch edit rejected: existing files must be read in the current file evidence scope before batch_edit_file can replace old_text spans.",
                 repair_instruction="Call read_file on the target ranges with read_intent=\"edit_target\", then retry batch_edit_file.",
-            )
+            ), []
         status = str(getattr(file_state, "status", "") or "").strip().lower()
         if status in {"stale", "missing", "unread"}:
             return _batch_edit_guard_failure(
@@ -1926,14 +2021,14 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 path=normalized_path,
                 message="Batch edit rejected: recorded read evidence for this file is stale or unavailable.",
                 repair_instruction="Read the current target ranges again with read_intent=\"edit_target\", then retry batch_edit_file.",
-            )
+            ), []
         if not _file_state_matches_current_file(file_state=file_state, content_sha256=content_sha256, mtime_ns=mtime_ns):
             return _batch_edit_guard_failure(
                 code="batch_edit_read_evidence_stale",
                 path=normalized_path,
                 message="Batch edit rejected: file content or mtime changed since the last exact read.",
                 repair_instruction="Read the current file again before batch editing.",
-            )
+            ), []
         active_ranges = [
             segment
             for segment in tuple(getattr(file_state, "read_ranges", ()) or ())
@@ -1945,8 +2040,12 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 path=normalized_path,
                 message="Batch edit rejected: no active exact read window exists for this file.",
                 repair_instruction="Call read_file with read_intent=\"edit_target\" for the target spans, then retry batch_edit_file.",
-            )
+            ), []
+        rejected_edits: list[dict[str, Any]] = []
         for index, edit in enumerate(list(edits or [])):
+            original_index = _native_int_or_none(edit.get("index"))
+            if original_index is None:
+                original_index = index
             span = _line_span_for_first_occurrence(before_content, str(edit.get("old_text") or ""))
             if span is None:
                 continue
@@ -1956,14 +2055,15 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 and int(getattr(segment, "end_line", 0) or 0) >= end_line
                 for segment in active_ranges
             ):
-                return _batch_edit_guard_failure(
-                    code="batch_edit_requires_target_read_window",
-                    path=normalized_path,
-                    message="Batch edit rejected: one old_text span is outside the current active read windows for this file.",
-                    repair_instruction="Read the target span with read_intent=\"edit_target\", then retry batch_edit_file.",
-                    edit_index=index,
+                rejected_edits.append(
+                    _batch_edit_rejected_edit(
+                        edit_index=int(original_index),
+                        code="batch_edit_requires_target_read_window",
+                        message="Batch edit item rejected: old_text span is outside the current active read windows for this file.",
+                        repair_instruction="Read this target span with read_intent=\"edit_target\", then retry only this edit.",
+                    )
                 )
-        return {}
+        return {}, rejected_edits
 
     def _error_envelope(
         self,
@@ -1972,7 +2072,10 @@ class NativeBatchEditFileTool(_NativeToolBase):
         path: str,
         guard_failure: dict[str, Any],
         context: ToolUseContext,
+        rejected_edits: list[dict[str, Any]] | None = None,
     ) -> ToolResultEnvelope:
+        rejected = [dict(item) for item in list(rejected_edits or []) if isinstance(item, dict)]
+        requested_edit_count = int(args.get("requested_edit_count") or len(list(args.get("edits") or [])) + len(list(args.get("rejected_edits") or [])))
         return self._envelope(
             tool_args=args,
             status="error",
@@ -1983,6 +2086,10 @@ class NativeBatchEditFileTool(_NativeToolBase):
                     "status": "error",
                     "path": path,
                     "error": str(guard_failure.get("code") or "batch_edit_file_rejected"),
+                    "requested_edit_count": requested_edit_count,
+                    "applied_count": 0,
+                    "rejected_count": len(rejected),
+                    "rejected_edits": rejected,
                 },
                 "structured_error": guard_failure,
             },
@@ -1998,8 +2105,9 @@ class NativeBatchEditFileTool(_NativeToolBase):
         size_bytes: int,
         sha256: str,
         mtime_ns: int | None,
-        edit_count: int,
+        requested_edit_count: int,
         spans: list[dict[str, Any]],
+        rejected_edits: list[dict[str, Any]],
         artifact_refs: tuple[dict[str, Any], ...],
         file_change: dict[str, Any],
         after_content: str,
@@ -2009,6 +2117,8 @@ class NativeBatchEditFileTool(_NativeToolBase):
         extra_payload: dict[str, Any] | None = None,
         execution_receipt: dict[str, Any] | None = None,
     ) -> ToolResultEnvelope:
+        rejected = [dict(item) for item in list(rejected_edits or []) if isinstance(item, dict)]
+        applied_count = len(spans)
         tool_result = {
             "kind": "file_batch_edit",
             "path": path,
@@ -2017,7 +2127,12 @@ class NativeBatchEditFileTool(_NativeToolBase):
             "size_bytes": size_bytes,
             "sha256": sha256,
             "mtime_ns": mtime_ns,
-            "edit_count": edit_count,
+            "edit_count": applied_count,
+            "requested_edit_count": int(requested_edit_count),
+            "applied_count": applied_count,
+            "rejected_count": len(rejected),
+            "partial_failure": bool(rejected),
+            "rejected_edits": rejected,
             "applied_spans": [
                 {
                     "edit_index": int(item.get("index") or 0),
@@ -2035,7 +2150,11 @@ class NativeBatchEditFileTool(_NativeToolBase):
         return self._envelope(
             tool_args=args,
             status="ok",
-            text=f"Batch edit succeeded: {path} ({edit_count} edits)",
+            text=(
+                f"Batch edit partially succeeded: {path} ({applied_count}/{int(requested_edit_count)} edits applied)"
+                if rejected
+                else f"Batch edit succeeded: {path} ({applied_count} edits)"
+            ),
             structured_payload=structured_payload,
             observed_paths=(path,),
             artifact_refs=artifact_refs,
@@ -3932,5 +4051,3 @@ def _artifact_ref_for_gateway_file(
     if repository_kind and repository_kind != "sandbox_workspace":
         artifact["bypass_sandbox_publish"] = True
     return artifact
-
-

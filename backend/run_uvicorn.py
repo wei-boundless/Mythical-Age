@@ -7,6 +7,12 @@ import sys
 import uvicorn
 
 
+def _windows_safe_loop_factory() -> asyncio.AbstractEventLoop:
+    if sys.platform == "win32":
+        return asyncio.SelectorEventLoop()
+    return asyncio.new_event_loop()
+
+
 def _install_windows_selector_loop_policy() -> None:
     if sys.platform != "win32":
         return
@@ -23,7 +29,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _install_windows_selector_loop_policy()
-    uvicorn.run("app:app", host=args.host, port=args.port)
+    uvicorn.run("app:app", host=args.host, port=args.port, loop=_windows_safe_loop_factory)
 
 
 if __name__ == "__main__":

@@ -133,6 +133,62 @@ def test_runtime_batch_edit_file_uses_file_gateway_copy_on_read_before_edit(tmp_
     assert receipt["before_hash"] != receipt["after_hash"]
 
 
+def test_runtime_batch_edit_file_gateway_applies_safe_items_and_reports_rejections(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    sandbox = tmp_path / "sandbox" / "workspace"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.py").write_text("alpha old\nrepeat\nrepeat\nomega old", encoding="utf-8")
+    task_run_id = "taskrun-gateway-batch-edit-partial"
+
+    read = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="read_file",
+        tool_args={"path": "src/app.py", "start_line": 1, "line_count": 4},
+        operation_id="op.read_file",
+        task_run_id=task_run_id,
+    )
+    assert read["error"] == ""
+    tool_result = read["observation"].payload["result_envelope"]["structured_payload"]["tool_result"]
+
+    result = _run_tool(
+        workspace=project,
+        sandbox_root=sandbox,
+        tool_name="batch_edit_file",
+        tool_args={
+            "path": "src/app.py",
+            "base_sha256": tool_result["content_sha256"],
+            "base_mtime_ns": tool_result["mtime_ns"],
+            "edits": [
+                {"old_text": "alpha old", "new_text": "alpha new"},
+                {"old_text": "missing old", "new_text": "missing new"},
+                {"old_text": "repeat", "new_text": "single"},
+                {"old_text": "omega old", "new_text": "omega new"},
+            ],
+        },
+        operation_id="op.edit_file",
+        task_run_id=task_run_id,
+    )
+
+    envelope = result["observation"].payload["result_envelope"]
+    batch_result = dict(envelope["structured_payload"]["tool_result"])
+    rejected_by_index = {item["edit_index"]: item["code"] for item in batch_result["rejected_edits"]}
+
+    assert result["error"] == ""
+    assert envelope["status"] == "ok"
+    assert (project / "src" / "app.py").read_text(encoding="utf-8") == "alpha old\nrepeat\nrepeat\nomega old"
+    assert (sandbox / "src" / "app.py").read_text(encoding="utf-8") == "alpha new\nrepeat\nrepeat\nomega new"
+    assert batch_result["requested_edit_count"] == 4
+    assert batch_result["applied_count"] == 2
+    assert batch_result["rejected_count"] == 2
+    assert batch_result["partial_failure"] is True
+    assert rejected_by_index == {
+        1: "batch_edit_old_text_not_found",
+        2: "batch_edit_old_text_not_unique",
+    }
+    assert "structured_error" not in envelope["structured_payload"]
+
+
 def test_runtime_read_file_uses_file_gateway_sandbox_overlay(tmp_path: Path) -> None:
     project = tmp_path / "project"
     sandbox = tmp_path / "sandbox" / "workspace"
@@ -433,5 +489,4 @@ def _run_tool(
             },
         )
     )
-
 

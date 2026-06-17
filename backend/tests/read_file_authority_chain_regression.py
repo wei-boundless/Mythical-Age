@@ -693,20 +693,19 @@ def test_native_batch_edit_file_applies_multiple_disjoint_edits_atomically(tmp_p
     assert active_ranges[0]["visible_exact"] is True
 
 
-def test_native_batch_edit_file_rejects_overlapping_or_non_unique_or_missing_spans_without_partial_write(tmp_path: Path) -> None:
+def test_native_batch_edit_file_applies_safe_items_and_returns_rejected_indexes(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     runtime_state = tmp_path / "runtime_state"
     workspace.mkdir()
     runtime_state.mkdir()
     target = workspace / "notes.txt"
-    original = "abcdef\nrepeat\nrepeat\n"
-    target.write_text(original, encoding="utf-8")
+    target.write_text("alpha old\nabcdef\nrepeat\nrepeat\nomega old\n", encoding="utf-8")
     definitions = get_tool_definition_map()
     reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
     batch_editor = build_native_runtime_tool(capability_definition=definitions["batch_edit_file"])
     assert reader is not None
     assert batch_editor is not None
-    task_run_id = "taskrun:batch-edit-rejections"
+    task_run_id = "taskrun:batch-edit-partial"
     scope = task_run_file_evidence_scope(task_run_id)
     store = FileStateAuthorityStore(runtime_state)
 
@@ -717,65 +716,124 @@ def test_native_batch_edit_file_rejects_overlapping_or_non_unique_or_missing_spa
         scope=scope,
         task_run_id=task_run_id,
         path="notes.txt",
-        line_count=3,
+        line_count=5,
     )
-    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:batch-reject-read", tool_call_id="call:batch-reject-read")
+    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:batch-partial-read", tool_call_id="call:batch-partial-read")
     read_result = dict(read.structured_payload["tool_result"])
-    context = ToolUseContext(
-        workspace_root=workspace,
-        task_run_id=task_run_id,
-        tool_call_id="call:batch-reject-edit",
-        file_evidence_scope=scope,
-        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
-    )
 
-    overlap = asyncio.run(
+    edit = asyncio.run(
         batch_editor.call(
             {
                 "path": "notes.txt",
                 "base_sha256": read_result["content_sha256"],
                 "base_mtime_ns": read_result["mtime_ns"],
                 "edits": [
+                    {"old_text": "alpha old", "new_text": "alpha new"},
+                    {"old_text": "not present", "new_text": "replacement"},
+                    {"old_text": "repeat", "new_text": "single"},
                     {"old_text": "abc", "new_text": "ABC"},
                     {"old_text": "bcde", "new_text": "BCDE"},
+                    {"old_text": "omega old", "new_text": "omega new"},
+                ],
+            },
+            ToolUseContext(
+                workspace_root=workspace,
+                task_run_id=task_run_id,
+                tool_call_id="call:batch-partial-edit",
+                file_evidence_scope=scope,
+                file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+            ),
+        )
+    )
+    state = store.apply_events_scope(scope, edit.file_state_events, observation_ref="obs:batch-partial-edit", tool_call_id="call:batch-partial-edit").projection()[0]
+    tool_result = dict(edit.structured_payload["tool_result"])
+    rejected_by_index = {item["edit_index"]: item["code"] for item in tool_result["rejected_edits"]}
+
+    assert edit.status == "ok"
+    assert target.read_text(encoding="utf-8") == "alpha new\nabcdef\nrepeat\nrepeat\nomega new\n"
+    assert tool_result["requested_edit_count"] == 6
+    assert tool_result["applied_count"] == 2
+    assert tool_result["edit_count"] == 2
+    assert tool_result["rejected_count"] == 4
+    assert tool_result["partial_failure"] is True
+    assert rejected_by_index == {
+        1: "batch_edit_old_text_not_found",
+        2: "batch_edit_old_text_not_unique",
+        3: "batch_edit_overlapping_ranges",
+        4: "batch_edit_overlapping_ranges",
+    }
+    assert [item["edit_index"] for item in tool_result["applied_spans"]] == [0, 5]
+    assert edit.structured_payload.get("structured_error") is None
+    assert state["status"] == "complete"
+    assert state["content_sha256"] == tool_result["sha256"]
+
+
+def test_native_batch_edit_file_rejects_when_no_items_are_applicable_without_write(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_state = tmp_path / "runtime_state"
+    workspace.mkdir()
+    runtime_state.mkdir()
+    target = workspace / "notes.txt"
+    original = "repeat\nrepeat\n"
+    target.write_text(original, encoding="utf-8")
+    definitions = get_tool_definition_map()
+    reader = build_native_runtime_tool(capability_definition=definitions["read_file"])
+    batch_editor = build_native_runtime_tool(capability_definition=definitions["batch_edit_file"])
+    assert reader is not None
+    assert batch_editor is not None
+    task_run_id = "taskrun:batch-edit-no-applicable"
+    scope = task_run_file_evidence_scope(task_run_id)
+    store = FileStateAuthorityStore(runtime_state)
+
+    read = _native_read_for_edit(
+        reader=reader,
+        workspace=workspace,
+        runtime_state=runtime_state,
+        scope=scope,
+        task_run_id=task_run_id,
+        path="notes.txt",
+        line_count=2,
+    )
+    store.apply_events_scope(scope, read.file_state_events, observation_ref="obs:batch-no-applicable-read", tool_call_id="call:batch-no-applicable-read")
+    read_result = dict(read.structured_payload["tool_result"])
+    context = ToolUseContext(
+        workspace_root=workspace,
+        task_run_id=task_run_id,
+        tool_call_id="call:batch-no-applicable-edit",
+        file_evidence_scope=scope,
+        file_management_policy={"storage_space": {"runtime_state_root": str(runtime_state)}},
+    )
+
+    result = asyncio.run(
+        batch_editor.call(
+            {
+                "path": "notes.txt",
+                "base_sha256": read_result["content_sha256"],
+                "base_mtime_ns": read_result["mtime_ns"],
+                "edits": [
+                    {"old_text": "repeat", "new_text": "single"},
+                    {"old_text": "not present", "new_text": "replacement"},
                 ],
             },
             context,
         )
     )
-    non_unique = asyncio.run(
-        batch_editor.call(
-            {
-                "path": "notes.txt",
-                "base_sha256": read_result["content_sha256"],
-                "base_mtime_ns": read_result["mtime_ns"],
-                "edits": [{"old_text": "repeat", "new_text": "single"}],
-            },
-            context,
-        )
-    )
-    missing = asyncio.run(
-        batch_editor.call(
-            {
-                "path": "notes.txt",
-                "base_sha256": read_result["content_sha256"],
-                "base_mtime_ns": read_result["mtime_ns"],
-                "edits": [{"old_text": "not present", "new_text": "replacement"}],
-            },
-            context,
-        )
-    )
+    tool_result = dict(result.structured_payload["tool_result"])
+    rejected_by_index = {item["edit_index"]: item["code"] for item in tool_result["rejected_edits"]}
 
-    assert overlap.status == "error"
-    assert overlap.structured_payload["structured_error"]["code"] == "batch_edit_overlapping_ranges"
-    assert non_unique.status == "error"
-    assert non_unique.structured_payload["structured_error"]["code"] == "batch_edit_old_text_not_unique"
-    assert missing.status == "error"
-    assert missing.structured_payload["structured_error"]["code"] == "batch_edit_old_text_not_found"
+    assert result.status == "error"
+    assert result.structured_payload["structured_error"]["code"] == "batch_edit_no_applicable_edits"
+    assert tool_result["requested_edit_count"] == 2
+    assert tool_result["applied_count"] == 0
+    assert tool_result["rejected_count"] == 2
+    assert rejected_by_index == {
+        0: "batch_edit_old_text_not_unique",
+        1: "batch_edit_old_text_not_found",
+    }
     assert target.read_text(encoding="utf-8") == original
 
 
-def test_native_batch_edit_file_rejects_missing_old_text_during_input_validation(tmp_path: Path) -> None:
+def test_native_batch_edit_file_carries_malformed_items_as_rejected_edits(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     runtime_state = tmp_path / "runtime_state"
     workspace.mkdir()
@@ -785,7 +843,14 @@ def test_native_batch_edit_file_rejects_missing_old_text_during_input_validation
     assert batch_editor is not None
 
     validation = batch_editor.validate_input(
-        {"path": "notes.txt", "edits": [{"new_text": "replacement"}]},
+        {
+            "path": "notes.txt",
+            "edits": [
+                {"new_text": "replacement"},
+                {"old_text": "alpha old", "new_text": "alpha new"},
+                {"old_text": "same", "new_text": "same"},
+            ],
+        },
         ToolUseContext(
             workspace_root=workspace,
             task_run_id="taskrun:batch-edit-invalid-input",
@@ -795,9 +860,14 @@ def test_native_batch_edit_file_rejects_missing_old_text_during_input_validation
         ),
     )
 
-    assert validation.allowed is False
-    assert validation.reason == "invalid_tool_input"
-    assert "old_text" in validation.repair_instruction
+    assert validation.allowed is True
+    assert validation.normalized_args["requested_edit_count"] == 3
+    assert validation.normalized_args["edits"] == [{"index": 1, "old_text": "alpha old", "new_text": "alpha new"}]
+    assert [item["edit_index"] for item in validation.normalized_args["rejected_edits"]] == [0, 2]
+    assert [item["code"] for item in validation.normalized_args["rejected_edits"]] == [
+        "batch_edit_missing_old_text",
+        "batch_edit_item_no_effect",
+    ]
     assert not (workspace / "notes.txt").exists()
 
 

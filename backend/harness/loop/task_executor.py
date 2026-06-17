@@ -101,6 +101,12 @@ from .task_steering import (
     mark_task_steers_included,
 )
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
+from .turn_to_task_context_handoff import (
+    handoff_summary,
+    inherited_observations_for_packet,
+    inherited_start_context_for_model,
+    load_turn_to_task_context_handoff,
+)
 from .task_tool_approval import (
     APPROVAL_GRANT_KIND,
     append_task_tool_approval_grant,
@@ -1000,6 +1006,7 @@ async def _runtime_memory_context_for_task_step(
     runtime_assembly: Any,
     agent_runtime_profile: Any,
     invocation_index: int,
+    inherited_start_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     provider = getattr(services, "memory_context_provider", None)
     if not callable(provider):
@@ -1013,6 +1020,7 @@ async def _runtime_memory_context_for_task_step(
                 "contract": dict(contract or {}),
                 "observations": [dict(item) for item in list(observations or []) if isinstance(item, dict)],
                 "execution_state": dict(execution_state or {}),
+                "inherited_start_context": dict(inherited_start_context or {}),
                 "runtime_assembly": runtime_assembly,
                 "agent_runtime_profile": agent_runtime_profile,
                 "invocation_index": int(invocation_index or 1),
@@ -1100,6 +1108,8 @@ async def _execute_claimed_task_run(
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         if _task_run_session_deleted(runtime_host, current_task):
             return _conflict(current_task.task_run_id, "session_deleted")
+        start_context_handoff = load_turn_to_task_context_handoff(runtime_host, current_task)
+        inherited_start_context = inherited_start_context_for_model(start_context_handoff)
         memory_context = await _runtime_memory_context_for_task_step(
             services,
             session_id=current_task.session_id,
@@ -1110,6 +1120,7 @@ async def _execute_claimed_task_run(
             runtime_assembly=runtime_assembly,
             agent_runtime_profile=services.agent_runtime_profile,
             invocation_index=step_index,
+            inherited_start_context=inherited_start_context,
         )
         compilation = compiler.compile_task_execution_packet(
             session_id=current_task.session_id,
@@ -1123,6 +1134,7 @@ async def _execute_claimed_task_run(
             available_tools=runtime_available_tools,
             runtime_assembly=runtime_assembly,
             memory_context=memory_context,
+            inherited_start_context=inherited_start_context,
             invocation_index=step_index,
         )
         packet_event = runtime_host.event_log.append(
@@ -6322,7 +6334,16 @@ def _observations_for_packet(
     current_fingerprint: dict[str, Any],
     pending_observations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    raw_observations = [*_existing_observations(runtime_host, task_run_id), *list(pending_observations or [])]
+    existing_observations = _existing_observations(runtime_host, task_run_id)
+    pending = list(pending_observations or [])
+    task_run = getattr(runtime_host, "state_index", None).get_task_run(task_run_id) if getattr(runtime_host, "state_index", None) is not None else None
+    start_context_handoff = load_turn_to_task_context_handoff(runtime_host, task_run) if task_run is not None else {}
+    inherited_observations = (
+        inherited_observations_for_packet(start_context_handoff)
+        if not existing_observations and not pending
+        else []
+    )
+    raw_observations = [*inherited_observations, *existing_observations, *pending]
     deduped = _dedupe_observations(raw_observations)
     records = [
         _tool_record_from_observation(observation, current_fingerprint=current_fingerprint)
@@ -6349,6 +6370,12 @@ def _observations_for_packet(
             **projection,
             "runtime_control_signals": runtime_control_signals,
             "latest_runtime_control_signal": runtime_control_signals[-1],
+        }
+    handoff_projection = handoff_summary(start_context_handoff)
+    if handoff_projection:
+        projection = {
+            **projection,
+            "turn_to_task_context_handoff": handoff_projection,
         }
     file_state = _file_state_projection_from_store(runtime_host, task_run_id)
     if file_state:

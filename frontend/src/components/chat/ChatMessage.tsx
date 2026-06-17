@@ -232,6 +232,17 @@ function ChatMessageComponent({
     ],
   );
   const firstBodyBlockKey = orderedMessageBlocks.find((block) => block.kind === "body")?.key ?? "";
+  const renderClosedMessage = () => (
+    <>
+      {hasPublicTimelineActivity ? (
+        <PublicTimelineActivity
+          ariaLabel="本轮记录"
+          blocks={projectionBlocks}
+        />
+      ) : null}
+      {renderMessageContent()}
+    </>
+  );
 
   return (
     <article
@@ -258,17 +269,23 @@ function ChatMessageComponent({
         </button>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {isUser || taskClosed || !renderProjectionTimeline ? renderMessageContent() : orderedMessageBlocks.map((block) => (
-        block.kind === "body"
-          ? renderMessageContent(block.key, block.text, block.key === firstBodyBlockKey)
-          : (
-            <PublicTimelineActivity
-              ariaLabel="运行状态"
-              blocks={block.blocks}
-              key={block.key}
-            />
-          )
-      ))}
+      {isUser
+        ? renderMessageContent()
+        : taskClosed
+          ? renderClosedMessage()
+          : !renderProjectionTimeline
+            ? renderMessageContent()
+            : orderedMessageBlocks.map((block) => (
+              block.kind === "body"
+                ? renderMessageContent(block.key, block.text, block.key === firstBodyBlockKey)
+                : (
+                  <PublicTimelineActivity
+                    ariaLabel="运行状态"
+                    blocks={block.blocks}
+                    key={block.key}
+                  />
+                )
+            ))}
       {!isUser && taskClosed ? (
         <RuntimeLogEntry
           onOpen={onOpenRuntimeLog}

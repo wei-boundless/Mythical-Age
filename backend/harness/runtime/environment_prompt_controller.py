@@ -27,9 +27,12 @@ class PromptMountPlan:
     overlay_prompt_refs: tuple[str, ...] = ()
     lifecycle_prompt_refs: tuple[str, ...] = ()
     lifecycle_prompt_keys: tuple[str, ...] = ()
+    runtime_lifecycle_prompt_refs: tuple[str, ...] = ()
+    runtime_lifecycle_prompt_keys: tuple[str, ...] = ()
     lifecycle_prompt_defaults: dict[str, str] = field(default_factory=dict)
     lifecycle_prompt_overrides: dict[str, str] = field(default_factory=dict)
     lifecycle_trigger_reasons: dict[str, str] = field(default_factory=dict)
+    runtime_lifecycle_trigger_reasons: dict[str, str] = field(default_factory=dict)
     tool_guidance_prompt_defaults: dict[str, str] = field(default_factory=dict)
     tool_guidance_prompt_overrides: dict[str, str] = field(default_factory=dict)
     environment_prompt_refs: tuple[str, ...] = ()
@@ -44,9 +47,12 @@ class PromptMountPlan:
         payload["overlay_prompt_refs"] = list(self.overlay_prompt_refs)
         payload["lifecycle_prompt_refs"] = list(self.lifecycle_prompt_refs)
         payload["lifecycle_prompt_keys"] = list(self.lifecycle_prompt_keys)
+        payload["runtime_lifecycle_prompt_refs"] = list(self.runtime_lifecycle_prompt_refs)
+        payload["runtime_lifecycle_prompt_keys"] = list(self.runtime_lifecycle_prompt_keys)
         payload["lifecycle_prompt_defaults"] = dict(self.lifecycle_prompt_defaults)
         payload["lifecycle_prompt_overrides"] = dict(self.lifecycle_prompt_overrides)
         payload["lifecycle_trigger_reasons"] = dict(self.lifecycle_trigger_reasons)
+        payload["runtime_lifecycle_trigger_reasons"] = dict(self.runtime_lifecycle_trigger_reasons)
         payload["tool_guidance_prompt_defaults"] = dict(self.tool_guidance_prompt_defaults)
         payload["tool_guidance_prompt_overrides"] = dict(self.tool_guidance_prompt_overrides)
         payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
@@ -61,6 +67,12 @@ class LifecyclePromptSelection:
     keys: tuple[str, ...] = ()
     trigger_reasons: dict[str, str] = field(default_factory=dict)
     omitted_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LifecyclePromptSplitSelection:
+    stable: LifecyclePromptSelection = field(default_factory=LifecyclePromptSelection)
+    runtime: LifecyclePromptSelection = field(default_factory=LifecyclePromptSelection)
 
 
 def build_base_prompt_mount_plan(
@@ -130,9 +142,12 @@ def prompt_mount_plan_from_payload(payload: Any) -> PromptMountPlan:
         overlay_prompt_refs=overlay_prompt_refs,
         lifecycle_prompt_refs=_string_tuple(raw.get("lifecycle_prompt_refs")),
         lifecycle_prompt_keys=_string_tuple(raw.get("lifecycle_prompt_keys")),
+        runtime_lifecycle_prompt_refs=_string_tuple(raw.get("runtime_lifecycle_prompt_refs")),
+        runtime_lifecycle_prompt_keys=_string_tuple(raw.get("runtime_lifecycle_prompt_keys")),
         lifecycle_prompt_defaults=_string_dict(raw.get("lifecycle_prompt_defaults")),
         lifecycle_prompt_overrides=_string_dict(raw.get("lifecycle_prompt_overrides")),
         lifecycle_trigger_reasons=_string_dict(raw.get("lifecycle_trigger_reasons")),
+        runtime_lifecycle_trigger_reasons=_string_dict(raw.get("runtime_lifecycle_trigger_reasons")),
         tool_guidance_prompt_defaults=_string_dict(raw.get("tool_guidance_prompt_defaults")),
         tool_guidance_prompt_overrides=_string_dict(raw.get("tool_guidance_prompt_overrides")),
         environment_prompt_refs=environment_prompt_refs,
@@ -172,10 +187,14 @@ def prompt_mount_plan_for_invocation(
     diagnostics = {
         **dict(plan.diagnostics or {}),
         "invocation_kind": str(invocation_kind or ""),
-        "lifecycle_prompt_count": len(lifecycle_selection.refs),
-        "lifecycle_prompt_keys": list(lifecycle_selection.keys),
-        "lifecycle_prompt_omitted_keys": list(lifecycle_selection.omitted_keys),
-        "lifecycle_trigger_reasons": dict(lifecycle_selection.trigger_reasons),
+        "lifecycle_prompt_count": len(lifecycle_selection.stable.refs),
+        "lifecycle_prompt_keys": list(lifecycle_selection.stable.keys),
+        "lifecycle_prompt_omitted_keys": list(lifecycle_selection.stable.omitted_keys),
+        "lifecycle_trigger_reasons": dict(lifecycle_selection.stable.trigger_reasons),
+        "runtime_lifecycle_prompt_count": len(lifecycle_selection.runtime.refs),
+        "runtime_lifecycle_prompt_keys": list(lifecycle_selection.runtime.keys),
+        "runtime_lifecycle_prompt_omitted_keys": list(lifecycle_selection.runtime.omitted_keys),
+        "runtime_lifecycle_trigger_reasons": dict(lifecycle_selection.runtime.trigger_reasons),
         "lifecycle_selector_authority": "harness.runtime.environment_prompt_controller.lifecycle_selector",
     }
     return PromptMountPlan(
@@ -184,11 +203,14 @@ def prompt_mount_plan_for_invocation(
         personality_prompt_refs=plan.personality_prompt_refs,
         base_prompt_refs=plan.base_prompt_refs,
         overlay_prompt_refs=plan.overlay_prompt_refs,
-        lifecycle_prompt_refs=lifecycle_selection.refs,
-        lifecycle_prompt_keys=lifecycle_selection.keys,
+        lifecycle_prompt_refs=lifecycle_selection.stable.refs,
+        lifecycle_prompt_keys=lifecycle_selection.stable.keys,
+        runtime_lifecycle_prompt_refs=lifecycle_selection.runtime.refs,
+        runtime_lifecycle_prompt_keys=lifecycle_selection.runtime.keys,
         lifecycle_prompt_defaults=plan.lifecycle_prompt_defaults,
         lifecycle_prompt_overrides=plan.lifecycle_prompt_overrides,
-        lifecycle_trigger_reasons=lifecycle_selection.trigger_reasons,
+        lifecycle_trigger_reasons=lifecycle_selection.stable.trigger_reasons,
+        runtime_lifecycle_trigger_reasons=lifecycle_selection.runtime.trigger_reasons,
         tool_guidance_prompt_defaults=plan.tool_guidance_prompt_defaults,
         tool_guidance_prompt_overrides=plan.tool_guidance_prompt_overrides,
         environment_prompt_refs=plan.environment_prompt_refs,
@@ -211,20 +233,21 @@ def _lifecycle_prompt_selection_for_invocation(
     prompt_pack_refs: tuple[str, ...],
     lifecycle_prompt_defaults: dict[str, str],
     lifecycle_prompt_overrides: dict[str, str],
-) -> LifecyclePromptSelection:
+) -> LifecyclePromptSplitSelection:
     invocation = str(invocation_kind or "").strip()
     if "runtime.pack.graph_node_execution" in set(prompt_pack_refs):
-        return LifecyclePromptSelection()
+        return LifecyclePromptSplitSelection()
     if not lifecycle_prompt_defaults and not lifecycle_prompt_overrides:
-        return LifecyclePromptSelection()
+        return LifecyclePromptSplitSelection()
 
     environment_kind = _environment_kind_for_id(selected_environment_id)
-    selected_reasons: dict[str, str] = {}
+    stable_reasons: dict[str, str] = {}
+    runtime_reasons: dict[str, str] = {}
     for lifecycle_key, reason in _core_lifecycle_reasons(
         invocation_kind=invocation,
         environment_kind=environment_kind,
     ):
-        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+        _select_lifecycle_key(stable_reasons, lifecycle_key, reason)
     for lifecycle_key, reason in _capability_lifecycle_reasons(
         invocation_kind=invocation,
         environment_kind=environment_kind,
@@ -232,7 +255,7 @@ def _lifecycle_prompt_selection_for_invocation(
         visible_tools=visible_tools,
         active_work_context=active_work_context,
     ):
-        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+        _select_lifecycle_key(stable_reasons, lifecycle_key, reason)
     for lifecycle_key, reason in _state_lifecycle_reasons(
         invocation_kind=invocation,
         environment_kind=environment_kind,
@@ -243,8 +266,33 @@ def _lifecycle_prompt_selection_for_invocation(
         session_context=session_context,
         visible_tools=visible_tools,
     ):
-        _select_lifecycle_key(selected_reasons, lifecycle_key, reason)
+        _select_lifecycle_key(runtime_reasons, lifecycle_key, reason)
+    runtime_reasons = {
+        key: reason
+        for key, reason in runtime_reasons.items()
+        if key not in stable_reasons
+    }
 
+    return LifecyclePromptSplitSelection(
+        stable=_resolve_lifecycle_selection(
+            stable_reasons,
+            lifecycle_prompt_defaults=lifecycle_prompt_defaults,
+            lifecycle_prompt_overrides=lifecycle_prompt_overrides,
+        ),
+        runtime=_resolve_lifecycle_selection(
+            runtime_reasons,
+            lifecycle_prompt_defaults=lifecycle_prompt_defaults,
+            lifecycle_prompt_overrides=lifecycle_prompt_overrides,
+        ),
+    )
+
+
+def _resolve_lifecycle_selection(
+    selected_reasons: dict[str, str],
+    *,
+    lifecycle_prompt_defaults: dict[str, str],
+    lifecycle_prompt_overrides: dict[str, str],
+) -> LifecyclePromptSelection:
     refs: list[str] = []
     keys: list[str] = []
     omitted_keys: list[str] = []

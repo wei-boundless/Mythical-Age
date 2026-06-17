@@ -779,14 +779,34 @@ def test_task_execution_memory_payload_stays_volatile_when_memory_lifecycle_moun
     runtime_boundary_content = _message_content_with_title(with_memory.packet, "Task execution runtime boundary")
     without_refs = without_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
     with_refs = with_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["lifecycle_prompt_refs"]
+    with_runtime_refs = with_memory.packet.diagnostics["prompt_manifest"]["prompt_mount_plan"]["runtime_lifecycle_prompt_refs"]
 
     assert "environment.coding.lifecycle.memory_read_context" not in without_refs
-    assert "environment.coding.lifecycle.memory_read_context" in with_refs
+    assert "environment.coding.lifecycle.memory_read_context" not in with_refs
+    assert "environment.coding.lifecycle.memory_read_context" in with_runtime_refs
     assert "durable memory marker for prefix regression" not in environment_content
     assert "durable memory marker for prefix regression" in runtime_boundary_content
+    lifecycle_runtime_segment = _segment_by_kind(with_memory.packet, "lifecycle_runtime_guidance")
+    assert lifecycle_runtime_segment["cache_role"] == "volatile"
+    assert lifecycle_runtime_segment["prefix_tier"] == "volatile"
     runtime_segment = _segment_by_kind(with_memory.packet, "task_runtime_boundary_dynamic")
     assert runtime_segment["cache_role"] == "volatile"
     assert runtime_segment["prefix_tier"] == "volatile"
+    without_request = ModelRequestBuilder().build(
+        request_id="modelreq:without-memory-lifecycle",
+        messages=without_memory.packet.model_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=without_memory.packet.segment_plan,
+    )
+    with_request = ModelRequestBuilder().build(
+        request_id="modelreq:with-memory-lifecycle",
+        messages=with_memory.packet.model_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=with_memory.packet.segment_plan,
+    )
+    assert without_request.stable_prefix_hash == with_request.stable_prefix_hash
 
 
 def test_lifecycle_prompt_selection_changes_only_on_memory_context_structure() -> None:
@@ -827,9 +847,13 @@ def test_lifecycle_prompt_selection_changes_only_on_memory_context_structure() -
     )
 
     assert lifecycle_defaults["memory_read_context"] not in without_memory.lifecycle_prompt_refs
-    assert lifecycle_defaults["memory_read_context"] in with_memory.lifecycle_prompt_refs
+    assert lifecycle_defaults["memory_read_context"] not in with_memory.lifecycle_prompt_refs
+    assert lifecycle_defaults["memory_read_context"] in with_memory.runtime_lifecycle_prompt_refs
+    assert lifecycle_defaults["memory_read_context"] in with_different_memory_text.runtime_lifecycle_prompt_refs
     assert with_memory.lifecycle_prompt_refs == with_different_memory_text.lifecycle_prompt_refs
     assert with_memory.lifecycle_prompt_keys == with_different_memory_text.lifecycle_prompt_keys
+    assert with_memory.runtime_lifecycle_prompt_refs == with_different_memory_text.runtime_lifecycle_prompt_refs
+    assert with_memory.runtime_lifecycle_prompt_keys == with_different_memory_text.runtime_lifecycle_prompt_keys
 
 
 def test_lifecycle_selector_omits_state_slots_without_structural_state() -> None:
@@ -890,11 +914,11 @@ def test_lifecycle_selector_mounts_state_slots_from_structural_state() -> None:
         session_context={"compaction": {"handoff_ref": "compaction:1"}},
     )
 
-    assert "work_relation" in plan.lifecycle_prompt_keys
+    assert "work_relation" in plan.runtime_lifecycle_prompt_keys
     assert "active_work_control" in plan.lifecycle_prompt_keys
-    assert "user_steer_contract_revision" in plan.lifecycle_prompt_keys
-    assert "memory_read_context" in plan.lifecycle_prompt_keys
-    assert "compaction_handoff" in plan.lifecycle_prompt_keys
+    assert "user_steer_contract_revision" in plan.runtime_lifecycle_prompt_keys
+    assert "memory_read_context" in plan.runtime_lifecycle_prompt_keys
+    assert "compaction_handoff" in plan.runtime_lifecycle_prompt_keys
 
 
 def test_task_execution_replay_entries_are_volatile_before_current_state() -> None:
@@ -976,6 +1000,80 @@ def test_task_execution_replay_entries_are_volatile_before_current_state() -> No
     assert "task_runtime_boundary_dynamic" not in second_request.provider_payload_manifest.cache_boundary["tier_prefixes"]["task"]["kinds"]
     assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
     assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
+
+
+def test_task_start_inherited_context_is_volatile_and_keeps_stable_prefix() -> None:
+    base_kwargs = {
+        "session_id": "session:task-start-handoff",
+        "task_run": {
+            "task_run_id": "taskrun:task-start-handoff",
+            "task_id": "task:task-start-handoff",
+            "diagnostics": {"executor_status": "running"},
+        },
+        "contract": {
+            "contract_id": "contract:task-start-handoff",
+            "task_run_goal": "验证任务启动 handoff",
+            "completion_criteria": ["handoff volatile"],
+        },
+        "observations": [],
+        "runtime_assembly": {
+            "profile": {"profile_ref": "main_interactive_agent"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    }
+    first = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        inherited_start_context={
+            "handoff_id": "handoff:first",
+            "handoff_ref": "rtobj:turn_to_task_context_handoff:first",
+            "source_packet_ref": "rtpacket:parent:first",
+            "memory_context": {
+                "memory_runtime_view_ref": "memview:first",
+                "selected_sections": ["relevant_durable_context"],
+                "model_visible_sections": {"relevant_durable_context": ["first inherited memory"]},
+            },
+            "observations": [{"tool_name": "read_file", "status": "ok", "summary": "first read"}],
+            "file_state": [{"path": "src/first.py", "status": "partial"}],
+        },
+    )
+    second = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        inherited_start_context={
+            "handoff_id": "handoff:second",
+            "handoff_ref": "rtobj:turn_to_task_context_handoff:second",
+            "source_packet_ref": "rtpacket:parent:second",
+            "memory_context": {
+                "memory_runtime_view_ref": "memview:second",
+                "selected_sections": ["relevant_durable_context"],
+                "model_visible_sections": {"relevant_durable_context": ["second inherited memory"]},
+            },
+            "observations": [{"tool_name": "read_file", "status": "ok", "summary": "second read"}],
+            "file_state": [{"path": "src/second.py", "status": "partial"}],
+        },
+    )
+
+    segment = _segment_by_kind(first.packet, "task_start_inherited_context")
+    payload = _message_payload_with_title(first.packet, "Task start inherited context")
+    first_request = ModelRequestBuilder().build(
+        request_id="modelreq:first-handoff",
+        messages=first.packet.model_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=first.packet.segment_plan,
+    )
+    second_request = ModelRequestBuilder().build(
+        request_id="modelreq:second-handoff",
+        messages=second.packet.model_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=second.packet.segment_plan,
+    )
+
+    assert segment["cache_role"] == "volatile"
+    assert segment["prefix_tier"] == "volatile"
+    assert payload["memory_context"]["memory_runtime_view_ref"] == "memview:first"
+    assert payload["observations"][0]["summary"] == "first read"
+    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
 
 
 def test_task_execution_replay_prefix_keeps_observations_beyond_current_state_cursor() -> None:

@@ -75,6 +75,8 @@ function blockOffset(block: ProjectionRenderBlock) {
   if (block.kind === "body_segment") return block.firstOffset;
   if (block.kind === "tool_event") return block.firstOffset;
   if (block.kind === "todo_plan") return block.offset;
+  if (block.kind === "status_event" || block.kind === "recovery_event" || block.kind === "terminal_event") return block.offset;
+  if (block.kind === "activity_archive") return block.offset;
   if (block.kind === "log_entry") return Number.MAX_SAFE_INTEGER;
   return Number.MAX_SAFE_INTEGER;
 }

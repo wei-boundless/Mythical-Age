@@ -900,6 +900,7 @@ body {
 
 .agent-workbench .public-run-activity__line,
 .agent-workbench .public-run-activity__todo-block,
+.agent-workbench .public-run-activity__archive,
 .agent-workbench .public-run-activity__tool-round,
 .agent-workbench .public-run-activity__tool-window {
   display: grid;
@@ -1122,6 +1123,142 @@ body {
   margin: 1px 0 2px 7px;
   padding: 4px 0 3px 15px;
   border-left: 1px solid rgba(107, 124, 146, 0.16);
+}
+
+.agent-workbench .public-run-activity__archive {
+  width: min(100%, 800px);
+  margin: 0 0 9px;
+  color: #5b687a;
+}
+
+.agent-workbench .public-run-activity__archive summary {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(24px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0;
+  cursor: pointer;
+  list-style: none;
+  color: #566477;
+  font-size: 12px;
+  line-height: 1.35;
+  user-select: none;
+}
+
+.agent-workbench .public-run-activity__archive summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-workbench .public-run-activity__archive-label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__archive-title {
+  color: #314056;
+  font-weight: 720;
+}
+
+.agent-workbench .public-run-activity__archive-separator {
+  color: #9aa5b4;
+  font-weight: 620;
+}
+
+.agent-workbench .public-run-activity__archive-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: #748196;
+  font-size: 11.5px;
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__archive-rule {
+  height: 1px;
+  min-width: 18px;
+  background: rgba(107, 124, 146, 0.2);
+}
+
+.agent-workbench .public-run-activity__archive-meta {
+  color: #66758a;
+  font-size: 11px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.agent-workbench .public-run-activity__archive--done .public-run-activity__archive-meta {
+  color: #18745a;
+}
+
+.agent-workbench .public-run-activity__archive--waiting .public-run-activity__archive-meta {
+  color: #8a610e;
+}
+
+.agent-workbench .public-run-activity__archive--stopped .public-run-activity__archive-meta {
+  color: #64748b;
+}
+
+.agent-workbench .public-run-activity__archive--soft_error .public-run-activity__archive-meta {
+  color: #705827;
+}
+
+.agent-workbench .public-run-activity__archive-caret {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #8a96a8;
+  border-bottom: 1.5px solid #8a96a8;
+  transform: rotate(45deg) translateY(-2px);
+  transform-origin: center;
+  transition: transform 140ms ease;
+}
+
+.agent-workbench .public-run-activity__archive[open] .public-run-activity__archive-caret {
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.agent-workbench .public-run-activity__archive-body {
+  display: grid;
+  width: min(100%, 780px);
+  gap: 3px;
+  margin: 3px 0 2px 7px;
+  padding: 4px 0 3px 15px;
+  border-left: 1px solid rgba(107, 124, 146, 0.14);
+}
+
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__todo-block,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__line {
+  width: min(100%, 760px);
+}
+
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round summary,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window summary {
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round summary:hover,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window summary:hover,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round[open] summary {
+  border: 0;
+  background: transparent;
+  color: #26364c;
+}
+
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-window summary::after,
+.agent-workbench .public-run-activity__archive-body .public-run-activity__tool-round summary::after {
+  width: 6px;
+  height: 6px;
 }
 
 .agent-workbench .public-run-activity__tool-window summary {
@@ -1560,6 +1697,24 @@ body {
 
   .agent-workbench .public-run-activity__tool-round-preview {
     white-space: normal;
+  }
+
+  .agent-workbench .public-run-activity__archive summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .agent-workbench .public-run-activity__archive-rule {
+    display: none;
+  }
+
+  .agent-workbench .public-run-activity__archive-meta {
+    grid-column: 1 / 2;
+    grid-row: 2;
+  }
+
+  .agent-workbench .public-run-activity__archive-caret {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .agent-workbench .public-run-activity__tool-window-body {
@@ -2548,4 +2703,3 @@ body {
   gap: 12px;
   min-height: 0;
 }
-

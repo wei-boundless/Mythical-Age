@@ -398,11 +398,19 @@ class RuntimeStateIndex:
         task_runs = self._read_selected_records("task_runs", ids)
         return [_task_run_from_payload(task_runs[item]) for item in ids if item in task_runs]
 
-    def list_session_task_run_summaries(self, session_id: str) -> list[TaskRun]:
+    def list_session_task_run_summaries(self, session_id: str, *, limit: int | None = None) -> list[TaskRun]:
         ids = self._read_index_ids("sessions", session_id)
         payloads = self._read_task_run_summary_payloads(ids)
         payload_index = {str(item.get("task_run_id") or ""): item for item in payloads if isinstance(item, dict)}
-        return [_task_run_from_payload(payload_index[item]) for item in ids if item in payload_index]
+        ordered_payloads = [payload_index[item] for item in ids if item in payload_index]
+        if limit is not None:
+            requested = max(1, min(int(limit or 1), GLOBAL_RECENT_TASK_RUN_LIMIT))
+            ordered_payloads = sorted(
+                ordered_payloads,
+                key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
+                reverse=True,
+            )[:requested]
+        return [_task_run_from_payload(item) for item in ordered_payloads]
 
     def list_session_turn_runs(self, session_id: str) -> list[TurnRun]:
         ids = self._read_index_ids("session_turn_runs", session_id)
@@ -1834,5 +1842,4 @@ def _worker_spawn_result_from_payload(payload: dict[str, Any]) -> WorkerAgentSpa
 
 def _safe_index_key(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
-
 

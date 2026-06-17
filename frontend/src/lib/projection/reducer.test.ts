@@ -604,7 +604,7 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.canonicalContent).not.toContain("旧时序内容");
   });
 
-  it("uses commit_ack as the commit authority and replaces live tool blocks with a log entry", () => {
+  it("uses commit_ack as the commit authority and folds prior activity into an archive", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
       op: "body_finalize",
@@ -646,6 +646,17 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.bodyState).toBe("committed");
     expect(view?.displayMode).toBe("committed");
     expect(view?.blocks.some((block) => block.kind === "tool_event")).toBe(false);
+    expect(view?.blocks).toEqual([
+      expect.objectContaining({ kind: "body_segment", text: "最终正文。" }),
+      expect.objectContaining({
+        kind: "activity_archive",
+        title: "本轮记录",
+        blocks: [
+          expect.objectContaining({ kind: "tool_event", toolCallId: "call:verify" }),
+        ],
+      }),
+      expect.objectContaining({ kind: "log_entry" }),
+    ]);
     expect(view?.blocks.some((block) => block.kind === "log_entry")).toBe(true);
   });
 

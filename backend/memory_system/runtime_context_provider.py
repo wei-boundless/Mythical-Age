@@ -125,6 +125,8 @@ class RuntimeMemoryContextProvider:
         session_id = str(payload.get("session_id") or task_run.get("session_id") or "")
         task_run_id = str(task_run.get("task_run_id") or payload.get("task_run_id") or "")
         turn_id = str(dict(task_run.get("diagnostics") or {}).get("turn_id") or task_run.get("task_id") or task_run_id)
+        inherited_start_context = dict(payload.get("inherited_start_context") or {})
+        inherited_memory_context = _inherited_memory_context_for_profile(inherited_start_context)
         environment_context = self.environment_context(
             session_id=session_id,
             turn_id=turn_id,
@@ -174,9 +176,21 @@ class RuntimeMemoryContextProvider:
                 turn_input_facts={},
                 task_run=task_run,
                 contract=contract,
+                inherited_start_context=inherited_start_context,
             ),
-            "task_summaries": _task_memory_summaries_from_observations(payload.get("observations")),
-            "recent_tools": _recent_tool_names_from_observations(payload.get("observations")),
+            "inherited_context": inherited_memory_context,
+            "task_summaries": _dedupe_task_summaries(
+                [
+                    *_task_memory_summaries_from_inherited_context(inherited_start_context),
+                    *_task_memory_summaries_from_observations(payload.get("observations")),
+                ]
+            ),
+            "recent_tools": _dedupe_strings(
+                [
+                    *_recent_tool_names_from_inherited_context(inherited_start_context),
+                    *_recent_tool_names_from_observations(payload.get("observations")),
+                ]
+            )[-8:],
         }
         query = _task_memory_query(task_run=task_run, contract=contract)
         return await self._build_runtime_memory_context(
@@ -363,6 +377,7 @@ def _runtime_memory_main_context(
     turn_input_facts: dict[str, Any],
     task_run: dict[str, Any] | None = None,
     contract: dict[str, Any] | None = None,
+    inherited_start_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "invocation_kind": invocation_kind,
@@ -392,6 +407,9 @@ def _runtime_memory_main_context(
             keys=("title", "task_title", "goal", "objective", "instructions", "summary", "task_id"),
             value_limit=600,
         )
+    inherited = _inherited_memory_context_for_profile(inherited_start_context or {})
+    if inherited:
+        payload["inherited_start_context"] = inherited
     return {key: value for key, value in payload.items() if value}
 
 
@@ -472,12 +490,108 @@ def _task_memory_summaries_from_observations(value: Any) -> list[dict[str, Any]]
     return [item for item in summaries if any(item.values())]
 
 
+def _task_memory_summaries_from_inherited_context(value: Any) -> list[dict[str, Any]]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    summaries: list[dict[str, Any]] = []
+    for item in list(payload.get("observations") or [])[-6:]:
+        if not isinstance(item, dict):
+            continue
+        observation_payload = dict(item.get("payload") or {})
+        envelope = dict(observation_payload.get("result_envelope") or {})
+        summaries.append(
+            {
+                "tool_name": _trim_text(
+                    item.get("tool_name") or observation_payload.get("tool_name") or envelope.get("tool_name"),
+                    limit=120,
+                ),
+                "status": _trim_text(
+                    item.get("status") or observation_payload.get("status") or envelope.get("status"),
+                    limit=80,
+                ),
+                "summary": _trim_text(
+                    item.get("summary") or envelope.get("summary") or envelope.get("text") or observation_payload.get("text"),
+                    limit=300,
+                ),
+                "source": "turn_to_task_context_handoff",
+            }
+        )
+    return [item for item in summaries if any(item.values())]
+
+
+def _dedupe_task_summaries(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in values:
+        key = (
+            str(item.get("tool_name") or ""),
+            str(item.get("status") or ""),
+            str(item.get("summary") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(item))
+    return result[-8:]
+
+
 def _recent_tool_names_from_observations(value: Any) -> list[str]:
     names: list[str] = []
     for item in list(value or [])[-12:]:
         if isinstance(item, dict):
             names.append(str(item.get("tool_name") or item.get("name") or "").strip())
     return _dedupe_strings(names)[-8:]
+
+
+def _recent_tool_names_from_inherited_context(value: Any) -> list[str]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    names: list[str] = []
+    for item in list(payload.get("observations") or [])[-12:]:
+        if isinstance(item, dict):
+            observation_payload = dict(item.get("payload") or {})
+            envelope = dict(observation_payload.get("result_envelope") or {})
+            names.append(str(item.get("tool_name") or observation_payload.get("tool_name") or envelope.get("tool_name") or "").strip())
+    return _dedupe_strings(names)[-8:]
+
+
+def _inherited_memory_context_for_profile(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    memory_context = dict(payload.get("memory_context") or {})
+    memory_refs = dict(payload.get("memory_context_refs") or {})
+    if not memory_context and not memory_refs:
+        return {}
+    visible_sections = dict(memory_context.get("model_visible_sections") or {})
+    projected_sections: dict[str, list[str]] = {}
+    for section, items in visible_sections.items():
+        clean = [
+            _trim_text(item, limit=1200)
+            for item in list(items or [])[:8]
+            if str(item).strip()
+        ]
+        if clean:
+            projected_sections[str(section)] = clean
+    return {
+        key: value
+        for key, value in {
+            "source": "turn_to_task_context_handoff",
+            "handoff_ref": str(payload.get("handoff_ref") or ""),
+            "source_packet_ref": str(payload.get("source_packet_ref") or ""),
+            "memory_runtime_view_ref": str(memory_refs.get("memory_runtime_view_ref") or memory_context.get("memory_runtime_view_ref") or ""),
+            "context_package_ref": str(memory_refs.get("context_package_ref") or memory_context.get("context_package_ref") or ""),
+            "selected_sections": [
+                str(item)
+                for item in list(memory_context.get("selected_sections") or projected_sections.keys())
+                if str(item) in projected_sections
+            ],
+            "model_visible_sections": projected_sections,
+            "diagnostics": _compact_mapping(
+                memory_context.get("diagnostics"),
+                keys=("read_namespaces", "requested_memory_layers", "long_term_candidate_count", "state_candidate_count", "context_candidate_count"),
+                value_limit=600,
+            ),
+            "authority": "memory_system.runtime_context_provider.inherited_start_context",
+        }.items()
+        if value not in ("", None, [], {})
+    }
 
 
 def _recent_tool_names_from_messages(messages: list[dict[str, Any]]) -> list[str]:

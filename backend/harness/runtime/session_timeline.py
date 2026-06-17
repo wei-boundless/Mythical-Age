@@ -505,11 +505,11 @@ def _display_state_for_stream_run(
     frames: list[dict[str, Any]],
     projection_anchor: dict[str, Any],
 ) -> dict[str, str]:
-    has_task = bool(projection_anchor.get("task_run_id")) or any(
+    has_runtime_activity = bool(projection_anchor.get("task_run_id")) or any(
         str(event.get("public_event_type") or "") in _TASK_ANCHOR_PUBLIC_EVENTS
         for event in public_events
-    )
-    if not has_task:
+    ) or any(_frame_has_main_chat_activity(frame) for frame in frames)
+    if not has_runtime_activity:
         return {"display_state": "normal_turn", "main_chat_surface": _BODY_ONLY_SURFACE}
     closed = any(
         str(event.get("public_event_type") or "") in _TASK_CLOSED_PUBLIC_EVENTS
@@ -521,6 +521,15 @@ def _display_state_for_stream_run(
     if closed:
         return {"display_state": "task_closed", "main_chat_surface": _CLOSEOUT_SUMMARY_SURFACE}
     return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
+
+
+def _frame_has_main_chat_activity(frame: dict[str, Any]) -> bool:
+    if str(frame.get("event_family") or "") == "tool_control":
+        return True
+    visibility = str(frame.get("main_visibility") or "").strip()
+    if visibility not in {"visible_live", "visible_final", "pinned"}:
+        return False
+    return str(frame.get("status_kind") or "") in {"todo_plan", "status_event", "recovery_event", "terminal_event"}
 
 
 def _tool_event_count(frames: list[dict[str, Any]]) -> int:

@@ -72,17 +72,17 @@ canvas { display: block; }
   <div>❤️ 生命值</div>
   <div class="health-bar"><div class="health-fill" style="width:100%"></div></div>
   <div>🔫 击杀: <span id="killCount">0</span></div>
-  <div>🌊 波次: <span id="waveNum">1</span> / 10</div>
-  <div>⭐ 枪械等级: <span id="gunLevel">1</span></div>
-  <div class="ammo">🔋 弹药: <span id="ammoCount">30</span> / 30</div>
-  <div>🔄 换弹中...</div>
+  <div>🌊 波次: <span id="waveNum">1</span></div>
+  <div>⭐ Lv.<span id="levelNum">1</span> 经验: <span id="expBar">0</span>/<span id="expMax">100</span></div>
+  <div>🔧 <span id="gunName">步枪</span> Lv.<span id="gunLevel">1</span></div>
+  <div style="font-size:13px;color:#aaa;">1/2/3/4/5/6切枪 | V切换视角</div>
 </div>
 
 <div id="message">按鼠标左键开始</div>
 <div id="overlay">
   <div style="font-size:36px;margin-bottom:12px;">🎯 3D 第一人称射击</div>
   <div style="margin-bottom:8px;">自由准心模式 | 10波挑战 | 每波敌人更强 | 枪械自动升级</div>
-  <div style="font-size:14px;color:#aaa;margin-bottom:6px;">WASD 移动 | 鼠标瞄准 | 左键射击 | R 换弹 | 空格跳跃 | 拾取掉落补给</div>
+  <div style="font-size:14px;color:#aaa;margin-bottom:6px;">WASD 移动 | 鼠标瞄准 | 左键射击 | 空格跳跃 | 拾取掉落补给</div>
   <button id="startBtn">开始游戏</button>
 </div>
 
@@ -105,30 +105,44 @@ const startBtn   = document.getElementById('startBtn');
 const healthFill = document.querySelector('.health-fill');
 const killCountEl = document.getElementById('killCount');
 const waveNumEl   = document.getElementById('waveNum');
-const ammoCountEl = document.getElementById('ammoCount');
+// 无限子弹模式，移除弹药相关DOM
 const gunLevelEl   = document.getElementById('gunLevel');
 
 // ==================== 常量 ====================
 const PLAYER_RADIUS = 0.4;
 const PLAYER_HEIGHT = 1.6;
-const PLAYER_SPEED = 8;
+const PLAYER_SPEED = 14;
 const MOUSE_SENSITIVITY = 0.002;
 const GRAVITY = 20;
 const JUMP_VELOCITY = 8;
-const MAX_AMMO = 30;
-const RELOAD_TIME = 2.0;
-const FIRE_RATE = 0.12;
-const DAMAGE = 25;
 const ENEMY_SPEED = 3.5;
 const SPAWN_RADIUS_MIN = 12;
 const SPAWN_RADIUS_MAX = 25;
 const GROUND_Y = 0;
 const EDGE_MARGIN = 80;
 const EDGE_ROTATE_SPEED = 0.02;
-const MAP_BOUNDARY = 30;
+const MAP_BOUNDARY = 55;
+const EXP_PER_KILL = 35;
+const EXP_PER_LEVEL = 60;
 const PICKUP_HEAL_AMOUNT = 25;
-const PICKUP_AMMO_AMOUNT = 10;
 const PICKUP_DROP_CHANCE = 0.35;
+
+// ==================== 枪械配置 ====================
+const GUN_TYPES = {
+  pistol: { name: '🔫 手枪', fireRate: 0.18, damage: 22, spread: 0.008, bulletsPerShot: 1, color: 0x888888, range: 60 },
+  rifle: { name: '🔧 步枪', fireRate: 0.07, damage: 16, spread: 0.015, bulletsPerShot: 1, color: 0x3366cc, range: 80 },
+  shotgun: { name: '💥 霰弹枪', fireRate: 0.35, damage: 14, spread: 0.07, bulletsPerShot: 6, color: 0xcc6633, range: 40 },
+  smg: { name: '⚡ 冲锋枪', fireRate: 0.05, damage: 11, spread: 0.025, bulletsPerShot: 1, color: 0x66cc33, range: 50 },
+  sniper: { name: '🎯 狙击枪', fireRate: 0.8, damage: 60, spread: 0.002, bulletsPerShot: 1, color: 0x9944cc, range: 120 },
+  rocket: { name: '🚀 火箭炮', fireRate: 1.2, damage: 80, spread: 0.005, bulletsPerShot: 1, color: 0xff4422, range: 100, explosiveRadius: 5 },
+};
+const GUN_KEYS = Object.keys(GUN_TYPES);
+
+// 火箭炮系统
+const ROCKET_SPEED = 35;
+const ROCKET_EXPLOSION_RADIUS = 5;
+const rockets = [];
+const particles = [];
 
 // 安全据点
 const SAFE_ZONE_CENTER = new THREE.Vector3(0, 0, 0);
@@ -142,15 +156,18 @@ const playerState = {
   kills: 0,
   wave: 1,
   score: 0,
+  level: 1,
+  exp: 0,
   alive: true,
   velocity: new THREE.Vector3(),
   onGround: true,
-  ammo: MAX_AMMO,
-  reloading: false,
-  reloadTimer: 0,
   fireCooldown: 0,
-  waveSpawning: false,
+  currentGun: 'rifle',
   gunLevel: 1,
+  isThirdPerson: false,
+  waveSpawning: false,
+  unlockedGuns: ['pistol', 'rifle', 'shotgun', 'smg', 'sniper', 'rocket'],
+  playerPos: new THREE.Vector3(0, PLAYER_HEIGHT, 0),
 };
 
 const crosshairState = {
@@ -403,6 +420,7 @@ const pickups = [];
 
 // ==================== 敌人系统 ====================
 const enemies = [];
+const flyingEnemies = [];
 // 提升段数为 (8, 16)
 const enemyGeo = new THREE.CapsuleGeometry(0.35, 1.2, 8, 16);
 const enemyMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.6 });
@@ -483,13 +501,85 @@ function spawnEnemy() {
   enemies.push(enemy);
 }
 
+function spawnFlyingEnemy() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = SPAWN_RADIUS_MIN + Math.random() * (SPAWN_RADIUS_MAX - SPAWN_RADIUS_MIN);
+  const x = camera.position.x + Math.cos(angle) * dist;
+  const z = camera.position.z + Math.sin(angle) * dist;
+
+  // 安全据点排斥检查
+  if (Math.sqrt(x * x + z * z) < SAFE_ZONE_RADIUS + 1) return;
+
+  const waveScale = playerState.wave;
+  const bodyGeo = new THREE.SphereGeometry(0.5, 8, 8);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color().setHSL(0.15, 0.8, 0.4 + waveScale * 0.02),
+    roughness: 0.4,
+    emissive: 0x442200,
+    emissiveIntensity: 0.3,
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(x, 3 + Math.random() * 4, z);
+  body.castShadow = true;
+
+  // 翅膀
+  const wingGeo = new THREE.PlaneGeometry(1.2, 0.4);
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0xcc8844,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+  });
+  const leftWing = new THREE.Mesh(wingGeo, wingMat);
+  leftWing.position.set(-0.6, 0, 0);
+  leftWing.rotation.z = 0.3;
+  body.add(leftWing);
+  const rightWing = new THREE.Mesh(wingGeo, wingMat);
+  rightWing.position.set(0.6, 0, 0);
+  rightWing.rotation.z = -0.3;
+  body.add(rightWing);
+
+  // 眼睛
+  const eyeGeo = new THREE.SphereGeometry(0.1, 6, 6);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.2, 0.1, 0.45);
+  body.add(leftEye);
+  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+  rightEye.position.set(0.2, 0.1, 0.45);
+  body.add(rightEye);
+
+  const scaleFactor = 1.0 + waveScale * 0.03;
+  body.scale.set(scaleFactor, scaleFactor, scaleFactor);
+  body.userData = {
+    health: 60 + waveScale * 20,
+    maxHealth: 60 + waveScale * 20,
+    speed: 2.5 + Math.random() * 1.5 + waveScale * 0.3,
+    damage: 5 + waveScale * 2,
+    attackCooldown: 0,
+    attackRate: Math.max(0.5, 1.0 - waveScale * 0.03),
+    isFlying: true,
+    flyAmplitude: 0.3 + Math.random() * 0.3,
+    flySpeed: 1.0 + Math.random() * 0.5,
+    baseY: body.position.y,
+  };
+
+  scene.add(body);
+  flyingEnemies.push(body);
+}
+
 function spawnWave() {
-  if (playerState.wave > MAX_WAVE) return;
-  const count = 3 + playerState.wave * 2;
-  for (let i = 0; i < count; i++) {
+  // 无限模式：无最大波次限制
+  const groundCount = 2 + playerState.wave * 1;
+  for (let i = 0; i < groundCount; i++) {
     spawnEnemy();
   }
-  showMessage(`🌊 第 ${playerState.wave} 波！共 ${count} 个敌人`, 2500);
+  // 空中怪物：每波至少1个，波次越高越多
+  const flyingCount = 1 + Math.floor(playerState.wave / 2);
+  for (let i = 0; i < flyingCount; i++) {
+    spawnFlyingEnemy();
+  }
+  showMessage(`🌊 第 ${playerState.wave} 波！${groundCount}个地面 + ${flyingCount}个空中敌人`, 2500);
   updateHUD();
 }
 
@@ -599,7 +689,8 @@ function updateCrosshairAndCamera() {
 // ==================== 射线命中 ====================
 function raycasterHitTest(origin, direction, maxDist = 100) {
   const raycaster = new THREE.Raycaster(origin, direction, 0.1, maxDist);
-  const enemyIntersects = raycaster.intersectObjects(enemies);
+  const allEnemyTargets = [...enemies, ...flyingEnemies];
+  const enemyIntersects = raycaster.intersectObjects(allEnemyTargets);
   if (enemyIntersects.length > 0) {
     return { type: 'enemy', object: enemyIntersects[0].object, point: enemyIntersects[0].point };
   }
@@ -614,9 +705,12 @@ function raycasterHitTest(origin, direction, maxDist = 100) {
 function updateHUD() {
   healthFill.style.width = (playerState.health / playerState.maxHealth * 100) + '%';
   killCountEl.textContent = playerState.kills;
-  waveNumEl.textContent = playerState.wave + ' / ' + MAX_WAVE;
+  waveNumEl.textContent = playerState.wave;
+  document.getElementById('levelNum').textContent = playerState.level;
+  document.getElementById('expBar').textContent = playerState.exp;
+  document.getElementById('expMax').textContent = playerState.level * EXP_PER_LEVEL;
+  document.getElementById('gunName').textContent = GUN_TYPES[playerState.currentGun].name;
   gunLevelEl.textContent = playerState.gunLevel;
-  ammoCountEl.textContent = playerState.ammo + ' / ' + MAX_AMMO;
 }
 
 // ==================== 显示消息 ====================
@@ -628,70 +722,218 @@ function showMessage(text, duration = 2000) {
   messageTimeout = setTimeout(() => { messageEl.style.display = 'none'; }, duration);
 }
 
-// ==================== 射击 ====================
+// ==================== 射击（无限子弹，多枪械） ====================
 function shoot() {
-  if (!playerState.alive || playerState.reloading || playerState.fireCooldown > 0) return;
-  if (playerState.ammo <= 0) {
-    showMessage('⚠️ 弹药耗尽！按 R 换弹');
-    return;
-  }
+  if (!playerState.alive || playerState.fireCooldown > 0) return;
 
-  playerState.ammo--;
-  playerState.fireCooldown = FIRE_RATE;
-  updateHUD();
-
-  // 从准心位置生成 NDC 坐标
-  const sx = window.innerWidth;
-  const sy = window.innerHeight;
-  const ndcX = ((crosshairState.x) / sx) * 2 - 1;
-  const ndcY = -((crosshairState.y) / sy) * 2 + 1;
-
-  const origin = camera.position.clone();
-  const direction = new THREE.Vector3(ndcX, ndcY, -1).unproject(camera).sub(origin).normalize();
+  const gun = GUN_TYPES[playerState.currentGun];
+  const levelBonus = (playerState.gunLevel - 1) * 5;
+  playerState.fireCooldown = gun.fireRate;
 
   // 枪口闪光
   muzzleFlash.material.opacity = 1;
   setTimeout(() => { muzzleFlash.material.opacity = 0; }, 50);
 
-  const hit = raycasterHitTest(origin, direction);
-  if (hit) {
-    if (hit.type === 'enemy') {
-      const enemy = hit.object;
-      enemy.userData.health -= DAMAGE + (playerState.gunLevel - 1) * 5;
-      // 击中特效
-      const hitMark = new THREE.Mesh(hitGeo, hitMat);
-      hitMark.position.copy(hit.point);
-      scene.add(hitMark);
-      setTimeout(() => scene.remove(hitMark), 300);
+  // 火箭炮 - 发射弹丸
+  if (playerState.currentGun === 'rocket') {
+    const sx = window.innerWidth;
+    const sy = window.innerHeight;
+    const ndcX = (crosshairState.x / sx) * 2 - 1;
+    const ndcY = -(crosshairState.y / sy) * 2 + 1;
+    const aimOrigin = playerState.isThirdPerson ? playerState.playerPos.clone() : camera.position.clone();
+    const dir = new THREE.Vector3(ndcX, ndcY, -1).unproject(camera).sub(camera.position).normalize();
+    spawnRocket(aimOrigin, dir, gun.damage + levelBonus);
+    return;
+  }
 
-      if (enemy.userData.health <= 0) {
-        if (Math.random() < PICKUP_DROP_CHANCE) {
-          spawnPickup(enemy.position.clone(), Math.random() < 0.5 ? 'heal' : 'ammo');
+  const sx = window.innerWidth;
+  const sy = window.innerHeight;
+
+  for (let b = 0; b < gun.bulletsPerShot; b++) {
+    const ndcX = ((crosshairState.x) / sx) * 2 - 1 + (Math.random() - 0.5) * gun.spread * 2;
+    const ndcY = -((crosshairState.y) / sy) * 2 + 1 + (Math.random() - 0.5) * gun.spread * 2;
+    const aimOrigin = playerState.isThirdPerson ? playerState.playerPos.clone() : camera.position.clone();
+    const dir = new THREE.Vector3(ndcX, ndcY, -1).unproject(camera).sub(camera.position).normalize();
+    const hit = raycasterHitTest(aimOrigin, dir);
+    if (hit) {
+      if (hit.type === 'enemy') {
+        const enemy = hit.object;
+        enemy.userData.health -= gun.damage + levelBonus;
+        const hitMark = new THREE.Mesh(hitGeo, hitMat);
+        hitMark.position.copy(hit.point);
+        scene.add(hitMark);
+        setTimeout(() => scene.remove(hitMark), 300);
+
+        if (enemy.userData.health <= 0) {
+          const dropRoll = Math.random();
+          if (dropRoll < PICKUP_DROP_CHANCE) {
+            spawnPickup(enemy.position.clone(), 'heal');
+          }
+          scene.remove(enemy);
+          if (enemy.material) enemy.material.dispose();
+          if (enemy.userData.isFlying) {
+            const fidx = flyingEnemies.indexOf(enemy);
+            if (fidx !== -1) flyingEnemies.splice(fidx, 1);
+          } else {
+            const idx = enemies.indexOf(enemy);
+            if (idx !== -1) enemies.splice(idx, 1);
+          }
+          playerState.kills++;
+          playerState.score += 100 * playerState.wave;
+          // 杀怪获得经验
+          playerState.exp += EXP_PER_KILL;
+          checkLevelUp();
+          updateHUD();
         }
-        scene.remove(enemy);
-        if (enemy.material) enemy.material.dispose();
-        const idx = enemies.indexOf(enemy);
-        if (idx !== -1) enemies.splice(idx, 1);
-        playerState.kills++;
-        playerState.score += 100 * playerState.wave;
-        updateHUD();
+      } else if (hit.type === 'obstacle') {
+        const hitMark = new THREE.Mesh(hitGeo, hitMat);
+        hitMark.position.copy(hit.point);
+        scene.add(hitMark);
+        setTimeout(() => scene.remove(hitMark), 300);
       }
-    } else if (hit.type === 'obstacle') {
-      const hitMark = new THREE.Mesh(hitGeo, hitMat);
-      hitMark.position.copy(hit.point);
-      scene.add(hitMark);
-      setTimeout(() => scene.remove(hitMark), 300);
     }
+  }
+}
+
+// ==================== 火箭炮系统 ====================
+function spawnRocket(origin, direction, damage) {
+  const rocketGeo = new THREE.CylinderGeometry(0.08, 0.14, 0.5, 8);
+  const rocketMat = new THREE.MeshStandardMaterial({
+    color: 0xff4422,
+    emissive: 0xff2200,
+    emissiveIntensity: 0.5,
+    roughness: 0.3,
+  });
+  const rocket = new THREE.Mesh(rocketGeo, rocketMat);
+  rocket.position.copy(origin);
+  const lookTarget = origin.clone().add(direction);
+  rocket.lookAt(lookTarget);
+  rocket.rotateX(Math.PI / 2);
+  // 尾焰光晕
+  const glowGeo = new THREE.SphereGeometry(0.12, 6, 6);
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.position.set(0, -0.35, 0);
+  rocket.add(glow);
+  scene.add(rocket);
+  rocket.userData = {
+    velocity: direction.clone().multiplyScalar(ROCKET_SPEED),
+    damage: damage,
+    lifetime: 3.0,
+  };
+  rockets.push(rocket);
+}
+
+function createExplosion(position, radius, damage) {
+  // 爆炸视觉 - 膨胀火球
+  const expGeo = new THREE.SphereGeometry(0.5, 12, 12);
+  const expMat = new THREE.MeshBasicMaterial({
+    color: 0xff6600,
+    transparent: true,
+    opacity: 1,
+  });
+  const explosion = new THREE.Mesh(expGeo, expMat);
+  explosion.position.copy(position);
+  scene.add(explosion);
+  const startTime = Date.now();
+  const expDuration = 400;
+  function animExplosion() {
+    const t = (Date.now() - startTime) / expDuration;
+    if (t >= 1) { scene.remove(explosion); expMat.dispose(); expGeo.dispose(); return; }
+    const s = 1 + t * radius * 2;
+    explosion.scale.set(s, s, s);
+    expMat.opacity = 1 - t;
+    requestAnimationFrame(animExplosion);
+  }
+  animExplosion();
+  // 粒子碎片
+  for (let i = 0; i < 15; i++) {
+    const pGeo = new THREE.SphereGeometry(0.06, 4, 4);
+    const pMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    const p = new THREE.Mesh(pGeo, pMat);
+    p.position.copy(position);
+    const a1 = Math.random() * Math.PI * 2;
+    const a2 = Math.random() * Math.PI;
+    const spd = 5 + Math.random() * 8;
+    p.userData = {
+      velocity: new THREE.Vector3(
+        Math.cos(a1) * Math.sin(a2) * spd,
+        Math.cos(a2) * spd,
+        Math.sin(a1) * Math.sin(a2) * spd,
+      ),
+      life: 0.6 + Math.random() * 0.3,
+    };
+    scene.add(p);
+    particles.push(p);
+  }
+  // 范围伤害
+  const allTargets = [...enemies, ...flyingEnemies];
+  const toRemove = [];
+  for (const enemy of allTargets) {
+    const dist = position.distanceTo(enemy.position);
+    if (dist < radius) {
+      const dmgMul = 1 - (dist / radius) * 0.5;
+      enemy.userData.health -= damage * dmgMul;
+      if (enemy.userData.health <= 0) {
+        toRemove.push(enemy);
+      }
+    }
+  }
+  // 批量击杀处理
+  for (const enemy of toRemove) {
+    const dropRoll = Math.random();
+    if (dropRoll < PICKUP_DROP_CHANCE) {
+      spawnPickup(enemy.position.clone(), 'heal');
+    }
+    scene.remove(enemy);
+    if (enemy.material) enemy.material.dispose();
+    if (enemy.userData.isFlying) {
+      const idx = flyingEnemies.indexOf(enemy);
+      if (idx !== -1) flyingEnemies.splice(idx, 1);
+    } else {
+      const idx = enemies.indexOf(enemy);
+      if (idx !== -1) enemies.splice(idx, 1);
+    }
+    playerState.kills++;
+    playerState.score += 100 * playerState.wave;
+    playerState.exp += EXP_PER_KILL;
+  }
+  if (toRemove.length > 0) {
+    checkLevelUp();
+    updateHUD();
+  }
+}
+
+// ==================== 升级检查 ====================
+function checkLevelUp() {
+  const expNeeded = playerState.level * EXP_PER_LEVEL;
+  while (playerState.exp >= expNeeded && playerState.alive) {
+    playerState.exp -= expNeeded;
+    playerState.level++;
+    // 每升一级自动升级枪械和生命值
+    playerState.gunLevel = playerState.level;
+    playerState.maxHealth = 100 + (playerState.level - 1) * 10;
+    playerState.health = Math.min(playerState.health + 30, playerState.maxHealth);
+    showMessage(`⭐ 升级！Lv.${playerState.level} 枪械 Lv.${playerState.gunLevel} 生命 ${playerState.maxHealth}`, 2000);
+    updateHUD();
   }
 }
 
 // ==================== 输入处理 ====================
 document.addEventListener('keydown', (e) => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.key.toLowerCase() === 'r' && !playerState.reloading && playerState.ammo < MAX_AMMO && playerState.alive) {
-    playerState.reloading = true;
-    playerState.reloadTimer = RELOAD_TIME;
-    showMessage('🔄 换弹中...', 2000);
+  const key = e.key.toLowerCase();
+  keys[key] = true;
+  // 枪械切换 1/2/3
+  if (key === '1') { playerState.currentGun = 'pistol'; showMessage(GUN_TYPES.pistol.name, 800); updateHUD(); }
+  if (key === '2') { playerState.currentGun = 'rifle'; showMessage(GUN_TYPES.rifle.name, 800); updateHUD(); }
+  if (key === '3') { playerState.currentGun = 'shotgun'; showMessage(GUN_TYPES.shotgun.name, 800); updateHUD(); }
+  if (key === '4') { playerState.currentGun = 'smg'; showMessage(GUN_TYPES.smg.name, 800); updateHUD(); }
+  if (key === '5') { playerState.currentGun = 'sniper'; showMessage(GUN_TYPES.sniper.name, 800); updateHUD(); }
+  if (key === '6') { playerState.currentGun = 'rocket'; showMessage(GUN_TYPES.rocket.name, 800); updateHUD(); }
+  // 空中视角切换 V
+  if (key === 'v' && playerState.alive) {
+    playerState.isThirdPerson = !playerState.isThirdPerson;
+    showMessage(playerState.isThirdPerson ? '🎥 空中视角 - 可攻击空中怪物' : '🎯 第一人称', 800);
   }
 });
 document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
@@ -756,23 +998,32 @@ function updatePlayerMovement(delta) {
   let newX = camera.position.x + moveVec.x;
   let newZ = camera.position.z + moveVec.z;
 
+  // 地图边界锁定
+  newX = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, newX));
+  newZ = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, newZ));
+
   const collision = checkObstacleCollision(newX, newZ, PLAYER_RADIUS);
   if (collision.hit) {
     newX += collision.pushX;
     newZ += collision.pushZ;
+    // 边界再次锁定（防止碰撞推出边界）
+    newX = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, newX));
+    newZ = Math.max(-MAP_BOUNDARY, Math.min(MAP_BOUNDARY, newZ));
   }
 
   camera.position.x = newX;
   camera.position.z = newZ;
   camera.position.y += moveVec.y;
+  playerState.playerPos.copy(camera.position);
 
   if (camera.position.y <= PLAYER_HEIGHT) {
     camera.position.y = PLAYER_HEIGHT;
     playerState.velocity.y = 0;
     playerState.onGround = true;
+    playerState.playerPos.copy(camera.position);
   }
 
-  // 更新敌人
+  // 更新地面敌人
   for (const enemy of enemies) {
     const toPlayer = new THREE.Vector3().subVectors(camera.position, enemy.position);
     toPlayer.y = 0;
@@ -784,11 +1035,10 @@ function updatePlayerMovement(delta) {
       toSafe.y = 0;
       const distToSafe = toSafe.length();
       if (distToSafe < SAFE_ZONE_RADIUS) {
-        // 排斥方向
         const pushAway = toSafe.clone().normalize();
         enemy.position.x += pushAway.x * delta * 5;
         enemy.position.z += pushAway.z * delta * 5;
-        continue; // 不进一步移动
+        continue;
       }
       if (!checkEnemyObstacleCollision(enemy, dir.x, dir.z)) {
         enemy.position.x += dir.x;
@@ -806,6 +1056,36 @@ function updatePlayerMovement(delta) {
         showMessage('💀 你死了！按 F5 重新开始', 999999);
       }
     }
+    // 看向玩家
+    enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+  }
+
+  // 更新空中怪物
+  for (const fly of flyingEnemies) {
+    const toPlayer = new THREE.Vector3().subVectors(camera.position, fly.position);
+    const dist = toPlayer.length();
+    // 飞行浮动
+    fly.position.y = fly.userData.baseY + Math.sin(Date.now() * 0.001 * fly.userData.flySpeed) * fly.userData.flyAmplitude;
+    if (dist > 0.5) {
+      const dir = toPlayer.clone().normalize().multiplyScalar(fly.userData.speed * delta);
+      fly.position.x += dir.x;
+      fly.position.z += dir.z;
+      // 高度追踪玩家
+      fly.userData.baseY = Math.max(2, Math.min(6, fly.userData.baseY + (camera.position.y + 2 - fly.userData.baseY) * delta * 0.3));
+    }
+    fly.userData.attackCooldown -= delta;
+    if (dist < 2.5 && fly.userData.attackCooldown <= 0) {
+      playerState.health -= fly.userData.damage;
+      fly.userData.attackCooldown = fly.userData.attackRate;
+      updateHUD();
+      if (playerState.health <= 0) {
+        playerState.health = 0;
+        playerState.alive = false;
+        showMessage('💀 你死了！按 F5 重新开始', 999999);
+      }
+    }
+    // 看向玩家
+    fly.lookAt(camera.position.x, fly.position.y, camera.position.z);
   }
 }
 
@@ -823,22 +1103,82 @@ function gameLoop() {
     }
   }
 
-  // 换弹计时
-  if (playerState.reloading) {
-    playerState.reloadTimer -= delta;
-    if (playerState.reloadTimer <= 0) {
-      playerState.ammo = MAX_AMMO;
-      playerState.reloading = false;
-      updateHUD();
-      showMessage('✅ 换弹完成');
-    }
-  }
+  
 
   // 射击冷却
   if (playerState.fireCooldown > 0) playerState.fireCooldown -= delta;
 
   updatePlayerMovement(delta);
   updateCrosshairAndCamera();
+
+  // 更新火箭弹
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const r = rockets[i];
+    r.userData.lifetime -= delta;
+    if (r.userData.lifetime <= 0) {
+      createExplosion(r.position, ROCKET_EXPLOSION_RADIUS, r.userData.damage * 0.3);
+      scene.remove(r);
+      r.material.dispose();
+      r.geometry.dispose();
+      rockets.splice(i, 1);
+      continue;
+    }
+    r.position.add(r.userData.velocity.clone().multiplyScalar(delta));
+    // 障碍物碰撞
+    let hitObstacle = false;
+    for (const obs of obstacles) {
+      if (r.position.distanceTo(obs.position) < obs.userData.radius + 0.5) { hitObstacle = true; break; }
+    }
+    if (hitObstacle) {
+      createExplosion(r.position, ROCKET_EXPLOSION_RADIUS, r.userData.damage);
+      scene.remove(r); r.material.dispose(); r.geometry.dispose();
+      rockets.splice(i, 1);
+      continue;
+    }
+    // 敌人碰撞
+    const allTargets = [...enemies, ...flyingEnemies];
+    let hitEnemy = false;
+    for (const enemy of allTargets) {
+      if (r.position.distanceTo(enemy.position) < 1.5) { hitEnemy = true; break; }
+    }
+    if (hitEnemy) {
+      createExplosion(r.position, ROCKET_EXPLOSION_RADIUS, r.userData.damage);
+      scene.remove(r); r.material.dispose(); r.geometry.dispose();
+      rockets.splice(i, 1);
+      continue;
+    }
+    // 边界检查
+    if (Math.abs(r.position.x) > MAP_BOUNDARY || Math.abs(r.position.z) > MAP_BOUNDARY) {
+      createExplosion(r.position, ROCKET_EXPLOSION_RADIUS, r.userData.damage * 0.3);
+      scene.remove(r); r.material.dispose(); r.geometry.dispose();
+      rockets.splice(i, 1);
+    }
+  }
+
+  // 更新粒子
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.userData.life -= delta;
+    if (p.userData.life <= 0) {
+      scene.remove(p); p.material.dispose(); p.geometry.dispose();
+      particles.splice(i, 1);
+      continue;
+    }
+    p.position.add(p.userData.velocity.clone().multiplyScalar(delta));
+    p.userData.velocity.multiplyScalar(0.96);
+  }
+
+  // 空中视角 - 相机抬高拉远，便于观察和攻击空中怪物
+  if (playerState.isThirdPerson) {
+    const airOffset = new THREE.Vector3(0, 4, 5);
+    airOffset.applyQuaternion(camera.quaternion);
+    const airPos = playerState.playerPos.clone().add(airOffset);
+    camera.position.copy(airPos);
+    camera.lookAt(playerState.playerPos.x, playerState.playerPos.y + 1.5, playerState.playerPos.z);
+    renderer.domElement.style.pointerEvents = 'none';
+  } else {
+    renderer.domElement.style.pointerEvents = 'auto';
+  }
 
   // 更新掉落物
   for (let i = pickups.length - 1; i >= 0; i--) {
@@ -860,9 +1200,6 @@ function gameLoop() {
       if (p.userData.type === 'heal') {
         playerState.health = Math.min(playerState.maxHealth, playerState.health + PICKUP_HEAL_AMOUNT);
         showMessage('💚 +' + PICKUP_HEAL_AMOUNT + ' HP', 1000);
-      } else {
-        playerState.ammo = Math.min(MAX_AMMO, playerState.ammo + PICKUP_AMMO_AMOUNT);
-        showMessage('🔋 +' + PICKUP_AMMO_AMOUNT + ' 弹药', 1000);
       }
       scene.remove(p);
       p.material.dispose();
@@ -876,20 +1213,19 @@ function gameLoop() {
   beam.rotation.y += delta * 0.5;
   dome.material.opacity = 0.3 + Math.sin(Date.now() * 0.002) * 0.15;
 
-  // 波次检查
-  if (playerState.alive && enemies.length === 0 && !playerState.waveSpawning) {
-    if (playerState.wave >= MAX_WAVE) {
-      showMessage('🏆 恭喜！你消灭了所有波次敌人！通关！按 F5 重玩', 999999);
-    } else {
-      playerState.waveSpawning = true;
-      playerState.wave++;
-      playerState.gunLevel = playerState.wave;
-      showMessage(`⚡ 第 ${playerState.wave} 波！枪械已升级！`, 2500);
-      setTimeout(() => {
-        spawnWave();
-        playerState.waveSpawning = false;
-      }, 1800);
-    }
+  // 波次检查（无限模式：无最大波次限制，清除所有敌人后进入下一波）
+  if (playerState.alive && enemies.length === 0 && flyingEnemies.length === 0 && !playerState.waveSpawning) {
+    playerState.waveSpawning = true;
+    playerState.wave++;
+    // 每升一级提升枪械等级和生命上限
+    playerState.gunLevel = playerState.wave;
+    playerState.maxHealth = 100 + (playerState.wave - 1) * 10;
+    playerState.health = Math.min(playerState.health + 20, playerState.maxHealth);
+    showMessage(`⚡ 第 ${playerState.wave} 波！枪械升级 Lv.${playerState.gunLevel}，生命上限 ${playerState.maxHealth}`, 2500);
+    setTimeout(() => {
+      spawnWave();
+      playerState.waveSpawning = false;
+    }, 1800);
   }
 
   // 自动索敌并看向最近敌人方向
@@ -919,7 +1255,6 @@ startBtn.addEventListener('click', () => {
   playerState.wave = 1;
   playerState.gunLevel = 1;
   playerState.health = playerState.maxHealth;
-  playerState.ammo = MAX_AMMO;
   playerState.kills = 0;
   playerState.score = 0;
   playerState.alive = true;

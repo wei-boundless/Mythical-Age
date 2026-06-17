@@ -3,9 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
-from runtime.tool_runtime.tool_result_envelope import tool_result_envelope_from_payload
-
-
 @dataclass(frozen=True, slots=True)
 class FileReadRange:
     start_line: int
@@ -186,6 +183,8 @@ class FileStateAuthority:
 
 
 def file_state_events_from_observation(observation: dict[str, Any]) -> FileStateObservationEvents:
+    from runtime.tool_runtime.tool_result_envelope import tool_result_envelope_from_payload
+
     source = _source_observation_payload(observation)
     observation_ref = str(source.get("observation_id") or observation.get("observation_id") or source.get("observation_ref") or "")
     payload = dict(source.get("payload") or source)

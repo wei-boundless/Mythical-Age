@@ -7,6 +7,7 @@ import { TodoPlan } from "./TodoPlan";
 import { ToolRound, ToolWindow } from "./ToolTrace";
 
 import type {
+  ActivityArchiveProjectionBlock,
   ProjectionRenderBlock,
   StatusProjectionBlock,
   TodoPlanProjectionBlock,
@@ -26,7 +27,7 @@ export type ActivityEntry = {
   consoleLabel?: string;
   detail?: string;
   id: string;
-  kind: "status_line" | "todo_plan" | "tool_window";
+  kind: "activity_archive" | "status_line" | "todo_plan" | "tool_window";
   outputText?: string;
   sections: Array<{ label: string; text: string }>;
   statusKind?: string;
@@ -38,6 +39,8 @@ export type ActivityEntry = {
   activeItemId?: string;
   completionReady?: boolean;
   toolRoundKey?: string;
+  archivedEntries?: ActivityEntry[];
+  archiveCount?: number;
 };
 
 export type ActivityRenderUnit =
@@ -67,13 +70,7 @@ export function PublicTimelineActivity({ ariaLabel = "运行状态", blocks }: P
       data-row-count={rows.length}
     >
       {rows.map((row) => (
-        row.kind === "tool_round"
-          ? <ToolRound group={row} key={row.id} />
-          : row.entry.kind === "tool_window"
-            ? <ToolWindow entry={row.entry} key={row.entry.id} />
-            : row.entry.kind === "todo_plan"
-              ? <TodoPlan entry={row.entry} key={row.entry.id} />
-              : <StatusLine entry={row.entry} key={row.entry.id} />
+        renderActivityRow(row)
       ))}
     </div>
   );
@@ -131,6 +128,66 @@ function activityRenderRows(entries: ActivityEntry[]): ActivityRenderUnit[] {
   }
   flushRoundTools();
   return rows;
+}
+
+function renderActivityRow(row: ActivityRenderUnit): React.ReactNode {
+  if (row.kind === "tool_round") {
+    return <ToolRound group={row} key={row.id} />;
+  }
+  const { entry } = row;
+  if (entry.kind === "activity_archive") {
+    return <ActivityArchive entry={entry} key={entry.id} />;
+  }
+  if (entry.kind === "tool_window") {
+    return <ToolWindow entry={entry} key={entry.id} />;
+  }
+  if (entry.kind === "todo_plan") {
+    return <TodoPlan entry={entry} key={entry.id} />;
+  }
+  return <StatusLine entry={entry} key={entry.id} />;
+}
+
+function ActivityArchive({ entry }: { entry: ActivityEntry }) {
+  const entries = entry.archivedEntries ?? [];
+  const rows = activityRenderRows(entries);
+  const statusTone = entry.statusTone ?? publicTimelineTone(entries);
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setOpen(false);
+  }, [entry.id]);
+
+  return (
+    <details
+      className={`public-run-activity__archive public-run-activity__archive--${statusTone}`}
+      data-activity-id={entry.id}
+      data-activity-kind={entry.kind}
+      data-archive-count={entry.archiveCount ?? entries.length}
+      data-status-tone={statusTone}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary>
+        <span className="public-run-activity__archive-label">
+          <span className="public-run-activity__archive-title">{entry.text || "本轮记录"}</span>
+          {entry.detail ? (
+            <>
+              <span className="public-run-activity__archive-separator" aria-hidden="true">·</span>
+              <span className="public-run-activity__archive-detail">{entry.detail}</span>
+            </>
+          ) : null}
+        </span>
+        <span className="public-run-activity__archive-rule" aria-hidden="true" />
+        <span className="public-run-activity__archive-meta">
+          {entry.statusLabel || toolRoundStatusLabel(statusTone)}
+        </span>
+        <span className="public-run-activity__archive-caret" aria-hidden="true" />
+      </summary>
+      <div className="public-run-activity__archive-body">
+        {rows.map((row) => renderActivityRow(row))}
+      </div>
+    </details>
+  );
 }
 
 function toolRoundFromEntries(entries: ActivityEntry[], roundKey: string): ActivityRenderUnit {
@@ -192,6 +249,9 @@ function activityEntryFromBlock(block: ProjectionRenderBlock, index: number): Ac
   if (block.kind === "body_segment" || block.kind === "log_entry") {
     return null;
   }
+  if (block.kind === "activity_archive") {
+    return archiveEntryFromBlock(block, index);
+  }
   if (block.kind === "todo_plan") {
     return todoEntryFromBlock(block, index);
   }
@@ -202,6 +262,29 @@ function activityEntryFromBlock(block: ProjectionRenderBlock, index: number): Ac
     return toolEntryFromBlock(block, index);
   }
   return null;
+}
+
+function archiveEntryFromBlock(block: ActivityArchiveProjectionBlock, index: number): ActivityEntry | null {
+  const entries = (block.blocks ?? [])
+    .map((item, childIndex) => activityEntryFromBlock(item, childIndex))
+    .filter((entry): entry is ActivityEntry => Boolean(entry));
+  if (!entries.length) {
+    return null;
+  }
+  const stableId = cleanText(block.id) || `archive:${index}`;
+  const statusTone = publicTimelineTone(entries);
+  return {
+    archivedEntries: entries,
+    archiveCount: entries.length,
+    detail: firstDifferentText(block.title, block.detail),
+    id: `activity-archive:${stableId}`,
+    kind: "activity_archive",
+    sections: [],
+    state: cleanText(block.state).toLowerCase(),
+    statusLabel: toolRoundStatusLabel(statusTone),
+    statusTone,
+    text: firstText(block.title) || "本轮记录",
+  };
 }
 
 function toolEntryFromBlock(block: ToolProjectionBlock, index: number): ActivityEntry | null {
