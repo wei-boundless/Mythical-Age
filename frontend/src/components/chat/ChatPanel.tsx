@@ -8,120 +8,127 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { VSCodeStatusPanel } from "@/features/vscode-connection/VSCodeStatusPanel";
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
-import { useAppStore } from "@/lib/store";
+import { useAppStoreActions, useAppStoreSelector } from "@/lib/store";
+import { shallowEqual } from "@/lib/store/hooks";
 import { shouldDisplayAssistantContent } from "@/lib/store/assistantContentVisibility";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
-import type { ChatStreamConnectionStatus, Message, TokenStats } from "@/lib/store/types";
+import type { HarnessTaskRunLiveMonitor } from "@/lib/api";
+import type { ActiveTurnSnapshot, ChatStreamConnectionStatus, Message, StoreActions, StoreState, TokenStats } from "@/lib/store/types";
 
 export function ChatPanel() {
   const {
     messages,
-    sendMessage,
-    stopCurrentStream,
-    resendEditedMessage,
+    activeProjectionsByKey,
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
-    taskGraphLiveMonitor,
-    stopActiveTaskRun,
     conversationActiveEnvironment,
     workspaceInitializing,
     modelProviderConfig,
     imageAssetConfig,
     permissionMode,
     supportedPermissionModes,
-    setPermissionMode,
     chatThinkingMode,
-    setChatThinkingMode,
     chatStreamDisplayEnabled,
-    setChatStreamDisplayEnabled,
-    openRuntimeLog,
     selectedChatModelId,
-    setSelectedChatModel,
     sessions,
     tokenStats,
     chatStreamConnectionStatus,
-  } = useAppStore();
+    activeTurnSnapshot,
+    taskGraphLiveMonitor,
+  } = useAppStoreSelector((state) => ({
+    messages: state.messages,
+    activeProjectionsByKey: state.activeProjectionsByKey,
+    activeStreamSessionIds: state.activeStreamSessionIds,
+    sessionActivity: state.sessionActivity,
+    currentSessionId: state.currentSessionId,
+    conversationActiveEnvironment: state.conversationActiveEnvironment,
+    workspaceInitializing: state.workspaceInitializing,
+    modelProviderConfig: state.modelProviderConfig,
+    imageAssetConfig: state.imageAssetConfig,
+    permissionMode: state.permissionMode,
+    supportedPermissionModes: state.supportedPermissionModes,
+    chatThinkingMode: state.chatThinkingMode,
+    chatStreamDisplayEnabled: state.chatStreamDisplayEnabled,
+    selectedChatModelId: state.selectedChatModelId,
+    sessions: state.sessions,
+    tokenStats: state.tokenStats,
+    chatStreamConnectionStatus: state.chatStreamConnectionStatus,
+    activeTurnSnapshot: state.activeTurnSnapshot,
+    taskGraphLiveMonitor: state.taskGraphLiveMonitor,
+  }), shallowEqual);
+  const {
+    sendMessage,
+    stopCurrentStream,
+    resendEditedMessage,
+    setPermissionMode,
+    setChatThinkingMode,
+    setChatStreamDisplayEnabled,
+    openRuntimeLog,
+    setSelectedChatModel,
+  } = useAppStoreActions();
   const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
   );
   const currentSessionReceivingStream = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
-  const currentTaskIsRunning = currentSession ? sessionSummaryIsRunning(currentSession) : false;
+  const currentTaskIsRunning = Boolean(currentSession && sessionSummaryIsRunning(currentSession))
+    || chatTaskMonitorIsActive(taskGraphLiveMonitor);
   const currentSessionActive = currentSessionReceivingStream || currentTaskIsRunning;
-  const suppressFooterActivity = shouldSuppressSessionActivityBar(messages, currentSessionActive);
-  const messageRenderKeys = useMemo(() => chatMessageRenderKeys(messages), [messages]);
-  const liveAssistantMessageId = useMemo(() => {
-    if (!currentSessionReceivingStream) {
-      return "";
-    }
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role === "assistant") {
-        return message.id;
-      }
-    }
-    return "";
-  }, [currentSessionReceivingStream, messages]);
-  const monitorRecord = taskGraphLiveMonitor as Record<string, unknown> | null;
-  const monitorTaskRun = taskGraphLiveMonitor?.task_run ?? {};
-  const monitorRuntimeControl = taskGraphLiveMonitor?.runtime_control ?? {};
-  const monitorRoute = monitorRecord?.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)
-    ? monitorRecord.route as Record<string, unknown>
-    : {};
-  const monitorRuntimeKind = String(
-    taskGraphLiveMonitor?.execution_runtime_kind
-    ?? monitorTaskRun.execution_runtime_kind
-    ?? "",
-  ).trim();
-  const monitorStatus = String(taskGraphLiveMonitor?.status ?? monitorTaskRun.status ?? "").trim();
-  const monitorControlState = String(taskGraphLiveMonitor?.control_state ?? monitorRuntimeControl.state ?? "").trim();
-  const singleAgentTaskRunId = String(monitorTaskRun.task_run_id ?? taskGraphLiveMonitor?.task_run_id ?? "").trim();
-  const isSingleAgentTaskMonitor = Boolean(
-    taskGraphLiveMonitor
-    && monitorRuntimeKind === "single_agent_task"
-    && String(monitorRoute.kind ?? "").trim() !== "task_graph_run",
+  const projectedMessages = useMemo(
+    () => messagesWithActiveProjectionViews(messages, activeProjectionsByKey),
+    [activeProjectionsByKey, messages],
   );
-  const terminalTaskStatuses = new Set(["completed", "done", "failed", "error", "cancelled", "canceled", "stopped", "aborted", "user_aborted"]);
-  const terminalControlStates = new Set(["stopped", "aborted", "user_aborted"]);
-  const canControlSingleAgentTask = Boolean(
-    isSingleAgentTaskMonitor
-    && singleAgentTaskRunId
-    && !terminalTaskStatuses.has(monitorStatus)
-    && !terminalControlStates.has(monitorControlState)
-    && monitorControlState !== "stop_requested"
-  );
-  const canStopSingleAgentTask = Boolean(
-    canControlSingleAgentTask
-    && !currentSessionReceivingStream
-    && taskGraphLiveMonitor?.is_interruptible === true
-  );
-  const chatPrimaryTaskAction = canStopSingleAgentTask
-    ? {
-        kind: "stop_task" as const,
-        onAction: stopActiveTaskRun,
-      }
-    : null;
+  const suppressFooterActivity = shouldSuppressSessionActivityBar(projectedMessages, currentSessionActive);
+  const messageRenderKeys = useMemo(() => chatMessageRenderKeys(projectedMessages), [projectedMessages]);
+  const liveAssistantMessageId = useMemo(() => liveAssistantMessageIdForMessages(projectedMessages, {
+    activeTurnSnapshot,
+    currentSessionReceivingStream,
+    currentTaskIsRunning,
+    taskGraphLiveMonitor,
+  }), [activeTurnSnapshot, currentSessionReceivingStream, currentTaskIsRunning, projectedMessages, taskGraphLiveMonitor]);
   const lastEditableUserMessageId = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
+    for (let index = projectedMessages.length - 1; index >= 0; index -= 1) {
+      const message = projectedMessages[index];
       if (message.role === "user" && message.sourceIndex !== undefined) {
         return message.id;
       }
     }
     return null;
-  }, [messages]);
+  }, [projectedMessages]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (typeof window === "undefined") {
+      return;
+    }
+    const scheduleFrame = typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(Date.now()), 16);
+    const cancelFrame = typeof window.cancelAnimationFrame === "function"
+      ? window.cancelAnimationFrame.bind(window)
+      : window.clearTimeout.bind(window);
+    if (scrollFrameRef.current !== null) {
+      cancelFrame(scrollFrameRef.current);
+    }
+    scrollFrameRef.current = scheduleFrame(() => {
+      scrollFrameRef.current = null;
+      endRef.current?.scrollIntoView({ behavior: currentSessionReceivingStream ? "auto" : "smooth" });
+    });
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [projectedMessages, currentSessionReceivingStream]);
 
   return (
     <section className="chat-panel-shell grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-          {!messages.length ? (
+          {!projectedMessages.length ? (
             <div className="chat-thread__empty">
               <div>
                 <strong>等待你的下一句话。</strong>
@@ -130,7 +137,7 @@ export function ChatPanel() {
             </div>
           ) : null}
 
-          {messages.map((message, index) => (
+          {projectedMessages.map((message, index) => (
             <ChatMessage
               canEdit={!currentSessionActive && message.id === lastEditableUserMessageId}
               content={message.content}
@@ -149,13 +156,13 @@ export function ChatPanel() {
               answerSelectedSource={message.answerSelectedSource}
               answerSource={message.answerSource}
               closeoutSummary={message.closeoutSummary}
-              mainChatSurface={message.mainChatSurface}
               onOpenRuntimeLog={runtimeLogOpenHandler(message, openRuntimeLog)}
-              publicProjection={message.publicProjection}
+              projectionView={message.projectionView}
               retrievals={message.retrievals}
               role={message.role}
-              runtimeDisplayState={message.runtimeDisplayState}
               runtimeLogRef={message.runtimeLogRef}
+              sourceTaskRunId={message.sourceTaskRunId}
+              sourceTurnRunId={message.sourceTurnRunId}
               streamingContent={message.id === liveAssistantMessageId}
               toolEventCount={message.toolEventCount}
               toolCalls={message.toolCalls}
@@ -194,7 +201,6 @@ export function ChatPanel() {
         <ChatInput
           disabled={workspaceInitializing}
           streaming={currentSessionReceivingStream}
-          taskPrimaryAction={chatPrimaryTaskAction}
           onSend={sendMessage}
           onStop={stopCurrentStream}
           modelProviderConfig={modelProviderConfig}
@@ -216,7 +222,7 @@ export function ChatPanel() {
 
 function runtimeLogOpenHandler(
   message: Message,
-  openRuntimeLog: ReturnType<typeof useAppStore>["openRuntimeLog"],
+  openRuntimeLog: StoreActions["openRuntimeLog"],
 ) {
   const taskRunId = String(message.sourceTaskRunId || "").trim();
   if (taskRunId) {
@@ -245,6 +251,21 @@ function runtimeLogSubtitle(message: Message) {
     return `${count} 次工具调用`;
   }
   return String(message.runtimeLogRef || "完整运行轨迹").trim();
+}
+
+function messagesWithActiveProjectionViews(
+  messages: Message[],
+  activeProjectionsByKey: StoreState["activeProjectionsByKey"],
+) {
+  return messages.map((message) => {
+    const key = message.projectionKeyString ?? "";
+    const projection = key ? activeProjectionsByKey[key] : undefined;
+    const projectionView = projection?.view ?? message.projectionView;
+    if (!projectionView || projectionView === message.projectionView) {
+      return message;
+    }
+    return { ...message, projectionView };
+  });
 }
 
 function ChatStreamStatusBadge({
@@ -331,7 +352,7 @@ export function shouldSuppressSessionActivityBar(messages: Message[], active: bo
   if (visibleAssistantContent) {
     return true;
   }
-  if (latestAssistant.publicProjection?.bodyText.trim()) {
+  if (latestAssistant.projectionView?.canonicalContent.trim()) {
     return true;
   }
   if (latestAssistant.closeoutSummary?.trim()) {
@@ -341,10 +362,7 @@ export function shouldSuppressSessionActivityBar(messages: Message[], active: bo
     return true;
   }
   return Boolean(
-    latestAssistant.publicProjection?.currentAction
-    || latestAssistant.publicProjection?.pinned.length
-    || latestAssistant.publicProjection?.finalResults.length
-    || latestAssistant.publicProjection?.status.length
+    latestAssistant.projectionView?.blocks.some((block) => block.kind !== "body_segment" && block.kind !== "log_entry")
   );
 }
 
@@ -358,6 +376,171 @@ export function chatMessageRenderKeys(messages: Pick<Message, "id" | "role" | "s
   });
 }
 
+type LiveAssistantSelectionOptions = {
+  activeTurnSnapshot?: ActiveTurnSnapshot | null;
+  currentSessionReceivingStream: boolean;
+  currentTaskIsRunning: boolean;
+  taskGraphLiveMonitor?: HarnessTaskRunLiveMonitor | null;
+};
+
+type LiveAssistantBinding = {
+  streamRunId: string;
+  taskRunId: string;
+  turnId: string;
+  turnRunId: string;
+};
+
+export function liveAssistantMessageIdForMessages(
+  messages: Message[],
+  options: LiveAssistantSelectionOptions,
+) {
+  if (!options.currentSessionReceivingStream && !options.currentTaskIsRunning) {
+    return "";
+  }
+  const binding = liveAssistantBindingFromState(options.activeTurnSnapshot, options.taskGraphLiveMonitor);
+  if (hasLiveAssistantBinding(binding)) {
+    return matchingLiveAssistantMessageId(messages, binding);
+  }
+  if (!options.currentSessionReceivingStream) {
+    return "";
+  }
+  return latestAssistantMessageId(messages);
+}
+
+function liveAssistantBindingFromState(
+  activeTurnSnapshot: ActiveTurnSnapshot | null | undefined,
+  taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null | undefined,
+): LiveAssistantBinding {
+  const monitorBinding = liveAssistantBindingFromMonitor(taskGraphLiveMonitor);
+  return {
+    streamRunId: monitorBinding.streamRunId,
+    taskRunId: textValue(activeTurnSnapshot?.task_run_id) || monitorBinding.taskRunId,
+    turnId: textValue(activeTurnSnapshot?.turn_id) || monitorBinding.turnId,
+    turnRunId: textValue(activeTurnSnapshot?.turn_run_id) || monitorBinding.turnRunId,
+  };
+}
+
+function liveAssistantBindingFromMonitor(
+  taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null | undefined,
+): LiveAssistantBinding {
+  const monitor = recordValue(taskGraphLiveMonitor);
+  if (!liveMonitorCanBindAssistant(monitor)) {
+    return emptyLiveAssistantBinding();
+  }
+  const taskRun = recordValue(monitor.task_run);
+  const activeTurnSnapshot = recordValue(monitor.active_turn_snapshot);
+  return {
+    streamRunId: textValue(activeTurnSnapshot.stream_run_id)
+      || textValue(monitor.stream_run_id)
+      || textValue(monitor.streamRunId),
+    taskRunId: textValue(activeTurnSnapshot.bound_task_run_id)
+      || textValue(activeTurnSnapshot.task_run_id)
+      || textValue(taskRun.task_run_id)
+      || textValue(monitor.task_run_id)
+      || textValue(monitor.runtime_task_run_id),
+    turnId: textValue(activeTurnSnapshot.turn_id)
+      || textValue(monitor.latest_interaction_turn_id)
+      || textValue(monitor.turn_id),
+    turnRunId: textValue(activeTurnSnapshot.turn_run_id)
+      || textValue(monitor.turn_run_id),
+  };
+}
+
+function liveMonitorCanBindAssistant(monitor: Record<string, unknown>) {
+  if (!Object.keys(monitor).length) {
+    return false;
+  }
+  const lifecycle = textValue(monitor.lifecycle).toLowerCase();
+  const bucket = textValue(monitor.bucket).toLowerCase();
+  if (monitor.stale === true || lifecycle === "stale" || bucket === "diagnostics") {
+    return false;
+  }
+  const taskRun = recordValue(monitor.task_run);
+  const status = (textValue(monitor.status) || textValue(taskRun.status)).toLowerCase();
+  const activityState = textValue(monitor.activity_state).toLowerCase();
+  if (monitor.is_live === false && !LIVE_MONITOR_BINDING_STATES.has(status) && !LIVE_MONITOR_BINDING_STATES.has(activityState)) {
+    return false;
+  }
+  return true;
+}
+
+const LIVE_MONITOR_BINDING_STATES = new Set([
+  "created",
+  "running",
+  "waiting",
+  "waiting_executor",
+  "waiting_approval",
+  "waiting_safe_boundary",
+]);
+
+export function chatTaskMonitorIsActive(taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null | undefined) {
+  const monitor = recordValue(taskGraphLiveMonitor);
+  if (!liveMonitorCanBindAssistant(monitor)) {
+    return false;
+  }
+  const taskRun = recordValue(monitor.task_run);
+  const status = (textValue(monitor.status) || textValue(taskRun.status)).toLowerCase();
+  const activityState = textValue(monitor.activity_state).toLowerCase();
+  return LIVE_MONITOR_BINDING_STATES.has(status)
+    || LIVE_MONITOR_BINDING_STATES.has(activityState)
+    || monitor.is_running === true
+    || monitor.is_waiting === true;
+}
+
+function emptyLiveAssistantBinding(): LiveAssistantBinding {
+  return {
+    streamRunId: "",
+    taskRunId: "",
+    turnId: "",
+    turnRunId: "",
+  };
+}
+
+function matchingLiveAssistantMessageId(messages: Message[], binding: LiveAssistantBinding) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") {
+      continue;
+    }
+    if (binding.streamRunId && (message.sourceStreamRunId === binding.streamRunId || message.sourceRunId === binding.streamRunId)) {
+      return message.id;
+    }
+    if (binding.turnRunId && message.sourceTurnRunId === binding.turnRunId) {
+      return message.id;
+    }
+    if (binding.taskRunId && message.sourceTaskRunId === binding.taskRunId) {
+      return message.id;
+    }
+    if (binding.turnId && message.sourceTurnId === binding.turnId) {
+      return message.id;
+    }
+  }
+  return "";
+}
+
+function latestAssistantMessageId(messages: Message[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant") {
+      return message.id;
+    }
+  }
+  return "";
+}
+
+function hasLiveAssistantBinding(binding: LiveAssistantBinding) {
+  return Boolean(binding.streamRunId || binding.taskRunId || binding.turnId || binding.turnRunId);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function textValue(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function SessionTokenMeter({ tokenStats }: { tokenStats: TokenStats | null }) {
   const presentation = sessionContextMeterPresentation(tokenStats);

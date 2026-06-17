@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from harness.loop.agent_correction_lifecycle import agent_correction_lifecycle_payload
 from harness.runtime.projection.projector import project_public_projection_event
-from harness.runtime.session_timeline import build_session_runtime_timeline
+from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
 from runtime.output_stream.public_contract import (
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
+    TOOL_ITEM_COMPLETED_EVENT,
     TOOL_CALL_REQUESTED_EVENT,
     TURN_COMPLETED_EVENT,
 )
@@ -76,6 +78,16 @@ def _runtime_host(
         run_registry=_RunRegistry(stream_runs),
         stream_replay=_StreamReplay(public_events_by_stream_run),
     )
+
+
+def _projection_slice(attachment: dict) -> dict:
+    slices = list(attachment.get("projection_slices") or [])
+    assert len(slices) <= 1
+    return slices[0] if slices else {}
+
+
+def _projection_frames(attachment: dict) -> list[dict]:
+    return list(_projection_slice(attachment).get("frames") or [])
 
 
 def _public_ledger_record(
@@ -182,7 +194,18 @@ def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surfac
     assert attachment["log_ref"] == "chatrun:session-a:1"
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:1"
     assert attachment["projection_anchor"]["anchor_message_id"] == "history-message:turn:session-a:1:assistant"
-    assert [frame["event_family"] for frame in attachment["public_projection_frames"]] == [
+    slice_ = _projection_slice(attachment)
+    assert slice_["schema_version"] == "chronological_projection"
+    assert slice_["event_log_id"] == "chatrun:session-a:1"
+    assert slice_["start_offset"] == 1
+    assert slice_["end_offset"] == 3
+    assert slice_["projection_key"]["turn_id"] == "turn:session-a:1"
+    assert slice_["projection_key"]["message_id"] == "history-message:turn:session-a:1:assistant"
+    assert slice_["projection_key"]["event_log_id"] == "chatrun:session-a:1"
+    assert slice_["cursor"]["frame_count"] == 3
+    assert slice_["display_hint"]["lifecycle"] == "committed"
+    assert slice_["display_hint"]["main_surface_hint"] == "closeout"
+    assert [frame["event_family"] for frame in _projection_frames(attachment)] == [
         "tool_control",
         "assistant_body",
         "runtime_commit",
@@ -230,8 +253,246 @@ def test_session_runtime_timeline_running_task_replays_live_timeline_surface() -
     attachment = timeline["runtime_attachments"][0]
     assert attachment["display_state"] == "task_live"
     assert attachment["main_chat_surface"] == "live_timeline"
-    assert attachment["public_projection_frames"][0]["tool_call_id"] == "call:read"
+    assert _projection_frames(attachment)[0]["tool_call_id"] == "call:read"
     assert attachment["tool_event_count"] == 1
+
+
+def test_session_runtime_timeline_replays_public_ledger_agent_todo_as_structured_plan() -> None:
+    task_run_id = "taskrun:turn:session-a:1:todo"
+    stream_run_id = "strun:session-a:todo"
+    todo_payload = {
+        "status": "ok",
+        "plan_id": f"agent-todo:session-a:{task_run_id}",
+        "active_item_id": "todo:1",
+        "completion_ready": False,
+        "items": [
+            {
+                "todo_id": "todo:1",
+                "content": "修复任务清单投影",
+                "active_form": "正在修复任务清单投影",
+                "status": "in_progress",
+            },
+            {
+                "todo_id": "todo:2",
+                "content": "验证刷新后仍可见",
+                "status": "pending",
+            },
+        ],
+    }
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:todo",
+        status="running",
+        diagnostics={"active_turn_id": "turn:session-a:1", "runtime_task_run_id": task_run_id},
+        created_at=1.0,
+        updated_at=2.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                _public_ledger_record(
+                    TOOL_ITEM_COMPLETED_EVENT,
+                    {
+                        "tool_call_id": "call:agent-todo",
+                        "permission_decision_id": "permit:agent-todo",
+                        "tool_name": "agent_todo",
+                        "state": "done",
+                        "todo_plan": todo_payload,
+                    },
+                    offset=1,
+                    stream_run_id=stream_run_id,
+                    task_run_id=task_run_id,
+                )
+            ],
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "run", "turn_id": "turn:session-a:1"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    frames = _projection_frames(attachment)
+    todo_frame = next(frame for frame in frames if frame.get("status_kind") == "todo_plan")
+
+    assert attachment["display_state"] == "task_live"
+    assert attachment["main_chat_surface"] == "live_timeline"
+    assert attachment["stream_run_id"] == stream_run_id
+    assert attachment["tool_event_count"] == 0
+    assert todo_frame["title"] == "任务清单"
+    assert todo_frame["plan_id"] == f"agent-todo:session-a:{task_run_id}"
+    assert todo_frame["active_item_id"] == "todo:1"
+    assert todo_frame["completion_ready"] is False
+    assert [item["content"] for item in todo_frame["todo_items"]] == ["修复任务清单投影", "验证刷新后仍可见"]
+
+
+def test_session_runtime_timeline_keeps_steer_projection_on_steer_turn_not_target_turn() -> None:
+    task_run_id = "taskrun:turn:session-a:1:abc"
+    stream_run_id = "strun:session-a:steer"
+    stream_run = SimpleNamespace(
+        stream_run_id=stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:steer",
+        status="completed",
+        diagnostics={
+            "active_turn_input_policy": "steer",
+            "expected_active_turn_id": "turn:session-a:1",
+            "active_turn_id": "turn:session-a:1",
+            "runtime_turn_run_id": "turnrun:turn:session-a:2",
+            "runtime_task_run_id": task_run_id,
+        },
+        created_at=3.0,
+        updated_at=4.0,
+    )
+    frame = {
+        "authority": "harness.public_projection",
+        "frame_id": "frame:steer:accepted",
+        "projection_id": "frame:steer:accepted",
+        "source_event_type": "active_task_steer_accepted",
+        "sequence": 1,
+        "event_offset": 1,
+        "event_family": "status",
+        "channel": "status",
+        "lossless": True,
+        "anchor": {
+            "session_id": "session-a",
+            "stream_run_id": stream_run_id,
+            "run_id": stream_run_id,
+            "task_run_id": task_run_id,
+        },
+        "op": "item_upsert",
+        "slot": "status",
+        "source_authority": "runtime",
+        "main_visibility": "visible_live",
+        "retention": "transient",
+        "status_kind": "status_event",
+        "item_id": "active-task-steer:accepted",
+        "title": "补充要求已接入当前任务",
+        "text": "请优先修正 steer 投影归属。",
+        "state": "done",
+    }
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[stream_run],
+        public_events_by_stream_run={
+            stream_run_id: [
+                {
+                    "stream_run_id": stream_run_id,
+                    "event_log_id": "chatrun:session-a:steer",
+                    "event_id": "event:steer:accepted",
+                    "event_offset": 1,
+                    "created_at": 4.0,
+                    "public_event_type": "active_task_steer_accepted",
+                    "terminal": False,
+                    "data": {"public_projection_frame": frame},
+                    "public_projection_frame": frame,
+                }
+            ],
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={
+            "messages": [
+                {"id": "user:turn:1", "role": "user", "content": "开始任务", "turn_id": "turn:session-a:1"},
+                {"id": "assistant:turn:1", "role": "assistant", "content": "我会启动任务。", "turn_id": "turn:session-a:1"},
+                {"id": "user:turn:2", "role": "user", "content": "补充：先修 steer", "turn_id": "turn:session-a:2"},
+                {"id": "assistant:turn:2", "role": "assistant", "content": "已收到补充要求。", "turn_id": "turn:session-a:2"},
+            ]
+        },
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    frames = _projection_frames(attachment)
+
+    assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:2"
+    assert attachment["projection_anchor"]["anchor_message_id"] == "assistant:turn:2"
+    assert attachment["projection_anchor"]["task_run_id"] == task_run_id
+    assert frames[0]["anchor"]["turn_id"] == "turn:session-a:2"
+    assert frames[0]["anchor"]["message_id"] == "assistant:turn:2"
+    assert _projection_slice(attachment)["projection_key"]["turn_id"] == "turn:session-a:2"
+    assert _projection_slice(attachment)["projection_key"]["message_id"] == "assistant:turn:2"
+
+
+def test_session_runtime_projection_filters_body_only_history_and_bounds_frames() -> None:
+    old_stream_run_id = "strun:session-a:old"
+    live_stream_run_id = "strun:session-a:live"
+    task_run_id = "taskrun:turn:session-a:2:abc"
+    old_stream_run = SimpleNamespace(
+        stream_run_id=old_stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:old",
+        status="completed",
+        diagnostics={"active_turn_id": "turn:session-a:1"},
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    live_stream_run = SimpleNamespace(
+        stream_run_id=live_stream_run_id,
+        session_id="session-a",
+        event_log_id="chatrun:session-a:live",
+        status="running",
+        diagnostics={"active_turn_id": "turn:session-a:2", "runtime_task_run_id": task_run_id},
+        created_at=2.0,
+        updated_at=2.0,
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        events_by_run={},
+        stream_runs=[old_stream_run, live_stream_run],
+        public_events_by_stream_run={
+            old_stream_run_id: [
+                _public_ledger_record(
+                    ASSISTANT_TEXT_FINAL_EVENT,
+                    {"content": f"old {index}"},
+                    offset=index,
+                    turn_id="turn:session-a:1",
+                    stream_run_id=old_stream_run_id,
+                    task_run_id="",
+                )
+                for index in range(1, 40)
+            ],
+            live_stream_run_id: [
+                _public_ledger_record(
+                    TOOL_CALL_REQUESTED_EVENT,
+                    {"tool_call_id": f"call:{index}", "tool_name": "read_file", "target": f"file-{index}.py"},
+                    offset=index,
+                    turn_id="turn:session-a:2",
+                    stream_run_id=live_stream_run_id,
+                    task_run_id=task_run_id,
+                )
+                for index in range(1, 50)
+            ],
+        },
+    )
+
+    projection = build_session_runtime_projection(
+        session_id="session-a",
+        history={
+            "messages": [
+                {"role": "user", "content": "old", "turn_id": "turn:session-a:1"},
+                {"role": "assistant", "content": "old final", "turn_id": "turn:session-a:1"},
+                {"role": "user", "content": "live", "turn_id": "turn:session-a:2"},
+            ]
+        },
+        runtime_host=runtime_host,
+        max_projection_frames_per_attachment=12,
+    )
+
+    attachments = projection["runtime_attachments"]
+    assert projection["authority"] == "session_runtime_projection"
+    assert [item["stream_run_id"] for item in attachments] == [live_stream_run_id]
+    assert attachments[0]["main_chat_surface"] == "live_timeline"
+    assert len(_projection_frames(attachments[0])) == 12
 
 
 def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summaries() -> None:
@@ -305,8 +566,10 @@ def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summ
 
     task_attachment = next(item for item in timeline["runtime_attachments"] if item.get("task_run_id") == task_run_id)
     stream_attachment = next(item for item in timeline["runtime_attachments"] if item.get("stream_run_id") == stream_run_id)
-    assert task_attachment["public_projection_frames"][0]["item_id"] == stream_attachment["public_projection_frames"][0]["item_id"]
-    assert task_attachment["public_projection_frames"][0]["frame_id"] == stream_attachment["public_projection_frames"][0]["frame_id"]
+    assert task_attachment["main_chat_surface"] == "log_only"
+    assert task_attachment["projection_slices"] == []
+    assert _projection_frames(stream_attachment)[0]["item_id"]
+    assert _projection_frames(stream_attachment)[0]["frame_id"]
 
 
 def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> None:
@@ -367,7 +630,7 @@ def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> N
         runtime_host=runtime_host,
     )
 
-    frame = timeline["runtime_attachments"][0]["public_projection_frames"][0]
+    frame = _projection_frames(timeline["runtime_attachments"][0])[0]
     assert frame["slot"] == "trace"
     assert frame["main_visibility"] == "hidden"
     assert frame["retention"] == "trace"
@@ -421,7 +684,11 @@ def test_session_runtime_timeline_stream_failure_does_not_close_main_surface() -
     assert attachment["display_state"] == "task_live"
     assert attachment["main_chat_surface"] == "live_timeline"
     assert attachment["closeout_summary"] == ""
-    assert [frame["op"] for frame in attachment["public_projection_frames"]] == ["item_upsert", "turn_terminal"]
+    frames = _projection_frames(attachment)
+    assert [frame["op"] for frame in frames] == ["item_upsert", "item_upsert"]
+    assert frames[1]["slot"] == "status"
+    assert frames[1]["main_visibility"] == "visible_live"
+    assert frames[1]["status_kind"] == "terminal_event"
 
 
 def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projection_fields() -> None:
@@ -465,6 +732,77 @@ def test_turn_runtime_attachment_keeps_projection_anchor_without_legacy_projecti
     assert attachment["display_state"] == "log_only"
     assert attachment["main_chat_surface"] == "log_only"
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:2"
-    assert attachment["public_projection_frames"] == []
+    assert attachment["projection_slices"] == []
     assert "public_timeline" not in attachment
     assert "task_projection" not in attachment
+
+
+def test_turn_recovery_required_attachment_stays_trace_only_without_raw_main_projection() -> None:
+    turn_run_id = "turnrun:turn:session-a:3"
+    signal = {
+        "signal_kind": "agent_closeout_recovery_required",
+        "runtime_control_state": "agent_recovery_required",
+        "agent_closeout_required": True,
+        "visible_assistant_message_allowed": False,
+        "tool_calls_allowed_after_signal": False,
+        "reason": "protocol_recovery_exhausted",
+        "recent_observation_summary": ["已有 2 个工具结果成功返回。"],
+        "correction_lifecycle": agent_correction_lifecycle_payload(
+            state="next_turn_correction_required",
+            mismatch_kind="protocol_recovery_exhausted",
+            signal_kind="agent_closeout_recovery_required",
+            retryable=True,
+        ),
+    }
+    turn_run = SimpleNamespace(
+        turn_run_id=turn_run_id,
+        session_id="session-a",
+        turn_id="turn:session-a:3",
+        status="failed",
+        terminal_reason="single_turn_tool_iteration_limit",
+        created_at=6.0,
+        updated_at=7.0,
+        latest_event_offset=2,
+        diagnostics={"latest_runtime_control_signal": signal},
+    )
+    runtime_host = _runtime_host(
+        task_runs=[],
+        turn_runs=[turn_run],
+        events_by_run={
+            turn_run_id: [
+                {
+                    "event_id": "event:turn:recovery",
+                    "event_type": "agent_turn_terminal",
+                    "run_id": turn_run_id,
+                    "offset": 2,
+                    "created_at": 7.0,
+                    "payload": {
+                        "turn_id": "turn:session-a:3",
+                        "status": "failed",
+                        "terminal_reason": "single_turn_tool_iteration_limit",
+                        "runtime_control_signal": signal,
+                    },
+                    "refs": {"turn_ref": "turn:session-a:3"},
+                }
+            ]
+        },
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:3"}]},
+        runtime_host=runtime_host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+
+    assert attachment["display_state"] == "log_only"
+    assert attachment["main_chat_surface"] == "log_only"
+    assert attachment["runtime_control_signal"]["signal_kind"] == "agent_closeout_recovery_required"
+    assert attachment["projection_slices"] == []
+    projection = build_session_runtime_projection(
+        session_id="session-a",
+        history={"messages": [{"role": "user", "content": "继续", "turn_id": "turn:session-a:3"}]},
+        runtime_host=runtime_host,
+    )
+    assert projection["runtime_attachments"] == []

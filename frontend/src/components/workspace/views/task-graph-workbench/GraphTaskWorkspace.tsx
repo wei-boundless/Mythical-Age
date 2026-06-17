@@ -34,6 +34,7 @@ import {
 } from "@/components/workspace/views/task-system/taskGraphTopologyUtils";
 import { TaskGraphChromeSelect } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
+import { Notice } from "@/ui/Notice";
 import { buildTaskGraphUpsertPayload, resolveTaskGraphPublishCommit } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
 import {
   getOrchestrationAgents,
@@ -1041,8 +1042,8 @@ export function GraphTaskWorkspace({
 
   return (
     <section className="task-graph-editor-page task-graph-editor-page--embedded graph-task-workspace-shell" aria-label="图任务工作区">
-      {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
-      {notice ? <div className="boundary-notice">{notice}</div> : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      {notice ? <Notice>{notice}</Notice> : null}
       <TaskGraphWorkbench
         addTaskGraphNode={addTaskGraphNode}
         addTaskGraphRoleNode={addTaskGraphRoleNode}

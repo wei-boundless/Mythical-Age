@@ -13,6 +13,7 @@ import type {
   ContractSpec,
   TaskSystemOverview,
 } from "@/lib/api";
+import { Notice } from "@/ui/Notice";
 
 import {
   ContractAdvancedTab,
@@ -176,7 +177,7 @@ export function ContractManagementWorkbench({
         </div>
       </header>
 
-      {localError ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{localError}</div> : null}
+      {localError ? <Notice icon={<AlertTriangle size={16} />} tone="error">{localError}</Notice> : null}
 
       <section className="task-system-three-pane task-system-three-pane--contracts">
         <aside className="task-system-filter-rail" aria-label="契约筛选">

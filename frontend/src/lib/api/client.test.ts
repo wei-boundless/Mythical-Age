@@ -82,6 +82,40 @@ describe("apiRequest", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry delayed session runtime projection timeouts", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const pending = expect(apiRequest("/sessions/session:slow/runtime-projection")).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: "Request timed out after 8000ms: /sessions/session:slow/runtime-projection",
+    });
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry delayed session token statistic timeouts", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    })));
+
+    const pending = expect(apiRequest("/tokens/session/session:slow?workspace_view=chat")).rejects.toMatchObject({
+      name: "RequestTimeoutError",
+      message: "Request timed out after 8000ms: /tokens/session/session:slow?workspace_view=chat",
+    });
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps one timeout retry for ordinary GET requests", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", {});

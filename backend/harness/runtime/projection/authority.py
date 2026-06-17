@@ -30,8 +30,6 @@ VALID_OPS = {
     "item_retire",
     "scope_retire",
     "commit_ack",
-    "commit_failed",
-    "turn_terminal",
 }
 VALID_SLOTS = {"body", "current_action", "pinned", "final_result", "status", "trace"}
 VALID_SOURCES = {"model", "tool", "runtime", "system"}
@@ -136,6 +134,10 @@ def build_public_projection_frame(
         "arguments_preview",
         "target",
         "collapsed",
+        "plan_id",
+        "active_item_id",
+        "completion_ready",
+        "todo_items",
     ):
         value = frame_spec.get(key)
         if value not in ("", None, [], {}):

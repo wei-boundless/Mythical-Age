@@ -42,6 +42,7 @@ import {
   type ToolPackageDefinition,
 } from "@/lib/api";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
+import { Button } from "@/ui/Button";
 
 type CapabilityPage = "overview" | "units" | "skills" | "tools" | "mcp";
 
@@ -973,10 +974,10 @@ export function CapabilitySystemWorkbench() {
               <input placeholder="name，例如 pdf-qa" value={newSkill.name} onChange={(event) => setNewSkill((prev) => ({ ...prev, name: event.target.value }))} />
               <input placeholder="中文标题" value={newSkill.title} onChange={(event) => setNewSkill((prev) => ({ ...prev, title: event.target.value }))} />
               <textarea placeholder="一句话描述能力用途" value={newSkill.description} onChange={(event) => setNewSkill((prev) => ({ ...prev, description: event.target.value }))} />
-              <button className="action-button action-button--primary" disabled={saving === "create-skill"} onClick={() => void createSkill()} type="button">
+              <Button chrome="action" disabled={saving === "create-skill"} onClick={() => void createSkill()} variant="primary">
                 {saving === "create-skill" ? <Loader2 className="animate-spin" size={14} /> : <FilePlus2 size={14} />}
                 创建
-              </button>
+              </Button>
             </div>
           </Foldout>
           {visibleSkills.map((skill) => (
@@ -1005,20 +1006,20 @@ export function CapabilitySystemWorkbench() {
                   <p>{selectedSkill.runtime.description}</p>
                 </div>
                 <div className="operation-detail__actions">
-                  <button className="action-button action-button--ghost" onClick={() => setSkillEditing((value) => !value)} type="button">
+                  <Button chrome="action" onClick={() => setSkillEditing((value) => !value)} variant="ghost">
                     <Code2 size={14} />
                     {skillEditing ? "收起" : "编辑"}
-                  </button>
+                  </Button>
                   {skillEditing ? (
-                    <button className="action-button action-button--primary" disabled={saving === `skill:${selectedSkill.runtime.name}`} onClick={() => void saveSkill()} type="button">
+                    <Button chrome="action" disabled={saving === `skill:${selectedSkill.runtime.name}`} onClick={() => void saveSkill()} variant="primary">
                       {saving === `skill:${selectedSkill.runtime.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                       保存
-                    </button>
+                    </Button>
                   ) : null}
-                  <button className="action-button action-button--danger" disabled={saving === `delete:${selectedSkill.runtime.name}`} onClick={() => void removeSkill(selectedSkill)} type="button">
+                  <Button chrome="action" disabled={saving === `delete:${selectedSkill.runtime.name}`} onClick={() => void removeSkill(selectedSkill)} variant="danger">
                     <Trash2 size={14} />
                     删除
-                  </button>
+                  </Button>
                 </div>
               </div>
               <FactGrid
@@ -1037,15 +1038,15 @@ export function CapabilitySystemWorkbench() {
                 <div className="operation-inline-panel__head">
                   <div><Sparkles size={16} /><strong>模型提示</strong></div>
                   <div className="operation-inline-panel__actions">
-                    <button className="action-button action-button--ghost" onClick={() => setPromptEditing((value) => !value)} type="button">
+                    <Button chrome="action" onClick={() => setPromptEditing((value) => !value)} variant="ghost">
                       <Code2 size={14} />
                       {promptEditing ? "预览" : "编辑"}
-                    </button>
+                    </Button>
                     {promptEditing ? (
-                      <button className="action-button action-button--primary" disabled={saving === `prompt:${selectedSkill.runtime.name}`} onClick={() => void saveSkillPromptView()} type="button">
+                      <Button chrome="action" disabled={saving === `prompt:${selectedSkill.runtime.name}`} onClick={() => void saveSkillPromptView()} variant="primary">
                         {saving === `prompt:${selectedSkill.runtime.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                         保存 Prompt
-                      </button>
+                      </Button>
                     ) : null}
                   </div>
                 </div>
@@ -1184,10 +1185,10 @@ export function CapabilitySystemWorkbench() {
                   治理备注
                   <textarea onChange={(event) => setToolNoteDraft(event.target.value)} value={toolNoteDraft} />
                 </label>
-                <button className="action-button action-button--ghost" disabled={saving === `tool-note:${selectedTool.name}`} onClick={() => void saveToolNote(selectedTool)} type="button">
+                <Button chrome="action" disabled={saving === `tool-note:${selectedTool.name}`} onClick={() => void saveToolNote(selectedTool)} variant="ghost">
                   {saving === `tool-note:${selectedTool.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                   保存备注
-                </button>
+                </Button>
               </div>
               <Foldout title="内部映射与执行契约" note="调试">
                 <FactGrid
@@ -1217,10 +1218,10 @@ export function CapabilitySystemWorkbench() {
         <div className="capability-mcp-rail">
           <div className="capability-page-head">
             <div><strong>服务接入</strong><span>{mcpCatalog?.summary.server_count ?? 0} 个服务</span></div>
-            <button className="action-button action-button--ghost" onClick={() => {
+            <Button chrome="action" onClick={() => {
               setSelectedServerKey("");
               setMcpDraft(EMPTY_SERVER);
-            }} type="button">接入外部服务</button>
+            }} variant="ghost">接入外部服务</Button>
           </div>
           <div className="mcp-server-list">
             {visibleMcpServers.map((server) => {
@@ -1248,10 +1249,10 @@ export function CapabilitySystemWorkbench() {
                 <p>{effectiveServer?.description || "配置外部服务的用途、连接方式和可用能力。"}</p>
               </div>
               <div className="operation-detail__actions">
-                <button className="action-button action-button--ghost" disabled={!effectiveServer || loading} onClick={() => void inspectSelectedMcpServer()} type="button">
+                <Button chrome="action" disabled={!effectiveServer || loading} onClick={() => void inspectSelectedMcpServer()} variant="ghost">
                   {loading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
                   发现
-                </button>
+                </Button>
               </div>
             </div>
             {isExternalServer || isNewExternal || !effectiveServer ? (
@@ -1276,11 +1277,11 @@ export function CapabilitySystemWorkbench() {
                   </div>
                 </Foldout>
                 <div className="capability-mcp-actions">
-                  {isExternalServer ? <button className="action-button action-button--danger" disabled={saving === "mcp-delete"} onClick={() => void removeMcpServer(mcpDraft.server_id)} type="button"><Trash2 size={14} />删除</button> : null}
-                  <button className="action-button action-button--primary" disabled={saving === "mcp-server"} onClick={() => void saveMcpServer()} type="button">
+                  {isExternalServer ? <Button chrome="action" disabled={saving === "mcp-delete"} onClick={() => void removeMcpServer(mcpDraft.server_id)} variant="danger"><Trash2 size={14} />删除</Button> : null}
+                  <Button chrome="action" disabled={saving === "mcp-server"} onClick={() => void saveMcpServer()} variant="primary">
                     {saving === "mcp-server" ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                     保存
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -1330,8 +1331,8 @@ export function CapabilitySystemWorkbench() {
                 <Foldout title="预检 / 调用 / Schema" note="调试">
                   <textarea value={mcpCallArgsDraft} onChange={(event) => setMcpCallArgsDraft(event.target.value)} rows={4} />
                   <div className="operation-detail__actions">
-                    <button className="action-button action-button--ghost" onClick={() => void previewMcpTool(selectedMcpTool)} type="button">预检</button>
-                    <button className="action-button action-button--ghost" onClick={() => void callMcpTool(selectedMcpTool)} type="button">调用</button>
+                    <Button chrome="action" onClick={() => void previewMcpTool(selectedMcpTool)} variant="ghost">预检</Button>
+                    <Button chrome="action" onClick={() => void callMcpTool(selectedMcpTool)} variant="ghost">调用</Button>
                   </div>
                   {mcpResult ? <pre className="mcp-call-result">{mcpResult}</pre> : null}
                   <div className="operation-json-stack">
@@ -1390,14 +1391,14 @@ export function CapabilitySystemWorkbench() {
         </div>
         <div className="workspace-view__actions">
           {activePage !== "overview" ? (
-            <button className="action-button action-button--ghost" onClick={() => openCapabilityPage("overview")} type="button">
+            <Button chrome="action" onClick={() => openCapabilityPage("overview")} variant="ghost">
               返回总览
-            </button>
+            </Button>
           ) : null}
-          <button className="action-button action-button--ghost" onClick={() => void loadCatalog(true)} type="button">
+          <Button chrome="action" onClick={() => void loadCatalog(true)} variant="ghost">
             {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
             刷新目录
-          </button>
+          </Button>
         </div>
       </header>
 

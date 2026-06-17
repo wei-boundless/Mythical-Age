@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { PublicProjectionFrame } from "@/lib/api";
+import type { StoreState } from "@/lib/store/types";
 import { getDefaultState } from "./core";
 import { reduceStreamEvent, startStreamingTurn } from "./events";
 
@@ -47,7 +48,23 @@ function project(transition: ReturnType<typeof startStreamingTurn>, patch: Parti
   });
 }
 
-describe("assistant public projection replay", () => {
+function latestProjection(state: StoreState) {
+  const assistant = state.messages.at(-1);
+  const key = assistant?.projectionKeyString ?? "";
+  return key ? state.activeProjectionsByKey[key]?.view : undefined;
+}
+
+function latestLedger(state: StoreState) {
+  const assistant = state.messages.at(-1);
+  const key = assistant?.projectionKeyString ?? "";
+  return key ? state.activeProjectionsByKey[key]?.ledger : undefined;
+}
+
+describe("assistant chronological projection replay", () => {
+  beforeEach(() => {
+    frameOffset = 0;
+  });
+
   it("does not let bare assistant_text_delta write the visible message body", () => {
     let transition = startBoundTurn();
 
@@ -68,20 +85,20 @@ describe("assistant public projection replay", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
     expect(transition.state.assistantTextStreamsByMessageId[transition.session.assistantId]).toBeUndefined();
   });
 
-  it("progressively appends CJK body text from public projection frames", () => {
+  it("progressively appends CJK body text from projection frames", () => {
     let transition = startBoundTurn();
     transition = project(transition, { text: "遇到" });
     transition = project(transition, { text: "前端" });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("遇到前端");
-    expect(assistant?.publicProjection?.bodyText).toBe("遇到前端");
-    expect(assistant?.publicProjection?.bodyState).toBe("streaming");
-    expect(assistant?.projectionLedger?.body.source_offsets).toEqual([1, 2]);
+    expect(assistant?.content).toBe("");
+    expect(latestProjection(transition.state)?.canonicalContent).toBe("遇到前端");
+    expect(latestProjection(transition.state)?.bodyState).toBe("streaming");
+    expect(latestLedger(transition.state)?.cursor).toMatchObject({ minOffset: 1, maxOffset: 2 });
   });
 
   it("preserves whitespace supplied by body frames", () => {
@@ -90,7 +107,20 @@ describe("assistant public projection replay", () => {
     transition = project(transition, { text: "\n\n" });
     transition = project(transition, { text: "Chain-Agent" });
 
-    expect(transition.state.messages.at(-1)?.content).toBe("Lang\n\nChain-Agent");
+    expect(transition.state.messages.at(-1)?.content).toBe("");
+    expect(latestProjection(transition.state)?.canonicalContent).toBe("Lang\n\nChain-Agent");
+  });
+
+  it("does not grow body block frame id lists for every streamed token", () => {
+    let transition = startBoundTurn();
+    transition = project(transition, { text: "甲" });
+    transition = project(transition, { text: "乙" });
+    transition = project(transition, { text: "丙" });
+
+    const ledger = latestLedger(transition.state);
+    expect(ledger?.cursor).toMatchObject({ minOffset: 1, maxOffset: 3 });
+    expect(ledger?.bodySegments).toHaveLength(1);
+    expect(ledger?.bodySegments[0]?.sourceKeys).toEqual(["turnrun:assistant-stream:1:1:frame:assistant:1"]);
   });
 
   it("finalizes body text without waiting for legacy done content", () => {
@@ -109,9 +139,9 @@ describe("assistant public projection replay", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("正确答案");
-    expect(assistant?.publicProjection?.bodyText).toBe("正确答案");
-    expect(assistant?.publicProjection?.bodyState).toBe("finalized");
+    expect(assistant?.content).toBe("");
+    expect(latestProjection(transition.state)?.canonicalContent).toBe("正确答案");
+    expect(latestProjection(transition.state)?.bodyState).toBe("finalized");
   });
 
   it("drops internal control protocol text when it arrives outside public projection", () => {
@@ -142,6 +172,6 @@ describe("assistant public projection replay", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 });

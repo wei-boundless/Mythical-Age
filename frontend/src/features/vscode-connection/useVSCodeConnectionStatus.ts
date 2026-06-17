@@ -8,6 +8,7 @@ import type { OpenSessionProjectInVSCodeResponse, VSCodeConnectionStatus } from 
 const POLL_INTERVAL_MS = 5000;
 const RECONNECT_POLL_INTERVAL_MS = 1500;
 const RECONNECT_TIMEOUT_MS = 22000;
+const INITIAL_STATUS_DELAY_MS = 1200;
 
 export function useVSCodeConnectionStatus(sessionId: string | null | undefined) {
   const [status, setStatus] = useState<VSCodeConnectionStatus | null>(null);
@@ -57,14 +58,20 @@ export function useVSCodeConnectionStatus(sessionId: string | null | undefined) 
   }, [sessionId]);
 
   useEffect(() => {
-    void refresh();
     if (!sessionId) {
+      void refresh();
       return undefined;
     }
+    const initialTimer = window.setTimeout(() => {
+      void refresh();
+    }, INITIAL_STATUS_DELAY_MS);
     const timer = window.setInterval(() => {
       void refresh();
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
   }, [refresh, sessionId]);
 
   return {

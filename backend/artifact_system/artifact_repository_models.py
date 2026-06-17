@@ -9,6 +9,10 @@ class ArtifactRepository:
     repository_id: str
     logical_repository_id: str = ""
     effective_repository_id: str = ""
+    namespace_id: str = ""
+    storage_owner: str = ""
+    durability_class: str = ""
+    retention_tier: str = ""
     task_run_id: str = ""
     scope_kind: str = "run_scoped"
     scope_id: str = ""
@@ -31,6 +35,14 @@ class ArtifactRecord:
     path: str
     repository_id: str
     collection_id: str
+    namespace_id: str = ""
+    storage_owner: str = ""
+    physical_path: str = ""
+    logical_path: str = ""
+    durability_class: str = ""
+    retention_tier: str = ""
+    materialization_receipt_id: str = ""
+    protected_reason: str = ""
     output_contract_id: str = ""
     artifact_kind: str = "file"
     producer_node_id: str = ""

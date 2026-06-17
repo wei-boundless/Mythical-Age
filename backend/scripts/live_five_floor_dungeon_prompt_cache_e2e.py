@@ -329,6 +329,29 @@ def _runtime_contract(*, run_id: str, artifact_path: str, model_selection: dict[
             else []
         ),
         "completion_criteria": completion_criteria,
+        "working_scope": {
+            "target_objects": [{"path": artifact_path, "kind": "html_document"}],
+            "workspace_refs": ["backend"],
+            "source_refs": [artifact_path],
+            "excluded_scope": ["unrelated project files"],
+            "known_constraints": ["create only the required prompt-cache live-test artifact"],
+        },
+        "capability_intent": {
+            "needed_capability_groups": ["filesystem", "code_execution", "artifact_verification"],
+            "preferred_tool_namespaces": ["native_filesystem", "native_shell"],
+            "reason": "The task must write a bounded HTML artifact and verify it with read or shell evidence.",
+        },
+        "skill_intent": {
+            "selected_skill_ids": [],
+            "candidate_skill_ids": [],
+            "required_capability_tags": ["frontend_artifact", "verification"],
+            "reason": "No special skill body is required for this bounded live cache probe.",
+        },
+        "observation_contract": {
+            "evidence_policy": "tool_evidence_required_before_final",
+            "progress_granularity": "step",
+            "finalization_requires_evidence": True,
+        },
         "acceptance_policy": {
             "fail_closed": True,
             "artifact_evidence_required": True,
@@ -409,6 +432,39 @@ def _code_review_runtime_contract(*, run_id: str, model_selection: dict[str, Any
             "最终回答必须包含真实文件引用和 cache 相关审核结论。",
             "不得执行任何代码修改、文件写入、删除或格式化。",
         ],
+        "working_scope": {
+            "target_objects": [
+                {"path": "backend/runtime/prompt_accounting", "kind": "directory"},
+                {"path": "backend/runtime/model_gateway", "kind": "directory"},
+                {"path": "backend/harness/loop", "kind": "directory"},
+                {"path": "backend/scripts/diagnose_deepseek_prompt_cache.py", "kind": "file"},
+            ],
+            "workspace_refs": ["backend"],
+            "source_refs": [
+                "backend/runtime/prompt_accounting",
+                "backend/runtime/model_gateway",
+                "backend/harness/loop",
+                "backend/scripts/diagnose_deepseek_prompt_cache.py",
+            ],
+            "excluded_scope": ["file writes", "formatting", "code modifications"],
+            "known_constraints": ["read-only cache measurement task"],
+        },
+        "capability_intent": {
+            "needed_capability_groups": ["filesystem_read", "code_search", "code_review"],
+            "preferred_tool_namespaces": ["native_filesystem", "native_search"],
+            "reason": "The task must inspect real code paths and produce a read-only cache-related review.",
+        },
+        "skill_intent": {
+            "selected_skill_ids": [],
+            "candidate_skill_ids": [],
+            "required_capability_tags": ["code_review", "prompt_cache"],
+            "reason": "The built-in coding environment prompts are sufficient for this bounded read-only review.",
+        },
+        "observation_contract": {
+            "evidence_policy": "read_only_tool_evidence_required_before_final",
+            "progress_granularity": "step",
+            "finalization_requires_evidence": True,
+        },
         "acceptance_policy": {
             "fail_closed": True,
             "artifact_evidence_required": False,

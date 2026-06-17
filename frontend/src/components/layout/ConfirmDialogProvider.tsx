@@ -3,6 +3,10 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
+import { Button } from "@/ui/Button";
+import { DialogBackdrop, DialogSurface } from "@/ui/Dialog";
+import { IconButton } from "@/ui/IconButton";
+
 type ConfirmDialogOptions = {
   title: string;
   body: string;
@@ -44,24 +48,24 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
     <ConfirmDialogContext.Provider value={value}>
       {children}
       {pending ? (
-        <div className="confirm-dialog-backdrop" role="presentation">
-          <section aria-modal="true" className={`confirm-dialog confirm-dialog--${pending.tone}`} role="dialog">
+        <DialogBackdrop>
+          <DialogSurface tone={pending.tone}>
             <header>
               <div className="confirm-dialog__icon"><AlertTriangle size={18} /></div>
               <div>
                 <h2>{pending.title}</h2>
                 <p>{pending.body}</p>
               </div>
-              <button aria-label="关闭确认弹窗" onClick={() => close(false)} type="button">
+              <IconButton label="关闭确认弹窗" onClick={() => close(false)}>
                 <X size={16} />
-              </button>
+              </IconButton>
             </header>
             <footer>
-              <button onClick={() => close(false)} type="button">{pending.cancelLabel}</button>
-              <button className="confirm-dialog__primary" onClick={() => close(true)} type="button">{pending.confirmLabel}</button>
+              <Button chrome="dialog" onClick={() => close(false)}>{pending.cancelLabel}</Button>
+              <Button chrome="dialog" onClick={() => close(true)} variant="primary">{pending.confirmLabel}</Button>
             </footer>
-          </section>
-        </div>
+          </DialogSurface>
+        </DialogBackdrop>
       ) : null}
     </ConfirmDialogContext.Provider>
   );

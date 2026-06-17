@@ -3,6 +3,8 @@
 import { AlertTriangle, CheckCircle2, RefreshCw, UserCog } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Notice } from "@/ui/Notice";
+
 import { OrchestrationToolbarButton } from "./OrchestrationWorkbenchUi";
 import type { OrchestrationAssemblyController } from "./useOrchestrationAssemblyController";
 
@@ -57,8 +59,8 @@ export function OrchestrationAssemblyShell({
         </div>
       </header>
 
-      {controller.error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{controller.error}</div> : null}
-      {controller.notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{controller.notice}</div> : null}
+      {controller.error ? <Notice icon={<AlertTriangle size={16} />} tone="error">{controller.error}</Notice> : null}
+      {controller.notice ? <Notice icon={<CheckCircle2 size={16} />}>{controller.notice}</Notice> : null}
 
       <section className="boundary-workbench orchestration-workbench orchestration-definition-center">
         {directory}

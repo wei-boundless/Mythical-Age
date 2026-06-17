@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
+from runtime.storage_policy import DEFAULT_RUNTIME_STORAGE_POLICY
 
 
 RUNTIME_CACHE_DIR_NAME = "runtime_cache"
 SANDBOX_CACHE_NAMESPACE = "sandboxes"
-DEFAULT_SANDBOX_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60
+DEFAULT_SANDBOX_CACHE_TTL_SECONDS = DEFAULT_RUNTIME_STORAGE_POLICY.sandbox_cache_ttl_seconds
 
 
 @dataclass(frozen=True, slots=True)

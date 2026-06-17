@@ -6,6 +6,7 @@ from artifact_system.artifact_authority import dedupe_artifact_refs, model_visib
 
 from .models import compact_text, dict_tuple, drop_empty
 from .replacement_store import ReplacementStore
+from .semantic_payload_classifier import merge_pending_tool_control_actions
 from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector
 
@@ -30,6 +31,7 @@ class ObservationProjector:
         active_failures: list[dict[str, Any]] = []
         historical_failures: list[dict[str, Any]] = []
         artifact_evidence: list[dict[str, Any]] = []
+        pending_tool_control_actions: list[dict[str, Any]] = []
         refs: list[str] = []
         replacement_records: list[dict[str, Any]] = []
         for item in list(observations or []):
@@ -41,6 +43,10 @@ class ObservationProjector:
             latest.append(projection)
             refs.append(str(projection.get("observation_id") or projection.get("observation_ref") or ""))
             replacement_records.append(record)
+            execution_control = dict(projection.get("execution_control") or {})
+            pending_tool_control_actions.extend(
+                dict_tuple(execution_control.get("pending_tool_control_actions"))
+            )
             if projection.get("artifact_refs"):
                 artifact_evidence.extend(dict_tuple(projection.get("artifact_refs")))
             if str(projection.get("status") or "") in {"error", "blocked", "timeout"} or projection.get("structured_error"):
@@ -56,6 +62,10 @@ class ObservationProjector:
                     "latest_observations": latest,
                     "active_failures": active_failures[-failure_limit:],
                     "historical_failures": historical_failures[-failure_limit:],
+                    "pending_tool_control_actions": merge_pending_tool_control_actions(
+                        pending_tool_control_actions,
+                        limit=int(policy.get("pending_tool_control_action_limit") or 12),
+                    ),
                     "artifact_evidence": dedupe_artifact_refs(artifact_evidence),
                     "omitted_observations": {
                         "count": max(0, len(list(observations or [])) - len(latest)),
@@ -117,6 +127,8 @@ class ObservationProjector:
                 "created_at": source.get("created_at") or observation.get("created_at"),
                 **_active_work_control_projection(source),
                 "structured_error": structured_error,
+                "execution_control": dict(tool_projection.get("execution_control") or {}),
+                "projection_integrity_errors": list(tool_projection.get("projection_integrity_errors") or []),
                 "tool_result": _compact_tool_result(tool_projection),
                 "artifact_refs": dedupe_artifact_refs(artifact_refs),
                 "authority": "harness.runtime.dynamic_context.observation_item_projection",
@@ -188,6 +200,9 @@ def _compact_tool_result(tool_projection: dict[str, Any]) -> dict[str, Any]:
             "status": str(tool_projection.get("status") or ""),
             "preview": str(tool_projection.get("preview") or ""),
             "result_ref": str(tool_projection.get("result_ref") or ""),
+            "execution_control": dict(tool_projection.get("execution_control") or {}),
+            "tool_invocation_identity": dict(tool_projection.get("tool_invocation_identity") or {}),
+            "projection_integrity_errors": list(tool_projection.get("projection_integrity_errors") or []),
             "structured_error": dict(tool_projection.get("structured_error") or {}),
             "artifact_refs": list(dict_tuple(tool_projection.get("artifact_refs"))),
             "code_structure": dict(tool_projection.get("code_structure") or {}),

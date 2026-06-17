@@ -2,8 +2,6 @@ import type {
   OrchestrationSnapshot,
   GraphRunMonitorView,
   ModelProviderConfig,
-  MessagePublicProjection,
-  ProjectionLedger,
   PublicChatTimelineItem,
   PublicProjectionFrame,
   RetrievalResult,
@@ -23,13 +21,14 @@ import type {
   ProjectWorkspaceSummary,
   ChatAttachment
 } from "@/lib/api";
+import type {
+  ChronologicalProjectionLedger,
+  ChronologicalProjectionView,
+} from "@/lib/projection/chronological";
 
 export type {
-  MessagePublicProjection,
-  ProjectionLedger,
   PublicChatTimelineItem,
   PublicProjectionFrame,
-  PublicProjectionItem,
 } from "@/lib/api";
 
 export type Message = {
@@ -39,10 +38,8 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
-  projectionLedger?: ProjectionLedger;
-  publicProjection?: MessagePublicProjection;
-  runtimeDisplayState?: "normal_turn" | "task_live" | "task_closed" | "log_only" | string;
-  mainChatSurface?: "body_only" | "live_timeline" | "closeout_summary" | "log_only" | string;
+  projectionView?: ChronologicalProjectionView;
+  projectionKeyString?: string;
   closeoutSummary?: string;
   runtimeLogRef?: string;
   toolEventCount?: number;
@@ -103,7 +100,7 @@ export type AssistantTextSegmentState = {
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
-export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
+export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
 export type ChatStreamConnectionState = "idle" | "streaming" | "reconnecting" | "reconnected" | "failed" | "stopped";
 
 export type ChatStreamConnectionStatus = {
@@ -364,6 +361,12 @@ export type FileCenterWorkspaceTarget = {
   requested_at: number;
 };
 
+export type ActiveProjectionState = {
+  keyString: string;
+  ledger: ChronologicalProjectionLedger;
+  view?: ChronologicalProjectionView;
+};
+
 export type RuntimeLogCenterWorkspaceTarget = {
   layer: "runtime-log";
   scope: RuntimeLogScope;
@@ -411,6 +414,7 @@ export type StoreState = {
   conversationActiveEnvironment: ConversationTaskEnvironment | null;
   workspaceInitializing: boolean;
   messages: Message[];
+  activeProjectionsByKey: Record<string, ActiveProjectionState>;
   assistantTextStreamsByMessageId: Record<string, AssistantTextStreamState>;
   isStreaming: boolean;
   activeStreamSessionIds: string[];

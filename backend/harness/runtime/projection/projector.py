@@ -42,15 +42,8 @@ _LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
 class ProjectionLifecycleState:
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
-        self._model_wait_statuses: dict[tuple[str, str, str, str], tuple[str, str, str]] = {}
 
     def should_emit_public_event(self, public_event_type: str, data: dict[str, Any]) -> bool:
-        if _is_model_wait_status_event(public_event_type, data):
-            key = _model_wait_lifecycle_key(data)
-            signature = _model_wait_status_signature(data)
-            if self._model_wait_statuses.get(key) == signature:
-                return False
-            self._model_wait_statuses[key] = signature
         return True
 
     def spec_for_event(self, public_event_type: str, data: dict[str, Any], *, sequence: int = 0) -> dict[str, Any]:
@@ -277,13 +270,13 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
     if event_type in {CHAT_TURN_BOUND_EVENT, TASK_BRIDGE_STARTED_EVENT, TASK_BRIDGE_TERMINAL_EVENT}:
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_status":
-        return _status_spec(data)
+        return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_spec(data)
     if event_type == "active_task_steer_accepted":
-        return _active_task_steer_accepted_spec(data)
+        return _active_task_steer_status_spec(data)
     if event_type in {"error", "stopped"}:
-        return _terminal_status_spec(event_type, data)
+        return _stream_terminal_status_spec(event_type, data)
     return _hidden_trace_spec(event_type, data)
 
 
@@ -362,20 +355,18 @@ def _trace_only_tool_completed_spec(
     if failed:
         return {
             "op": "item_retire",
-            "slot": "status",
+            "slot": "trace",
             "source_authority": "tool",
-            "main_visibility": "visible_live",
-            "retention": "transient",
+            "main_visibility": "hidden",
+            "retention": "trace",
             "item_id": tool_call_id,
             "tool_call_id": tool_call_id,
             "permission_decision_id": permission_decision_id,
             "tool_name": tool_name,
             "tool_lifecycle_id": tool_lifecycle_id,
-            "title": _trace_only_tool_title(tool_name, failed=True),
-            "text": _trace_only_tool_title(tool_name, failed=True),
-            "detail": "相关缓存内容没有取回，已作为工具失败观察返回给模型。",
             "state": "failed",
             "trace_refs": _trace_refs(data),
+            "collapsed": True,
         }
     return {
         "op": "item_retire",
@@ -430,30 +421,81 @@ def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "",
     task_run_id = text(data.get("task_run_id")) or text(anchor.get("task_run_id")) or text(data.get("runtime_task_run_id"))
     raw_state = text(data.get("state")).lower()
     resolved_failed = raw_state in {"error", "failed", "blocked"} if failed is None else bool(failed)
+    todo_plan = _agent_todo_plan_projection(data.get("todo_plan"))
+    if todo_plan and not resolved_failed:
+        return {
+            "op": "item_upsert",
+            "slot": "status",
+            "source_authority": "runtime",
+            "main_visibility": "visible_live",
+            "retention": "transient",
+            "event_family": STATUS_TRACE_EVENT_FAMILY,
+            "channel": STATUS_PUBLIC_CHANNEL,
+            "lossless": False,
+            "item_id": stable_id("agent-todo-plan", task_run_id, todo_plan.get("plan_id") or "current"),
+            "title": "任务清单",
+            "text": "任务清单",
+            "detail": _agent_todo_plan_detail(todo_plan),
+            "state": "done",
+            "status_kind": "todo_plan",
+            "plan_id": text(todo_plan.get("plan_id")),
+            "active_item_id": text(todo_plan.get("active_item_id")),
+            "completion_ready": todo_plan.get("completion_ready") if isinstance(todo_plan.get("completion_ready"), bool) else None,
+            "todo_items": list(todo_plan.get("items") or []),
+            "trace_refs": _trace_refs(data),
+        }
     visible_detail = public_text(detail or data.get("error") or data.get("observation"), limit=360)
     if not visible_detail and not resolved_failed:
         return _agent_todo_hidden_trace_spec(data, state="done")
-    title = "任务清单更新失败" if resolved_failed else "任务清单已更新"
-    if resolved_failed and not visible_detail:
-        visible_detail = "任务清单更新失败。"
-    return {
-        "op": "item_upsert",
-        "slot": "pinned" if resolved_failed else "status",
-        "source_authority": "runtime",
-        "main_visibility": "pinned" if resolved_failed else "visible_live",
-        "retention": "pinned_until_resolved" if resolved_failed else "transient",
-        "event_family": STATUS_TRACE_EVENT_FAMILY,
-        "channel": STATUS_PUBLIC_CHANNEL,
-        "lossless": False,
-        "pin_reason": "failed" if resolved_failed else "",
-        "item_id": stable_id("agent-todo-status", task_run_id, data.get("runtime_event_id"), title, visible_detail),
-        "title": title,
-        "text": title,
-        "detail": visible_detail,
-        "state": "failed" if resolved_failed else "done",
-        "status_kind": "todo_plan_status",
-        "trace_refs": _trace_refs(data),
-    }
+    return _agent_todo_hidden_trace_spec(data, state="failed" if resolved_failed else "done")
+
+
+def _agent_todo_plan_projection(value: Any) -> dict[str, Any]:
+    source = record(value)
+    if not source:
+        return {}
+    items: list[dict[str, Any]] = []
+    for item in list(source.get("items") or [])[:40]:
+        if not isinstance(item, dict):
+            continue
+        todo_id = text(item.get("todo_id"))
+        content = public_text(item.get("content") or item.get("title"), limit=180)
+        if not todo_id or not content:
+            continue
+        items.append(
+            compact(
+                {
+                    "todo_id": todo_id,
+                    "content": content,
+                    "active_form": public_text(item.get("active_form"), limit=120),
+                    "status": text(item.get("status")),
+                    "notes": public_text(item.get("notes"), limit=180),
+                }
+            )
+        )
+    if not items:
+        return {}
+    return compact(
+        {
+            "plan_id": text(source.get("plan_id")),
+            "active_item_id": text(source.get("active_item_id")),
+            "completion_ready": source.get("completion_ready") if isinstance(source.get("completion_ready"), bool) else None,
+            "items": items,
+            "authority": text(source.get("authority")) or "agent.todo_plan",
+        }
+    )
+
+
+def _agent_todo_plan_detail(plan: dict[str, Any]) -> str:
+    items = [dict(item) for item in list(plan.get("items") or []) if isinstance(item, dict)]
+    total = len(items)
+    completed = sum(1 for item in items if text(item.get("status")).lower() == "completed")
+    active_id = text(plan.get("active_item_id"))
+    active = next((item for item in items if text(item.get("todo_id")) == active_id), {})
+    active_text = public_text(active.get("active_form") or active.get("content"), limit=120) if active else ""
+    if active_text:
+        return f"{completed}/{total} 已完成，正在：{active_text}。"
+    return f"{completed}/{total} 已完成。"
 
 
 def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
@@ -678,22 +720,23 @@ def _commit_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
             "trace_refs": _trace_refs(data),
         }
     if event_type == SESSION_OUTPUT_COMMIT_FAILED_EVENT:
-        detail = public_text(data.get("reason") or data.get("error") or data.get("summary"), limit=260)
-        return {
-            "op": "commit_failed",
-            "slot": "pinned",
-            "source_authority": "runtime",
-            "main_visibility": "pinned",
-            "retention": "pinned_until_resolved",
-            "pin_reason": "commit_failed",
-            "item_id": stable_id("commit-failed", commit.get("message_id"), commit.get("commit_event_offset"), detail),
-            "title": "结果写回失败",
-            "text": "结果写回失败",
-            "detail": detail,
-            "state": "failed",
-            "commit": commit,
-            "trace_refs": _trace_refs(data),
-        }
+        detail = public_text(
+            data.get("reason")
+            or data.get("error")
+            or data.get("summary")
+            or "最终输出未写入会话记录。",
+            limit=240,
+        )
+        return _typed_status_spec(
+            data,
+            kind="recovery_event",
+            state="failed",
+            title="输出未写入会话记录",
+            detail=detail,
+            item_id=stable_id("commit-failed", commit.get("message_id"), commit.get("commit_event_offset")),
+            retention="final",
+            commit=commit,
+        )
     return {
         "op": "item_upsert",
         "slot": "trace",
@@ -705,109 +748,6 @@ def _commit_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
         "commit": commit,
         "trace_refs": _trace_refs(data),
     }
-
-
-def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
-    status = text(data.get("status")).lower() or "completed"
-    failed = status == "failed"
-    stopped = status == "stopped"
-    detail = public_text(data.get("error_summary") or data.get("stopped_reason") or data.get("terminal_reason"), limit=260)
-    return {
-        "op": "turn_terminal",
-        "slot": "pinned" if failed or stopped else "trace",
-        "source_authority": "runtime",
-        "main_visibility": "pinned" if failed or stopped else "hidden",
-        "retention": "pinned_until_resolved" if failed or stopped else "trace",
-        "pin_reason": "failed" if failed else ("blocked" if stopped else ""),
-        "item_id": stable_id("turn-terminal", data.get("turn_run_id"), data.get("task_run_id"), status),
-        "title": "运行中断" if failed else ("运行已停止" if stopped else "本轮结束"),
-        "text": "运行中断" if failed else ("运行已停止" if stopped else ""),
-        "detail": detail,
-        "state": "failed" if failed else ("stopped" if stopped else "done"),
-        "trace_refs": _trace_refs(data),
-    }
-
-
-def _status_spec(data: dict[str, Any], *, title: str = "") -> dict[str, Any]:
-    visible_title = public_text(title or data.get("title") or data.get("summary"), limit=140)
-    visible_detail = public_text(data.get("detail"), limit=260)
-    state = text(data.get("state") or data.get("status")) or "running"
-    status_kind = text(data.get("status_kind"))
-    presentation_source = text(data.get("presentation_source"))
-    source_task_event_type = text(data.get("source_task_event_type"))
-    item_id = text(data.get("item_id"))
-    if (
-        presentation_source == "runtime.model_wait"
-        or source_task_event_type == "task_model_action_wait_heartbeat"
-        or item_id.startswith("model-wait:")
-        or status_kind == "model_wait_placeholder"
-    ):
-        title = visible_title or "正在思考"
-        return {
-            "op": "item_upsert",
-            "slot": "status",
-            "status_kind": "model_wait_placeholder",
-            "source_authority": "runtime",
-            "event_family": STATUS_TRACE_EVENT_FAMILY,
-            "channel": STATUS_PUBLIC_CHANNEL,
-            "lossless": False,
-            "main_visibility": "visible_live",
-            "retention": "transient",
-            "item_id": item_id or stable_id("model-wait", data.get("task_run_id"), data.get("runtime_event_id"), data.get("source_task_event_id")),
-            "title": title,
-            "text": title,
-            "detail": "",
-            "state": state,
-            "trace_refs": _trace_refs(data),
-        }
-    public_status = status_kind in {"public_stage_status", "active_task_steer_receipt", "user_visible_runtime_status"}
-    return {
-        "op": "item_upsert",
-        "slot": "status" if public_status else "trace",
-        "status_kind": status_kind,
-        "source_authority": "runtime",
-        "main_visibility": "visible_live" if public_status and (visible_title or visible_detail) else "hidden",
-        "retention": "transient" if public_status else "trace",
-        "item_id": text(data.get("item_id")) or stable_id("status", data.get("runtime_event_id"), visible_title, visible_detail),
-        "title": visible_title,
-        "text": visible_title,
-        "detail": visible_detail,
-        "state": state,
-        "trace_refs": _trace_refs(data),
-    }
-
-
-def _is_model_wait_status_event(public_event_type: str, data: dict[str, Any]) -> bool:
-    if text(public_event_type) != "runtime_status":
-        return False
-    item_id = text(data.get("item_id"))
-    return (
-        text(data.get("presentation_source")) == "runtime.model_wait"
-        or text(data.get("source_task_event_type")) == "task_model_action_wait_heartbeat"
-        or item_id.startswith("model-wait:")
-        or text(data.get("status_kind")) == "model_wait_placeholder"
-    )
-
-
-def _model_wait_lifecycle_key(data: dict[str, Any]) -> tuple[str, str, str, str]:
-    anchor = record(data.get("public_anchor"))
-    item_id = text(data.get("item_id"))
-    task_run_id = (
-        text(data.get("task_run_id"))
-        or text(data.get("runtime_task_run_id"))
-        or text(anchor.get("task_run_id"))
-    )
-    turn_id = text(data.get("turn_id")) or text(data.get("active_turn_id")) or text(anchor.get("turn_id"))
-    turn_run_id = text(data.get("turn_run_id")) or text(anchor.get("turn_run_id"))
-    if not item_id:
-        item_id = stable_id("model-wait", task_run_id, turn_run_id, turn_id)
-    return (item_id, task_run_id, turn_run_id, turn_id)
-
-
-def _model_wait_status_signature(data: dict[str, Any]) -> tuple[str, str, str]:
-    title = public_text(data.get("title") or data.get("summary"), limit=140) or "正在思考"
-    state = text(data.get("state") or data.get("status")) or "running"
-    return ("model_wait_placeholder", title, state)
 
 
 def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
@@ -869,21 +809,130 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
             "state": text(data.get("status")) or "running",
             "trace_refs": _trace_refs(data),
         }
-    return {
+    return _hidden_trace_spec("runtime_step_summary", data)
+
+
+def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
+    detail = public_text(data.get("summary") or data.get("message") or data.get("content"), limit=180)
+    return _typed_status_spec(
+        data,
+        kind="status_event",
+        state="done",
+        title="补充要求已接入当前任务",
+        detail=detail,
+        item_id=stable_id(
+            "active-task-steer",
+            data.get("runtime_event_id"),
+            data.get("task_run_id"),
+            data.get("turn_run_id"),
+            data.get("turn_id"),
+        ),
+        retention="transient",
+    )
+
+
+def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
+    state = text(data.get("status") or data.get("state")).lower()
+    if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
+    if _is_agent_closeout_recovery_terminal(data):
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
+    terminal_kind = "terminal_event" if state in {"stopped", "aborted", "cancelled", "canceled"} else "recovery_event"
+    detail = public_text(
+        data.get("error_summary")
+        or data.get("stopped_reason")
+        or data.get("terminal_reason")
+        or data.get("reason")
+        or data.get("error"),
+        limit=260,
+    )
+    title = "运行已停止" if terminal_kind == "terminal_event" else _runtime_recovery_title(detail)
+    return _typed_status_spec(
+        data,
+        kind=terminal_kind,
+        state="stopped" if terminal_kind == "terminal_event" else "failed",
+        title=title,
+        detail=detail,
+        item_id=stable_id(
+            "turn-terminal",
+            data.get("runtime_event_id"),
+            data.get("turn_run_id"),
+            data.get("task_run_id"),
+            data.get("terminal_reason"),
+            state,
+        ),
+        retention="final",
+    )
+
+
+def _is_agent_closeout_recovery_terminal(data: dict[str, Any]) -> bool:
+    completion_state = text(data.get("completion_state"))
+    terminal_reason = text(data.get("terminal_reason"))
+    signal = record(data.get("runtime_control_signal"))
+    return (
+        completion_state == "agent_closeout_recovery_required"
+        or terminal_reason == "agent_closeout_recovery_required"
+        or text(signal.get("signal_kind")) == "agent_closeout_recovery_required"
+    )
+
+
+def _stream_terminal_status_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    terminal_kind = "terminal_event" if event_type == "stopped" else "recovery_event"
+    detail = public_text(data.get("error") or data.get("reason") or data.get("terminal_reason") or data.get("message"), limit=260)
+    title = "运行已停止" if terminal_kind == "terminal_event" else _runtime_recovery_title(detail)
+    return _typed_status_spec(
+        data,
+        kind=terminal_kind,
+        state="stopped" if terminal_kind == "terminal_event" else "failed",
+        title=title,
+        detail=detail,
+        item_id=stable_id(
+            "stream-terminal",
+            event_type,
+            data.get("runtime_event_id"),
+            data.get("turn_run_id"),
+            data.get("task_run_id"),
+            data.get("terminal_reason"),
+        ),
+        retention="final",
+    )
+
+
+def _typed_status_spec(
+    data: dict[str, Any],
+    *,
+    kind: str,
+    state: str,
+    title: str,
+    detail: str = "",
+    item_id: str = "",
+    retention: str = "transient",
+    commit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "op": "item_upsert",
         "slot": "status",
-        "status_kind": "public_stage_status",
-        "source_authority": "model" if presentation_source.startswith("model_action.") else "runtime",
-        "main_visibility": "visible_live" if title or detail else "hidden",
-        "retention": "transient",
-        "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
-        "item_id": _runtime_stage_status_item_id(data),
+        "source_authority": "runtime",
+        "main_visibility": "visible_live",
+        "retention": retention,
+        "item_id": item_id or stable_id("status-event", kind, data.get("runtime_event_id"), data.get("event_id")),
         "title": title,
         "text": title,
         "detail": detail,
-        "state": text(data.get("status")) or "running",
+        "state": state,
+        "status_kind": kind,
         "trace_refs": _trace_refs(data),
     }
+    if commit:
+        result["commit"] = commit
+    return result
+
+
+def _runtime_recovery_title(detail: str) -> str:
+    value = public_text(detail, limit=120)
+    if not value or value in {"运行中断", "已中断"}:
+        return "处理需要恢复"
+    return value
 
 
 def _runtime_step_summary_body_text(*, title: str, detail: str) -> str:
@@ -948,45 +997,6 @@ def _runtime_stage_status_item_id(data: dict[str, Any]) -> str:
     if task_run_id:
         return stable_id("task-stage-status", task_run_id, "public")
     return stable_id("turn-stage-status", data.get("turn_run_id"), data.get("turn_id"), "public")
-
-
-def _active_task_steer_accepted_spec(data: dict[str, Any]) -> dict[str, Any]:
-    anchor = record(data.get("public_anchor"))
-    task_run_id = text(data.get("task_run_id")) or text(data.get("runtime_task_run_id")) or text(anchor.get("task_run_id"))
-    turn_id = text(data.get("turn_id")) or text(data.get("active_turn_id")) or text(anchor.get("turn_id"))
-    detail = public_text(data.get("detail") or data.get("summary") or data.get("content"), limit=220)
-    return {
-        "op": "item_upsert",
-        "slot": "status",
-        "status_kind": "active_task_steer_receipt",
-        "source_authority": "runtime",
-        "main_visibility": "visible_live",
-        "retention": "transient",
-        "item_id": stable_id("active-task-steer", task_run_id, turn_id, "accepted"),
-        "title": "补充要求已纳入当前任务",
-        "text": "补充要求已纳入当前任务",
-        "detail": detail,
-        "state": text(data.get("state") or data.get("status")) or "done",
-        "trace_refs": _trace_refs(data),
-    }
-
-
-def _terminal_status_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    failed = event_type == "error"
-    return {
-        "op": "item_upsert",
-        "slot": "pinned",
-        "source_authority": "runtime",
-        "main_visibility": "pinned",
-        "retention": "pinned_until_resolved",
-        "pin_reason": "failed" if failed else "blocked",
-        "item_id": stable_id("terminal", event_type, data.get("runtime_event_id")),
-        "title": "运行中断" if failed else "运行已停止",
-        "text": "运行中断" if failed else "运行已停止",
-        "detail": public_text(data.get("error") or data.get("reason") or data.get("content"), limit=260),
-        "state": "failed" if failed else "stopped",
-        "trace_refs": _trace_refs(data),
-    }
 
 
 def _hidden_trace_spec(event_type: str, data: dict[str, Any]) -> dict[str, Any]:

@@ -66,7 +66,6 @@ TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     "step_summary_recorded",
-    "task_model_action_wait_heartbeat",
     "model_action_admission_checked",
     "tool_item_started",
     "tool_observation",
@@ -474,9 +473,6 @@ class ChatRequest(BaseModel):
     session_scope: dict[str, Any] | None = None
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
-    expected_task_run_id: str = ""
-    expected_continuation_id: str = ""
-    recovery_input_policy: str = "auto"
     editor_context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -618,9 +614,6 @@ def _query_request_from_payload(
         permission_mode=str(payload.permission_mode or ""),
         expected_active_turn_id=str(payload.expected_active_turn_id or ""),
         active_turn_input_policy=str(payload.active_turn_input_policy or "auto"),
-        expected_task_run_id=str(payload.expected_task_run_id or ""),
-        expected_continuation_id=str(payload.expected_continuation_id or ""),
-        recovery_input_policy=str(payload.recovery_input_policy or "auto"),
         editor_context=dict(editor_context if editor_context is not None else payload.editor_context or {}),
     )
 
@@ -891,9 +884,6 @@ def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> Ru
             "message_chars": len(str(request.message or "")),
             "expected_active_turn_id": str(request.expected_active_turn_id or ""),
             "active_turn_input_policy": str(request.active_turn_input_policy or "auto"),
-            "expected_task_run_id": str(request.expected_task_run_id or ""),
-            "expected_continuation_id": str(request.expected_continuation_id or ""),
-            "recovery_input_policy": str(request.recovery_input_policy or "auto"),
         },
     )
     request = replace(
@@ -1010,7 +1000,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                                     "status": "failed",
                                     "turn_run_id": runtime_turn_run_id,
                                     "task_run_id": bridged_task_run_id,
-                                    "error": "运行中断",
+                                    "error": "处理失败",
                                     "code": "task_bridge_context_missing",
                                     "reason": "Task bridge handoff arrived before a public turn context was available.",
                                 },
@@ -1128,7 +1118,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             data=_turn_completed_data(
                 "error",
                 {
-                    "error": "运行中断",
+                    "error": "处理失败",
                     "code": "stream_exception",
                     "reason": str(exc) or "Chat stream failed.",
                 },
@@ -1164,7 +1154,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
             data=_turn_completed_data(
                 "error",
                 {
-                    "error": "运行中断",
+                    "error": "处理失败",
                     "code": "missing_terminal_event",
                     "reason": "Chat stream ended without a terminal event.",
                 },
@@ -1213,6 +1203,8 @@ def _append_chat_public_event(
     if runtime_active_turn_id:
         payload.setdefault("active_turn_id", runtime_active_turn_id)
         payload.setdefault("turn_id", runtime_active_turn_id)
+    if _is_model_wait_placeholder_public_data(public_event_type, payload):
+        return current
     if not projection_lifecycle.should_emit_public_event(public_event_type, payload):
         return current
     next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
@@ -1246,6 +1238,18 @@ def _append_chat_public_event(
         status=_status_for_public_event(public_event_type, payload),
         terminal_event=public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else "",
         diagnostics=diagnostics or None,
+    )
+
+
+def _is_model_wait_placeholder_public_data(public_event_type: str, data: dict[str, Any]) -> bool:
+    if str(public_event_type or "").strip() != "runtime_status":
+        return False
+    item_id = str(data.get("item_id") or "").strip()
+    return (
+        str(data.get("presentation_source") or "").strip() == "runtime.model_wait"
+        or str(data.get("source_task_event_type") or "").strip() == "task_model_action_wait_heartbeat"
+        or str(data.get("status_kind") or "").strip() == "model_wait_placeholder"
+        or item_id.startswith("model-wait:")
     )
 
 
@@ -1635,7 +1639,7 @@ def _append_task_bridge_terminal(
                 "message_id": bridge_context.assistant_message_ref,
                 "message_ref": bridge_context.assistant_message_ref,
                 "reason": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
-                "error": "运行中断",
+                "error": "处理失败",
                 "summary": "task_terminal_final_without_output_event" if not output_observed else "task_terminal_final_without_commit_event",
                 "runtime_event_id": source_task_event_id,
                 "source_task_event_id": source_task_event_id,
@@ -1693,7 +1697,7 @@ def _append_task_bridge_terminal(
             "task_run_id": task_run_id,
             "terminal_reason": public_terminal_reason,
             "completion_state": raw_task_status,
-            "error": "运行中断" if status == "failed" else "",
+            "error": "处理失败" if status == "failed" else "",
             "runtime_event_id": source_task_event_id,
             "source_task_event_id": source_task_event_id,
             "source_task_event_offset": source_task_event_offset,
@@ -1822,7 +1826,7 @@ def _task_terminal_context_from_task_run(
             or ""
         ).strip(),
         "answer_source": str(diagnostics.get("answer_source") or "harness.loop.task_executor.completed"),
-        "error_summary": "运行中断" if status in {"failed", "blocked"} else "",
+        "error_summary": "处理失败" if status in {"failed", "blocked"} else "",
     }
 
 
@@ -2085,8 +2089,7 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []
     if normalized == "task_model_action_wait_heartbeat":
-        data = _task_model_wait_status_data(raw_data)
-        return [("runtime_status", data)] if data else []
+        return []
     if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
         data = _assistant_stream_public_data(normalized, raw_data)
         return [(normalized, data)] if data else []
@@ -2181,7 +2184,7 @@ def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> di
         "final_message_ref": str(raw_data.get("message_ref") or raw_data.get("stream_ref") or ""),
         "terminal_reason": terminal_reason,
         "completion_state": str(raw_data.get("completion_state") or ""),
-        "error_summary": "运行中断" if status == "failed" else "",
+        "error_summary": "处理失败" if status == "failed" else "",
         "stopped_reason": _safe_public_action_text(raw_data.get("reason") or raw_data.get("content")) if status == "stopped" else "",
         "runtime_event_id": str(raw_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
         "source_task_event_id": str(raw_data.get("source_task_event_id") or ""),
@@ -2570,40 +2573,6 @@ def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
     return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
 
 
-def _task_model_wait_status_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    task_run_id = str(
-        payload.get("task_run_id")
-        or refs.get("task_run_ref")
-        or raw_event.get("task_run_id")
-        or raw_data.get("task_run_id")
-        or raw_data.get("runtime_task_run_id")
-        or ""
-    ).strip()
-    runtime_event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()
-    source_event_id = str(raw_event.get("event_id") or raw_data.get("source_task_event_id") or "").strip()
-    source_offset = raw_event.get("offset") or raw_data.get("source_task_event_offset") or raw_data.get("event_offset")
-    data: dict[str, Any] = {
-        "task_run_id": task_run_id,
-        "status": "running",
-        "state": "running",
-        "title": "正在思考",
-        "summary": "正在思考",
-        "presentation_source": "runtime.model_wait",
-        "status_kind": "model_wait_placeholder",
-        "item_id": f"model-wait:{task_run_id}" if task_run_id else "",
-    }
-    if runtime_event_id:
-        data["runtime_event_id"] = runtime_event_id
-    if source_event_id:
-        data["source_task_event_id"] = source_event_id
-    if source_offset not in (None, ""):
-        data["source_task_event_offset"] = source_offset
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
 def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     raw_event = _record(raw_data.get("event"))
     payload = _record(raw_event.get("payload") or raw_data.get("payload"))
@@ -2864,7 +2833,7 @@ def _public_runtime_reason_label(reason: str) -> str:
         "stream_exception": "输出流异常中断",
         "stream_cancelled": "输出流已取消",
         "completed": "已完成",
-        "failed": "运行中断",
+        "failed": "处理失败",
         "stopped": "运行已停止",
         "aborted": "运行已停止",
         "cancelled": "运行已停止",

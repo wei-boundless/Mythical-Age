@@ -7,7 +7,7 @@ from runtime.shared.models import TurnRun
 from sessions import SessionManager
 
 
-def test_stream_failure_reconciliation_projects_terminal_without_assistant_boundary(tmp_path: Path) -> None:
+def test_stream_failure_reconciliation_records_terminal_projection_without_assistant_body(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_root = tmp_path / "runtime"
     backend_dir.mkdir()
@@ -66,8 +66,14 @@ def test_stream_failure_reconciliation_projects_terminal_without_assistant_bound
     frame = dict(data.get("public_projection_frame") or {})
     assert data["status"] == "stopped"
     assert data["terminal_reason"] == "runtime_process_restarted"
-    assert frame["op"] == "turn_terminal"
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "status"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "final"
+    assert frame["status_kind"] == "terminal_event"
+    assert frame["source_authority"] == "runtime"
     assert frame["source_event_type"] == "turn_completed"
+    assert frame["slot"] != "body"
     assert frame["anchor"]["session_id"] == session_id
     assert frame["anchor"]["turn_id"] == turn_id
     assert frame["anchor"]["turn_run_id"] == turn_run_id

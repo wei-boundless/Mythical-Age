@@ -37,6 +37,7 @@ import {
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import type { TokenStats } from "@/lib/store/types";
+import { Button } from "@/ui/Button";
 
 type DurableStatusFilter = "all" | "active" | "inactive" | "archived" | "deprecated";
 type MemoryLayer = "library" | "governance" | "project-rules";
@@ -773,10 +774,10 @@ export function MemoryView() {
                 <option value="low">low</option>
               </select>
             </div>
-            <button className="action-button action-button--primary" disabled={Boolean(governanceBusy)} onClick={() => void createMemoryFromDraft()} type="button">
+            <Button chrome="action" disabled={Boolean(governanceBusy)} onClick={() => void createMemoryFromDraft()} variant="primary">
               {governanceBusy === "写入长期记忆" ? <Loader2 className="spin" size={14} /> : <FileText size={14} />}
               写入长期记忆
-            </button>
+            </Button>
           </article>
 
           <article className="memory-governance-editor__panel">
@@ -805,13 +806,13 @@ export function MemoryView() {
               value={mergeDraft.reason}
             />
             <div className="memory-governance-editor__row">
-              <button className="action-button action-button--primary" disabled={Boolean(governanceBusy) || mergeFilenames.length < 2} onClick={() => void mergeSelectedMemories()} type="button">
+              <Button chrome="action" disabled={Boolean(governanceBusy) || mergeFilenames.length < 2} onClick={() => void mergeSelectedMemories()} variant="primary">
                 {governanceBusy === "合并长期记忆" ? <Loader2 className="spin" size={14} /> : <GitBranch size={14} />}
                 合并选中
-              </button>
-              <button className="action-button action-button--ghost" disabled={!mergeFilenames.length} onClick={() => setMergeFilenames([])} type="button">
+              </Button>
+              <Button chrome="action" disabled={!mergeFilenames.length} onClick={() => setMergeFilenames([])} variant="ghost">
                 清空选择
-              </button>
+              </Button>
             </div>
           </article>
         </div>
@@ -961,18 +962,18 @@ export function MemoryView() {
           <p className="workspace-view__subtitle">管理长期库和人工治理入口。</p>
         </div>
         <div className="workspace-view__actions">
-          <button className="action-button action-button--ghost" onClick={() => void refreshAll()} type="button">
+          <Button chrome="action" onClick={() => void refreshAll()} variant="ghost">
             {loading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
             刷新
-          </button>
-          <button
-            className="action-button action-button--muted"
+          </Button>
+          <Button
+            chrome="action"
             onClick={() => void loadInspectorFile("durable_memory/meta/SCHEMA.md")}
-            type="button"
+            variant="muted"
           >
             <FileText size={16} />
             查看 Schema
-          </button>
+          </Button>
         </div>
       </header>
 

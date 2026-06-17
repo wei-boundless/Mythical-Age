@@ -29,11 +29,22 @@ class PromptAccountingLedger:
         "prompt_cache_breaks.jsonl",
         "prompt_stability.jsonl",
     )
+    TIME_BUCKETED_DETAIL_FILES = (
+        "segment_maps.jsonl",
+        "segments.jsonl",
+        "token_usage.jsonl",
+        "prompt_cache.jsonl",
+        "prompt_cache_baselines.jsonl",
+        "prompt_cache_breaks.jsonl",
+        "prompt_stability.jsonl",
+    )
 
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = Path(root_dir)
         self.ledger_dir = self.root_dir / "prompt_accounting"
         self.ledger_dir.mkdir(parents=True, exist_ok=True)
+        self.hot_day_dir = self.ledger_dir / "hot" / "by_day"
+        self.hot_time_dir = self.ledger_dir / "hot" / "by_time"
         self.summary_index_dir = self.ledger_dir / "summary_index" / "by_key"
         self.summary_index_dir.mkdir(parents=True, exist_ok=True)
         self.summary_index_manifest_path = self.ledger_dir / "summary_index" / "manifest.json"
@@ -343,6 +354,56 @@ class PromptAccountingLedger:
     def scoped_reads_are_expensive(self) -> bool:
         return not self._summary_scan_allowed()
 
+    def build_hot_cache_pressure_report(self) -> dict[str, Any]:
+        files: dict[str, Any] = {}
+        total_bytes = 0
+        legacy_bytes = 0
+        hot_bucket_bytes = 0
+        buckets_seen: set[str] = set()
+        for filename in self.TIME_BUCKETED_DETAIL_FILES:
+            paths = self._jsonl_paths(filename)
+            file_rows: list[dict[str, Any]] = []
+            for path in paths:
+                size = _file_signature(path)[1]
+                bucket = _bucket_from_hot_path(self.hot_time_dir, path) or _bucket_from_hot_path(self.hot_day_dir, path)
+                total_bytes += size
+                if bucket:
+                    hot_bucket_bytes += size
+                    buckets_seen.add(bucket)
+                else:
+                    legacy_bytes += size
+                file_rows.append(
+                    {
+                        "path": str(path.relative_to(self.ledger_dir)),
+                        "bucket": bucket or "legacy_root",
+                        "size_bytes": size,
+                        "size_mb": round(size / 1024 / 1024, 2),
+                        "row_count": _jsonl_line_count(path),
+                    }
+                )
+            files[filename] = {
+                "shard_count": len(paths),
+                "size_bytes": sum(int(item["size_bytes"]) for item in file_rows),
+                "size_mb": round(sum(int(item["size_bytes"]) for item in file_rows) / 1024 / 1024, 2),
+                "shards": file_rows,
+            }
+        return {
+            "authority": "runtime.prompt_accounting.hot_cache_pressure",
+            "layout": "hot/by_time/YYYYMMDD/HH/{ledger_file}",
+            "summary": {
+                "size_bytes": total_bytes,
+                "size_mb": round(total_bytes / 1024 / 1024, 2),
+                "legacy_root_bytes": legacy_bytes,
+                "legacy_root_mb": round(legacy_bytes / 1024 / 1024, 2),
+                "hot_bucket_bytes": hot_bucket_bytes,
+                "hot_bucket_mb": round(hot_bucket_bytes / 1024 / 1024, 2),
+                "bucket_count": len(buckets_seen),
+                "oldest_bucket": min(buckets_seen) if buckets_seen else "",
+                "newest_bucket": max(buckets_seen) if buckets_seen else "",
+            },
+            "files": files,
+        }
+
     def rebuild_summary_index(self) -> dict[str, Any]:
         payloads: dict[str, dict[str, Any]] = {}
         usage_count = 0
@@ -589,11 +650,11 @@ class PromptAccountingLedger:
 
     def _token_usage_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
         filename = "token_usage.jsonl"
-        path = self.ledger_dir / filename
+        paths = self._jsonl_paths(filename)
         groups: dict[str, dict[str, Any]] = {}
         rows_scanned = 0
         malformed_rows = 0
-        if path.exists():
+        for path in paths:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
                     stripped = line.strip()
@@ -676,8 +737,9 @@ class PromptAccountingLedger:
             "usage_by_key": usage_by_key,
             "preview": {
                 "filename": filename,
-                "exists": path.exists(),
-                "size_bytes": _file_signature(path)[1],
+                "exists": bool(paths),
+                "shard_count": len(paths),
+                "size_bytes": self._jsonl_size_bytes(filename),
                 "rows_scanned": rows_scanned,
                 "kept_rows": kept_rows + malformed_rows,
                 "compactable_rows": compactable_rows,
@@ -691,11 +753,11 @@ class PromptAccountingLedger:
 
     def _prompt_cache_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
         filename = "prompt_cache.jsonl"
-        path = self.ledger_dir / filename
+        paths = self._jsonl_paths(filename)
         groups: dict[str, dict[str, Any]] = {}
         rows_scanned = 0
         malformed_rows = 0
-        if path.exists():
+        for path in paths:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
                     stripped = line.strip()
@@ -778,8 +840,9 @@ class PromptAccountingLedger:
             "cache_by_key": cache_by_key,
             "preview": {
                 "filename": filename,
-                "exists": path.exists(),
-                "size_bytes": _file_signature(path)[1],
+                "exists": bool(paths),
+                "shard_count": len(paths),
+                "size_bytes": self._jsonl_size_bytes(filename),
                 "rows_scanned": rows_scanned,
                 "kept_rows": kept_rows + malformed_rows,
                 "compactable_rows": compactable_rows,
@@ -799,14 +862,14 @@ class PromptAccountingLedger:
         protection: dict[str, set[str]],
         retained_request_ids: set[str],
     ) -> dict[str, Any]:
-        path = self.ledger_dir / filename
+        paths = self._jsonl_paths(filename)
         rows_scanned = 0
         kept_rows = 0
         compactable_rows = 0
         protected_rows = 0
         undated_rows = 0
         malformed_rows = 0
-        if path.exists():
+        for path in paths:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
                     stripped = line.strip()
@@ -841,8 +904,9 @@ class PromptAccountingLedger:
             "filename": filename,
             "preview": {
                 "filename": filename,
-                "exists": path.exists(),
-                "size_bytes": _file_signature(path)[1],
+                "exists": bool(paths),
+                "shard_count": len(paths),
+                "size_bytes": self._jsonl_size_bytes(filename),
                 "rows_scanned": rows_scanned,
                 "kept_rows": kept_rows,
                 "compactable_rows": compactable_rows,
@@ -958,52 +1022,39 @@ class PromptAccountingLedger:
         drop_group_ids: set[str],
         primary_fields: tuple[str, ...],
     ) -> dict[str, Any]:
-        path = self.ledger_dir / filename
-        if not path.exists() or not drop_group_ids:
+        paths = self._jsonl_paths(filename)
+        if not paths or not drop_group_ids:
             return {
                 "filename": filename,
-                "exists": path.exists(),
+                "exists": bool(paths),
+                "shard_count": len(paths),
                 "kept_rows": 0,
                 "deleted_rows": 0,
                 "malformed_rows_kept": 0,
                 "rewritten": False,
             }
-        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.retention.tmp")
         kept_rows = 0
         deleted_rows = 0
         malformed_rows = 0
-        with path.open("r", encoding="utf-8") as source, tmp_path.open("w", encoding="utf-8", newline="\n") as target:
-            for line in source:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    row = json.loads(stripped)
-                except JSONDecodeError:
-                    target.write(line if line.endswith("\n") else line + "\n")
-                    malformed_rows += 1
-                    kept_rows += 1
-                    continue
-                if not isinstance(row, dict):
-                    target.write(line if line.endswith("\n") else line + "\n")
-                    malformed_rows += 1
-                    kept_rows += 1
-                    continue
-                group_id = _retention_group_id(row, primary_fields=primary_fields)
-                if group_id in drop_group_ids:
-                    deleted_rows += 1
-                    continue
-                target.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-                kept_rows += 1
-        tmp_path.replace(path)
+        rewritten = False
+        for path in paths:
+            result = self._rewrite_jsonl_path(
+                path,
+                should_delete=lambda row: _retention_group_id(row, primary_fields=primary_fields) in drop_group_ids,
+            )
+            kept_rows += int(result.get("kept_rows") or 0)
+            deleted_rows += int(result.get("deleted_rows") or 0)
+            malformed_rows += int(result.get("malformed_rows_kept") or 0)
+            rewritten = rewritten or bool(result.get("rewritten") is True)
         self._invalidate_filtered_read_cache(filename)
         return {
             "filename": filename,
             "exists": True,
+            "shard_count": len(paths),
             "kept_rows": kept_rows,
             "deleted_rows": deleted_rows,
             "malformed_rows_kept": malformed_rows,
-            "rewritten": True,
+            "rewritten": rewritten,
         }
 
     def _rewrite_jsonl_for_retention(
@@ -1014,57 +1065,45 @@ class PromptAccountingLedger:
         protection: dict[str, set[str]],
         retained_request_ids: set[str],
     ) -> dict[str, Any]:
-        path = self.ledger_dir / filename
-        if not path.exists():
+        paths = self._jsonl_paths(filename)
+        if not paths:
             return {
                 "filename": filename,
                 "exists": False,
+                "shard_count": 0,
                 "kept_rows": 0,
                 "deleted_rows": 0,
                 "malformed_rows_kept": 0,
                 "rewritten": False,
             }
-        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.retention.tmp")
         kept_rows = 0
         deleted_rows = 0
         malformed_rows = 0
-        with path.open("r", encoding="utf-8") as source, tmp_path.open("w", encoding="utf-8", newline="\n") as target:
-            for line in source:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    row = json.loads(stripped)
-                except JSONDecodeError:
-                    target.write(line if line.endswith("\n") else line + "\n")
-                    malformed_rows += 1
-                    kept_rows += 1
-                    continue
-                if not isinstance(row, dict):
-                    target.write(line if line.endswith("\n") else line + "\n")
-                    malformed_rows += 1
-                    kept_rows += 1
-                    continue
-                decision = _row_retention_decision(
+        rewritten = False
+        for path in paths:
+            result = self._rewrite_jsonl_path(
+                path,
+                should_delete=lambda row: _row_retention_decision(
                     row,
                     cutoff_timestamp=cutoff_timestamp,
                     protection=protection,
                     retained_request_ids=retained_request_ids,
                 )
-                if decision == "compact":
-                    deleted_rows += 1
-                    continue
-                target.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-                kept_rows += 1
-        tmp_path.replace(path)
+                == "compact",
+            )
+            kept_rows += int(result.get("kept_rows") or 0)
+            deleted_rows += int(result.get("deleted_rows") or 0)
+            malformed_rows += int(result.get("malformed_rows_kept") or 0)
+            rewritten = rewritten or bool(result.get("rewritten") is True)
         self._invalidate_filtered_read_cache(filename)
         return {
             "filename": filename,
             "exists": True,
+            "shard_count": len(paths),
             "kept_rows": kept_rows,
             "deleted_rows": deleted_rows,
             "malformed_rows_kept": malformed_rows,
-            "rewritten": deleted_rows > 0,
+            "rewritten": rewritten,
         }
 
     def _read_retained_token_stats(self) -> dict[str, Any]:
@@ -1175,11 +1214,12 @@ class PromptAccountingLedger:
             handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
 
     def _append_jsonl(self, filename: str, payload: dict[str, Any]) -> None:
-        path = self.ledger_dir / filename
+        path = self._append_jsonl_path(filename, payload)
         with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-            self._apply_append_to_filtered_read_cache(filename, _file_signature(path), payload)
+            self._apply_append_to_filtered_read_cache(filename, self._jsonl_signature(filename), payload)
 
     def _summary_for_key(self, key: str) -> dict[str, Any] | None:
         normalized = str(key or "").strip()
@@ -1343,7 +1383,7 @@ class PromptAccountingLedger:
     def _summary_scan_allowed(self) -> bool:
         total = 0
         for filename in ("token_usage.jsonl", "prompt_cache.jsonl", "segment_maps.jsonl"):
-            total += _file_signature(self.ledger_dir / filename)[1]
+            total += self._jsonl_size_bytes(filename)
             if total > self.SUMMARY_SCAN_MAX_BYTES:
                 return False
         return True
@@ -1399,9 +1439,53 @@ class PromptAccountingLedger:
             )
         return deleted
 
+    def _append_jsonl_path(self, filename: str, payload: dict[str, Any]) -> Path:
+        target = str(filename or "")
+        if target not in self.TIME_BUCKETED_DETAIL_FILES:
+            return self.ledger_dir / target
+        day, hour = _time_bucket_from_payload(payload)
+        return self.hot_time_dir / day / hour / target
+
+    def _jsonl_paths(self, filename: str) -> list[Path]:
+        target = str(filename or "")
+        paths: list[Path] = []
+        legacy_path = self.ledger_dir / target
+        if legacy_path.exists():
+            paths.append(legacy_path)
+        if target in self.TIME_BUCKETED_DETAIL_FILES and self.hot_day_dir.exists():
+            paths.extend(
+                sorted(
+                    path
+                    for path in self.hot_day_dir.glob(f"*/{target}")
+                    if path.is_file()
+                )
+            )
+        if target in self.TIME_BUCKETED_DETAIL_FILES and self.hot_time_dir.exists():
+            paths.extend(
+                sorted(
+                    path
+                    for path in self.hot_time_dir.glob(f"*/*/{target}")
+                    if path.is_file()
+                )
+            )
+        return paths
+
+    def _jsonl_signature(self, filename: str) -> tuple[int, int]:
+        paths = self._jsonl_paths(filename)
+        mtime_total = 0
+        size_total = 0
+        for path in paths:
+            mtime, size = _file_signature(path)
+            mtime_total += int(mtime)
+            size_total += int(size)
+        return (mtime_total + len(paths), size_total)
+
+    def _jsonl_size_bytes(self, filename: str) -> int:
+        return sum(_file_signature(path)[1] for path in self._jsonl_paths(filename))
+
     def _read_jsonl(self, filename: str, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
-        path = self.ledger_dir / filename
-        if not path.exists():
+        paths = self._jsonl_paths(filename)
+        if not paths:
             return []
         normalized_run_id = str(run_id or "")
         normalized_task_run_id = str(task_run_id or "")
@@ -1414,7 +1498,7 @@ class PromptAccountingLedger:
             session_id=normalized_session_id,
         )
         with self._lock:
-            signature = _file_signature(path)
+            signature = self._jsonl_signature(filename)
             if cacheable:
                 cached = self._filtered_read_cache.get(cache_key)
                 if cached is not None:
@@ -1423,19 +1507,20 @@ class PromptAccountingLedger:
                         return [dict(row) for row in cached_rows]
 
             rows: list[dict[str, Any]] = []
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    if prefilter and not _line_matches_prefilter(stripped, prefilter):
-                        continue
-                    try:
-                        payload = json.loads(stripped)
-                    except JSONDecodeError:
-                        continue
-                    if isinstance(payload, dict):
-                        rows.append(payload)
+            for path in paths:
+                with path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        stripped = line.strip()
+                        if not stripped:
+                            continue
+                        if prefilter and not _line_matches_prefilter(stripped, prefilter):
+                            continue
+                        try:
+                            payload = json.loads(stripped)
+                        except JSONDecodeError:
+                            continue
+                        if isinstance(payload, dict):
+                            rows.append(payload)
             if cacheable:
                 self._filtered_read_cache[cache_key] = (signature, [dict(row) for row in rows])
                 if len(self._filtered_read_cache) > 256:
@@ -1443,20 +1528,18 @@ class PromptAccountingLedger:
             return rows
 
     def _iter_jsonl_rows(self, filename: str):
-        path = self.ledger_dir / filename
-        if not path.exists():
-            return
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    payload = json.loads(stripped)
-                except JSONDecodeError:
-                    continue
-                if isinstance(payload, dict):
-                    yield payload
+        for path in self._jsonl_paths(filename):
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        payload = json.loads(stripped)
+                    except JSONDecodeError:
+                        continue
+                    if isinstance(payload, dict):
+                        yield payload
 
     def _invalidate_filtered_read_cache(self, filename: str | None = None) -> None:
         if filename is None:
@@ -1483,43 +1566,75 @@ class PromptAccountingLedger:
                 next_rows.append(dict(payload))
             self._filtered_read_cache[key] = (signature, next_rows)
 
-    def _rewrite_without_tasks(self, filename: str, task_run_ids: set[str]) -> int:
-        path = self.ledger_dir / filename
+    def _rewrite_jsonl_path(self, path: Path, *, should_delete: Any) -> dict[str, Any]:
         if not path.exists():
-            return 0
-        rows = self._read_jsonl(filename)
-        kept: list[dict[str, Any]] = []
+            return {
+                "path": str(path),
+                "exists": False,
+                "kept_rows": 0,
+                "deleted_rows": 0,
+                "malformed_rows_kept": 0,
+                "rewritten": False,
+            }
+        tmp_path = path.with_suffix(f"{path.suffix}.{threading.get_ident()}.retention.tmp")
+        kept_rows = 0
+        deleted_rows = 0
+        malformed_rows = 0
+        with path.open("r", encoding="utf-8") as source, tmp_path.open("w", encoding="utf-8", newline="\n") as target:
+            for line in source:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except JSONDecodeError:
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                if not isinstance(row, dict):
+                    target.write(line if line.endswith("\n") else line + "\n")
+                    malformed_rows += 1
+                    kept_rows += 1
+                    continue
+                if bool(should_delete(row)):
+                    deleted_rows += 1
+                    continue
+                target.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                kept_rows += 1
+        tmp_path.replace(path)
+        return {
+            "path": str(path),
+            "exists": True,
+            "kept_rows": kept_rows,
+            "deleted_rows": deleted_rows,
+            "malformed_rows_kept": malformed_rows,
+            "rewritten": deleted_rows > 0,
+        }
+
+    def _rewrite_without_tasks(self, filename: str, task_run_ids: set[str]) -> int:
         deleted = 0
-        for row in rows:
-            if str(row.get("task_run_id") or "") in task_run_ids or str(row.get("run_id") or "") in task_run_ids:
-                deleted += 1
-                continue
-            kept.append(row)
         with self._lock:
-            with path.open("w", encoding="utf-8", newline="\n") as handle:
-                for row in kept:
-                    handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            for path in self._jsonl_paths(filename):
+                result = self._rewrite_jsonl_path(
+                    path,
+                    should_delete=lambda row: str(row.get("task_run_id") or "") in task_run_ids
+                    or str(row.get("run_id") or "") in task_run_ids,
+                )
+                deleted += int(result.get("deleted_rows") or 0)
             self._invalidate_filtered_read_cache(filename)
         return deleted
 
     def _rewrite_without_session_or_tasks(self, filename: str, session_id: str, task_run_ids: set[str]) -> int:
-        path = self.ledger_dir / filename
-        if not path.exists():
-            return 0
-        rows = self._read_jsonl(filename)
-        kept: list[dict[str, Any]] = []
         deleted = 0
-        for row in rows:
-            row_task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
-            row_session_id = str(row.get("session_id") or "")
-            if row_task_run_id in task_run_ids or (session_id and row_session_id == session_id):
-                deleted += 1
-                continue
-            kept.append(row)
         with self._lock:
-            with path.open("w", encoding="utf-8", newline="\n") as handle:
-                for row in kept:
-                    handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            for path in self._jsonl_paths(filename):
+                result = self._rewrite_jsonl_path(
+                    path,
+                    should_delete=lambda row: str(row.get("task_run_id") or row.get("run_id") or "") in task_run_ids
+                    or (session_id and str(row.get("session_id") or "") == session_id),
+                )
+                deleted += int(result.get("deleted_rows") or 0)
             self._invalidate_filtered_read_cache(filename)
         return deleted
 
@@ -1908,6 +2023,38 @@ def _empty_retained_token_stats(*, version: int) -> dict[str, Any]:
 def _json_checksum(payload: Any) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _time_bucket_from_payload(payload: dict[str, Any]) -> tuple[str, str]:
+    created_at = _created_at_from_payload(payload)
+    return time.strftime("%Y%m%d", time.localtime(created_at)), time.strftime("%H", time.localtime(created_at))
+
+
+def _created_at_from_payload(payload: dict[str, Any]) -> float:
+    try:
+        created_at = float(dict(payload or {}).get("created_at") or 0.0)
+    except (TypeError, ValueError):
+        created_at = 0.0
+    return created_at if created_at > 0 else time.time()
+
+
+def _bucket_from_hot_path(hot_day_dir: Path, path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(hot_day_dir.resolve())
+    except ValueError:
+        return ""
+    parts = relative.parts
+    if len(parts) >= 2 and str(parts[0]).isdigit() and str(parts[1]).isdigit():
+        return f"{parts[0]}/{parts[1]}"
+    return str(parts[0]) if parts else ""
+
+
+def _jsonl_line_count(path: Path) -> int:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return sum(1 for line in handle if line.strip())
+    except OSError:
+        return 0
 
 
 def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:

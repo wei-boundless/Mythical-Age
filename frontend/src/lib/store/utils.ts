@@ -175,8 +175,7 @@ export function toUiMessages(history: SessionHistory["messages"]) {
   const merged: Message[] = [];
   for (const message of ordered) {
     const previous = merged[merged.length - 1];
-    const sameAnswerChannel = (message.answerChannel || "") === (previous?.answerChannel || "");
-    if (message.role === "assistant" && previous?.role === "assistant" && sameAnswerChannel) {
+    if (shouldMergeAssistantHistoryMessage(previous, message)) {
       previous.content = appendMessageContent(previous.content, message.content);
       previous.toolCalls = [...previous.toolCalls, ...message.toolCalls];
       previous.retrievals = [...previous.retrievals, ...message.retrievals];
@@ -186,6 +185,16 @@ export function toUiMessages(history: SessionHistory["messages"]) {
     merged.push(message);
   }
   return merged;
+}
+
+function shouldMergeAssistantHistoryMessage(previous: Message | undefined, message: Message) {
+  if (message.role !== "assistant" || previous?.role !== "assistant") {
+    return false;
+  }
+  if (message.id !== previous.id) {
+    return false;
+  }
+  return (message.answerChannel || "") === (previous.answerChannel || "");
 }
 
 export function buildEditableFiles(skills: SkillSummary[]) {

@@ -7,6 +7,8 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { RuntimeLogPanel, type RuntimeLogTarget } from "@/components/layout/RuntimeLogPanel";
 import { useAppStore } from "@/lib/store";
+import { cn } from "@/ui/classNames";
+import { TabButton, Tabs } from "@/ui/Tabs";
 
 type CenterWorkspaceLayer = "chat" | "file" | "runtime-log";
 const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
@@ -273,28 +275,25 @@ export function CenterWorkspaceView({
   return (
     <section className="center-workspace" aria-label="中心工作区">
       <header className="center-workspace__head" aria-label="主会话页面控制">
-        <nav className="center-workspace__tabs" aria-label="中心层级切换">
-          <button
-            className={layer === "chat" ? "chat-page-tabs__item chat-page-tabs__item--active" : "chat-page-tabs__item"}
+        <Tabs ariaLabel="中心层级切换">
+          <TabButton
+            active={layer === "chat"}
             onClick={() => setLayer("chat")}
-            type="button"
           >
             <Sparkles size={14} />
             <span>会话层</span>
-          </button>
-          <button
-            className="chat-page-tabs__item"
+          </TabButton>
+          <TabButton
             onClick={() => setWorkspaceView("creative")}
-            type="button"
           >
             <Workflow size={14} />
             <span>图任务层</span>
-          </button>
+          </TabButton>
           {openFilePaths.map((path) => {
             const active = layer === "file" && path === activeFilePath;
             return (
               <div
-                className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
+                className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
                 key={path}
                 title={path}
               >
@@ -330,7 +329,7 @@ export function CenterWorkspaceView({
             const label = runtimeLogPageTitle(target);
             return (
               <div
-                className={active ? "chat-page-tabs__item chat-page-tabs__item--active center-workspace-file-tab" : "chat-page-tabs__item center-workspace-file-tab"}
+                className={cn("chat-page-tabs__item", active && "chat-page-tabs__item--active", "center-workspace-file-tab")}
                 key={key}
                 title={target.subtitle || target.runId}
               >
@@ -358,7 +357,7 @@ export function CenterWorkspaceView({
               </div>
             );
           })}
-        </nav>
+        </Tabs>
         <WorkspaceModeSwitcher ariaLabel="切换当前会话任务环境" className="center-workspace__environment-switcher" />
       </header>
 

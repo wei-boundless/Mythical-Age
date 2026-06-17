@@ -6,15 +6,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
 
-export type ChatPrimaryTaskAction = {
-  kind: "stop_task";
-  onAction: () => Promise<void> | void;
-};
-
 export function ChatInput({
   disabled,
   streaming,
-  taskPrimaryAction,
   modelProviderConfig,
   imageAssetConfig,
   onSend,
@@ -31,7 +25,6 @@ export function ChatInput({
 }: {
   disabled: boolean;
   streaming: boolean;
-  taskPrimaryAction?: ChatPrimaryTaskAction | null;
   modelProviderConfig: ModelProviderConfig | null;
   imageAssetConfig: ImageAssetConfig | null;
   onSend: (value: string, options?: { files?: File[] }) => Promise<void>;
@@ -77,20 +70,16 @@ export function ChatInput({
     ? "send"
     : streaming
       ? "stop_stream"
-      : taskPrimaryAction?.kind ?? "send";
+      : "send";
   const primaryDisabled = primaryAction === "stop_stream"
     ? false
-    : primaryAction === "send"
-      ? inputDisabled || (!trimmedValue && !hasSelectedFiles)
-      : disabled || submitting;
+    : inputDisabled || (!trimmedValue && !hasSelectedFiles);
   const primaryLabel = primaryAction === "stop_stream"
     ? "停止本轮生成"
-    : primaryAction === "stop_task"
-      ? "停止当前任务"
-      : "发送";
+    : "发送";
   const primaryButtonClassName = [
     "chat-send-button",
-    primaryAction === "stop_stream" || primaryAction === "stop_task" ? "chat-stop-button chat-send-button--stop" : "",
+    primaryAction === "stop_stream" ? "chat-stop-button chat-send-button--stop" : "",
   ].filter(Boolean).join(" ");
   const streamToggleTitle = streaming
     ? "本轮运行中，下一轮可切换流式显示"
@@ -139,27 +128,9 @@ export function ChatInput({
     setSelectedFiles((current) => [...current, ...pastedImages].slice(0, 8));
   };
 
-  const runTaskPrimaryAction = async () => {
-    if (!taskPrimaryAction || submitting || disabled) {
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await taskPrimaryAction.onAction();
-    } catch (error) {
-      console.error("Failed to run chat task action", error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const runPrimaryAction = async () => {
     if (primaryAction === "stop_stream") {
       onStop();
-      return;
-    }
-    if (primaryAction === "stop_task") {
-      await runTaskPrimaryAction();
       return;
     }
     await submit();
@@ -297,7 +268,7 @@ export function ChatInput({
             title={primaryLabel}
             type="button"
           >
-            {primaryAction === "stop_stream" || primaryAction === "stop_task" ? (
+            {primaryAction === "stop_stream" ? (
               <Square size={15} />
             ) : (
               <ArrowUp size={18} />

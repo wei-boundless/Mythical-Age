@@ -7,6 +7,11 @@ from typing import Any
 from runtime.tool_runtime.tool_result_envelope import _looks_like_failed_command_output, tool_result_envelope_from_payload
 
 
+_SUBAGENT_RESULT_FINAL_ANSWER_LIMIT = 64_000
+_SUBAGENT_RESULT_SUMMARY_LIMIT = 2_000
+_SUBAGENT_RESULT_REF_LIMIT = 24
+
+
 @dataclass(frozen=True, slots=True)
 class ToolObservationRecord:
     observation_ref: str
@@ -266,6 +271,12 @@ def _result_metadata_for_tool(
     structured_payload: dict[str, Any],
     observed_paths: tuple[str, ...],
 ) -> dict[str, Any]:
+    if name == "collect_subagent_result" and status == "ok":
+        return _subagent_result_metadata(
+            args=args,
+            result_text=result_text,
+            structured_payload=structured_payload,
+        )
     if name != "read_file" or status != "ok":
         return {}
     tool_result = dict(structured_payload.get("tool_result") or {})
@@ -334,6 +345,113 @@ def _result_metadata_for_tool(
     }
 
 
+def _subagent_result_metadata(
+    *,
+    args: dict[str, Any],
+    result_text: str,
+    structured_payload: dict[str, Any],
+) -> dict[str, Any]:
+    control = dict(structured_payload.get("subagent_control") or {})
+    result = dict(control.get("result") or {}) if isinstance(control.get("result"), dict) else {}
+    subagent_run_ref = _first_text(
+        control.get("subagent_run_ref"),
+        args.get("subagent_run_ref"),
+    )
+    result_ref = _first_text(
+        result.get("result_ref"),
+        control.get("result_ref"),
+    )
+    final_answer = _first_content_text(
+        result.get("final_answer"),
+        control.get("final_answer"),
+    )
+    summary = _first_text(
+        result.get("summary"),
+        control.get("summary"),
+        final_answer[:500],
+        result_text,
+    )
+    artifact_refs = _dict_list(result.get("artifact_refs"))
+    evidence_refs = _string_list(result.get("evidence_refs"), limit=_SUBAGENT_RESULT_REF_LIMIT)
+    observation_refs = _string_list(result.get("observation_refs"), limit=_SUBAGENT_RESULT_REF_LIMIT)
+    limitations = _string_list(result.get("limitations"), limit=_SUBAGENT_RESULT_REF_LIMIT)
+    if not any((subagent_run_ref, result_ref, final_answer, summary, artifact_refs, evidence_refs, observation_refs, limitations)):
+        return {}
+    truncated = len(final_answer) > _SUBAGENT_RESULT_FINAL_ANSWER_LIMIT
+    subagent_result = _drop_empty_dict(
+        {
+            "kind": "subagent_final_result",
+            "source_tool": "collect_subagent_result",
+            "subagent_run_ref": subagent_run_ref,
+            "result_ref": result_ref,
+            "status": str(control.get("status") or result.get("status") or ""),
+            "result_state": str(control.get("result_state") or ""),
+            "result_read_record_ref": str(dict(control.get("result_read_record") or {}).get("subagent_result_read_id") or ""),
+            "final_answer": final_answer[:_SUBAGENT_RESULT_FINAL_ANSWER_LIMIT],
+            "final_answer_chars": len(final_answer),
+            "final_answer_sha256": _text_sha256(final_answer) if final_answer else "",
+            "final_answer_truncated": truncated,
+            "max_visible_final_answer_chars": _SUBAGENT_RESULT_FINAL_ANSWER_LIMIT if truncated else None,
+            "summary": summary[:_SUBAGENT_RESULT_SUMMARY_LIMIT],
+            "artifact_refs": artifact_refs[:_SUBAGENT_RESULT_REF_LIMIT],
+            "evidence_refs": evidence_refs,
+            "observation_refs": observation_refs,
+            "limitations": limitations,
+            "authority": "orchestration.subagent_result_projection",
+        }
+    )
+    return {"subagent_result": subagent_result} if subagent_result else {}
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _first_content_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "")
+        if text.strip():
+            return text
+    return ""
+
+
+def _string_list(value: Any, *, limit: int) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in list(value or []):
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= max(1, int(limit or 1)):
+            break
+    return result
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in list(value or []):
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item)
+        key = repr(sorted(payload.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8", errors="replace")).hexdigest()
+
+
 def _int_or_none(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -352,7 +470,13 @@ def _side_effect_kind(tool_name: str) -> str:
         return "write"
     if tool_name in {"terminal", "browser_control"}:
         return "verification"
-    if tool_name in {"spawn_subagent", "send_subagent_message", "wait_subagent", "list_subagents", "close_subagent"}:
+    if tool_name in {
+        "start_subagent",
+        "send_subagent_message",
+        "collect_subagent_result",
+        "observe_subagents",
+        "stop_subagent",
+    }:
         return "subagent_lifecycle"
     return "read"
 
@@ -391,7 +515,13 @@ def _satisfies_for_tool(
         if has_structured_envelope and status == "ok" and _structured_verification_intent(structured_payload):
             return ("verify_command",)
         return ()
-    if tool_name in {"spawn_subagent", "send_subagent_message", "wait_subagent", "list_subagents", "close_subagent"}:
+    if tool_name in {
+        "start_subagent",
+        "send_subagent_message",
+        "collect_subagent_result",
+        "observe_subagents",
+        "stop_subagent",
+    }:
         return ("subagent_lifecycle",)
     return ()
 

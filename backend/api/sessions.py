@@ -18,7 +18,7 @@ from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
 from integrations.vscode_connection import get_vscode_connection_store
 from sessions import InvalidSessionId, SessionProjectBindingConflict, SessionProjectBindingMissing
-from harness.runtime.session_timeline import build_session_runtime_timeline
+from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
 from task_system.environments import task_environment_registry_from_backend_dir
 from task_system.session_scope import assert_optional_session_scope, normalize_session_scope, request_scope_from_query
 
@@ -39,7 +39,7 @@ class RenameSessionRequest(BaseModel):
 
 
 class GenerateTitleRequest(BaseModel):
-    message: str | None = None
+    pass
 
 
 class TruncateMessagesRequest(BaseModel):
@@ -578,6 +578,27 @@ async def get_session_timeline(
     )
 
 
+@router.get("/sessions/{session_id}/runtime-projection")
+async def get_session_runtime_projection(
+    session_id: str,
+    workspace_view: str | None = Query(default=None, max_length=80),
+    task_environment_id: str | None = Query(default=None, max_length=200),
+    project_id: str | None = Query(default=None, max_length=240),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    await asyncio.to_thread(
+        assert_optional_session_scope,
+        runtime.session_manager,
+        session_id,
+        request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
+    )
+    return await asyncio.to_thread(
+        _build_session_runtime_projection_payload,
+        runtime,
+        session_id,
+    )
+
+
 @router.post("/sessions/{session_id}/messages/truncate")
 async def truncate_session_messages(
     session_id: str,
@@ -621,7 +642,7 @@ async def truncate_session_messages(
 
 
 @router.post("/sessions/{session_id}/generate-title")
-async def generate_title(
+async def derive_title_from_summary(
     session_id: str,
     payload: GenerateTitleRequest,
     workspace_view: str | None = Query(default=None, max_length=80),
@@ -634,15 +655,88 @@ async def generate_title(
         session_id,
         request_scope_from_query(workspace_view=workspace_view, task_environment_id=task_environment_id, project_id=project_id),
     )
-    if payload.message:
-        seed = payload.message
-    else:
-        messages = await asyncio.to_thread(runtime.session_manager.load_session, session_id)
-        first_user = next((item["content"] for item in messages if item.get("role") == "user"), "")
-        seed = first_user
-    title = await runtime.harness_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
-    await asyncio.to_thread(runtime.session_manager.set_title, session_id, title)
-    return {"session_id": session_id, "title": title}
+    current_summary = await asyncio.to_thread(runtime.session_manager.get_session_summary, session_id)
+    current_title = str(current_summary.get("title") or "").strip() or DEFAULT_SESSION_TITLE
+    if current_title != DEFAULT_SESSION_TITLE:
+        return {"session_id": session_id, "title": current_title}
+
+    title = await asyncio.to_thread(_session_title_from_existing_summary, runtime, session_id)
+    if not title:
+        return {"session_id": session_id, "title": current_title}
+
+    updated = await asyncio.to_thread(runtime.session_manager.set_title_if_default, session_id, title)
+    return {"session_id": session_id, "title": str(updated.get("title") or current_title)}
+
+
+def _session_title_from_existing_summary(runtime: Any, session_id: str) -> str:
+    for candidate in _session_title_summary_candidates(runtime, session_id):
+        title = _summary_display_title(candidate)
+        if title:
+            return title
+    return ""
+
+
+def _session_title_summary_candidates(runtime: Any, session_id: str) -> list[str]:
+    candidates: list[str] = []
+    task_summary = _session_task_summary_payload(runtime, session_id)
+    candidates.extend(
+        [
+            str(task_summary.get("summary") or ""),
+            str(task_summary.get("title") or ""),
+        ]
+    )
+    projection = _build_session_runtime_projection_payload(runtime, session_id)
+    for attachment in reversed(list(projection.get("runtime_attachments") or [])):
+        if not isinstance(attachment, dict):
+            continue
+        candidates.append(str(attachment.get("closeout_summary") or ""))
+        candidates.append(str(attachment.get("public_summary") or ""))
+        for item in list(attachment.get("projection_slices") or []):
+            if isinstance(item, dict):
+                candidates.append(str(item.get("closeout_summary") or item.get("public_summary") or ""))
+    history = runtime.session_manager.get_history(session_id)
+    candidates.append(str(history.get("compressed_context") or ""))
+    return candidates
+
+
+def _session_task_summary_payload(runtime: Any, session_id: str) -> dict[str, Any]:
+    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    service = getattr(host, "runtime_monitor_service", None)
+    summary = getattr(service, "get_session_task_summary", None)
+    if not callable(summary):
+        return {}
+    payload = summary(session_id)
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _summary_display_title(value: Any) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    text = text.lstrip("#-*• 0123456789.、")
+    for prefix in ("用户目标：", "用户目标:", "摘要：", "摘要:", "总结：", "总结:", "任务摘要：", "任务摘要:"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    if not text:
+        return ""
+    lowered = text.lower().strip("。.!！?？；;，, ")
+    if lowered in {"completed", "complete", "success", "done", "committed", "turn_completed"}:
+        return ""
+    if lowered.startswith("任务已结束") or lowered.startswith("任务已收口"):
+        return ""
+    sentence = next((part.strip() for part in _split_summary_sentences(text) if part.strip()), "")
+    sentence = sentence.strip("\"'`“”‘’《》()（）[]【】")
+    if not sentence:
+        return ""
+    return sentence[:32].rstrip("。.!！?？；;，,、 ")
+
+
+def _split_summary_sentences(text: str) -> list[str]:
+    normalized = str(text or "").replace("\r", "\n")
+    for separator in ("\n", "。", "！", "？", "；", ";", ".", "!", "?"):
+        normalized = normalized.replace(separator, "\n")
+    return normalized.splitlines()
 
 
 def _get_session_messages_payload(runtime: Any, session_id: str) -> dict[str, Any]:
@@ -655,6 +749,15 @@ def _get_session_messages_payload(runtime: Any, session_id: str) -> dict[str, An
 def _build_session_timeline_payload(runtime: Any, session_id: str) -> dict[str, Any]:
     history = runtime.session_manager.get_history(session_id)
     return build_session_runtime_timeline(
+        session_id=session_id,
+        history=history,
+        runtime_host=runtime.harness_runtime.single_agent_runtime_host,
+    )
+
+
+def _build_session_runtime_projection_payload(runtime: Any, session_id: str) -> dict[str, Any]:
+    history = runtime.session_manager.get_history(session_id)
+    return build_session_runtime_projection(
         session_id=session_id,
         history=history,
         runtime_host=runtime.harness_runtime.single_agent_runtime_host,

@@ -35,6 +35,10 @@ import {
   type RuntimeConfigField,
   type RuntimeConfigGroup
 } from "@/lib/api";
+import { ActionBar } from "@/ui/ActionBar";
+import { Button } from "@/ui/Button";
+import { MetricCard } from "@/ui/MetricCard";
+import { Toggle } from "@/ui/Toggle";
 
 type SystemConfigGroupId =
   | "model"
@@ -224,15 +228,15 @@ export function SystemConfigView() {
     }
     if (field.type === "boolean") {
       return (
-        <button
-          aria-pressed={Boolean(value)}
-          className={`system-config-toggle ${value ? "system-config-toggle--on" : ""}`}
-          onClick={() => setDraft((current) => ({ ...current, [field.key]: !Boolean(value) }))}
-          type="button"
+        <Toggle
+          activeClassName="system-config-toggle--on"
+          checked={Boolean(value)}
+          className="system-config-toggle"
+          onCheckedChange={(checked) => setDraft((current) => ({ ...current, [field.key]: checked }))}
         >
           <span />
           {value ? "开启" : "关闭"}
-        </button>
+        </Toggle>
       );
     }
     return (
@@ -362,16 +366,13 @@ export function SystemConfigView() {
             ) : null}
           </div>
           <div className="system-config-provider-summary">
-            <article>
-              <span>当前选择</span>
-              <strong>{selectedLabel}</strong>
-              <em>{selectedModel}</em>
-            </article>
-            <article>
-              <span>凭据状态</span>
-              <strong>{credentialReady ? "可用" : "待配置"}</strong>
-              <em>{selectedProvider === "ollama" ? "本地模型无需远程密钥" : credentialReady ? "当前供应商已具备调用条件" : "在下方密钥字段保存后生效"}</em>
-            </article>
+            <MetricCard detail={selectedModel} detailAs="em" label="当前选择" value={selectedLabel} />
+            <MetricCard
+              detail={selectedProvider === "ollama" ? "本地模型无需远程密钥" : credentialReady ? "当前供应商已具备调用条件" : "在下方密钥字段保存后生效"}
+              detailAs="em"
+              label="凭据状态"
+              value={credentialReady ? "可用" : "待配置"}
+            />
           </div>
         </div>
       </section>
@@ -390,26 +391,30 @@ export function SystemConfigView() {
     return (
       <div className="system-config-capabilities">
         <div className="system-config-capability-metrics">
-          <article>
-            <span>工具</span>
-            <strong>{capabilitySummary?.tool_count ?? capabilityCatalog.tools.length}</strong>
-            <em>{mainVisibleTools.length} 个可进入主模型工具面</em>
-          </article>
-          <article>
-            <span>端点</span>
-            <strong>{capabilitySummary?.capability_endpoint_count ?? capabilityCatalog.capability_endpoints?.length ?? 0}</strong>
-            <em>当前为本地 worker 端点，后续可并入外部 MCP</em>
-          </article>
-          <article>
-            <span>操作</span>
-            <strong>{capabilitySummary?.operation_count ?? capabilityCatalog.operations?.length ?? 0}</strong>
-            <em>ResourcePolicy 授权原子</em>
-          </article>
-          <article>
-            <span>校验</span>
-            <strong>{validationIssues.length}</strong>
-            <em>{capabilitySummary?.validation_error_count ?? 0} 个错误</em>
-          </article>
+          <MetricCard
+            detail={`${mainVisibleTools.length} 个可进入主模型工具面`}
+            detailAs="em"
+            label="工具"
+            value={capabilitySummary?.tool_count ?? capabilityCatalog.tools.length}
+          />
+          <MetricCard
+            detail="当前为本地 worker 端点，后续可并入外部 MCP"
+            detailAs="em"
+            label="端点"
+            value={capabilitySummary?.capability_endpoint_count ?? capabilityCatalog.capability_endpoints?.length ?? 0}
+          />
+          <MetricCard
+            detail="ResourcePolicy 授权原子"
+            detailAs="em"
+            label="操作"
+            value={capabilitySummary?.operation_count ?? capabilityCatalog.operations?.length ?? 0}
+          />
+          <MetricCard
+            detail={`${capabilitySummary?.validation_error_count ?? 0} 个错误`}
+            detailAs="em"
+            label="校验"
+            value={validationIssues.length}
+          />
         </div>
 
         <section className="system-config-field-section">
@@ -475,12 +480,12 @@ export function SystemConfigView() {
           <h2 className="workspace-view__title">系统配置</h2>
           <p className="workspace-view__subtitle">管理模型、上下文、检索、文档解析和运行限制；保存到运行时覆盖配置，`.env` 仍作为底座。</p>
         </div>
-        <div className="workspace-view__actions">
-          <button className="action-button" disabled={loading || saving} onClick={() => void refreshConfig()} type="button">
+        <ActionBar className="workspace-view__actions">
+          <Button chrome="action" disabled={loading || saving} onClick={() => void refreshConfig()}>
             {loading ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />}
             刷新
-          </button>
-        </div>
+          </Button>
+        </ActionBar>
       </header>
 
       {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
@@ -493,21 +498,9 @@ export function SystemConfigView() {
       ) : null}
 
       <section className="system-config-overview">
-        <article>
-          <span>当前面板</span>
-          <strong>{activeGroup?.title ?? "未加载"}</strong>
-          <em>{activeGroup?.status ?? "等待配置"}</em>
-        </article>
-        <article>
-          <span>运行时覆盖</span>
-          <strong>{overriddenCount}</strong>
-          <em>当前由前端配置覆盖的字段</em>
-        </article>
-        <article>
-          <span>密钥策略</span>
-          <strong>不回显密钥</strong>
-          <em>新密钥只在保存时写入</em>
-        </article>
+        <MetricCard detail={activeGroup?.status ?? "等待配置"} detailAs="em" label="当前面板" value={activeGroup?.title ?? "未加载"} />
+        <MetricCard detail="当前由前端配置覆盖的字段" detailAs="em" label="运行时覆盖" value={overriddenCount} />
+        <MetricCard detail="新密钥只在保存时写入" detailAs="em" label="密钥策略" value="不回显密钥" />
       </section>
 
       <div className="system-config-layout">
@@ -593,26 +586,25 @@ export function SystemConfigView() {
                 ))}
               </div>
 
-              <div className="system-config-actions">
-                <button
-                  className="action-button action-button--primary"
+              <ActionBar className="system-config-actions">
+                <Button
+                  chrome="action"
                   disabled={!activeGroup || saving}
                   onClick={() => void saveGroup()}
-                  type="button"
+                  variant="primary"
                 >
                   {saving ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
                   保存当前配置
-                </button>
-                <button
-                  className="action-button"
+                </Button>
+                <Button
+                  chrome="action"
                   disabled={!activeGroup || saving}
                   onClick={() => setDraft(buildDraft(activeGroup))}
-                  type="button"
                 >
                   <RotateCcw size={16} />
                   恢复当前值
-                </button>
-              </div>
+                </Button>
+              </ActionBar>
             </>
           )}
         </section>

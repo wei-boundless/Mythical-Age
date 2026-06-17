@@ -3,6 +3,8 @@
 import { useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 
+import { Notice } from "@/ui/Notice";
+
 import { TaskSystemToolbarButton as ToolbarButton } from "./TaskSystemWorkbenchUi";
 
 export type TaskSystemShellNavItem<T extends string> = {
@@ -113,8 +115,8 @@ export function TaskSystemShell<T extends string>({
         </div>
       </header>
 
-      {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
-      {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
+      {error ? <Notice icon={<AlertTriangle size={16} />} tone="error">{error}</Notice> : null}
+      {notice ? <Notice icon={<CheckCircle2 size={16} />}>{notice}</Notice> : null}
 
       <section
         className="task-system-database-layout task-system-database-layout--resizable"

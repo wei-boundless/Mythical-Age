@@ -15,6 +15,7 @@ import type {
   TaskNodeConfigurationSpec,
   TaskSystemOverview,
 } from "@/lib/api";
+import { Notice } from "@/ui/Notice";
 
 import {
   taskEnvironmentDisplayTitle,
@@ -210,7 +211,7 @@ export function NodeConfigurationWorkbench({
         </div>
       </header>
 
-      {localError ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{localError}</div> : null}
+      {localError ? <Notice icon={<AlertTriangle size={16} />} tone="error">{localError}</Notice> : null}
 
       <section className="task-system-three-pane task-system-three-pane--nodes">
         <aside className="task-system-filter-rail" aria-label="节点配置筛选">

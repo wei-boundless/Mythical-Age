@@ -15,6 +15,8 @@ class ArtifactPortPolicy:
     owner_system: str
     artifact_class: str
     storage_layer: str = "durable_fact"
+    durability_class: str = "runtime_fact"
+    retention_tier: str = "L0_hot"
     source_of_truth: bool = False
     recoverability: str = "rebuildable"
     retention_policy: str = "managed"
@@ -27,6 +29,8 @@ class ArtifactPortPolicy:
             "owner_system": self.owner_system,
             "artifact_class": self.artifact_class,
             "storage_layer": self.storage_layer,
+            "durability_class": self.durability_class,
+            "retention_tier": self.retention_tier,
             "source_of_truth": self.source_of_truth,
             "recoverability": self.recoverability,
             "retention_policy": self.retention_policy,
@@ -40,24 +44,25 @@ class ArtifactGovernanceRegistry:
 
     def policies(self) -> tuple[ArtifactPortPolicy, ...]:
         return (
-            ArtifactPortPolicy("runtime.events", "storage/runtime_state/events", "RuntimeSystem", "runtime_fact", "durable_fact", True, "recovery_critical", "archive_not_delete"),
-            ArtifactPortPolicy("runtime.event_index", "storage/runtime_state/event_index", "RuntimeSystem", "runtime_projection", "projection", False, "rebuildable", "rebuild_or_delete"),
-            ArtifactPortPolicy("runtime.checkpoints", "storage/runtime_state/graph_checkpoints.sqlite*", "RuntimeSystem", "runtime_fact", "durable_fact", True, "recovery_critical", "compact_only"),
-            ArtifactPortPolicy("runtime.objects", "storage/runtime_state/runtime_objects", "RuntimeSystem", "runtime_fact", "durable_fact", True, "reference_reachable", "quarantine_then_delete"),
-            ArtifactPortPolicy("runtime.state_index", "storage/runtime_state/state_index", "RuntimeSystem", "runtime_fact", "durable_fact", True, "recovery_index", "prune_with_task_records"),
-            ArtifactPortPolicy("runtime.prompt_accounting", "storage/runtime_state/prompt_accounting", "RuntimeSystem", "runtime_fact", "durable_fact", True, "audit_ledger", "archive_not_delete"),
-            ArtifactPortPolicy("runtime.executions", "storage/runtime_state/executions", "RuntimeSystem", "diagnostic_trace", "diagnostic", False, "diagnostic", "ttl"),
-            ArtifactPortPolicy("runtime.sandbox_cache", "storage/runtime_cache/sandboxes", "RuntimeSystem", "sandbox_cache", "dynamic_cache", False, "rebuildable", "ttl_and_active_task_retention"),
-            ArtifactPortPolicy("tasks.records", "storage/tasks", "TaskSystem", "task_record", "durable_fact", True, "task_record_managed_by_health", "partition_snapshots"),
-            ArtifactPortPolicy("task_environment.artifacts", "storage/task_environments", "ArtifactSystem", "canonical_artifact", "durable_fact", True, "artifact_indexed", "hash_and_lifecycle"),
-            ArtifactPortPolicy("artifact.repository", "storage/artifact_repository", "ArtifactSystem", "canonical_artifact", "durable_fact", True, "artifact_index", "retain"),
-            ArtifactPortPolicy("knowledge.assets", "../langchain-agent-data/knowledge", "KnowledgeSystem", "knowledge_asset", "durable_fact", True, "durable_asset", "external_root"),
-            ArtifactPortPolicy("diagnostics.local_traces", "output/local_traces", "DiagnosticOutput", "diagnostic_trace", "diagnostic", False, "diagnostic", "ttl_keep_failures"),
-            ArtifactPortPolicy("diagnostics.test_runs", "output/test_runs", "DiagnosticOutput", "diagnostic_trace", "diagnostic", False, "diagnostic", "ttl_keep_failures"),
-            ArtifactPortPolicy("diagnostics.playwright", "output/playwright", "DiagnosticOutput", "diagnostic_trace", "diagnostic", False, "diagnostic", "keep_last_n"),
-            ArtifactPortPolicy("diagnostics.runtime_logs", "output/runtime", "DiagnosticOutput", "diagnostic_trace", "diagnostic", False, "diagnostic", "rotate"),
-            ArtifactPortPolicy("diagnostics.novel_artifacts", "output/novel_artifacts", "ArtifactSystem", "canonical_artifact", "diagnostic", False, "legacy_artifact", "legacy_import_or_archive"),
-            ArtifactPortPolicy("frontend.next", "frontend/.next", "FrontendBuild", "build_cache", "dynamic_cache", False, "rebuildable", "delete_on_restart"),
+            ArtifactPortPolicy("runtime.events", "storage/runtime_state/events", "RuntimeSystem", "runtime_fact", "durable_fact", "runtime_fact", "L0_hot", True, "recovery_critical", "archive_not_delete"),
+            ArtifactPortPolicy("runtime.event_index", "storage/runtime_state/event_index", "RuntimeSystem", "runtime_projection", "projection", "rebuildable_cache", "L3_rebuildable", False, "rebuildable", "rebuild_or_delete"),
+            ArtifactPortPolicy("runtime.checkpoints", "storage/runtime_state/graph_checkpoints.sqlite*", "RuntimeSystem", "runtime_fact", "durable_fact", "runtime_fact", "L0_hot", True, "recovery_critical", "compact_only"),
+            ArtifactPortPolicy("runtime.objects", "storage/runtime_state/runtime_objects", "RuntimeSystem", "runtime_fact", "durable_fact", "runtime_fact", "L2_cold", True, "reference_reachable", "quarantine_then_delete"),
+            ArtifactPortPolicy("runtime.state_index", "storage/runtime_state/state_index", "RuntimeSystem", "runtime_fact", "durable_fact", "runtime_fact", "L1_warm", True, "recovery_index", "prune_with_task_records"),
+            ArtifactPortPolicy("runtime.prompt_accounting", "storage/runtime_state/prompt_accounting", "RuntimeSystem", "runtime_fact", "durable_fact", "runtime_fact", "L1_warm", True, "audit_ledger", "archive_not_delete"),
+            ArtifactPortPolicy("runtime.executions", "storage/runtime_state/executions", "RuntimeSystem", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl"),
+            ArtifactPortPolicy("runtime.sandbox_cache", "storage/runtime_cache/sandboxes", "RuntimeSystem", "sandbox_cache", "dynamic_cache", "rebuildable_cache", "L3_rebuildable", False, "rebuildable", "ttl_and_active_task_retention"),
+            ArtifactPortPolicy("tasks.records", "storage/tasks", "TaskSystem", "task_record", "durable_fact", "runtime_fact", "L1_warm", True, "task_record_managed_by_health", "partition_snapshots"),
+            ArtifactPortPolicy("graph_task_instances.project_artifacts", "storage/graph_task_instances", "TaskSystem", "canonical_artifact", "durable_fact", "project_artifact", "durable_protected", True, "artifact_indexed", "retain"),
+            ArtifactPortPolicy("task_environment.artifacts", "storage/task_environments", "ArtifactSystem", "canonical_artifact", "durable_fact", "project_artifact", "durable_protected", True, "artifact_indexed", "hash_and_lifecycle"),
+            ArtifactPortPolicy("artifact.repository", "storage/artifact_repository", "ArtifactSystem", "artifact_index", "durable_fact", "runtime_fact", "L1_warm", True, "artifact_index", "retain"),
+            ArtifactPortPolicy("knowledge.assets", "../langchain-agent-data/knowledge", "KnowledgeSystem", "knowledge_asset", "durable_fact", "user_asset", "durable_protected", True, "durable_asset", "external_root"),
+            ArtifactPortPolicy("diagnostics.local_traces", "output/local_traces", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl_keep_failures"),
+            ArtifactPortPolicy("diagnostics.test_runs", "output/test_runs", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "ttl_keep_failures"),
+            ArtifactPortPolicy("diagnostics.playwright", "output/playwright", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "keep_last_n"),
+            ArtifactPortPolicy("diagnostics.runtime_logs", "output/runtime", "DiagnosticOutput", "diagnostic_trace", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "diagnostic", "rotate"),
+            ArtifactPortPolicy("diagnostics.novel_artifacts", "output/novel_artifacts", "ArtifactSystem", "canonical_artifact", "diagnostic", "diagnostic_artifact", "L3_rebuildable", False, "legacy_artifact", "legacy_import_or_archive"),
+            ArtifactPortPolicy("frontend.next", "frontend/.next", "FrontendBuild", "build_cache", "dynamic_cache", "rebuildable_cache", "L3_rebuildable", False, "rebuildable", "delete_on_restart"),
         )
 
 
@@ -146,6 +151,8 @@ def _protection_reasons(policy: ArtifactPortPolicy, *, protected: bool) -> list[
         reasons.append(policy.recoverability)
     if policy.artifact_class in {"task_record", "knowledge_asset"}:
         reasons.append(policy.artifact_class)
+    if policy.durability_class in {"user_asset", "project_artifact"}:
+        reasons.append(policy.durability_class)
     if not protected:
         reasons.append("rebuildable_or_diagnostic")
     return reasons

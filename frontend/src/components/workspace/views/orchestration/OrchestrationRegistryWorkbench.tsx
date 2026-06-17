@@ -8,6 +8,7 @@ import {
   OrchestrationReadinessCard,
   OrchestrationToolbarButton,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
+import { Panel } from "@/ui/Panel";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 
@@ -66,7 +67,7 @@ export function OrchestrationRegistryWorkbench({
   return (
     <>
       <section className="boundary-layer-grid boundary-layer-grid--wide">
-        <div className="boundary-card boundary-card--summary">
+        <Panel as="div" variant="summary">
           <header>
             <strong>{agentDraft.agent_name || agentDraft.agent_id || "新 Agent 草稿"}</strong>
             <OrchestrationBadge tone={agentDraft.enabled ? "ok" : "warn"}>{agentDraft.enabled ? "启用" : "停用"}</OrchestrationBadge>
@@ -80,8 +81,8 @@ export function OrchestrationRegistryWorkbench({
             <OrchestrationReadinessCard label="运行" ready={!profileMissing && Boolean(runtimeDraft.agent_profile_id)} value={runtimeDraft.agent_profile_id || "未配置"} />
             <OrchestrationReadinessCard label="准入冲突" ready={!overlapOps.length} value={overlapOps.length ? String(overlapOps.length) : "0"} />
           </div>
-        </div>
-        <aside className="boundary-card">
+        </Panel>
+        <Panel as="aside">
           <header><strong>保存</strong></header>
           <div className="boundary-actions boundary-actions--stack">
             <OrchestrationToolbarButton disabled={saving === "agent"} onClick={() => void saveAgent()} variant="primary">
@@ -105,10 +106,10 @@ export function OrchestrationRegistryWorkbench({
               删除 Agent
             </OrchestrationToolbarButton>
           </div>
-        </aside>
+        </Panel>
       </section>
 
-      <section className="boundary-card">
+      <Panel>
         <header>
           <strong>Agent 属性</strong>
           <OrchestrationBadge>{agentMode === "new" ? "草稿" : text(selectedAgentBuiltin ? "内置" : "自定义")}</OrchestrationBadge>
@@ -162,7 +163,7 @@ export function OrchestrationRegistryWorkbench({
             允许编辑
           </label>
         </div>
-      </section>
+      </Panel>
     </>
   );
 }

@@ -24,7 +24,6 @@ function renderChatInput(
       chatStreamDisplayEnabled: true,
       streaming: false,
       supportedPermissionModes: ["default"],
-      taskPrimaryAction: null,
       ...props,
     }),
   );
@@ -36,19 +35,8 @@ describe("ChatInput", () => {
 
     expect(html).toContain("aria-label=\"发送\"");
     expect(html).not.toContain("继续当前任务");
-    expect(html).not.toContain("chat-send-button--resume");
-  });
-
-  it("keeps stop as the only task-level primary action", () => {
-    const html = renderChatInput({
-      taskPrimaryAction: {
-        kind: "stop_task",
-        onAction: () => undefined,
-      },
-    });
-
-    expect(html).toContain("aria-label=\"停止当前任务\"");
-    expect(html).not.toContain("继续当前任务");
+    expect(html).not.toContain("暂停当前任务");
+    expect(html).not.toContain("停止当前任务");
     expect(html).not.toContain("chat-send-button--resume");
   });
 

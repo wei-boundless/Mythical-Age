@@ -6,9 +6,9 @@ import {
   loadFileForSession,
   createSession,
   deleteSession,
+  deriveSessionTitleFromSummary,
   getChatRun,
   getLatestChatRunForSession,
-  getLatestSessionContinuation,
   getCodeEnvironmentWorkspaceTree,
   getModelProviderConfig,
   getImageAssetConfig,
@@ -26,8 +26,8 @@ import {
   setSessionPermissionMode,
   setWorkbenchCurrentSession,
   getSessionHistory,
+  getSessionRuntimeProjection,
   getSessionSummary,
-  getSessionTimeline,
   getSessionTokens,
   getWorkbenchCurrentSession,
   getProjectWorkspaceTree,
@@ -50,502 +50,108 @@ import {
   truncateSessionMessages,
   uploadChatAttachment
 } from "@/lib/api";
-import type { ChatAttachment, ChatRun, ChatStreamCursor, ProjectWorkspaceSummary, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary, WorkbenchSessionRef } from "@/lib/api";
+import type { ChatAttachment, ChatRun, ChatStreamCursor, PublicProjectionFrame, RunMonitorEventPayload, RuntimeMonitorActionPayload, RuntimeMonitorActionResult, RuntimeMonitorEnvelope, RuntimeMonitorSignal, SessionRuntimeAttachment, SessionScope, SessionSummary } from "@/lib/api";
 import { taskEnvironmentDisplayName } from "@/lib/taskEnvironmentDisplay";
 
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startQueuedActiveTurn, startStreamingTurn, type StreamSession } from "./events";
-import { applyPublicProjectionFramesToMessages, publicProjectionFrameFromRecord } from "@/lib/projection/reducer";
+import { projectionFrameFromRecord } from "@/lib/projection/reducer";
 import { RunMonitorController } from "../run-monitor/controller";
 import { allRunMonitorSignals } from "../run-monitor/reducer";
-import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionPoolKey, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
+import { chatThinkingModeFromProviderConfig, isOpenAIReasoningModel, normalizeChatThinkingMode } from "./runtime/chatThinking";
+import {
+  ACTIVE_TURN_STATES,
+  CODE_TASK_ENVIRONMENT_IDS,
+  CODING_TASK_ENVIRONMENT_ID,
+  DEFAULT_INSPECTOR_PATH,
+  DEFAULT_PERMISSION_MODE,
+  FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT,
+  GENERAL_TASK_ENVIRONMENT_ID,
+  GRAPH_ONLY_TASK_ENVIRONMENT_IDS,
+  LAST_ACTIVE_TASK_ENVIRONMENT_KEY,
+  MAIN_CHAT_POOL_KEY,
+  MAX_LIVE_RUNTIME_PROGRESS_ENTRIES,
+  SESSION_RUNTIME_PROJECTION_DELAY_MS,
+  SESSION_TOKEN_STATS_DELAY_MS,
+  TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS,
+  VISIBLE_STREAM_BODY_FLUSH_DELAY_MS,
+} from "./runtime/constants";
+import { hydrateSessionRuntimeProjection, recoveredChatRunActivityDetail } from "./runtime/projectionHydration";
+import {
+  isVisibleMainChatSession,
+  mergeProjectWorkspaces,
+  mergeSessionSummaries,
+  sessionBelongsToProject,
+  sessionPoolKeyForScope,
+  sessionProjectRoot,
+  unboundMainChatSessions,
+  visibleMainChatSessions,
+} from "./runtime/sessionModels";
+import {
+  clearRememberedSessionRef,
+  isProjectDirectorySelectionCancelled,
+  readRememberedChatStreamDisplayEnabled,
+  readRememberedSessionRef,
+  rememberChatStreamDisplayEnabled,
+  rememberSessionRef,
+  sessionRefFromStoredValue,
+  shouldClearRememberedSessionAfterError,
+  storageGet,
+  storageRemove,
+  storageSet,
+} from "./runtime/sessionMemory";
+import { streamEventStopsActiveWork } from "./runtime/streamEvents";
+import { isCatalogEnvironmentVisible, taskEnvironmentIdOf, taskEnvironmentLabelOf } from "./runtime/taskEnvironmentCatalog";
+import { errorDetailMessage, runtimeText } from "./runtime/text";
+import type { ActiveTurnSnapshot, ActiveTurnState, ChatMode, ChatModelSelection, ChatTaskEnvironmentBinding, ChatThinkingMode, Message, PermissionMode, RuntimeLogCenterWorkspaceTarget, RuntimeProgressEntry, SessionEditorContext, SessionEditorPageStatePatch, SessionRef, StoreActions, StoreState, TaskEnvironmentWorkspaceView, TaskGraphMonitorBinding, TaskGraphWorkspaceTarget, TaskSelectionState, WorkspaceView } from "./types";
 import { makeId, toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
-const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
-const MAIN_CHAT_POOL_KEY: SessionPoolKey = "main-chat";
-const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
-const GENERAL_TASK_ENVIRONMENT_ID = "env.general.workspace";
-const CODING_TASK_ENVIRONMENT_ID = "env.coding.vibe_workspace";
-const DEFAULT_PERMISSION_MODE: PermissionMode = "full_access";
-const DEFAULT_INSPECTOR_PATH = "durable_memory/index/MEMORY.md";
-const FRONTEND_EDITOR_CONTEXT_TEXT_LIMIT = 12000;
-const TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS = 10_000;
-const LAST_ACTIVE_TASK_ENVIRONMENT_KEY = "agentWorkbench.lastActiveTaskEnvironment";
-const LAST_ACTIVE_SESSION_REF_KEY = "agentWorkbench.lastActiveSessionRef";
-const CHAT_STREAM_DISPLAY_ENABLED_KEY = "agentWorkbench.chatStreamDisplayEnabled";
-const GRAPH_ONLY_TASK_ENVIRONMENT_IDS = new Set<string>();
-const CODE_TASK_ENVIRONMENT_IDS = new Set([CODING_TASK_ENVIRONMENT_ID]);
-const ACTIVE_TURN_STATES = new Set([
-  "starting",
-  "model_turn",
-  "running_task",
-  "waiting_executor",
-  "waiting_user",
-  "waiting_approval",
-  "waiting_safe_boundary",
-  "interrupting",
-  "terminal",
-]);
-
 type ActiveChatStreamBinding = {
   streamRunId: string;
   taskRunId: string;
   turnId: string;
 };
 
-type RecoverableContinuationHandle = {
-  continuationId: string;
-  taskRunId: string;
+type QueuedUserInput = {
+  content: string;
+  messageId: string;
+  inputPolicy?: "auto" | "steer";
+  expectedActiveTurnId?: string;
+  taskRunId?: string;
 };
 
-function recoveredChatRunActivityDetail() {
-  return "检测到同一会话的流式 cursor，正在按事件时序重放公开投影。";
-}
+type VisibleStreamStateOptions = {
+  preserveTaskGraphLiveMonitor?: boolean;
+};
 
-function hydrateSessionRuntimeProjection(
-  messages: Message[],
-  attachments: SessionRuntimeAttachment[] | undefined,
-) {
-  const runtimeAttachments = (attachments ?? [])
-    .filter((attachment) => runtimeAttachmentSurface(attachment) !== "log_only");
-  const frames: PublicProjectionFrame[] = [];
-  let hydratedMessages = messages;
-  for (const attachment of attachments ?? []) {
-    const surface = runtimeAttachmentSurface(attachment);
-    if (surface === "log_only" || surface === "closeout_summary") {
-      continue;
-    }
-    for (const record of attachment.public_projection_frames ?? []) {
-      const frame = publicProjectionFrameFromRecord(record);
-      if (!frame) continue;
-      const anchoredFrame = frameWithRuntimeAttachmentAnchor(frame, attachment);
-      if (!projectionFrameHasHistoryAnchor(anchoredFrame)) continue;
-      frames.push(anchoredFrame);
-    }
-  }
-  if (frames.length) {
-    const orderedFrames = [...frames].sort((left, right) =>
-      Number(left.event_offset ?? left.sequence ?? 0) - Number(right.event_offset ?? right.sequence ?? 0)
-      || String(left.frame_id || left.projection_id || "").localeCompare(String(right.frame_id || right.projection_id || ""))
-    );
-    hydratedMessages = applyPublicProjectionFramesToMessages(hydratedMessages, orderedFrames, { createMessages: true });
-  }
-  for (const attachment of runtimeAttachments) {
-    hydratedMessages = applyRuntimeAttachmentDisplayState(hydratedMessages, attachment);
-  }
-  return hydratedMessages;
-}
+type PendingVisibleStreamFlush = {
+  streamState: StoreState;
+  activeStreamSessionIds: string[];
+  options: VisibleStreamStateOptions;
+  timer: number | ReturnType<typeof setTimeout> | null;
+  frame: number | null;
+};
 
-function runtimeAttachmentSurface(attachment: SessionRuntimeAttachment) {
-  const surface = runtimeText(attachment.main_chat_surface).toLowerCase();
-  if (surface === "body_only" || surface === "live_timeline" || surface === "closeout_summary" || surface === "log_only") {
-    return surface;
-  }
-  const displayState = runtimeText(attachment.display_state).toLowerCase();
-  if (displayState === "normal_turn") return "body_only";
-  if (displayState === "task_live") return "live_timeline";
-  if (displayState === "task_closed") return "closeout_summary";
-  return "log_only";
-}
-
-function runtimeAttachmentDisplayState(attachment: SessionRuntimeAttachment) {
-  const displayState = runtimeText(attachment.display_state).toLowerCase();
-  if (displayState === "normal_turn" || displayState === "task_live" || displayState === "task_closed" || displayState === "log_only") {
-    return displayState;
-  }
-  const surface = runtimeAttachmentSurface(attachment);
-  if (surface === "body_only") return "normal_turn";
-  if (surface === "live_timeline") return "task_live";
-  if (surface === "closeout_summary") return "task_closed";
-  return "log_only";
-}
-
-function applyRuntimeAttachmentDisplayState(
-  messages: Message[],
-  attachment: SessionRuntimeAttachment,
-): Message[] {
-  const surface = runtimeAttachmentSurface(attachment);
-  if (surface === "log_only") {
-    return messages;
-  }
-  const displayState = runtimeAttachmentDisplayState(attachment);
-  const targetIndex = runtimeAttachmentMessageIndex(messages, attachment);
-  const ensuredMessages = targetIndex >= 0
-    ? messages
-    : ensureRuntimeAttachmentMessage(messages, attachment);
-  const index = targetIndex >= 0 ? targetIndex : runtimeAttachmentMessageIndex(ensuredMessages, attachment);
-  if (index < 0) {
-    return ensuredMessages;
-  }
-  const nextMessages = [...ensuredMessages];
-  const message = nextMessages[index];
-  const closeoutSummary = runtimeText(attachment.closeout_summary);
-  const toolEventCount = runtimeNumber(attachment.tool_event_count);
-  const runtimeLogRef = runtimeText(attachment.log_ref || attachment.task_run_id || attachment.turn_run_id || attachment.event_log_id);
-  nextMessages[index] = {
-    ...message,
-    runtimeDisplayState: displayState,
-    mainChatSurface: surface,
-    closeoutSummary: surface === "closeout_summary" ? closeoutSummary || message.closeoutSummary : message.closeoutSummary,
-    runtimeLogRef: runtimeLogRef || message.runtimeLogRef,
-    toolEventCount: toolEventCount ?? message.toolEventCount,
-    sourceStreamRunId: message.sourceStreamRunId || runtimeText(attachment.stream_run_id) || undefined,
-    sourceRunId: message.sourceRunId || runtimeText(attachment.run_id) || undefined,
-    sourceTaskRunId: message.sourceTaskRunId || runtimeText(attachment.task_run_id) || undefined,
-    sourceTurnRunId: message.sourceTurnRunId || runtimeText(attachment.turn_run_id) || undefined,
-    sourceTurnId: message.sourceTurnId || runtimeAttachmentTurnId(attachment) || undefined,
-  };
-  return nextMessages;
-}
-
-function runtimeAttachmentMessageIndex(messages: Message[], attachment: SessionRuntimeAttachment) {
-  const messageId = runtimeAttachmentMessageId(attachment);
-  if (messageId) {
-    const index = messages.findIndex((message) => message.role === "assistant" && message.id === messageId);
-    if (index >= 0) return index;
-  }
-  const turnId = runtimeAttachmentTurnId(attachment);
-  if (turnId) {
-    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTurnId === turnId);
-    if (index >= 0) return index;
-  }
-  const taskRunId = runtimeText(attachment.task_run_id || attachment.projection_anchor?.task_run_id);
-  if (taskRunId) {
-    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTaskRunId === taskRunId);
-    if (index >= 0) return index;
-  }
-  const turnRunId = runtimeText(attachment.turn_run_id || attachment.projection_anchor?.turn_run_id);
-  if (turnRunId) {
-    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceTurnRunId === turnRunId);
-    if (index >= 0) return index;
-  }
-  const streamRunId = runtimeText(attachment.stream_run_id || attachment.projection_anchor?.stream_run_id);
-  if (streamRunId) {
-    const index = messages.findIndex((message) => message.role === "assistant" && message.sourceStreamRunId === streamRunId);
-    if (index >= 0) return index;
-  }
-  return -1;
-}
-
-function ensureRuntimeAttachmentMessage(messages: Message[], attachment: SessionRuntimeAttachment) {
-  const turnId = runtimeAttachmentTurnId(attachment);
-  if (!turnId) {
-    return messages;
-  }
-  const userIndex = messages.findIndex((message) => message.role === "user" && message.sourceTurnId === turnId);
-  if (userIndex < 0) {
-    return messages;
-  }
-  const userMessage = messages[userIndex];
-  const id = runtimeAttachmentMessageId(attachment) || `history-message:${turnId}:assistant`;
-  if (messages.some((message) => message.id === id)) {
-    return messages;
-  }
-  const sourceIndex = typeof userMessage.sourceIndex === "number" ? userMessage.sourceIndex + 0.5 : userIndex + 0.5;
-  return [
-    ...messages,
-    {
-      id,
-      role: "assistant" as const,
-      content: "",
-      toolCalls: [],
-      retrievals: [],
-      sourceIndex,
-      sourceTurnId: turnId,
-      sourceStreamRunId: runtimeText(attachment.stream_run_id) || undefined,
-      sourceRunId: runtimeText(attachment.run_id) || undefined,
-      sourceTaskRunId: runtimeText(attachment.task_run_id) || undefined,
-      sourceTurnRunId: runtimeText(attachment.turn_run_id) || undefined,
-    },
-  ].sort((left, right) => {
-    const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
-    const rightIndex = right.sourceIndex ?? Number.MAX_SAFE_INTEGER;
-    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-    if (left.role !== right.role) return left.role === "user" ? -1 : 1;
-    return left.id.localeCompare(right.id);
-  });
-}
-
-function runtimeAttachmentMessageId(attachment: SessionRuntimeAttachment) {
-  return runtimeText(attachment.anchor_message_id || attachment.projection_anchor?.anchor_message_id);
-}
-
-function runtimeAttachmentTurnId(attachment: SessionRuntimeAttachment) {
-  return runtimeText(attachment.anchor_turn_id || attachment.projection_anchor?.anchor_turn_id);
-}
-
-function runtimeText(value: unknown) {
-  return String(value ?? "").trim();
-}
-
-function runtimeNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-
-function frameWithRuntimeAttachmentAnchor(
-  frame: PublicProjectionFrame,
-  attachment: SessionRuntimeAttachment,
-): PublicProjectionFrame {
-  const anchor = frame.anchor ?? {};
-  const projectionAnchor = attachment.projection_anchor ?? {};
-  return {
-    ...frame,
-    anchor: compactProjectionAnchor({
-      ...anchor,
-      session_id: anchor.session_id || projectionAnchor.session_id,
-      turn_id: anchor.turn_id || projectionAnchor.anchor_turn_id || attachment.anchor_turn_id,
-      message_id: anchor.message_id || projectionAnchor.anchor_message_id || attachment.anchor_message_id,
-      task_run_id: anchor.task_run_id || projectionAnchor.task_run_id || attachment.task_run_id,
-      turn_run_id: anchor.turn_run_id || projectionAnchor.turn_run_id || attachment.turn_run_id,
-      run_id: anchor.run_id || projectionAnchor.run_id || attachment.run_id,
-    }),
-  };
-}
-
-function projectionFrameHasHistoryAnchor(frame: PublicProjectionFrame) {
-  return Boolean(String(frame.anchor?.message_id || "").trim() || String(frame.anchor?.turn_id || "").trim());
-}
-
-function compactProjectionAnchor(anchor: NonNullable<PublicProjectionFrame["anchor"]>) {
-  return Object.fromEntries(
-    Object.entries(anchor).filter(([, value]) => String(value ?? "").trim()),
-  ) as NonNullable<PublicProjectionFrame["anchor"]>;
-}
-
-function sessionTaskEnvironmentId(session: SessionSummary) {
-  return String(
-    session.scope?.task_environment_id
-    || session.task_binding?.task_environment_id
-    || session.task_binding?.session_scope?.task_environment_id
-    || "",
-  ).trim();
-}
-
-function isVisibleMainChatSession(session: SessionSummary) {
-  const workspaceView = String(session.scope?.workspace_view || "").trim();
-  if (workspaceView === "project" || workspaceView === "task_environment" || workspaceView === GRAPH_TASK_WORKSPACE_VIEW) {
-    return false;
-  }
-  if (String(session.task_binding?.kind || "").trim() === "task_graph") {
-    return false;
-  }
-  if (String(session.task_binding?.graph_run_id || "").trim() || String(session.task_binding?.graph_harness_config_id || "").trim()) {
-    return false;
-  }
-  return !GRAPH_ONLY_TASK_ENVIRONMENT_IDS.has(sessionTaskEnvironmentId(session));
-}
-
-function visibleMainChatSessions(sessions: SessionSummary[]) {
-  return sessions.filter(isVisibleMainChatSession);
-}
-
-function sessionProjectRoot(session: SessionSummary | null | undefined) {
-  return String(session?.conversation_state?.project_binding?.workspace_root || "").trim();
-}
-
-function workspaceRootKey(root: string) {
-  return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
-
-function sessionBelongsToProject(session: SessionSummary, workspaceRoot: string) {
-  const root = workspaceRootKey(workspaceRoot);
-  return Boolean(root && workspaceRootKey(sessionProjectRoot(session)) === root);
-}
-
-function unboundMainChatSessions(sessions: SessionSummary[]) {
-  return visibleMainChatSessions(sessions).filter((session) => !sessionProjectRoot(session));
-}
-
-function mergeSessionSummaries(existing: SessionSummary[], incoming: SessionSummary[]) {
-  const byId = new Map<string, SessionSummary>();
-  for (const session of existing) byId.set(session.id, session);
-  for (const session of incoming) byId.set(session.id, session);
-  return [...byId.values()].sort((a, b) => b.updated_at - a.updated_at);
-}
-
-function mergeProjectWorkspaces(existing: ProjectWorkspaceSummary[], incoming: ProjectWorkspaceSummary[]) {
-  const byKey = new Map<string, ProjectWorkspaceSummary>();
-  for (const project of existing) byKey.set(project.key, project);
-  for (const project of incoming) byKey.set(project.key, project);
-  return [...byKey.values()].sort((a, b) => {
-    const bySeen = Number(b.last_seen_at || 0) - Number(a.last_seen_at || 0);
-    if (bySeen) return bySeen;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-function sessionPoolKeyForScope(scope: Partial<SessionScope> | undefined): SessionPoolKey {
-  if (scope?.workspace_view === GRAPH_TASK_WORKSPACE_VIEW) {
-    return `graph_task:${String(scope.project_id || "").trim()}` as SessionPoolKey;
-  }
-  if (scope?.workspace_view === "task_environment") {
-    return `task_environment:${String(scope.task_environment_id || "").trim()}:${String(scope.project_id || "").trim()}` as SessionPoolKey;
-  }
-  return MAIN_CHAT_POOL_KEY;
-}
-
-type TaskEnvironmentCatalogItem = NonNullable<StoreState["taskEnvironmentCatalog"]>["environments"][number];
-
-function taskEnvironmentIdOf(item: TaskEnvironmentCatalogItem | null | undefined) {
-  const record = (item?.record ?? {}) as Record<string, unknown>;
-  return String(record.environment_id || "").trim();
-}
-
-function taskEnvironmentLabelOf(item: TaskEnvironmentCatalogItem | null | undefined) {
-  const record = (item?.record ?? {}) as Record<string, unknown>;
-  const environmentId = String(record.environment_id || "").trim();
-  return taskEnvironmentDisplayName(environmentId, String(record.title || "").trim());
-}
-
-function isCatalogEnvironmentVisible(item: TaskEnvironmentCatalogItem) {
-  const record = (item.record ?? {}) as Record<string, unknown>;
-  if (record.enabled === false) {
-    return false;
-  }
-  return String(item.management_scope || record.management_scope || "").trim() !== "system_internal";
-}
-
-function storageGet(key: string) {
-  try {
-    if (typeof window === "undefined") {
-      return "";
-    }
-    return String(window.localStorage?.getItem(key) || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function storageSet(key: string, value: string) {
-  try {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage?.setItem(key, value);
-  } catch {
-    // Local storage is only an interface memory hint; runtime behavior must not depend on it.
-  }
-}
-
-function storageRemove(key: string) {
-  try {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage?.removeItem(key);
-  } catch {
-    // Local storage is only an interface memory hint; runtime behavior must not depend on it.
-  }
-}
-
-function readRememberedChatStreamDisplayEnabled() {
-  const raw = storageGet(CHAT_STREAM_DISPLAY_ENABLED_KEY).toLowerCase();
-  if (["1", "true", "enabled", "on"].includes(raw)) return true;
-  if (["0", "false", "disabled", "off"].includes(raw)) return false;
-  return null;
-}
-
-function rememberChatStreamDisplayEnabled(enabled: boolean) {
-  storageSet(CHAT_STREAM_DISPLAY_ENABLED_KEY, enabled ? "1" : "0");
-}
-
-function sessionRefFromStoredValue(raw: unknown): SessionRef | null {
-  if (typeof raw === "string") {
-    const sessionId = raw.trim();
-    return sessionId ? { sessionId, poolKey: MAIN_CHAT_POOL_KEY } : null;
-  }
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-  const parsed = raw as Partial<SessionRef> & WorkbenchSessionRef;
-  const sessionId = String(parsed.sessionId || parsed.session_id || "").trim();
-  if (!sessionId) {
-    return null;
-  }
-  const scope = parsed.scope && typeof parsed.scope === "object" ? parsed.scope : undefined;
-  const poolKey = parsed.poolKey ?? (parsed.pool_key as SessionPoolKey | undefined) ?? sessionPoolKeyForScope(scope);
-  return {
-    sessionId,
-    ...(scope ? { scope } : {}),
-    poolKey,
-  };
-}
-
-function readRememberedSessionRef(): SessionRef | null {
-  const raw = storageGet(LAST_ACTIVE_SESSION_REF_KEY);
-  if (!raw) {
-    return null;
-  }
-  try {
-    return sessionRefFromStoredValue(JSON.parse(raw));
-  } catch {
-    return sessionRefFromStoredValue(raw);
-  }
-}
-
-function rememberSessionRef(ref: SessionRef) {
-  const sessionId = String(ref.sessionId || "").trim();
-  if (!sessionId) {
-    return;
-  }
-  const scope = ref.scope && Object.keys(ref.scope).length ? ref.scope : undefined;
-  storageSet(LAST_ACTIVE_SESSION_REF_KEY, JSON.stringify({
-    sessionId,
-    ...(scope ? { scope } : {}),
-    poolKey: ref.poolKey ?? sessionPoolKeyForScope(scope),
-  }));
-}
-
-function clearRememberedSessionRef(sessionId?: string) {
-  const expected = String(sessionId || "").trim();
-  if (!expected) {
-    storageRemove(LAST_ACTIVE_SESSION_REF_KEY);
-    return;
-  }
-  const remembered = readRememberedSessionRef();
-  if (remembered?.sessionId === expected) {
-    storageRemove(LAST_ACTIVE_SESSION_REF_KEY);
-  }
-}
-
-function shouldClearRememberedSessionAfterError(error: unknown) {
-  const message = errorDetailMessage(error).toLowerCase();
-  return message.includes("unknown session_id")
-    || message.includes("invalid session_id")
-    || message.includes("session scope mismatch");
-}
-
-function errorDetailMessage(error: unknown) {
-  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-  if (!message) {
-    return "";
-  }
-  try {
-    const parsed = JSON.parse(message) as { detail?: unknown; message?: unknown };
-    return String(parsed.detail || parsed.message || message).trim();
-  } catch {
-    return message;
-  }
-}
-
-function isProjectDirectorySelectionCancelled(error: unknown) {
-  return /^project directory selection cancelled$/i.test(errorDetailMessage(error));
-}
+const DEFAULT_SESSION_TITLE = "New Session";
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
   private createSessionPromise: Promise<string> | null = null;
   private sessionDetailsRequest = 0;
+  private sessionRuntimeProjectionRequest = 0;
+  private sessionRuntimeProjectionTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionTokenStatsTimer: ReturnType<typeof setTimeout> | null = null;
   private orchestrationHydrateRequest = 0;
   private workspaceTreeRequest = 0;
+  private workspaceTreeInFlightKey = "";
+  private workspaceTreeInFlightPromise: Promise<void> | null = null;
   private runMonitorController: RunMonitorController;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
   private tokenStatsRefreshInFlight = false;
   private lastMonitorTokenStatsRefreshAt = 0;
-  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
+  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "orchestrationSnapshot" | "activeTurnSnapshot">>();
   private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
   private chatStreamEpochBySession = new Map<string, number>();
   private removedStreamingSessionIds = new Set<string>();
@@ -553,10 +159,12 @@ export class WorkspaceRuntime {
   private stoppedStreamingSessionIds = new Set<string>();
   private recoveringStreamSessionIds = new Set<string>();
   private activeTaskSteerStreamSessionIds = new Set<string>();
-  private queuedUserInputsBySession = new Map<string, Array<{ content: string; messageId: string }>>();
+  private pendingVisibleStreamFlushes = new Map<string, PendingVisibleStreamFlush>();
+  private queuedUserInputsBySession = new Map<string, QueuedUserInput[]>();
   private flushingQueuedUserInputs = new Set<string>();
   private pendingProjectionCommitHydrates = new Map<string, string>();
   private hydratedProjectionCommitKeys = new Set<string>();
+  private summaryTitleRequests = new Set<string>();
 
   readonly actions: StoreActions;
 
@@ -569,7 +177,6 @@ export class WorkspaceRuntime {
       }));
     }
     this.runMonitorController = new RunMonitorController(this.store, {
-      hasActiveChatStream: () => this.hasActiveChatStream(),
       applySelectedSessionShell: (sessionId, scope) => this.applySelectedSessionShell(sessionId, scope ? { scope, poolKey: sessionPoolKeyForScope(scope) } : undefined),
       bindTaskEnvironmentContext: (taskEnvironmentId, options) => this.bindTaskEnvironmentContext(taskEnvironmentId, options),
       workspaceViewForTaskEnvironment: (taskEnvironmentId) => this.workspaceViewForTaskEnvironment(taskEnvironmentId),
@@ -763,7 +370,7 @@ export class WorkspaceRuntime {
       workspaceInitializing: true,
     }));
     try {
-      await this.refreshTaskEnvironmentCatalog();
+      void this.refreshTaskEnvironmentCatalog().catch(() => undefined);
       let restoredCurrentSession = false;
       let preferLatestVisibleSession = false;
       const rememberedSessionRef = readRememberedSessionRef();
@@ -882,29 +489,10 @@ export class WorkspaceRuntime {
       ...(restoredScope ? { scope: restoredScope } : {}),
       poolKey: normalized.poolKey ?? sessionPoolKeyForScope(restoredScope),
     };
-    const { projects, activeProject } = await this.resolveProjectWorkspaceForSession(summary);
     this.store.setState((prev) => ({
       ...prev,
       sessions: mergeSessionSummaries(prev.sessions, [summary]),
-      projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, projects),
-      projectSessions: activeProject
-        ? mergeSessionSummaries(prev.projectSessions, [summary])
-        : prev.projectSessions,
-      activeProjectKey: activeProject?.key || "",
-      activeProjectRoot: activeProject?.workspace_root || "",
     }));
-
-    if (activeProject) {
-      await this.selectProjectWorkspace(activeProject.key, {
-        preferredSessionId: summary.id,
-        fallbackSession: summary,
-      });
-      this.store.setState((prev) => ({
-        ...prev,
-        workspaceInitializing: false,
-      }));
-      return "restored";
-    }
 
     const restoredFromStreamCache = this.applySelectedSessionShell(summary.id, restoredRef);
     if (!restoredFromStreamCache) {
@@ -918,8 +506,35 @@ export class WorkspaceRuntime {
       ...prev,
       workspaceInitializing: false,
     }));
-    this.refreshRestoredSessionIndexesInBackground(summary);
+    if (sessionProjectRoot(summary)) {
+      void this.hydrateProjectWorkspaceForRestoredSession(summary).catch((error) => {
+        this.noteSessionRefreshFailure(error);
+      });
+    } else {
+      this.refreshRestoredSessionIndexesInBackground(summary);
+    }
     return "restored";
+  }
+
+  private async hydrateProjectWorkspaceForRestoredSession(summary: SessionSummary) {
+    if (!sessionProjectRoot(summary)) {
+      return;
+    }
+    const { projects, activeProject } = await this.resolveProjectWorkspaceForSession(summary);
+    if (this.store.getState().currentSessionId !== summary.id) {
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, projects),
+    }));
+    if (!activeProject) {
+      return;
+    }
+    await this.selectProjectWorkspace(activeProject.key, {
+      preferredSessionId: summary.id,
+      fallbackSession: summary,
+    });
   }
 
   private refreshRestoredSessionIndexesInBackground(restoredSession: SessionSummary) {
@@ -1101,10 +716,19 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined") {
       return;
     }
+    this.clearAllPendingVisibleStreamFlushes();
     for (const timer of this.sessionRefreshTimers) {
       window.clearTimeout(timer);
     }
     this.sessionRefreshTimers = [];
+    if (this.sessionTokenStatsTimer) {
+      window.clearTimeout(this.sessionTokenStatsTimer);
+      this.sessionTokenStatsTimer = null;
+    }
+    if (this.sessionRuntimeProjectionTimer) {
+      window.clearTimeout(this.sessionRuntimeProjectionTimer);
+      this.sessionRuntimeProjectionTimer = null;
+    }
     this.runMonitorController.stop();
   }
 
@@ -1386,6 +1010,58 @@ export class WorkspaceRuntime {
     });
   }
 
+  private requestSummarySessionTitleInBackground(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (
+      !normalizedSessionId
+      || this.summaryTitleRequests.has(normalizedSessionId)
+      || !this.shouldDeriveSessionTitleFromSummary(normalizedSessionId)
+    ) {
+      return;
+    }
+    this.summaryTitleRequests.add(normalizedSessionId);
+    void deriveSessionTitleFromSummary(normalizedSessionId, this.sessionScopeForSession(normalizedSessionId))
+      .then((result) => {
+        const title = String(result.title || "").trim();
+        if (!title || this.isDefaultSessionTitle(title)) {
+          return;
+        }
+        this.store.setState((prev) => ({
+          ...prev,
+          sessions: prev.sessions.map((session) =>
+            session.id === normalizedSessionId && this.isDefaultSessionTitle(session.title)
+              ? { ...session, title }
+              : session
+          ),
+          projectSessions: prev.projectSessions.map((session) =>
+            session.id === normalizedSessionId && this.isDefaultSessionTitle(session.title)
+              ? { ...session, title }
+              : session
+          ),
+        }));
+      })
+      .catch((error) => {
+        console.debug("[workspace-runtime] summary session title derivation skipped", {
+          event: "summary_session_title_derivation_failed",
+          sessionId: normalizedSessionId,
+          error: this.errorMessage(error, "会话摘要命名失败。"),
+        });
+      })
+      .finally(() => {
+        this.summaryTitleRequests.delete(normalizedSessionId);
+      });
+  }
+
+  private shouldDeriveSessionTitleFromSummary(sessionId: string, state = this.store.getState()) {
+    const session = state.sessions.find((item) => item.id === sessionId)
+      ?? state.projectSessions.find((item) => item.id === sessionId);
+    return Boolean(session && this.isDefaultSessionTitle(session.title));
+  }
+
+  private isDefaultSessionTitle(title: string | null | undefined) {
+    return String(title || "").trim() === DEFAULT_SESSION_TITLE;
+  }
+
   private noteSessionRefreshFailure(error: unknown) {
     const now = Date.now();
     if (now - this.sessionListFailureNotifiedAt < 15000) {
@@ -1442,19 +1118,7 @@ export class WorkspaceRuntime {
     const requestId = ++this.sessionDetailsRequest;
     try {
       const scope = this.sessionScopeForSession(sessionId);
-      const history = await getSessionTimeline(sessionId, scope).catch(() => getSessionHistory(sessionId, scope));
-      let tokens = null;
-      let tokenStatsRefreshed = false;
-      try {
-        tokens = await getSessionTokens(sessionId, scope);
-        tokenStatsRefreshed = true;
-      } catch (tokenError) {
-        console.debug("[workspace-runtime] session token refresh skipped", {
-          event: "session_token_refresh_failed",
-          sessionId,
-          error: this.errorMessage(tokenError, "会话 token 统计暂时读取失败。"),
-        });
-      }
+      const history = await getSessionHistory(sessionId, scope);
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
       }
@@ -1465,18 +1129,28 @@ export class WorkspaceRuntime {
         const permissionMode = history.conversation_state
           ? this.permissionModeFromConversationState(history.conversation_state)
           : this.permissionModeForSession(sessionId, prev);
+        const hydratedProjection = hydrateSessionRuntimeProjection(
+          {
+            messages: toUiMessages(history.messages),
+            activeProjectionsByKey: {},
+          },
+          (history as { runtime_attachments?: SessionRuntimeAttachment[] }).runtime_attachments,
+        );
         const refreshedMessages = this.mergeVolatileMessageProgress(
-          hydrateSessionRuntimeProjection(
-            toUiMessages(history.messages),
-            (history as { runtime_attachments?: SessionRuntimeAttachment[] }).runtime_attachments,
-          ),
+          hydratedProjection.messages,
           prev.messages,
         );
         const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
+        const activeProjectionsByKey = this.activeProjectionsForSessionDetailsRefresh(
+          sessionId,
+          prev,
+          hydratedProjection.activeProjectionsByKey,
+        );
         const next: StoreState = {
           ...prev,
           messages: visibleMessages,
-          tokenStats: tokenStatsRefreshed ? tokens : prev.tokenStats,
+          activeProjectionsByKey,
+          tokenStats: prev.tokenStats,
           conversationActiveEnvironment,
           permissionMode,
           sessions: prev.sessions.map((session) => session.id === sessionId
@@ -1493,6 +1167,8 @@ export class WorkspaceRuntime {
           ? this.clearSessionActivityFor(next, sessionId)
           : next;
       });
+      this.scheduleSessionTokenStatsRefresh(sessionId, requestId);
+      this.scheduleSessionRuntimeProjectionRefresh(sessionId, requestId);
       void this.refreshWorkspaceTree().catch(() => undefined);
     } catch (error) {
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
@@ -1527,6 +1203,75 @@ export class WorkspaceRuntime {
     }
   }
 
+  private async refreshSessionRuntimeProjection(sessionId: string, detailsRequestId = this.sessionDetailsRequest) {
+    const requestId = ++this.sessionRuntimeProjectionRequest;
+    const scope = this.sessionScopeForSession(sessionId);
+    const projection = await getSessionRuntimeProjection(sessionId, scope);
+    if (
+      this.store.getState().currentSessionId !== sessionId
+      || this.sessionDetailsRequest !== detailsRequestId
+      || this.sessionRuntimeProjectionRequest !== requestId
+    ) {
+      return;
+    }
+    this.store.setState((prev) => {
+      const hydratedProjection = hydrateSessionRuntimeProjection(
+        {
+          messages: toUiMessages(projection.messages),
+          activeProjectionsByKey: {},
+        },
+        projection.runtime_attachments,
+      );
+      const refreshedMessages = this.mergeVolatileMessageProgress(
+        hydratedProjection.messages,
+        prev.messages,
+      );
+      return {
+        ...prev,
+        messages: this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages),
+        activeProjectionsByKey: this.activeProjectionsForSessionDetailsRefresh(
+          sessionId,
+          prev,
+          hydratedProjection.activeProjectionsByKey,
+        ),
+      };
+    });
+  }
+
+  private scheduleSessionRuntimeProjectionRefresh(sessionId: string, detailsRequestId: number) {
+    if (this.sessionRuntimeProjectionTimer) {
+      clearTimeout(this.sessionRuntimeProjectionTimer);
+      this.sessionRuntimeProjectionTimer = null;
+    }
+    this.sessionRuntimeProjectionTimer = setTimeout(() => {
+      this.sessionRuntimeProjectionTimer = null;
+      if (
+        this.store.getState().currentSessionId !== sessionId
+        || this.sessionDetailsRequest !== detailsRequestId
+      ) {
+        return;
+      }
+      void this.refreshSessionRuntimeProjection(sessionId, detailsRequestId).catch(() => undefined);
+    }, SESSION_RUNTIME_PROJECTION_DELAY_MS);
+  }
+
+  private scheduleSessionTokenStatsRefresh(sessionId: string, detailsRequestId: number) {
+    if (this.sessionTokenStatsTimer) {
+      clearTimeout(this.sessionTokenStatsTimer);
+      this.sessionTokenStatsTimer = null;
+    }
+    this.sessionTokenStatsTimer = setTimeout(() => {
+      this.sessionTokenStatsTimer = null;
+      if (
+        this.store.getState().currentSessionId !== sessionId
+        || this.sessionDetailsRequest !== detailsRequestId
+      ) {
+        return;
+      }
+      void this.refreshCurrentSessionTokenStats("session_details_refresh").catch(() => undefined);
+    }, SESSION_TOKEN_STATS_DELAY_MS);
+  }
+
   private messagesForSessionDetailsRefresh(
     sessionId: string,
     current: StoreState,
@@ -1540,6 +1285,21 @@ export class WorkspaceRuntime {
       return current.messages;
     }
     return refreshedMessages;
+  }
+
+  private activeProjectionsForSessionDetailsRefresh(
+    sessionId: string,
+    current: StoreState,
+    refreshedActiveProjections: StoreState["activeProjectionsByKey"],
+  ) {
+    if (
+      current.currentSessionId === sessionId
+      && current.activeStreamSessionIds.includes(sessionId)
+      && current.messages.length > 0
+    ) {
+      return current.activeProjectionsByKey;
+    }
+    return refreshedActiveProjections;
   }
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
@@ -1559,18 +1319,13 @@ export class WorkspaceRuntime {
       if (!current || !this.messageHasRuntimeVolatileState(current)) {
         return message;
       }
-      const currentProjectionText = current.publicProjection?.bodyText || "";
       return {
         ...message,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
-        projectionLedger: message.projectionLedger ?? current.projectionLedger,
-        publicProjection: message.publicProjection ?? current.publicProjection,
-        runtimeDisplayState: message.runtimeDisplayState ?? current.runtimeDisplayState,
-        mainChatSurface: message.mainChatSurface ?? current.mainChatSurface,
         closeoutSummary: message.closeoutSummary ?? current.closeoutSummary,
         runtimeLogRef: message.runtimeLogRef ?? current.runtimeLogRef,
         toolEventCount: message.toolEventCount ?? current.toolEventCount,
-        content: message.content || currentProjectionText || current.content,
+        content: message.content || current.content,
         stageStatus: message.stageStatus ?? current.stageStatus,
       };
     });
@@ -1593,10 +1348,7 @@ export class WorkspaceRuntime {
   private messageHasRuntimeVolatileState(message: Message) {
     return Boolean(
       message.runtimeProgress?.length
-      || message.projectionLedger
-      || message.publicProjection
-      || message.mainChatSurface
-      || message.runtimeDisplayState
+      || message.projectionKeyString
     );
   }
 
@@ -1712,10 +1464,42 @@ export class WorkspaceRuntime {
     return uploaded;
   }
 
-  private enqueueUserInputForSession(sessionId: string, content: string) {
+  private activeTaskQueueTarget(state: StoreState, sessionId: string): Partial<QueuedUserInput> {
+    if (!this.shouldQueueActiveTurnInput(state, sessionId)) {
+      return {};
+    }
+    const monitorInfo = this.singleAgentTaskMonitorInfo(state.taskGraphLiveMonitor);
+    const taskRunId = String(state.activeTurnSnapshot?.task_run_id ?? monitorInfo?.taskRunId ?? "").trim();
+    const expectedActiveTurnId = this.expectedActiveTurnIdForSession(state, sessionId, taskRunId);
+    return {
+      inputPolicy: "steer",
+      expectedActiveTurnId,
+      taskRunId,
+    };
+  }
+
+  private queuedUserInputForSession(
+    sessionId: string,
+    content: string,
+    messageId: string,
+    target: Partial<QueuedUserInput> = this.activeTaskQueueTarget(this.store.getState(), sessionId),
+  ): QueuedUserInput {
+    return {
+      content,
+      messageId,
+      inputPolicy: target.inputPolicy,
+      expectedActiveTurnId: target.expectedActiveTurnId,
+      taskRunId: target.taskRunId,
+    };
+  }
+
+  private enqueueUserInputForSession(sessionId: string, content: string, target?: Partial<QueuedUserInput>) {
     const messageId = makeId();
     const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
-    this.queuedUserInputsBySession.set(sessionId, [...queued, { content, messageId }]);
+    this.queuedUserInputsBySession.set(sessionId, [
+      ...queued,
+      this.queuedUserInputForSession(sessionId, content, messageId, target),
+    ]);
     this.store.setState((prev) => {
       const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
       const nextMessages = shouldPatchVisibleMessages
@@ -1785,7 +1569,12 @@ export class WorkspaceRuntime {
     }
     this.flushingQueuedUserInputs.add(sessionId);
     try {
-      await this.sendMessage(next.content, { queuedUserMessageId: next.messageId });
+      await this.sendMessage(next.content, {
+        queuedUserMessageId: next.messageId,
+        activeTurnInputPolicy: next.inputPolicy,
+        expectedActiveTurnId: next.expectedActiveTurnId,
+        taskRunId: next.taskRunId,
+      });
     } finally {
       this.flushingQueuedUserInputs.delete(sessionId);
       if ((this.queuedUserInputsBySession.get(sessionId) ?? []).length) {
@@ -1797,14 +1586,23 @@ export class WorkspaceRuntime {
   private async submitActiveTurnSteerDuringActiveStream(
     sessionId: string,
     content: string,
-    options: { queuedUserMessageId?: string } = {},
+    options: {
+      queuedUserMessageId?: string;
+      activeTurnInputPolicy?: "auto" | "steer";
+      expectedActiveTurnId?: string;
+      taskRunId?: string;
+    } = {},
   ) {
     const preflightState = this.store.getState();
     if (!this.shouldQueueActiveTurnInput(preflightState, sessionId)) {
       if (options.queuedUserMessageId) {
         const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
         this.queuedUserInputsBySession.set(sessionId, [
-          { content, messageId: options.queuedUserMessageId },
+          this.queuedUserInputForSession(sessionId, content, options.queuedUserMessageId, {
+            inputPolicy: options.activeTurnInputPolicy,
+            expectedActiveTurnId: options.expectedActiveTurnId,
+            taskRunId: options.taskRunId,
+          }),
           ...queued,
         ]);
       } else {
@@ -1813,9 +1611,7 @@ export class WorkspaceRuntime {
       return;
     }
 
-    const activeTurnForRequest = preflightState.currentSessionId === sessionId
-      ? preflightState.activeTurnSnapshot
-      : null;
+    const expectedActiveTurnId = options.expectedActiveTurnId || this.expectedActiveTurnIdForSession(preflightState, sessionId, options.taskRunId);
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds;
     let transition = startQueuedActiveTurn(preflightState, content, { existingUserMessageId: options.queuedUserMessageId });
     const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
@@ -1840,12 +1636,14 @@ export class WorkspaceRuntime {
     streamState = this.captureSessionActivity(streamState, sessionId);
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
+      activeProjectionsByKey: streamState.activeProjectionsByKey,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
     if (this.store.getState().currentSessionId === sessionId) {
       this.applyVisibleStreamState(streamState, activeStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
     }
+    const streamEpoch = this.chatStreamEpochBySession.get(sessionId) ?? 0;
 
     try {
       const requestState = this.store.getState();
@@ -1858,17 +1656,27 @@ export class WorkspaceRuntime {
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
-          expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
+          expected_active_turn_id: expectedActiveTurnId,
           active_turn_input_policy: "steer",
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
         },
         {
           onEvent: (event, data) => {
+            if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
+              return;
+            }
             if (this.removedStreamingSessionIds.has(sessionId)) {
               return;
             }
+            if (this.stoppedStreamingSessionIds.has(sessionId)) {
+              return;
+            }
+            const eventBinding = this.eventChatStreamBinding(data);
+            this.updateActiveChatStreamBinding(sessionId, eventBinding);
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
-            const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
+            const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
+              ? this.store.getState()
+              : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds;
             streamState = {
@@ -1881,12 +1689,26 @@ export class WorkspaceRuntime {
             if (currentActiveStreamSessionIds.includes(sessionId)) {
               this.streamingSessionCache.set(sessionId, {
                 messages: streamState.messages,
+                activeProjectionsByKey: streamState.activeProjectionsByKey,
                 orchestrationSnapshot: streamState.orchestrationSnapshot,
                 activeTurnSnapshot: streamState.activeTurnSnapshot,
               });
             }
             if (isCurrentStreamSession) {
-              this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
+              this.presentVisibleStreamState(
+                sessionId,
+                streamState,
+                currentActiveStreamSessionIds,
+                event,
+                data,
+                { preserveTaskGraphLiveMonitor: true },
+              );
+            }
+            if (streamEventStopsActiveWork(event, data)) {
+              this.releaseStoppedChatStreamBoundary(sessionId, "active_work_stopped", {
+                taskRunId: eventBinding.taskRunId,
+                turnId: eventBinding.turnId,
+              });
             }
           },
         },
@@ -1910,14 +1732,28 @@ export class WorkspaceRuntime {
       if (currentActiveStreamSessionIds.includes(sessionId)) {
         this.streamingSessionCache.set(sessionId, {
           messages: streamState.messages,
+          activeProjectionsByKey: streamState.activeProjectionsByKey,
           orchestrationSnapshot: streamState.orchestrationSnapshot,
           activeTurnSnapshot: streamState.activeTurnSnapshot,
         });
       }
       if (this.store.getState().currentSessionId === sessionId) {
-        this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds, { preserveTaskGraphLiveMonitor: true });
+        this.flushVisibleStreamStateNow(
+          sessionId,
+          streamState,
+          currentActiveStreamSessionIds,
+          { preserveTaskGraphLiveMonitor: true },
+        );
       }
     } finally {
+      if (this.store.getState().currentSessionId === sessionId) {
+        this.flushVisibleStreamStateNow(
+          sessionId,
+          streamState,
+          this.store.getState().activeStreamSessionIds,
+          { preserveTaskGraphLiveMonitor: true },
+        );
+      }
       if (!this.store.getState().activeStreamSessionIds.includes(sessionId)) {
         this.streamingSessionCache.delete(sessionId);
       }
@@ -2044,11 +1880,12 @@ export class WorkspaceRuntime {
   private applyVisibleStreamState(
     streamState: StoreState,
     activeStreamSessionIds: string[],
-    options: { preserveTaskGraphLiveMonitor?: boolean } = {},
+    options: VisibleStreamStateOptions = {},
   ) {
     this.store.setState((prev) => ({
       ...prev,
       messages: streamState.messages,
+      activeProjectionsByKey: streamState.activeProjectionsByKey,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
       taskGraphLiveMonitor: options.preserveTaskGraphLiveMonitor ? prev.taskGraphLiveMonitor : null,
@@ -2063,6 +1900,118 @@ export class WorkspaceRuntime {
     }));
   }
 
+  private presentVisibleStreamState(
+    sessionId: string,
+    streamState: StoreState,
+    activeStreamSessionIds: string[],
+    event: string,
+    data: Record<string, unknown>,
+    options: VisibleStreamStateOptions = {},
+  ) {
+    if (this.store.getState().currentSessionId !== sessionId) {
+      return;
+    }
+    if (this.streamEventCanUseDeferredVisibleFlush(event, data)) {
+      this.deferVisibleStreamState(sessionId, streamState, activeStreamSessionIds, options);
+      return;
+    }
+    this.flushVisibleStreamStateNow(sessionId, streamState, activeStreamSessionIds, options);
+  }
+
+  private streamEventCanUseDeferredVisibleFlush(event: string, data: Record<string, unknown>) {
+    if (event !== "assistant_text_delta") {
+      return false;
+    }
+    const frame = projectionFrameFromRecord(data.public_projection_frame);
+    return frame?.op === "body_append" && frame.slot === "body";
+  }
+
+  private deferVisibleStreamState(
+    sessionId: string,
+    streamState: StoreState,
+    activeStreamSessionIds: string[],
+    options: VisibleStreamStateOptions,
+  ) {
+    const existing = this.pendingVisibleStreamFlushes.get(sessionId);
+    if (existing) {
+      existing.streamState = streamState;
+      existing.activeStreamSessionIds = activeStreamSessionIds;
+      existing.options = options;
+      return;
+    }
+    const pending: PendingVisibleStreamFlush = {
+      streamState,
+      activeStreamSessionIds,
+      options,
+      timer: null,
+      frame: null,
+    };
+    this.pendingVisibleStreamFlushes.set(sessionId, pending);
+    const flush = () => {
+      const latest = this.pendingVisibleStreamFlushes.get(sessionId);
+      if (!latest) {
+        return;
+      }
+      this.pendingVisibleStreamFlushes.delete(sessionId);
+      if (this.store.getState().currentSessionId !== sessionId) {
+        return;
+      }
+      if (this.removedStreamingSessionIds.has(sessionId)) {
+        return;
+      }
+      this.applyVisibleStreamState(latest.streamState, latest.activeStreamSessionIds, latest.options);
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      pending.timer = window.setTimeout(() => {
+        pending.timer = null;
+        pending.frame = window.requestAnimationFrame(() => {
+          pending.frame = null;
+          flush();
+        });
+      }, VISIBLE_STREAM_BODY_FLUSH_DELAY_MS);
+      return;
+    }
+    pending.timer = setTimeout(() => {
+      pending.timer = null;
+      flush();
+    }, VISIBLE_STREAM_BODY_FLUSH_DELAY_MS);
+  }
+
+  private flushVisibleStreamStateNow(
+    sessionId: string,
+    streamState: StoreState,
+    activeStreamSessionIds: string[],
+    options: VisibleStreamStateOptions = {},
+  ) {
+    this.clearPendingVisibleStreamFlush(sessionId);
+    if (this.store.getState().currentSessionId !== sessionId) {
+      return;
+    }
+    this.applyVisibleStreamState(streamState, activeStreamSessionIds, options);
+  }
+
+  private clearPendingVisibleStreamFlush(sessionId: string) {
+    const pending = this.pendingVisibleStreamFlushes.get(sessionId);
+    if (!pending) {
+      return;
+    }
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+    }
+    if (typeof window !== "undefined") {
+      if (pending.frame !== null && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(pending.frame);
+      }
+    }
+    this.pendingVisibleStreamFlushes.delete(sessionId);
+  }
+
+  private clearAllPendingVisibleStreamFlushes() {
+    for (const sessionId of Array.from(this.pendingVisibleStreamFlushes.keys())) {
+      this.clearPendingVisibleStreamFlush(sessionId);
+    }
+  }
+
   private async createFreshSession() {
     if (this.createSessionPromise) {
       return this.createSessionPromise;
@@ -2071,8 +2020,8 @@ export class WorkspaceRuntime {
     const pending = (async () => {
       const activeProjectKey = this.store.getState().activeProjectKey;
       const created = activeProjectKey
-        ? (await createProjectWorkspaceSession(activeProjectKey, "New Session")).session
-        : await createSession("New Session");
+        ? (await createProjectWorkspaceSession(activeProjectKey, DEFAULT_SESSION_TITLE)).session
+        : await createSession(DEFAULT_SESSION_TITLE);
       const conversationActiveEnvironment =
         this.activeEnvironmentForSession(created)
         ?? this.store.getState().conversationActiveEnvironment
@@ -2505,6 +2454,7 @@ export class WorkspaceRuntime {
         conversationActiveEnvironment,
         permissionMode,
         messages: streamingCache.messages,
+        activeProjectionsByKey: streamingCache.activeProjectionsByKey,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
         activeTurnSnapshot: streamingCache.activeTurnSnapshot,
         taskGraphLiveMonitor: null,
@@ -2528,6 +2478,7 @@ export class WorkspaceRuntime {
       conversationActiveEnvironment,
       permissionMode,
       messages: [],
+      activeProjectionsByKey: {},
       orchestrationSnapshot: null,
       activeTurnSnapshot: null,
       taskGraphLiveMonitor: null,
@@ -2619,15 +2570,45 @@ export class WorkspaceRuntime {
       && cursorOffset >= latestOffset;
   }
 
-  private applyActiveTurnSnapshotFromChatRun(run: { active_turn_snapshot?: Record<string, unknown> | null } | null | undefined) {
-    if (!run || !Object.prototype.hasOwnProperty.call(run, "active_turn_snapshot")) {
+  private applyActiveTurnSnapshotFromChatRun(run: ChatRun | null | undefined) {
+    if (!run) {
       return;
     }
-    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run?.active_turn_snapshot);
+    const hasSnapshotField = Object.prototype.hasOwnProperty.call(run, "active_turn_snapshot");
+    const activeTurnSnapshot = this.activeTurnSnapshotFromPayload(run.active_turn_snapshot)
+      ?? this.activeTurnSnapshotFromChatRunDiagnostics(run);
+    if (!hasSnapshotField && !activeTurnSnapshot) {
+      return;
+    }
     this.store.setState((prev) => ({
       ...prev,
       activeTurnSnapshot,
     }));
+  }
+
+  private activeTurnSnapshotFromChatRunDiagnostics(run: ChatRun): ActiveTurnSnapshot | null {
+    const diagnostics = run.diagnostics && typeof run.diagnostics === "object" && !Array.isArray(run.diagnostics)
+      ? run.diagnostics
+      : {};
+    const turnId = runtimeText(diagnostics.active_turn_id)
+      || runtimeText(diagnostics.public_anchor_turn_id);
+    if (!turnId) {
+      return null;
+    }
+    const taskRunId = runtimeText(diagnostics.runtime_task_run_id)
+      || runtimeText(diagnostics.task_run_id)
+      || runtimeText(diagnostics.public_anchor_task_run_id);
+    const state = this.activeTurnStateFromPayload(diagnostics.active_turn_state)
+      ?? (taskRunId ? "running_task" : "model_turn");
+    return {
+      turn_id: turnId,
+      turn_run_id: runtimeText(diagnostics.runtime_turn_run_id)
+        || runtimeText(diagnostics.turn_run_id)
+        || undefined,
+      task_run_id: taskRunId || undefined,
+      state,
+      updated_at: Date.now() / 1000,
+    };
   }
 
   private activeTurnSnapshotFromPayload(value: unknown): ActiveTurnSnapshot | null {
@@ -2748,6 +2729,7 @@ export class WorkspaceRuntime {
   private releaseActiveChatStreamForSwitch(sessionId: string) {
     this.nextChatStreamEpoch(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
+    this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
     this.streamingSessionCache.delete(sessionId);
@@ -2756,7 +2738,7 @@ export class WorkspaceRuntime {
   }
 
   private recordProjectionCommitAck(sessionId: string, data: Record<string, unknown>) {
-    const frame = publicProjectionFrameFromRecord(data.public_projection_frame);
+    const frame = projectionFrameFromRecord(data.public_projection_frame);
     if (frame?.op !== "commit_ack") {
       return;
     }
@@ -2828,6 +2810,58 @@ export class WorkspaceRuntime {
     return "";
   }
 
+  private messagesWithRecoveredAssistantShell(
+    messages: Message[],
+    assistantId: string,
+    streamRunId: string,
+    run: ChatRun | null,
+  ) {
+    if (messages.some((message) => message.role === "assistant" && message.id === assistantId)) {
+      return messages;
+    }
+    const activeTurn = run?.active_turn_snapshot ?? null;
+    const diagnostics = run?.diagnostics ?? {};
+    const turnId = runtimeText(activeTurn?.turn_id)
+      || runtimeText(diagnostics.active_turn_id)
+      || runtimeText(diagnostics.public_anchor_turn_id);
+    const turnRunId = runtimeText(activeTurn?.turn_run_id)
+      || runtimeText(diagnostics.runtime_turn_run_id)
+      || runtimeText(diagnostics.turn_run_id);
+    const taskRunId = runtimeText(activeTurn?.bound_task_run_id)
+      || runtimeText(activeTurn?.task_run_id)
+      || runtimeText(diagnostics.runtime_task_run_id)
+      || runtimeText(diagnostics.task_run_id)
+      || runtimeText(diagnostics.public_anchor_task_run_id);
+    const userIndex = turnId
+      ? messages.findIndex((message) => message.role === "user" && message.sourceTurnId === turnId)
+      : -1;
+    const userMessage = userIndex >= 0 ? messages[userIndex] : null;
+    const assistantMessage: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      toolCalls: [],
+      retrievals: [],
+      runtimeProgress: [],
+      stageStatus: "",
+      sourceIndex: userMessage && typeof userMessage.sourceIndex === "number"
+        ? userMessage.sourceIndex + 0.5
+        : this.nextMessageSourceIndex(messages),
+      sourceTurnId: turnId || undefined,
+      sourceStreamRunId: streamRunId || undefined,
+      sourceTaskRunId: taskRunId || undefined,
+      sourceTurnRunId: turnRunId || undefined,
+    };
+    if (userIndex < 0) {
+      return [...messages, assistantMessage];
+    }
+    return [
+      ...messages.slice(0, userIndex + 1),
+      assistantMessage,
+      ...messages.slice(userIndex + 1),
+    ];
+  }
+
   private startRecoveredChatRunStream(
     sessionId: string,
     streamRunId: string,
@@ -2842,15 +2876,20 @@ export class WorkspaceRuntime {
     this.streamAbortControllers.set(sessionId, abortController);
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
+    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromSummary(sessionId);
 
-    const assistantId = this.recoveredAssistantMessageId(streamRunId, run) || makeId();
+    const existingAssistantId = this.recoveredAssistantMessageId(streamRunId, run);
+    const assistantId = existingAssistantId || makeId();
+    const messages = existingAssistantId
+      ? this.store.getState().messages
+      : this.messagesWithRecoveredAssistantShell(this.store.getState().messages, assistantId, streamRunId, run);
     const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
       ? this.store.getState().activeStreamSessionIds
       : [...this.store.getState().activeStreamSessionIds, sessionId];
     const recoveryActivityDetail = recoveredChatRunActivityDetail();
     let streamState: StoreState = {
       ...this.store.getState(),
-      messages: this.store.getState().messages,
+      messages,
       orchestrationSnapshot: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
@@ -2872,6 +2911,7 @@ export class WorkspaceRuntime {
     let transitionSession: StreamSession = { assistantId };
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
+      activeProjectionsByKey: streamState.activeProjectionsByKey,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
@@ -2899,9 +2939,14 @@ export class WorkspaceRuntime {
               if (this.removedStreamingSessionIds.has(sessionId)) {
                 return;
               }
+              if (this.stoppedStreamingSessionIds.has(sessionId)) {
+                return;
+              }
               this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data, streamRunId));
               const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
-              const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
+              const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
+                ? this.store.getState()
+                : streamState;
               const transition = reduceStreamEvent(baseState, transitionSession, event, data);
               this.recordProjectionCommitAck(sessionId, data);
               transitionSession = transition.session;
@@ -2917,11 +2962,19 @@ export class WorkspaceRuntime {
               streamState = this.captureSessionActivity(streamState, sessionId);
               this.streamingSessionCache.set(sessionId, {
                 messages: streamState.messages,
+                activeProjectionsByKey: streamState.activeProjectionsByKey,
                 orchestrationSnapshot: streamState.orchestrationSnapshot,
                 activeTurnSnapshot: streamState.activeTurnSnapshot,
               });
               if (isCurrentStreamSession) {
-                this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+                this.presentVisibleStreamState(sessionId, streamState, currentActiveStreamSessionIds, event, data);
+              }
+              if (streamEventStopsActiveWork(event, data)) {
+                const eventBinding = this.eventChatStreamBinding(data, streamRunId);
+                this.releaseStoppedChatStreamBoundary(sessionId, "active_work_stopped", {
+                  taskRunId: eventBinding.taskRunId,
+                  turnId: eventBinding.turnId,
+                });
               }
             }
           },
@@ -2965,16 +3018,18 @@ export class WorkspaceRuntime {
         streamState = this.captureSessionActivity(streamState, sessionId);
         this.streamingSessionCache.set(sessionId, {
           messages: streamState.messages,
+          activeProjectionsByKey: streamState.activeProjectionsByKey,
           orchestrationSnapshot: streamState.orchestrationSnapshot,
           activeTurnSnapshot: streamState.activeTurnSnapshot,
         });
         if (this.store.getState().currentSessionId === sessionId) {
-          this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+          this.flushVisibleStreamStateNow(sessionId, streamState, currentActiveStreamSessionIds);
         }
       } finally {
         if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
           return;
         }
+        this.flushVisibleStreamStateNow(sessionId, streamState, this.store.getState().activeStreamSessionIds);
         this.streamAbortControllers.delete(sessionId);
         const currentBinding = this.activeChatStreamBindings.get(sessionId);
         if (!currentBinding || currentBinding.streamRunId === streamRunId) {
@@ -3002,6 +3057,14 @@ export class WorkspaceRuntime {
           await this.hydrateCommittedProjectionIfPending(sessionId);
         }
         if (
+          shouldDeriveTitleAfterCompletion
+          && !streamSessionWasRemoved
+          && !streamSessionWasStopped
+          && !streamEndedWithError
+        ) {
+          this.requestSummarySessionTitleInBackground(sessionId);
+        }
+        if (
           !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
@@ -3017,7 +3080,16 @@ export class WorkspaceRuntime {
     })();
   }
 
-  private async sendMessage(value: string, options: { queuedUserMessageId?: string; files?: File[] } = {}) {
+  private async sendMessage(
+    value: string,
+    options: {
+      queuedUserMessageId?: string;
+      files?: File[];
+      activeTurnInputPolicy?: "auto" | "steer";
+      expectedActiveTurnId?: string;
+      taskRunId?: string;
+    } = {},
+  ) {
     const files = (options.files ?? []).filter(Boolean);
     const hasFiles = files.length > 0;
     const trimmed = value.trim() || (hasFiles ? "请识别图片中的文字。" : "");
@@ -3104,7 +3176,7 @@ export class WorkspaceRuntime {
         if (options.queuedUserMessageId) {
           const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
           this.queuedUserInputsBySession.set(sessionId, [
-            { content: trimmed, messageId: options.queuedUserMessageId },
+            this.queuedUserInputForSession(sessionId, trimmed, options.queuedUserMessageId),
             ...queued,
           ]);
           return;
@@ -3119,7 +3191,11 @@ export class WorkspaceRuntime {
       if (options.queuedUserMessageId) {
         const queued = this.queuedUserInputsBySession.get(sessionId) ?? [];
         this.queuedUserInputsBySession.set(sessionId, [
-          { content: trimmed, messageId: options.queuedUserMessageId },
+          this.queuedUserInputForSession(sessionId, trimmed, options.queuedUserMessageId, {
+            inputPolicy: options.activeTurnInputPolicy,
+            expectedActiveTurnId: options.expectedActiveTurnId,
+            taskRunId: options.taskRunId,
+          }),
           ...queued,
         ]);
         return;
@@ -3127,6 +3203,7 @@ export class WorkspaceRuntime {
       this.enqueueUserInputForSession(sessionId, trimmed);
       return;
     }
+    const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromSummary(sessionId);
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
     const streamEpoch = this.nextChatStreamEpoch(sessionId);
@@ -3140,15 +3217,22 @@ export class WorkspaceRuntime {
     const activeTurnSnapshotForTransition = preflightState.currentSessionId === sessionId
       ? preflightState.activeTurnSnapshot
       : null;
-    const queueActiveTurnInput = this.shouldQueueActiveTurnInput(preflightState, sessionId);
-    const activeTurnInputPolicy = this.activeTurnInputPolicyForSession(preflightState, sessionId);
-    const recoverableContinuation = queueActiveTurnInput
-      ? null
-      : await this.recoverableContinuationForSession(preflightState, sessionId);
+    const forcedSteerInput = options.activeTurnInputPolicy === "steer";
+    const queueActiveTurnInput = forcedSteerInput || this.shouldQueueActiveTurnInput(preflightState, sessionId);
+    const activeTurnInputPolicy = forcedSteerInput ? "steer" : this.activeTurnInputPolicyForSession(preflightState, sessionId);
+    const expectedActiveTurnIdForRequest = activeTurnInputPolicy === "steer"
+      ? options.expectedActiveTurnId || this.expectedActiveTurnIdForSession(preflightState, sessionId, options.taskRunId)
+      : "";
+    if (forcedSteerInput) {
+      this.updateActiveChatStreamBinding(sessionId, {
+        taskRunId: options.taskRunId || "",
+        turnId: expectedActiveTurnIdForRequest,
+      });
+    }
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      taskGraphLiveMonitor: queueActiveTurnInput || recoverableContinuation ? prev.taskGraphLiveMonitor : null,
+      taskGraphLiveMonitor: queueActiveTurnInput ? prev.taskGraphLiveMonitor : null,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
@@ -3185,6 +3269,7 @@ export class WorkspaceRuntime {
     };
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
+      activeProjectionsByKey: streamState.activeProjectionsByKey,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
       activeTurnSnapshot: streamState.activeTurnSnapshot,
     });
@@ -3210,6 +3295,9 @@ export class WorkspaceRuntime {
       const activeTurnForRequest = activeTurnSnapshotForTransition ?? (
         requestState.currentSessionId === sessionId ? requestState.activeTurnSnapshot : null
       );
+      const expectedActiveTurnId = activeTurnInputPolicy === "steer"
+        ? expectedActiveTurnIdForRequest
+        : String(activeTurnForRequest?.turn_id ?? "");
       const permissionMode = this.permissionModeForSession(sessionId, requestState);
       const streamResult = await streamChat(
         {
@@ -3219,11 +3307,8 @@ export class WorkspaceRuntime {
           environment_binding: this.chatEnvironmentBindingPayload(requestState),
           model_selection: this.chatModelSelectionPayload(requestState),
           permission_mode: permissionMode,
-          expected_active_turn_id: String(activeTurnForRequest?.turn_id ?? ""),
+          expected_active_turn_id: expectedActiveTurnId,
           active_turn_input_policy: activeTurnInputPolicy,
-          expected_task_run_id: recoverableContinuation?.taskRunId ?? "",
-          expected_continuation_id: recoverableContinuation?.continuationId ?? "",
-          recovery_input_policy: "auto",
           editor_context: this.chatEditorContextPayload(requestState, sessionId),
           attachments,
           image_generation: imageGeneration
@@ -3242,9 +3327,14 @@ export class WorkspaceRuntime {
             if (this.removedStreamingSessionIds.has(sessionId)) {
               return;
             }
+            if (this.stoppedStreamingSessionIds.has(sessionId)) {
+              return;
+            }
             this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data));
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
-            const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
+            const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
+              ? this.store.getState()
+              : streamState;
             transition = reduceStreamEvent(baseState, transition.session, event, data);
             this.recordProjectionCommitAck(sessionId, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
@@ -3263,11 +3353,19 @@ export class WorkspaceRuntime {
             };
             this.streamingSessionCache.set(sessionId, {
               messages: streamState.messages,
+              activeProjectionsByKey: streamState.activeProjectionsByKey,
               orchestrationSnapshot: streamState.orchestrationSnapshot,
               activeTurnSnapshot: streamState.activeTurnSnapshot,
             });
             if (isCurrentStreamSession) {
-              this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+              this.presentVisibleStreamState(sessionId, streamState, currentActiveStreamSessionIds, event, data);
+            }
+            if (streamEventStopsActiveWork(event, data)) {
+              const eventBinding = this.eventChatStreamBinding(data);
+              this.releaseStoppedChatStreamBoundary(sessionId, "active_work_stopped", {
+                taskRunId: eventBinding.taskRunId,
+                turnId: eventBinding.turnId,
+              });
             }
           }
         },
@@ -3307,16 +3405,18 @@ export class WorkspaceRuntime {
       streamState = this.captureSessionActivity(streamState, sessionId);
       this.streamingSessionCache.set(sessionId, {
         messages: streamState.messages,
+        activeProjectionsByKey: streamState.activeProjectionsByKey,
         orchestrationSnapshot: streamState.orchestrationSnapshot,
         activeTurnSnapshot: streamState.activeTurnSnapshot,
       });
       if (this.store.getState().currentSessionId === sessionId) {
-        this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+        this.flushVisibleStreamStateNow(sessionId, streamState, currentActiveStreamSessionIds);
       }
     } finally {
       if (!this.isCurrentChatStreamEpoch(sessionId, streamEpoch)) {
         return;
       }
+      this.flushVisibleStreamStateNow(sessionId, streamState, this.store.getState().activeStreamSessionIds);
       this.streamAbortControllers.delete(sessionId);
       this.activeTaskSteerStreamSessionIds.delete(sessionId);
       const currentBinding = this.activeChatStreamBindings.get(sessionId);
@@ -3345,6 +3445,14 @@ export class WorkspaceRuntime {
         await this.hydrateCommittedProjectionIfPending(sessionId);
       }
       if (
+        shouldDeriveTitleAfterCompletion
+        && !streamSessionWasRemoved
+        && !streamSessionWasStopped
+        && !streamEndedWithError
+      ) {
+        this.requestSummarySessionTitleInBackground(sessionId);
+      }
+      if (
         !streamSessionWasRemoved
         && !streamSessionWasStopped
         && !streamEndedWithError
@@ -3362,11 +3470,68 @@ export class WorkspaceRuntime {
 
   private stopCurrentStream() {
     const sessionId = this.store.getState().currentSessionId;
-    if (!sessionId || !this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-      return;
+    const taskRunId = this.activeControllableTaskRunId();
+    const expectedTurnId = taskRunId ? this.activeExpectedTurnIdForTaskRun(taskRunId) : "";
+    this.releaseStoppedChatStreamBoundary(sessionId, "user_stopped", { taskRunId, turnId: expectedTurnId });
+    if (taskRunId) {
+      void this.stopTaskRunFromSystemInterrupt(taskRunId, expectedTurnId, "user_stop_from_chat_stream");
     }
-    this.stoppedStreamingSessionIds.add(sessionId);
-    this.streamAbortControllers.get(sessionId)?.abort();
+  }
+
+  private releaseStoppedChatStreamBoundary(
+    sessionId: string | null | undefined,
+    reason = "user_stopped",
+    options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId || !this.store.getState().activeStreamSessionIds.includes(normalizedSessionId)) {
+      return false;
+    }
+    this.nextChatStreamEpoch(normalizedSessionId);
+    this.stoppedStreamingSessionIds.add(normalizedSessionId);
+    this.clearPendingVisibleStreamFlush(normalizedSessionId);
+    if (options.abortStream !== false) {
+      this.streamAbortControllers.get(normalizedSessionId)?.abort();
+      this.streamAbortControllers.delete(normalizedSessionId);
+    }
+    this.streamingSessionCache.delete(normalizedSessionId);
+    this.activeTaskSteerStreamSessionIds.delete(normalizedSessionId);
+    const streamBinding = this.activeChatStreamBindings.get(normalizedSessionId);
+    const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
+    const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
+    this.activeChatStreamBindings.delete(normalizedSessionId);
+    this.store.setState((prev) => ({
+      ...this.releaseActiveTurnGateForStoppedStream(
+        this.removeActiveStreamSession(prev, normalizedSessionId),
+        stoppedTaskRunId,
+        stoppedTurnId,
+      ),
+      chatStreamConnectionStatus: {
+        state: "stopped",
+        reason,
+        updatedAt: Date.now(),
+      },
+    }));
+    void this.flushQueuedUserInputsForSession(normalizedSessionId);
+    return true;
+  }
+
+  private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string) {
+    const activeTurnSnapshot = state.activeTurnSnapshot;
+    const snapshotMatches = Boolean(activeTurnSnapshot) && (
+      Boolean(turnId && activeTurnSnapshot?.turn_id === turnId)
+      || Boolean(taskRunId && activeTurnSnapshot?.task_run_id === taskRunId)
+    );
+    const monitorInfo = this.singleAgentTaskMonitorInfo(state.taskGraphLiveMonitor);
+    const monitorMatches = Boolean(taskRunId && monitorInfo?.taskRunId === taskRunId);
+    if (!snapshotMatches && !monitorMatches) {
+      return state;
+    }
+    return {
+      ...state,
+      activeTurnSnapshot: snapshotMatches ? null : state.activeTurnSnapshot,
+      taskGraphLiveMonitor: monitorMatches ? null : state.taskGraphLiveMonitor,
+    };
   }
 
   private async pauseActiveTaskRun() {
@@ -3418,8 +3583,11 @@ export class WorkspaceRuntime {
   private async stopActiveTaskRun() {
     const taskRunId = this.activeControllableTaskRunId();
     if (!taskRunId) {
+      this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId);
       return;
     }
+    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
+    this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId, "user_stopped", { taskRunId, turnId: expectedTurnId });
     this.setActiveTaskControlActivity({
       taskRunId,
       level: "running",
@@ -3428,7 +3596,16 @@ export class WorkspaceRuntime {
       event: "active_task_stop_requested",
     });
     try {
-      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", this.activeExpectedTurnIdForTaskRun(taskRunId));
+      await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
+      await this.refreshActiveSessionMonitor();
+    } catch (error) {
+      this.setActiveTaskControlError("stop", taskRunId, error);
+    }
+  }
+
+  private async stopTaskRunFromSystemInterrupt(taskRunId: string, expectedTurnId: string, reason: string) {
+    try {
+      await stopOrchestrationHarnessTaskRun(taskRunId, reason, expectedTurnId);
       await this.refreshActiveSessionMonitor();
     } catch (error) {
       this.setActiveTaskControlError("stop", taskRunId, error);
@@ -3505,19 +3682,20 @@ export class WorkspaceRuntime {
   }
 
   private activeControllableTaskRunId() {
-    const monitor = this.store.getState().taskGraphLiveMonitor;
-    const taskRun = monitor ? this.harnessMonitorTaskRun(monitor) : {};
-    const executionRuntimeKind = String((monitor as Record<string, unknown> | null)?.execution_runtime_kind ?? taskRun.execution_runtime_kind ?? "").trim();
-    const route = monitor && (monitor as Record<string, unknown>).route && typeof (monitor as Record<string, unknown>).route === "object" && !Array.isArray((monitor as Record<string, unknown>).route)
-      ? (monitor as Record<string, unknown>).route as Record<string, unknown>
-      : {};
-    const diagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
-      ? taskRun.diagnostics as Record<string, unknown>
-      : {};
-    if (executionRuntimeKind !== "single_agent_task" || String(route.kind ?? "").trim() === "task_graph_run" || String(diagnostics.origin_kind ?? "").trim() === "graph_node_assigned") {
+    const state = this.store.getState();
+    const monitor = state.taskGraphLiveMonitor;
+    const monitorInfo = this.singleAgentTaskMonitorInfo(monitor);
+    if (monitorInfo) {
+      return monitorInfo.taskRunId;
+    }
+    if (monitor) {
       return "";
     }
-    return String(taskRun.task_run_id ?? monitor?.task_run_id ?? "").trim();
+    return String(
+      state.currentSessionId
+        ? this.activeChatStreamBindings.get(state.currentSessionId)?.taskRunId ?? ""
+        : ""
+    ).trim();
   }
 
   private activeTaskRunStatus(taskRunId: string) {
@@ -3534,68 +3712,89 @@ export class WorkspaceRuntime {
   }
 
   private activeExpectedTurnIdForTaskRun(taskRunId: string) {
-    const snapshot = this.store.getState().activeTurnSnapshot;
-    if (String(snapshot?.task_run_id ?? "").trim() !== taskRunId) {
+    return this.expectedActiveTurnIdForSession(this.store.getState(), this.store.getState().currentSessionId ?? "", taskRunId);
+  }
+
+  private expectedActiveTurnIdForSession(state: StoreState, sessionId: string, taskRunId = "") {
+    if (!sessionId || state.currentSessionId !== sessionId) {
       return "";
     }
-    return String(snapshot?.turn_id ?? "").trim();
-  }
-
-  private activeTurnInputPolicyForSession(state: StoreState, sessionId: string) {
-    return this.shouldQueueActiveTurnInput(state, sessionId) ? "steer" : "auto";
-  }
-
-  private async recoverableContinuationForSession(
-    state: StoreState,
-    sessionId: string,
-  ): Promise<RecoverableContinuationHandle | null> {
-    if (state.currentSessionId !== sessionId) {
-      return null;
-    }
-    if (this.shouldQueueActiveTurnInput(state, sessionId)) {
-      return null;
+    const snapshot = state.activeTurnSnapshot;
+    const snapshotTaskRunId = String(snapshot?.task_run_id ?? "").trim();
+    if (snapshot?.turn_id && (!taskRunId || !snapshotTaskRunId || snapshotTaskRunId === taskRunId)) {
+      return String(snapshot.turn_id).trim();
     }
     const monitor = state.taskGraphLiveMonitor;
+    const monitorInfo = this.singleAgentTaskMonitorInfo(monitor);
+    if (!monitorInfo || (taskRunId && monitorInfo.taskRunId !== taskRunId)) {
+      return "";
+    }
+    const monitorRecord = monitor as unknown as Record<string, unknown>;
+    const monitorSnapshot = this.activeTurnSnapshotFromPayload(monitorRecord.active_turn_snapshot);
+    if (monitorSnapshot?.turn_id) {
+      const monitorSnapshotTaskRunId = String(monitorSnapshot.task_run_id ?? "").trim();
+      if (!taskRunId || !monitorSnapshotTaskRunId || monitorSnapshotTaskRunId === taskRunId) {
+        return monitorSnapshot.turn_id;
+      }
+    }
+    return String(monitorRecord.latest_interaction_turn_id ?? "").trim();
+  }
+
+  private singleAgentTaskMonitorInfo(monitor: StoreState["taskGraphLiveMonitor"]) {
     if (!monitor) {
       return null;
     }
     const taskRun = this.harnessMonitorTaskRun(monitor);
-    const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (!taskRunId) {
-      return null;
-    }
     const monitorRecord = monitor as unknown as Record<string, unknown>;
-    const status = String(monitor.status ?? taskRun.status ?? "").trim();
-    const activity = monitorRecord.activity && typeof monitorRecord.activity === "object" && !Array.isArray(monitorRecord.activity)
-      ? monitorRecord.activity as Record<string, unknown>
+    const route = monitorRecord.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)
+      ? monitorRecord.route as Record<string, unknown>
       : {};
-    const controlCapability = monitorRecord.control_capability && typeof monitorRecord.control_capability === "object" && !Array.isArray(monitorRecord.control_capability)
-      ? monitorRecord.control_capability as Record<string, unknown>
+    const diagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+      ? taskRun.diagnostics as Record<string, unknown>
       : {};
-    const controlReason = String(monitorRecord.control_reason ?? activity.control_reason ?? controlCapability.control_reason ?? "").trim();
-    const isRecoverableStatus = status === "waiting_executor"
-      || controlReason === "runtime_restart_waiting_resume"
-      || activity.is_resumable === true
-      || controlCapability.is_resumable === true;
-    if (!isRecoverableStatus) {
-      return null;
-    }
-    const projection = await getLatestSessionContinuation(sessionId, this.sessionScopeForSession(sessionId)).catch(() => null);
-    const record = projection?.record ?? null;
-    const continuationId = String(record?.continuation_id ?? "").trim();
-    const continuationTaskRunId = String(record?.task_run_id ?? "").trim();
-    const stateName = String(record?.state ?? "").trim();
+    const executionRuntimeKind = String(monitor.execution_runtime_kind ?? taskRun.execution_runtime_kind ?? "").trim();
+    const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
     if (
-      !projection?.available
-      || !continuationId
-      || !continuationTaskRunId
-      || continuationTaskRunId !== taskRunId
-      || record?.resume_allowed !== true
-      || stateName === "terminal_read_only"
+      !taskRunId
+      || executionRuntimeKind !== "single_agent_task"
+      || String(route.kind ?? "").trim() === "task_graph_run"
+      || String(diagnostics.origin_kind ?? "").trim() === "graph_node_assigned"
     ) {
       return null;
     }
-    return { continuationId, taskRunId: continuationTaskRunId };
+    const runtimeControl = monitor.runtime_control ?? {};
+    return {
+      taskRunId,
+      status: String(monitor.status ?? taskRun.status ?? "").trim(),
+      controlState: String(monitor.control_state ?? runtimeControl.state ?? "").trim(),
+    };
+  }
+
+  private activeTaskIsOpenForSteer(monitorInfo: { status: string; controlState: string } | null) {
+    if (!monitorInfo) {
+      return false;
+    }
+    const status = monitorInfo.status.trim().toLowerCase();
+    const controlState = monitorInfo.controlState.trim().toLowerCase();
+    return ["created", "running"].includes(status)
+      && !["paused", "pause_requested", "stopped", "stop_requested"].includes(controlState);
+  }
+
+  private activeSnapshotIsTaskBound(snapshot: ActiveTurnSnapshot | null) {
+    const snapshotState = String(snapshot?.state ?? "").trim();
+    return snapshotState === "running_task"
+      || snapshotState === "waiting_executor"
+      || snapshotState === "waiting_approval"
+      || snapshotState === "waiting_safe_boundary";
+  }
+
+  private activeSnapshotCanDeferToMonitor(snapshot: ActiveTurnSnapshot | null) {
+    const snapshotState = String(snapshot?.state ?? "").trim();
+    return !snapshotState || snapshotState === "starting" || this.activeSnapshotIsTaskBound(snapshot);
+  }
+
+  private activeTurnInputPolicyForSession(state: StoreState, sessionId: string) {
+    return this.shouldQueueActiveTurnInput(state, sessionId) ? "steer" : "auto";
   }
 
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
@@ -3604,46 +3803,23 @@ export class WorkspaceRuntime {
     }
     const snapshot = state.activeTurnSnapshot;
     const activeTurnId = String(snapshot?.turn_id ?? "").trim();
-    if (!activeTurnId) {
-      return false;
-    }
     const activeTaskRunId = String(snapshot?.task_run_id ?? "").trim();
     const monitor = state.taskGraphLiveMonitor;
-    const snapshotState = String(snapshot?.state ?? "").trim();
-    const snapshotIsTaskBound = snapshotState === "running_task"
-      || snapshotState === "waiting_executor"
-      || snapshotState === "waiting_approval"
-      || snapshotState === "waiting_safe_boundary";
-    if (!snapshotIsTaskBound) {
+    const snapshotIsTaskBound = this.activeSnapshotIsTaskBound(snapshot);
+    const monitorInfo = this.singleAgentTaskMonitorInfo(monitor);
+    if (!monitorInfo) {
+      return Boolean(activeTurnId && snapshotIsTaskBound);
+    }
+    if (!activeTurnId && !this.activeSnapshotCanDeferToMonitor(snapshot)) {
       return false;
     }
-    if (!monitor || !activeTaskRunId) {
+    if (!activeTaskRunId && this.activeSnapshotCanDeferToMonitor(snapshot)) {
+      return this.activeTaskIsOpenForSteer(monitorInfo);
+    }
+    if (activeTaskRunId && activeTaskRunId !== monitorInfo.taskRunId) {
       return true;
     }
-    if (monitor && activeTaskRunId) {
-      const taskRun = this.harnessMonitorTaskRun(monitor);
-      const monitorTaskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-      if (!monitorTaskRunId || monitorTaskRunId !== activeTaskRunId) {
-        return true;
-      }
-      if (monitorTaskRunId === activeTaskRunId) {
-        const monitorRecord = monitor as Record<string, unknown>;
-        const route = monitorRecord.route && typeof monitorRecord.route === "object" && !Array.isArray(monitorRecord.route)
-          ? monitorRecord.route as Record<string, unknown>
-          : {};
-        const executionRuntimeKind = String(monitor.execution_runtime_kind ?? taskRun.execution_runtime_kind ?? "").trim();
-        const status = String(monitor.status ?? taskRun.status ?? "").trim();
-        const runtimeControl = monitor.runtime_control ?? {};
-        const controlState = String(monitor.control_state ?? runtimeControl.state ?? "").trim();
-        return (
-          executionRuntimeKind === "single_agent_task"
-          && String(route.kind ?? "").trim() !== "task_graph_run"
-          && ["created", "running"].includes(status)
-          && !["paused", "pause_requested", "stopped", "stop_requested"].includes(controlState)
-        );
-      }
-    }
-    return false;
+    return this.activeTaskIsOpenForSteer(monitorInfo);
   }
 
   private async refreshActiveSessionMonitor() {
@@ -4063,6 +4239,7 @@ export class WorkspaceRuntime {
     const deletedEditorContext = beforeDelete.sessionEditorContexts[sessionId] ?? null;
     this.streamingSessionCache.delete(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
+    this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
     this.store.setState((prev) => {
@@ -4207,11 +4384,15 @@ export class WorkspaceRuntime {
   }
 
   private async refreshWorkspaceTree() {
-    const requestId = ++this.workspaceTreeRequest;
     const state = this.store.getState();
     const activeProjectKey = state.activeProjectKey;
     const sessionId = state.currentSessionId || "";
     const scope = sessionId ? this.sessionScopeForSession(sessionId) : undefined;
+    const requestKey = this.workspaceTreeRefreshKey(activeProjectKey, sessionId, scope);
+    if (this.workspaceTreeInFlightPromise && this.workspaceTreeInFlightKey === requestKey) {
+      return this.workspaceTreeInFlightPromise;
+    }
+    const requestId = ++this.workspaceTreeRequest;
     if (!activeProjectKey && sessionId && !this.sessionProjectRoot(state, sessionId)) {
       this.store.setState((prev) => ({
         ...prev,
@@ -4221,19 +4402,22 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    this.store.setState((prev) => ({
-      ...prev,
-      workspaceTreeLoading: true,
-      workspaceTreeError: ""
-    }));
-    try {
+    const request = (async () => {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceTreeLoading: true,
+        workspaceTreeError: ""
+      }));
       const workspaceTree = activeProjectKey
         ? await getProjectWorkspaceTree(activeProjectKey)
         : await getCodeEnvironmentWorkspaceTree({
             sessionId: sessionId || undefined,
             scope,
           });
-      if (this.workspaceTreeRequest !== requestId) {
+      if (
+        this.workspaceTreeRequest !== requestId
+        || this.workspaceTreeRefreshKeyForState(this.store.getState()) !== requestKey
+      ) {
         return;
       }
       this.store.setState((prev) => ({
@@ -4242,8 +4426,12 @@ export class WorkspaceRuntime {
         workspaceTreeLoading: false,
         workspaceTreeError: ""
       }));
-    } catch (error) {
-      if (this.workspaceTreeRequest !== requestId) {
+    })();
+    const handledRequest = request.catch((error) => {
+      if (
+        this.workspaceTreeRequest !== requestId
+        || this.workspaceTreeRefreshKeyForState(this.store.getState()) !== requestKey
+      ) {
         return;
       }
       this.store.setState((prev) => ({
@@ -4251,7 +4439,31 @@ export class WorkspaceRuntime {
         workspaceTreeLoading: false,
         workspaceTreeError: this.errorMessage(error, "无法读取项目文件树。")
       }));
+    }).finally(() => {
+      if (this.workspaceTreeRequest === requestId && this.workspaceTreeInFlightKey === requestKey) {
+        this.workspaceTreeInFlightKey = "";
+        this.workspaceTreeInFlightPromise = null;
+      }
+    });
+    this.workspaceTreeInFlightKey = requestKey;
+    this.workspaceTreeInFlightPromise = handledRequest;
+    await handledRequest;
+  }
+
+  private workspaceTreeRefreshKeyForState(state: StoreState) {
+    const sessionId = state.currentSessionId || "";
+    return this.workspaceTreeRefreshKey(
+      state.activeProjectKey,
+      sessionId,
+      sessionId ? this.sessionScopeForSession(sessionId) : undefined,
+    );
+  }
+
+  private workspaceTreeRefreshKey(activeProjectKey: string, sessionId: string, scope: Partial<SessionScope> | undefined) {
+    if (activeProjectKey) {
+      return `project:${activeProjectKey}`;
     }
+    return `session:${sessionId || ""}:${JSON.stringify(scope ?? {})}`;
   }
 
   private updateInspectorContent(value: string) {
@@ -4840,10 +5052,14 @@ export class WorkspaceRuntime {
         activeMonitor as Record<string, unknown>,
       );
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
-        this.store.setState((prev) => ({
-          ...(activeTurnSnapshot ? { ...prev, activeTurnSnapshot } : prev),
-          taskGraphLiveMonitor: activeMonitor,
-        }));
+        this.store.setState((prev) => {
+          const nextActiveTurnSnapshot = activeTurnSnapshot ?? prev.activeTurnSnapshot;
+          return {
+            ...prev,
+            activeTurnSnapshot: nextActiveTurnSnapshot,
+            taskGraphLiveMonitor: activeMonitor,
+          };
+        });
       }
       return hasActiveHarnessRun || hasPendingApproval;
     } catch {
@@ -5321,7 +5537,7 @@ export class WorkspaceRuntime {
       return;
     }
     if (["failed", "error"].includes(effectiveStatus)) {
-      const title = projectedTitle || "运行中断";
+      const title = projectedTitle || "处理失败";
       const detail = projectedDetail || "当前处理返回失败状态，请查看运行监控。";
       this.store.setState((prev) => ({
         ...prev,
@@ -5359,23 +5575,4 @@ export class WorkspaceRuntime {
     }
     return message;
   }
-}
-
-function isOpenAIReasoningModel(model: string) {
-  const normalized = model.trim().toLowerCase();
-  return normalized.startsWith("gpt-5")
-    || normalized.startsWith("o1")
-    || normalized.startsWith("o3")
-    || normalized.startsWith("o4");
-}
-
-function normalizeChatThinkingMode(mode: ChatThinkingMode | string | null | undefined): ChatThinkingMode {
-  return mode === "thinking" ? mode : "normal";
-}
-
-function chatThinkingModeFromProviderConfig(config: { thinking_mode?: string; reasoning_effort?: string } | null): ChatThinkingMode {
-  if (String(config?.thinking_mode || "").trim().toLowerCase() !== "enabled") {
-    return "normal";
-  }
-  return "thinking";
 }

@@ -2,6 +2,10 @@
 
 import { CheckCircle2, X } from "lucide-react";
 import type { ReactNode } from "react";
+
+import { Button } from "@/ui/Button";
+import { Field } from "@/ui/Field";
+import { StatusBadge } from "@/ui/StatusBadge";
 import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 
 export type OrchestrationOption = {
@@ -24,7 +28,7 @@ export function OrchestrationBadge({
   children: ReactNode;
   tone?: "neutral" | "ok" | "warn" | "danger";
 }) {
-  return <span className={`boundary-badge boundary-badge--${tone}`}>{children}</span>;
+  return <StatusBadge tone={tone}>{children}</StatusBadge>;
 }
 
 export function OrchestrationToolbarButton({
@@ -39,9 +43,9 @@ export function OrchestrationToolbarButton({
   variant?: "ghost" | "primary" | "danger";
 }) {
   return (
-    <button className={`boundary-button boundary-button--${variant}`} disabled={disabled} onClick={onClick} type="button">
+    <Button chrome="boundary" disabled={disabled} onClick={onClick} variant={variant}>
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -55,10 +59,9 @@ export function OrchestrationField({
   wide?: boolean;
 }) {
   return (
-    <label className={wide ? "boundary-field boundary-field--wide" : "boundary-field"}>
-      <span>{label}</span>
+    <Field label={label} wide={wide}>
       {children}
-    </label>
+    </Field>
   );
 }
 

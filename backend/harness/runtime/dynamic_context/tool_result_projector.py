@@ -9,7 +9,9 @@ from runtime_objects.tool_result_storage import DEFAULT_PREVIEW_SIZE_BYTES, Tool
 
 from .models import compact_text, dict_tuple, drop_empty, stable_json_hash, string_tuple
 from .replacement_store import ReplacementStore
+from .semantic_payload_classifier import classify_normalized_tool_result
 from .structured_error_projection import structured_error_projection
+from .todo_plan_projection import DEFAULT_TODO_OPERATIONS, project_todo_plan
 
 
 PROJECTOR_VERSION = "tool_result_projector.v3"
@@ -64,7 +66,18 @@ class ToolResultProjector:
             or str(normalized.get("envelope_id") or "")
             or "tool_result:" + stable_json_hash(normalized).removeprefix("sha256:")[:16]
         )
-        projection = self._build_projection(normalized, task_run_id=task_run_id, projection_policy=policy)
+        frozen = self.replacement_store.get_frozen(
+            source_kind="tool_result",
+            source_id=source_id,
+            task_run_id=task_run_id,
+            content=normalized,
+            projection_policy=policy,
+            projector_version=PROJECTOR_VERSION,
+        )
+        if frozen is not None:
+            projection, record = frozen
+            return projection, record.to_dict()
+        projection, budget_decision = self._build_projection(normalized, task_run_id=task_run_id, projection_policy=policy)
         projection, record = self.replacement_store.get_or_put(
             source_kind="tool_result",
             source_id=source_id,
@@ -73,6 +86,7 @@ class ToolResultProjector:
             projection_policy=policy,
             projector_version=PROJECTOR_VERSION,
             projection=projection,
+            budget_decision=budget_decision,
         )
         return projection, record.to_dict()
 
@@ -82,7 +96,7 @@ class ToolResultProjector:
         *,
         task_run_id: str,
         projection_policy: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         text = str(normalized.get("text") or "")
         preview_limit = int(projection_policy.get("tool_result_preview_chars") or DEFAULT_PREVIEW_SIZE_BYTES)
         content_replacements: list[dict[str, Any]] = []
@@ -115,16 +129,27 @@ class ToolResultProjector:
             content_replacements=content_replacements,
             task_run_id=task_run_id,
         )
-        return drop_empty(
+        semantic_projection = classify_normalized_tool_result(
+            normalized,
+            content_replacements=content_replacements,
+        )
+        projection = drop_empty(
             {
                 "tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
                 "tool_name": str(normalized.get("tool_name") or ""),
                 "tool_call_id": str(normalized.get("tool_call_id") or ""),
                 "action_request_id": str(normalized.get("action_request_id") or ""),
                 "status": str(normalized.get("status") or ("error" if error else "ok")),
+                "semantic_payload_class": list(semantic_projection.get("semantic_payload_class") or []),
+                "execution_control": dict(semantic_projection.get("execution_control") or {}),
+                "tool_invocation_identity": dict(semantic_projection.get("tool_invocation_identity") or {}),
+                "edit_critical_source": dict(semantic_projection.get("edit_critical_source") or {}),
+                "code_locator_evidence": dict(semantic_projection.get("code_locator_evidence") or {}),
+                "preview_only_output": dict(semantic_projection.get("preview_only_output") or {}),
+                "projection_integrity_errors": list(semantic_projection.get("projection_integrity_errors") or []),
                 "preview": preview,
                 "result_ref": result_ref,
-                "todo_plan": _todo_plan_projection(normalized),
+                "todo_plan": _todo_plan_from_normalized_tool_result(normalized),
                 "structured_error": structured_error_projection(structured_error),
                 "error": compact_text(error, limit=500),
                 "artifact_refs": model_visible_artifact_refs(normalized.get("artifact_refs")),
@@ -140,6 +165,15 @@ class ToolResultProjector:
                 "authority": "harness.runtime.dynamic_context.tool_result_projection",
             }
         )
+        budget_decision = _tool_result_budget_decision(
+            normalized=normalized,
+            projection_policy=projection_policy,
+            preview_limit=preview_limit,
+            preview=preview,
+            content_replacements=content_replacements,
+            rehydration_plan=rehydration_plan,
+        )
+        return projection, budget_decision
 
 
 def _tool_payload_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
@@ -180,6 +214,7 @@ def _normalize_tool_result(tool_result: dict[str, Any]) -> dict[str, Any]:
     parsed_text = _parse_json_object(raw_text)
     parsed_tool_result = dict(parsed_text.get("tool_result") or {})
     parsed_structured_payload = dict(parsed_text.get("structured_payload") or {})
+    parsed_structured_payload.pop("subagent_control", None)
     structured = _merge_dicts(parsed_structured_payload, envelope.get("structured_payload"), item.get("structured_payload"))
     nested_tool_result = _merge_dicts(parsed_tool_result, structured.get("tool_result"))
     result_metadata = _merge_dicts(item.get("result_metadata"), _read_file_metadata_from_structured(nested_tool_result, structured, item, envelope))
@@ -322,44 +357,25 @@ def _todo_plan_from_parsed_text(
         return {}
     if not isinstance(parsed_text.get("items"), list):
         return {}
-    return _todo_plan_projection({"todo_plan": parsed_text})
+    return project_todo_plan(
+        parsed_text,
+        content_keys=("content",),
+        allowed_operations=DEFAULT_TODO_OPERATIONS,
+        authority="agent.todo_plan",
+    )
 
 
-def _todo_plan_projection(normalized: dict[str, Any]) -> dict[str, Any]:
+def _todo_plan_from_normalized_tool_result(normalized: dict[str, Any]) -> dict[str, Any]:
     source = dict(normalized.get("todo_plan") or {})
     if not source and _normalized_tool_name(normalized.get("tool_name")) == "agent_todo":
         parsed = _parse_json_object(normalized.get("text"))
         if isinstance(parsed.get("items"), list):
             source = parsed
-    if not source:
-        return {}
-    items: list[dict[str, Any]] = []
-    for item in dict_tuple(source.get("items"))[:40]:
-        todo_id = str(item.get("todo_id") or "").strip()
-        if not todo_id:
-            continue
-        items.append(
-            drop_empty(
-                {
-                    "todo_id": todo_id,
-                    "content": compact_text(item.get("content") or "", limit=180),
-                    "active_form": compact_text(item.get("active_form") or "", limit=120),
-                    "status": str(item.get("status") or ""),
-                    "notes": compact_text(item.get("notes") or "", limit=180),
-                    "evidence_expectations": [str(value) for value in list(item.get("evidence_expectations") or []) if str(value).strip()],
-                    "contract_refs": [str(value) for value in list(item.get("contract_refs") or []) if str(value).strip()],
-                }
-            )
-        )
-    return drop_empty(
-        {
-            "plan_id": str(source.get("plan_id") or ""),
-            "active_item_id": str(source.get("active_item_id") or ""),
-            "completion_ready": source.get("completion_ready") if isinstance(source.get("completion_ready"), bool) else None,
-            "items": items,
-            "allowed_operations": ["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"],
-            "authority": "agent.todo_plan",
-        }
+    return project_todo_plan(
+        source,
+        content_keys=("content",),
+        allowed_operations=DEFAULT_TODO_OPERATIONS,
+        authority="agent.todo_plan",
     )
 
 
@@ -427,6 +443,63 @@ def _build_rehydration_plan(
             ),
         }
     )
+
+
+def _tool_result_budget_decision(
+    *,
+    normalized: dict[str, Any],
+    projection_policy: dict[str, Any],
+    preview_limit: int,
+    preview: str,
+    content_replacements: list[dict[str, Any]],
+    rehydration_plan: dict[str, Any],
+) -> dict[str, Any]:
+    tool_name = _normalized_tool_name(normalized.get("tool_name"))
+    text = str(normalized.get("text") or "")
+    return drop_empty(
+        {
+            "frozen": True,
+            "model_visible": False,
+            "decision_kind": _budget_decision_kind(tool_name=tool_name, content_replacements=content_replacements),
+            "tool_name": tool_name,
+            "input_size_bytes": _encoded_size(text),
+            "preview_limit_bytes": max(1, int(preview_limit or DEFAULT_PREVIEW_SIZE_BYTES)),
+            "preview_size_bytes": _encoded_size(preview),
+            "replacement_count": len(content_replacements),
+            "content_replacements": [_replacement_budget_ref(item) for item in content_replacements],
+            "rehydration_capabilities": [
+                str(item.get("capability") or "")
+                for item in list(dict(rehydration_plan or {}).get("capabilities") or [])
+                if isinstance(item, dict) and str(item.get("capability") or "")
+            ],
+            "projection_policy_hash": stable_json_hash(projection_policy),
+            "authority": "harness.runtime.dynamic_context.tool_result_budget_decision",
+        }
+    )
+
+
+def _budget_decision_kind(*, tool_name: str, content_replacements: list[dict[str, Any]]) -> str:
+    if tool_name == "read_file":
+        return "exact_read_file_output"
+    if content_replacements:
+        return "persisted_preview"
+    return "inline_preview"
+
+
+def _replacement_budget_ref(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "replacement_id": _tool_result_replacement_id(item.get("replacement_id")),
+            "json_path": str(item.get("json_path") or ""),
+            "original_size_bytes": item.get("original_size_bytes"),
+            "preview_size_bytes": item.get("preview_size_bytes"),
+            "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
+        }
+    )
+
+
+def _encoded_size(value: Any) -> int:
+    return len(str(value or "").encode("utf-8", errors="replace"))
 
 
 def _preview_text_for_tool(normalized: dict[str, Any], *, limit: int) -> str:
@@ -620,13 +693,13 @@ def _normalized_tool_name(value: Any) -> str:
 def _persisted_tool_result_request(content_replacements: list[dict[str, Any]], *, task_run_id: str) -> dict[str, Any]:
     if not content_replacements:
         return {}
+    _ = task_run_id
     first = dict(content_replacements[0] or {})
     replacement_id = _tool_result_replacement_id(first.get("replacement_id"))
     args = drop_empty(
         {
             "replacement_id": replacement_id,
             "path": str(first.get("path") or ""),
-            "task_run_id": str(task_run_id or ""),
         }
     )
     if not args:

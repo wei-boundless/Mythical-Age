@@ -13,6 +13,7 @@ import {
 } from "@/components/workspace/views/orchestration/OrchestrationAgentConfigWorkbenches";
 import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
 import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
+import { Notice } from "@/ui/Notice";
 import { CATEGORY_LABELS } from "./orchestrationAssemblyModel";
 import { OrchestrationLayerNav } from "./OrchestrationLayerNav";
 import type { OrchestrationAssemblyController } from "./useOrchestrationAssemblyController";
@@ -71,8 +72,8 @@ export function OrchestrationAgentAssemblyPages({
 
           {controller.activeLayer === "runtime_permissions" ? (
             <>
-              {controller.capabilityItemsError ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{controller.capabilityItemsError}</div> : null}
-              {controller.capabilityItemsLoading ? <div className="boundary-notice"><RefreshCw size={16} />正在加载能力准入项...</div> : null}
+              {controller.capabilityItemsError ? <Notice icon={<AlertTriangle size={16} />} tone="error">{controller.capabilityItemsError}</Notice> : null}
+              {controller.capabilityItemsLoading ? <Notice icon={<RefreshCw size={16} />}>正在加载能力准入项...</Notice> : null}
               <OrchestrationRuntimePermissionWorkbench
                 allowedOpsCount={controller.allowedOps.length}
                 blockedOpsCount={controller.blockedOps.length}

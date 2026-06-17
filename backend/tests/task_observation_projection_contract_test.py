@@ -9,6 +9,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.loop.task_executor import _observations_for_packet, _strip_terminal_diagnostics
+from harness.runtime.compiler import _runtime_observations_model_visible_payload
+from harness.runtime.dynamic_context.semantic_payload_classifier import pending_tool_control_actions_from_observation
 from tests.support.runtime_stubs import build_harness_runtime
 
 
@@ -148,6 +150,62 @@ def test_task_observation_projection_extracts_structured_errors_and_artifact_evi
     assert context["artifact_refs"][0]["kind"] == "image"
 
 
+def test_subagent_ref_error_result_envelope_reaches_model_visible_observation_projection() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:subagent-ref-observation"
+    fingerprint = _runtime_fingerprint()
+    observation = {
+        "observation_id": "obs:subagent-wrong-ref",
+        "task_run_id": task_run_id,
+        "observation_type": "executor_error",
+        "source": "tool:collect_subagent_result",
+        "payload": {
+            "tool_name": "collect_subagent_result",
+            "tool_args": {"subagent_run_ref": "submsg:taskrun:test:abc"},
+            "runtime_fingerprint": fingerprint,
+            "result_envelope": {
+                "tool_name": "collect_subagent_result",
+                "status": "error",
+                "text": '{"ok": false, "error": "wrong_ref_type_for_collect_subagent_result"}',
+                "structured_payload": {
+                    "structured_error": {
+                        "code": "wrong_ref_type_for_collect_subagent_result",
+                        "message": "wrong_ref_type_for_collect_subagent_result",
+                        "origin": "subagent_control",
+                        "retryable": True,
+                        "expected_ref_type": "subagent_run_ref",
+                        "expected_prefix": "agrun:",
+                        "received_ref_type": "message_ref",
+                        "repair_instruction": "subagent_run_ref 必须使用 agrun:...:main；submsg:... 只能放入 since_message_ref。",
+                    }
+                },
+            },
+        },
+        "needs_model_followup": True,
+        "authority": "orchestration.runtime_observation",
+    }
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={"observation": observation},
+    )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint=fingerprint)
+    active_failure = context["execution_state"]["system_projection"]["active_failures"][0]
+    model_visible = _runtime_observations_model_visible_payload([observation])
+    model_observation = model_visible["observations"][0]
+
+    assert active_failure["error"]["code"] == "wrong_ref_type_for_collect_subagent_result"
+    assert active_failure["error"]["expected_prefix"] == "agrun:"
+    assert active_failure["error"]["received_ref_type"] == "message_ref"
+    assert "since_message_ref" in active_failure["error"]["repair_instruction"]
+    assert model_observation["error_code"] == "wrong_ref_type_for_collect_subagent_result"
+    assert model_observation["structured_error"]["origin"] == "subagent_control"
+    assert "since_message_ref" in model_observation["repair_instruction"]
+    assert model_visible["boundary_code"] == "agent_addressed_runtime_observations"
+
+
 def test_task_observation_projection_treats_missing_fingerprint_as_historical_not_active() -> None:
     runtime = build_harness_runtime()
     host = runtime.single_agent_runtime_host
@@ -250,6 +308,175 @@ def test_task_observation_projection_ignores_already_projected_pending_records()
 
     assert context["raw_observations"] == []
     assert context["packet_observations"] == []
+
+
+def test_task_observation_projection_preserves_subagent_collect_control_action() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:subagent-control-action"
+    fingerprint = _runtime_fingerprint()
+    subagent_run_ref = "agrun:taskrun:test:subagent-control-action:child"
+    result_ref = "rtobj:agent_run_result:projection-child"
+
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:observe-subagents:completed",
+                "task_run_id": task_run_id,
+                "observation_type": "tool_result",
+                "source": "tool:observe_subagents",
+                "payload": {
+                    "tool_name": "observe_subagents",
+                    "tool_args": {},
+                    "runtime_fingerprint": fingerprint,
+                    "result_envelope": {
+                        "envelope_id": "tool-result:observe-subagents:completed",
+                        "tool_name": "observe_subagents",
+                        "tool_call_id": "call:observe-subagents",
+                        "action_request_id": "act:observe-subagents",
+                        "status": "ok",
+                        "text": "summary does not own subagent control",
+                        "structured_payload": {
+                            "subagent_control": {
+                                "ok": True,
+                                "subagents": [
+                                    {
+                                        "subagent_run_ref": subagent_run_ref,
+                                        "status": "completed",
+                                        "result_ref": result_ref,
+                                        "result_state": "unread",
+                                        "result_unread": True,
+                                        "result_available": True,
+                                        "result_read_authority": "collect_subagent_result",
+                                        "collect_subagent_result_args": {"subagent_run_ref": subagent_run_ref},
+                                        "result_ref_usage": "Do not pass result_ref to read_persisted_tool_result.",
+                                    }
+                                ],
+                            }
+                        },
+                    },
+                },
+            }
+        },
+    )
+
+    projection = _observations_for_packet(
+        host,
+        task_run_id,
+        current_fingerprint=fingerprint,
+    )["execution_state"]["system_projection"]
+
+    action = projection["pending_tool_control_actions"][0]
+    assert action["source_tool"] == "observe_subagents"
+    assert action["tool_call_id"] == "call:observe-subagents"
+    assert action["action"] == "collect_subagent_result"
+    assert action["args"] == {"subagent_run_ref": subagent_run_ref}
+    assert action["result_ref"] == result_ref
+    assert action["result_state"] == "unread"
+    assert action["result_available"] is True
+    assert action["result_read_authority"] == "collect_subagent_result"
+
+
+def test_task_observation_projection_preserves_collected_subagent_final_answer() -> None:
+    runtime = build_harness_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:subagent-collected-result"
+    fingerprint = _runtime_fingerprint()
+    final_answer = "CHILD FINAL ANSWER\n" + "important evidence\n" * 80
+
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:collect-subagent-result",
+                "task_run_id": task_run_id,
+                "observation_type": "tool_result",
+                "source": "tool:collect_subagent_result",
+                "payload": {
+                    "tool_name": "collect_subagent_result",
+                    "tool_args": {"subagent_run_ref": "agrun:taskrun:test:subagent-collected-result:child"},
+                    "runtime_fingerprint": fingerprint,
+                    "result_envelope": {
+                        "envelope_id": "tool-result:collect-subagent-result",
+                        "tool_name": "collect_subagent_result",
+                        "tool_call_id": "call:collect-subagent-result",
+                        "action_request_id": "act:collect-subagent-result",
+                        "status": "ok",
+                        "text": "short child summary",
+                        "structured_payload": {
+                            "subagent_control": {
+                                "subagent_run_ref": "agrun:taskrun:test:subagent-collected-result:child",
+                                "status": "completed",
+                                "result_ref": "rtobj:agent_run_result:projection-child",
+                                "result_state": "read",
+                                "result": {
+                                    "result_ref": "rtobj:agent_run_result:projection-child",
+                                    "final_answer": final_answer,
+                                    "summary": "short child summary",
+                                    "evidence_refs": ["backend/harness/loop/task_executor.py:1"],
+                                },
+                            }
+                        },
+                    },
+                },
+            }
+        },
+    )
+
+    projection = _observations_for_packet(
+        host,
+        task_run_id,
+        current_fingerprint=fingerprint,
+    )["execution_state"]["system_projection"]
+
+    subagent_result = projection["authoritative_subagent_results"][0]["subagent_result"]
+    assert subagent_result["final_answer"] == final_answer
+    assert subagent_result["result_ref"] == "rtobj:agent_run_result:projection-child"
+    assert projection["last_action_receipts"][0]["subagent_result"]["final_answer"] == final_answer
+
+
+def test_pending_tool_control_action_observation_projection_merges_structured_payload_sources() -> None:
+    subagent_run_ref = "agrun:taskrun:merged-structured-control:child"
+    result_ref = "rtobj:agent_run_result:merged-child"
+
+    actions = pending_tool_control_actions_from_observation(
+        {
+            "observation_id": "obs:observe-subagents:merged",
+            "source": "tool:observe_subagents",
+            "payload": {
+                "tool_name": "observe_subagents",
+                "structured_payload": {"tool_result": {"display": "status index"}},
+                "result_envelope": {
+                    "tool_name": "observe_subagents",
+                    "tool_call_id": "call:observe-subagents:merged",
+                    "action_request_id": "act:observe-subagents:merged",
+                    "structured_payload": {
+                        "subagent_control": {
+                            "subagents": [
+                                {
+                                    "subagent_run_ref": subagent_run_ref,
+                                    "status": "completed",
+                                    "result_ref": result_ref,
+                                    "result_state": "unread",
+                                    "result_unread": True,
+                                    "result_available": True,
+                                    "collect_subagent_result_args": {"subagent_run_ref": subagent_run_ref},
+                                }
+                            ]
+                        }
+                    },
+                },
+            },
+        }
+    )
+
+    assert actions[0]["tool_call_id"] == "call:observe-subagents:merged"
+    assert actions[0]["action"] == "collect_subagent_result"
+    assert actions[0]["args"] == {"subagent_run_ref": subagent_run_ref}
+    assert actions[0]["result_ref"] == result_ref
 
 
 def test_terminal_diagnostics_are_stripped_before_task_resume_packet() -> None:

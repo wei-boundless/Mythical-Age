@@ -8,6 +8,7 @@ import type { StoreState } from "./types";
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
+  deriveSessionTitleFromSummary: vi.fn(),
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getProjectWorkspaceTree: vi.fn(),
   getChatRun: vi.fn(),
@@ -34,8 +35,8 @@ const api = vi.hoisted(() => ({
   setSessionPermissionMode: vi.fn(),
   setPermissionMode: vi.fn(),
   getSessionHistory: vi.fn(),
+  getSessionRuntimeProjection: vi.fn(),
   getSessionSummary: vi.fn(),
-  getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
   getWorkbenchCurrentSession: vi.fn(),
   setWorkbenchCurrentSession: vi.fn(),
@@ -61,6 +62,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: api.deleteSession,
+  deriveSessionTitleFromSummary: api.deriveSessionTitleFromSummary,
   submitGraphRunUntilIdle: api.submitGraphRunUntilIdle,
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
@@ -93,8 +95,8 @@ vi.mock("@/lib/api", () => ({
   setSessionPermissionMode: api.setSessionPermissionMode,
   setPermissionMode: api.setPermissionMode,
   getSessionHistory: api.getSessionHistory,
+  getSessionRuntimeProjection: api.getSessionRuntimeProjection,
   getSessionSummary: api.getSessionSummary,
-  getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
   getWorkbenchCurrentSession: api.getWorkbenchCurrentSession,
   setWorkbenchCurrentSession: api.setWorkbenchCurrentSession,
@@ -350,29 +352,18 @@ function emitRuntimeControlSteerDone(
   {
     taskRunId,
     activeTurnId,
-    detail = "补充要求已进入当前工作队列。",
     completionState = "task_steer_accepted",
   }: {
     taskRunId: string;
     activeTurnId: string;
-    detail?: string;
     completionState?: string;
   },
 ) {
   handlers.onEvent("runtime_status", {
-    title: "已收到补充要求",
-    detail,
     state: "running",
     phase: "active_turn_steer",
     runtime_task_run_id: taskRunId,
     active_turn_id: activeTurnId,
-    public_projection_frame: statusProjectionFrame({
-      projectionId: `publicproj:${taskRunId}:steer-status`,
-      lifecycle: "running",
-      title: "已收到补充要求",
-      detail,
-      state: "running",
-    }),
   });
   handlers.onEvent("done", {
     content: "",
@@ -382,59 +373,7 @@ function emitRuntimeControlSteerDone(
     completion_state: completionState,
     runtime_task_run_id: taskRunId,
     active_turn_id: activeTurnId,
-    public_projection_frame: statusProjectionFrame({
-      projectionId: `publicproj:${taskRunId}:steer-done`,
-      lifecycle: "done",
-      title: "已收到补充要求",
-      detail,
-      state: "done",
-      terminal: {
-        event: "done",
-        visible: true,
-        reason: "append_instruction_to_active_work",
-      },
-    }),
   });
-}
-
-function statusProjectionFrame({
-  projectionId,
-  lifecycle,
-  title,
-  detail = "",
-  state,
-  terminal,
-}: {
-  projectionId: string;
-  lifecycle: string;
-  title: string;
-  detail?: string;
-  state: string;
-  terminal?: Record<string, unknown>;
-}) {
-  const isDone = lifecycle === "done";
-  return {
-    authority: "harness.public_projection",
-    contract_revision: "20260614-dual-channel-v1",
-    frame_id: `${projectionId}:frame`,
-    projection_id: projectionId,
-    sequence: lifecycle === "done" ? 2 : 1,
-    event_offset: lifecycle === "done" ? 2 : 1,
-    event_family: "status_trace",
-    channel: "status",
-    lossless: false,
-    source_authority: "system",
-    op: "item_upsert",
-    slot: "status",
-    main_visibility: isDone ? "visible_final" : "visible_live",
-    retention: isDone ? "final" : "transient",
-    item_id: `${projectionId}:status`,
-    title,
-    text: title,
-    detail,
-    state,
-    terminal,
-  };
 }
 
 function anchoredStatusProjectionEnvelope({
@@ -565,9 +504,53 @@ function conversationState(environmentId: string, label = environmentId, source 
   };
 }
 
+let projectionFrameOffset = 0;
+
+type StreamEventHandlers = {
+  onEvent: (event: string, data: Record<string, unknown>) => void;
+};
+
+function requireStreamHandlers(value: StreamEventHandlers | null) {
+  if (!value) {
+    throw new Error("stream handlers were not captured");
+  }
+  return value;
+}
+
+function publicBodyFrame(patch: Record<string, unknown> = {}) {
+  projectionFrameOffset += 1;
+  return {
+    authority: "harness.public_projection",
+    contract_revision: "20260614-dual-channel-v1",
+    frame_id: `frame:runtime-test:${projectionFrameOffset}`,
+    event_offset: projectionFrameOffset,
+    event_family: "assistant_body",
+    channel: "body",
+    lossless: true,
+    op: "body_append",
+    slot: "body",
+    source_authority: "model",
+    main_visibility: "visible_live",
+    retention: "final",
+    anchor: {
+      turn_id: "turn:runtime-test:1",
+      turn_run_id: "turnrun:runtime-test:1",
+      run_id: "turnrun:runtime-test:1",
+    },
+    ...patch,
+  };
+}
+
+function latestProjectionView(state: StoreState) {
+  const assistant = [...state.messages].reverse().find((message) => message.role === "assistant");
+  const key = assistant?.projectionKeyString ?? "";
+  return key ? state.activeProjectionsByKey[key]?.view : undefined;
+}
+
 describe("WorkspaceRuntime task graph monitor polling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    projectionFrameOffset = 0;
     api.getChatRun.mockReset();
     api.getChatRun.mockResolvedValue(null);
     api.getLatestChatRunForSession.mockReset();
@@ -661,10 +644,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.stopOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
+    api.getSessionRuntimeProjection.mockReset();
+    api.getSessionRuntimeProjection.mockResolvedValue({ messages: [], runtime_attachments: [] });
     api.getSessionSummary.mockReset();
     api.getSessionSummary.mockRejectedValue(new Error("no remembered session"));
-    api.getSessionTimeline.mockReset();
-    api.getSessionTimeline.mockResolvedValue({ messages: [], runtime_attachments: [] });
     api.getSessionTokens.mockReset();
     api.getSessionTokens.mockResolvedValue(null);
     api.getWorkbenchCurrentSession.mockReset();
@@ -747,6 +730,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     api.deleteSession.mockReset();
     api.deleteSession.mockResolvedValue({ ok: true });
+    api.deriveSessionTitleFromSummary.mockReset();
+    api.deriveSessionTitleFromSummary.mockResolvedValue({
+      session_id: "session:fresh",
+      title: "摘要标题",
+    });
     api.getPermissionMode.mockReset();
     api.getPermissionMode.mockResolvedValue({
       mode: "default",
@@ -1075,7 +1063,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
       },
     ]);
-    api.getSessionTimeline.mockImplementation(async (sessionId) => ({
+    api.getSessionHistory.mockImplementation(async (sessionId) => ({
       id: String(sessionId),
       title: "Session",
       created_at: 1,
@@ -1085,7 +1073,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         ? { authority: "sessions.conversation_state", permission_mode: "full_access" }
         : { authority: "sessions.conversation_state", permission_mode: "default" },
       messages: [],
-      runtime_attachments: [],
     }));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -1279,6 +1266,43 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBeNull();
     expect(api.getProjectWorkspaceTree).toHaveBeenCalledWith("workspace:repo");
     expect(api.loadFileForSession).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates concurrent workspace tree refreshes for the same target", async () => {
+    let resolveTree: (value: Awaited<ReturnType<typeof api.getProjectWorkspaceTree>>) => void = () => undefined;
+    api.getProjectWorkspaceTree.mockImplementation(() => new Promise((resolve) => {
+      resolveTree = resolve;
+    }));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      activeProjectKey: "workspace:repo",
+      activeProjectRoot: "D:/repo",
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshWorkspaceTree: () => Promise<void>;
+    };
+
+    const first = runtime.refreshWorkspaceTree();
+    const second = runtime.refreshWorkspaceTree();
+
+    expect(api.getProjectWorkspaceTree).toHaveBeenCalledTimes(1);
+    resolveTree({
+      root: "D:/repo",
+      max_depth: 10,
+      max_entries: 10000,
+      total_entries: 0,
+      truncated: false,
+      tree: {
+        name: "repo",
+        path: "",
+        kind: "directory",
+        depth: 0,
+        children: [],
+        truncated: false,
+      },
+    });
+    await Promise.all([first, second]);
+    expect(store.getState().workspaceTreeLoading).toBe(false);
   });
 
   it("keeps startup in the unbound conversation scope when project workspaces exist", async () => {
@@ -1876,7 +1900,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("opens a run monitor agent signal without switching the visible session list scope", async () => {
     vi.useRealTimers();
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionRuntimeProjection.mockResolvedValue({
       messages: [{ role: "user", content: "开发任务" }],
       runtime_attachments: [],
     });
@@ -1939,7 +1963,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.getSessionTimeline).toHaveBeenCalledWith("session-dev", {
+    expect(api.getSessionHistory).toHaveBeenCalledWith("session-dev", {
       workspace_view: "task_environment",
       task_environment_id: "env.coding.vibe_workspace",
     });
@@ -2070,7 +2094,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().runMonitorStreamStatus).toBe("connecting");
   });
 
-  it("polls the run monitor only when SSE is unavailable", async () => {
+  it("does not start legacy run monitor polling when SSE is unavailable", async () => {
     vi.stubGlobal("EventSource", undefined);
     api.getRunMonitor.mockResolvedValue(monitorForTest([]));
     const store = createStore(getDefaultState());
@@ -2078,11 +2102,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.startRunMonitor();
     await vi.advanceTimersByTimeAsync(0);
-    expect(api.getRunMonitor).toHaveBeenCalledTimes(1);
-    expect(store.getState().runMonitorStreamStatus).toBe("fallback");
+    expect(api.getRunMonitor).not.toHaveBeenCalled();
+    expect(store.getState().runMonitorStreamStatus).toBe("disconnected");
 
-    await vi.advanceTimersByTimeAsync(2500);
-    expect(api.getRunMonitor).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(api.getRunMonitor).not.toHaveBeenCalled();
   });
 
   it("ignores legacy runtime_event payloads from the monitor stream", () => {
@@ -2128,7 +2152,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
     expect(store.getState().runMonitor).not.toBeNull();
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("surfaces runtime restart recovery as an explicit waiting-resume state", () => {
@@ -2182,7 +2206,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store) as unknown as {
       applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
     };
-    api.getSessionTimeline.mockClear();
+    api.getSessionRuntimeProjection.mockClear();
 
     runtime.applyRunMonitorStreamPayload({
       monitor: monitorForTest([
@@ -2204,7 +2228,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(store.getState().runMonitorRevision).toBe("rtmon:10:running");
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
     await Promise.resolve();
   });
 
@@ -2221,7 +2245,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const runtime = new WorkspaceRuntime(store) as unknown as {
       applyRunMonitorStreamPayload: (payload: Record<string, unknown>) => void;
     };
-    api.getSessionTimeline.mockClear();
+    api.getSessionRuntimeProjection.mockClear();
 
     runtime.applyRunMonitorStreamPayload({
       monitor: monitorForTest([
@@ -2254,7 +2278,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(store.getState().runMonitorRevision).toBe("rtmon:10:commit");
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
     await Promise.resolve();
   });
 
@@ -2291,7 +2315,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         content_sha256: hash,
       },
     });
-    api.getSessionTimeline.mockClear();
+    api.getSessionRuntimeProjection.mockClear();
 
     runtime.applyRunMonitorStreamPayload({
       monitor: monitorForTest([commitItem(12, "sha256:first")], { revision: "rtmon:commit-once:1" }),
@@ -2305,7 +2329,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       monitor: monitorForTest([commitItem(13, "sha256:second")], { revision: "rtmon:commit-once:3" }),
     });
 
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -2363,7 +2387,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     expect(store.getState().runMonitorRevision).toBe("rtmon:2:test");
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("ignores raw tool observation runtime_event payloads from the monitor stream", () => {
@@ -2413,7 +2437,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("does not project system tool step summaries from the legacy monitor stream", () => {
@@ -2470,7 +2494,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       });
     }
 
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("does not synthesize generic successful tool observation feedback", () => {
@@ -2516,7 +2540,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("ignores public projection envelopes carried by legacy monitor events", () => {
@@ -2563,7 +2587,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       },
     });
 
-    expect(store.getState().messages[1]?.publicProjection).toBeUndefined();
+    expect(store.getState().messages[1]?.projectionView).toBeUndefined();
   });
 
   it("does not hydrate session details from monitor snapshots while a chat stream is active", async () => {
@@ -2587,7 +2611,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     await flushPromises(4);
 
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
   });
 
   it("does not show internal agent todo observations as user-facing observation rows", () => {
@@ -2638,8 +2662,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const visibleState = JSON.stringify({
-      publicProjection: store.getState().messages[1]?.publicProjection,
-      projectionLedger: store.getState().messages[1]?.projectionLedger,
+      messages: store.getState().messages,
+      activeProjectionsByKey: store.getState().activeProjectionsByKey,
     });
     expect(visibleState).not.toContain("agent-todo:test");
   });
@@ -2785,10 +2809,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
-  it("submits active-task steer immediately while the main chat stream is still open", async () => {
+  it("submits active-task steer immediately while the main chat stream is still open without system-authored feedback", async () => {
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
-        summary: "补充要求已进入当前工作队列。",
         status: "accepted",
         runtime_task_run_id: "taskrun:streaming",
         active_turn_id: "turn:session:streaming:1",
@@ -2884,7 +2907,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emitRuntimeControlSteerDone(handlers, {
           taskRunId: "taskrun:background",
           activeTurnId: "turn:session:background:1",
-          detail: "已收到，会纳入当前处理。",
         });
       }
       return { terminalEvent: "turn_completed", terminalStatus: "completed" };
@@ -2967,6 +2989,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       task_run_id: taskRunId,
     });
     expect(store.getState().taskGraphLiveMonitor?.task_run_id).toBe(taskRunId);
+    expect(store.getState().messages.some((message) =>
+      message.role === "assistant"
+      && message.content === ""
+      && message.sourceTaskRunId === taskRunId
+    )).toBe(false);
     expect(api.streamChat).toHaveBeenCalledWith(
       expect.objectContaining({
         expected_active_turn_id: "turn:session-monitor-recover:1",
@@ -2977,29 +3004,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
   });
 
-  it("sends a durable continuation handle as model context without choosing recovery itself", async () => {
+  it("does not preselect recoverable work during a normal message send", async () => {
     const taskRunId = "taskrun:turn:session-recovery:1:abc";
-    const continuationId = "cont:session-recovery:1";
-    api.getLatestSessionContinuation.mockResolvedValue({
-      session_id: "session-recovery",
-      available: true,
-      authority: "session.continuation.latest",
-      record: {
-        authority: "session.continuation.record.v1",
-        continuation_id: continuationId,
-        session_id: "session-recovery",
-        task_run_id: taskRunId,
-        state: "recoverable_waiting",
-        resume_allowed: true,
-        resume_strategy: "resume_paused_task_run",
-        recovery_cause: "runtime_restart_waiting_resume",
-        task_status: "waiting_executor",
-        user_visible_goal: "继续完成当前任务",
-        latest_progress: "已经完成前置检查。",
-        event_cursor: 12,
-        updated_at: 1,
-      },
-    });
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session-recovery",
@@ -3035,24 +3041,71 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.sendMessage("继续");
 
-    expect(api.getLatestSessionContinuation).toHaveBeenCalledWith("session-recovery", undefined);
+    expect(api.getLatestSessionContinuation).not.toHaveBeenCalled();
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
+    const payload = api.streamChat.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
       message: "继续",
       session_id: "session-recovery",
       expected_active_turn_id: "",
       active_turn_input_policy: "auto",
-      expected_task_run_id: taskRunId,
-      expected_continuation_id: continuationId,
-      recovery_input_policy: "auto",
     });
+    expect(payload?.expected_task_run_id).toBeUndefined();
+    expect(payload?.expected_continuation_id).toBeUndefined();
+    expect(payload?.recovery_input_policy).toBeUndefined();
   });
 
-  it("sends running active task input as a steer request with visible status feedback", async () => {
+  it("uses the live monitor as the active-task steer source when the active turn snapshot is missing", async () => {
+    const taskRunId = "taskrun:turn:session-monitor-steer:1:abc";
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("active_task_steer_accepted", {
+        active_turn_id: "turn:session-monitor-steer:1",
+        runtime_task_run_id: taskRunId,
+      });
+      emitRuntimeControlSteerDone(handlers, {
+        taskRunId,
+        activeTurnId: "turn:session-monitor-steer:1",
+      });
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:monitor-steer", eventLogId: "chatrun:monitor-steer", lastEventOffset: 2 };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-monitor-steer",
+      activeTurnSnapshot: null,
+      taskGraphLiveMonitor: itemForMonitor({
+        session_id: "session-monitor-steer",
+        task_run_id: taskRunId,
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        latest_interaction_turn_id: "turn:session-monitor-steer:1",
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      }) as any,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("补充：先保留现有链路。");
+
+    expect(api.getLatestSessionContinuation).not.toHaveBeenCalled();
+    expect(api.streamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "补充：先保留现有链路。",
+        session_id: "session-monitor-steer",
+        expected_active_turn_id: "turn:session-monitor-steer:1",
+        active_turn_input_policy: "steer",
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("sends running active task input as a steer request without system-authored feedback", async () => {
     const taskRunId = "taskrun:turn:session-queue-only:1:abc";
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("active_task_steer_accepted", {
-        summary: "已加入当前任务队列，会在当前执行中优先纳入。",
         active_turn_id: "turn:session-queue-only:1",
         runtime_task_run_id: taskRunId,
         task_run: {
@@ -3064,17 +3117,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       emitRuntimeControlSteerDone(handlers, {
         taskRunId,
         activeTurnId: "turn:session-queue-only:1",
-        detail: "已加入当前任务队列，会在当前执行中优先纳入。",
       });
       return { terminalEvent: "turn_completed", terminalStatus: "completed" };
     });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "开始任务" },
         { role: "assistant", content: "我会开始处理。" },
         { role: "user", content: "补充一个限制条件" },
       ],
-      runtime_attachments: [],
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -3125,8 +3176,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       content: "补充一个限制条件",
     });
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "success",
-      title: "已收到补充要求",
+      level: "idle",
+      title: "",
+      event: "",
     });
     expect(store.getState().activeTurnSnapshot).toMatchObject({
       turn_id: "turn:session-queue-only:1",
@@ -3144,7 +3196,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
             emitRuntimeControlSteerDone(handlers, {
               taskRunId,
               activeTurnId: "turn:session-auto-active-stream:1",
-              detail: "已加入当前任务队列，会在当前执行中优先纳入。",
             });
             resolve();
           };
@@ -3155,17 +3206,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emitRuntimeControlSteerDone(handlers, {
           taskRunId,
           activeTurnId: "turn:session-auto-active-stream:1",
-          detail: "第二条补充已处理。",
         });
         return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "开始任务" },
         { role: "assistant", content: "我会开始处理。" },
         { role: "user", content: "补充一" },
       ],
-      runtime_attachments: [],
     });
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
       active_task_run_id: taskRunId,
@@ -3242,6 +3291,79 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("preserves queued steer identity when the monitor is unavailable during flush", async () => {
+    const taskRunId = "taskrun:turn:session-queued-target:1:abc";
+    let finishFirstStream: (() => void) | null = null;
+    api.streamChat
+      .mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => {
+          finishFirstStream = resolve;
+        });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        emitRuntimeControlSteerDone(handlers, {
+          taskRunId,
+          activeTurnId: "turn:session-queued-target:1",
+        });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+      });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: "",
+      active_turn_snapshot: null,
+      monitor: null,
+      task_runs: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-queued-target",
+      activeTurnSnapshot: {
+        turn_id: "turn:session-queued-target:1",
+        task_run_id: taskRunId,
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: (itemForMonitor({
+        task_run_id: taskRunId,
+        session_id: "session-queued-target",
+        status: "running",
+        execution_runtime_kind: "single_agent_task",
+        latest_interaction_turn_id: "turn:session-queued-target:1",
+        task_run: {
+          task_run_id: taskRunId,
+          status: "running",
+          execution_runtime_kind: "single_agent_task",
+        },
+      }) as unknown) as StoreState["taskGraphLiveMonitor"],
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "我会开始处理。", toolCalls: [], retrievals: [], sourceIndex: 1 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const firstSend = runtime.actions.sendMessage("补充一");
+    await flushPromises();
+    await runtime.actions.sendMessage("补充二");
+    store.setState((prev) => ({
+      ...prev,
+      activeTurnSnapshot: null,
+      taskGraphLiveMonitor: null,
+    }));
+
+    const finish = finishFirstStream as (() => void) | null;
+    expect(finish).not.toBeNull();
+    finish?.();
+    await firstSend;
+    await flushPromises(10);
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "补充二",
+      expected_active_turn_id: "turn:session-queued-target:1",
+      active_turn_input_policy: "steer",
+    });
+  });
+
   it("queues user input locally while the current stream is active and flushes it as steer after handoff", async () => {
     const taskRunId = "taskrun:turn:session-stream-queue:1:abc";
     let finishFirstStream: (() => void) | null = null;
@@ -3265,17 +3387,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emitRuntimeControlSteerDone(handlers, {
           taskRunId,
           activeTurnId: "turn:session-stream-queue:1",
-          detail: "已加入当前任务队列，会在当前执行中优先纳入。",
         });
         return { terminalEvent: "turn_completed", terminalStatus: "completed" };
       });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "开始任务" },
         { role: "assistant", content: "任务已进入后台执行。" },
         { role: "user", content: "补充一个限制条件" },
       ],
-      runtime_attachments: [],
     });
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
       active_task_run_id: taskRunId,
@@ -3336,8 +3456,9 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       answerChannel: "runtime_control",
     });
     expect(store.getState().sessionActivity).toMatchObject({
-      level: "success",
-      title: "已收到补充要求",
+      level: "idle",
+      title: "",
+      event: "",
     });
   });
 
@@ -3475,12 +3596,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   });
 
   it("does not surface transient run monitor aborts as user-visible errors", async () => {
-    vi.stubGlobal("EventSource", undefined);
     api.getRunMonitor.mockRejectedValue(new DOMException("signal is aborted without reason", "AbortError"));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
-    runtime.startRunMonitor();
+    await runtime.actions.refreshRunMonitor();
     await vi.runOnlyPendingTimersAsync();
 
     expect(store.getState().runMonitorError).toBe("");
@@ -3753,22 +3873,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.answerPersistPolicy).toBe("persist_debug_only");
   });
 
-  it("renders task steer acknowledgements as status for queued active work", () => {
+  it("keeps task steer acknowledgements out of visible status projection", () => {
     let transition = startQueuedActiveTurn(getDefaultState(), "补充限制条件");
+    const activityBeforeSteer = transition.state.sessionActivity;
     transition = reduceStreamEvent(transition.state, transition.session, "runtime_status", {
-      title: "已收到补充要求",
-      detail: "已加入当前任务队列，会在当前执行中优先纳入。",
       state: "running",
       phase: "active_turn_steer",
       runtime_task_run_id: "taskrun:background",
       active_turn_id: "turn:session:background:1",
-      public_projection_frame: statusProjectionFrame({
-        projectionId: "publicproj:taskrun:background:steer-status",
-        lifecycle: "running",
-        title: "已收到补充要求",
-        detail: "已加入当前任务队列，会在当前执行中优先纳入。",
-        state: "running",
-      }),
     });
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "",
@@ -3776,18 +3888,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       completion_state: "task_steer_accepted",
       runtime_task_run_id: "taskrun:background",
       active_turn_id: "turn:session:background:1",
-      public_projection_frame: statusProjectionFrame({
-        projectionId: "publicproj:taskrun:background:steer-done",
-        lifecycle: "done",
-        title: "已收到补充要求",
-        detail: "已加入当前任务队列，会在当前执行中优先纳入。",
-        state: "done",
-        terminal: {
-          event: "done",
-          visible: true,
-          reason: "append_instruction_to_active_work",
-        },
-      }),
     });
 
     expect(transition.state.messages).toHaveLength(2);
@@ -3800,15 +3900,13 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       content: "",
       answerChannel: "runtime_control",
     });
-    expect(transition.state.messages[1]?.publicProjection).toBeUndefined();
-    expect(transition.state.sessionActivity).toMatchObject({
-      level: "success",
-      title: "已收到补充要求",
-    });
+    expect(transition.state.messages[1]?.projectionView).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(activityBeforeSteer);
   });
 
   it("keeps chat usable when noncritical workspace metadata is still loading", async () => {
     vi.useRealTimers();
+    api.getTaskEnvironmentCatalog.mockImplementation(() => new Promise(() => undefined));
     api.listSkills.mockImplementation(() => new Promise(() => undefined));
     api.loadFile.mockImplementation(() => new Promise(() => undefined));
     api.streamChat.mockImplementation(async (_payload, handlers) => {
@@ -3824,6 +3922,85 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:fresh");
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
+  });
+
+  it("coalesces visible assistant body deltas and flushes immediately on final text", async () => {
+    let handlers: StreamEventHandlers | null = null;
+    let resolveStream: (value: {
+      terminalEvent: "turn_completed";
+      terminalStatus: "completed";
+      streamRunId: string;
+      eventLogId: string;
+      lastEventOffset: number;
+    }) => void = () => undefined;
+    api.streamChat.mockImplementation(async (_payload, streamHandlers) => {
+      handlers = streamHandlers;
+      streamHandlers.onEvent("assistant_text_delta", {
+        sequence: 1,
+        content: "甲",
+        event_offset: 1,
+        public_projection_frame: publicBodyFrame({ text: "甲" }),
+      });
+      streamHandlers.onEvent("assistant_text_delta", {
+        sequence: 2,
+        content: "乙",
+        event_offset: 2,
+        public_projection_frame: publicBodyFrame({ text: "乙" }),
+      });
+      return new Promise((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:visible-stream",
+      sessions: [{
+        id: "session:visible-stream",
+        title: "Visible Stream",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const sendPromise = runtime.actions.sendMessage("写一段");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().messages.at(-1)?.role).toBe("assistant");
+    expect(store.getState().messages.at(-1)?.content).toBe("");
+
+    await vi.advanceTimersByTimeAsync(39);
+    expect(store.getState().messages.at(-1)?.content).toBe("");
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getState().messages.at(-1)?.content).toBe("");
+    expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙");
+
+    const activeHandlers = requireStreamHandlers(handlers);
+    activeHandlers.onEvent("assistant_text_final", {
+      sequence: 3,
+      content: "甲乙丙",
+      content_sha256: "sha256:final",
+      event_offset: 3,
+      public_projection_frame: publicBodyFrame({
+        op: "body_finalize",
+        main_visibility: "visible_final",
+        text: "甲乙丙",
+      }),
+    });
+    expect(store.getState().messages.at(-1)?.content).toBe("");
+    expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙丙");
+
+    resolveStream({
+      terminalEvent: "turn_completed",
+      terminalStatus: "completed",
+      streamRunId: "strun:visible-stream",
+      eventLogId: "chatrun:visible-stream",
+      lastEventOffset: 3,
+    });
+    await sendPromise;
   });
 
   it("creates a new conversation inside the active project workspace", async () => {
@@ -4244,6 +4421,196 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("releases the local stream boundary immediately when the user stops output", async () => {
+    const firstStreamHandlers: Array<{ onEvent: (event: string, data: Record<string, unknown>) => void }> = [];
+    const firstStreamSignals: AbortSignal[] = [];
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers, options) => {
+        firstStreamHandlers.push(handlers);
+        if (options?.signal) {
+          firstStreamSignals.push(options.signal);
+        }
+        await new Promise<void>(() => undefined);
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", { content: "第二条已发送" });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:after-stop", eventLogId: "chatrun:after-stop", lastEventOffset: 1 };
+      });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stop-boundary",
+      sessions: [{
+        id: "session:stop-boundary",
+        title: "Stop boundary",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    void runtime.actions.sendMessage("第一条会被停止").catch(() => undefined);
+    await flushPromises();
+    expect(store.getState().activeStreamSessionIds).toEqual(["session:stop-boundary"]);
+
+    runtime.actions.stopCurrentStream();
+    const stoppedSignal = firstStreamSignals[0];
+    expect(stoppedSignal).toBeDefined();
+    expect(stoppedSignal.aborted).toBe(true);
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().chatStreamConnectionStatus.state).toBe("stopped");
+    const stoppedHandlers = firstStreamHandlers[0];
+    expect(stoppedHandlers).toBeDefined();
+    stoppedHandlers.onEvent("assistant_text_delta", { sequence: 1, content: "迟到输出" });
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(JSON.stringify(store.getState().messages)).not.toContain("迟到输出");
+
+    await runtime.actions.sendMessage("停止后继续输入");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "停止后继续输入",
+      session_id: "session:stop-boundary",
+    });
+    expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
+  });
+
+  it("stops the task bound to the current chat stream when the user stops output", async () => {
+    const taskRunId = "taskrun:turn:session-stop-bound-task:1:abc";
+    const activeTurnId = "turn:session-stop-bound-task:1";
+    const firstStreamHandlers: Array<{ onEvent: (event: string, data: Record<string, unknown>) => void }> = [];
+    const firstStreamSignals: AbortSignal[] = [];
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers, options) => {
+        firstStreamHandlers.push(handlers);
+        if (options?.signal) {
+          firstStreamSignals.push(options.signal);
+        }
+        await new Promise<void>(() => undefined);
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", { content: "停止后新输入已发送" });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:after-bound-stop", eventLogId: "chatrun:after-bound-stop", lastEventOffset: 1 };
+      });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-stop-bound-task",
+      sessions: [{
+        id: "session-stop-bound-task",
+        title: "Stop bound task",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    void runtime.actions.sendMessage("开始可停止任务").catch(() => undefined);
+    await flushPromises();
+    firstStreamHandlers[0]?.onEvent("runtime_status", {
+      title: "任务运行中",
+      state: "running",
+      phase: "task_run",
+      runtime_task_run_id: taskRunId,
+      active_turn_id: activeTurnId,
+    });
+    await flushPromises();
+
+    runtime.actions.stopCurrentStream();
+    await flushPromises();
+
+    expect(firstStreamSignals[0]?.aborted).toBe(true);
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().activeTurnSnapshot).toBeNull();
+    expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(
+      taskRunId,
+      "user_stop_from_chat_stream",
+      activeTurnId,
+    );
+
+    await runtime.actions.sendMessage("停止后的新要求");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "停止后的新要求",
+      active_turn_input_policy: "auto",
+      expected_active_turn_id: "",
+    });
+    expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
+  });
+
+  it("releases active work gates when a stopped work-control event arrives before the HTTP stream ends", async () => {
+    const taskRunId = "taskrun:turn:session-work-control-stop:1:abc";
+    const activeTurnId = "turn:session-work-control-stop:1";
+    api.streamChat
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("runtime_status", {
+          title: "当前工作已停止",
+          detail: "当前工作已停止。",
+          state: "stopped",
+          phase: "work_control",
+          runtime_task_run_id: taskRunId,
+          active_turn_id: activeTurnId,
+        });
+        await new Promise<void>(() => undefined);
+        return { terminalEvent: "turn_completed", terminalStatus: "completed" };
+      })
+      .mockImplementationOnce(async (_payload, handlers) => {
+        handlers.onEvent("done", { content: "新的要求已发送" });
+        return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:after-work-stop", eventLogId: "chatrun:after-work-stop", lastEventOffset: 1 };
+      });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-work-control-stop",
+      sessions: [{
+        id: "session-work-control-stop",
+        title: "Work control stop",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+      activeTurnSnapshot: {
+        turn_id: activeTurnId,
+        task_run_id: taskRunId,
+        state: "running_task",
+      },
+      taskGraphLiveMonitor: itemForMonitor({
+        task_run_id: taskRunId,
+        session_id: "session-work-control-stop",
+        task_id: "task:turn:session-work-control-stop:1",
+        execution_runtime_kind: "single_agent_task",
+        task_run: {
+          task_run_id: taskRunId,
+          execution_runtime_kind: "single_agent_task",
+          status: "running",
+        },
+        route: { kind: "agent_runtime_run", session_id: "session-work-control-stop", task_run_id: taskRunId },
+      }) as never,
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    void runtime.actions.sendMessage("停下当前任务").catch(() => undefined);
+    await flushPromises();
+
+    expect(store.getState().activeStreamSessionIds).toEqual([]);
+    expect(store.getState().activeTurnSnapshot).toBeNull();
+    expect(store.getState().taskGraphLiveMonitor).toBeNull();
+    expect(store.getState().chatStreamConnectionStatus.state).toBe("stopped");
+
+    await runtime.actions.sendMessage("这是新的要求");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[1]?.[0]).toMatchObject({
+      message: "这是新的要求",
+      session_id: "session-work-control-stop",
+      active_turn_input_policy: "auto",
+      expected_active_turn_id: "",
+    });
+    expect(store.getState().sessionActivity.event).not.toBe("user_input_queued");
+  });
+
   it("keeps the page mounted when session creation times out during initialization", async () => {
     vi.useRealTimers();
     api.listSessions.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions"));
@@ -4277,9 +4644,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
     });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [{ role: "assistant", content: "当前会话内容" }],
-      runtime_attachments: [],
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "plan" },
     });
     api.listSessions.mockResolvedValue([{
@@ -4321,6 +4687,36 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       scope: undefined,
       poolKey: "main-chat",
     });
+  });
+
+  it("restores a project-bound remembered session before project metadata finishes loading", async () => {
+    vi.useRealTimers();
+    vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
+      key === "agentWorkbench.lastActiveSessionRef"
+        ? JSON.stringify({ sessionId: "session:project", poolKey: "main-chat" })
+        : null
+    );
+    api.getSessionSummary.mockResolvedValue({
+      id: "session:project",
+      title: "Project session",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 1,
+      conversation_state: {
+        authority: "sessions.conversation_state",
+        project_binding: { workspace_root: "D:/repo", source: "test" },
+      },
+    });
+    api.listProjectWorkspaces.mockImplementation(() => new Promise(() => undefined));
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+
+    expect(store.getState().workspaceInitializing).toBe(false);
+    expect(store.getState().currentSessionId).toBe("session:project");
+    expect(store.getState().activeSessionRef?.sessionId).toBe("session:project");
+    expect(api.listProjectWorkspaces).toHaveBeenCalledTimes(1);
   });
 
   it("restores the backend-persisted current session when local storage has no ref", async () => {
@@ -4585,13 +4981,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().workspaceInitializing).toBe(false);
   });
 
-  it("keeps session history visible when token statistics refresh fails", async () => {
-    api.getSessionTimeline.mockResolvedValue({
+  it("keeps session history visible while token statistics are still loading", async () => {
+    api.getSessionHistory.mockResolvedValue({
       messages: [{ role: "user", content: "继续修复 token 统计" }],
-      runtime_attachments: [],
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
     });
-    api.getSessionTokens.mockRejectedValue(new Error("token endpoint failed"));
+    api.getSessionTokens.mockImplementation(() => new Promise(() => undefined));
     const store = createStore<StoreState>({
       ...getDefaultState(),
       currentSessionId: "session:tokens",
@@ -4630,16 +5025,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().messages[0].content).toBe("继续修复 token 统计");
     expect(store.getState().tokenStats?.total_tokens).toBe(3);
     expect(store.getState().sessionActivity.event).toBe("");
+    expect(api.getSessionTokens).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(api.getSessionTokens).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(api.getSessionTokens).toHaveBeenCalledWith("session:tokens", undefined);
+  });
+
+  it("shows lightweight session history before delayed runtime projection starts", async () => {
+    api.getSessionHistory.mockResolvedValue({
+      messages: [{ role: "assistant", content: "轻量历史先显示" }],
+      conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
+    });
+    api.getSessionRuntimeProjection.mockImplementation(() => new Promise(() => undefined));
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:projection-pending",
+      sessions: [{
+        id: "session:projection-pending",
+        title: "Projection Pending",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      refreshSessionDetails: (sessionId: string) => Promise<void>;
+    };
+
+    await runtime.refreshSessionDetails("session:projection-pending");
+
+    expect(api.getSessionHistory).toHaveBeenCalledWith("session:projection-pending", undefined);
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1599);
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(api.getSessionRuntimeProjection).toHaveBeenCalledWith("session:projection-pending", undefined);
+    expect(store.getState().messages).toMatchObject([
+      { role: "assistant", content: "轻量历史先显示" },
+    ]);
   });
 
   it("does not carry a volatile attachment to a refreshed message with the same source index but a different turn", async () => {
     const sessionId = "session:source-index-noise";
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "新问题", turn_id: "turn:session:source-index-noise:2" },
         { id: "assistant:new", role: "assistant", content: "新回答", turn_id: "turn:session:source-index-noise:2" },
       ],
-      runtime_attachments: [],
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
     });
     const store = createStore<StoreState>({
@@ -4687,12 +5120,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
   it("keeps the local streaming assistant shell when session history refresh races with deltas", async () => {
     const sessionId = "session:live-refresh";
     const assistantId = "assistant:local-live";
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "请回答" },
         { role: "assistant", content: "后端历史旧壳" },
       ],
-      runtime_attachments: [],
       conversation_state: { authority: "sessions.conversation_state", permission_mode: "full_access" },
     });
     const store = createStore<StoreState>({
@@ -4792,16 +5224,21 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event_log_id: "chatrun:resume",
       root_request_ref: "chatreq:resume",
       status: "running",
+      active_turn_snapshot: null,
+      diagnostics: {
+        active_turn_id: "turn:session:existing:7",
+        runtime_turn_run_id: "turnrun:strun:resume",
+        runtime_task_run_id: "taskrun:session:existing:7",
+      },
       latest_event_offset: 3,
       is_reconnectable: true,
       stream_url: "/api/chat/runs/strun:resume/events",
     });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
         { role: "assistant", content: "续接完成" },
       ],
-      runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
     let recoveryActivityDuringAttach: unknown;
@@ -4829,6 +5266,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     );
     expect(store.getState().currentSessionId).toBe("session:existing");
     expect(store.getState().messages.some((message) => message.role === "assistant" && message.content.includes("续"))).toBe(true);
+    expect(store.getState().activeTurnSnapshot).toMatchObject({
+      turn_id: "turn:session:existing:7",
+      turn_run_id: "turnrun:strun:resume",
+      task_run_id: "taskrun:session:existing:7",
+      state: "running_task",
+    });
     expect(recoveryActivityDuringAttach).toMatchObject({
       level: "running",
       title: "恢复输出流",
@@ -4836,6 +5279,67 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       event: "stream_cursor_restore_started",
     });
     expect(JSON.stringify(store.getState().messages)).not.toContain("正在重新连接");
+  });
+
+  it("creates a transient assistant shell for recovered live streams without persisted assistant output", async () => {
+    vi.useRealTimers();
+    const cursor = {
+      streamRunId: "strun:wait",
+      eventLogId: "chatrun:wait",
+      lastEventOffset: 1,
+      lastEventId: "strun:wait:chatrun:wait:1",
+    };
+    api.listSessions.mockResolvedValue([{
+      id: "session:wait",
+      title: "Waiting",
+      created_at: 1,
+      updated_at: 1,
+      message_count: 1,
+    }]);
+    api.readChatStreamCursor.mockReturnValue(cursor);
+    api.getChatRun.mockResolvedValue({
+      stream_run_id: "strun:wait",
+      session_id: "session:wait",
+      event_log_id: "chatrun:wait",
+      root_request_ref: "chatreq:wait",
+      status: "running",
+      active_turn_snapshot: {
+        turn_id: "turn:session:wait:1",
+        turn_run_id: "turnrun:wait",
+        task_run_id: "taskrun:wait",
+        state: "model_turn",
+      },
+      diagnostics: {},
+      latest_event_offset: 1,
+      is_reconnectable: true,
+      stream_url: "/api/chat/runs/strun:wait/events",
+    });
+    api.getSessionHistory.mockResolvedValue({
+      messages: [
+        { role: "user", content: "继续处理", turn_id: "turn:session:wait:1" },
+      ],
+    });
+    const store = createStore(getDefaultState());
+    let messagesDuringAttach: StoreState["messages"] = [];
+    api.streamExistingChatRun.mockImplementation(async () => {
+      messagesDuringAttach = store.getState().messages;
+      return { terminalEvent: "turn_completed", terminalStatus: "completed", streamRunId: "strun:wait", eventLogId: "chatrun:wait", lastEventOffset: 1 };
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.initialize();
+    await Promise.resolve();
+
+    const shell = messagesDuringAttach.find((message) => message.role === "assistant");
+    expect(shell).toMatchObject({
+      content: "",
+      sourceStreamRunId: "strun:wait",
+      sourceTaskRunId: "taskrun:wait",
+      sourceTurnId: "turn:session:wait:1",
+      sourceTurnRunId: "turnrun:wait",
+    });
+    expect(api.getSessionHistory).toHaveBeenCalled();
+    expect(api.streamChat).not.toHaveBeenCalled();
   });
 
   it("does not reattach the latest active chat run without a cursor", async () => {
@@ -4848,11 +5352,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       message_count: 1,
     }]);
     api.readChatStreamCursor.mockReturnValue(null);
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
       ],
-      runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -4891,11 +5394,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       is_reconnectable: true,
       stream_url: "/api/chat/runs/strun:stale/events",
     });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "继续处理" },
       ],
-      runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -4935,12 +5437,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       is_reconnectable: true,
       stream_url: "/api/chat/runs/strun:terminal/events",
     });
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [
         { role: "user", content: "任务" },
         { role: "assistant", content: "完成" },
       ],
-      runtime_attachments: [],
     });
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
@@ -5020,9 +5521,60 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session:new");
   });
 
+  it("derives a session title from the committed summary after the first completed turn", async () => {
+    vi.useRealTimers();
+    api.deriveSessionTitleFromSummary.mockResolvedValueOnce({
+      session_id: "session:fresh",
+      title: "会话标题修复",
+    });
+    api.listSessions.mockResolvedValue([{
+      id: "session:fresh",
+      title: "会话标题修复",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 2,
+    }]);
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("我的对话名怎么都成 New Session 了，帮我修一下");
+    await flushPromises(8);
+
+    expect(api.deriveSessionTitleFromSummary).toHaveBeenCalledWith("session:fresh", undefined);
+    expect(store.getState().sessions.find((session) => session.id === "session:fresh")?.title).toBe("会话标题修复");
+  });
+
+  it("does not derive a summary title for a manually titled session", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:manual",
+      sessions: [{
+        id: "session:manual",
+        title: "手动标题",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    api.listSessions.mockResolvedValue([{
+      id: "session:manual",
+      title: "手动标题",
+      created_at: 1,
+      updated_at: 2,
+      message_count: 2,
+    }]);
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("这句话不应该覆盖标题");
+    await flushPromises(8);
+
+    expect(api.deriveSessionTitleFromSummary).not.toHaveBeenCalled();
+    expect(store.getState().sessions.find((session) => session.id === "session:manual")?.title).toBe("手动标题");
+  });
+
   it("keeps the page alive when selected session history times out", async () => {
     vi.useRealTimers();
-    api.getSessionTimeline.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions/session:slow/timeline"));
     api.getSessionHistory.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions/session:slow/history"));
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -5084,9 +5636,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("clears the initialization failure state after a session loads successfully", async () => {
     vi.useRealTimers();
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [{ role: "assistant", content: "恢复成功" }],
-      runtime_attachments: [],
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -5536,7 +6087,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getSessionHistory).not.toHaveBeenCalled();
     expect(lastMessage?.role).toBe("assistant");
     expect(lastMessage?.content).toBe("");
-    expect(lastMessage?.publicProjection).toBeUndefined();
+    expect(lastMessage?.projectionView).toBeUndefined();
     expect(lastMessage?.runtimeProgress ?? []).toEqual([]);
     expect(store.getState().sessionActivity.level).toBe("idle");
   });
@@ -5634,9 +6185,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("restores the active task environment from session conversation state", async () => {
     vi.useRealTimers();
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [],
-      runtime_attachments: [],
       conversation_state: conversationState("env.coding.vibe_workspace", "Vibe Coding Workspace", "conversation"),
     });
     const store = createStore<StoreState>({
@@ -5666,9 +6216,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.mocked(window.localStorage.getItem).mockImplementation((key) =>
       key === "agentWorkbench.lastActiveTaskEnvironment" ? "env.coding.vibe_workspace" : null
     );
-    api.getSessionTimeline.mockResolvedValue({
+    api.getSessionHistory.mockResolvedValue({
       messages: [],
-      runtime_attachments: [],
       conversation_state: conversationState("env.general.workspace", "通用工作区", "conversation"),
     });
     const store = createStore<StoreState>({
@@ -5741,7 +6290,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(store.getState().chatTaskEnvironmentBinding).toBeNull();
     expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
   });
 
   it("does not bind removed task environments to the ordinary main chat", async () => {
@@ -5811,7 +6360,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       source: "workspace-mode",
     });
     expect(api.listSessions).not.toHaveBeenCalled();
-    expect(api.getSessionTimeline).not.toHaveBeenCalled();
+    expect(api.getSessionRuntimeProjection).not.toHaveBeenCalled();
   });
 
   it("does not reset a selected coding environment when opening the workbench shell", async () => {
@@ -5924,7 +6473,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       selected_task_id: "task.dev.frontend_ui",
     });
     const assistant = store.getState().messages.at(-1);
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 
   it("ignores raw formal task lifecycle signals without a public projection envelope", () => {
@@ -5980,7 +6529,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
     expect(assistant?.stageStatus).toBe("");
   });
 
@@ -6025,7 +6574,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 
   it("ignores raw single-agent turn tool events without a public projection envelope", () => {
@@ -6089,7 +6638,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       level: "idle",
       title: "",
     });
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 
   it("does not attach permission gate checks to the assistant task flow", () => {
@@ -6113,7 +6662,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.stageStatus).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 
   it("writes terminal error detail into timeline status without changing assistant prose", () => {
@@ -6125,7 +6674,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.content).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
     expect(assistant?.runtimeProgress ?? []).toEqual([]);
     expect(transition.state.sessionActivity).toMatchObject({
       level: "idle",
@@ -6152,7 +6701,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.stageStatus).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
   });
 
   it("keeps raw tool lifecycle events out of the assistant main projection", () => {
@@ -6183,7 +6732,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.publicProjection).toBeUndefined();
+    expect(assistant?.projectionView).toBeUndefined();
     expect(assistant?.stageStatus).toBe("");
     expect(transition.state.sessionActivity.event).toBe("");
   });

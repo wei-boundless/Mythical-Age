@@ -7,8 +7,9 @@ import {
   TaskSystemField,
   TaskSystemToolbarButton,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
-import { JsonObjectEditor, dictOf, recordFieldText, splitList } from "@/components/workspace/views/task-system/managementPrimitives";
+import { JsonObjectEditor, Metric, dictOf, recordFieldText, splitList } from "@/components/workspace/views/task-system/managementPrimitives";
 import type { TaskEnvironmentKindTemplate, TaskSystemOverview } from "@/lib/api";
+import { Notice } from "@/ui/Notice";
 
 import type { EnvironmentDraft, TaskEnvironmentItem } from "./TaskEnvironmentManagementWorkbench";
 
@@ -109,7 +110,7 @@ export function EnvironmentTypePage({
         <header className="task-system-inspector-head">
           <div><span>环境类型</span><strong>{kindDraft.title || kindDraft.kind_id}</strong><small>{kindDraft.kind_id}</small></div>
         </header>
-        {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
+        {error ? <Notice icon={<AlertTriangle size={16} />} tone="error">{error}</Notice> : null}
         <section className="task-system-inspector-section">
           <header><ShieldCheck size={15} /><strong>类型模板</strong><span>默认资源和策略边界</span></header>
           <div className="boundary-form">
@@ -201,10 +202,10 @@ export function EnvironmentLoadoutPage({
   return (
     <div className="task-system-inspector-stack">
       <section className="task-system-metric-grid">
-        <article className="task-system-metric"><span>文件资源</span><strong>{fileProfileRefs}</strong><small>{repositoryKindCount} 类仓库</small></article>
-        <article className="task-system-metric"><span>记忆与检索</span><strong>{memoryLoadCount}</strong><small>记忆 / 知识 / 检索</small></article>
-        <article className="task-system-metric"><span>环境说明</span><strong>{promptLoadCount}</strong><small>{promptLoadCount ? "Agent 可读取" : "未配置"}</small></article>
-        <article className="task-system-metric"><span>存储空间</span><strong>{recordFieldText(selectedStorageSpace, ["storage_namespace"], draft.storage_namespace || "未声明")}</strong><small>运行时自动分配</small></article>
+        <Metric detail={`${repositoryKindCount} 类仓库`} label="文件资源" value={fileProfileRefs} />
+        <Metric detail="记忆 / 知识 / 检索" label="记忆与检索" value={memoryLoadCount} />
+        <Metric detail={promptLoadCount ? "Agent 可读取" : "未配置"} label="环境说明" value={promptLoadCount} />
+        <Metric detail="运行时自动分配" label="存储空间" value={recordFieldText(selectedStorageSpace, ["storage_namespace"], draft.storage_namespace || "未声明")} />
       </section>
       <section className="task-system-inspector-section">
         <header><Package size={15} /><strong>资源装载</strong><span>选择 Agent 本环境可读取和写入的资源</span></header>
@@ -275,7 +276,7 @@ export function EnvironmentPromptPage({
         <header className="task-system-inspector-head">
           <div><span>环境说明</span><strong>{draft.prompt_id || "未命名说明"}</strong><small>{badPhrases.length ? `${badPhrases.length} 个表达需要修正` : "Agent 可见"}</small></div>
         </header>
-        {badPhrases.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />环境 Prompt 含开发说明表达：{badPhrases.join("、")}</div> : null}
+        {badPhrases.length ? <Notice icon={<AlertTriangle size={16} />} tone="error">环境 Prompt 含开发说明表达：{badPhrases.join("、")}</Notice> : null}
         <section className="task-system-inspector-section">
           <header><FileText size={15} /><strong>说明编辑</strong><span>必须写成 Agent 能直接执行的环境说明</span></header>
           <div className="boundary-form">

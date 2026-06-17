@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { TaskSystemField } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { MetricCard } from "@/ui/MetricCard";
 
 export function toJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
@@ -73,18 +74,17 @@ export function JsonObjectEditor({
 }
 
 export function Metric({
+  detail,
   label,
   tone = "neutral",
   value,
 }: {
+  detail?: ReactNode;
   label: string;
   tone?: "neutral" | "warn" | "ok";
-  value: number;
+  value: ReactNode;
 }) {
   return (
-    <article className={`task-system-metric task-system-metric--${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
+    <MetricCard className="task-system-metric" detail={detail} label={label} toneClassName={`task-system-metric--${tone}`} value={value} />
   );
 }

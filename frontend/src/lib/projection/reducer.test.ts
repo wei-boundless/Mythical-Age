@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { PublicProjectionFrame } from "@/lib/api";
+import { applyProjectionFramesToMessages } from "@/lib/projection/reducer";
 import { getDefaultState } from "@/lib/store/core";
 import { reduceStreamEvent, startStreamingTurn } from "@/lib/store/events";
+import type { Message } from "@/lib/store/types";
 
 let frameOffset = 0;
 
-function publicFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
+function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
   frameOffset += 1;
   const eventFamily = patch.event_family ?? inferEventFamily(patch);
   return {
@@ -36,8 +38,7 @@ function inferEventFamily(patch: Partial<PublicProjectionFrame>) {
   const eventType = String(patch.source_event_type ?? "");
   if (patch.slot === "body" || eventType.startsWith("assistant_text") || eventType === "assistant_stream_repair") return "assistant_body";
   if (eventType.startsWith("tool_") || patch.tool_call_id) return "tool_control";
-  if (patch.op === "commit_ack" || patch.op === "commit_failed" || eventType.startsWith("session_output_commit")) return "runtime_commit";
-  if (patch.op === "turn_terminal" || eventType === "turn_completed") return "turn_anchor_terminal";
+  if (patch.op === "commit_ack" || eventType.startsWith("session_output_commit")) return "runtime_commit";
   return "status_trace";
 }
 
@@ -45,7 +46,6 @@ function channelForEventFamily(eventFamily: string) {
   if (eventFamily === "assistant_body") return "body";
   if (eventFamily === "tool_control") return "control";
   if (eventFamily === "runtime_commit") return "commit";
-  if (eventFamily === "turn_anchor_terminal") return "terminal";
   return "status";
 }
 
@@ -65,14 +65,31 @@ function project(
   patch: Partial<PublicProjectionFrame>,
 ) {
   return reduceStreamEvent(transition.state, transition.session, "public_projection_frame", {
-    public_projection_frame: publicFrame(patch),
+    public_projection_frame: projectionFrame(patch),
   });
 }
 
-describe("public projection frame reducer contract", () => {
-  it("progressively appends and finalizes assistant body from public_projection_frame", () => {
+function latestAssistant(messages: Message[]) {
+  return [...messages].reverse().find((message) => message.role === "assistant");
+}
+
+function latestProjection(state: ReturnType<typeof getDefaultState>) {
+  const assistant = latestAssistant(state.messages);
+  const key = assistant?.projectionKeyString ?? "";
+  return key ? state.activeProjectionsByKey[key]?.view : undefined;
+}
+
+function latestLedger(state: ReturnType<typeof getDefaultState>) {
+  const assistant = latestAssistant(state.messages);
+  const key = assistant?.projectionKeyString ?? "";
+  return key ? state.activeProjectionsByKey[key]?.ledger : undefined;
+}
+
+describe("chronological projection frame reducer contract", () => {
+  it("projects assistant body without mutating persisted message content", () => {
     let transition = startBoundProjectionTurn();
     const activityBeforeBody = transition.state.sessionActivity;
+
     transition = project(transition, {
       op: "body_append",
       slot: "body",
@@ -90,131 +107,20 @@ describe("public projection frame reducer contract", () => {
       text: "正在检查投影链路。",
     });
 
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("正在检查投影链路。");
-    expect(assistant?.publicProjection?.bodyText).toBe("正在检查投影链路。");
-    expect(assistant?.publicProjection?.bodyState).toBe("finalized");
-    expect(assistant?.publicProjection?.bodyEventOffset).toBeGreaterThan(0);
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    const ledger = latestLedger(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.canonicalContent).toBe("正在检查投影链路。");
+    expect(view?.bodyState).toBe("finalized");
+    expect(ledger?.cursor.maxOffset).toBeGreaterThan(0);
     expect(transition.state.sessionActivity).toBe(activityBeforeBody);
   });
 
-  it("opens the main tool action only from the model tool_call_requested frame", () => {
+  it("folds tool request, start, and completion into one chronological tool event", () => {
     let transition = startBoundProjectionTurn();
     const activityBeforeTool = transition.state.sessionActivity;
-    transition = project(transition, {
-      source_event_type: "tool_call_requested",
-      op: "item_upsert",
-      slot: "current_action",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "tool:read",
-      tool_call_id: "call:read",
-      permission_decision_id: "permission:read",
-      tool_name: "read_file",
-      title: "读取投影 reducer",
-      subject_label: "frontend/src/lib/projection/reducer.ts",
-      state: "running",
-    });
 
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.currentAction).toMatchObject({
-      itemId: "tool:read",
-      toolCallId: "call:read",
-      permissionDecisionId: "permission:read",
-      mainVisibility: "visible_live",
-    });
-    expect(projection?.timeline).toEqual([
-      expect.objectContaining({
-        toolCallId: "call:read",
-        eventFamily: "tool_control",
-        channel: "control",
-        lossless: true,
-        sourceEventType: "tool_call_requested",
-      }),
-    ]);
-    expect(transition.state.sessionActivity).toBe(activityBeforeTool);
-  });
-
-  it("keeps raw tool_item_started invisible when it has no public projection frame", () => {
-    let transition = startBoundProjectionTurn();
-    transition = reduceStreamEvent(transition.state, transition.session, "tool_item_started", {
-      item_id: "tool:raw",
-      tool_name: "read_file",
-      title: "读取文件",
-      state: "running",
-    });
-
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.content).toBe("");
-    expect(assistant?.stageStatus).toBe("");
-    expect(assistant?.publicProjection).toBeUndefined();
-    expect(transition.state.sessionActivity.title).toBe("");
-  });
-
-  it("records protocol diagnostics in trace without creating main-view activity", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      source_event_type: "tool_item_started",
-      op: "item_upsert",
-      slot: "trace",
-      source_authority: "runtime",
-      main_visibility: "hidden",
-      retention: "trace",
-      item_id: "diagnostic:raw-tool-start",
-      title: "tool_item_started_without_model_request",
-      state: "running",
-    });
-
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.currentAction).toBeUndefined();
-    expect(projection?.pinned).toEqual([]);
-    expect(projection?.traceAvailable).toBe(true);
-    expect(projection?.traceCount).toBe(1);
-  });
-
-  it("retires successful transient tool actions into trace", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      source_event_type: "tool_call_requested",
-      op: "item_upsert",
-      slot: "current_action",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "tool:read",
-      tool_call_id: "call:read",
-      title: "读取文件",
-      state: "running",
-    });
-    transition = project(transition, {
-      source_event_type: "tool_item_completed",
-      op: "item_retire",
-      slot: "trace",
-      source_authority: "tool",
-      main_visibility: "trace_only",
-      retention: "trace",
-      item_id: "tool:read",
-      tool_call_id: "call:read",
-      state: "done",
-    });
-
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.currentAction).toBeUndefined();
-    expect(projection?.pinned).toEqual([]);
-    expect(projection?.traceCount).toBeGreaterThan(0);
-    expect(projection?.timeline).toHaveLength(1);
-    expect(projection?.timeline[0]).toMatchObject({
-      itemId: "call:read",
-      toolCallId: "call:read",
-      sourceEventType: "tool_item_completed",
-      state: "done",
-    });
-    expect(projection?.timeline[0]?.eventOffset).toBeLessThan(projection?.timeline[0]?.updatedEventOffset ?? 0);
-  });
-
-  it("updates one tool trajectory across request start and completion by tool call id", () => {
-    let transition = startBoundProjectionTurn();
     transition = project(transition, {
       source_event_type: "tool_call_requested",
       op: "item_upsert",
@@ -226,7 +132,7 @@ describe("public projection frame reducer contract", () => {
       tool_call_id: "call:search",
       tool_lifecycle_id: "call:search",
       tool_name: "search_files",
-      title: "搜索文件：mario修复计划",
+      title: "搜索文件：projection",
       state: "running",
     });
     transition = project(transition, {
@@ -256,61 +162,21 @@ describe("public projection frame reducer contract", () => {
       state: "done",
     });
 
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.timeline).toHaveLength(1);
-    expect(projection?.timeline[0]).toMatchObject({
-      itemId: "call:search",
+    const toolBlocks = latestProjection(transition.state)?.blocks
+      .filter((block) => block.kind === "tool_event");
+    expect(toolBlocks).toHaveLength(1);
+    expect(toolBlocks?.[0]).toMatchObject({
+      id: "call:search",
       toolCallId: "call:search",
       toolLifecycleId: "toolinv:search:1",
       sourceEventType: "tool_item_completed",
       state: "done",
     });
+    expect(toolBlocks?.[0]?.firstOffset).toBeLessThan(toolBlocks?.[0]?.lastOffset ?? 0);
+    expect(transition.state.sessionActivity).toBe(activityBeforeTool);
   });
 
-  it("does not merge separate tool calls that share the same title", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      source_event_type: "tool_call_requested",
-      op: "item_upsert",
-      slot: "current_action",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "tool-life:search:1",
-      tool_call_id: "call:search:1",
-      tool_lifecycle_id: "tool-life:search:1",
-      tool_name: "search_files",
-      title: "搜索文件：mario",
-      state: "running",
-    });
-    transition = project(transition, {
-      source_event_type: "tool_call_requested",
-      op: "item_upsert",
-      slot: "current_action",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "tool-life:search:2",
-      tool_call_id: "call:search:2",
-      tool_lifecycle_id: "tool-life:search:2",
-      tool_name: "search_files",
-      title: "搜索文件：mario",
-      state: "running",
-    });
-
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.timeline).toHaveLength(2);
-    expect(projection?.timeline.map((item) => item.itemId)).toEqual([
-      "call:search:1",
-      "call:search:2",
-    ]);
-    expect(projection?.timeline.map((item) => item.toolCallId)).toEqual([
-      "call:search:1",
-      "call:search:2",
-    ]);
-  });
-
-  it("keeps assistant body separate from tool lifecycle activity", () => {
+  it("keeps body and tool activity as ordered render blocks", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
       op: "body_append",
@@ -335,19 +201,6 @@ describe("public projection frame reducer contract", () => {
       state: "running",
     });
     transition = project(transition, {
-      source_event_type: "tool_item_completed",
-      op: "item_retire",
-      slot: "trace",
-      source_authority: "tool",
-      main_visibility: "trace_only",
-      retention: "trace",
-      item_id: "tool-life:read",
-      tool_call_id: "call:read",
-      tool_lifecycle_id: "tool-life:read",
-      tool_name: "read_file",
-      state: "done",
-    });
-    transition = project(transition, {
       op: "body_append",
       slot: "body",
       source_authority: "model",
@@ -356,18 +209,309 @@ describe("public projection frame reducer contract", () => {
       text: "再继续。",
     });
 
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.bodyText).toBe("先说明。再继续。");
-    expect(projection?.timeline).toHaveLength(1);
-    expect(projection?.timeline[0]).toMatchObject({
-      itemId: "call:read",
-      toolCallId: "call:read",
-      toolLifecycleId: "tool-life:read",
-      sourceEventType: "tool_item_completed",
+    const view = latestProjection(transition.state);
+    expect(view?.canonicalContent).toBe("先说明。再继续。");
+    expect(view?.blocks.map((block) => block.kind)).toEqual([
+      "body_segment",
+      "tool_event",
+      "body_segment",
+    ]);
+  });
+
+  it("does not create main-view activity for hidden protocol diagnostics", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "tool_item_started",
+      op: "item_upsert",
+      slot: "trace",
+      source_authority: "runtime",
+      main_visibility: "hidden",
+      retention: "trace",
+      item_id: "diagnostic:raw-tool-start",
+      title: "tool_item_started_without_model_request",
+      state: "running",
+    });
+
+    const view = latestProjection(transition.state);
+    expect(view?.blocks).toEqual([]);
+    expect(view?.traceAvailable).toBe(false);
+  });
+
+  it("does not render hidden status frames even when their slot is status", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "runtime_status",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "hidden",
+      retention: "trace",
+      item_id: "status:hidden",
+      title: "内部状态不应显示",
+      state: "running",
+    });
+
+    const view = latestProjection(transition.state);
+    expect(view).toBeUndefined();
+  });
+
+  it("drops hidden model body frames before they can become assistant prose", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "runtime_step_summary",
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      event_family: "assistant_body",
+      channel: "body",
+      main_visibility: "hidden",
+      retention: "trace",
+      item_id: "body:hidden",
+      text: "这段隐藏正文不能进主聊天。",
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    expect(assistant?.content).toBe("");
+    expect(latestProjection(transition.state)).toBeUndefined();
+  });
+
+  it("drops visible runtime status frames before they can create chat messages or activity", () => {
+    let transition = startBoundProjectionTurn();
+    const beforeMessages = transition.state.messages;
+    const beforeActivity = transition.state.sessionActivity;
+
+    transition = project(transition, {
+      source_event_type: "runtime_status",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "status:visible-noise",
+      title: "status noise",
+      state: "running",
+    });
+
+    expect(transition.state.messages).toHaveLength(beforeMessages.length);
+    expect(latestAssistant(transition.state.messages)?.content).toBe("");
+    expect(latestProjection(transition.state)).toBeUndefined();
+    expect(transition.state.sessionActivity).toBe(beforeActivity);
+  });
+
+  it("renders active task steer accepted as a lightweight status event outside assistant prose", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "active_task_steer_accepted",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "status:steer:1",
+      status_kind: "status_event",
+      title: "补充要求已接入当前任务",
+      detail: "继续检查投影时序。",
+      state: "done",
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.canonicalContent).toBe("");
+    expect(view?.displayMode).toBe("live");
+    expect(view?.blocks).toEqual([
+      expect.objectContaining({
+        kind: "status_event",
+        title: "补充要求已接入当前任务",
+        detail: "继续检查投影时序。",
+      }),
+    ]);
+  });
+
+  it("renders commit failed as recovery event with log entry but never assistant body", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "session_output_commit_failed",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "visible_live",
+      retention: "final",
+      item_id: "status:commit-failed",
+      status_kind: "recovery_event",
+      title: "最终输出写回失败",
+      detail: "history write failed",
+      state: "failed",
+      commit: {
+        state: "failed",
+        commit_event_offset: 21,
+      },
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    const ledger = latestLedger(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.canonicalContent).toBe("");
+    expect(view?.displayMode).toBe("recovery");
+    expect(ledger?.commit.state).toBe("failed");
+    expect(view?.blocks).toEqual([
+      expect.objectContaining({ kind: "recovery_event", title: "输出未写入会话记录" }),
+      expect.objectContaining({ kind: "log_entry" }),
+    ]);
+  });
+
+  it("neutralizes persisted legacy runtime recovery wording on replay", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "turn_completed",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "visible_live",
+      retention: "final",
+      item_id: "turn-terminal:legacy",
+      status_kind: "recovery_event",
+      title: "旧运行恢复标题",
+      text: "旧运行恢复标题",
+      detail: "系统自动生成的恢复说明。",
+      state: "failed",
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    const rendered = JSON.stringify(view?.blocks ?? []);
+    expect(assistant?.content).toBe("");
+    expect(view?.displayMode).toBe("recovery");
+    expect(view?.blocks).toEqual([
+      expect.objectContaining({ kind: "recovery_event", title: "需要处理", detail: "" }),
+      expect.objectContaining({ kind: "log_entry" }),
+    ]);
+    expect(rendered).not.toContain("旧运行恢复标题");
+    expect(rendered).not.toContain("系统自动生成的恢复说明");
+  });
+
+  it("renders stopped terminal as typed terminal event with log entry", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "stopped",
+      op: "item_upsert",
+      slot: "status",
+      source_authority: "runtime",
+      main_visibility: "visible_live",
+      retention: "final",
+      item_id: "status:stopped",
+      status_kind: "terminal_event",
+      title: "旧停止标题",
+      detail: "用户停止了当前运行。",
+      state: "stopped",
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.displayMode).toBe("recovery");
+    expect(view?.blocks).toEqual([
+      expect.objectContaining({ kind: "terminal_event", title: "运行已停止" }),
+      expect.objectContaining({ kind: "log_entry" }),
+    ]);
+  });
+
+  it("does not let trace-only tool frames open a visible tool block without a model request", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "toolinv:orphan",
+      tool_call_id: "call:orphan",
+      tool_lifecycle_id: "toolinv:orphan",
+      tool_name: "read_file",
+      title: "孤立工具完成",
+      state: "done",
+    });
+
+    const view = latestProjection(transition.state);
+    expect(view?.blocks).toEqual([]);
+    expect(view?.traceAvailable).toBe(false);
+  });
+
+  it("does not let out-of-order tool lifecycle frames regress terminal state", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      source_event_type: "tool_call_requested",
+      event_offset: 10,
+      op: "item_upsert",
+      slot: "current_action",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "tool:read",
+      tool_call_id: "call:read",
+      tool_lifecycle_id: "call:read",
+      tool_name: "read_file",
+      title: "读取文件",
+      state: "running",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_completed",
+      event_offset: 30,
+      op: "item_retire",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "tool:read",
+      tool_call_id: "call:read",
+      tool_lifecycle_id: "call:read",
+      tool_name: "read_file",
+      state: "done",
+    });
+    transition = project(transition, {
+      source_event_type: "tool_item_started",
+      event_offset: 20,
+      op: "item_upsert",
+      slot: "trace",
+      source_authority: "tool",
+      main_visibility: "trace_only",
+      retention: "trace",
+      item_id: "tool:read",
+      tool_call_id: "call:read",
+      tool_lifecycle_id: "call:read",
+      tool_name: "read_file",
+      state: "running",
+    });
+
+    const tool = latestProjection(transition.state)?.blocks.find((block) => block.kind === "tool_event");
+    expect(tool).toMatchObject({
+      kind: "tool_event",
+      state: "done",
+      firstOffset: 10,
+      lastOffset: 30,
     });
   });
 
-  it("merges replayed model feedback body frames by semantic feedback identity", () => {
+  it("rejects non-model body frames before they can become assistant prose", () => {
+    let transition = startBoundProjectionTurn();
+    transition = project(transition, {
+      op: "body_append",
+      slot: "body",
+      source_authority: "tool",
+      main_visibility: "visible_live",
+      retention: "final",
+      text: "工具输出不能成为正文",
+    });
+
+    const assistant = latestAssistant(transition.state.messages);
+    expect(assistant?.content).toBe("");
+    expect(latestProjection(transition.state)).toBeUndefined();
+    expect(latestLedger(transition.state)).toBeUndefined();
+  });
+
+  it("deduplicates replayed model feedback body by semantic feedback identity", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
       source_event_type: "runtime_step_summary",
@@ -396,73 +540,12 @@ describe("public projection frame reducer contract", () => {
       text: "正在核对当前文件。\n\n下一步执行修改。",
     });
 
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.bodyText).toBe("正在核对当前文件。\n\n下一步执行修改。");
-    expect(projection?.bodyBlocks).toHaveLength(1);
-    expect(projection?.bodyBlocks[0]?.sourceFrameIds).toContain("model-action-feedback-body:feedback:1");
-  });
-
-  it("pins failed tool results until they are resolved", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      source_event_type: "tool_item_completed",
-      op: "item_upsert",
-      slot: "pinned",
-      source_authority: "tool",
-      main_visibility: "pinned",
-      retention: "pinned_until_resolved",
-      pin_reason: "tool_failed",
-      item_id: "tool:read:failed",
-      tool_call_id: "call:read",
-      title: "读取失败",
-      detail: "文件不存在。",
-      state: "failed",
-    });
-
-    expect(transition.state.messages.at(-1)?.publicProjection?.pinned).toEqual([
-      expect.objectContaining({
-        itemId: "tool:read:failed",
-        pinReason: "tool_failed",
-        state: "failed",
-      }),
-    ]);
-  });
-
-  it("does not let turn_completed clear live body or current action", () => {
-    let transition = startBoundProjectionTurn();
-    transition = project(transition, {
-      op: "body_append",
-      slot: "body",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "final",
-      text: "正文仍在推进。",
-    });
-    transition = project(transition, {
-      source_event_type: "tool_call_requested",
-      op: "item_upsert",
-      slot: "current_action",
-      source_authority: "model",
-      main_visibility: "visible_live",
-      retention: "transient",
-      item_id: "tool:verify",
-      tool_call_id: "call:verify",
-      title: "运行验证",
-      state: "running",
-    });
-    transition = project(transition, {
-      source_event_type: "turn_completed",
-      op: "turn_terminal",
-      slot: "trace",
-      source_authority: "runtime",
-      main_visibility: "hidden",
-      retention: "trace",
-      state: "completed",
-    });
-
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.bodyText).toBe("正文仍在推进。");
-    expect(projection?.currentAction?.itemId).toBe("tool:verify");
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    const ledger = latestLedger(transition.state);
+    expect(view?.canonicalContent).toBe("正在核对当前文件。\n\n下一步执行修改。");
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toHaveLength(1);
+    expect(ledger?.bodySegments[0]?.sourceKeys).toContain("model-action-feedback-body:feedback:1");
   });
 
   it("rejects stale task frames from a different turn even when task_run_id is shared", () => {
@@ -478,6 +561,7 @@ describe("public projection frame reducer contract", () => {
         boundTaskRunId: "taskrun:shared",
       },
     };
+
     transition = project(transition, {
       anchor: {
         turn_id: "turn:old",
@@ -494,7 +578,7 @@ describe("public projection frame reducer contract", () => {
       text: "旧时序内容",
     });
 
-    expect(transition.state.messages.at(-1)?.publicProjection).toBeUndefined();
+    expect(latestProjection(transition.state)).toBeUndefined();
 
     transition = project(transition, {
       anchor: {
@@ -512,14 +596,15 @@ describe("public projection frame reducer contract", () => {
       text: "新时序内容",
     });
 
-    const assistant = transition.state.messages.at(-1);
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
     expect(assistant?.sourceTurnId).toBe("turn:new");
     expect(assistant?.sourceStreamRunId).toBe("strun:new");
-    expect(assistant?.publicProjection?.bodyText).toBe("新时序内容");
-    expect(assistant?.publicProjection?.bodyText).not.toContain("旧时序内容");
+    expect(view?.canonicalContent).toBe("新时序内容");
+    expect(view?.canonicalContent).not.toContain("旧时序内容");
   });
 
-  it("uses commit_ack as the only commit authority and retires transient activity", () => {
+  it("uses commit_ack as the commit authority and replaces live tool blocks with a log entry", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
       op: "body_finalize",
@@ -554,13 +639,72 @@ describe("public projection frame reducer contract", () => {
       },
     });
 
-    const projection = transition.state.messages.at(-1)?.publicProjection;
-    expect(projection?.bodyText).toBe("最终正文。");
-    expect(projection?.bodyState).toBe("committed");
-    expect(projection?.bodyEventOffset).toBeGreaterThan(0);
-    expect(projection?.commitState).toBe("committed");
-    expect(projection?.currentAction).toBeUndefined();
-    expect(projection?.traceCount).toBeGreaterThan(0);
+    const assistant = latestAssistant(transition.state.messages);
+    const view = latestProjection(transition.state);
+    expect(assistant?.content).toBe("");
+    expect(view?.canonicalContent).toBe("最终正文。");
+    expect(view?.bodyState).toBe("committed");
+    expect(view?.displayMode).toBe("committed");
+    expect(view?.blocks.some((block) => block.kind === "tool_event")).toBe(false);
+    expect(view?.blocks.some((block) => block.kind === "log_entry")).toBe(true);
+  });
+
+  it("does not hydrate empty assistant messages from status-only projection history", () => {
+    const messages = applyProjectionFramesToMessages([
+      {
+        id: "user:projection:history",
+        role: "user",
+        content: "inspect projection",
+        toolCalls: [],
+        retrievals: [],
+        sourceTurnId: "turn:projection:1",
+      },
+    ], [
+      projectionFrame({
+        source_event_type: "runtime_status",
+        op: "item_upsert",
+        slot: "status",
+        source_authority: "runtime",
+        main_visibility: "visible_live",
+        retention: "transient",
+        item_id: "status:history-noise",
+        title: "history noise",
+        state: "running",
+      }),
+    ], { createMessages: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("user");
+  });
+
+  it("does not hydrate empty assistant messages from trace-only tool history", () => {
+    const messages = applyProjectionFramesToMessages([
+      {
+        id: "user:projection:history",
+        role: "user",
+        content: "inspect projection",
+        toolCalls: [],
+        retrievals: [],
+        sourceTurnId: "turn:projection:1",
+      },
+    ], [
+      projectionFrame({
+        source_event_type: "tool_item_completed",
+        op: "item_retire",
+        slot: "trace",
+        source_authority: "tool",
+        main_visibility: "trace_only",
+        retention: "trace",
+        item_id: "toolinv:orphan",
+        tool_call_id: "call:orphan",
+        tool_lifecycle_id: "toolinv:orphan",
+        tool_name: "read_file",
+        state: "done",
+      }),
+    ], { createMessages: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("user");
   });
 
 });

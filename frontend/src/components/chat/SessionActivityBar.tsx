@@ -25,7 +25,7 @@ function publicStatusTitle(level: SessionActivityState["level"], title: string) 
   if (level !== "error") return title;
   return title
     .replace(/处理失败/g, "处理未完成")
-    .replace(/会话连接失败/g, "会话连接需要处理")
+    .replace(/会话连接失败/g, "会话连接中断")
     .replace(/失败/g, "未完成");
 }
 

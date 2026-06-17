@@ -34,11 +34,11 @@ INTERNAL_PROTOCOL_MARKERS = (
     'name="user_visible_goal"',
     'name="search_text"',
     'name="search_files"',
-    'name="spawn_subagent"',
+    'name="start_subagent"',
     'name="send_subagent_message"',
-    'name="wait_subagent"',
-    'name="list_subagents"',
-    'name="close_subagent"',
+    'name="collect_subagent_result"',
+    'name="observe_subagents"',
+    'name="stop_subagent"',
     "**工具调用:**",
     "**工具输出:**",
     "此工具调用为系统自动补全示例",
@@ -166,7 +166,7 @@ _PSEUDO_TOOL_CALL_NAMES = (
     "agent_todo",
     "batch_edit_file",
     "bash",
-    "close_subagent",
+    "collect_subagent_result",
     "cmd",
     "edit_file",
     "execute_command",
@@ -184,7 +184,7 @@ _PSEUDO_TOOL_CALL_NAMES = (
     "glob_paths",
     "image_generate",
     "list_dir",
-    "list_subagents",
+    "observe_subagents",
     "memory_search",
     "path_exists",
     "python_code_outline",
@@ -197,10 +197,10 @@ _PSEUDO_TOOL_CALL_NAMES = (
     "search_text",
     "send_subagent_message",
     "shell",
-    "spawn_subagent",
+    "start_subagent",
     "stat_path",
+    "stop_subagent",
     "terminal",
-    "wait_subagent",
     "web_search",
     "write_file",
 )
@@ -593,6 +593,37 @@ def canonical_output_decision_for_final_text(
             leak_flags=leak_flags,
         )
     if hard_leak_flags:
+        candidate = classify_output_candidate(
+            text=visible_text,
+            route=route,
+            source=normalized_source,
+            tool_name=tool_name,
+            has_tool_receipt=has_tool_receipt,
+        )
+        output_decision = build_output_decision(
+            candidates=[candidate] if candidate is not None else [],
+            route=route,
+            execution_posture=execution_posture,
+            user_message=user_message,
+            tool_name=tool_name,
+            retrieval_results=retrieval_results,
+            leak_flags=hard_leak_flags,
+            has_tool_receipt=has_tool_receipt,
+        )
+        canonical_content = sanitize_visible_assistant_content(output_decision.canonical_answer).strip()
+        if canonical_content:
+            return CanonicalFinalTextDecision(
+                content=canonical_content,
+                answer_channel=normalized_channel,
+                answer_source=normalized_source,
+                selected_channel=output_decision.selected_channel,
+                selected_source=output_decision.selected_source,
+                canonical_state="unstable_answer",
+                persist_policy="persist_debug_only",
+                finalization_policy="none",
+                fallback_reason=str(terminal_reason or completion_state or "internal_protocol_final_text").strip(),
+                leak_flags=hard_leak_flags,
+            )
         return CanonicalFinalTextDecision(
             content="",
             answer_channel=normalized_channel,
@@ -625,6 +656,28 @@ def canonical_output_decision_for_final_text(
     )
     canonical_content = sanitize_visible_assistant_content(output_decision.canonical_answer).strip()
     if not canonical_content:
+        progress_candidate = next(
+            (
+                item
+                for item in output_decision.rejected_candidates
+                if item.channel in {"progress_text", "procedural_promise"}
+                and str(item.text or "").strip()
+            ),
+            None,
+        )
+        if progress_candidate is not None:
+            return CanonicalFinalTextDecision(
+                content=progress_candidate.text.strip(),
+                answer_channel=normalized_channel,
+                answer_source=normalized_source,
+                selected_channel=progress_candidate.channel,
+                selected_source=progress_candidate.source,
+                canonical_state="progress_only",
+                persist_policy="persist_debug_only",
+                finalization_policy="none",
+                fallback_reason=str(output_decision.fallback_reason or terminal_reason or completion_state or "progress_only").strip(),
+                leak_flags=[],
+            )
         return CanonicalFinalTextDecision(
             content="",
             answer_channel=normalized_channel,
@@ -839,5 +892,4 @@ class AssistantOutputBoundary:
             }
             receipts.append(receipt)
         return receipts
-
 

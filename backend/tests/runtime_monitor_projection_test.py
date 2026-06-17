@@ -48,6 +48,7 @@ class StateIndexStub:
         self._task_runs = list(task_runs or [])
         self._turn_runs = {getattr(item, "turn_run_id", ""): item for item in list(turn_runs or [])}
         self.deleted_task_run_ids = []
+        self.session_summary_limits = []
 
     def list_recent_task_runs(self, *, limit=80):
         return list(self._task_runs)[: max(1, int(limit or 80))]
@@ -58,8 +59,16 @@ class StateIndexStub:
     def list_session_task_runs(self, session_id):
         return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
 
-    def list_session_task_run_summaries(self, session_id):
-        return [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
+    def list_session_task_run_summaries(self, session_id, *, limit=None):
+        self.session_summary_limits.append(limit)
+        items = [item for item in self._task_runs if getattr(item, "session_id", "") == session_id]
+        if limit is None:
+            return items
+        return sorted(
+            items,
+            key=lambda item: float(getattr(item, "updated_at", 0.0) or getattr(item, "created_at", 0.0) or 0.0),
+            reverse=True,
+        )[: max(1, int(limit or 1))]
 
     def get_task_run(self, task_run_id):
         for item in self._task_runs:
@@ -277,6 +286,33 @@ def test_session_live_monitor_exposes_active_turn_snapshot():
         "bound_task_run_id": "taskrun:turn:session-dev:1:root",
         "state": "running_task",
     }
+
+
+def test_session_live_monitor_reads_bounded_recent_task_summaries():
+    tasks = [
+        task_run(
+            task_run_id=f"taskrun:turn:session-heavy:{index}:root",
+            session_id="session-heavy",
+            task_id=f"task:turn:session-heavy:{index}",
+            status="completed" if index < 119 else "running",
+            updated_at=100.0 + index,
+        )
+        for index in range(120)
+    ]
+    state_index = StateIndexStub(tasks)
+    runtime_host = SimpleNamespace(
+        state_index=state_index,
+        event_log=EventLogStub(),
+        backend_dir=Path.cwd(),
+        active_turn_registry=ActiveTurnRegistryStub(None),
+    )
+    service = RuntimeMonitorService(runtime_host=runtime_host, freshness_seconds=300.0)
+
+    monitor = service.get_session_live_monitor("session-heavy", limit=10)
+
+    assert state_index.session_summary_limits == [40]
+    assert monitor["latest_task_run_id"] == "taskrun:turn:session-heavy:119:root"
+    assert monitor["task_run_count"] == 40
 
 
 def test_global_monitor_includes_active_turn_when_task_run_not_started_yet():

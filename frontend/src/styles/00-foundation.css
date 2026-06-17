@@ -1,0 +1,209 @@
+:root {
+  --font-display: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  --color-bg: #081015;
+  --color-bg-alt: #101b23;
+  --color-text: #f6f5f0;
+  --color-text-soft: rgba(246, 245, 240, 0.68);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-border-strong: rgba(255, 255, 255, 0.24);
+  --color-panel: rgba(12, 20, 27, 0.82);
+  --color-panel-soft: rgba(18, 29, 39, 0.68);
+  --color-panel-strong: rgba(21, 33, 44, 0.9);
+  --color-accent-primary: #1da1f2;
+  --color-accent-primary-soft: rgba(29, 161, 242, 0.16);
+  --color-accent: #ffd76b;
+  --color-danger: #ff8c7d;
+  --color-ink: #081015;
+  --glow-accent-primary: 0 0 0 1px rgba(29, 161, 242, 0.18), 0 28px 100px rgba(7, 14, 18, 0.52);
+  --bg-radial-a: rgba(29, 161, 242, 0.32);
+  --bg-radial-b: rgba(255, 215, 107, 0.16);
+  --bg-gradient-top: #03131f;
+  --bg-gradient-mid: #0b2233;
+  --bg-gradient-bottom: #061018;
+  --backdrop-atmosphere:
+    radial-gradient(circle at 15% 18%, var(--bg-radial-a), transparent 28%),
+    radial-gradient(circle at 86% 10%, var(--bg-radial-b), transparent 24%),
+    radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.04), transparent 28%);
+  --backdrop-detail:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 18px);
+  --shell-atmosphere:
+    linear-gradient(115deg, transparent 0 34%, color-mix(in srgb, var(--color-accent-primary) 8%, transparent) 45%, transparent 58%);
+  --shell-detail:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.035), transparent);
+  --accent-texture:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 18px);
+  --panel-veil:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 35%);
+  --panel-aura:
+    radial-gradient(circle at top, color-mix(in srgb, var(--color-accent-primary) 10%, transparent), transparent 42%);
+  --portrait-aura:
+    radial-gradient(circle at top, color-mix(in srgb, var(--color-accent-primary) 18%, transparent), transparent 48%);
+  --accent-background-position-x: 88%;
+  --accent-background-position-y: 54%;
+  --accent-background-size: min(46vw, 760px);
+  --accent-background-opacity: 0.22;
+  --accent-background-blend:
+    radial-gradient(ellipse at 76% 44%, color-mix(in srgb, var(--color-accent-primary) 20%, transparent), transparent 34%),
+    linear-gradient(90deg, rgba(5, 12, 16, 0.82) 0%, rgba(5, 12, 16, 0.28) 48%, rgba(5, 12, 16, 0.74) 100%);
+  --message-user-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%),
+    linear-gradient(135deg, rgba(14, 27, 36, 0.96), rgba(12, 20, 27, 0.92));
+  --radius-panel: 34px;
+  --radius-block: 1.8rem;
+  --radius-card: 1.4rem;
+  --radius-inner: 1.15rem;
+  --radius-control: 1.05rem;
+  --accent-motion: 18s;
+  --accent-filter: saturate(1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    var(--backdrop-detail),
+    var(--accent-texture),
+    var(--backdrop-atmosphere),
+    linear-gradient(180deg, var(--bg-gradient-top) 0%, var(--bg-gradient-mid) 45%, var(--bg-gradient-bottom) 100%);
+  background-size:
+    72px 72px,
+    42px 42px,
+    auto,
+    auto;
+  color: var(--color-text);
+  transition:
+    background 360ms ease,
+    color 240ms ease;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: var(--font-display), "Microsoft YaHei UI", serif;
+  letter-spacing: 0.01em;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.panel {
+  position: relative;
+  overflow: hidden;
+  background:
+    var(--panel-veil),
+    var(--color-panel);
+  backdrop-filter: blur(22px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glow-accent-primary);
+  transition:
+    background 260ms ease,
+    border-color 260ms ease,
+    border-radius 260ms ease,
+    box-shadow 260ms ease;
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.03), transparent),
+    var(--panel-aura);
+  opacity: 0.9;
+  background-size: 160% 160%;
+  animation: accent-panel-drift var(--accent-motion) ease-in-out infinite alternate;
+}
+
+.navbar-action-button.action-button--muted {
+  color: rgba(246, 245, 240, 0.9);
+}
+
+.navbar-action-button.action-button--primary {
+  color: var(--color-ink);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 10px 26px color-mix(in srgb, var(--color-accent-primary) 18%, transparent);
+}
+
+.action-button,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-control);
+}
+
+.action-button {
+  padding: 0.72rem 1rem;
+  border: 1px solid var(--color-border);
+  font-size: 0.92rem;
+}
+
+.action-button--primary {
+  background: linear-gradient(135deg, var(--color-accent-primary), color-mix(in srgb, var(--color-accent-primary) 58%, #ffffff));
+  color: var(--color-ink);
+  border-color: transparent;
+  box-shadow: 0 10px 32px color-mix(in srgb, var(--color-accent-primary) 26%, transparent);
+}
+
+.action-button--muted {
+  background: var(--color-panel-strong);
+  color: var(--color-text);
+}
+
+.status-pill {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-panel-strong);
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.status-pill--context {
+  color: var(--color-text);
+}
+
+.status-pill--normal {
+  border-color: var(--color-border);
+  background: var(--color-panel-strong);
+}
+
+.status-pill--warning {
+  border-color: color-mix(in srgb, var(--color-accent) 48%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-panel-strong));
+}
+
+.status-pill--microcompact,
+.status-pill--full_compact {
+  border-color: color-mix(in srgb, var(--color-danger) 52%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-panel-strong));
+}
+

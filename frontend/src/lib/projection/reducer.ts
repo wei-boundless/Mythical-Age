@@ -1,12 +1,13 @@
-import type {
-  MessagePublicProjection,
-  ProjectionLedger,
-  PublicProjectionBodyBlock,
-  PublicProjectionFrame,
-  PublicProjectionItem,
-} from "@/lib/api";
+import type { PublicProjectionFrame } from "@/lib/api";
+import {
+  normalizeProjectionFrame,
+  projectionViewFromLedger,
+  reduceChronologicalProjectionLedger,
+} from "@/lib/projection/chronological";
 
-import type { ActiveTurnState, Message, SessionActivityState, StoreState } from "@/lib/store/types";
+import type { Message, StoreState } from "@/lib/store/types";
+
+type ProjectionPatchState = Pick<StoreState, "messages" | "activeProjectionsByKey">;
 
 type ApplyProjectionOptions = {
   assistantId?: string;
@@ -22,118 +23,107 @@ type ProjectionStreamAnchor = {
   turnRunId?: string;
 };
 
-const ACCEPTED_PUBLIC_PROJECTION_AUTHORITIES = new Set(["harness.public_projection"]);
+const ACCEPTED_PROJECTION_AUTHORITIES = new Set(["harness.public_projection"]);
 const REQUIRED_FRAME_KEYS = ["op", "slot", "main_visibility", "retention"] as const;
 
-export function publicProjectionFrameFromRecord(value: unknown): PublicProjectionFrame | null {
+export function projectionFrameFromRecord(value: unknown): PublicProjectionFrame | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Partial<PublicProjectionFrame>;
-  if (!ACCEPTED_PUBLIC_PROJECTION_AUTHORITIES.has(text(record.authority))) return null;
+  if (!ACCEPTED_PROJECTION_AUTHORITIES.has(text(record.authority))) return null;
   if (!text(record.frame_id || record.projection_id)) return null;
   if (!Number.isFinite(Number(record.event_offset))) return null;
   if (REQUIRED_FRAME_KEYS.some((key) => !text(record[key]))) return null;
   return record as PublicProjectionFrame;
 }
 
-export function applyPublicProjectionFrame(
+export function applyProjectionFrame(
   state: StoreState,
   frame: PublicProjectionFrame | null,
   options: ApplyProjectionOptions = {},
 ): StoreState {
   if (!frame) return state;
-  const withActiveTurn = applyActiveTurnUpdate(state, frame);
-  const withActivity = applySessionActivity(withActiveTurn, frame);
-  return patchProjectionMessage(withActivity, frame, options);
+  return patchProjectionMessage(state, frame, options);
 }
 
-export function applyPublicProjectionFramesToMessages(
+export function applyProjectionFramesToState<T extends ProjectionPatchState>(
+  state: T,
+  frames: PublicProjectionFrame[],
+  options: { createMessages?: boolean } = {},
+): T {
+  let nextState: T = {
+    ...state,
+    activeProjectionsByKey: state.activeProjectionsByKey ?? {},
+  };
+  for (const frame of frames) {
+    nextState = patchProjectionMessage(nextState, frame, { createMessage: options.createMessages === true });
+  }
+  return nextState;
+}
+
+export function applyProjectionFramesToMessages(
   messages: Message[],
   frames: PublicProjectionFrame[],
   options: { createMessages?: boolean } = {},
 ): Message[] {
-  let state = { messages } as StoreState;
-  for (const frame of frames) {
-    state = patchProjectionMessage(state, frame, { createMessage: options.createMessages === true });
-  }
-  return state.messages;
+  return applyProjectionFramesToState(
+    { messages, activeProjectionsByKey: {} },
+    frames,
+    options,
+  ).messages;
 }
 
-function applyActiveTurnUpdate(state: StoreState, frame: PublicProjectionFrame): StoreState {
-  const anchor = frame.anchor ?? {};
-  const turnId = text(anchor.turn_id);
-  const taskRunId = text(anchor.task_run_id);
-  if (!turnId && !taskRunId) return state;
-  if (frame.op === "turn_terminal" && !taskRunId) {
-    return { ...state, activeTurnSnapshot: null };
-  }
-  return {
-    ...state,
-    activeTurnSnapshot: {
-      turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
-      task_run_id: taskRunId || state.activeTurnSnapshot?.task_run_id,
-      state: activeTurnState(frame.state) || state.activeTurnSnapshot?.state,
-      turn_run_id: text(anchor.turn_run_id) || state.activeTurnSnapshot?.turn_run_id,
-      updated_at: Date.now() / 1000,
-    },
-  };
-}
-
-function applySessionActivity(state: StoreState, frame: PublicProjectionFrame): StoreState {
-  if (!frameShouldUpdateSessionActivity(frame)) return state;
-  const title = text(frame.title || frame.text);
-  if (!title) return state;
-  const detail = text(frame.detail);
-  const level = activityLevel(frame.state || frame.main_visibility);
-  const activity: SessionActivityState = {
-    level,
-    title,
-    detail: detail && detail !== title ? detail : "",
-    event: "public_projection_frame",
-    receipt: {
-      level,
-      title,
-      body: detail && detail !== title ? detail : undefined,
-      debug: { event: "public_projection_frame", frame: text(frame.frame_id || frame.projection_id) },
-    },
-    updatedAt: Date.now(),
-  };
-  return { ...state, sessionActivity: activity };
-}
-
-function frameShouldUpdateSessionActivity(frame: PublicProjectionFrame) {
-  if (!frameIsMainVisible(frame)) return false;
-  const slot = text(frame.slot);
-  const eventFamily = text(frame.event_family);
-  const channel = text(frame.channel);
-  if (slot === "body" || eventFamily === "assistant_body" || channel === "body") return false;
-  if (slot === "current_action" || eventFamily === "tool_control" || channel === "control" || text(frame.tool_call_id)) return false;
-  return ["status", "pinned", "final_result"].includes(slot)
-    || eventFamily === "status_trace"
-    || eventFamily === "turn_anchor_terminal";
-}
-
-function patchProjectionMessage(
-  state: StoreState,
+function patchProjectionMessage<T extends ProjectionPatchState>(
+  state: T,
   frame: PublicProjectionFrame,
   options: ApplyProjectionOptions,
-): StoreState {
+): T {
+  if (!frameCanPatchMainChatProjection(frame)) {
+    return state;
+  }
   const stateWithProjectionMessage = ensureProjectionMessage(state, frame, options);
   const index = projectionMessageIndex(stateWithProjectionMessage, frame, options);
   if (index < 0) return stateWithProjectionMessage;
   const nextMessages = [...stateWithProjectionMessage.messages];
   const message = nextMessages[index];
-  const ledger = reduceProjectionLedger(message.projectionLedger, frame);
-  const publicProjection = messagePublicProjectionFromLedger(ledger);
+  const normalized = normalizeProjectionFrame(frame);
+  const previousKey = normalized?.keyString || message.projectionKeyString || "";
+  const previousProjection = previousKey
+    ? stateWithProjectionMessage.activeProjectionsByKey?.[previousKey]
+    : undefined;
+  const chronologicalProjectionLedger = reduceChronologicalProjectionLedger(
+    previousProjection?.ledger,
+    frame,
+  );
+  const projectionView = projectionViewFromLedger(chronologicalProjectionLedger);
+  const keyString = chronologicalProjectionLedger.keyString || previousKey;
+  const activeProjectionsByKey = keyString
+    ? {
+        ...(stateWithProjectionMessage.activeProjectionsByKey ?? {}),
+        [keyString]: {
+          keyString,
+          ledger: chronologicalProjectionLedger,
+          view: projectionView,
+        },
+      }
+    : stateWithProjectionMessage.activeProjectionsByKey;
+  if (message.projectionKeyString === keyString) {
+    return {
+      ...stateWithProjectionMessage,
+      activeProjectionsByKey,
+    };
+  }
   nextMessages[index] = {
     ...message,
-    projectionLedger: ledger,
-    publicProjection,
-    content: publicProjection.bodyText || message.content,
+    projectionKeyString: keyString || message.projectionKeyString,
+    sourceStreamRunId: message.sourceStreamRunId || text(frame.anchor?.stream_run_id) || undefined,
+    sourceRunId: message.sourceRunId || text(frame.anchor?.run_id) || undefined,
+    sourceTaskRunId: message.sourceTaskRunId || text(frame.anchor?.task_run_id) || undefined,
+    sourceTurnRunId: message.sourceTurnRunId || text(frame.anchor?.turn_run_id) || undefined,
   };
-  return { ...stateWithProjectionMessage, messages: nextMessages };
+  return { ...stateWithProjectionMessage, messages: nextMessages, activeProjectionsByKey };
 }
 
-function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame, options: ApplyProjectionOptions): StoreState {
+function ensureProjectionMessage<T extends ProjectionPatchState>(state: T, frame: PublicProjectionFrame, options: ApplyProjectionOptions): T {
   if (options.createMessage === false) return state;
   if (!frameCreatesVisibleMessage(frame)) return state;
   if (projectionMessageIndex(state, frame, options) >= 0) return state;
@@ -161,8 +151,6 @@ function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame
     sourceRunId: text(anchor.run_id) || undefined,
     sourceTaskRunId: text(anchor.task_run_id) || undefined,
     sourceTurnRunId: text(anchor.turn_run_id) || undefined,
-    projectionLedger: emptyProjectionLedger(),
-    publicProjection: messagePublicProjectionFromLedger(emptyProjectionLedger()),
   };
   return {
     ...state,
@@ -170,7 +158,7 @@ function ensureProjectionMessage(state: StoreState, frame: PublicProjectionFrame
   };
 }
 
-function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame, options: ApplyProjectionOptions) {
+function projectionMessageIndex(state: ProjectionPatchState, frame: PublicProjectionFrame, options: ApplyProjectionOptions) {
   const anchor = frame.anchor ?? {};
   const turnId = text(anchor.turn_id);
   const streamRunId = text(anchor.stream_run_id);
@@ -210,467 +198,42 @@ function projectionMessageIndex(state: StoreState, frame: PublicProjectionFrame,
   return -1;
 }
 
-function reduceProjectionLedger(current: ProjectionLedger | undefined, frame: PublicProjectionFrame): ProjectionLedger {
-  const ledger = cloneLedger(current ?? emptyProjectionLedger());
-  const offset = frameOffset(frame);
-  switch (frame.op) {
-    case "body_append": {
-      const bodyChunk = typeof frame.text === "string" ? frame.text : "";
-      if (bodyChunk.length > 0 && !ledgerHasBodyFrame(ledger, frame)) {
-        ledger.body.text += bodyChunk;
-        ledger.body.source_offsets.push(offset);
-        ledger.body.stream_state = "streaming";
-        appendBodyBlock(ledger, frame, bodyChunk, "streaming");
-      }
-      return sortLedger(ledger);
-    }
-    case "body_finalize": {
-      const body = String(frame.text ?? "");
-      const previousBody = ledger.body.text;
-      if (body) {
-        const missingSuffix = body.startsWith(previousBody) ? body.slice(previousBody.length) : "";
-        ledger.body.text = body;
-        if (missingSuffix) {
-          appendBodyBlock(ledger, frame, missingSuffix, "finalized");
-        } else if (previousBody && body !== previousBody) {
-          ledger.body.blocks = [];
-          appendBodyBlock(ledger, frame, body, "finalized");
-        }
-      }
-      ledger.body.stream_state = "finalized";
-      if (!ledger.body.source_offsets.includes(offset)) ledger.body.source_offsets.push(offset);
-      if (!ledger.body.blocks.length && body) {
-        appendBodyBlock(ledger, frame, body, "finalized");
-      } else {
-        markLatestBodyBlockState(ledger, "finalized", offset);
-      }
-      return sortLedger(ledger);
-    }
-    case "item_upsert": {
-      const item = projectionItemFromFrame(frame);
-      if (!item) return sortLedger(ledger);
-      if (frame.slot === "current_action") {
-        if (
-          !text(frame.tool_call_id)
-          || text(frame.source_authority) !== "model"
-          || text(frame.source_event_type) !== "tool_call_requested"
-        ) {
-          return addTrace(ledger, item);
-        }
-        if (ledger.currentAction && ledger.currentAction.itemId !== item.itemId) {
-          ledger.trace = upsertProjectionItem(ledger.trace, { ...ledger.currentAction, mainVisibility: "trace_only", retention: "trace" });
-        }
-        recordTimelineItem(ledger, frame, item);
-        ledger.currentAction = item;
-        return sortLedger(ledger);
-      }
-      recordTimelineItem(ledger, frame, item);
-      if (frame.slot === "pinned") ledger.pinned = upsertProjectionItem(ledger.pinned, item);
-      else if (frame.slot === "final_result") ledger.finalResults = upsertProjectionItem(ledger.finalResults, item);
-      else if (frame.slot === "status") ledger.status = upsertProjectionItem(ledger.status, item);
-      else ledger.trace = upsertProjectionItem(ledger.trace, item);
-      return sortLedger(ledger);
-    }
-    case "item_retire": {
-      const item = projectionItemFromFrame(frame);
-      const retireIds = retireIdsForFrame(frame, item);
-      if (!retireIds.length) return sortLedger(ledger);
-      if (item) recordTimelineItem(ledger, frame, item);
-      if (ledger.currentAction && retireIds.some((retireId) => itemMatchesRetireId(ledger.currentAction!, retireId))) {
-        const retiredAction = item ? mergeProjectionItem(ledger.currentAction, item) : ledger.currentAction;
-        ledger.trace = upsertProjectionItem(ledger.trace, { ...retiredAction, mainVisibility: "trace_only", retention: "trace" });
-        if (item && itemIsMainVisible(item)) {
-          ledger.status = upsertProjectionItem(ledger.status, {
-            ...retiredAction,
-            slot: "status",
-            mainVisibility: item.mainVisibility,
-            retention: item.retention,
-          });
-        }
-        ledger.currentAction = undefined;
-      }
-      for (const retireId of retireIds) {
-        ledger.pinned = retireItems(ledger.pinned, retireId, item, ledger);
-        ledger.finalResults = retireItems(ledger.finalResults, retireId, item, ledger);
-        ledger.status = retireItems(ledger.status, retireId, item, ledger);
-      }
-      if (item) ledger.trace = upsertProjectionItem(ledger.trace, { ...item, mainVisibility: "trace_only", retention: "trace" });
-      return sortLedger(ledger);
-    }
-    case "scope_retire": {
-      if (ledger.currentAction?.retention === "transient") {
-        ledger.trace = upsertProjectionItem(ledger.trace, { ...ledger.currentAction, mainVisibility: "trace_only", retention: "trace" });
-        ledger.currentAction = undefined;
-      }
-      ledger.status = ledger.status.filter((item) => {
-        if (item.retention !== "transient") return true;
-        ledger.trace = upsertProjectionItem(ledger.trace, { ...item, mainVisibility: "trace_only", retention: "trace" });
-        return false;
-      });
-      return sortLedger(ledger);
-    }
-    case "commit_ack": {
-      ledger.commit = { state: "committed", key: commitKey(frame) };
-      ledger.body.stream_state = "committed";
-      ledger.body.blocks = ledger.body.blocks.map((block) => ({ ...block, state: "committed" }));
-      return reduceProjectionLedger(ledger, { ...frame, op: "scope_retire", slot: "trace" });
-    }
-    case "commit_failed": {
-      ledger.commit = { state: "failed", key: commitKey(frame) };
-      const item = projectionItemFromFrame(frame);
-      if (item) ledger.pinned = upsertProjectionItem(ledger.pinned, item);
-      return sortLedger(ledger);
-    }
-    case "turn_terminal": {
-      ledger.terminal = { state: text(frame.state), eventOffset: offset };
-      const item = projectionItemFromFrame(frame);
-      if (item && frame.main_visibility === "pinned") {
-        ledger.pinned = upsertProjectionItem(ledger.pinned, item);
-      } else if (item) {
-        ledger.trace = upsertProjectionItem(ledger.trace, item);
-      }
-      return sortLedger(ledger);
-    }
-    default:
-      return sortLedger(ledger);
-  }
-}
-
-function messagePublicProjectionFromLedger(ledger: ProjectionLedger): MessagePublicProjection {
-  const visiblePinned = ledger.pinned.filter(itemIsMainVisible);
-  const visibleFinal = ledger.finalResults.filter(itemIsMainVisible);
-  const visibleStatus = ledger.status.filter(itemIsMainVisible);
-  const bodyEventOffset = ledger.body.source_offsets.length
-    ? ledger.body.source_offsets[ledger.body.source_offsets.length - 1]
-    : undefined;
-  return {
-    bodyText: ledger.body.text,
-    bodyState: ledger.body.stream_state,
-    bodyBlocks: ledger.body.blocks,
-    currentAction: ledger.currentAction && itemIsMainVisible(ledger.currentAction) ? ledger.currentAction : undefined,
-    pinned: visiblePinned,
-    finalResults: visibleFinal,
-    status: visibleStatus,
-    trace: ledger.trace,
-    timeline: ledger.timeline ?? [],
-    bodyEventOffset,
-    traceAvailable: ledger.trace.length > 0,
-    traceCount: ledger.trace.length,
-    commitState: ledger.commit.state,
-  };
-}
-
-function projectionItemFromFrame(frame: PublicProjectionFrame): PublicProjectionItem | null {
-  const itemId = text(frame.item_id || frame.tool_call_id || frame.frame_id || frame.projection_id);
-  if (!itemId) return null;
-  return {
-    itemId,
-    sourceItemId: text(frame.source_item_id),
-    slot: text(frame.slot),
-    text: text(frame.text || frame.title),
-    title: text(frame.title),
-    detail: text(frame.detail),
-    state: text(frame.state),
-    statusKind: text(frame.status_kind),
-    sourceAuthority: text(frame.source_authority),
-    eventFamily: text(frame.event_family),
-    channel: text(frame.channel),
-    lossless: typeof frame.lossless === "boolean" ? frame.lossless : undefined,
-    mainVisibility: text(frame.main_visibility),
-    retention: text(frame.retention),
-    pinReason: text(frame.pin_reason),
-    toolCallId: text(frame.tool_call_id),
-    permissionDecisionId: text(frame.permission_decision_id),
-    toolName: text(frame.tool_name),
-    toolLifecycleId: text(frame.tool_lifecycle_id),
-    actionKind: text(frame.action_kind),
-    subjectLabel: text(frame.subject_label || frame.target),
-    argumentsPreview: text(frame.arguments_preview),
-    target: text(frame.target),
-    collapsed: typeof frame.collapsed === "boolean" ? frame.collapsed : undefined,
-    traceRefs: Array.isArray(frame.trace_refs) ? frame.trace_refs.map(text).filter(Boolean) : [],
-    artifactRefs: Array.isArray(frame.artifact_refs) ? frame.artifact_refs : [],
-    eventOffset: frameOffset(frame),
-    updatedEventOffset: frameOffset(frame),
-    sourceEventType: text(frame.source_event_type),
-    sourceEventId: text(frame.source_event_id),
-  };
-}
-
-function emptyProjectionLedger(): ProjectionLedger {
-  return {
-    body: { text: "", stream_state: "streaming", source_offsets: [], blocks: [] },
-    pinned: [],
-    finalResults: [],
-    status: [],
-    trace: [],
-    timeline: [],
-    commit: { state: "none" },
-  };
-}
-
-function cloneLedger(ledger: ProjectionLedger): ProjectionLedger {
-  return {
-    body: {
-      ...ledger.body,
-      source_offsets: [...ledger.body.source_offsets],
-      blocks: [...(ledger.body.blocks ?? [])].map((block) => ({
-        ...block,
-        sourceFrameIds: [...(block.sourceFrameIds ?? [])],
-      })),
-    },
-    displayCursor: ledger.displayCursor ? { ...ledger.displayCursor } : undefined,
-    currentAction: ledger.currentAction ? { ...ledger.currentAction } : undefined,
-    pinned: ledger.pinned.map((item) => ({ ...item })),
-    finalResults: ledger.finalResults.map((item) => ({ ...item })),
-    status: ledger.status.map((item) => ({ ...item })),
-    trace: ledger.trace.map((item) => ({ ...item })),
-    timeline: (ledger.timeline ?? []).map((item) => ({ ...item })),
-    commit: { ...ledger.commit },
-    terminal: ledger.terminal ? { ...ledger.terminal } : undefined,
-  };
-}
-
-function addTrace(ledger: ProjectionLedger, item: PublicProjectionItem) {
-  ledger.trace = upsertProjectionItem(ledger.trace, { ...item, mainVisibility: "trace_only", retention: "trace" });
-  return sortLedger(ledger);
-}
-
-function recordTimelineItem(ledger: ProjectionLedger, frame: PublicProjectionFrame, item: PublicProjectionItem) {
-  const timelineItem = timelineItemFromFrame(frame, item, ledger);
-  if (!timelineItem) return;
-  ledger.timeline = upsertProjectionItem(ledger.timeline, timelineItem);
-  ledger.displayCursor = { kind: "activity", itemId: timelineItem.itemId };
-}
-
-function appendBodyBlock(
-  ledger: ProjectionLedger,
-  frame: PublicProjectionFrame,
-  textValue: string,
-  state: PublicProjectionBodyBlock["state"],
-) {
-  const frameId = bodyFrameId(frame);
-  const semanticId = bodySemanticFrameId(frame);
-  const sourceFrameIds = [frameId, semanticId].filter(Boolean);
-  const offset = frameOffset(frame);
-  const previous = ledger.body.blocks[ledger.body.blocks.length - 1];
-  if (previous && sourceFrameIds.some((id) => previous.sourceFrameIds.includes(id))) {
-    return;
-  }
-  if (ledger.displayCursor?.kind === "body" && previous) {
-    previous.text += textValue;
-    previous.lastOffset = offset;
-    previous.state = state;
-    previous.sourceFrameIds = uniqueStrings([...previous.sourceFrameIds, ...sourceFrameIds]);
-  } else {
-    ledger.body.blocks.push({
-      kind: "body",
-      blockId: text(frame.item_id) || stableBodyBlockId(frame, offset),
-      text: textValue,
-      firstOffset: offset,
-      lastOffset: offset,
-      state,
-      sourceFrameIds,
-    });
-  }
-  ledger.displayCursor = { kind: "body" };
-}
-
-function markLatestBodyBlockState(
-  ledger: ProjectionLedger,
-  state: PublicProjectionBodyBlock["state"],
-  offset: number,
-) {
-  const latest = ledger.body.blocks[ledger.body.blocks.length - 1];
-  if (!latest) return;
-  latest.state = state;
-  latest.lastOffset = Math.max(latest.lastOffset, offset);
-}
-
-function bodyFrameId(frame: PublicProjectionFrame) {
-  return text(frame.frame_id || frame.projection_id || frame.source_event_id) || stableBodyBlockId(frame, frameOffset(frame));
-}
-
-function bodySemanticFrameId(frame: PublicProjectionFrame) {
-  if (!isModelFeedbackBodyFrame(frame)) return "";
-  return text(frame.item_id) || text(frame.source_item_id);
-}
-
-function isModelFeedbackBodyFrame(frame: PublicProjectionFrame) {
-  const sourceEventType = text(frame.source_event_type);
-  const itemId = text(frame.item_id);
-  const sourceAuthority = text(frame.source_authority);
-  const slot = text(frame.slot);
-  return (
-    sourceAuthority === "model"
-    && slot === "body"
-    && (
-      sourceEventType === "runtime_step_summary"
-      || itemId.startsWith("model-action-feedback-body:")
-    )
-  );
-}
-
-function ledgerHasBodyFrame(ledger: ProjectionLedger, frame: PublicProjectionFrame) {
-  const ids = [bodyFrameId(frame), bodySemanticFrameId(frame)].filter(Boolean);
-  if (!ids.length) return false;
-  return (ledger.body.blocks ?? []).some((block) =>
-    ids.some((id) => (block.sourceFrameIds ?? []).includes(id))
-  );
-}
-
-function stableBodyBlockId(frame: PublicProjectionFrame, offset: number) {
-  return `body:${text(frame.anchor?.message_id || frame.anchor?.turn_id || frame.source_event_id || "message")}:${offset}`;
-}
-
-function timelineItemFromFrame(
-  frame: PublicProjectionFrame,
-  item: PublicProjectionItem,
-  ledger: ProjectionLedger,
-): PublicProjectionItem | null {
-  if (!itemShouldEnterTimeline(frame, item, ledger)) return null;
-  const offset = frameOffset(frame);
-  const toolCallId = text(frame.tool_call_id || item.toolCallId);
-  const lifecycleId = text(frame.tool_lifecycle_id || item.toolLifecycleId);
-  const frameId = text(frame.frame_id || frame.projection_id || item.sourceEventId);
-  const toolOwned = Boolean(toolCallId || lifecycleId || item.toolName);
-  const statusKind = text(frame.status_kind || item.statusKind);
-  const placeholderOwned = statusKind === "model_wait_placeholder" || text(frame.item_id || item.itemId).startsWith("model-wait:");
-  let timelineItemId = frameId || item.sourceEventId || `${item.itemId}:timeline:${offset}:${text(frame.op)}`;
-  if (toolOwned) {
-    timelineItemId = toolCallId || lifecycleId || item.itemId || timelineItemId;
-  } else if (placeholderOwned) {
-    timelineItemId = item.itemId || text(frame.item_id) || timelineItemId;
-  }
-  return {
-    ...item,
-    itemId: timelineItemId,
-    sourceItemId: text(frame.source_item_id || item.sourceItemId),
-    slot: toolOwned ? "tool" : item.slot,
-    toolCallId: toolCallId || item.toolCallId,
-    toolLifecycleId: lifecycleId || item.toolLifecycleId,
-    toolName: text(frame.tool_name || item.toolName),
-    eventOffset: offset,
-    updatedEventOffset: offset,
-    sourceEventType: text(frame.source_event_type),
-    sourceEventId: text(frame.source_event_id),
-  };
-}
-
-function itemShouldEnterTimeline(
-  frame: PublicProjectionFrame,
-  item: PublicProjectionItem,
-  ledger: ProjectionLedger,
-) {
-  const slot = text(frame.slot);
-  const visibility = text(frame.main_visibility);
-  const sourceEventType = text(frame.source_event_type);
-  const toolOwned = Boolean(frame.tool_call_id || frame.tool_lifecycle_id || item.toolCallId || item.toolLifecycleId || item.toolName);
-  if (visibility === "hidden") return false;
-  if (sourceEventType === "tool_permission_decided" && visibility === "trace_only") return false;
-  if (toolOwned) {
-    if (frameIsMainVisible(frame)) return true;
-    return visibility === "trace_only" && timelineAlreadyHasTool(ledger, frame, item);
-  }
-  return ["current_action", "pinned", "status", "final_result"].includes(slot);
-}
-
-function timelineAlreadyHasTool(
-  ledger: ProjectionLedger,
-  frame: PublicProjectionFrame,
-  item: PublicProjectionItem,
-) {
-  const keys = new Set([
-    text(frame.tool_call_id),
-    text(frame.tool_lifecycle_id),
-    text(item.toolCallId),
-    text(item.toolLifecycleId),
-    text(item.itemId),
-  ].filter(Boolean));
-  if (!keys.size) return false;
-  if (ledger.currentAction && projectionItemMatchesAnyToolKey(ledger.currentAction, keys)) {
-    return true;
-  }
-  return (ledger.timeline ?? []).some((existing) => projectionItemMatchesAnyToolKey(existing, keys));
-}
-
-function projectionItemMatchesAnyToolKey(item: PublicProjectionItem, keys: Set<string>) {
-  return [
-    item.itemId,
-    item.toolCallId,
-    item.toolLifecycleId,
-  ].map(text).some((key) => key && keys.has(key));
-}
-
-function upsertProjectionItem(items: PublicProjectionItem[], incoming: PublicProjectionItem) {
-  const index = items.findIndex((item) => item.itemId === incoming.itemId);
-  if (index < 0) return [...items, incoming];
-  const next = [...items];
-  next[index] = mergeProjectionItem(next[index], incoming);
-  return next;
-}
-
-function mergeProjectionItem(existing: PublicProjectionItem, incoming: PublicProjectionItem): PublicProjectionItem {
-  const merged: PublicProjectionItem = { ...existing };
-  for (const [key, value] of Object.entries(incoming) as Array<[keyof PublicProjectionItem, PublicProjectionItem[keyof PublicProjectionItem]]>) {
-    if (key === "eventOffset") continue;
-    if (value === "" || value === undefined || value === null) continue;
-    if (Array.isArray(value) && value.length === 0) continue;
-    merged[key] = value as never;
-  }
-  merged.eventOffset = existing.eventOffset ?? incoming.eventOffset;
-  merged.updatedEventOffset = incoming.updatedEventOffset ?? incoming.eventOffset ?? existing.updatedEventOffset;
-  return merged;
-}
-
-function retireItems(items: PublicProjectionItem[], retireId: string, traceItem: PublicProjectionItem | null, ledger: ProjectionLedger) {
-  return items.filter((item) => {
-    if (!itemMatchesRetireId(item, retireId)) return true;
-    ledger.trace = upsertProjectionItem(ledger.trace, { ...item, ...traceItem, mainVisibility: "trace_only", retention: "trace" });
-    return false;
-  });
-}
-
-function itemMatchesRetireId(item: PublicProjectionItem, retireId: string) {
-  return item.itemId === retireId || item.toolCallId === retireId || item.toolLifecycleId === retireId;
-}
-
-function retireIdsForFrame(frame: PublicProjectionFrame, item: PublicProjectionItem | null) {
-  return [
-    item?.itemId,
-    item?.toolCallId,
-    item?.toolLifecycleId,
-    frame.item_id,
-    frame.tool_call_id,
-    frame.tool_lifecycle_id,
-  ].map(text).filter(Boolean);
-}
-
-function sortLedger(ledger: ProjectionLedger): ProjectionLedger {
-  const byOffset = (left: PublicProjectionItem, right: PublicProjectionItem) =>
-    (left.eventOffset ?? 0) - (right.eventOffset ?? 0) || left.itemId.localeCompare(right.itemId);
-  ledger.pinned = [...ledger.pinned].sort(byOffset);
-  ledger.finalResults = [...ledger.finalResults].sort(byOffset);
-  ledger.status = [...ledger.status].sort(byOffset);
-  ledger.trace = [...ledger.trace].sort(byOffset);
-  ledger.timeline = [...(ledger.timeline ?? [])].sort(byOffset);
-  ledger.body.source_offsets = [...ledger.body.source_offsets].sort((left, right) => left - right);
-  ledger.body.blocks = [...(ledger.body.blocks ?? [])].sort((left, right) =>
-    left.firstOffset - right.firstOffset || left.blockId.localeCompare(right.blockId)
-  );
-  return ledger;
-}
-
 function frameCreatesVisibleMessage(frame: PublicProjectionFrame) {
-  return frameIsMainVisible(frame) || (frame.slot === "body" && Boolean(text(frame.text)));
+  if (!frameCanPatchMainChatProjection(frame)) return false;
+  if (!frameIsMainVisible(frame)) return false;
+  return (frame.slot === "body" && Boolean(text(frame.text)))
+    || frameIsToolProjection(frame)
+    || frameIsTodoPlanProjection(frame)
+    || frameIsTypedStatusProjection(frame);
 }
 
 function frameIsMainVisible(frame: PublicProjectionFrame) {
   return ["visible_live", "visible_final", "pinned"].includes(text(frame.main_visibility));
 }
 
-function itemIsMainVisible(item: PublicProjectionItem) {
-  return ["visible_live", "visible_final", "pinned"].includes(text(item.mainVisibility));
+function frameCanPatchMainChatProjection(frame: PublicProjectionFrame) {
+  if (frame.slot === "body") {
+    return text(frame.source_authority) === "model" && frameIsMainVisible(frame);
+  }
+  if (frame.op === "commit_ack" || frame.op === "scope_retire") {
+    return true;
+  }
+  return frameIsToolProjection(frame)
+    || (frameIsTodoPlanProjection(frame) && frameIsMainVisible(frame))
+    || (frameIsTypedStatusProjection(frame) && frameIsMainVisible(frame));
+}
+
+function frameIsToolProjection(frame: PublicProjectionFrame) {
+  return Boolean(text(frame.tool_call_id) || text(frame.tool_lifecycle_id) || text(frame.tool_name) || text(frame.event_family) === "tool_control");
+}
+
+function frameIsTodoPlanProjection(frame: PublicProjectionFrame) {
+  return text(frame.status_kind) === "todo_plan" && Array.isArray(frame.todo_items);
+}
+
+function frameIsTypedStatusProjection(frame: PublicProjectionFrame) {
+  const statusKind = text(frame.status_kind);
+  return statusKind === "status_event" || statusKind === "recovery_event" || statusKind === "terminal_event";
 }
 
 function streamAnchorMatchesFrame(anchor: ProjectionStreamAnchor | undefined, frame: PublicProjectionFrame) {
@@ -750,7 +313,7 @@ function taskOnlyMessageAnchorMatches(message: Message, anchor: { taskRunId?: st
 }
 
 function findAssistantMessageIndexByTurnId(
-  state: StoreState,
+  state: ProjectionPatchState,
   turnId: string,
   anchor: { streamRunId?: string; taskRunId?: string; turnRunId?: string },
 ) {
@@ -783,40 +346,6 @@ function compareProjectionMessages(left: Message, right: Message) {
   return left.id.localeCompare(right.id);
 }
 
-function activeTurnState(value: unknown): ActiveTurnState | undefined {
-  const normalized = text(value) as ActiveTurnState;
-  return normalized || undefined;
-}
-
-function activityLevel(value: unknown): SessionActivityState["level"] {
-  const normalized = text(value).toLowerCase();
-  if (["error", "failed", "blocked", "pinned"].includes(normalized)) return "error";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return "stopped";
-  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(normalized)) return "waiting";
-  if (["done", "completed", "success", "visible_final"].includes(normalized)) return "success";
-  return "running";
-}
-
-function commitKey(frame: PublicProjectionFrame) {
-  const commit = (frame.commit ?? {}) as Record<string, unknown>;
-  return [
-    text(frame.anchor?.session_id),
-    text(frame.anchor?.turn_id),
-    text(frame.anchor?.task_run_id),
-    text(commit.commit_event_offset),
-    text(commit.content_sha256),
-  ].join("|");
-}
-
-function frameOffset(frame: PublicProjectionFrame) {
-  const value = Number(frame.event_offset ?? frame.sequence ?? 0);
-  return Number.isFinite(value) ? value : 0;
-}
-
 function text(value: unknown) {
   return String(value ?? "").trim();
-}
-
-function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values.map(text).filter(Boolean)));
 }

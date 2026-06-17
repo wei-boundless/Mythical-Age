@@ -164,10 +164,12 @@ def diagnose(
     non_agent_request_ids = {
         request_id
         for request_id, scope in scope_by_request.items()
-        if scope != "agent_runtime"
+        if not _is_agent_runtime_scope(scope)
     }
     agent_provider_usage = [row for row in provider_usage if str(row.get("request_id") or "") not in non_agent_request_ids]
     scoped_usage = _scope_usage_summary(provider_usage=provider_usage, scope_by_request=scope_by_request)
+    closeout_phase_cache = _scope_usage_bucket(scoped_usage, scope="agent_runtime.closeout")
+    repair_phase_cache = _scope_usage_bucket(scoped_usage, scope="agent_runtime.repair")
     unplanned_breaks = [row for row in cache_breaks if str(row.get("reason") or "") == "unplanned_model_call"]
     cache_break_reason_counts = Counter(str(row.get("reason") or "unknown") for row in cache_breaks)
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
@@ -306,6 +308,12 @@ def diagnose(
             agent_post_warm_provider_returned_cache_miss_tokens,
             available=bool(agent_post_warm_provider_returned_usage),
         ),
+        "closeout_phase_cache": closeout_phase_cache,
+        "closeout_phase_cache_hit_rate": closeout_phase_cache["deepseek_cache_hit_rate"],
+        "closeout_phase_provider_returned_cache_hit_rate": closeout_phase_cache["provider_returned_cache_hit_rate"],
+        "repair_phase_cache": repair_phase_cache,
+        "repair_phase_cache_hit_rate": repair_phase_cache["deepseek_cache_hit_rate"],
+        "repair_phase_provider_returned_cache_hit_rate": repair_phase_cache["provider_returned_cache_hit_rate"],
         "cache_metric_scope_counts": dict(sorted(cache_metric_scope_counts.items())),
         "cache_metric_scope_usage": scoped_usage,
         "cache_status_counts": dict(sorted(status_counts.items())),
@@ -951,6 +959,28 @@ def _cache_metric_scope(row: dict[str, Any]) -> str:
     return str(diagnostics.get("cache_metric_scope") or "agent_runtime")
 
 
+def _is_agent_runtime_scope(scope: str) -> bool:
+    value = str(scope or "")
+    return value == "agent_runtime" or value.startswith("agent_runtime.")
+
+
+def _scope_usage_bucket(scoped_usage: dict[str, dict[str, Any]], *, scope: str) -> dict[str, Any]:
+    return dict(
+        scoped_usage.get(scope)
+        or {
+            "provider_usage_records": 0,
+            "prompt_tokens": 0,
+            "cached_tokens": 0,
+            "cache_miss_tokens": 0,
+            "deepseek_cache_hit_rate": 0.0,
+            "provider_returned_cache_miss_tokens": 0,
+            "provider_returned_cache_hit_tokens": 0,
+            "provider_returned_cache_usage_records": 0,
+            "provider_returned_cache_hit_rate": None,
+        }
+    )
+
+
 def _scope_usage_summary(
     *,
     provider_usage: list[dict[str, Any]],
@@ -1054,6 +1084,11 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     )
     print(f"cache_metric_scope_counts: {json.dumps(summary['cache_metric_scope_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"cache_metric_scope_usage: {json.dumps(summary['cache_metric_scope_usage'], ensure_ascii=False, sort_keys=True)}")
+    print(
+        "phase_cache_usage: "
+        f"closeout={json.dumps(summary['closeout_phase_cache'], ensure_ascii=False, sort_keys=True)} "
+        f"repair={json.dumps(summary['repair_phase_cache'], ensure_ascii=False, sort_keys=True)}"
+    )
     print(f"unplanned_model_call_breaks: {summary['unplanned_model_call_breaks']}")
     print(f"cache_status_counts: {json.dumps(summary['cache_status_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"provider_cache_policy_modes: {json.dumps(summary['provider_cache_policy_modes'], ensure_ascii=False, sort_keys=True)}")

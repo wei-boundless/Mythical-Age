@@ -12,6 +12,9 @@ DEFAULT_COMMIT_TYPES: tuple[CommitType, ...] = (
     "durable_memory",
     "task_result",
     "artifact_graph",
+    "artifact_output",
+    "memory_output",
+    "file_output",
     "title",
 )
 
@@ -210,6 +213,95 @@ def build_task_run_final_commit_decision(
     )
 
 
+def build_task_run_staged_output_commit_decision(
+    *,
+    task_run_id: str,
+    session_id: str = "",
+    output_kind: str,
+    output_refs: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    execution_isolation: dict[str, Any] | None = None,
+    capsule: Any | None = None,
+    source: str = "harness.task_executor",
+) -> RuntimeCommitGateDecision:
+    isolation = dict(execution_isolation or {})
+    capsule_payload = _capsule_payload(capsule)
+    proof = {
+        "capsule_id": str(isolation.get("capsule_id") or capsule_payload.get("capsule_id") or "").strip(),
+        "lease_id": str(isolation.get("lease_id") or capsule_payload.get("lease_id") or "").strip(),
+        "task_thread_id": str(isolation.get("task_thread_id") or capsule_payload.get("task_thread_id") or "").strip(),
+        "task_group_id": str(isolation.get("task_group_id") or capsule_payload.get("task_group_id") or "").strip(),
+        "permission_fingerprint": str(isolation.get("permission_fingerprint") or capsule_payload.get("permission_fingerprint") or "").strip(),
+        "resource_lock_refs": [
+            str(item)
+            for item in list(isolation.get("resource_lock_refs") or capsule_payload.get("resource_lock_refs") or [])
+            if str(item)
+        ],
+    }
+    normalized_kind = str(output_kind or "").strip()
+    commit_type = _staged_output_commit_type(normalized_kind)
+    refs = [dict(item) for item in list(output_refs or []) if isinstance(item, dict)]
+    allowed, reason = _staged_output_commit_verdict(
+        normalized_kind,
+        proof=proof,
+        isolation=isolation,
+        capsule_payload=capsule_payload,
+    )
+    candidate = CommitCandidate(
+        candidate_id=f"commit-candidate:{task_run_id}:{commit_type}:{normalized_kind or 'output'}",
+        commit_type=commit_type,
+        payload={
+            "task_run_id": str(task_run_id or ""),
+            "session_id": str(session_id or ""),
+            "output_kind": normalized_kind,
+            "output_refs": refs,
+            "output_ref_count": len(refs),
+            "commit_state": "staged" if allowed else "blocked",
+            "capsule_id": proof["capsule_id"],
+            "task_thread_id": proof["task_thread_id"],
+            "task_group_id": proof["task_group_id"],
+        },
+        producer="orchestration.runtime_commit_gate",
+        allowed=allowed,
+        reason=reason,
+        refs={
+            "source": source,
+            "commit_scope": "task_thread_staged_output",
+            "capsule_ref": proof["capsule_id"],
+            "task_thread_ref": proof["task_thread_id"],
+        },
+    )
+    return RuntimeCommitGateDecision(
+        gate_id=f"commit-gate:{task_run_id}:{normalized_kind or 'output'}",
+        commit_type=commit_type,
+        commit_candidate=candidate,
+        status="allowed" if allowed else "blocked",
+        reason=reason,
+        commit_allowed=allowed,
+        diagnostics={
+            "task_run_id": str(task_run_id or ""),
+            "session_id": str(session_id or ""),
+            "output_kind": normalized_kind,
+            "output_ref_count": len(refs),
+            "capsule_id": proof["capsule_id"],
+            "lease_id": proof["lease_id"],
+            "task_thread_id": proof["task_thread_id"],
+            "task_group_id": proof["task_group_id"],
+            "resource_lock_refs": list(proof["resource_lock_refs"]),
+            "permission_fingerprint": proof["permission_fingerprint"],
+            "commit_policy": dict(capsule_payload.get("commit_policy") or isolation.get("commit_policy") or {}),
+            "capsule_status": str(capsule_payload.get("status") or ""),
+            "staged_output_allowed": allowed,
+            "artifact_write_allowed": allowed and commit_type == "artifact_output",
+            "memory_write_allowed": allowed and commit_type == "memory_output",
+            "filesystem_write_allowed": allowed and commit_type == "file_output",
+            "session_write_allowed": False,
+            "canonical_workspace_write_allowed": False,
+            "canonical_memory_write_allowed": False,
+            "authority": "orchestration.runtime_commit_gate.staged_output",
+        },
+    )
+
+
 def build_assistant_session_message_commit_decision(
     *,
     session_id: str,
@@ -257,6 +349,7 @@ def build_assistant_session_message_commit_decision(
         normalized_state == "missing_answer"
         or normalized_persist_policy == "do_not_persist"
     )
+
     allowed = (
         bool(normalized)
         and bool(normalized_turn_id)
@@ -334,5 +427,86 @@ def build_assistant_session_message_commit_decision(
             "answer_leak_flags": list(normalized_leak_flags),
         },
     )
+
+
+def _staged_output_commit_type(output_kind: str) -> CommitType:
+    if output_kind.startswith("memory"):
+        return "memory_output"
+    if output_kind.startswith("file"):
+        return "file_output"
+    return "artifact_output"
+
+
+def _staged_output_commit_verdict(
+    output_kind: str,
+    *,
+    proof: dict[str, Any],
+    isolation: dict[str, Any],
+    capsule_payload: dict[str, Any],
+) -> tuple[bool, str]:
+    missing = [
+        key
+        for key in ("capsule_id", "lease_id", "task_thread_id", "permission_fingerprint", "resource_lock_refs")
+        if not proof.get(key)
+    ]
+    if missing:
+        return False, "execution_capsule_required_for_staged_output_commit"
+    if not capsule_payload:
+        return False, "execution_capsule_not_found"
+    if str(capsule_payload.get("status") or "") != "active":
+        return False, "execution_capsule_not_active"
+    for key in ("capsule_id", "lease_id", "task_thread_id", "permission_fingerprint"):
+        expected = str(capsule_payload.get(key) or "").strip()
+        if expected and expected != str(proof.get(key) or "").strip():
+            return False, f"execution_capsule_{key}_mismatch"
+    capsule_locks = {str(item) for item in list(capsule_payload.get("resource_lock_refs") or []) if str(item)}
+    if not set(proof["resource_lock_refs"]).issubset(capsule_locks):
+        return False, "execution_capsule_resource_lock_ref_mismatch"
+    policy = dict(capsule_payload.get("commit_policy") or isolation.get("commit_policy") or {})
+    if output_kind in {"artifact", "artifact_staged", "artifact_output"}:
+        return _policy_allows(policy, key="artifact_outputs", allowed_values={"staged", "candidate_only"}, default="staged")
+    if output_kind in {"memory", "memory_candidate", "memory_output"}:
+        return _policy_allows(policy, key="memory_outputs", allowed_values={"candidate_only", "staged"}, default="candidate_only")
+    if output_kind in {"memory_commit", "canonical_memory"}:
+        return _policy_allows(policy, key="memory_outputs", allowed_values={"commit_gate", "canonical_commit_allowed"}, default="candidate_only")
+    if output_kind in {"file", "file_staged", "file_output", "changeset"}:
+        return _policy_allows(policy, key="file_outputs", allowed_values={"changeset_required", "staged"}, default="changeset_required")
+    return False, "unsupported_staged_output_kind"
+
+
+def _policy_allows(
+    policy: dict[str, Any],
+    *,
+    key: str,
+    allowed_values: set[str],
+    default: str,
+) -> tuple[bool, str]:
+    value = str(policy.get(key) or default).strip()
+    if value in allowed_values:
+        return True, "task_thread_staged_output_allowed"
+    return False, f"commit_policy_blocks_{key}:{value or 'empty'}"
+
+
+def _capsule_payload(capsule: Any | None) -> dict[str, Any]:
+    if capsule is None:
+        return {}
+    if isinstance(capsule, dict):
+        data = dict(capsule)
+    elif hasattr(capsule, "to_dict"):
+        data = dict(capsule.to_dict())
+    else:
+        data = {
+            "capsule_id": getattr(capsule, "capsule_id", ""),
+            "lease_id": getattr(capsule, "lease_id", ""),
+            "task_thread_id": getattr(capsule, "task_thread_id", ""),
+            "task_group_id": getattr(capsule, "task_group_id", ""),
+            "resource_lock_refs": list(getattr(capsule, "resource_lock_refs", ()) or ()),
+            "permission_fingerprint": getattr(capsule, "permission_fingerprint", ""),
+            "commit_policy": dict(getattr(capsule, "commit_policy", {}) or {}),
+            "status": getattr(capsule, "status", ""),
+        }
+    data["resource_lock_refs"] = [str(item) for item in list(data.get("resource_lock_refs") or []) if str(item)]
+    data["commit_policy"] = dict(data.get("commit_policy") or {})
+    return data
 
 

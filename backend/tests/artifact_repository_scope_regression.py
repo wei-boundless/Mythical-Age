@@ -68,6 +68,61 @@ def test_artifact_repository_records_contract_and_file_hash(tmp_path) -> None:
     ]
 
 
+def test_graph_task_instance_chapter_materialization_is_protected_project_artifact(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    graph_run_id = "grun:graph_writing_modular_novel_master:1781549483839"
+    artifact_root = (
+        "storage/graph_task_instances/project_creation_writing_honghuang/"
+        "runs/grun_graph_writing_modular_novel_master_1781549483839/artifacts"
+    )
+    chapter_path = (
+        workspace
+        / artifact_root
+        / "volume_002"
+        / "chapters"
+        / "chapter_107"
+        / "draft_round_107.md"
+    )
+    chapter_path.parent.mkdir(parents=True)
+    chapter_path.write_text("# Chapter 107\n\nLatest protected draft.\n", encoding="utf-8")
+    service = ArtifactRepositoryService(tmp_path / "repo", workspace_root=workspace)
+
+    result = service.record_materialization(
+        task_run_id="taskrun:chapter-107",
+        repository_id="artifact.project.manuscript",
+        collection_id="chapters",
+        graph_id="graph:writing",
+        graph_run_id=graph_run_id,
+        stage_id="chapter_draft",
+        node_run_id="nodeexec:chapter-107",
+        task_ref="task.chapter_107",
+        output_contract_id="contract.chapter.107.draft",
+        producer_node_id="chapter_draft",
+        artifact_refs=[f"artifact:{artifact_root}/volume_002/chapters/chapter_107/draft_round_107.md"],
+        created_files=["volume_002/chapters/chapter_107/draft_round_107.md"],
+        artifact_root=artifact_root,
+        status="accepted",
+    )
+
+    assert result["namespace"]["namespace_id"] == "graph_task_instance:project_creation_writing_honghuang"
+    assert result["namespace"]["durability_class"] == "project_artifact"
+    assert result["namespace"]["retention_tier"] == "durable_protected"
+    assert result["materialization_receipt"]["target_namespace_id"] == result["namespace"]["namespace_id"]
+    assert result["materialization_receipt"]["artifact_ids"] == [result["artifacts"][0]["artifact_id"]]
+    record = result["artifacts"][0]
+    assert record["physical_path"] == (
+        f"{artifact_root}/volume_002/chapters/chapter_107/draft_round_107.md"
+    )
+    assert record["durability_class"] == "project_artifact"
+    assert record["retention_tier"] == "durable_protected"
+    assert record["protected_reason"] == "graph_task_instance_project_artifact"
+    assert record["materialization_receipt_id"] == result["materialization_receipt"]["receipt_id"]
+
+    delete_result = service.store.delete_scope(graph_run_ids={graph_run_id})
+    assert delete_result["deleted_counts"] == {"protected_artifact_records_skipped": 1}
+    assert service.overview(output_contract_id="contract.chapter.107.draft")["artifact_count"] == 1
+
+
 def test_artifact_repository_migrates_existing_sqlite_schema(tmp_path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -138,6 +193,9 @@ def test_artifact_repository_migrates_existing_sqlite_schema(tmp_path) -> None:
     )
 
     assert service.overview(output_contract_id="contract.migrated")["artifact_count"] == 1
+    receipts = service.store.list_materialization_receipts(producer_task_run_id="taskrun:migrated")
+    assert len(receipts) == 1
+    assert receipts[0].target_namespace_id == "task_run:taskrun_migrated"
     legacy = service.overview(output_contract_id="", task_run_id="taskrun:legacy")["artifacts"][0]
     assert legacy["graph_run_id"] == ""
 

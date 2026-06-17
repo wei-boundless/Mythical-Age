@@ -28,7 +28,6 @@ import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
 const GRAPH_TASK_WORKSPACE_VIEW = "graph_task";
 
 type RunMonitorHost = {
-  hasActiveChatStream: () => boolean;
   applySelectedSessionShell: (sessionId: string, scope?: Partial<SessionScope>) => boolean;
   bindTaskEnvironmentContext: (
     taskEnvironmentId: string,
@@ -45,9 +44,8 @@ type RunMonitorHost = {
 
 export class RunMonitorController {
   private eventSource: EventSource | null = null;
-  private timer: number | null = null;
   private reconnectTimer: number | null = null;
-  private polling = false;
+  private active = false;
   private inFlight = false;
   private request = 0;
   private reconnectAttempts = 0;
@@ -61,29 +59,30 @@ export class RunMonitorController {
 
   start() {
     if (typeof window === "undefined") return;
-    this.polling = true;
+    this.active = true;
     if (typeof EventSource !== "undefined") {
       this.openStream();
       return;
     }
-    this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "fallback" }));
-    void this.refresh();
+    this.store.setState((prev) => ({
+      ...prev,
+      runMonitorStreamStatus: "disconnected",
+      runMonitorError: "当前浏览器不支持运行监控实时连接。",
+    }));
   }
 
   stop() {
     if (typeof window === "undefined") return;
-    this.polling = false;
+    this.active = false;
     this.closeStream();
-    this.clearTimer();
     this.clearReconnectTimer();
     this.stopGraphAutoAdvance();
     this.inFlight = false;
     this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "closed" }));
   }
 
-  async refresh(options: { schedule?: boolean } = {}) {
+  async refresh(_options: { schedule?: boolean } = {}) {
     if (this.inFlight) {
-      if (options.schedule !== false) this.schedulePoll(5000);
       return;
     }
     this.inFlight = true;
@@ -91,10 +90,10 @@ export class RunMonitorController {
     this.store.setState((prev) => ({ ...prev, runMonitorLoading: true }));
     try {
       const monitor = await fetchRunMonitor(40);
-      if (!this.polling || requestId !== this.request) return;
+      if (!this.active || requestId !== this.request) return;
       this.applySnapshot(monitor);
     } catch (error) {
-      if (!this.polling || requestId !== this.request) return;
+      if (!this.active || requestId !== this.request) return;
       if (!this.isTransientError(error)) {
         this.store.setState((prev) => ({
           ...prev,
@@ -105,9 +104,6 @@ export class RunMonitorController {
       if (requestId === this.request) {
         this.inFlight = false;
         this.store.setState((prev) => ({ ...prev, runMonitorLoading: false }));
-        if (options.schedule !== false && this.store.getState().runMonitorStreamStatus !== "connected") {
-          this.schedulePoll();
-        }
       }
     }
   }
@@ -353,14 +349,16 @@ export class RunMonitorController {
     this.eventSource = source;
     source.onopen = () => {
       this.reconnectAttempts = 0;
-      this.clearTimer();
       this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "connected", runMonitorError: "" }));
     };
     source.onerror = () => {
       this.closeStream();
-      this.store.setState((prev) => ({ ...prev, runMonitorStreamStatus: "fallback" }));
+      this.store.setState((prev) => ({
+        ...prev,
+        runMonitorStreamStatus: "disconnected",
+        runMonitorError: "运行监控实时连接已断开，正在尝试重新连接。",
+      }));
       this.scheduleReconnect();
-      this.schedulePoll(2500);
     };
     source.addEventListener("runtime_monitor_snapshot", (event) => this.handleStreamMessage(event));
     source.addEventListener("runtime_monitor_heartbeat", () => {
@@ -387,31 +385,16 @@ export class RunMonitorController {
   }
 
   private scheduleReconnect() {
-    if (typeof window === "undefined" || !this.polling || typeof EventSource === "undefined") return;
+    if (typeof window === "undefined" || !this.active || typeof EventSource === "undefined") return;
     this.clearReconnectTimer();
     const delay = Math.min(30000, 1000 * Math.pow(2, Math.min(this.reconnectAttempts, 5)));
     this.reconnectAttempts += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.polling && this.store.getState().runMonitorStreamStatus !== "connected") {
+      if (this.active && this.store.getState().runMonitorStreamStatus !== "connected") {
         this.openStream();
       }
     }, delay);
-  }
-
-  private schedulePoll(delayMs = 2500) {
-    if (typeof window === "undefined" || !this.polling) return;
-    if (this.store.getState().runMonitorStreamStatus === "connected") return;
-    const effectiveDelay = this.host.hasActiveChatStream() ? Math.max(delayMs, 15000) : delayMs;
-    this.clearTimer();
-    this.timer = window.setTimeout(() => void this.refresh(), effectiveDelay);
-  }
-
-  private clearTimer() {
-    if (this.timer !== null && typeof window !== "undefined") {
-      window.clearTimeout(this.timer);
-      this.timer = null;
-    }
   }
 
   private clearReconnectTimer() {

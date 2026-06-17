@@ -64,6 +64,7 @@ export function getDefaultState(): StoreState {
     conversationActiveEnvironment: null,
     workspaceInitializing: true,
     messages: [],
+    activeProjectionsByKey: {},
     assistantTextStreamsByMessageId: {},
     isStreaming: false,
     activeStreamSessionIds: [],

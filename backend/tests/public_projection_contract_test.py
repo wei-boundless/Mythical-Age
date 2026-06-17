@@ -113,20 +113,20 @@ def test_public_projection_frame_event_offset_uses_public_sequence_only() -> Non
     assert frame["event_offset"] == 7
 
 
-def test_active_task_steer_accepted_is_visible_status_not_body() -> None:
+def test_active_task_steer_accepted_is_lightweight_status_event_not_body() -> None:
     frame = _frame(
         "active_task_steer_accepted",
         {
             "task_run_id": "taskrun:active",
             "turn_id": "turn:test",
-            "detail": "新的限制已经加入当前任务。",
         },
     )
 
     assert frame["op"] == "item_upsert"
     assert frame["slot"] == "status"
-    assert frame["status_kind"] == "active_task_steer_receipt"
     assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "transient"
+    assert frame["status_kind"] == "status_event"
     assert frame["event_family"] == "status_trace"
     assert frame["channel"] == "status"
     assert frame["slot"] != "body"
@@ -318,33 +318,28 @@ def test_system_tool_batch_step_summary_stays_trace_only() -> None:
     assert frame["retention"] == "trace"
 
 
-def test_runtime_status_defaults_to_trace_only_unless_public_status_kind() -> None:
-    hidden = _frame(
+def test_runtime_status_is_always_hidden_trace() -> None:
+    plain = _frame(
         "runtime_status",
         {
             "runtime_event_id": "event:runtime-status:hidden",
-            "title": "内部运行状态",
-            "detail": "这只是运行时诊断。",
             "state": "running",
         },
     )
-    visible = _frame(
+    marked = _frame(
         "runtime_status",
         {
             "runtime_event_id": "event:runtime-status:visible",
-            "title": "公开阶段状态",
-            "detail": "这条状态明确允许展示。",
             "state": "running",
             "status_kind": "user_visible_runtime_status",
         },
     )
 
-    assert hidden["slot"] == "trace"
-    assert hidden["main_visibility"] == "hidden"
-    assert hidden["retention"] == "trace"
-    assert visible["slot"] == "status"
-    assert visible["main_visibility"] == "visible_live"
-    assert visible["retention"] == "transient"
+    for frame in (plain, marked):
+        assert frame["slot"] == "trace"
+        assert frame["main_visibility"] == "hidden"
+        assert frame["retention"] == "trace"
+        assert "status_kind" not in frame
 
 
 def test_task_handoff_uses_canonical_completion_state_not_localized_reason() -> None:
@@ -359,7 +354,7 @@ def test_task_handoff_uses_canonical_completion_state_not_localized_reason() -> 
     ) is True
 
 
-def test_task_model_wait_heartbeat_projects_as_transient_status_placeholder() -> None:
+def test_task_model_wait_heartbeat_is_not_public_projection_input() -> None:
     events = _project_public_stream_event(
         "task_model_action_wait_heartbeat",
         {
@@ -378,66 +373,27 @@ def test_task_model_wait_heartbeat_projects_as_transient_status_placeholder() ->
         },
     )
 
-    assert len(events) == 1
-    public_event_type, data = events[0]
-    assert public_event_type == "runtime_status"
-    assert data["status_kind"] == "model_wait_placeholder"
-    assert data["item_id"] == "model-wait:taskrun:wait"
+    assert events == []
 
-    frame = _frame(public_event_type, data)
-    assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "status"
+
+def test_model_wait_runtime_status_fails_closed_as_hidden_trace_if_seen() -> None:
+    frame = _frame(
+        "runtime_status",
+        {
+            "task_run_id": "taskrun:wait",
+            "item_id": "model-wait:taskrun:wait",
+            "title": "正在思考",
+            "presentation_source": "runtime.model_wait",
+            "status_kind": "model_wait_placeholder",
+            "source_task_event_type": "task_model_action_wait_heartbeat",
+            "runtime_event_id": "event:model-wait",
+        },
+    )
+
+    assert frame["slot"] == "trace"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
     assert frame["source_authority"] == "runtime"
-    assert frame["main_visibility"] == "visible_live"
-    assert frame["retention"] == "transient"
-    assert frame["status_kind"] == "model_wait_placeholder"
-    assert frame["slot"] != "body"
-
-
-def test_lifecycle_coalesces_repeated_model_wait_heartbeat_status() -> None:
-    lifecycle = ProjectionLifecycleState()
-    first = {
-        "task_run_id": "taskrun:wait",
-        "turn_id": "turn:test",
-        "turn_run_id": "turnrun:test",
-        "item_id": "model-wait:taskrun:wait",
-        "status": "running",
-        "presentation_source": "runtime.model_wait",
-        "status_kind": "model_wait_placeholder",
-        "source_task_event_type": "task_model_action_wait_heartbeat",
-        "runtime_event_id": "event:model-wait:1",
-    }
-    second = {
-        **first,
-        "runtime_event_id": "event:model-wait:2",
-        "source_task_event_id": "event:model-wait:2",
-        "source_task_event_offset": 22,
-        "wait_round": 2,
-    }
-
-    assert lifecycle.should_emit_public_event("runtime_status", first) is True
-    assert lifecycle.should_emit_public_event("runtime_status", second) is False
-
-
-def test_lifecycle_emits_model_wait_status_when_visible_state_changes() -> None:
-    lifecycle = ProjectionLifecycleState()
-    running = {
-        "task_run_id": "taskrun:wait",
-        "turn_id": "turn:test",
-        "turn_run_id": "turnrun:test",
-        "item_id": "model-wait:taskrun:wait",
-        "status": "running",
-        "presentation_source": "runtime.model_wait",
-        "status_kind": "model_wait_placeholder",
-    }
-    waiting = {
-        **running,
-        "status": "waiting",
-        "runtime_event_id": "event:model-wait:state-change",
-    }
-
-    assert lifecycle.should_emit_public_event("runtime_status", running) is True
-    assert lifecycle.should_emit_public_event("runtime_status", waiting) is True
 
 
 def test_lifecycle_does_not_coalesce_non_wait_runtime_status() -> None:
@@ -454,7 +410,7 @@ def test_lifecycle_does_not_coalesce_non_wait_runtime_status() -> None:
     assert lifecycle.should_emit_public_event("runtime_status", {**status, "runtime_event_id": "event:status:2"}) is True
 
 
-def test_chat_bridge_suppresses_duplicate_model_wait_before_append_and_mark_event() -> None:
+def test_chat_bridge_rejects_model_wait_placeholder_before_append_and_mark_event() -> None:
     registry = _RegistrySpy()
     replay = _ReplaySpy()
     lifecycle = ProjectionLifecycleState()
@@ -490,22 +446,10 @@ def test_chat_bridge_suppresses_duplicate_model_wait_before_append_and_mark_even
         runtime_turn_run_id="turnrun:test",
         runtime_active_turn_id="turn:test",
     )
-    suppressed = _append_chat_public_event(
-        registry=registry,
-        replay=replay,
-        current=current,
-        public_event_type="runtime_status",
-        data={**wait_status, "runtime_event_id": "event:model-wait:2", "wait_round": 2},
-        session_id="session:test",
-        projection_lifecycle=lifecycle,
-        runtime_task_run_id="taskrun:wait",
-        runtime_turn_run_id="turnrun:test",
-        runtime_active_turn_id="turn:test",
-    )
 
-    assert suppressed is current
-    assert len(replay.append_public_event_calls) == 1
-    assert len(registry.mark_event_calls) == 1
+    assert current is run
+    assert replay.append_public_event_calls == []
+    assert registry.mark_event_calls == []
 
 
 def test_protocol_repair_status_stays_trace_only_without_public_surface() -> None:
@@ -694,20 +638,42 @@ def test_failed_runtime_context_rehydration_tool_retires_any_visible_card() -> N
     )
 
     assert frame["op"] == "item_retire"
-    assert frame["slot"] == "status"
-    assert frame["main_visibility"] == "visible_live"
-    assert frame["retention"] == "transient"
+    assert frame["slot"] == "trace"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
     assert frame["tool_call_id"] == "call:rehydrate"
 
 
-def test_turn_completed_has_no_hydrate_or_main_tool_semantics() -> None:
+def test_successful_turn_completed_is_hidden_trace_only() -> None:
     frame = _frame(TURN_COMPLETED_EVENT, {"status": "completed", "turn_run_id": "turnrun:test"})
 
-    assert frame["op"] == "turn_terminal"
+    assert frame["op"] == "item_upsert"
     assert frame["slot"] == "trace"
     assert frame["main_visibility"] == "hidden"
     assert "commit" not in frame
     assert "text" not in frame
+
+
+def test_agent_closeout_recovery_turn_completed_stays_hidden_trace_only() -> None:
+    frame = _frame(
+        TURN_COMPLETED_EVENT,
+        {
+            "status": "failed",
+            "turn_run_id": "turnrun:test",
+            "terminal_reason": "agent_closeout_recovery_required",
+            "error_summary": "内部纠错观察",
+        },
+    )
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+    assert frame["retention"] == "trace"
+    assert "status_kind" not in frame
+    assert "title" not in frame
+    assert "text" not in frame
+    assert frame["slot"] != "body"
 
 
 def test_commit_ack_is_hidden_commit_authority() -> None:
@@ -727,16 +693,21 @@ def test_commit_ack_is_hidden_commit_authority() -> None:
     assert frame["commit"]["content_sha256"] == "sha256:body"
 
 
-def test_commit_failed_is_pinned() -> None:
+def test_commit_failed_is_recovery_event_not_body() -> None:
     frame = _frame(
         SESSION_OUTPUT_COMMIT_FAILED_EVENT,
         {"state": "failed", "reason": "history write failed", "event_offset": 12},
     )
 
-    assert frame["op"] == "commit_failed"
-    assert frame["slot"] == "pinned"
-    assert frame["main_visibility"] == "pinned"
-    assert frame["pin_reason"] == "commit_failed"
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "status"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["retention"] == "final"
+    assert frame["status_kind"] == "recovery_event"
+    assert frame["commit"]["state"] == "failed"
+    assert frame["slot"] != "body"
+    rendered = f"{frame.get('title', '')} {frame.get('text', '')} {frame.get('detail', '')}"
+    assert "系统已" not in rendered
 
 
 def test_private_paths_do_not_project_as_public_text() -> None:

@@ -10,7 +10,7 @@ export type RunMonitorEnvelope = RuntimeMonitorEnvelope;
 export type RunMonitorSignal = RuntimeMonitorSignal;
 export type RunMonitorEvent = RunMonitorEventPayload;
 
-export type RunMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
+export type RunMonitorStreamStatus = "connecting" | "connected" | "disconnected" | "closed";
 
 export type RunMonitorState = {
   monitor: RunMonitorEnvelope | null;

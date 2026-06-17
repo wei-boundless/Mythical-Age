@@ -86,6 +86,7 @@ class PromptCachePlanner:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
         diagnostics = {
             **_prefix_diagnostics(
+                segment_map=segment_map,
                 combined_stable_prefix=combined_stable_prefix,
                 provider_global_prefix=provider_global_prefix,
                 session_prefix=session_prefix,
@@ -157,6 +158,11 @@ class PromptCachePlanner:
             created_at=timestamp,
             diagnostics={
                 **diagnostics,
+                **_cache_read_target_diagnostics(
+                    segment_map=segment_map,
+                    prefix_tokens=sum(int(item.predicted_tokens or 0) for item in key_prefix),
+                    prefix_source=f"segment_map_{key_tier}_prefix",
+                ),
                 "prefix_key_tier": key_tier,
                 "stable_prefix_segment_count": len(combined_stable_prefix),
                 "stable_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in combined_stable_prefix),
@@ -205,11 +211,51 @@ def _json_stable(value: Any) -> Any:
 
 def _prefix_diagnostics(
     *,
+    segment_map: PromptSegmentMap,
     combined_stable_prefix: list[Any],
     provider_global_prefix: list[Any],
     session_prefix: list[Any],
     task_prefix: list[Any],
 ) -> dict[str, Any]:
+    total_tokens = _total_predicted_tokens(segment_map)
+    stable_prefix_tokens = sum(int(item.predicted_tokens or 0) for item in combined_stable_prefix)
+    provider_global_tokens = sum(int(item.predicted_tokens or 0) for item in provider_global_prefix)
+    session_tokens = sum(int(item.predicted_tokens or 0) for item in session_prefix)
+    task_tokens = sum(int(item.predicted_tokens or 0) for item in task_prefix)
+    stable_role_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.cache_role or "") in {"cacheable_prefix", "session_stable"}
+    )
+    volatile_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.cache_role or "") in {"volatile", "never_cache"}
+        or str(segment.prefix_tier or "") in {"volatile", "none"}
+    )
+    replay_stable_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "task_state_replay_entry"
+        and str(segment.cache_role or "") in {"cacheable_prefix", "session_stable"}
+        and str(segment.prefix_tier or "") == "task"
+    )
+    replay_volatile_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "task_state_replay_entry"
+        and str(segment.cache_role or "") in {"volatile", "never_cache"}
+    )
+    read_evidence_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "read_evidence_injection"
+    )
+    volatile_task_state_tokens = sum(
+        int(segment.predicted_tokens or 0)
+        for segment in segment_map.segments
+        if str(segment.kind or "") == "volatile_task_state"
+    )
     return {
         "combined_stable_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in combined_stable_prefix)) if combined_stable_prefix else "",
         "provider_global_prefix_hash": stable_text_hash("|".join(segment.content_hash for segment in provider_global_prefix)) if provider_global_prefix else "",
@@ -218,9 +264,104 @@ def _prefix_diagnostics(
         "provider_global_prefix_segment_count": len(provider_global_prefix),
         "session_prefix_segment_count": len(session_prefix),
         "task_prefix_segment_count": len(task_prefix),
-        "provider_global_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in provider_global_prefix),
-        "session_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in session_prefix),
-        "task_prefix_predicted_tokens": sum(int(item.predicted_tokens or 0) for item in task_prefix),
+        "predicted_prompt_tokens_total": total_tokens,
+        "provider_global_prefix_predicted_tokens": provider_global_tokens,
+        "session_prefix_predicted_tokens": session_tokens,
+        "task_prefix_predicted_tokens": task_tokens,
+        "combined_stable_prefix_predicted_tokens": stable_prefix_tokens,
+        "stable_cache_role_predicted_tokens": stable_role_tokens,
+        "volatile_predicted_tokens": volatile_tokens,
+        "body_after_stable_prefix_predicted_tokens": max(0, total_tokens - stable_prefix_tokens),
+        "body_after_task_prefix_predicted_tokens": max(0, total_tokens - task_tokens),
+        "provider_global_prefix_token_ratio": _ratio(provider_global_tokens, total_tokens),
+        "session_prefix_token_ratio": _ratio(session_tokens, total_tokens),
+        "task_prefix_token_ratio": _ratio(task_tokens, total_tokens),
+        "combined_stable_prefix_token_ratio": _ratio(stable_prefix_tokens, total_tokens),
+        "volatile_token_ratio": _ratio(volatile_tokens, total_tokens),
+        "top_volatile_segment_families": _top_volatile_segment_families(segment_map),
+        "append_only_replay_promoted_to_task_prefix": replay_stable_tokens > 0,
+        "append_only_replay_task_prefix_predicted_tokens": replay_stable_tokens,
+        "append_only_replay_volatile_predicted_tokens": replay_volatile_tokens,
+        "read_evidence_exact_predicted_tokens": read_evidence_tokens,
+        "volatile_task_state_predicted_tokens": volatile_task_state_tokens,
+        **_cache_read_target_diagnostics(
+            segment_map=segment_map,
+            prefix_tokens=task_tokens,
+            prefix_source="segment_map_task_prefix",
+        ),
+    }
+
+
+def _total_predicted_tokens(segment_map: PromptSegmentMap) -> int:
+    total = int(getattr(segment_map, "predicted_prompt_tokens", 0) or 0)
+    if total > 0:
+        return total
+    return sum(int(segment.predicted_tokens or 0) for segment in segment_map.segments)
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if int(denominator or 0) <= 0:
+        return 0.0
+    return round(max(0, int(numerator or 0)) / max(1, int(denominator or 0)), 4)
+
+
+def _top_volatile_segment_families(segment_map: PromptSegmentMap, *, limit: int = 8) -> list[dict[str, Any]]:
+    totals: dict[str, dict[str, Any]] = {}
+    for segment in segment_map.segments:
+        cache_role = str(segment.cache_role or "")
+        prefix_tier = str(segment.prefix_tier or "")
+        if cache_role not in {"volatile", "never_cache"} and prefix_tier not in {"volatile", "none"}:
+            continue
+        kind = str(segment.kind or "unknown")
+        payload = totals.setdefault(
+            kind,
+            {
+                "kind": kind,
+                "predicted_tokens": 0,
+                "segment_count": 0,
+                "cache_roles": set(),
+                "prefix_tiers": set(),
+            },
+        )
+        payload["predicted_tokens"] += int(segment.predicted_tokens or 0)
+        payload["segment_count"] += 1
+        payload["cache_roles"].add(cache_role)
+        payload["prefix_tiers"].add(prefix_tier)
+    ordered = sorted(totals.values(), key=lambda item: int(item["predicted_tokens"]), reverse=True)[: max(1, int(limit or 8))]
+    return [
+        {
+            "kind": str(item["kind"]),
+            "predicted_tokens": int(item["predicted_tokens"]),
+            "segment_count": int(item["segment_count"]),
+            "cache_roles": sorted(str(role) for role in item["cache_roles"] if str(role)),
+            "prefix_tiers": sorted(str(tier) for tier in item["prefix_tiers"] if str(tier)),
+        }
+        for item in ordered
+        if int(item["predicted_tokens"]) > 0
+    ]
+
+
+def _cache_read_target_diagnostics(
+    *,
+    segment_map: PromptSegmentMap,
+    prefix_tokens: int,
+    prefix_source: str,
+) -> dict[str, Any]:
+    total_tokens = _total_predicted_tokens(segment_map)
+    estimate = _ratio(int(prefix_tokens or 0), total_tokens)
+    goal = 0.9
+    blockers: list[dict[str, Any]] = []
+    if estimate < goal:
+        blockers = _top_volatile_segment_families(segment_map, limit=5)
+    return {
+        "target_warm_cache_read_rate_goal": goal,
+        "target_warm_cache_read_rate_estimate": estimate,
+        "target_warm_cache_read_rate_gap": round(max(0.0, goal - estimate), 4),
+        "target_warm_cache_read_rate_status": "ok" if estimate >= goal else "below_target",
+        "target_warm_cache_read_rate_prefix_source": str(prefix_source or ""),
+        "target_warm_cache_read_rate_prefix_tokens": max(0, int(prefix_tokens or 0)),
+        "target_warm_cache_read_rate_total_tokens": total_tokens,
+        "target_warm_cache_read_rate_blockers": blockers,
     }
 
 
@@ -306,6 +447,11 @@ def _plan_from_provider_payload_boundary(
         diagnostics=diagnostics,
         tier=key_tier,
     )
+    target_diagnostics = _cache_read_target_diagnostics(
+        segment_map=segment_map,
+        prefix_tokens=int(token_diagnostics.get("provider_payload_prefix_predicted_tokens") or 0),
+        prefix_source=f"provider_payload_{key_tier}_prefix",
+    )
     if not prefix_hash:
         return PromptCacheRecord(
             cache_record_id=f"pcache:{segment_map.request_id}",
@@ -323,6 +469,7 @@ def _plan_from_provider_payload_boundary(
                 **diagnostics,
                 **provider_diagnostics,
                 **token_diagnostics,
+                **target_diagnostics,
                 "prefix_hash_source": "provider_payload_manifest",
             },
         )
@@ -360,6 +507,7 @@ def _plan_from_provider_payload_boundary(
             **diagnostics,
             **provider_diagnostics,
             **token_diagnostics,
+            **target_diagnostics,
             "prefix_key_tier": key_tier,
             "prefix_hash_source": "provider_payload_manifest",
             "provider_payload_stable_segment_count": int(selected_prefix.get("segment_count") or 0),

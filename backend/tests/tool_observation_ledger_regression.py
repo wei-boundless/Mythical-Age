@@ -65,7 +65,7 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
         ("obs:read", "read_file", {"path": "backend/app.py"}, {"result_envelope": read_envelope.to_dict()}),
         ("obs:write", "edit_file", {"path": "backend/app.py"}, {"result_envelope": write_envelope.to_dict()}),
         ("obs:verify", "terminal", {"command": "pytest -q"}, {"result_envelope": terminal_envelope.to_dict()}),
-        ("obs:subagent", "spawn_subagent", {"target_agent_id": "agent:reviewer", "goal": "review"}, "subagent scheduled"),
+        ("obs:subagent", "start_subagent", {"target_agent_id": "agent:reviewer", "goal": "review"}, "subagent scheduled"),
     ):
         ledger = ledger.append(
             build_tool_observation_record(
@@ -127,6 +127,45 @@ def test_read_file_observation_records_content_window_metadata() -> None:
     assert record["result_metadata"]["result_boundary"]["fact_status"] == "window_evidence"
     assert record["result_metadata"]["recovery_options"][0]["kind"] == "continue_reading"
     assert record["result_metadata"]["recovery_options"][0]["args_hint"]["start_line"] == 16
+
+
+def test_collect_subagent_result_records_authoritative_final_answer_metadata() -> None:
+    final_answer = "CHILD REPORT\n" + "x" * 900
+    envelope = build_tool_result_envelope(
+        tool_name="collect_subagent_result",
+        tool_args={"subagent_run_ref": "agrun:taskrun:parent:child"},
+        result={
+            "text": "short child summary",
+            "structured_payload": {
+                "subagent_control": {
+                    "subagent_run_ref": "agrun:taskrun:parent:child",
+                    "status": "completed",
+                    "result_ref": "rtobj:agent_run_result:child",
+                    "result_state": "read",
+                    "result": {
+                        "result_ref": "rtobj:agent_run_result:child",
+                        "final_answer": final_answer,
+                        "summary": "short child summary",
+                        "evidence_refs": ["backend/harness/loop/task_executor.py:1"],
+                    },
+                }
+            },
+        },
+    )
+
+    record = build_tool_observation_record(
+        observation_ref="obs:collect-subagent-result",
+        tool_name="collect_subagent_result",
+        tool_args={"subagent_run_ref": "agrun:taskrun:parent:child"},
+        result={"result_envelope": envelope.to_dict()},
+    )
+
+    subagent_result = record.result_metadata["subagent_result"]
+    assert record.result_preview == "short child summary"
+    assert subagent_result["final_answer"] == final_answer
+    assert subagent_result["result_ref"] == "rtobj:agent_run_result:child"
+    assert subagent_result["subagent_run_ref"] == "agrun:taskrun:parent:child"
+    assert subagent_result["evidence_refs"] == ["backend/harness/loop/task_executor.py:1"]
 
 
 def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -> None:

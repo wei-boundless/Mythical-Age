@@ -45,8 +45,8 @@ export function RunMonitorPanel() {
     ? "实时"
     : runMonitorStreamStatus === "connecting"
       ? "连接中"
-      : runMonitorStreamStatus === "fallback"
-        ? "轮询"
+      : runMonitorStreamStatus === "disconnected"
+        ? "断开"
       : "离线";
 
   async function handleAction(payload: RuntimeMonitorActionPayload) {

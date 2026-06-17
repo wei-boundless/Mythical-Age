@@ -1,0 +1,606 @@
+.system-config-workbench {
+  gap: 1rem;
+}
+
+.system-config-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-overview article {
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-border));
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-primary) 9%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.025);
+  padding: 1rem;
+}
+
+.system-config-overview span,
+.system-config-editor__head span,
+.system-config-nav__item em,
+.system-config-budget span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.system-config-overview strong,
+.system-config-budget strong {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.system-config-overview em,
+.system-config-budget em {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.system-config-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.32fr) minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+}
+
+.system-config-nav,
+.system-config-editor {
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--color-accent-primary) 7%, transparent), transparent 54%),
+    var(--color-panel);
+}
+
+.system-config-nav {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 0.8rem;
+}
+
+.system-config-nav__item {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.75rem;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.system-config-nav__item:hover,
+.system-config-nav__item--active {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 38%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.system-config-nav__icon {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
+  color: var(--color-accent);
+}
+
+.system-config-nav__item strong,
+.system-config-nav__item small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-config-nav__item strong {
+  margin-top: 0.15rem;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.system-config-nav__item small {
+  margin-top: 0.15rem;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+}
+
+.system-config-editor {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.system-config-editor__head {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 1rem;
+}
+
+.system-config-editor__mark {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 36%, var(--color-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.system-config-editor__head strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--color-text);
+  font-size: 1.18rem;
+}
+
+.system-config-editor__head p {
+  margin: 0.35rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.system-config-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-field-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.system-config-field-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.system-config-field-section__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  padding-bottom: 0.45rem;
+}
+
+.system-config-field-section__head strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.system-config-field-section__head em {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.system-config-field {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 16%, var(--color-border));
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.026);
+  padding: 0.85rem;
+}
+
+.system-config-field > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.system-config-field strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.system-config-field em {
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.system-config-field input,
+.system-config-field select {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  font-size: 0.92rem;
+  outline: none;
+  padding: 0.72rem 0.8rem;
+}
+
+.system-config-field input:focus,
+.system-config-field select:focus {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 62%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 14%, transparent);
+}
+
+.system-config-field small {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.system-config-provider-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.system-config-provider-panel--compact {
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.system-config-provider-select {
+  position: relative;
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.75rem;
+}
+
+.system-config-provider-select span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.system-config-provider-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.18rem 0.55rem;
+  align-items: center;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  padding: 0.72rem 0.8rem;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.system-config-provider-trigger:hover,
+.system-config-provider-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 58%, white);
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, rgba(0, 0, 0, 0.2));
+}
+
+.system-config-provider-trigger strong,
+.system-config-provider-trigger em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-config-provider-trigger strong {
+  color: var(--color-text);
+  font-size: 0.92rem;
+}
+
+.system-config-provider-trigger em {
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.system-config-provider-trigger svg {
+  grid-row: span 2;
+  color: var(--color-accent-primary);
+}
+
+.system-config-provider-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% - 0.45rem);
+  right: 0.75rem;
+  left: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 42%, var(--color-border));
+  border-radius: 13px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-primary) 10%, transparent), transparent 58%),
+    var(--color-panel-strong);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.34);
+  padding: 0.38rem;
+}
+
+.system-config-provider-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0.58rem 0.62rem;
+  text-align: left;
+}
+
+.system-config-provider-option:hover,
+.system-config-provider-option--active {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 24%, transparent);
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, rgba(255, 255, 255, 0.035));
+}
+
+.system-config-provider-option span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.system-config-provider-option strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.system-config-provider-option em {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.system-config-provider-option svg {
+  color: var(--color-accent-primary);
+}
+
+.system-config-provider-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.system-config-provider-summary article {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 14%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.022);
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.system-config-provider-summary span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.system-config-provider-summary strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.system-config-provider-summary em {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.system-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.28rem 0.75rem 0.28rem 0.28rem;
+}
+
+.system-config-toggle span {
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  background: var(--color-text-soft);
+}
+
+.system-config-toggle--on {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 58%, white);
+  background: color-mix(in srgb, var(--color-accent-primary) 16%, transparent);
+  color: var(--color-text);
+}
+
+.system-config-toggle--on span {
+  background: var(--color-accent);
+}
+
+.system-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding-top: 0.3rem;
+}
+
+.system-config-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-budget {
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-border));
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-primary) 8%, transparent), transparent 56%),
+    rgba(255, 255, 255, 0.026);
+  color: inherit;
+  cursor: pointer;
+  min-height: 10rem;
+  padding: 1rem;
+  text-align: left;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.system-config-budget:hover,
+.system-config-budget--active {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 62%, white);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-primary) 14%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.035);
+  transform: translateY(-1px);
+}
+
+.system-config-budget p {
+  margin: 0.7rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.system-config-capabilities {
+  display: grid;
+  gap: 1rem;
+}
+
+.system-config-capability-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.system-config-capability-metrics article,
+.system-config-tool-list article,
+.system-config-issue-list article {
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-primary) 7%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.026);
+}
+
+.system-config-capability-metrics article {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem;
+}
+
+.system-config-capability-metrics span,
+.system-config-tool-list span,
+.system-config-issue-list span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.system-config-capability-metrics strong {
+  color: var(--color-text);
+  font-size: 1.35rem;
+}
+
+.system-config-capability-metrics em,
+.system-config-tool-list em {
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  font-style: normal;
+}
+
+.system-config-tool-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.system-config-tool-list--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.system-config-tool-list article {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.system-config-tool-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: none;
+}
+
+.system-config-tool-list strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.system-config-issue-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.system-config-issue-list article {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+}
+
+.system-config-issue-list strong {
+  color: #f0a4ad;
+  font-size: 0.86rem;
+}
+
+.system-config-issue-list p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.workspace-view__subtitle {
+  max-width: 760px;
+  margin-top: 0.45rem;
+  color: var(--color-text-soft);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+

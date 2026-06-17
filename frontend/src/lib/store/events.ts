@@ -9,8 +9,8 @@ import {
 } from "@/lib/api";
 import { looksLikeRuntimePrivateArtifactText } from "@/lib/runtimePrivateText";
 import {
-  applyPublicProjectionFrame,
-  publicProjectionFrameFromRecord,
+  applyProjectionFrame,
+  projectionFrameFromRecord,
 } from "@/lib/projection/reducer";
 
 import type { AssistantTextSegmentState, AssistantTextStreamState, ChatStreamConnectionStatus, Message, StoreState } from "./types";
@@ -590,130 +590,107 @@ function patchAssistantStreamAnchor(state: StoreState, session: StreamSession): 
   }));
 }
 
-function patchAssistantRuntimeDisplaySurface(
-  state: StoreState,
-  session: StreamSession,
-  event: string,
-  data: Record<string, unknown>,
-  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
-): StoreState {
-  const assistantId = stringValue(session.assistantId);
-  if (!assistantId) {
-    return state;
+const ACTIVE_TASK_GATE_RELEASE_STATES = new Set([
+  "stopped",
+  "stop_requested",
+  "aborted",
+  "cancelled",
+  "canceled",
+]);
+
+const ACTIVE_TASK_GATE_RELEASE_REASONS = new Set([
+  "stop_active_work",
+  "conversation_stop",
+  "user_stopped",
+  "stopped",
+  "aborted",
+  "cancelled",
+  "canceled",
+]);
+
+function taskGraphLiveMonitorTaskRunId(monitor: StoreState["taskGraphLiveMonitor"]) {
+  if (!monitor) {
+    return "";
   }
-  const surface = runtimeSurfaceFromStreamEvent(session, event, data, frame);
-  const closeoutSummary = surface.mainChatSurface === "closeout_summary"
-    ? runtimeCloseoutSummary(data, frame)
-    : "";
-  const logRef = stringValue(session.boundTaskRunId)
-    || stringValue(data.runtime_task_run_id)
-    || stringValue(data.task_run_id)
-    || stringValue(session.boundTurnRunId)
-    || stringValue(data.turn_run_id)
-    || stringValue(session.boundStreamRunId)
-    || stringValue(data.stream_run_id);
-  return patchAssistant(state, assistantId, (message) => {
-    if (message.mainChatSurface === "closeout_summary" && surface.mainChatSurface !== "closeout_summary") {
-      return message;
-    }
-    return {
-      ...message,
-      runtimeDisplayState: surface.runtimeDisplayState,
-      mainChatSurface: surface.mainChatSurface,
-      closeoutSummary: closeoutSummary || message.closeoutSummary,
-      runtimeLogRef: logRef || message.runtimeLogRef,
-    };
-  });
+  const record = monitor as unknown as Record<string, unknown>;
+  const taskRun = recordValue(record.task_run);
+  return stringValue(taskRun.task_run_id)
+    || stringValue(record.task_run_id)
+    || stringValue(record.runtime_task_run_id);
 }
 
-function runtimeSurfaceFromStreamEvent(
-  session: StreamSession,
+function streamEventReleasesActiveTaskTurnGate(
   event: string,
   data: Record<string, unknown>,
-  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
 ) {
-  const frameAnchor = recordValue(frame?.anchor);
-  const taskRunId = stringValue(session.boundTaskRunId)
-    || stringValue(data.runtime_task_run_id)
-    || stringValue(data.task_run_id)
-    || stringValue(frameAnchor.task_run_id);
-  if (!taskRunId) {
-    return {
-      runtimeDisplayState: "normal_turn" as const,
-      mainChatSurface: "body_only" as const,
-    };
-  }
-  if (streamEventClosesMainTimeline(event, data, frame)) {
-    return {
-      runtimeDisplayState: "task_closed" as const,
-      mainChatSurface: "closeout_summary" as const,
-    };
-  }
-  return {
-    runtimeDisplayState: "task_live" as const,
-    mainChatSurface: "live_timeline" as const,
-  };
-}
-
-function streamEventClosesMainTimeline(
-  event: string,
-  data: Record<string, unknown>,
-  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
-) {
-  const eventName = stringValue(event);
-  if (eventName === "done") return false;
-  const publicEventType = stringValue(data.public_event_type || data.source_event_type);
-  if (publicEventType === "session_output_commit_ack") {
-    return true;
-  }
-  if (publicEventType === TURN_COMPLETED_EVENT || publicEventType === "task_bridge_terminal") return false;
-  if (publicEventType.startsWith("session_output_commit_")) return false;
-  if (!frame) {
+  const eventName = stringValue(event).toLowerCase();
+  const terminalReason = stringValue(data.terminal_reason).toLowerCase();
+  const completionState = stringValue(data.completion_state).toLowerCase();
+  const activeTurnState = stringValue(data.active_turn_state).toLowerCase();
+  const status = stringValue(data.status).toLowerCase();
+  const state = stringValue(data.state).toLowerCase();
+  const phase = stringValue(data.phase).toLowerCase();
+  if (terminalReason === "task_executor_scheduled" || completionState === "task_executor_scheduled") {
     return false;
   }
-  return frame.op === "commit_ack";
+  if (
+    ACTIVE_TASK_GATE_RELEASE_REASONS.has(terminalReason)
+    || ACTIVE_TASK_GATE_RELEASE_REASONS.has(completionState)
+  ) {
+    return true;
+  }
+  if (activeTurnState === "terminal") {
+    return true;
+  }
+  if (eventName === "stopped") {
+    return true;
+  }
+  if (eventName === TURN_COMPLETED_EVENT && ACTIVE_TASK_GATE_RELEASE_STATES.has(status)) {
+    return true;
+  }
+  if (eventName === "runtime_status" && phase === "work_control" && ACTIVE_TASK_GATE_RELEASE_STATES.has(state)) {
+    return true;
+  }
+  return false;
 }
 
-function runtimeCloseoutSummary(
-  data: Record<string, unknown>,
-  frame: ReturnType<typeof publicProjectionFrameFromRecord>,
+function releaseActiveTaskTurnGate(
+  state: StoreState,
+  turnId: string,
+  taskRunId: string,
 ) {
-  const frameText = stringValue(frame?.slot === "body" ? frame.text : "");
-  if (frameText) {
-    return frameText;
+  const snapshot = state.activeTurnSnapshot;
+  const snapshotTurnId = stringValue(snapshot?.turn_id);
+  const snapshotTaskRunId = stringValue(snapshot?.task_run_id);
+  const snapshotMatches = Boolean(snapshot) && (
+    Boolean(turnId && snapshotTurnId === turnId)
+    || Boolean(taskRunId && snapshotTaskRunId === taskRunId)
+  );
+  const monitorTaskRunId = taskGraphLiveMonitorTaskRunId(state.taskGraphLiveMonitor);
+  const monitorMatches = Boolean(taskRunId && monitorTaskRunId === taskRunId);
+  if (!snapshotMatches && !monitorMatches) {
+    return state;
   }
-  return stringValue(data.summary)
-    || stringValue(data.error_summary)
-    || stringValue(data.terminal_reason)
-    || stringValue(data.stopped_reason)
-    || stringValue(data.reason)
-    || terminalStatusSummary(data.status)
-    || "任务已结束，但没有可提交的正文。";
-}
-
-function terminalStatusSummary(value: unknown) {
-  const status = stringValue(value).toLowerCase();
-  if (status === "completed" || status === "complete" || status === "success" || status === "succeeded") {
-    return "任务已完成。";
-  }
-  if (status === "failed" || status === "error") {
-    return "任务已结束，但没有可提交的正文。";
-  }
-  if (status === "stopped" || status === "aborted" || status === "cancelled" || status === "canceled") {
-    return "任务已停止。";
-  }
-  return "";
+  return {
+    ...state,
+    activeTurnSnapshot: snapshotMatches ? null : state.activeTurnSnapshot,
+    taskGraphLiveMonitor: monitorMatches ? null : state.taskGraphLiveMonitor,
+  };
 }
 
 function patchActiveTaskTurnGate(
   state: StoreState,
   session: StreamSession,
+  event: string,
   data: Record<string, unknown>,
 ): StoreState {
   const turnId = stringValue(session.boundTurnId) || stringValue(data.active_turn_id) || stringValue(data.turn_id);
   const taskRunId = stringValue(session.boundTaskRunId) || stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id);
   if (!turnId && !taskRunId) {
     return state;
+  }
+  if (streamEventReleasesActiveTaskTurnGate(event, data)) {
+    return releaseActiveTaskTurnGate(state, turnId, taskRunId);
   }
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
@@ -936,7 +913,7 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
   if (event === "error") {
-    return String(data.error ?? "运行中断");
+    return String(data.error ?? "处理失败");
   }
   if (event === "prompt_manifest") {
     return "上下文已整理。";
@@ -958,7 +935,7 @@ function publicStreamEventLabel(event: string) {
     behavior_trace: "处理路径已检查",
     context_management: "上下文已整理",
     debug: "同步状态",
-    error: "运行中断",
+    error: "处理失败",
     harness_loop_event: "运行事件已记录",
     memory_context: "已读取相关记忆",
     orchestration_diff: "处理计划已更新",
@@ -1158,7 +1135,7 @@ function updateOrchestrationSnapshot(
     route: route === "undefined" ? snapshot.route : route,
     status: event === "error" ? "failed" : "running",
     summary: event === "error"
-        ? String(data.error_summary ?? data.error ?? "运行中断")
+        ? String(data.error_summary ?? data.error ?? "处理失败")
         : summary || snapshot.summary,
     problem_node_id: event === "error" ? nodeId : snapshot.problem_node_id,
     nodes: nextNodes,
@@ -1300,28 +1277,21 @@ export function reduceStreamEvent(
   event: string,
   data: Record<string, unknown>
 ): StreamTransition {
-  const publicProjectionFrame = publicProjectionFrameFromRecord(data.public_projection_frame);
+  const projectionFrame = projectionFrameFromRecord(data.public_projection_frame);
   const boundSession = bindStreamSessionAnchor(session, data);
   const stateWithStreamAnchor = patchAssistantStreamAnchor(state, boundSession);
   const withOrchestration = updateOrchestrationSnapshot(stateWithStreamAnchor.orchestrationSnapshot, event, data);
   const stateWithOrchestrationBase = withOrchestration === stateWithStreamAnchor.orchestrationSnapshot
     ? stateWithStreamAnchor
     : { ...stateWithStreamAnchor, orchestrationSnapshot: withOrchestration };
-  const stateWithPublicProjection = publicProjectionFrame
-    ? applyPublicProjectionFrame(stateWithOrchestrationBase, publicProjectionFrame, {
+  const stateWithProjection = projectionFrame
+    ? applyProjectionFrame(stateWithOrchestrationBase, projectionFrame, {
         assistantId: boundSession.assistantId,
         streamAnchor: streamAnchorFromSession(boundSession),
       })
     : stateWithOrchestrationBase;
-  const stateWithDisplaySurface = patchAssistantRuntimeDisplaySurface(
-    stateWithPublicProjection,
-    boundSession,
-    event,
-    data,
-    publicProjectionFrame,
-  );
   const stateWithTimelineDraft = applyChatStreamConnectionStatus(
-    patchActiveTaskTurnGate(stateWithDisplaySurface, boundSession, data),
+    patchActiveTaskTurnGate(stateWithProjection, boundSession, event, data),
     event,
     data,
   );

@@ -44,6 +44,10 @@ from project_layout import ProjectLayout
 from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
 from harness.runtime.assembly import assemble_runtime
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.dynamic_context.semantic_payload_classifier import (
+    merge_pending_tool_control_actions,
+    pending_tool_control_actions_from_observation,
+)
 from harness.runtime.services import TaskExecutorServices
 from harness.runtime.tool_batch_planner import ToolBatchGroup, build_tool_batch_plan
 from harness.runtime.tool_plan import build_runtime_tool_plan
@@ -6325,6 +6329,20 @@ def _observations_for_packet(
         for observation in deduped
     ]
     projection = _build_execution_state_projection(records)
+    pending_tool_control_actions = merge_pending_tool_control_actions(
+        *[pending_tool_control_actions_from_observation(observation) for observation in deduped],
+        limit=12,
+    )
+    pending_tool_control_actions = _filter_consumed_subagent_pending_actions(
+        runtime_host,
+        task_run_id,
+        pending_tool_control_actions,
+    )
+    if pending_tool_control_actions:
+        projection = {
+            **projection,
+            "pending_tool_control_actions": pending_tool_control_actions,
+        }
     runtime_control_signals = _runtime_control_signal_projection_from_observations(deduped)
     if runtime_control_signals:
         projection = {
@@ -6375,6 +6393,81 @@ def _observations_for_packet(
             ]
         ),
     }
+
+
+def _filter_consumed_subagent_pending_actions(
+    runtime_host: Any,
+    task_run_id: str,
+    pending_actions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not pending_actions:
+        return []
+    state_index = getattr(runtime_host, "state_index", None)
+    if state_index is None:
+        return list(pending_actions)
+    result: list[dict[str, Any]] = []
+    for action in list(pending_actions or []):
+        if str(action.get("action") or "") != "collect_subagent_result":
+            result.append(action)
+            continue
+        args = dict(action.get("args") or {})
+        subagent_run_ref = str(args.get("subagent_run_ref") or "").strip()
+        result_ref = str(action.get("result_ref") or "").strip()
+        if not subagent_run_ref:
+            result.append(action)
+            continue
+        if _subagent_result_already_read(
+            state_index,
+            parent_task_run_id=task_run_id,
+            subagent_run_ref=subagent_run_ref,
+            result_ref=result_ref,
+        ):
+            continue
+        result.append(action)
+    return result
+
+
+def _subagent_result_already_read(
+    state_index: Any,
+    *,
+    parent_task_run_id: str,
+    subagent_run_ref: str,
+    result_ref: str,
+) -> bool:
+    if result_ref:
+        state_reader = getattr(state_index, "subagent_result_read_state", None)
+        if callable(state_reader):
+            try:
+                return (
+                    str(
+                        state_reader(
+                            parent_task_run_id=parent_task_run_id,
+                            subagent_run_ref=subagent_run_ref,
+                            result_ref=result_ref,
+                        )
+                        or ""
+                    )
+                    == "read"
+                )
+            except Exception:
+                return False
+    list_reads = getattr(state_index, "list_subagent_result_reads", None)
+    if not callable(list_reads):
+        return False
+    try:
+        reads = list_reads(parent_task_run_id)
+    except Exception:
+        return False
+    for item in list(reads or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("subagent_run_ref") or "") != subagent_run_ref:
+            continue
+        if str(item.get("read_state") or "") != "read":
+            continue
+        if not result_ref or str(item.get("result_ref") or "") == result_ref:
+            return True
+    return False
 
 
 def _runtime_control_signal_projection_from_observations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -6655,11 +6748,13 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
     historical_failures: list[dict[str, Any]] = []
     repair_focus: list[dict[str, Any]] = []
     last_action_receipts: list[dict[str, Any]] = []
+    authoritative_subagent_results: list[dict[str, Any]] = []
     for record in records:
         visibility = _record_visibility(record)
         status = str(record.get("status") or "ok")
         summary = _record_summary(record)
         result_metadata = dict(record.get("result_metadata") or {})
+        subagent_result = dict(result_metadata.get("subagent_result") or {})
         receipt = {
             "observation_ref": str(record.get("observation_ref") or ""),
             "tool_name": str(record.get("tool_name") or ""),
@@ -6668,6 +6763,7 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
             "path": _record_target_path(record),
             "summary": summary,
             "content_range": dict(result_metadata.get("content_range") or {}),
+            "subagent_result": subagent_result,
             "tool_guidance": str(result_metadata.get("tool_guidance") or ""),
             "event_offset": record.get("event_offset"),
             "created_at": record.get("created_at"),
@@ -6675,6 +6771,8 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         receipt = {key: value for key, value in receipt.items() if value not in ("", None, [], {})}
         last_action_receipts.append(receipt)
         if status == "ok":
+            if subagent_result and str(record.get("tool_name") or "") == "collect_subagent_result":
+                authoritative_subagent_results.append(receipt)
             if visibility == "active":
                 current_facts.append(receipt)
                 for ref in list(record.get("artifact_refs") or []):
@@ -6700,6 +6798,7 @@ def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str
         "repair_focus": repair_focus[-8:],
         "open_questions": [],
         "last_action_receipts": last_action_receipts[-12:],
+        "authoritative_subagent_results": authoritative_subagent_results[-4:],
         "authority": "harness.task_observation_projection",
     }
     exploration_advisory = _exploration_advisory_from_records(records)
@@ -6934,6 +7033,15 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
             "origin": "operation_gate",
         }
     for source in (tool_result, structured, envelope, payload):
+        structured_error = source.get("structured_error") if isinstance(source, dict) else None
+        if isinstance(structured_error, dict) and structured_error:
+            return _project_structured_error(
+                structured_error,
+                code=str(structured_error.get("code") or structured_error.get("error_code") or source.get("code") or "tool_error"),
+                message=str(structured_error.get("message") or structured_error.get("detail") or structured_error),
+                retryable=bool(structured_error.get("retryable", source.get("retryable", True))),
+                origin=str(structured_error.get("origin") or source.get("origin") or "tool_provider"),
+            )
         error = source.get("error") if isinstance(source, dict) else None
         if isinstance(error, dict):
             return _project_structured_error(
@@ -6998,6 +7106,14 @@ def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str,
 
 def _project_structured_error(source: dict[str, Any], **defaults: Any) -> dict[str, Any]:
     payload = dict(defaults)
+    for key in (
+        "repair_instruction",
+        "expected_ref_type",
+        "expected_prefix",
+        "received_ref_type",
+    ):
+        if str(source.get(key) or "").strip():
+            payload[key] = str(source.get(key) or "").strip()
     if isinstance(source.get("provider_retryable"), bool):
         payload["provider_retryable"] = source.get("provider_retryable")
     if isinstance(source.get("agent_auto_retry_allowed"), bool):

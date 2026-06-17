@@ -2656,6 +2656,15 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
             continue
         payload = dict(raw)
         payload_payload = dict(payload.get("payload") or {})
+        envelope = dict(payload_payload.get("result_envelope") or {})
+        structured = dict(payload_payload.get("structured_payload") or envelope.get("structured_payload") or {})
+        structured_error = (
+            dict(structured.get("structured_error") or {})
+            if isinstance(structured.get("structured_error"), dict)
+            else dict(payload_payload.get("structured_error") or {})
+            if isinstance(payload_payload.get("structured_error"), dict)
+            else {}
+        )
         observations.append(
             _drop_empty_payload(
                 {
@@ -2663,10 +2672,21 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
                     "observation_type": str(payload.get("observation_type") or ""),
                     "source": str(payload.get("source") or ""),
                     "status": str(payload.get("status") or ""),
-                    "error_code": str(payload.get("error_code") or payload_payload.get("error_code") or ""),
-                    "summary": str(payload.get("summary") or ""),
+                    "error_code": str(payload.get("error_code") or payload_payload.get("error_code") or structured_error.get("code") or ""),
+                    "summary": str(payload.get("summary") or payload_payload.get("error") or envelope.get("text") or ""),
                     "contract_errors": list(payload_payload.get("contract_errors") or []),
-                    "repair_instruction": str(payload_payload.get("repair_instruction") or ""),
+                    "repair_instruction": str(payload_payload.get("repair_instruction") or structured_error.get("repair_instruction") or ""),
+                    "structured_error": _drop_empty_payload(
+                        {
+                            "code": str(structured_error.get("code") or ""),
+                            "message": str(structured_error.get("message") or ""),
+                            "origin": str(structured_error.get("origin") or ""),
+                            "repair_instruction": str(structured_error.get("repair_instruction") or ""),
+                            "expected_ref_type": str(structured_error.get("expected_ref_type") or ""),
+                            "expected_prefix": str(structured_error.get("expected_prefix") or ""),
+                            "received_ref_type": str(structured_error.get("received_ref_type") or ""),
+                        }
+                    ),
                     "needs_model_followup": bool(payload.get("needs_model_followup") is True),
                     "authority": str(payload.get("authority") or ""),
                 }

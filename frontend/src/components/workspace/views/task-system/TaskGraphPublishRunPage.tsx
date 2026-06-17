@@ -18,6 +18,7 @@ import {
   type TaskGraphStandardView,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import { Notice } from "@/ui/Notice";
 import { TaskGraphContractPreviewPanel } from "./TaskGraphContractPreviewPanel";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
@@ -600,7 +601,7 @@ export function TaskGraphPublishRunPage({
           <span>Session <strong>{graphSessionId || "尚未创建"}</strong></span>
           <span>Scope <strong>{graphSessionScopeKey || "graph_task"}</strong></span>
         </div>
-        {graphSessionError ? <p className="boundary-notice boundary-notice--error">{graphSessionError}</p> : null}
+        {graphSessionError ? <Notice tone="error">{graphSessionError}</Notice> : null}
         {graphSessionMessages.length ? (
           <div className="task-graph-session-transcript" aria-label="图任务会话消息">
             {graphSessionMessages.map((message, index) => {
@@ -905,7 +906,7 @@ export function TaskGraphPublishRunPage({
         ) : (
           <div className="task-graph-note">
             <strong>尚未绑定常驻监控</strong>
-            <span>创建运行或输入 TaskRun ID 后点击绑定，浮窗会按 TaskRun 独立轮询，不再跟随聊天会话。</span>
+            <span>创建运行或输入 TaskRun ID 后点击绑定，浮窗会按 TaskRun 独立显示监控，不再跟随聊天会话。</span>
           </div>
         )}
         <div className={taskGraphAutoAdvanceEnabled ? "task-graph-auto-advance task-graph-auto-advance--enabled" : "task-graph-auto-advance"}>

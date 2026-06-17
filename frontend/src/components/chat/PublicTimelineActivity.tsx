@@ -1,36 +1,46 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import React from "react";
 
-import type { PublicChatTimelineItem } from "@/lib/api";
+import { StatusLine, toolRoundStatusLabel } from "./AssistantTrace";
+import { TodoPlan } from "./TodoPlan";
+import { ToolRound, ToolWindow } from "./ToolTrace";
+
+import type {
+  ProjectionRenderBlock,
+  StatusProjectionBlock,
+  TodoPlanProjectionBlock,
+  ToolProjectionBlock,
+} from "@/lib/projection/chronological";
 
 type PublicTimelineActivityProps = {
   ariaLabel?: string;
-  items?: PublicChatTimelineItem[] | null;
+  blocks?: ProjectionRenderBlock[] | null;
 };
 
-type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
+export type PublicTimelineActivityTone = "running" | "done" | "waiting" | "stopped" | "soft_error";
 
-type ActivityEntry = {
+export type ActivityEntry = {
   collapsed?: boolean;
   commandLine?: string;
   consoleLabel?: string;
   detail?: string;
   id: string;
-  kind: "status" | "tool_window";
-  meta: string[];
+  kind: "status_line" | "todo_plan" | "tool_window";
   outputText?: string;
   sections: Array<{ label: string; text: string }>;
+  statusKind?: string;
   state?: string;
   statusLabel?: string;
   statusTone?: PublicTimelineActivityTone;
   text: string;
+  todoItems?: TodoPlanProjectionBlock["items"];
+  activeItemId?: string;
+  completionReady?: boolean;
   toolRoundKey?: string;
 };
 
-type ActivityRenderUnit =
+export type ActivityRenderUnit =
   | { kind: "entry"; entry: ActivityEntry }
   | {
       kind: "tool_round";
@@ -42,8 +52,8 @@ type ActivityRenderUnit =
       statusTone: PublicTimelineActivityTone;
     };
 
-export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: PublicTimelineActivityProps) {
-  const view = publicTimelineActivityView(items);
+export function PublicTimelineActivity({ ariaLabel = "运行状态", blocks }: PublicTimelineActivityProps) {
+  const view = publicTimelineActivityView(blocks);
   if (!view.entries.length) {
     return null;
   }
@@ -61,21 +71,23 @@ export function PublicTimelineActivity({ ariaLabel = "系统提示", items }: Pu
           ? <ToolRound group={row} key={row.id} />
           : row.entry.kind === "tool_window"
             ? <ToolWindow entry={row.entry} key={row.entry.id} />
-            : <ActivityLine entry={row.entry} key={row.entry.id} />
+            : row.entry.kind === "todo_plan"
+              ? <TodoPlan entry={row.entry} key={row.entry.id} />
+              : <StatusLine entry={row.entry} key={row.entry.id} />
       ))}
     </div>
   );
 }
 
 export function publicTimelineHasDisplayableActivity(
-  items: PublicChatTimelineItem[] | null | undefined,
+  blocks: ProjectionRenderBlock[] | null | undefined,
 ) {
-  return publicTimelineActivityView(items).entries.length > 0;
+  return publicTimelineActivityView(blocks).entries.length > 0;
 }
 
-function publicTimelineActivityView(items: PublicChatTimelineItem[] | null | undefined) {
-  const entries = (items ?? [])
-    .map(activityEntryFromItem)
+function publicTimelineActivityView(blocks: ProjectionRenderBlock[] | null | undefined) {
+  const entries = (blocks ?? [])
+    .map(activityEntryFromBlock)
     .filter((entry): entry is ActivityEntry => Boolean(entry));
   return {
     entries,
@@ -147,7 +159,7 @@ function toolRoundPreview(entries: ActivityEntry[]) {
         .slice(0, 3)
         .join(" / ");
   if (!preview) {
-    return "系统工具执行轨迹";
+    return "工具运行记录";
   }
   return entries.length > 3 ? `${preview} 等` : preview;
 }
@@ -176,71 +188,92 @@ function toolPreviewPart(entry: ActivityEntry) {
   return { action: "", target: text };
 }
 
-function toolRoundStatusLabel(tone: PublicTimelineActivityTone) {
-  if (tone === "done") return "已完成";
-  if (tone === "soft_error") return "有失败";
-  if (tone === "stopped") return "已停止";
-  if (tone === "waiting") return "等待中";
-  return "运行中";
-}
-
-function activityEntryFromItem(item: PublicChatTimelineItem, index: number): ActivityEntry | null {
-  if (cleanText(item.tool_name).toLowerCase() === "agent_todo") {
+function activityEntryFromBlock(block: ProjectionRenderBlock, index: number): ActivityEntry | null {
+  if (block.kind === "body_segment" || block.kind === "log_entry") {
     return null;
   }
-  const kind = activityKindFromItem(item);
-  const text = kind === "tool_window"
-    ? toolWindowTitle(item)
-    : firstText(item.text, item.title, item.public_summary, item.subject_label, item.detail);
+  if (block.kind === "todo_plan") {
+    return todoEntryFromBlock(block, index);
+  }
+  if (block.kind === "status_event" || block.kind === "recovery_event" || block.kind === "terminal_event") {
+    return statusEntryFromBlock(block, index);
+  }
+  if (block.kind === "tool_event") {
+    return toolEntryFromBlock(block, index);
+  }
+  return null;
+}
+
+function toolEntryFromBlock(block: ToolProjectionBlock, index: number): ActivityEntry | null {
+  if (cleanText(block.toolName).toLowerCase() === "agent_todo") {
+    return null;
+  }
+  const text = toolWindowTitle(block);
   if (!text) {
     return null;
   }
-  let detail = firstDifferentText(text, item.detail, item.public_summary, item.observation, item.recovery_hint);
-  const toolWindow = item.tool_window;
-  const sections = Array.isArray(toolWindow?.sections)
-    ? toolWindow.sections
-        .map((section) => ({
-          label: cleanText(section?.label),
-          text: cleanText(section?.text),
-        }))
-        .filter((section) => section.label && section.text && !isInternalToolWindowSection(section.label))
-    : [];
-  if (kind === "tool_window" && sections.some((section) => compactText(section.text) === compactText(detail))) {
+  let detail = firstDifferentText(text, block.detail);
+  const sections = [
+    block.target ? { label: "目标", text: displayTargetLabel(block.target) } : null,
+    block.argumentsPreview ? { label: "参数", text: block.argumentsPreview } : null,
+    block.detail ? { label: "详情", text: block.detail } : null,
+  ].filter((section): section is { label: string; text: string } => Boolean(section?.label && section?.text && !isInternalToolWindowSection(section.label)));
+  if (sections.some((section) => compactText(section.text) === compactText(detail))) {
     detail = "";
   }
-  const commandLine = kind === "tool_window" ? toolWindowCommandLine(item, sections) : "";
-  const outputText = kind === "tool_window" ? toolWindowOutputText(item, sections, detail) : "";
-  const meta = kind === "tool_window" ? [] : [
-    displayToolLabel(toolWindow?.tool_label),
-    displayToolStatus(toolWindow?.status),
-    toolWindow?.target,
-  ].map(cleanText).filter(Boolean);
-  const stableId = cleanText(item.item_id) || cleanText(item.source_event_id) || `${kind}:${index}`;
+  const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `tool:${index}`;
   return {
-    collapsed: kind === "tool_window" && typeof item.collapsed === "boolean" ? item.collapsed : undefined,
-    commandLine,
-    consoleLabel: kind === "tool_window" ? toolWindowConsoleLabel(item) : undefined,
+    collapsed: typeof block.collapsed === "boolean" ? block.collapsed : undefined,
+    commandLine: toolWindowCommandLine(block, sections),
+    consoleLabel: toolWindowConsoleLabel(block),
     detail,
-    id: kind === "tool_window" ? `tool-window:${stableId}` : stableId,
-    kind,
-    meta,
-    outputText,
+    id: `tool-window:${stableId}`,
+    kind: "tool_window",
+    outputText: toolWindowOutputText(block, sections),
     sections,
-    state: cleanText(item.state).toLowerCase(),
-    statusLabel: kind === "tool_window" ? toolWindowStatusLabel(item) : undefined,
-    statusTone: kind === "tool_window" ? toolWindowStatusTone(item) : undefined,
+    state: cleanText(block.state).toLowerCase(),
+    statusLabel: toolWindowStatusLabel(block),
+    statusTone: toolWindowStatusTone(block),
     text,
-    toolRoundKey: kind === "tool_window" ? toolWindowRoundKey(item) : undefined,
+    toolRoundKey: toolWindowRoundKey(block),
   };
 }
 
-function activityKindFromItem(item: PublicChatTimelineItem): ActivityEntry["kind"] {
-  const kind = cleanText(item.kind).toLowerCase();
-  const slot = cleanText((item as { slot?: unknown }).slot).toLowerCase();
-  const surface = cleanText((item as { surface?: unknown }).surface).toLowerCase();
-  if (surface === "tool_window" || kind === "work_action") return "tool_window";
-  if (kind === "tool_activity" || slot === "tool" || cleanText(item.tool_call_id) || cleanText(item.tool_lifecycle_id)) return "tool_window";
-  return "status";
+function todoEntryFromBlock(block: TodoPlanProjectionBlock, index: number): ActivityEntry | null {
+  const todoItems = (block.items ?? []).filter((todo) => cleanText(todo.content));
+  if (!todoItems.length) {
+    return null;
+  }
+  const stableId = cleanText(block.id) || cleanText(block.planId) || cleanText(block.sourceEventId) || `todo:${index}`;
+  return {
+    detail: firstDifferentText("任务清单", block.detail),
+    id: `todo-plan:${stableId}`,
+    kind: "todo_plan",
+    sections: [],
+    state: cleanText(block.state).toLowerCase(),
+    text: firstText(block.title) || "任务清单",
+    todoItems,
+    activeItemId: cleanText(block.activeItemId),
+    completionReady: block.completionReady,
+  };
+}
+
+function statusEntryFromBlock(block: StatusProjectionBlock, index: number): ActivityEntry | null {
+  const title = firstText(block.title) || statusKindLabel(block.kind);
+  const detail = firstDifferentText(title, block.detail);
+  const stableId = cleanText(block.id) || cleanText(block.sourceEventId) || `status:${index}`;
+  const statusTone = statusBlockTone(block);
+  return {
+    detail,
+    id: `status-line:${stableId}`,
+    kind: "status_line",
+    sections: [],
+    state: cleanText(block.state).toLowerCase(),
+    statusKind: block.kind,
+    statusLabel: statusBlockLabel(block, statusTone),
+    statusTone,
+    text: title,
+  };
 }
 
 function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTone {
@@ -250,6 +283,37 @@ function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTon
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
+}
+
+function statusKindLabel(kind: StatusProjectionBlock["kind"]) {
+  if (kind === "recovery_event") return "需要处理";
+  if (kind === "terminal_event") return "运行已结束";
+  return "状态更新";
+}
+
+function statusBlockTone(block: StatusProjectionBlock): PublicTimelineActivityTone {
+  if (block.kind === "recovery_event") return "soft_error";
+  if (block.kind === "terminal_event") {
+    const state = cleanText(block.state).toLowerCase();
+    if (["failed", "error", "blocked"].includes(state)) return "soft_error";
+    if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+    if (["completed", "complete", "done", "success"].includes(state)) return "done";
+    return "stopped";
+  }
+  const state = cleanText(block.state).toLowerCase();
+  if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
+  if (["failed", "error", "blocked"].includes(state)) return "soft_error";
+  if (["completed", "complete", "done", "success", "accepted"].includes(state)) return "done";
+  return "running";
+}
+
+function statusBlockLabel(block: StatusProjectionBlock, tone: PublicTimelineActivityTone) {
+  if (block.kind === "recovery_event") return "需处理";
+  if (block.kind === "terminal_event") return toolRoundStatusLabel(tone);
+  if (tone === "done") return "已接收";
+  if (tone === "waiting") return "等待中";
+  if (tone === "soft_error") return "异常";
+  return "处理中";
 }
 
 function firstText(...values: unknown[]) {
@@ -269,14 +333,14 @@ function firstDifferentText(summary: string, ...values: unknown[]) {
   return "";
 }
 
-function toolWindowTitle(item: PublicChatTimelineItem) {
-  const action = toolInvocationName(item);
-  const target = toolInvocationTarget(item);
+function toolWindowTitle(block: ToolProjectionBlock) {
+  const action = toolInvocationName(block);
+  const target = toolInvocationTarget(block);
   return [action, target].filter(Boolean).join(" ");
 }
 
-function toolInvocationName(item: PublicChatTimelineItem) {
-  const rawTool = cleanText(item.tool_name || item.action_kind || item.tool_window?.tool_label);
+function toolInvocationName(block: ToolProjectionBlock) {
+  const rawTool = cleanText(block.toolName || block.actionKind);
   const normalized = rawTool.toLowerCase();
   if (!rawTool) return "tool";
   if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(normalized)) {
@@ -300,12 +364,12 @@ function toolInvocationName(item: PublicChatTimelineItem) {
   return labels[normalized] || rawTool;
 }
 
-function toolInvocationTarget(item: PublicChatTimelineItem) {
-  return displayTargetLabel(item.tool_window?.target || item.target || item.subject_label);
+function toolInvocationTarget(block: ToolProjectionBlock) {
+  return displayTargetLabel(block.target);
 }
 
-function toolWindowStatusTone(item: PublicChatTimelineItem): PublicTimelineActivityTone {
-  const state = cleanText(item.state).toLowerCase();
+function toolWindowStatusTone(block: ToolProjectionBlock): PublicTimelineActivityTone {
+  const state = cleanText(block.state).toLowerCase();
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
   if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
@@ -313,8 +377,8 @@ function toolWindowStatusTone(item: PublicChatTimelineItem): PublicTimelineActiv
   return "running";
 }
 
-function toolWindowStatusLabel(item: PublicChatTimelineItem) {
-  const tone = toolWindowStatusTone(item);
+function toolWindowStatusLabel(block: ToolProjectionBlock) {
+  const tone = toolWindowStatusTone(block);
   if (tone === "done") return "完成";
   if (tone === "soft_error") return "失败";
   if (tone === "stopped") return "停止";
@@ -322,10 +386,10 @@ function toolWindowStatusLabel(item: PublicChatTimelineItem) {
   return "运行中";
 }
 
-function toolWindowRoundKey(item: PublicChatTimelineItem) {
-  const sourceItemId = cleanText(item.source_item_id);
+function toolWindowRoundKey(block: ToolProjectionBlock) {
+  const sourceItemId = cleanText(block.sourceItemId);
   if (!sourceItemId) return "";
-  if (sourceItemId === cleanText(item.tool_call_id) || sourceItemId === cleanText(item.tool_lifecycle_id)) return "";
+  if (sourceItemId === cleanText(block.toolCallId) || sourceItemId === cleanText(block.toolLifecycleId)) return "";
   const parts = sourceItemId.split(":").map((part) => cleanText(part)).filter(Boolean);
   const markerIndex = parts.indexOf("single-agent-tool");
   if (markerIndex < 0) return "";
@@ -335,8 +399,8 @@ function toolWindowRoundKey(item: PublicChatTimelineItem) {
   return parts.slice(0, markerIndex + 2).join(":");
 }
 
-function toolWindowConsoleLabel(item: PublicChatTimelineItem) {
-  const tool = cleanText(item.tool_name).toLowerCase();
+function toolWindowConsoleLabel(block: ToolProjectionBlock) {
+  const tool = cleanText(block.toolName).toLowerCase();
   if (["terminal", "shell", "cmd", "command", "powershell", "bash"].includes(tool)) {
     return "命令行";
   }
@@ -362,29 +426,28 @@ function isInternalToolWindowSection(label: string) {
   return ["时序", "调用", "调用号", "offset", "event", "source"].includes(cleanText(label).toLowerCase());
 }
 
-function toolWindowCommandLine(item: PublicChatTimelineItem, sections: Array<{ label: string; text: string }>) {
-  const explicit = cleanText(item.tool_window?.command_line);
+function toolWindowCommandLine(block: ToolProjectionBlock, sections: Array<{ label: string; text: string }>) {
+  const explicit = cleanText(block.commandLine);
   if (explicit) return explicit;
-  const rawTool = cleanText(item.tool_name || item.action_kind || item.tool_window?.tool_label || "tool");
-  const target = firstSectionText(sections, "目标") || displayTargetLabel(item.target || item.subject_label || item.tool_window?.target);
-  const params = firstSectionText(sections, "参数") || cleanText(item.arguments_preview);
+  const rawTool = cleanText(block.toolName || block.actionKind || "tool");
+  const target = firstSectionText(sections, "目标") || displayTargetLabel(block.target);
+  const params = firstSectionText(sections, "参数") || cleanText(block.argumentsPreview);
   return [rawTool, target ? quoteCommandPart(target) : "", params && !sameCompactText(params, target) ? params : ""]
     .filter(Boolean)
     .join(" ");
 }
 
 function toolWindowOutputText(
-  item: PublicChatTimelineItem,
+  block: ToolProjectionBlock,
   sections: Array<{ label: string; text: string }>,
-  detail: string,
 ) {
-  const explicit = displayText(item.tool_window?.output);
+  const explicit = displayText(block.output);
   if (explicit) return explicit;
   const observation = firstSectionText(sections, "观察")
     || firstSectionText(sections, "错误")
     || firstSectionText(sections, "详情");
   if (observation) return observation;
-  return displayText(item.observation || item.recovery_hint);
+  return displayText(block.detail);
 }
 
 function firstSectionText(sections: Array<{ label: string; text: string }>, label: string) {
@@ -422,160 +485,4 @@ function publicTimelineText(value: string) {
     .replace(/\buser_input_required\b/g, "等待你的确认")
     .replace(/\bbackground_executor_missing_after_restart\b/g, "连接恢复后需要重新接续运行")
     .replace(/\bwaiting_executor\b/g, "等待继续");
-}
-
-function displayToolLabel(value: unknown) {
-  const normalized = cleanText(value).toLowerCase();
-  const labels: Record<string, string> = {
-    glob_paths: "匹配路径",
-    list_dir: "列出目录",
-    path_exists: "检查路径",
-    read_file: "读取文件",
-    read_files: "读取文件",
-    read_path: "读取文件",
-    search_files: "搜索文件",
-    search_text: "搜索文本",
-    stat_path: "检查路径",
-    write_file: "写入文件",
-    edit_file: "更新文件",
-    batch_edit_file: "批量编辑文件",
-    apply_patch: "更新文件",
-  };
-  return labels[normalized] || cleanText(value);
-}
-
-function displayToolStatus(value: unknown) {
-  const normalized = cleanText(value).toLowerCase();
-  const labels: Record<string, string> = {
-    running: "运行中",
-    waiting: "等待中",
-    waiting_executor: "等待中",
-    waiting_user: "等待中",
-    waiting_approval: "等待权限",
-    queued: "排队中",
-    done: "已完成",
-    complete: "已完成",
-    completed: "已完成",
-    success: "已完成",
-    passed: "已完成",
-    failed: "失败",
-    error: "失败",
-    blocked: "受阻",
-    missing: "缺失",
-    stopped: "已停止",
-    aborted: "已停止",
-    cancelled: "已停止",
-    canceled: "已停止",
-  };
-  return labels[normalized] || cleanText(value);
-}
-
-function ActivityLine({ entry }: { entry: ActivityEntry }) {
-  return (
-    <div
-      className={`public-run-activity__line public-run-activity__line--${entry.kind}`}
-      data-activity-id={entry.id}
-      data-activity-kind={entry.kind}
-    >
-      <p>
-        <span>{entry.text}</span>
-      </p>
-      {entry.meta.length ? (
-        <div className="public-run-activity__line-meta">
-          {entry.meta.map((item) => <span key={item}>{item}</span>)}
-        </div>
-      ) : null}
-      {entry.detail ? (
-        <div className="public-run-activity__line-detail markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {entry.detail}
-          </ReactMarkdown>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind: "tool_round" }> }) {
-  const defaultOpen = false;
-  const [open, setOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    setOpen(defaultOpen);
-  }, [group.id, defaultOpen]);
-
-  return (
-    <details
-      className={`public-run-activity__tool-round public-run-activity__tool-round--${group.statusTone}`}
-      data-tool-count={group.count}
-      data-status-tone={group.statusTone}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      open={open}
-    >
-      <summary>
-        <span className="public-run-activity__tool-round-icon" aria-hidden="true" />
-        <span className="public-run-activity__tool-round-copy">
-          <span className="public-run-activity__tool-round-title">工具调用</span>
-          <span className="public-run-activity__tool-round-separator" aria-hidden="true">·</span>
-          <span className="public-run-activity__tool-round-preview">{group.preview}</span>
-        </span>
-        <span className="public-run-activity__tool-round-count">{group.count} 个工具</span>
-        <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${group.statusTone}`}>
-          {group.statusLabel}
-        </span>
-      </summary>
-      <div className="public-run-activity__tool-round-body">
-        {group.entries.map((entry) => (
-          <ToolWindow entry={entry} key={entry.id} nested />
-        ))}
-      </div>
-    </details>
-  );
-}
-
-function ToolWindow({ entry, nested = false }: { entry: ActivityEntry; nested?: boolean }) {
-  const defaultOpen = false;
-  const [open, setOpen] = useState(defaultOpen);
-  const statusTone = entry.statusTone ?? "running";
-  const outputText = entry.outputText
-    || (statusTone === "running" || statusTone === "waiting" ? "等待系统返回" : "无输出");
-
-  useEffect(() => {
-    setOpen(defaultOpen);
-  }, [entry.id, defaultOpen]);
-
-  return (
-    <details
-      className={`public-run-activity__tool-window public-run-activity__tool-window--${statusTone}${nested ? " public-run-activity__tool-window--nested" : ""}`}
-      data-activity-id={entry.id}
-      data-activity-kind={entry.kind}
-      data-status-tone={statusTone}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      open={open}
-    >
-      <summary>
-        <span className="public-run-activity__tool-window-icon" aria-hidden="true" />
-        <span className="public-run-activity__tool-window-title">{entry.text}</span>
-        <span className={`public-run-activity__tool-window-status public-run-activity__tool-window-status--${statusTone}`}>
-          {entry.statusLabel}
-        </span>
-      </summary>
-      <div className="public-run-activity__tool-window-body">
-        <div className="public-run-activity__tool-console" role="group" aria-label="工具调用窗口">
-          <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--command">
-            <div className="public-run-activity__tool-console-label">{entry.consoleLabel || "命令行"}</div>
-            <pre className="public-run-activity__tool-console-command">
-              <code>{entry.commandLine ? `$ ${entry.commandLine}` : "$ tool"}</code>
-            </pre>
-          </div>
-          <div className="public-run-activity__tool-console-row public-run-activity__tool-console-row--output">
-            <div className="public-run-activity__tool-console-label">系统返回</div>
-            <pre className="public-run-activity__tool-console-output">
-              <code>{outputText}</code>
-            </pre>
-          </div>
-        </div>
-      </div>
-    </details>
-  );
 }

@@ -229,7 +229,7 @@ export function WritingChapterDesk({
           <input onChange={(event) => setFileSearch(event.target.value)} placeholder="搜索章节或文件" value={fileSearch} />
         </label>
         <div className="graph-foreground-chapter-list">
-          {visibleChapterFiles.slice(0, 120).map((file) => (
+          {visibleChapterFiles.map((file) => (
             <button
               className={selectedFilePath === file.path ? "graph-foreground-chapter-row graph-foreground-chapter-row--active" : "graph-foreground-chapter-row"}
               key={file.path}

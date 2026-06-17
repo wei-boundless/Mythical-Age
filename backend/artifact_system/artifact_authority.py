@@ -257,7 +257,7 @@ def artifact_materialization_ref(ref: Any) -> str:
 
 def _artifact_ref_from_repository_record(record: dict[str, Any]) -> dict[str, Any]:
     artifact_ref = str(record.get("artifact_ref") or "").strip()
-    path = str(record.get("path") or artifact_ref.removeprefix("artifact:")).strip()
+    path = str(record.get("logical_path") or record.get("path") or artifact_ref.removeprefix("artifact:")).strip()
     return {
         "path": path,
         "artifact_ref": artifact_ref,
@@ -266,6 +266,13 @@ def _artifact_ref_from_repository_record(record: dict[str, Any]) -> dict[str, An
         "collection_id": str(record.get("collection_id") or ""),
         "repository_status": str(record.get("status") or ""),
         "content_hash": str(record.get("content_hash") or ""),
+        "namespace_id": str(record.get("namespace_id") or ""),
+        "storage_owner": str(record.get("storage_owner") or ""),
+        "physical_path": str(record.get("physical_path") or ""),
+        "durability_class": str(record.get("durability_class") or ""),
+        "retention_tier": str(record.get("retention_tier") or ""),
+        "materialization_receipt_id": str(record.get("materialization_receipt_id") or ""),
+        "protected_reason": str(record.get("protected_reason") or ""),
         "source": "artifact_repository",
     }
 

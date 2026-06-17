@@ -14,6 +14,8 @@ from .signals import build_runtime_monitor_envelope
 from .lifecycle import TERMINAL_TASK_RUN_STATUSES
 from ..task_run_retention import TaskRunLifecycleRetention
 
+SESSION_MONITOR_TASK_RUN_CANDIDATE_LIMIT = 240
+
 
 class RuntimeMonitorService:
     def __init__(
@@ -215,14 +217,16 @@ class RuntimeMonitorService:
         return recent
 
     def get_session_live_monitor(self, session_id: str, *, limit: int = 20) -> dict[str, Any]:
+        requested_limit = max(1, min(int(limit or 20), 100))
+        candidate_limit = min(SESSION_MONITOR_TASK_RUN_CANDIDATE_LIMIT, max(requested_limit * 4, 40))
         self._sweep_expired_task_runs(now=time.time(), limit=240)
         task_runs = sorted(
-            self._session_task_run_summaries(session_id),
+            self._session_task_run_summaries(session_id, limit=candidate_limit),
             key=lambda item: item.updated_at,
             reverse=True,
         )
         now = time.time()
-        monitor = self.projector.build_session_monitor(session_id, task_runs, now=now, limit=limit)
+        monitor = self.projector.build_session_monitor(session_id, task_runs, now=now, limit=requested_limit)
         active_turn_snapshot = None
         active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
         if active_turn_registry is not None:
@@ -454,5 +458,5 @@ class RuntimeMonitorService:
     def _recent_task_run_summaries(self, *, limit: int) -> list[Any]:
         return list(self.runtime_host.state_index.list_recent_task_run_summaries(limit=limit) or [])
 
-    def _session_task_run_summaries(self, session_id: str) -> list[Any]:
-        return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id) or [])
+    def _session_task_run_summaries(self, session_id: str, *, limit: int | None = None) -> list[Any]:
+        return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id, limit=limit) or [])

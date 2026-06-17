@@ -11,6 +11,7 @@ import {
   type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import type { OrchestrationCapabilityItem, ToolPackageDefinition, ToolPackageSelection } from "@/lib/api";
+import { Notice } from "@/ui/Notice";
 
 type RuntimeDraftLike = {
   agent_profile_id?: string;
@@ -752,8 +753,8 @@ export function OrchestrationOperationAuthorizationWorkbench({
           <span>阻断 <b>{blockedOpsCount}</b></span>
           <span>冲突 <b>{overlapSummary}</b></span>
         </div>
-        {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</div> : null}
-        {!capabilityRows.length ? <div className="boundary-notice"><Info size={16} />能力目录尚未就绪，当前没有可展示的授权能力项。</div> : null}
+        {overlapOps.length ? <Notice icon={<AlertTriangle size={16} />} tone="error">{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</Notice> : null}
+        {!capabilityRows.length ? <Notice icon={<Info size={16} />}>能力目录尚未就绪，当前没有可展示的授权能力项。</Notice> : null}
         <section className="orchestration-tool-package-manager" aria-label="工具包与包内工具授权">
           <div className="orchestration-tool-package-manager__head">
             <div>
@@ -1444,14 +1445,16 @@ export function OrchestrationRuntimeConfigWorkbench({
           <p><span>模板约束</span><strong>{templateIssue || "通过"}</strong></p>
           <p><span>预算</span><strong>{runtimeConfig.max_iterations} 迭代 / {runtimeConfig.max_tool_calls} 工具调用 / {runtimeConfig.max_sources} 来源</strong></p>
         </div>
-        <div className={missingOps.length || blockedRequiredOps.length || templateIssue ? "boundary-notice boundary-notice--error" : "boundary-notice"}>
-          {missingOps.length || blockedRequiredOps.length || templateIssue ? <AlertTriangle size={16} /> : <Info size={16} />}
+        <Notice
+          icon={missingOps.length || blockedRequiredOps.length || templateIssue ? <AlertTriangle size={16} /> : <Info size={16} />}
+          tone={missingOps.length || blockedRequiredOps.length || templateIssue ? "error" : "neutral"}
+        >
           {templateIssue
             ? "当前 runtime_config 与模板约束不一致，请重新选择运行模板或执行策略。"
             : missingOps.length || blockedRequiredOps.length
             ? "当前配置可以保存，但权限未齐备。请应用模板权限预设后保存运行档案。"
             : "配置必须点击保存运行档案后才会生效；运行时读取 metadata.runtime_config 装配。"}
-        </div>
+        </Notice>
         <div className="boundary-actions">
           <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
             <Save size={14} />{saving === "runtime" ? "保存中" : "保存运行档案"}
@@ -1659,8 +1662,8 @@ export function OrchestrationDiagnosticsWorkbench({
           <OrchestrationReadinessCard label="能力目录" ready={capabilityItemsCount > 0} value={capabilityItemsCount > 0 ? `${capabilityItemsCount} 项` : "未加载"} />
           <OrchestrationReadinessCard label="模型档案" ready={!modelHasRawSecret} value={modelHasRawSecret ? "包含敏感字段" : modelMode} />
         </div>
-        {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />允许和阻断操作冲突：{overlapOps.join(" / ")}</div> : null}
-        {modelHasRawSecret ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />模型档案不能保存 API Key 或 secret；请使用 credential_ref。</div> : null}
+        {overlapOps.length ? <Notice icon={<AlertTriangle size={16} />} tone="error">允许和阻断操作冲突：{overlapOps.join(" / ")}</Notice> : null}
+        {modelHasRawSecret ? <Notice icon={<AlertTriangle size={16} />} tone="error">模型档案不能保存 API Key 或 secret；请使用 credential_ref。</Notice> : null}
       </div>
     </section>
   );

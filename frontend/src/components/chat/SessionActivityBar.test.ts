@@ -45,7 +45,7 @@ describe("SessionActivityBar", () => {
       }),
     );
 
-    expect(html).toContain("会话连接需要处理");
+    expect(html).toContain("会话连接中断");
     expect(html).toContain("无法创建会话");
     expect(html).not.toContain("会话连接失败");
   });

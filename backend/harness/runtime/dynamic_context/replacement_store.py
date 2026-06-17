@@ -21,6 +21,8 @@ class ReplacementRecord:
     projection: dict[str, Any]
     task_run_id: str = ""
     rehydration_plan: dict[str, Any] = field(default_factory=dict)
+    budget_decision: dict[str, Any] = field(default_factory=dict)
+    store_status: str = "created"
     authority: str = "harness.runtime.dynamic_context.replacement_record"
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +36,8 @@ class ReplacementRecord:
             "projection": dict(self.projection),
             "task_run_id": self.task_run_id,
             "rehydration_plan": dict(self.rehydration_plan),
+            "budget_decision": dict(self.budget_decision),
+            "store_status": self.store_status,
             "authority": self.authority,
         }
 
@@ -62,17 +66,71 @@ class ReplacementStore:
         return "replacement:" + stable_json_hash(seed).removeprefix("sha256:")[:24]
 
     def get(self, replacement_key: str) -> dict[str, Any] | None:
+        payload = self.get_record(replacement_key)
+        if not payload:
+            return None
+        projection = payload.get("projection")
+        return dict(projection) if isinstance(projection, dict) else None
+
+    def get_record(self, replacement_key: str) -> dict[str, Any] | None:
         path = self._path_for_key(replacement_key)
         if not path.exists():
             return None
         try:
-            import json
-
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return None
-        projection = payload.get("projection")
-        return dict(projection) if isinstance(projection, dict) else None
+        return dict(payload) if isinstance(payload, dict) else None
+
+    def get_frozen(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        task_run_id: str = "",
+        content: Any,
+        projection_policy: dict[str, Any],
+        projector_version: str,
+    ) -> tuple[dict[str, Any], ReplacementRecord] | None:
+        identity = self._identity(
+            source_kind=source_kind,
+            source_id=source_id,
+            task_run_id=task_run_id,
+            content=content,
+            projection_policy=projection_policy,
+            projector_version=projector_version,
+        )
+        payload = self.get_record(identity["replacement_key"])
+        if not payload:
+            return None
+        selected_projection = _strip_internal_replacement_refs(json_clone(dict(payload.get("projection") or {})))
+        if not selected_projection or not _projection_external_refs_available(selected_projection):
+            return None
+        rehydration_plan = _rehydration_plan_from_projection(selected_projection)
+        if rehydration_plan:
+            rehydration_plan.pop("replacement_ref", None)
+            rehydration_plan.setdefault("content_hash", identity["content_hash"])
+            selected_projection["rehydration_plan"] = rehydration_plan
+        record = ReplacementRecord(
+            replacement_key=identity["replacement_key"],
+            source_kind=str(source_kind or ""),
+            source_id=identity["scoped_source_id"],
+            content_hash=identity["content_hash"],
+            projection_policy_hash=identity["projection_policy_hash"],
+            projector_version=str(projector_version or ""),
+            projection=selected_projection,
+            task_run_id=identity["task_run_id"],
+            rehydration_plan=rehydration_plan,
+            budget_decision=_budget_decision_from_payload(
+                payload.get("budget_decision"),
+                content_hash=identity["content_hash"],
+                projection_policy_hash=identity["projection_policy_hash"],
+                store_status="reused",
+                include_default=True,
+            ),
+            store_status="reused",
+        )
+        return selected_projection, record
 
     def get_or_put(
         self,
@@ -84,7 +142,63 @@ class ReplacementStore:
         projection_policy: dict[str, Any],
         projector_version: str,
         projection: dict[str, Any],
+        budget_decision: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ReplacementRecord]:
+        identity = self._identity(
+            source_kind=source_kind,
+            source_id=source_id,
+            task_run_id=task_run_id,
+            content=content,
+            projection_policy=projection_policy,
+            projector_version=projector_version,
+        )
+        replacement_key = identity["replacement_key"]
+        existing_payload = self.get_record(replacement_key)
+        existing_projection = dict(existing_payload.get("projection") or {}) if existing_payload else {}
+        if existing_projection and not _projection_external_refs_available(existing_projection):
+            existing_payload = None
+            existing_projection = {}
+        selected_projection = _strip_internal_replacement_refs(json_clone(existing_projection or projection))
+        rehydration_plan = _rehydration_plan_from_projection(selected_projection)
+        if rehydration_plan:
+            rehydration_plan.pop("replacement_ref", None)
+            rehydration_plan.setdefault("content_hash", identity["content_hash"])
+            selected_projection["rehydration_plan"] = rehydration_plan
+        store_status = "reused" if existing_payload is not None else "created"
+        record = ReplacementRecord(
+            replacement_key=replacement_key,
+            source_kind=str(source_kind or ""),
+            source_id=identity["scoped_source_id"],
+            content_hash=identity["content_hash"],
+            projection_policy_hash=identity["projection_policy_hash"],
+            projector_version=str(projector_version or ""),
+            projection=selected_projection,
+            task_run_id=identity["task_run_id"],
+            rehydration_plan=rehydration_plan,
+            budget_decision=_budget_decision_from_payload(
+                existing_payload.get("budget_decision") if existing_payload else budget_decision,
+                content_hash=identity["content_hash"],
+                projection_policy_hash=identity["projection_policy_hash"],
+                store_status=store_status,
+                include_default=bool(budget_decision) or bool(existing_payload and existing_payload.get("budget_decision")),
+            ),
+            store_status=store_status,
+        )
+        if existing_payload is not None:
+            return selected_projection, record
+        self._write(record)
+        return selected_projection, record
+
+    def _identity(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        task_run_id: str,
+        content: Any,
+        projection_policy: dict[str, Any],
+        projector_version: str,
+    ) -> dict[str, str]:
         normalized_task_run_id = str(task_run_id or "").strip()
         normalized_source_id = str(source_id or "")
         scoped_source_id = (
@@ -101,28 +215,13 @@ class ReplacementStore:
             projection_policy_hash=projection_policy_hash,
             projector_version=projector_version,
         )
-        existing = self.get(replacement_key)
-        selected_projection = _strip_internal_replacement_refs(json_clone(existing or projection))
-        rehydration_plan = _rehydration_plan_from_projection(selected_projection)
-        if rehydration_plan:
-            rehydration_plan.pop("replacement_ref", None)
-            rehydration_plan.setdefault("content_hash", content_hash)
-            selected_projection["rehydration_plan"] = rehydration_plan
-        record = ReplacementRecord(
-            replacement_key=replacement_key,
-            source_kind=str(source_kind or ""),
-            source_id=scoped_source_id,
-            content_hash=content_hash,
-            projection_policy_hash=projection_policy_hash,
-            projector_version=str(projector_version or ""),
-            projection=selected_projection,
-            task_run_id=normalized_task_run_id,
-            rehydration_plan=rehydration_plan,
-        )
-        if existing is not None:
-            return selected_projection, record
-        self._write(record)
-        return selected_projection, record
+        return {
+            "task_run_id": normalized_task_run_id,
+            "scoped_source_id": scoped_source_id,
+            "content_hash": content_hash,
+            "projection_policy_hash": projection_policy_hash,
+            "replacement_key": replacement_key,
+        }
 
     def _write(self, record: ReplacementRecord) -> None:
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -233,6 +332,10 @@ class MemoryReplacementStore(ReplacementStore):
         projection = dict(value.get("projection") or {}) if isinstance(value, dict) else {}
         return json_clone(projection) if projection else None
 
+    def get_record(self, replacement_key: str) -> dict[str, Any] | None:
+        value = self._records.get(str(replacement_key or ""))
+        return json_clone(dict(value)) if isinstance(value, dict) else None
+
     def _write(self, record: ReplacementRecord) -> None:
         self._records[record.replacement_key] = record.to_dict()
 
@@ -255,6 +358,49 @@ class MemoryReplacementStore(ReplacementStore):
 def _rehydration_plan_from_projection(projection: dict[str, Any]) -> dict[str, Any]:
     value = projection.get("rehydration_plan")
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _budget_decision_from_payload(
+    value: Any,
+    *,
+    content_hash: str,
+    projection_policy_hash: str,
+    store_status: str,
+    include_default: bool = False,
+) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload and not include_default:
+        return {}
+    payload.setdefault("frozen", True)
+    payload.setdefault("model_visible", False)
+    payload.setdefault("content_hash", str(content_hash or ""))
+    payload.setdefault("projection_policy_hash", str(projection_policy_hash or ""))
+    payload["store_status"] = str(store_status or "")
+    payload.setdefault("authority", "harness.runtime.dynamic_context.tool_result_budget_decision")
+    return payload
+
+
+def _projection_external_refs_available(projection: dict[str, Any]) -> bool:
+    for ref in _projection_content_replacement_refs(projection):
+        path = str(ref.get("path") or "").strip()
+        if path and not Path(path).exists():
+            return False
+    return True
+
+
+def _projection_content_replacement_refs(projection: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    refs.extend(dict(item) for item in list(projection.get("content_replacements") or []) if isinstance(item, dict))
+    plan = dict(projection.get("rehydration_plan") or {})
+    for capability in list(plan.get("capabilities") or []):
+        if not isinstance(capability, dict):
+            continue
+        refs.extend(
+            dict(item)
+            for item in list(capability.get("content_replacements") or [])
+            if isinstance(item, dict)
+        )
+    return refs
 
 
 def _strip_internal_replacement_refs(value: Any) -> Any:

@@ -5,6 +5,8 @@ from typing import Any
 
 from .artifact_repository_models import ArtifactRecord, ArtifactRepository
 from .artifact_repository_store import ArtifactRepositoryStore, build_artifact_id, content_hash, file_content_hash
+from .materialization_receipts import ArtifactMaterializationReceipt, build_materialization_receipt_id
+from .namespace_policy import resolve_artifact_namespace
 
 
 class ArtifactRepositoryService:
@@ -70,11 +72,24 @@ class ArtifactRepositoryService:
             task_run_id=task_run_id,
             lifecycle_policy=dict(lifecycle_policy or {}),
         )
+        namespace = resolve_artifact_namespace(
+            logical_repository_id=repository_id,
+            task_run_id=task_run_id,
+            graph_id=graph_id,
+            graph_run_id=graph_run_id,
+            artifact_root=artifact_root,
+            lifecycle_policy=dict(lifecycle_policy or {}),
+            metadata=dict(metadata or {}),
+        )
         self.store.upsert_repository(
             ArtifactRepository(
                 repository_id=scope["effective_repository_id"],
                 logical_repository_id=repository_id,
                 effective_repository_id=scope["effective_repository_id"],
+                namespace_id=namespace.namespace_id,
+                storage_owner=namespace.storage_owner,
+                durability_class=namespace.durability_class,
+                retention_tier=namespace.retention_tier,
                 task_run_id=scope["task_run_id"],
                 scope_kind=scope["scope_kind"],
                 scope_id=scope["scope_id"],
@@ -87,6 +102,13 @@ class ArtifactRepositoryService:
         refs = [str(item).strip() for item in list(artifact_refs or []) if str(item).strip()]
         files = [str(item).strip() for item in list(created_files or []) if str(item).strip()]
         materialization_ref = str(materialization_id or node_run_id or f"{task_run_id}:{stage_id}").strip()
+        receipt_id = build_materialization_receipt_id(
+            scope["effective_repository_id"],
+            collection_id,
+            output_contract_id,
+            materialization_ref,
+            "|".join(refs),
+        )
         records: list[ArtifactRecord] = []
         for index, artifact_ref in enumerate(refs):
             path = artifact_ref.removeprefix("artifact:")
@@ -96,6 +118,7 @@ class ArtifactRepositoryService:
                 artifact_root=artifact_root,
             )
             created_file = files[index] if index < len(files) else (artifact_path.name if artifact_path else path)
+            physical_path = self._workspace_relative_path(artifact_path)
             record = ArtifactRecord(
                 artifact_id=build_artifact_id(
                     scope["effective_repository_id"],
@@ -108,6 +131,14 @@ class ArtifactRepositoryService:
                 path=path,
                 repository_id=scope["effective_repository_id"],
                 collection_id=collection_id,
+                namespace_id=namespace.namespace_id,
+                storage_owner=namespace.storage_owner,
+                physical_path=physical_path,
+                logical_path=path,
+                durability_class=namespace.durability_class,
+                retention_tier=namespace.retention_tier,
+                materialization_receipt_id=receipt_id,
+                protected_reason=namespace.protected_reason,
                 output_contract_id=output_contract_id,
                 artifact_kind=artifact_kind or "file",
                 producer_node_id=producer_node_id,
@@ -133,14 +164,38 @@ class ArtifactRepositoryService:
                 },
             )
             records.append(self.store.upsert_artifact(record))
+        receipt = self.store.upsert_materialization_receipt(
+            ArtifactMaterializationReceipt(
+                receipt_id=receipt_id,
+                source_kind=str(dict(metadata or {}).get("source_kind") or dict(metadata or {}).get("source_authority") or "artifact_repository_service"),
+                source_ref=materialization_ref,
+                target_namespace_id=namespace.namespace_id,
+                artifact_ids=tuple(record.artifact_id for record in records),
+                content_hashes={record.artifact_id: record.content_hash for record in records if record.content_hash},
+                producer_task_run_id=task_run_id,
+                producer_graph_run_id=graph_run_id,
+                producer_node_id=producer_node_id,
+                output_contract_id=output_contract_id,
+                status=status,
+                metadata={
+                    **dict(metadata or {}),
+                    "logical_repository_id": repository_id,
+                    "effective_repository_id": scope["effective_repository_id"],
+                    "collection_id": collection_id,
+                    "artifact_root": artifact_root,
+                },
+            )
+        )
         return {
             "task_run_id": task_run_id,
             "repository_id": repository_id,
             "effective_repository_id": scope["effective_repository_id"],
+            "namespace": namespace.to_dict(),
             "collection_id": collection_id,
             "output_contract_id": output_contract_id,
             "producer_node_id": producer_node_id,
             "materialization_id": materialization_ref,
+            "materialization_receipt": receipt.to_dict(),
             "artifact_count": len(records),
             "artifacts": [item.to_dict() for item in records],
             "authority": "artifact_repository.service",
@@ -181,6 +236,9 @@ class ArtifactRepositoryService:
         output_contract_id: str = "",
         producer_node_id: str = "",
         artifact_kind: str = "",
+        namespace_id: str = "",
+        storage_owner: str = "",
+        durability_class: str = "",
         limit: int = 500,
     ) -> dict[str, Any]:
         repositories = [item.to_dict() for item in self.store.list_repositories(task_run_id=task_run_id)]
@@ -203,6 +261,9 @@ class ArtifactRepositoryService:
                 output_contract_id=output_contract_id,
                 producer_node_id=producer_node_id,
                 artifact_kind=artifact_kind,
+                namespace_id=namespace_id,
+                storage_owner=storage_owner,
+                durability_class=durability_class,
                 graph_run_id=graph_run_id,
                 limit=limit,
             )
@@ -220,6 +281,9 @@ class ArtifactRepositoryService:
             "output_contract_id": output_contract_id,
             "producer_node_id": producer_node_id,
             "artifact_kind": artifact_kind,
+            "namespace_id": namespace_id,
+            "storage_owner": storage_owner,
+            "durability_class": durability_class,
             "repository_count": len(repositories),
             "artifact_count": len(artifacts),
             "repositories": repositories,
@@ -250,6 +314,14 @@ class ArtifactRepositoryService:
             if resolved is not None and resolved.exists():
                 return resolved
         return _resolve_inside_workspace(self.workspace_root, ref_path or clean_created_file)
+
+    def _workspace_relative_path(self, path: Path | None) -> str:
+        if path is None:
+            return ""
+        try:
+            return path.resolve().relative_to(self.workspace_root).as_posix()
+        except ValueError:
+            return ""
 
 
 def _safe_scope_id(value: str) -> str:

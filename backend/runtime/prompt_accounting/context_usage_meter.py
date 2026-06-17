@@ -292,7 +292,8 @@ class ContextUsageMeter:
         if not request_id.startswith("modelreq:"):
             return False
         diagnostics = dict(getattr(record, "diagnostics", {}) or {})
-        if str(diagnostics.get("cache_metric_scope") or "") == "agent_runtime":
+        cache_metric_scope = str(diagnostics.get("cache_metric_scope") or "")
+        if cache_metric_scope == "agent_runtime" or cache_metric_scope.startswith("agent_runtime."):
             return True
         if str(diagnostics.get("packet_ref") or "").startswith("rtpacket:"):
             return True

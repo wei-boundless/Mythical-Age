@@ -12,7 +12,7 @@ import {
 import { createStore, getDefaultState, type Store } from "@/lib/store/core";
 import { useStoreValue } from "@/lib/store/hooks";
 import { WorkspaceRuntime } from "@/lib/store/runtime";
-import type { AppStore, StoreState } from "@/lib/store/types";
+import type { AppStore, StoreActions, StoreState } from "@/lib/store/types";
 import { buildEditableFiles } from "@/lib/store/utils";
 
 type StoreContextValue = {
@@ -27,8 +27,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [runtime] = useState(() => new WorkspaceRuntime(store));
 
   useEffect(() => {
-    runtime.startRunMonitor();
     void runtime.initialize()
+      .then(() => {
+        runtime.startRunMonitor();
+      })
       .catch(() => undefined);
     return () => {
       runtime.dispose();
@@ -51,4 +53,23 @@ export function useAppStore(): AppStore {
     editableFiles: buildEditableFiles(state.skills),
     ...value.runtime.actions
   };
+}
+
+export function useAppStoreSelector<S>(
+  selector: (state: StoreState) => S,
+  isEqual?: (left: S, right: S) => boolean,
+): S {
+  const value = useContext(StoreContext);
+  if (!value) {
+    throw new Error("useAppStoreSelector must be used inside AppProvider");
+  }
+  return useStoreValue(value.store, selector, isEqual);
+}
+
+export function useAppStoreActions(): StoreActions {
+  const value = useContext(StoreContext);
+  if (!value) {
+    throw new Error("useAppStoreActions must be used inside AppProvider");
+  }
+  return value.runtime.actions;
 }

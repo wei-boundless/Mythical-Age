@@ -5,6 +5,8 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs
 
 from .models import compact_text, dict_tuple, drop_empty
+from .semantic_payload_classifier import merge_pending_tool_control_actions
+from .todo_plan_projection import project_todo_plan
 
 
 _PROMPT_CACHE_UNSTABLE_REPLAY_KEYS = {
@@ -36,14 +38,20 @@ class TaskStateProjector:
         task_run_state: dict[str, Any],
         envelope_projection: dict[str, Any],
         include_task_run_context: bool = True,
+        current_todo_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw_current_facts = _dedupe_by_semantic(dict_tuple(execution_projection.get("current_facts")))
         current_fact_keys = {_semantic_projection_key(item) for item in raw_current_facts if _semantic_projection_key(item)}
         current_facts = _current_fact_projection(raw_current_facts)
+        authoritative_subagent_results = _authoritative_subagent_results_projection(
+            execution_projection.get("authoritative_subagent_results")
+        )
         latest_results = _latest_results(
             execution_projection=execution_projection,
             observation_projection=observation_projection,
+            authoritative_subagent_results=authoritative_subagent_results,
             current_fact_keys=current_fact_keys,
+            current_todo_plan=current_todo_plan,
         )
         artifact_evidence = model_visible_artifact_refs(
             dedupe_artifact_refs(
@@ -66,10 +74,19 @@ class TaskStateProjector:
         )
         evidence_confidence = _evidence_confidence_projection(latest_results)
         material_progress = _material_progress_projection(latest_results)
+        pending_tool_control_actions = merge_pending_tool_control_actions(
+            execution_projection.get("pending_tool_control_actions"),
+            observation_projection.get("pending_tool_control_actions"),
+            limit=12,
+        )
         payload = {
             "runtime_status": str(execution_projection.get("runtime_status") or task_run_state.get("status") or ""),
             "current_step": dict(execution_projection.get("current_step") or {}),
+            "pending_tool_control_actions": pending_tool_control_actions,
+            "runtime_control_signals": list(dict_tuple(execution_projection.get("runtime_control_signals"))),
+            "latest_runtime_control_signal": dict(execution_projection.get("latest_runtime_control_signal") or {}),
             "current_facts": current_facts,
+            "authoritative_subagent_results": authoritative_subagent_results,
             "file_state": file_state,
             "file_evidence_decisions": file_evidence_decisions,
             "task_progress_facts": task_progress_facts,
@@ -142,6 +159,7 @@ def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> lis
     order_by_key: dict[str, tuple[int, int, str]] = {}
     fallback_order = 0
     for entry_kind, items in (
+        ("subagent_result", dict_tuple(task_state.get("authoritative_subagent_results"))),
         ("tool_result", dict_tuple(task_state.get("latest_tool_results"))),
         ("active_failure", dict_tuple(task_state.get("active_failures"))),
         ("historical_failure", dict_tuple(task_state.get("historical_failures"))),
@@ -164,7 +182,32 @@ def _task_state_replay_entries(task_state: dict[str, Any], *, limit: int) -> lis
             order_by_key[key] = order
             entries.append(entry)
     ordered = sorted(entries, key=lambda entry: order_by_key.get(_replay_entry_key(entry), (1, 0, _replay_entry_key(entry))))
-    return ordered[-limit:]
+    return _bounded_replay_entries(ordered, limit=limit)
+
+
+def _bounded_replay_entries(entries: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    bounded_limit = max(1, int(limit or 1))
+    if len(entries) <= bounded_limit:
+        return entries
+    protected_limit = min(4, bounded_limit)
+    protected = [entry for entry in entries if _is_protected_replay_entry(entry)]
+    selected_protected = protected[-protected_limit:]
+    selected_keys = {_replay_entry_key(entry) for entry in selected_protected}
+    remaining = max(0, bounded_limit - len(selected_keys))
+    selected_unprotected = [
+        entry
+        for entry in entries
+        if _replay_entry_key(entry) not in selected_keys
+    ][-remaining:] if remaining else []
+    selected_keys.update(_replay_entry_key(entry) for entry in selected_unprotected)
+    return [entry for entry in entries if _replay_entry_key(entry) in selected_keys]
+
+
+def _is_protected_replay_entry(entry: dict[str, Any]) -> bool:
+    entry_kind = str(entry.get("entry_kind") or "")
+    if "subagent_result" in entry_kind:
+        return True
+    return _is_authoritative_subagent_result(entry)
 
 
 def _task_state_cursor_projection(
@@ -176,6 +219,7 @@ def _task_state_cursor_projection(
 ) -> dict[str, Any]:
     cursor = dict(task_state or {})
     latest_results = dict_tuple(cursor.get("latest_tool_results"))
+    subagent_results = dict_tuple(cursor.get("authoritative_subagent_results"))
     active_failures = dict_tuple(cursor.get("active_failures"))
     file_state = _cursor_file_state_projection(dict_tuple(cursor.get("file_state")))
     if file_state:
@@ -191,6 +235,13 @@ def _task_state_cursor_projection(
         )
     else:
         cursor.pop("latest_tool_results", None)
+    if subagent_results:
+        cursor["authoritative_subagent_results"] = [
+            _cursor_tool_result_projection(item)
+            for item in subagent_results[-4:]
+        ]
+    else:
+        cursor.pop("authoritative_subagent_results", None)
     if active_failures:
         cursor["active_failures"] = list(active_failures[-failure_limit:])
     else:
@@ -226,7 +277,8 @@ def _cursor_tool_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
             "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
-            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
+            "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
+            "subagent_result": _cursor_subagent_result_projection(dict(item.get("subagent_result") or {})),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
         }
@@ -250,12 +302,13 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "error": _replay_safe_value(error),
             "structured_error": _replay_safe_value(_dict_value(item.get("structured_error"))),
             "artifact_refs": _replay_artifact_refs(item.get("artifact_refs")),
-            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
+            "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
             "code_structure": _replay_code_structure_summary(dict(item.get("code_structure") or {})),
             "content_range": _replay_content_range(dict(item.get("content_range") or {})),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
             "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
             "preview": _replay_preview(item),
+            "subagent_result": _subagent_result_projection(dict(item.get("subagent_result") or {}), include_final_answer=True),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
             "authority": "harness.runtime.dynamic_context.task_state_replay_entry",
@@ -332,6 +385,44 @@ def _replay_artifact_refs(value: Any) -> list[dict[str, Any]]:
             )
         )
     return [item for item in refs if item]
+
+
+def _subagent_result_projection(value: dict[str, Any], *, include_final_answer: bool) -> dict[str, Any]:
+    if not value:
+        return {}
+    final_answer = str(value.get("final_answer") or "")
+    projected = drop_empty(
+        {
+            "kind": str(value.get("kind") or "subagent_final_result"),
+            "source_tool": str(value.get("source_tool") or "collect_subagent_result"),
+            "subagent_run_ref": str(value.get("subagent_run_ref") or ""),
+            "result_ref": str(value.get("result_ref") or ""),
+            "status": str(value.get("status") or ""),
+            "result_state": str(value.get("result_state") or ""),
+            "result_read_record_ref": str(value.get("result_read_record_ref") or ""),
+            "final_answer": final_answer if include_final_answer else "",
+            "final_answer_chars": value.get("final_answer_chars"),
+            "final_answer_sha256": str(value.get("final_answer_sha256") or ""),
+            "final_answer_truncated": value.get("final_answer_truncated") if isinstance(value.get("final_answer_truncated"), bool) else None,
+            "max_visible_final_answer_chars": value.get("max_visible_final_answer_chars"),
+            "summary": compact_text(value.get("summary") or "", limit=500),
+            "artifact_refs": _replay_artifact_refs(value.get("artifact_refs")),
+            "evidence_refs": [str(item) for item in list(value.get("evidence_refs") or [])[:24] if str(item).strip()],
+            "observation_refs": [str(item) for item in list(value.get("observation_refs") or [])[:24] if str(item).strip()],
+            "limitations": [str(item) for item in list(value.get("limitations") or [])[:24] if str(item).strip()],
+            "authority": str(value.get("authority") or "orchestration.subagent_result_projection"),
+        }
+    )
+    return projected
+
+
+def _cursor_subagent_result_projection(value: dict[str, Any]) -> dict[str, Any]:
+    projected = _subagent_result_projection(value, include_final_answer=False)
+    if not projected:
+        return {}
+    if value.get("final_answer"):
+        projected["final_answer_available_in_replay"] = True
+    return projected
 
 
 def _replay_code_structure_summary(value: dict[str, Any]) -> dict[str, Any]:
@@ -459,6 +550,8 @@ def _replay_evidence_confidence(value: dict[str, Any]) -> dict[str, Any]:
 def _replay_preview(item: dict[str, Any]) -> str:
     if dict(item.get("content_range") or {}):
         return ""
+    if _is_authoritative_subagent_result(item):
+        return ""
     return compact_text(item.get("preview") or "", limit=180)
 
 
@@ -493,7 +586,6 @@ def _rehydration_args_ref(value: dict[str, Any]) -> dict[str, Any]:
         {
             "replacement_id": _tool_result_replacement_id(value.get("replacement_id")),
             "path": _projection_path(value),
-            "task_run_id": str(value.get("task_run_id") or ""),
             "start_line": value.get("start_line"),
             "line_count": value.get("line_count"),
         }
@@ -627,7 +719,7 @@ def _task_progress_todo_facts(latest_results: list[dict[str, Any]]) -> list[dict
     for item in latest_results:
         if _tool_name(str(item.get("tool_name") or "")) != "agent_todo":
             continue
-        plan = _todo_plan_projection(dict(item.get("todo_plan") or {}))
+        plan = project_todo_plan(dict(item.get("todo_plan") or {}))
         if plan:
             latest_plan = plan
     if not latest_plan:
@@ -662,41 +754,6 @@ def _task_progress_todo_facts(latest_results: list[dict[str, Any]]) -> list[dict
     return result[-20:]
 
 
-def _todo_plan_projection(value: dict[str, Any]) -> dict[str, Any]:
-    if not value:
-        return {}
-    items: list[dict[str, Any]] = []
-    for item in dict_tuple(value.get("items"))[:40]:
-        todo_id = str(item.get("todo_id") or "").strip()
-        if not todo_id:
-            continue
-        items.append(
-            drop_empty(
-                {
-                    "todo_id": todo_id,
-                    "content": compact_text(item.get("content") or item.get("title") or "", limit=180),
-                    "active_form": compact_text(item.get("active_form") or "", limit=120),
-                    "status": str(item.get("status") or ""),
-                    "notes": compact_text(item.get("notes") or "", limit=180),
-                    "evidence_expectations": [
-                        str(entry) for entry in list(item.get("evidence_expectations") or []) if str(entry).strip()
-                    ],
-                    "contract_refs": [str(entry) for entry in list(item.get("contract_refs") or []) if str(entry).strip()],
-                }
-            )
-        )
-    return drop_empty(
-        {
-            "plan_id": str(value.get("plan_id") or ""),
-            "active_item_id": str(value.get("active_item_id") or ""),
-            "completion_ready": value.get("completion_ready") if isinstance(value.get("completion_ready"), bool) else None,
-            "items": items,
-            "allowed_operations": list(value.get("allowed_operations") or ["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"]),
-            "authority": str(value.get("authority") or "agent.todo_plan"),
-        }
-    )
-
-
 def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
     for item in latest_results[-12:]:
@@ -718,6 +775,38 @@ def _task_progress_tool_observations(latest_results: list[dict[str, Any]]) -> li
             )
         )
     return observations
+
+
+def _authoritative_subagent_results_projection(value: Any) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in dict_tuple(value):
+        subagent_result = _subagent_result_projection(dict(item.get("subagent_result") or {}), include_final_answer=True)
+        if not subagent_result:
+            continue
+        results.append(
+            drop_empty(
+                {
+                    "observation_ref": str(item.get("observation_ref") or item.get("observation_id") or ""),
+                    "tool_name": _tool_name(str(item.get("tool_name") or "collect_subagent_result")),
+                    "status": str(item.get("status") or ""),
+                    "visibility": str(item.get("visibility") or ""),
+                    "summary": compact_text(
+                        subagent_result.get("summary") or item.get("summary") or "",
+                        limit=300,
+                    ),
+                    "subagent_result": subagent_result,
+                    "event_offset": item.get("event_offset"),
+                    "observation_event_offset": item.get("observation_event_offset"),
+                    "action_event_offset": item.get("action_event_offset"),
+                    "sequence": item.get("sequence"),
+                    "step_index": item.get("step_index"),
+                    "invocation_index": item.get("invocation_index"),
+                    "created_at": item.get("created_at"),
+                    "authority": "harness.runtime.dynamic_context.authoritative_subagent_result",
+                }
+            )
+        )
+    return _dedupe_by_semantic(results)[-4:]
 
 
 def _dedupe_evidence_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -872,9 +961,13 @@ def _latest_results(
     *,
     execution_projection: dict[str, Any],
     observation_projection: dict[str, Any],
+    authoritative_subagent_results: list[dict[str, Any]],
     current_fact_keys: set[str],
+    current_todo_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
+    for item in authoritative_subagent_results:
+        results.append(dict(item))
     for item in dict_tuple(execution_projection.get("last_action_receipts")):
         results.append(
             drop_empty(
@@ -886,12 +979,13 @@ def _latest_results(
                     "path": _projection_path(item),
                     "visibility": str(item.get("visibility") or ""),
                     "summary": compact_text(item.get("summary") or "", limit=300),
-                    "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or {})),
+                    "todo_plan": project_todo_plan(dict(item.get("todo_plan") or {})),
                     "code_structure": dict(item.get("code_structure") or {}),
-            "content_range": dict(item.get("content_range") or {}),
-            "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
-            "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
-            "preview": _code_evidence_preview(item),
+                    "content_range": dict(item.get("content_range") or {}),
+                    "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or {})),
+                    "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or {})),
+                    "preview": _code_evidence_preview(item),
+                    "subagent_result": _subagent_result_projection(dict(item.get("subagent_result") or {}), include_final_answer=True),
                     "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
                     "event_offset": item.get("event_offset"),
                     "observation_event_offset": item.get("observation_event_offset"),
@@ -905,8 +999,30 @@ def _latest_results(
         )
     for item in dict_tuple(observation_projection.get("latest_observations")):
         results.append(_observation_result_projection(item))
+    current_todo_result = _current_todo_result_projection(dict(current_todo_plan or {}))
+    if current_todo_result:
+        results.append(current_todo_result)
     deduped = _dedupe_by_semantic([item for item in results if item])
     return [item for item in deduped if _should_keep_latest_result(item, current_fact_keys=current_fact_keys)]
+
+
+def _current_todo_result_projection(current_todo_plan: dict[str, Any]) -> dict[str, Any]:
+    plan = project_todo_plan(current_todo_plan)
+    if not plan:
+        return {}
+    plan_id = str(plan.get("plan_id") or "").strip()
+    return drop_empty(
+        {
+            "observation_ref": f"agent_todo_state:{plan_id}" if plan_id else "agent_todo_state:current",
+            "tool_name": "agent_todo",
+            "status": "ok",
+            "visibility": "active",
+            "summary": "Current task todo plan.",
+            "todo_plan": plan,
+            "current_runtime_fact": True,
+            "authority": "harness.runtime.dynamic_context.current_todo_state_projection",
+        }
+    )
 
 
 def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
@@ -921,14 +1037,17 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
             "path": _projection_path(item) or _projection_path(tool_result),
             "visibility": str(item.get("visibility") or ""),
             "summary": compact_text(item.get("summary") or tool_result.get("preview") or "", limit=300),
+            "execution_control": dict(item.get("execution_control") or tool_result.get("execution_control") or {}),
+            "projection_integrity_errors": list(item.get("projection_integrity_errors") or tool_result.get("projection_integrity_errors") or []),
             "structured_error": structured_error,
             "artifact_refs": list(dict_tuple(item.get("artifact_refs") or tool_result.get("artifact_refs"))),
-            "todo_plan": _todo_plan_projection(dict(item.get("todo_plan") or tool_result.get("todo_plan") or {})),
+            "todo_plan": project_todo_plan(dict(item.get("todo_plan") or tool_result.get("todo_plan") or {})),
             "code_structure": dict(item.get("code_structure") or tool_result.get("code_structure") or {}),
             "content_range": dict(item.get("content_range") or tool_result.get("content_range") or {}),
             "evidence_policy": _replay_evidence_policy(dict(item.get("evidence_policy") or tool_result.get("evidence_policy") or {})),
             "evidence_confidence": _replay_evidence_confidence(dict(item.get("evidence_confidence") or tool_result.get("evidence_confidence") or {})),
             "preview": _code_evidence_preview(tool_result),
+            "subagent_result": _subagent_result_projection(dict(item.get("subagent_result") or tool_result.get("subagent_result") or {}), include_final_answer=True),
             "rehydration_plan": _replay_rehydration_plan(dict(item.get("rehydration_plan") or tool_result.get("rehydration_plan") or {})),
             "event_offset": item.get("event_offset") or tool_result.get("event_offset"),
             "observation_event_offset": item.get("observation_event_offset") or tool_result.get("observation_event_offset"),
@@ -945,6 +1064,8 @@ def _observation_result_projection(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _should_keep_latest_result(item: dict[str, Any], *, current_fact_keys: set[str]) -> bool:
+    if _is_authoritative_subagent_result(item):
+        return True
     key = _semantic_projection_key(item)
     if key not in current_fact_keys:
         return True
@@ -952,6 +1073,17 @@ def _should_keep_latest_result(item: dict[str, Any], *, current_fact_keys: set[s
     if not str(evidence_policy.get("source_kind") or "").startswith("code_"):
         return False
     return bool(item.get("preview") or item.get("code_structure"))
+
+
+def _is_authoritative_subagent_result(item: dict[str, Any]) -> bool:
+    if _tool_name(str(item.get("tool_name") or item.get("source") or "")) != "collect_subagent_result":
+        return False
+    subagent_result = dict(item.get("subagent_result") or {})
+    return bool(
+        str(subagent_result.get("final_answer") or "").strip()
+        or str(subagent_result.get("summary") or "").strip()
+        or str(subagent_result.get("result_ref") or "").strip()
+    )
 
 
 def _code_evidence_preview(item: dict[str, Any]) -> str:
@@ -1115,6 +1247,12 @@ def _dedupe_by_semantic(items: list[dict[str, Any]] | tuple[dict[str, Any], ...]
 def _semantic_projection_key(item: dict[str, Any]) -> str:
     tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
     status = str(item.get("status") or item.get("result") or "").strip().lower()
+    subagent_result = dict(item.get("subagent_result") or {})
+    if tool_name == "collect_subagent_result" and subagent_result:
+        result_ref = str(subagent_result.get("result_ref") or "").strip()
+        subagent_run_ref = str(subagent_result.get("subagent_run_ref") or "").strip()
+        if result_ref or subagent_run_ref:
+            return f"subagent-result:{subagent_run_ref}:{result_ref}"
     path = _projection_path(item)
     range_key = _content_range_key(item)
     error = dict(item.get("structured_error") or item.get("error") or {})

@@ -1,0 +1,390 @@
+.capability-system-console {
+  display: grid;
+  align-content: start;
+  gap: 0.72rem;
+  overflow: auto;
+  background: #fff;
+}
+
+.capability-system-console .workspace-view__header {
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.68rem;
+}
+
+.capability-system-console .workspace-view__subtitle {
+  margin-top: 0.28rem;
+  color: #767670;
+  font-size: 0.84rem;
+}
+
+.capability-system-console .workspace-search {
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.55rem 0.7rem;
+}
+
+.capability-overview {
+  display: grid;
+  gap: 0.72rem;
+  min-height: 0;
+}
+
+.capability-overview-bar,
+.capability-group-card,
+.capability-issue-panel,
+.capability-mcp-section,
+.capability-mcp-rail {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.capability-overview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.82rem;
+}
+
+.capability-overview-bar > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.capability-overview-bar strong {
+  color: var(--color-text);
+  font-size: 0.96rem;
+}
+
+.capability-overview-bar span,
+.capability-group-card__copy span,
+.capability-group-card__copy i,
+.capability-group-card__metric span,
+.capability-group-card em,
+.capability-page-head span,
+.capability-issue-list span,
+.capability-issue-list p,
+.capability-endpoint-row span,
+.mcp-tool-row span {
+  color: #767670;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.capability-overview-bar__stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.capability-overview-bar__stats span {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: #fbfbfa;
+  padding: 0.28rem 0.5rem;
+}
+
+.capability-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
+.capability-group-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.72rem;
+  min-height: 118px;
+  padding: 0.85rem;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.capability-group-card:hover {
+  border-color: #2c3340;
+  background: #fafafa;
+}
+
+.capability-group-card__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  color: #2c3340;
+}
+
+.capability-group-card__copy,
+.capability-group-card__metric {
+  display: grid;
+  align-content: start;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.capability-group-card__copy strong {
+  font-size: 1rem;
+}
+
+.capability-group-card__copy i {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 0.2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: #fbfbfa;
+  padding: 0.2rem 0.46rem;
+  font-style: normal;
+}
+
+.capability-group-card__metric {
+  justify-items: end;
+  min-width: 118px;
+  text-align: right;
+}
+
+.capability-group-card__metric strong {
+  font-size: 1.32rem;
+}
+
+.capability-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.capability-page-head > div {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.capability-page-head strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.capability-issue-panel {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.78rem;
+}
+
+.capability-issue-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.capability-issue-list article {
+  display: grid;
+  grid-template-columns: 76px minmax(120px, 0.34fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
+}
+
+.capability-issue-list strong {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.capability-issue-list p {
+  margin: 0;
+}
+
+.capability-system-console .operation-skill-card,
+.capability-system-console .operation-tool-card,
+.capability-system-console .operation-unit-card,
+.capability-system-console .operation-detail,
+.capability-system-console .operation-inline-panel,
+.capability-system-console .operation-foldout,
+.capability-system-console .operation-fact-grid article,
+.capability-system-console .operation-tool-control,
+.capability-system-console .operation-json-stack article,
+.capability-system-console .operation-inline-stack article {
+  border-color: var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.capability-system-console .operation-layout {
+  grid-template-columns: minmax(230px, 0.31fr) minmax(0, 1fr);
+  gap: 0.65rem;
+  min-height: 0;
+}
+
+.capability-system-console .operation-list {
+  gap: 0.42rem;
+}
+
+.capability-system-console .operation-skill-card,
+.capability-system-console .operation-tool-card,
+.capability-system-console .operation-unit-card {
+  min-height: 56px;
+  padding: 0.58rem 0.65rem;
+  cursor: pointer;
+}
+
+.capability-system-console .operation-skill-card--active,
+.capability-system-console .operation-tool-card--active,
+.capability-system-console .operation-unit-card--active {
+  border-color: #2c3340;
+  background: #f7f7f5;
+  box-shadow: none;
+}
+
+.capability-system-console .operation-detail {
+  padding: 0.78rem;
+}
+
+.capability-system-console .operation-detail__head h3 {
+  margin: 0.1rem 0 0.22rem;
+  font-size: 1.18rem;
+}
+
+.capability-system-console .operation-detail__head p,
+.capability-system-console .operation-inline-stack article p,
+.capability-system-console .operation-unit-card p,
+.capability-system-console .operation-tool-card p {
+  color: #767670;
+}
+
+.capability-system-console .operation-fact-grid {
+  gap: 0.48rem;
+  margin: 0.62rem 0;
+}
+
+.capability-system-console .operation-fact-grid article {
+  padding: 0.58rem 0.65rem;
+}
+
+.capability-system-console .operation-fact-grid span,
+.capability-system-console .operation-skill-card span,
+.capability-system-console .operation-tool-card span,
+.capability-system-console .operation-unit-card span,
+.capability-system-console .operation-detail__head span,
+.capability-system-console .operation-tool-control span,
+.capability-system-console .operation-foldout summary span {
+  color: #767670;
+  font-family: inherit;
+  font-size: 0.68rem;
+}
+
+.capability-system-console .operation-fact-grid strong {
+  font-size: 0.82rem;
+}
+
+.capability-system-console .operation-inline-form textarea,
+.capability-system-console .operation-inline-form input,
+.capability-system-console .operation-prompt-editor input,
+.capability-system-console .operation-prompt-editor textarea,
+.capability-system-console .operation-tool-control select,
+.capability-system-console .operation-tool-control textarea,
+.capability-system-console .operation-tool-filters select,
+.capability-system-console .mcp-form-grid input,
+.capability-system-console .mcp-form-grid select,
+.capability-system-console .mcp-form-grid textarea,
+.capability-system-console .capability-mcp-call textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-text);
+  padding: 0.52rem 0.58rem;
+}
+
+.capability-system-console .operation-json-stack pre,
+.capability-system-console .operation-inline-panel pre,
+.capability-system-console .operation-foldout pre,
+.capability-system-console .mcp-call-result {
+  max-height: 260px;
+  border-radius: 7px;
+  background: #f7f7f5;
+  color: #2b2b28;
+  font-size: 0.74rem;
+}
+
+.capability-mcp-page {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.3fr) minmax(0, 1fr);
+  gap: 0.65rem;
+  min-height: 0;
+}
+
+.capability-mcp-rail,
+.capability-mcp-section {
+  display: grid;
+  align-content: start;
+  gap: 0.58rem;
+  padding: 0.72rem;
+}
+
+.capability-mcp-main {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  overflow: auto;
+}
+
+.capability-mcp-form {
+  margin-top: 0.3rem;
+}
+
+.capability-mcp-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.capability-mcp-tool-list,
+.capability-endpoint-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.mcp-tool-row,
+.capability-endpoint-row {
+  display: grid;
+  gap: 0.16rem;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0.55rem 0.62rem;
+  text-align: left;
+}
+
+.mcp-tool-row--active,
+.capability-endpoint-row--active {
+  border-color: #2c3340;
+  background: #f7f7f5;
+}
+
+.capability-mcp-call {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.capability-system-console .mcp-server-row {
+  border-radius: 7px;
+  background: #fff;
+}
+
+.capability-system-console .mcp-server-row--active {
+  border-color: #2c3340;
+  background: #f7f7f5;
+}
+

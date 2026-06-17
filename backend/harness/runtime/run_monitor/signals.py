@@ -214,7 +214,7 @@ def _public_title(item: dict[str, Any], *, work_kind: str, state: str) -> str:
     if activity_state == "stopped":
         return "已停止"
     if state == "failed":
-        return "运行中断"
+        return "处理失败"
     if state == "stale":
         return "运行状态需诊断"
     return "持续处理"

@@ -13,6 +13,8 @@ import {
 import { sessionSummaryIsRunning } from "@/lib/sessionTaskPresentation";
 import { useAppStore } from "@/lib/store";
 
+const INITIAL_REFRESH_DELAY_MS = 1200;
+
 function formatChangeTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "无时间";
   const date = new Date(timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000);
@@ -88,8 +90,15 @@ export function FileChangesPanel() {
   }, [currentSessionId]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!currentSessionId) {
+      void refresh();
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      void refresh();
+    }, INITIAL_REFRESH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [currentSessionId, refresh]);
 
   useEffect(() => {
     if (!currentSessionId || !sessionActive) return;

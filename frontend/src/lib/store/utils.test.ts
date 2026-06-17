@@ -110,6 +110,42 @@ describe("toUiMessages", () => {
     });
   });
 
+  it("does not merge steer assistant feedback into the previous assistant answer during history hydration", () => {
+    const messages = toUiMessages([
+      { role: "user", content: "开始一个长任务", turn_id: "turn:session:1" },
+      {
+        id: "assistant:turn:1",
+        role: "assistant",
+        content: "我会先启动长任务。",
+        turn_id: "turn:session:1",
+        answer_channel: "conversation",
+      },
+      {
+        id: "assistant:turn:2",
+        role: "assistant",
+        content: "已收到补充要求，我会把它纳入当前任务。",
+        turn_id: "turn:session:2",
+        task_run_id: "taskrun:turn:session:1:abc",
+        answer_channel: "conversation",
+      },
+    ]);
+
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toMatchObject({
+      id: "assistant:turn:1",
+      role: "assistant",
+      content: "我会先启动长任务。",
+      sourceTurnId: "turn:session:1",
+    });
+    expect(messages[2]).toMatchObject({
+      id: "assistant:turn:2",
+      role: "assistant",
+      content: "已收到补充要求，我会把它纳入当前任务。",
+      sourceTurnId: "turn:session:2",
+      sourceTaskRunId: "taskrun:turn:session:1:abc",
+    });
+  });
+
   it("filters structured tool-call records out of the visible transcript", () => {
     const messages = toUiMessages([
       { role: "user", content: "修复 bug" },

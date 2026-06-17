@@ -2,6 +2,9 @@
 
 import { useState, type ReactNode } from "react";
 
+import { Button } from "@/ui/Button";
+import { Field } from "@/ui/Field";
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
@@ -323,10 +326,9 @@ export function TaskSystemField({
   wide?: boolean;
 }) {
   return (
-    <label className={wide ? "boundary-field boundary-field--wide" : "boundary-field"}>
-      <span>{label}</span>
+    <Field label={label} wide={wide}>
       {children}
-    </label>
+    </Field>
   );
 }
 
@@ -342,9 +344,9 @@ export function TaskSystemToolbarButton({
   variant?: "ghost" | "primary";
 }) {
   return (
-    <button className={`boundary-button boundary-button--${variant}`} disabled={disabled} onClick={onClick} type="button">
+    <Button chrome="boundary" disabled={disabled} onClick={onClick} variant={variant}>
       {children}
-    </button>
+    </Button>
   );
 }
 

@@ -45,6 +45,7 @@ import {
   type WritingGraphInstanceDesk,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+import { Notice } from "@/ui/Notice";
 import { WritingChapterDesk } from "./WritingChapterDesk";
 
 type GraphTaskForegroundViewProps = {
@@ -301,12 +302,24 @@ function flattenFileTree(node: FileTreeNode | null): FileTreeNode[] {
 }
 
 function isChapterFile(node: FileTreeNode) {
-  const path = node.path.toLowerCase();
-  return node.kind === "file" && (
-    path.includes("/chapters/")
-    || path.startsWith("chapters/")
-    || /chapter[-_ ]?\d+/.test(path)
-    || /第.+章/.test(node.name)
+  if (node.kind !== "file") return false;
+  const path = node.path.replace(/\\/g, "/").toLowerCase();
+  const segments = path.split("/").filter(Boolean);
+  const parentSegments = segments.slice(0, -1);
+  const fileName = (segments.at(-1) || node.name || "").toLowerCase();
+  if (!/\.(?:md|markdown|txt)$/.test(fileName)) return false;
+  if (/(?:^|[_.\- ])(?:unit_)?route(?:[_.\- ]|$)/.test(fileName)) return false;
+  if (/(?:^|[_.\- ])(?:outline|review|plan|summary)(?:[_.\- ]|$)/.test(fileName)) return false;
+
+  const hasChaptersDir = parentSegments.includes("chapters");
+  const hasExactChapterDir = parentSegments.some((segment) => /^chapter[_.\- ]?\d+$/.test(segment));
+  const isSimpleChapterFile = /^chapter[_.\- ]?\d+\.(?:md|markdown|txt)$/.test(fileName);
+  const isDraftFile = /^draft(?:[_.\- ]round)?(?:[_.\- ]?\d+)?\.(?:md|markdown|txt)$/.test(fileName);
+  const isZhChapterFile = /第\s*\d+\s*章/.test(node.name);
+  return (
+    (hasChaptersDir && isSimpleChapterFile)
+    || (hasChaptersDir && hasExactChapterDir && isDraftFile)
+    || (hasChaptersDir && isZhChapterFile)
   );
 }
 
@@ -1222,8 +1235,8 @@ export function GraphTaskForegroundView({ requestedGraphId = "" }: GraphTaskFore
         </div>
       </header>
 
-      {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
-      {notice ? <div className="boundary-notice">{notice}</div> : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      {notice ? <Notice>{notice}</Notice> : null}
 
       {!selectedInstance ? (
         <div className="graph-foreground-manager">

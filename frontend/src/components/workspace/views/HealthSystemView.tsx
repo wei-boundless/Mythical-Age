@@ -39,6 +39,10 @@ import {
 } from "@/features/health/healthFormatters";
 import { useHealthSystemController } from "@/features/health/useHealthSystemController";
 import type { HealthRiskEvent, HealthTaskRecord } from "@/lib/api";
+import { Button } from "@/ui/Button";
+import { EmptyState } from "@/ui/EmptyState";
+import { MetricCard } from "@/ui/MetricCard";
+import { Notice } from "@/ui/Notice";
 
 const pages: Array<{ key: HealthPage; title: string; subtitle: string; icon: typeof HeartPulse }> = [
   { key: "overview", title: "总览", subtitle: "风险、成本、效率", icon: HeartPulse },
@@ -111,13 +115,13 @@ export function HealthSystemView() {
           <h2 className="workspace-view__title">健康系统</h2>
           <p className="workspace-view__description">管理任务风险、系统风险、Token 消耗和运行效率。任务记录与实时监控会在这里汇总为可处理的健康结论。</p>
         </div>
-        <button className="action-button action-button--primary" disabled={loading} onClick={() => void loadOverview()} type="button">
+        <Button chrome="action" disabled={loading} onClick={() => void loadOverview()} variant="primary">
           {loading ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
           刷新
-        </button>
+        </Button>
       </header>
 
-      {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
+      {error ? <Notice icon={<AlertTriangle size={16} />} tone="error">{error}</Notice> : null}
 
       <nav className="health-system-tabs health-system-tabs--merged" aria-label="健康系统分页导航">
         {pages.map((page) => {
@@ -138,11 +142,9 @@ export function HealthSystemView() {
       </nav>
 
       {loading && !overview ? (
-        <section className="boundary-empty boundary-empty--large">
-          <Loader2 size={22} className="spin" />
-          <strong>正在读取健康治理数据</strong>
+        <EmptyState as="section" className="boundary-empty boundary-empty--large" icon={<Loader2 size={22} className="spin" />} title="正在读取健康治理数据">
           <span>会从任务记录、运行监控和 token 统计中整理当前健康状态。</span>
-        </section>
+        </EmptyState>
       ) : null}
 
       {overview && activePage === "overview" ? (
@@ -219,15 +221,15 @@ export function HealthSystemView() {
               <Metric label="受保护" value={maintenanceSummary.protected_count ?? 0} danger={numberValue(maintenanceSummary.protected_count) > 0} />
               <Metric label="回执" value={maintenance?.recent_receipts?.length ?? 0} />
             </div>
-            {maintenanceMessage ? <div className="boundary-notice"><Trash2 size={16} />{maintenanceMessage}</div> : null}
+            {maintenanceMessage ? <Notice icon={<Trash2 size={16} />}>{maintenanceMessage}</Notice> : null}
             <div className="health-maintenance-actions">
-              <button disabled={Boolean(maintenanceBusy) || numberValue(maintenanceSummary.eligible_count) === 0} onClick={() => void pruneRecords("static")} type="button">
+              <Button disabled={Boolean(maintenanceBusy) || numberValue(maintenanceSummary.eligible_count) === 0} onClick={() => void pruneRecords("static")}>
                 {maintenanceBusy === "static" ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
                 执行受控维护
-              </button>
-              <button disabled={Boolean(maintenanceBusy)} onClick={() => void loadMaintenance()} type="button">
+              </Button>
+              <Button disabled={Boolean(maintenanceBusy)} onClick={() => void loadMaintenance()}>
                 重新预检
-              </button>
+              </Button>
             </div>
             <p className="health-copy">任务记录管理归健康系统，但执行前必须预检影响范围。运行中、近期记录、未形成健康报告的失败记录会被保护。</p>
           </article>
@@ -247,11 +249,9 @@ export function HealthSystemView() {
                 </div>
               ))}
               {!maintenanceCandidates.length ? (
-                <div className="health-empty-state">
-                  <TimerReset size={18} />
-                  <strong>暂无维护候选</strong>
+                <EmptyState className="health-empty-state" icon={<TimerReset size={18} />} title="暂无维护候选">
                   <span>当前没有通过预检的任务记录。</span>
-                </div>
+                </EmptyState>
               ) : null}
             </div>
           </article>
@@ -270,11 +270,9 @@ export function HealthSystemView() {
                 </section>
               ))}
               {!protectedMaintenanceCandidates.length ? (
-                <div className="health-empty-state">
-                  <ShieldAlert size={18} />
-                  <strong>没有被保护候选</strong>
+                <EmptyState className="health-empty-state" icon={<ShieldAlert size={18} />} title="没有被保护候选">
                   <span>当前预检候选均满足维护条件。</span>
-                </div>
+                </EmptyState>
               ) : null}
             </div>
           </article>
@@ -458,12 +456,7 @@ function PanelHead({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 function Metric({ label, value, danger = false }: { label: string; value: unknown; danger?: boolean }) {
-  return (
-    <article className={danger ? "health-metric health-metric--danger" : "health-metric"}>
-      <span>{label}</span>
-      <strong>{String(value ?? 0)}</strong>
-    </article>
-  );
+  return <MetricCard className="health-metric" label={label} toneClassName={danger ? "health-metric--danger" : undefined} value={String(value ?? 0)} />;
 }
 
 function TokenStatCard({
@@ -501,11 +494,9 @@ function RiskList({ title, risks }: { title: string; risks: HealthRiskEvent[] })
             </div>
           </section>
         )) : (
-          <div className="health-empty-state">
-            <Cpu size={18} />
-            <strong>暂无风险</strong>
+          <EmptyState className="health-empty-state" icon={<Cpu size={18} />} title="暂无风险">
             <span>当前没有需要处理的健康风险。</span>
-          </div>
+          </EmptyState>
         )}
       </div>
     </article>
@@ -566,11 +557,9 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
             </section>
           );
         }) : (
-          <div className="health-empty-state">
-            <Gauge size={18} />
-            <strong>暂无 token 账本记录</strong>
+          <EmptyState className="health-empty-state" icon={<Gauge size={18} />} title="暂无 token 账本记录">
             <span>模型调用产生 PromptAccounting 记录后会显示在这里。</span>
-          </div>
+          </EmptyState>
         )}
       </div>
     </article>

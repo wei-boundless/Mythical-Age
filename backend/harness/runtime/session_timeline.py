@@ -1,21 +1,15 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from .event_query import list_runtime_events, runtime_event_count
+from .session_output_commit_projection import project_session_output_commit_state
 from runtime.shared.stream_replay import sanitized_public_projection_frame
 from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
     SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
-    TOOL_CALL_REQUESTED_EVENT,
-    TOOL_ITEM_COMPLETED_EVENT,
-    TOOL_ITEM_STARTED_EVENT,
-    TOOL_PERMISSION_DECIDED_EVENT,
 )
-from runtime.shared.tool_identity import ensure_tool_call_id, permission_decision_id
-
-from .projection.projector import ProjectionLifecycleState, project_public_projection_event
 
 _TASK_ANCHOR_PUBLIC_EVENTS = {"task_bridge_started", "task_bridge_terminal"}
 _TASK_CLOSED_PUBLIC_EVENTS = {"session_output_commit_ack"}
@@ -31,6 +25,10 @@ def build_session_runtime_timeline(
     history: dict[str, Any],
     runtime_host: Any,
     max_timeline_items: int = 24,
+    max_stream_runs: int | None = None,
+    max_task_runs: int | None = None,
+    max_turn_runs: int | None = None,
+    max_projection_frames_per_attachment: int | None = None,
 ) -> dict[str, Any]:
     history_record = dict(history or {})
     history_messages = list(history_record.get("messages") or [])
@@ -38,21 +36,29 @@ def build_session_runtime_timeline(
         runtime_host,
         session_id=session_id,
         history_messages=history_messages,
+        max_stream_runs=max_stream_runs,
+        max_projection_frames_per_attachment=max_projection_frames_per_attachment,
     )
+    task_runs = sorted(
+        runtime_host.state_index.list_session_task_runs(session_id),
+        key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
+    )
+    if max_task_runs is not None:
+        task_runs = _tail_limit(task_runs, max_task_runs)
     task_attachments = [
         _runtime_attachment(runtime_host, task_run, history_messages=history_messages, max_timeline_items=max_timeline_items)
-        for task_run in sorted(
-            runtime_host.state_index.list_session_task_runs(session_id),
-            key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
-        )
+        for task_run in task_runs
         if _is_formal_chat_task_run(task_run)
     ]
+    turn_runs = sorted(
+        runtime_host.state_index.list_session_turn_runs(session_id),
+        key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
+    )
+    if max_turn_runs is not None:
+        turn_runs = _tail_limit(turn_runs, max_turn_runs)
     turn_attachments = [
         _turn_runtime_attachment(runtime_host, turn_run, history_messages=history_messages, max_timeline_items=max_timeline_items)
-        for turn_run in sorted(
-            runtime_host.state_index.list_session_turn_runs(session_id),
-            key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
-        )
+        for turn_run in turn_runs
     ]
     attachments = sorted(
         [item for item in [*stream_attachments, *task_attachments, *turn_attachments] if item],
@@ -66,32 +72,107 @@ def build_session_runtime_timeline(
     }
 
 
+def build_session_runtime_projection(
+    *,
+    session_id: str,
+    history: dict[str, Any],
+    runtime_host: Any,
+    max_attachments: int = 8,
+    max_timeline_items: int = 6,
+    max_stream_runs: int = 6,
+    max_task_runs: int = 6,
+    max_turn_runs: int = 3,
+    max_projection_frames_per_attachment: int = 48,
+) -> dict[str, Any]:
+    """Build the bounded main-chat runtime projection used by session hydration."""
+    timeline = build_session_runtime_timeline(
+        session_id=session_id,
+        history=history,
+        runtime_host=runtime_host,
+        max_timeline_items=max_timeline_items,
+        max_stream_runs=max_stream_runs,
+        max_task_runs=max_task_runs,
+        max_turn_runs=max_turn_runs,
+        max_projection_frames_per_attachment=max_projection_frames_per_attachment,
+    )
+    attachments = [
+        item
+        for item in list(timeline.get("runtime_attachments") or [])
+        if _runtime_projection_attachment_visible(item)
+    ]
+    selected = sorted(
+        sorted(
+            attachments,
+            key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
+            reverse=True,
+        )[: max(0, int(max_attachments or 0))],
+        key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
+    )
+    return {
+        **timeline,
+        "runtime_attachments": selected,
+        "authority": "session_runtime_projection",
+        "projection_mode": "main_chat_lightweight",
+        "projection_limits": {
+            "max_attachments": max_attachments,
+            "max_timeline_items": max_timeline_items,
+            "max_stream_runs": max_stream_runs,
+            "max_task_runs": max_task_runs,
+            "max_turn_runs": max_turn_runs,
+            "max_projection_frames_per_attachment": max_projection_frames_per_attachment,
+        },
+    }
+
+
 def _is_formal_chat_task_run(task_run: Any) -> bool:
     task_run_id = str(getattr(task_run, "task_run_id", "") or "")
     task_id = str(getattr(task_run, "task_id", "") or "")
     return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
 
 
-def _stream_runtime_attachments(runtime_host: Any, *, session_id: str, history_messages: list[Any]) -> list[dict[str, Any]]:
+def _stream_runtime_attachments(
+    runtime_host: Any,
+    *,
+    session_id: str,
+    history_messages: list[Any],
+    max_stream_runs: int | None,
+    max_projection_frames_per_attachment: int | None,
+) -> list[dict[str, Any]]:
     registry = getattr(runtime_host, "run_registry", None)
     list_runs = getattr(registry, "list_session_runs", None)
     if not callable(list_runs):
         return []
     try:
-        runs = list(list_runs(session_id))
+        runs = sorted(
+            list(list_runs(session_id)),
+            key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0),
+        )
     except Exception:
         return []
+    if max_stream_runs is not None:
+        runs = _tail_limit(runs, max_stream_runs)
     return [
         attachment
         for attachment in (
-            _stream_runtime_attachment(runtime_host, run, history_messages=history_messages)
-            for run in sorted(runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0))
+            _stream_runtime_attachment(
+                runtime_host,
+                run,
+                history_messages=history_messages,
+                max_projection_frames=max_projection_frames_per_attachment,
+            )
+            for run in runs
         )
         if attachment
     ]
 
 
-def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages: list[Any]) -> dict[str, Any]:
+def _stream_runtime_attachment(
+    runtime_host: Any,
+    run: Any,
+    *,
+    history_messages: list[Any],
+    max_projection_frames: int | None = None,
+) -> dict[str, Any]:
     event_log_id = str(getattr(run, "event_log_id", "") or "").strip()
     stream_run_id = str(getattr(run, "stream_run_id", "") or "").strip()
     if not stream_run_id or not event_log_id.startswith("chatrun:"):
@@ -99,7 +180,7 @@ def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages:
     public_events = _public_event_records_for_run(runtime_host, run)
     if not public_events:
         return {}
-    frames = _public_projection_frames_from_public_events(public_events)
+    frames = _projection_frames_from_public_events(public_events)
     projection_anchor = _projection_anchor_from_public_ledger(
         run,
         public_events=public_events,
@@ -111,9 +192,21 @@ def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages:
         for frame in frames
         if isinstance(frame, dict)
     ]
+    if max_projection_frames is not None:
+        anchored_frames = _bounded_projection_frames(anchored_frames, max_projection_frames)
     display = _display_state_for_stream_run(run, public_events=public_events, frames=anchored_frames, projection_anchor=projection_anchor)
     tool_event_count = _tool_event_count(anchored_frames)
     closeout_summary = _closeout_summary(public_events=public_events, frames=anchored_frames)
+    projection_slices = _projection_slices(
+        slice_ref=event_log_id or stream_run_id,
+        projection_anchor=projection_anchor,
+        frames=anchored_frames,
+        display_state=display["display_state"],
+        main_chat_surface=display["main_chat_surface"],
+        closeout_summary=closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
+        log_ref=event_log_id,
+        tool_event_count=tool_event_count,
+    )
     return {
         "attachment_id": f"runtime-attachment:{stream_run_id}",
         "run_id": stream_run_id,
@@ -134,7 +227,7 @@ def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages:
         "closeout_summary": closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
         "log_ref": event_log_id,
         "projection_anchor": projection_anchor,
-        "public_projection_frames": anchored_frames,
+        "projection_slices": projection_slices,
         "artifact_refs": [],
         "trace_available": True,
         "debug_trace_ref": event_log_id,
@@ -145,6 +238,128 @@ def _stream_runtime_attachment(runtime_host: Any, run: Any, *, history_messages:
         ),
         "authority": "session_runtime_timeline.stream_attachment",
     }
+
+
+def _runtime_projection_attachment_visible(attachment: dict[str, Any]) -> bool:
+    surface = str(attachment.get("main_chat_surface") or "").strip()
+    if surface in {_LIVE_TIMELINE_SURFACE, _CLOSEOUT_SUMMARY_SURFACE}:
+        return True
+    if surface == _BODY_ONLY_SURFACE:
+        status = str(attachment.get("status") or "").strip().lower()
+        return status in {"running", "waiting", "waiting_executor", "waiting_user", "waiting_approval"}
+    return False
+
+
+def _tail_limit(items: list[Any], limit: int | None) -> list[Any]:
+    count = max(0, int(limit or 0))
+    if count <= 0:
+        return []
+    return list(items)[-count:]
+
+
+def _bounded_projection_frames(frames: list[dict[str, Any]], max_frames: int) -> list[dict[str, Any]]:
+    limit = max(0, int(max_frames or 0))
+    if not limit or len(frames) <= limit:
+        return frames
+    return sorted(
+        frames[-limit:],
+        key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or item.get("projection_id") or "")),
+    )
+
+
+def _projection_slices(
+    *,
+    slice_ref: str,
+    projection_anchor: dict[str, Any],
+    frames: list[dict[str, Any]],
+    display_state: str,
+    main_chat_surface: str,
+    closeout_summary: str = "",
+    log_ref: str = "",
+    tool_event_count: int = 0,
+) -> list[dict[str, Any]]:
+    ordered_frames = sorted(
+        [dict(frame) for frame in frames if isinstance(frame, dict)],
+        key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or item.get("projection_id") or "")),
+    )
+    if not ordered_frames:
+        return []
+    offsets = [_int_value(frame.get("event_offset"), fallback=0) for frame in ordered_frames]
+    projection_key = {
+        key: value
+        for key, value in {
+            "session_id": projection_anchor.get("session_id"),
+            "turn_id": projection_anchor.get("anchor_turn_id"),
+            "message_id": projection_anchor.get("anchor_message_id"),
+            "stream_run_id": projection_anchor.get("stream_run_id"),
+            "run_id": projection_anchor.get("run_id"),
+            "task_run_id": projection_anchor.get("task_run_id"),
+            "turn_run_id": projection_anchor.get("turn_run_id"),
+            "event_log_id": projection_anchor.get("event_log_id"),
+        }.items()
+        if str(value or "").strip()
+    }
+    cursor = {
+        "min_event_offset": min(offsets),
+        "max_event_offset": max(offsets),
+        "frame_count": len(ordered_frames),
+    }
+    event_log_id = str(projection_anchor.get("event_log_id") or "").strip()
+    return [
+        {
+            "slice_id": f"projection-slice:{slice_ref}",
+            "schema_version": "chronological_projection",
+            "event_log_id": event_log_id,
+            "start_offset": cursor["min_event_offset"],
+            "end_offset": cursor["max_event_offset"],
+            "projection_key": projection_key,
+            "cursor": cursor,
+            "frames": ordered_frames,
+            "display_hint": {
+                "lifecycle": _projection_lifecycle_hint(
+                    display_state=display_state,
+                    main_chat_surface=main_chat_surface,
+                    frames=ordered_frames,
+                ),
+                "main_surface_hint": _projection_main_surface_hint(main_chat_surface),
+                "closeout_summary": closeout_summary,
+                "log_ref": log_ref,
+                "tool_event_count": tool_event_count,
+            },
+            "authority": "session_runtime_timeline.projection_slice",
+        }
+    ]
+
+
+def _projection_lifecycle_hint(
+    *,
+    display_state: str,
+    main_chat_surface: str,
+    frames: list[dict[str, Any]],
+) -> str:
+    if any(str(frame.get("source_event_type") or "") == SESSION_OUTPUT_COMMIT_FAILED_EVENT for frame in frames):
+        return "failed"
+    if any(str(frame.get("source_event_type") or "") == SESSION_OUTPUT_COMMIT_ACK_EVENT for frame in frames):
+        return "committed"
+    if any(str(frame.get("source_event_type") or "") in {"error", "stopped"} for frame in frames):
+        return "stopped"
+    surface = str(main_chat_surface or "").strip()
+    if surface == _LOG_ONLY_SURFACE:
+        return "log_only"
+    if surface == _CLOSEOUT_SUMMARY_SURFACE or str(display_state or "").strip() == "task_closed":
+        return "committed"
+    return "running"
+
+
+def _projection_main_surface_hint(main_chat_surface: str) -> str:
+    surface = str(main_chat_surface or "").strip()
+    if surface == _LIVE_TIMELINE_SURFACE:
+        return "live"
+    if surface == _CLOSEOUT_SUMMARY_SURFACE:
+        return "closeout"
+    if surface == _LOG_ONLY_SURFACE:
+        return "log_only"
+    return "committed"
 
 
 def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str, Any]]:
@@ -190,7 +405,7 @@ def _public_event_records_for_run(runtime_host: Any, run: Any) -> list[dict[str,
     return sorted(records, key=lambda item: int(item.get("event_offset") or 0))
 
 
-def _public_projection_frames_from_public_events(public_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _projection_frames_from_public_events(public_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
     seen: set[str] = set()
     for event in public_events:
@@ -236,13 +451,25 @@ def _projection_anchor_from_public_ledger(
         _set_first(anchor, "task_run_id", data.get("task_run_id") or data.get("runtime_task_run_id"))
         _set_first(anchor, "turn_run_id", data.get("turn_run_id"))
     diagnostics = dict(getattr(run, "diagnostics", {}) or {})
-    _set_first(anchor, "anchor_turn_id", diagnostics.get("active_turn_id") or diagnostics.get("expected_active_turn_id"))
+    steer_target_turn_id = _steer_target_turn_id_from_diagnostics(diagnostics)
+    diagnostics_turn_id = (
+        diagnostics.get("public_anchor_turn_id")
+        or _turn_id_from_turn_run_id(str(diagnostics.get("runtime_turn_run_id") or ""))
+        or ("" if steer_target_turn_id else diagnostics.get("active_turn_id") or diagnostics.get("expected_active_turn_id"))
+    )
+    _set_first(anchor, "anchor_turn_id", diagnostics_turn_id)
     _set_first(anchor, "task_run_id", diagnostics.get("runtime_task_run_id"))
     _set_first(anchor, "turn_run_id", diagnostics.get("runtime_turn_run_id"))
     if not anchor.get("anchor_message_id") and anchor.get("anchor_turn_id"):
         anchor_message = _anchor_assistant_message(anchor_turn_id=anchor["anchor_turn_id"], history_messages=history_messages)
         _set_first(anchor, "anchor_message_id", _history_message_id(anchor_message) if anchor_message else "")
     return {key: value for key, value in anchor.items() if str(value or "").strip()}
+
+
+def _steer_target_turn_id_from_diagnostics(diagnostics: dict[str, Any]) -> str:
+    policy = str(diagnostics.get("active_turn_input_policy") or "").strip().lower()
+    expected = _valid_turn_ref(diagnostics.get("expected_active_turn_id"))
+    return expected if policy == "steer" else ""
 
 
 def _set_first(target: dict[str, str], key: str, value: Any) -> None:
@@ -349,8 +576,13 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         return {}
     session_id = str(getattr(task_run, "session_id", "") or "")
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    events = [item.to_dict() for item in _recent_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
-    session_output_commit = _session_output_commit_state(events, diagnostics=diagnostics, task_run=task_run)
+    events = [_event_dict(item) for item in list_runtime_events(runtime_host, task_run_id, limit=max_timeline_items * 8)]
+    session_output_commit = project_session_output_commit_state(
+        events,
+        diagnostics=diagnostics,
+        task_run=task_run,
+        authority="session_runtime_timeline.session_output_commit",
+    )
     artifact_refs = list(diagnostics.get("artifact_refs") or [])
     anchor_turn_id = _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
@@ -362,21 +594,26 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         anchor_message_id=anchor_message_id,
         task_run_id=task_run_id,
     )
-    public_projection_frames = _task_public_projection_frames(
-        events,
-        task_run=task_run,
-        projection_anchor=projection_anchor,
-        max_timeline_items=max_timeline_items,
-    )
+    projection_frames: list[dict[str, Any]] = []
     display = _display_state_for_task_run(
         task_run,
         session_output_commit=session_output_commit,
-        public_projection_frames=public_projection_frames,
+        projection_frames=projection_frames,
     )
     closeout_summary = _task_closeout_summary(
         task_run,
         session_output_commit=session_output_commit,
-        public_projection_frames=public_projection_frames,
+        projection_frames=projection_frames,
+    )
+    projection_slices = _projection_slices(
+        slice_ref=task_run_id,
+        projection_anchor=projection_anchor,
+        frames=projection_frames,
+        display_state=display["display_state"],
+        main_chat_surface=display["main_chat_surface"],
+        closeout_summary=closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
+        log_ref=task_run_id,
+        tool_event_count=_tool_event_count(projection_frames),
     )
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
@@ -388,14 +625,14 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
         "latest_event_type": _latest_event_type(events),
-        "event_count": _event_count(runtime_host, task_run_id, fallback=len(events)),
+        "event_count": runtime_event_count(runtime_host, task_run_id, fallback=len(events)),
         **({"session_output_commit": session_output_commit} if session_output_commit else {}),
         "display_state": display["display_state"],
         "main_chat_surface": display["main_chat_surface"],
         "projection_anchor": projection_anchor,
-        "public_projection_frames": public_projection_frames,
+        "projection_slices": projection_slices,
         "artifact_refs": artifact_refs,
-        "tool_event_count": _tool_event_count(public_projection_frames),
+        "tool_event_count": _tool_event_count(projection_frames),
         "closeout_summary": closeout_summary if display["main_chat_surface"] == _CLOSEOUT_SUMMARY_SURFACE else "",
         "trace_available": True,
         "debug_trace_ref": task_run_id,
@@ -405,250 +642,15 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, history_messages: l
     }
 
 
-def _task_public_projection_frames(
-    events: list[dict[str, Any]],
-    *,
-    task_run: Any,
-    projection_anchor: dict[str, Any],
-    max_timeline_items: int,
-) -> list[dict[str, Any]]:
-    lifecycle_state = ProjectionLifecycleState()
-    frames: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    session_id = str(getattr(task_run, "session_id", "") or projection_anchor.get("session_id") or "")
-    public_anchor = _projection_public_anchor(projection_anchor)
-    for event in sorted(list(events or []), key=lambda item: _int_value(item.get("offset"), fallback=0)):
-        offset = _int_value(event.get("offset"), fallback=0)
-        for public_event_type, data in _task_public_projection_inputs(event, task_run=task_run):
-            projection = project_public_projection_event(
-                public_event_type,
-                data,
-                session_id=session_id,
-                sequence=offset,
-                public_anchor=public_anchor,
-                lifecycle_state=lifecycle_state,
-            )
-            frame = dict(projection.get("public_projection_frame") or {})
-            frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
-            if not frame_id or frame_id in seen:
-                continue
-            seen.add(frame_id)
-            frames.append(_frame_with_projection_anchor(frame, projection_anchor=projection_anchor))
-    max_frames = max(24, int(max_timeline_items or 24) * 8)
-    return sorted(frames[-max_frames:], key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or "")))
-
-
-def _task_public_projection_inputs(event: dict[str, Any], *, task_run: Any) -> list[tuple[str, dict[str, Any]]]:
-    event_type = str(event.get("event_type") or "").strip()
-    payload = _dict_record(event.get("payload"))
-    base = _task_public_base_data(event, task_run=task_run)
-    if event_type == "step_summary_recorded":
-        return [("runtime_step_summary", {**_step_summary_projection_payload(event, payload), **base})]
-    if event_type == "model_action_request_received":
-        return [
-            (TOOL_CALL_REQUESTED_EVENT, {**base, **request})
-            for request in _tool_request_projection_data(payload.get("model_action_request"))
-        ]
-    if event_type == "model_action_admission_checked":
-        return [
-            (TOOL_PERMISSION_DECIDED_EVENT, {**base, **decision})
-            for decision in _tool_permission_projection_data(payload)
-        ]
-    if event_type == TOOL_ITEM_STARTED_EVENT:
-        return [(TOOL_ITEM_STARTED_EVENT, {**payload, **base})]
-    if event_type in {"task_tool_observation_recorded", "approved_task_tool_observation_recorded"}:
-        completed = _tool_completed_projection_data(payload)
-        return [(TOOL_ITEM_COMPLETED_EVENT, {**base, **completed})] if completed else []
-    if event_type in {SESSION_OUTPUT_COMMIT_ACK_EVENT, SESSION_OUTPUT_COMMIT_FAILED_EVENT, SESSION_OUTPUT_COMMIT_SKIPPED_EVENT}:
-        return [(event_type, {**payload, **base})]
-    return []
-
-
-def _step_summary_projection_payload(event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    result = dict(payload or {})
-    if str(result.get("feedback_identity") or "").strip():
-        return result
-    presentation_source = str(result.get("presentation_source") or "").strip()
-    if not presentation_source.startswith("model_action."):
-        return result
-    refs = _dict_record(event.get("refs"))
-    for key in ("action_request_ref", "batch_action_request_ref", "runtime_invocation_packet_ref"):
-        value = str(refs.get(key) or "").strip()
-        if value:
-            result["feedback_identity"] = value
-            return result
-    return result
-
-
-def _task_public_base_data(event: dict[str, Any], *, task_run: Any) -> dict[str, Any]:
-    payload = _dict_record(event.get("payload"))
-    refs = _dict_record(event.get("refs"))
-    task_run_id = str(payload.get("task_run_id") or refs.get("task_run_ref") or getattr(task_run, "task_run_id", "") or "")
-    diagnostics = _dict_record(getattr(task_run, "diagnostics", {}) or {})
-    return {
-        "runtime_event_id": str(event.get("event_id") or ""),
-        "source_task_event_id": str(event.get("event_id") or ""),
-        "source_task_event_offset": _int_value(event.get("offset"), fallback=0),
-        "created_at": _float_value(event.get("created_at"), fallback=0.0),
-        "task_run_id": task_run_id,
-        "turn_id": str(payload.get("turn_id") or diagnostics.get("turn_id") or ""),
-        "debug_trace_ref": task_run_id,
-        "event": event,
-    }
-
-
-def _projection_public_anchor(projection_anchor: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in {
-            "session_id": projection_anchor.get("session_id"),
-            "turn_id": projection_anchor.get("anchor_turn_id"),
-            "anchor_turn_id": projection_anchor.get("anchor_turn_id"),
-            "message_id": projection_anchor.get("anchor_message_id"),
-            "anchor_message_id": projection_anchor.get("anchor_message_id"),
-            "task_run_id": projection_anchor.get("task_run_id"),
-            "run_id": projection_anchor.get("run_id"),
-            "turn_run_id": projection_anchor.get("turn_run_id"),
-        }.items()
-        if str(value or "").strip()
-    }
-
-
-def _tool_request_projection_data(action_request: Any) -> list[dict[str, Any]]:
-    action = _dict_record(action_request)
-    if str(action.get("action_type") or "").strip() != "tool_call":
-        return []
-    request_id = str(action.get("request_id") or "").strip()
-    calls = _action_tool_calls(action)
-    result: list[dict[str, Any]] = []
-    for index, raw_call in enumerate(calls):
-        tool_call = ensure_tool_call_id(raw_call, request_id=request_id, ordinal=index)
-        tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
-        if not tool_name:
-            continue
-        tool_args = _dict_record(tool_call.get("args") or tool_call.get("tool_args"))
-        result.append(
-            {
-                "request_id": request_id,
-                "tool_call_id": str(tool_call.get("id") or ""),
-                "tool_name": tool_name,
-                "arguments_preview": _compact_json(tool_args),
-                "target": _tool_target_from_args(tool_args),
-                "state": "running",
-            }
-        )
-    return result
-
-
-def _tool_permission_projection_data(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    admission = _dict_record(payload.get("admission"))
-    if str(admission.get("decision") or "").strip() not in {"allow", "allowed", "auto_allow"}:
-        return []
-    result: list[dict[str, Any]] = []
-    for request in _tool_request_projection_data(payload.get("model_action_request")):
-        tool_call_id = str(request.get("tool_call_id") or "").strip()
-        result.append(
-            {
-                **request,
-                "permission_decision": "allow",
-                "decision": "allow",
-                "permission_decision_id": permission_decision_id(admission, tool_call_id=tool_call_id),
-                "state": "done",
-            }
-        )
-    return result
-
-
-def _tool_completed_projection_data(payload: dict[str, Any]) -> dict[str, Any]:
-    observation = _dict_record(payload.get("observation"))
-    if not observation:
-        return {}
-    observation_payload = _dict_record(observation.get("payload"))
-    structured_payload = _dict_record(observation_payload.get("structured_payload"))
-    tool_result = _dict_record(structured_payload.get("tool_result"))
-    tool_call_id = str(
-        observation.get("tool_call_id")
-        or observation_payload.get("tool_call_id")
-        or tool_result.get("tool_call_id")
-        or ""
-    ).strip()
-    if not tool_call_id:
-        return {}
-    tool_name = str(
-        observation.get("tool_name")
-        or observation_payload.get("tool_name")
-        or tool_result.get("tool_name")
-        or ""
-    ).strip()
-    status = str(tool_result.get("status") or observation_payload.get("status") or observation.get("status") or "").strip().lower()
-    error = str(observation.get("error") or observation_payload.get("error") or tool_result.get("error") or "").strip()
-    return {
-        "tool_call_id": tool_call_id,
-        "tool_name": tool_name,
-        "state": "failed" if error or status in {"error", "failed", "denied", "canceled"} else "done",
-        "observation": _observation_summary(observation),
-        "error": error,
-        "summary": _observation_summary(observation),
-    }
-
-
-def _action_tool_calls(action: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_calls = action.get("tool_calls")
-    calls = [dict(item) for item in list(raw_calls or []) if isinstance(item, dict)]
-    if calls:
-        return calls
-    tool_call = _dict_record(action.get("tool_call"))
-    return [tool_call] if tool_call else []
-
-
-def _tool_target_from_args(args: dict[str, Any]) -> str:
-    for key in ("path", "target", "query", "pattern", "url", "command"):
-        value = str(args.get(key) or "").strip()
-        if value:
-            return value[:180]
-    return ""
-
-
-def _compact_json(value: Any) -> str:
-    if value in ({}, [], "", None):
-        return ""
-    try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))[:360]
-    except TypeError:
-        return str(value)[:360]
-
-
-def _observation_summary(observation: dict[str, Any]) -> str:
-    payload = _dict_record(observation.get("payload"))
-    structured_payload = _dict_record(payload.get("structured_payload"))
-    tool_result = _dict_record(structured_payload.get("tool_result"))
-    for value in (
-        observation.get("summary"),
-        observation.get("result"),
-        payload.get("summary"),
-        payload.get("result"),
-        tool_result.get("preview"),
-        tool_result.get("output"),
-        tool_result.get("text"),
-        observation.get("error"),
-        payload.get("error"),
-        tool_result.get("error"),
-    ):
-        text = str(value or "").strip()
-        if text:
-            return text[:500]
-    return ""
-
-
 def _display_state_for_task_run(
     task_run: Any,
     *,
     session_output_commit: dict[str, Any],
-    public_projection_frames: list[dict[str, Any]],
+    projection_frames: list[dict[str, Any]],
 ) -> dict[str, str]:
-    if str(session_output_commit.get("state") or "").strip() == "committed":
+    if projection_frames and str(session_output_commit.get("state") or "").strip() == "committed":
         return {"display_state": "task_closed", "main_chat_surface": _CLOSEOUT_SUMMARY_SURFACE}
-    if public_projection_frames:
+    if projection_frames:
         return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
     return {"display_state": "log_only", "main_chat_surface": _LOG_ONLY_SURFACE}
 
@@ -657,7 +659,7 @@ def _task_closeout_summary(
     task_run: Any,
     *,
     session_output_commit: dict[str, Any],
-    public_projection_frames: list[dict[str, Any]],
+    projection_frames: list[dict[str, Any]],
 ) -> str:
     if str(session_output_commit.get("state") or "").strip() != "committed":
         return ""
@@ -670,7 +672,7 @@ def _task_closeout_summary(
         text = str(value or "").strip()
         if text and text != "committed":
             return text
-    for frame in reversed(public_projection_frames):
+    for frame in reversed(projection_frames):
         if str(frame.get("slot") or "") == "body":
             text = str(frame.get("text") or "").strip()
             if text:
@@ -683,17 +685,31 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
     if not turn_run_id:
         return {}
     session_id = str(getattr(turn_run, "session_id", "") or "")
-    events = [item.to_dict() for item in _recent_events(runtime_host, turn_run_id, limit=max_timeline_items * 8)]
+    diagnostics = _dict_record(getattr(turn_run, "diagnostics", {}) or {})
+    events = [_event_dict(item) for item in list_runtime_events(runtime_host, turn_run_id, limit=max_timeline_items * 8)]
     anchor_turn_id = _valid_turn_ref(getattr(turn_run, "turn_id", "")) or _turn_id_from_turn_run_id(turn_run_id)
     anchor_message = _anchor_assistant_message(anchor_turn_id=anchor_turn_id, history_messages=history_messages)
     anchor_message_id = _history_message_id(anchor_message) if anchor_message else ""
     status = str(getattr(turn_run, "status", "") or "")
+    recovery_signal = _turn_recovery_control_signal(turn_run, events=events, diagnostics=diagnostics)
     projection_anchor = _projection_anchor(
         session_id=session_id,
         run_id=turn_run_id,
         anchor_turn_id=anchor_turn_id,
         anchor_message_id=anchor_message_id,
         turn_run_id=turn_run_id,
+    )
+    projection_frames: list[dict[str, Any]] = []
+    display_state = "task_live" if projection_frames else "log_only"
+    main_chat_surface = _LIVE_TIMELINE_SURFACE if projection_frames else _LOG_ONLY_SURFACE
+    projection_slices = _projection_slices(
+        slice_ref=turn_run_id,
+        projection_anchor=projection_anchor,
+        frames=projection_frames,
+        display_state=display_state,
+        main_chat_surface=main_chat_surface,
+        log_ref=turn_run_id,
+        tool_event_count=_tool_event_count(projection_frames),
     )
     return {
         "attachment_id": f"runtime-attachment:{turn_run_id}",
@@ -706,18 +722,31 @@ def _turn_runtime_attachment(runtime_host: Any, turn_run: Any, *, history_messag
         "task_id": "",
         "status": status,
         "latest_event_type": _latest_event_type(events),
-        "event_count": _event_count(runtime_host, turn_run_id, fallback=len(events)),
-        "display_state": "log_only",
-        "main_chat_surface": _LOG_ONLY_SURFACE,
+        "event_count": runtime_event_count(runtime_host, turn_run_id, fallback=len(events)),
+        "display_state": display_state,
+        "main_chat_surface": main_chat_surface,
         "projection_anchor": projection_anchor,
-        "public_projection_frames": [],
+        "projection_slices": projection_slices,
         "artifact_refs": [],
+        **({"runtime_control_signal": recovery_signal} if recovery_signal else {}),
         "trace_available": True,
         "debug_trace_ref": turn_run_id,
         "created_at": float(getattr(turn_run, "created_at", 0.0) or 0.0),
         "updated_at": max(_latest_now(events, turn_run), float(getattr(turn_run, "updated_at", 0.0) or 0.0)),
         "authority": "session_runtime_timeline.turn_trace_attachment",
     }
+
+
+def _turn_recovery_control_signal(turn_run: Any, *, events: list[dict[str, Any]], diagnostics: dict[str, Any]) -> dict[str, Any]:
+    diagnostic_signal = _dict_record(diagnostics.get("latest_runtime_control_signal"))
+    if str(diagnostic_signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
+        return diagnostic_signal
+    for event in reversed(list(events or [])):
+        payload = _dict_record(event.get("payload"))
+        signal = _dict_record(payload.get("runtime_control_signal"))
+        if str(signal.get("signal_kind") or "") == "agent_closeout_recovery_required":
+            return signal
+    return {}
 
 
 def _dict_record(value: Any) -> dict[str, Any]:
@@ -747,60 +776,16 @@ def _projection_anchor(
     }
 
 
-def _session_output_commit_state(events: list[dict[str, Any]], *, diagnostics: dict[str, Any], task_run: Any) -> dict[str, Any]:
-    latest: dict[str, Any] = {}
-    for event in list(events or []):
-        payload = _dict_record(event)
-        event_type = str(payload.get("event_type") or "").strip()
-        if event_type not in {
-            "session_output_commit_checked",
-            "session_output_commit_ack",
-            "session_output_commit_failed",
-            "session_output_commit_skipped",
-        }:
-            continue
-        event_payload = _dict_record(payload.get("payload"))
-        state = str(event_payload.get("state") or event_payload.get("status") or "").strip()
-        if event_type == "session_output_commit_checked" and not state:
-            state = "checked"
-        elif event_type == "session_output_commit_ack":
-            state = "committed"
-        elif event_type == "session_output_commit_failed":
-            state = "failed"
-        elif event_type == "session_output_commit_skipped":
-            state = "skipped"
-        latest = {
-            "authority": "session_runtime_timeline.session_output_commit",
-            "state": state,
-            "session_id": str(event_payload.get("session_id") or getattr(task_run, "session_id", "") or ""),
-            "turn_id": str(event_payload.get("turn_id") or diagnostics.get("turn_id") or ""),
-            "task_run_id": str(event_payload.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
-            "task_id": str(event_payload.get("task_id") or getattr(task_run, "task_id", "") or ""),
-            "anchor_message_id": str(event_payload.get("anchor_message_id") or ""),
-            "content_sha256": str(event_payload.get("content_sha256") or ""),
-            "reason": str(event_payload.get("reason") or ""),
-            "commit_event_offset": _int_value(payload.get("offset"), fallback=-1),
-            "checked_event_offset": _int_value(event_payload.get("checked_event_offset"), fallback=-1),
-            "created_at": _float_value(payload.get("created_at"), fallback=0.0),
-        }
-    if latest:
-        return {key: value for key, value in latest.items() if value not in ("", None)}
-    diagnostic_commit = _dict_record(diagnostics.get("output_commit"))
-    state = str(diagnostic_commit.get("state") or diagnostic_commit.get("status") or diagnostics.get("output_commit_status") or "").strip()
-    if not state:
-        return {}
-    return {
-        "authority": "session_runtime_timeline.session_output_commit",
-        "state": state,
-        "session_id": str(diagnostic_commit.get("session_id") or getattr(task_run, "session_id", "") or ""),
-        "turn_id": str(diagnostic_commit.get("turn_id") or diagnostics.get("turn_id") or ""),
-        "task_run_id": str(diagnostic_commit.get("task_run_id") or getattr(task_run, "task_run_id", "") or ""),
-        "task_id": str(diagnostic_commit.get("task_id") or getattr(task_run, "task_id", "") or ""),
-        "anchor_message_id": str(diagnostic_commit.get("anchor_message_id") or ""),
-        "content_sha256": str(diagnostic_commit.get("content_sha256") or ""),
-        "reason": str(diagnostic_commit.get("reason") or ""),
-        "commit_event_offset": _int_value(diagnostic_commit.get("event_offset"), fallback=-1),
-    }
+def _event_dict(event: Any) -> dict[str, Any]:
+    if isinstance(event, dict):
+        return dict(event)
+    to_dict = getattr(event, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return dict(to_dict())
+        except Exception:
+            return {}
+    return {}
 
 
 def _int_value(value: Any, *, fallback: int = 0) -> int:
@@ -815,51 +800,6 @@ def _float_value(value: Any, *, fallback: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return fallback
-
-
-def _recent_events(runtime_host: Any, task_run_id: str, *, limit: int) -> list[Any]:
-    window_reader = getattr(runtime_host.event_log, "list_event_window", None)
-    if callable(window_reader):
-        try:
-            return list(window_reader(task_run_id, limit=max(1, int(limit or 160)), include_payloads=True))
-        except TypeError:
-            try:
-                return list(window_reader(task_run_id, limit=max(1, int(limit or 160))))
-            except Exception:
-                pass
-        except Exception:
-            pass
-    reader = getattr(runtime_host.event_log, "list_recent_events", None)
-    if callable(reader):
-        try:
-            return list(reader(task_run_id, limit=max(1, int(limit or 160))))
-        except TypeError:
-            return list(reader(task_run_id))
-        except Exception:
-            return []
-    all_events_reader = getattr(runtime_host.event_log, "list_events", None)
-    if callable(all_events_reader):
-        try:
-            return list(all_events_reader(task_run_id))[-max(1, int(limit or 160)) :]
-        except Exception:
-            return []
-    return []
-
-
-def _event_count(runtime_host: Any, task_run_id: str, *, fallback: int) -> int:
-    estimator = getattr(runtime_host.event_log, "estimated_event_count", None)
-    if callable(estimator):
-        try:
-            return int(estimator(task_run_id))
-        except Exception:
-            return int(fallback)
-    counter = getattr(runtime_host.event_log, "event_count", None)
-    if callable(counter):
-        try:
-            return int(counter(task_run_id))
-        except Exception:
-            return int(fallback)
-    return int(fallback)
 
 
 def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:

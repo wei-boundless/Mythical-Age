@@ -43,6 +43,12 @@ function requestTimeoutMs(path: string) {
   if (path === "/sessions") {
     return 15000;
   }
+  if (isSessionRuntimeProjectionPath(path)) {
+    return 8000;
+  }
+  if (isSessionTokensPath(path)) {
+    return 8000;
+  }
   if (path.includes("/project-binding/select-directory") || path.includes("/project-workspaces/select-directory")) {
     return 90000;
   }
@@ -79,12 +85,26 @@ function requestTimeoutReason(path: string, timeoutMs: number) {
 }
 
 function shouldRetryGetRequest(path: string) {
-  return !isSessionTimelinePath(path);
+  return !isNonRetriableSessionObservationPath(path);
+}
+
+function isNonRetriableSessionObservationPath(path: string) {
+  return isSessionTimelinePath(path) || isSessionRuntimeProjectionPath(path) || isSessionTokensPath(path);
 }
 
 function isSessionTimelinePath(path: string) {
   const pathname = String(path || "").split("?")[0];
   return /^\/sessions\/[^/]+\/timeline$/.test(pathname);
+}
+
+function isSessionRuntimeProjectionPath(path: string) {
+  const pathname = String(path || "").split("?")[0];
+  return /^\/sessions\/[^/]+\/runtime-projection$/.test(pathname);
+}
+
+function isSessionTokensPath(path: string) {
+  const pathname = String(path || "").split("?")[0];
+  return /^\/tokens\/session\/[^/]+$/.test(pathname);
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {

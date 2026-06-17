@@ -1,21 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { chatMessageRenderKeys, sessionContextMeterPresentation, shouldSuppressSessionActivityBar } from "./ChatPanel";
-import type { Message, MessagePublicProjection, TokenStats } from "@/lib/store/types";
+import {
+  chatMessageRenderKeys,
+  chatTaskMonitorIsActive,
+  liveAssistantMessageIdForMessages,
+  sessionContextMeterPresentation,
+  shouldSuppressSessionActivityBar,
+} from "./ChatPanel";
+import type { ChronologicalProjectionView } from "@/lib/projection/chronological";
+import type { Message, TokenStats } from "@/lib/store/types";
 
-function publicProjection(patch: Partial<MessagePublicProjection>): MessagePublicProjection {
+function projectionView(patch: Partial<ChronologicalProjectionView>): ChronologicalProjectionView {
   return {
-    bodyText: "",
+    displayMode: "live",
+    canonicalContent: "",
+    copyText: "",
     bodyState: "streaming",
-    bodyBlocks: [],
-    pinned: [],
-    finalResults: [],
-    status: [],
-    trace: [],
-    timeline: [],
+    blocks: [],
+    toolEventCount: 0,
     traceAvailable: false,
-    traceCount: 0,
-    commitState: "none",
+    diagnostics: [],
     ...patch,
   };
 }
@@ -66,11 +70,12 @@ describe("ChatPanel", () => {
     ], true)).toBe(true);
   });
 
-  it("hides footer activity when publicProjection body owns visible feedback", () => {
+  it("hides footer activity when projection body owns visible feedback", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
-        publicProjection: publicProjection({
-          bodyText: "我已经形成稳定结论。",
+        projectionView: projectionView({
+          canonicalContent: "我已经形成稳定结论。",
+          copyText: "我已经形成稳定结论。",
           bodyState: "finalized",
         }),
       }),
@@ -80,16 +85,29 @@ describe("ChatPanel", () => {
   it("hides footer activity when projection activity exists without promoting it to prose", () => {
     expect(shouldSuppressSessionActivityBar([
       message({
-        publicProjection: publicProjection({
-          currentAction: {
-            itemId: "tool:read",
-            slot: "current_action",
-            text: "读取投影链路",
+        projectionView: projectionView({
+          blocks: [{
+            kind: "tool_event",
+            id: "tool:read",
+            title: "读取投影链路",
+            detail: "",
             state: "running",
-            mainVisibility: "visible_live",
-            retention: "transient",
+            target: "",
+            commandLine: "read_file",
+            output: "系统调用运行中。",
             toolCallId: "call:read",
-          },
+            toolLifecycleId: "",
+            toolName: "read_file",
+            actionKind: "",
+            argumentsPreview: "",
+            sourceItemId: "",
+            sourceEventType: "tool_call_requested",
+            sourceEventId: "event:tool",
+            firstOffset: 1,
+            lastOffset: 1,
+          }],
+          toolEventCount: 1,
+          traceAvailable: true,
         }),
       }),
     ], true)).toBe(true);
@@ -175,6 +193,93 @@ describe("ChatPanel", () => {
       "history-message:turn:1:assistant:duplicate-1",
       "history-message:turn:2:user",
     ]);
+  });
+
+  it("keeps a running task timeline attached to its bound assistant message after later replies", () => {
+    const messages = [
+      message({
+        id: "assistant:task",
+        sourceTaskRunId: "taskrun:active",
+        sourceTurnId: "turn:session:3",
+      }),
+      message({
+        id: "assistant:continue",
+        sourceTurnId: "turn:session:5",
+      }),
+    ];
+
+    expect(liveAssistantMessageIdForMessages(messages, {
+      activeTurnSnapshot: {
+        turn_id: "turn:session:3",
+        task_run_id: "taskrun:active",
+        state: "running_task",
+      },
+      currentSessionReceivingStream: true,
+      currentTaskIsRunning: true,
+      taskGraphLiveMonitor: null,
+    })).toBe("assistant:task");
+  });
+
+  it("does not move a bound task timeline to the latest assistant when no binding matches", () => {
+    expect(liveAssistantMessageIdForMessages([
+      message({ id: "assistant:old", sourceTaskRunId: "taskrun:old" }),
+      message({ id: "assistant:latest" }),
+    ], {
+      activeTurnSnapshot: {
+        turn_id: "turn:session:3",
+        task_run_id: "taskrun:active",
+        state: "running_task",
+      },
+      currentSessionReceivingStream: true,
+      currentTaskIsRunning: true,
+      taskGraphLiveMonitor: null,
+    })).toBe("");
+  });
+
+  it("falls back to the latest assistant for an unbound normal stream", () => {
+    expect(liveAssistantMessageIdForMessages([
+      message({ id: "assistant:old" }),
+      message({ id: "assistant:latest" }),
+    ], {
+      activeTurnSnapshot: null,
+      currentSessionReceivingStream: true,
+      currentTaskIsRunning: false,
+      taskGraphLiveMonitor: null,
+    })).toBe("assistant:latest");
+  });
+
+  it("ignores stale diagnostic monitors when selecting the live assistant for a new stream", () => {
+    expect(liveAssistantMessageIdForMessages([
+      message({ id: "assistant:stale", sourceTaskRunId: "taskrun:stale" }),
+      message({ id: "assistant:latest" }),
+    ], {
+      activeTurnSnapshot: null,
+      currentSessionReceivingStream: true,
+      currentTaskIsRunning: false,
+      taskGraphLiveMonitor: {
+        task_run_id: "taskrun:stale",
+        task_run: { task_run_id: "taskrun:stale", status: "waiting_executor" },
+        status: "waiting_executor",
+        lifecycle: "stale",
+        bucket: "diagnostics",
+        stale: true,
+        is_live: false,
+      } as never,
+    })).toBe("assistant:latest");
+  });
+
+  it("treats a live task monitor as active even before the session summary catches up", () => {
+    expect(chatTaskMonitorIsActive({
+      task_run_id: "taskrun:active",
+      status: "running",
+      lifecycle: "running",
+      bucket: "running",
+      is_live: true,
+      task_run: {
+        task_run_id: "taskrun:active",
+        status: "running",
+      },
+    } as never)).toBe(true);
   });
 
   it("uses current context rather than internal compaction pressure for the user meter", () => {
