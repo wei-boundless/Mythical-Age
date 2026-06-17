@@ -206,7 +206,6 @@ function BodyNote({ entry }: { entry: ActivityEntry }) {
       data-activity-kind={entry.kind}
       data-status-tone={statusTone}
     >
-      <div className="public-run-activity__body-note-label">{entry.statusLabel || "正文记录"}</div>
       <div className="public-run-activity__body markdown">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {bodyText}
@@ -330,7 +329,6 @@ function bodyEntryFromBlock(block: Extract<ProjectionRenderBlock, { kind: "body_
     kind: "body_note",
     sections: [],
     state: cleanText(block.state).toLowerCase() || "done",
-    statusLabel: "正文记录",
     statusTone: "done",
     text: bodyText,
   };

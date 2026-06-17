@@ -20,6 +20,7 @@ class VSCodeContextRequest(BaseModel):
     workspace_roots: list[str] = Field(default_factory=list)
     active_file: dict[str, Any] = Field(default_factory=dict)
     visible_files: list[dict[str, Any]] = Field(default_factory=list)
+    open_tabs: list[dict[str, Any]] = Field(default_factory=list)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
     limits: dict[str, Any] = Field(default_factory=dict)
 

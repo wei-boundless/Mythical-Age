@@ -9,6 +9,7 @@ from .items import action_kind_for_tool
 from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
 from runtime.output_stream.public_contract import (
     ASSISTANT_BODY_EVENT_FAMILY,
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
@@ -249,6 +250,8 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _agent_todo_hidden_trace_spec(data, state="running")
     if event_type == ASSISTANT_TEXT_DELTA_EVENT:
         return _assistant_body_spec(data, op="body_append", state="running", retention="transient")
+    if event_type == ASSISTANT_PUBLIC_FEEDBACK_EVENT:
+        return _assistant_public_feedback_spec(data)
     if event_type == ASSISTANT_TEXT_FINAL_EVENT:
         return _assistant_body_spec(data, op="body_finalize", state="done", retention="final")
     if event_type == ASSISTANT_STREAM_REPAIR_EVENT:
@@ -797,26 +800,47 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
             "state": text(data.get("status")) or "running",
             "trace_refs": _trace_refs(data),
         }
-    if presentation_source.startswith("model_action.") and (title or detail):
-        body_text = _runtime_step_summary_body_text(title=title, detail=detail)
-        return {
-            "op": "body_append",
-            "slot": "body",
-            "source_authority": "model",
-            "event_family": ASSISTANT_BODY_EVENT_FAMILY,
-            "channel": BODY_PUBLIC_CHANNEL,
-            "lossless": True,
-            "main_visibility": "visible_live",
-            "retention": "transient",
-            "frame_id": _runtime_stage_status_frame_id(data, title=title, detail=detail),
-            "item_id": _runtime_step_summary_body_item_id(data, title=title, detail=detail),
-            "title": title,
-            "text": body_text,
-            "detail": detail,
-            "state": text(data.get("status")) or "running",
-            "trace_refs": _trace_refs(data),
-        }
     return _hidden_trace_spec("runtime_step_summary", data)
+
+
+def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
+    title, detail = _assistant_public_feedback_parts(data)
+    body_text = _runtime_step_summary_body_text(title=title, detail=detail)
+    return {
+        "op": "body_append",
+        "slot": "body",
+        "source_authority": "model",
+        "event_family": ASSISTANT_BODY_EVENT_FAMILY,
+        "channel": BODY_PUBLIC_CHANNEL,
+        "lossless": True,
+        "main_visibility": "visible_live",
+        "retention": "transient",
+        "frame_id": _assistant_public_feedback_frame_id(data, title=title, detail=detail),
+        "item_id": _assistant_public_feedback_item_id(data, title=title, detail=detail),
+        "title": title,
+        "text": body_text,
+        "detail": detail,
+        "state": text(data.get("status")) or "running",
+        "trace_refs": _trace_refs(data),
+    }
+
+
+def _assistant_public_feedback_parts(data: dict[str, Any]) -> tuple[str, str]:
+    progress_note = public_text(data.get("public_progress_note"), limit=180)
+    current_judgment = public_text(data.get("current_judgment"), limit=180)
+    next_action = public_text(data.get("next_action"), limit=220)
+    agent_brief = public_text(data.get("agent_brief_output"), limit=220)
+    summary = public_text(data.get("summary"), limit=180)
+    title = _public_runtime_step_title(data, progress_note or current_judgment or summary)
+    detail = next(
+        (
+            value
+            for value in (current_judgment, next_action, agent_brief)
+            if value and value != title
+        ),
+        "",
+    )
+    return title, detail
 
 
 def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
@@ -975,16 +999,29 @@ def _normalized_body_text(value: str) -> str:
     return " ".join(text(value).split()).strip()
 
 
-def _runtime_step_summary_body_item_id(data: dict[str, Any], *, title: str, detail: str) -> str:
+def _assistant_public_feedback_item_id(data: dict[str, Any], *, title: str, detail: str) -> str:
     feedback_identity = text(data.get("feedback_identity"))
     if feedback_identity:
-        return stable_id("model-action-feedback-body", feedback_identity)
+        return stable_id("assistant-public-feedback", feedback_identity)
     return stable_id(
-        "model-action-feedback-body",
+        "assistant-public-feedback",
         data.get("runtime_event_id"),
         data.get("source_task_event_id"),
         data.get("source_task_event_offset"),
-        data.get("step"),
+        title,
+        detail,
+    )
+
+
+def _assistant_public_feedback_frame_id(data: dict[str, Any], *, title: str, detail: str) -> str:
+    feedback_identity = text(data.get("feedback_identity"))
+    if feedback_identity:
+        return stable_id("assistant-public-feedback-frame", feedback_identity)
+    return stable_id(
+        "assistant-public-feedback-frame",
+        data.get("runtime_event_id"),
+        data.get("source_task_event_id"),
+        data.get("source_task_event_offset"),
         title,
         detail,
     )

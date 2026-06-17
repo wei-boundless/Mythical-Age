@@ -119,7 +119,7 @@ def test_single_agent_turn_projection_separates_assistant_text_from_control_acti
     assert feedback_contract.get("system_must_not_synthesize_user_semantic_text") is True
     assert "public_progress_note" in list(feedback_contract.get("json_action_feedback_fields") or [])
     assert native_feedback_contract.get("assistant_content_preamble_is_public_feedback") is True
-    assert native_feedback_contract.get("projection_target") == "runtime_step_summary"
+    assert native_feedback_contract.get("projection_target") == "assistant_public_feedback"
     assert native_feedback_contract.get("missing_preamble_policy") == "record_contract_gap_without_synthesizing_body"
     assert "直接用普通助手正文回答" in model_input
     assert "控制动作必须输出" in model_input
@@ -174,11 +174,11 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     tool_observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
     done = next(event for event in events if event.get("type") == "done")
     assistant_finals = [dict(event) for event in events if event.get("type") == "assistant_text_final"]
-    runtime_step_summaries = [
+    public_feedback_events = [
         dict(event)
         for event in events
-        if event.get("type") == "runtime_step_summary"
-        and event.get("presentation_source") == "model_action.public_progress_note"
+        if event.get("type") == "assistant_public_feedback"
+        and event.get("presentation_source") == "model_action.assistant_content_preamble"
     ]
     followup_messages = [dict(item) for item in list(model.seen_messages[-1] or []) if isinstance(item, dict)]
     assistant_tool_message = next(item for item in followup_messages if item.get("role") == "assistant" and item.get("tool_calls"))
@@ -200,14 +200,17 @@ def test_single_agent_turn_read_only_tool_executes_through_control_plane_and_fol
     assert done["answer_source"] == "harness.single_agent_turn"
     assert "已经读取 requirements.txt。" in str(done.get("content") or "")
     assert assistant_finals and assistant_finals[-1]["content"] == "已经读取 requirements.txt。"
-    assert len(runtime_step_summaries) == 1
-    assert runtime_step_summaries[0]["public_progress_note"] == "我先读取 requirements.txt，再回答依赖状态。"
+    assert len(public_feedback_events) == 1
+    assert public_feedback_events[0]["public_progress_note"] == "我先读取 requirements.txt，再回答依赖状态。"
+    from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
+
     projected_feedback = project_public_projection_event(
-        "runtime_step_summary",
-        runtime_step_summaries[0],
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        public_feedback_events[0],
         session_id="session-single-turn-read-tool",
         sequence=1,
     )["public_projection_frame"]
+    assert projected_feedback["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
     assert projected_feedback["op"] == "body_append"
     assert projected_feedback["slot"] == "body"
     assert projected_feedback["source_authority"] == "model"

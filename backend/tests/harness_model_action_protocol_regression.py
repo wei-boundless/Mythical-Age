@@ -1321,11 +1321,11 @@ def test_single_agent_continues_corrected_tool_call_after_failed_tool_without_pr
 
     events = asyncio.run(_collect())
     observations = [dict(event.get("tool_observation") or {}) for event in events if event.get("type") == "tool_observation"]
-    runtime_step_summaries = [
+    public_feedback_events = [
         dict(event)
         for event in events
-        if event.get("type") == "runtime_step_summary"
-        and event.get("presentation_source") == "model_action.public_progress_note"
+        if event.get("type") == "assistant_public_feedback"
+        and str(event.get("presentation_source") or "").startswith("model_action.")
     ]
     admissions = _admission_payloads(events)
     control_signals = [
@@ -1347,7 +1347,7 @@ def test_single_agent_continues_corrected_tool_call_after_failed_tool_without_pr
     assert len(observations) == 2
     assert observations[0]["status"] == "error"
     assert observations[1]["status"] == "ok"
-    assert [item["public_progress_note"] for item in runtime_step_summaries] == ["我先读取目标文件，确认当前结构。"]
+    assert [item["public_progress_note"] for item in public_feedback_events] == ["我先读取目标文件，确认当前结构。"]
     assert "public_response_missing_for_native_tool_call" in dict(
         tool_admissions[1].get("diagnostics") or {}
     ).get("contract_gaps", [])

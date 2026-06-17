@@ -48,6 +48,7 @@ from runtime.output_boundary import (
     contains_internal_protocol,
     sanitize_visible_assistant_content,
 )
+from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT
 from runtime.shared.models import TurnRun
 from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
 from runtime.tool_runtime import ToolInvocationRequest, ToolObservation, build_round_tool_call_options, build_tool_invocation_id
@@ -1689,7 +1690,7 @@ async def run_single_agent_turn(
                 and runtime_host is not None
                 and turn_run is not None
             ):
-                yield _record_step_summary(
+                yield _record_assistant_public_feedback(
                     runtime_host,
                     run_id=turn_run.turn_run_id,
                     turn_id=turn_id,
@@ -5446,6 +5447,54 @@ def _record_step_summary(
     presentation_source: str = "",
     feedback_identity: str = "",
 ) -> dict[str, Any]:
+    payload, event = _append_step_summary_record(
+        runtime_host,
+        run_id=run_id,
+        turn_id=turn_id,
+        step=step,
+        status=status,
+        summary=summary,
+        presentation_source=presentation_source,
+        feedback_identity=feedback_identity,
+    )
+    return {"type": "runtime_step_summary", **payload, "event": event}
+
+
+def _record_assistant_public_feedback(
+    runtime_host: Any,
+    *,
+    run_id: str,
+    turn_id: str,
+    step: str,
+    status: str,
+    summary: str,
+    presentation_source: str = "",
+    feedback_identity: str = "",
+) -> dict[str, Any]:
+    payload, event = _append_step_summary_record(
+        runtime_host,
+        run_id=run_id,
+        turn_id=turn_id,
+        step=step,
+        status=status,
+        summary=summary,
+        presentation_source=presentation_source,
+        feedback_identity=feedback_identity,
+    )
+    return {"type": ASSISTANT_PUBLIC_FEEDBACK_EVENT, **payload, "event": event}
+
+
+def _append_step_summary_record(
+    runtime_host: Any,
+    *,
+    run_id: str,
+    turn_id: str,
+    step: str,
+    status: str,
+    summary: str,
+    presentation_source: str = "",
+    feedback_identity: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     visible_summary = public_runtime_progress_summary(summary)
     payload = {
         "turn_id": turn_id,
@@ -5483,7 +5532,7 @@ def _record_step_summary(
                 },
             )
         )
-    return {"type": "runtime_step_summary", **payload, "event": event.to_dict()}
+    return payload, event.to_dict()
 
 
 def _model_public_feedback_identity(

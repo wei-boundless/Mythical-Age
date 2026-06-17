@@ -468,7 +468,12 @@ function bodySemanticKey(normalized: NormalizedProjectionFrame) {
   const frame = normalized.frame;
   if (normalized.sourceAuthority !== "model" || normalized.slot !== "body") return "";
   const itemId = text(frame.item_id || frame.source_item_id);
-  if (normalized.sourceEventType === "runtime_step_summary" || itemId.startsWith("model-action-feedback-body:")) {
+  if (
+    normalized.sourceEventType === "assistant_public_feedback"
+    || normalized.sourceEventType === "runtime_step_summary"
+    || itemId.startsWith("assistant-public-feedback:")
+    || itemId.startsWith("model-action-feedback-body:")
+  ) {
     return itemId;
   }
   return "";

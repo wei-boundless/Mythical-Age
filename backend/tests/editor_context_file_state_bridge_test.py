@@ -12,8 +12,10 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
     workspace = tmp_path / "workspace"
     storage_root = tmp_path / "runtime-state"
     active_path = workspace / "src" / "app.py"
+    open_path = workspace / "src" / "settings.py"
     active_path.parent.mkdir(parents=True)
     active_path.write_text("print('saved')\n", encoding="utf-8")
+    open_path.write_text("SETTING = True\n", encoding="utf-8")
 
     projection = DynamicContextManager(base_dir=workspace).project(
         DynamicContextInput(
@@ -55,6 +57,10 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
                 "visible_files": [
                     {"path": str(active_path), "language_id": "python", "dirty": True},
                 ],
+                "open_tabs": [
+                    {"path": str(active_path), "label": "app.py", "language_id": "python", "dirty": True, "active": True, "visible": True},
+                    {"path": str(open_path), "label": "settings.py", "language_id": "python", "dirty": False, "active": False, "visible": False},
+                ],
                 "diagnostics": [],
             },
         )
@@ -70,6 +76,9 @@ def test_editor_context_bridges_active_file_into_task_file_state(tmp_path: Path)
     assert file_state[0]["editor_state"]["content_preview"]["source"] == "dirty_buffer"
     assert file_state[0]["stale_reason"] == "editor buffer is dirty; disk reads may be stale"
     assert any(item["source"] == "editor_selection" for item in file_state[0]["read_ranges"])
+    assert file_state[1]["path"] == "src/settings.py"
+    assert file_state[1]["status"] == "editor_open"
+    assert file_state[1]["editor_state"]["open"] is True
 
 
 def test_editor_context_file_state_does_not_replace_stored_read_file_state(tmp_path: Path) -> None:

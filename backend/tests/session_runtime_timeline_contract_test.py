@@ -6,6 +6,7 @@ from harness.loop.agent_correction_lifecycle import agent_correction_lifecycle_p
 from harness.runtime.projection.projector import project_public_projection_event
 from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
 from runtime.output_stream.public_contract import (
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     TOOL_ITEM_COMPLETED_EVENT,
@@ -642,7 +643,7 @@ def test_session_runtime_projection_keeps_complete_committed_slice_beyond_frame_
     assert slice_["display_hint"]["tool_event_count"] == 50
 
 
-def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summaries() -> None:
+def test_session_runtime_timeline_restores_model_feedback_identity_for_public_feedback() -> None:
     task_run_id = "taskrun:turn:session-a:1:abc"
     stream_run_id = "strun:session-a:1"
     task_run = SimpleNamespace(
@@ -690,7 +691,7 @@ def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summ
         public_events_by_stream_run={
             stream_run_id: [
                 _public_ledger_record(
-                    "runtime_step_summary",
+                    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
                     {
                         "summary": "我先核对当前正文。",
                         "public_progress_note": "我先核对当前正文。",
@@ -715,8 +716,10 @@ def test_session_runtime_timeline_restores_model_feedback_identity_for_step_summ
     stream_attachment = next(item for item in timeline["runtime_attachments"] if item.get("stream_run_id") == stream_run_id)
     assert task_attachment["main_chat_surface"] == "log_only"
     assert task_attachment["projection_slices"] == []
-    assert _projection_frames(stream_attachment)[0]["item_id"]
-    assert _projection_frames(stream_attachment)[0]["frame_id"]
+    frame = _projection_frames(stream_attachment)[0]
+    assert frame["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
+    assert frame["item_id"].startswith("assistant-public-feedback:")
+    assert frame["frame_id"].startswith("assistant-public-feedback-frame:")
 
 
 def test_session_runtime_timeline_sanitizes_legacy_protocol_repair_frames() -> None:

@@ -601,7 +601,7 @@ describe("chronological projection frame reducer contract", () => {
   it("deduplicates replayed model feedback body by semantic feedback identity", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
-      source_event_type: "runtime_step_summary",
+      source_event_type: "assistant_public_feedback",
       op: "body_append",
       slot: "body",
       source_authority: "model",
@@ -610,11 +610,11 @@ describe("chronological projection frame reducer contract", () => {
       main_visibility: "visible_live",
       retention: "transient",
       frame_id: "frame:live-feedback",
-      item_id: "model-action-feedback-body:feedback:1",
+      item_id: "assistant-public-feedback:feedback:1",
       text: "正在核对当前文件。\n\n下一步执行修改。",
     });
     transition = project(transition, {
-      source_event_type: "runtime_step_summary",
+      source_event_type: "assistant_public_feedback",
       op: "body_append",
       slot: "body",
       source_authority: "model",
@@ -623,7 +623,7 @@ describe("chronological projection frame reducer contract", () => {
       main_visibility: "visible_live",
       retention: "transient",
       frame_id: "frame:history-replay-feedback",
-      item_id: "model-action-feedback-body:feedback:1",
+      item_id: "assistant-public-feedback:feedback:1",
       text: "正在核对当前文件。\n\n下一步执行修改。",
     });
 
@@ -632,7 +632,7 @@ describe("chronological projection frame reducer contract", () => {
     const ledger = latestLedger(transition.state);
     expect(view?.canonicalContent).toBe("正在核对当前文件。\n\n下一步执行修改。");
     expect(view?.blocks.filter((block) => block.kind === "body_segment")).toHaveLength(1);
-    expect(ledger?.bodySegments[0]?.sourceKeys).toContain("model-action-feedback-body:feedback:1");
+    expect(ledger?.bodySegments[0]?.sourceKeys).toContain("assistant-public-feedback:feedback:1");
   });
 
   it("rejects stale task frames from a different turn even when task_run_id is shared", () => {
@@ -691,16 +691,16 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.canonicalContent).not.toContain("旧时序内容");
   });
 
-  it("uses commit_ack as the commit authority and folds pre-closeout content into an archive", () => {
+  it("uses final body phase as the archive boundary while commit_ack only marks committed state", () => {
     let transition = startBoundProjectionTurn();
     transition = project(transition, {
-      source_event_type: "runtime_step_summary",
+      source_event_type: "assistant_public_feedback",
       op: "body_append",
       slot: "body",
       source_authority: "model",
       main_visibility: "visible_live",
       retention: "transient",
-      item_id: "model-action-feedback-body:before-closeout",
+      item_id: "assistant-public-feedback:before-closeout",
       text: "收口前的过程正文。",
     });
     transition = project(transition, {
@@ -715,6 +715,35 @@ describe("chronological projection frame reducer contract", () => {
       state: "running",
     });
     transition = project(transition, {
+      source_event_type: "assistant_public_feedback",
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "assistant-public-feedback:closeout-shadow",
+      text: "最终正文。",
+    });
+    transition = project(transition, {
+      source_event_type: "assistant_text_delta",
+      op: "body_append",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      text: "最终正文。",
+    });
+    transition = project(transition, {
+      source_event_type: "assistant_stream_repair",
+      op: "body_finalize",
+      slot: "body",
+      source_authority: "model",
+      main_visibility: "visible_live",
+      retention: "transient",
+      text: "最终正文。",
+    });
+    transition = project(transition, {
+      source_event_type: "assistant_text_final",
       op: "body_finalize",
       slot: "body",
       source_authority: "model",
@@ -748,12 +777,40 @@ describe("chronological projection frame reducer contract", () => {
         kind: "activity_archive",
         title: "本轮记录",
         blocks: [
-          expect.objectContaining({ kind: "body_segment", text: "收口前的过程正文。" }),
+          expect.objectContaining({
+            kind: "body_segment",
+            sourceEventType: "assistant_public_feedback",
+            text: "收口前的过程正文。",
+          }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:verify" }),
         ],
       }),
-      expect.objectContaining({ kind: "body_segment", text: "最终正文。" }),
+      expect.objectContaining({
+        kind: "body_segment",
+        sourceEventType: "assistant_text_final",
+        text: "最终正文。",
+      }),
       expect.objectContaining({ kind: "log_entry" }),
+    ]);
+    const archive = view?.blocks.find((block) => block.kind === "activity_archive");
+    expect(archive).toEqual(expect.objectContaining({
+      blocks: expect.not.arrayContaining([
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_delta" }),
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_stream_repair" }),
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_final" }),
+        expect.objectContaining({
+          kind: "body_segment",
+          sourceEventType: "assistant_public_feedback",
+          text: "最终正文。",
+        }),
+      ]),
+    }));
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([
+      expect.objectContaining({
+        kind: "body_segment",
+        sourceEventType: "assistant_text_final",
+        text: "最终正文。",
+      }),
     ]);
     expect(view?.blocks.some((block) => block.kind === "log_entry")).toBe(true);
   });

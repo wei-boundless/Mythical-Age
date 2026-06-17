@@ -6559,8 +6559,27 @@ def _steer_editor_context_projection(value: Any) -> dict[str, Any]:
             continue
         visible_files.append({
             "path": path,
+            "label": compact_text(item.get("label") or "", limit=240),
             "language_id": compact_text(item.get("language_id") or item.get("languageId") or "", limit=80),
             "dirty": bool(item.get("dirty") is True),
+        })
+    open_tabs = []
+    seen_open_tabs: set[str] = set()
+    for item in list(value.get("open_tabs") or [])[:24]:
+        if not isinstance(item, dict):
+            continue
+        path = compact_text(item.get("path") or item.get("uri") or "", limit=500)
+        key = path.replace("\\", "/").rstrip("/").lower()
+        if not path or key in seen_open_tabs:
+            continue
+        seen_open_tabs.add(key)
+        open_tabs.append({
+            "path": path,
+            "label": compact_text(item.get("label") or "", limit=240),
+            "language_id": compact_text(item.get("language_id") or item.get("languageId") or "", limit=80),
+            "dirty": bool(item.get("dirty") is True),
+            "active": bool(item.get("active") is True),
+            "visible": bool(item.get("visible") is True),
         })
     workspace_roots = [
         compact_text(item, limit=500)
@@ -6573,6 +6592,7 @@ def _steer_editor_context_projection(value: Any) -> dict[str, Any]:
         "workspace_roots": workspace_roots,
         "active_file": active_file,
         "visible_files": visible_files,
+        "open_tabs": open_tabs,
         "notes": [
             "This editor context belongs only to this pending user steer.",
             "It is contextual evidence, not a file permission grant.",
@@ -6590,6 +6610,7 @@ def _steer_active_file_projection(value: Any) -> dict[str, Any]:
     content_preview = value.get("content_preview") if isinstance(value.get("content_preview"), dict) else {}
     payload = {
         "path": compact_text(value.get("path") or value.get("uri") or "", limit=500),
+        "label": compact_text(value.get("label") or "", limit=240),
         "language_id": compact_text(value.get("language_id") or value.get("languageId") or "", limit=80),
         "dirty": bool(value.get("dirty") is True),
         "selection": _steer_text_range_projection(selection, text_limit=12000),

@@ -72,10 +72,15 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
     retention: segment.retention,
     mainVisibility: segment.mainVisibility,
   }));
-  const closeoutMode = displayMode === "committed" || displayMode === "closeout";
-  const closeoutBodyBlocks = closeoutMode ? bodyBlocks.filter(isCloseoutBodyBlock) : bodyBlocks;
-  const archivedBodyBlocks = closeoutMode ? bodyBlocks.filter((block) => !isCloseoutBodyBlock(block)) : [];
   const activityBlocks = [...todoBlocks, ...toolBlocks, ...statusBlocks];
+  const closeoutMode = displayMode === "committed" || displayMode === "closeout";
+  const closeoutBoundaryOffset = closeoutMode ? closeoutBodyBoundaryOffset(bodyBlocks, activityBlocks) : undefined;
+  const closeoutBodyBlocks = closeoutMode
+    ? bodyBlocks.filter((block) => isCloseoutBodyBlock(block, ledger.bodyText, closeoutBoundaryOffset))
+    : bodyBlocks;
+  const archivedBodyBlocks = closeoutMode
+    ? bodyBlocks.filter((block) => isArchivedBodyBlock(block, ledger.bodyText, closeoutBoundaryOffset))
+    : [];
   const lifecycleBlocks = closeoutMode
     ? activityArchiveBlocks(ledger, [...archivedBodyBlocks, ...activityBlocks])
     : activityBlocks;
@@ -175,11 +180,95 @@ function blockId(block: ProjectionRenderBlock) {
   return block.id;
 }
 
-function isCloseoutBodyBlock(block: { id?: string; retention?: string; sourceEventType?: string }) {
+function closeoutBodyBoundaryOffset(
+  bodyBlocks: Array<{ firstOffset: number; sourceEventType?: string; mainVisibility?: string }>,
+  activityBlocks: ProjectionRenderBlock[],
+) {
+  const finalOffsets = bodyBlocks
+    .filter(isExplicitFinalBodyBlock)
+    .map((block) => block.firstOffset);
+  if (!finalOffsets.length) return undefined;
+  const firstFinalOffset = Math.min(...finalOffsets);
+  const priorActivityOffsets = activityBlocks
+    .map(blockOffset)
+    .filter((offset) => Number.isFinite(offset) && offset < firstFinalOffset);
+  if (!priorActivityOffsets.length) return Number.NEGATIVE_INFINITY;
+  return Math.max(...priorActivityOffsets);
+}
+
+function isExplicitFinalBodyBlock(block: { sourceEventType?: string; mainVisibility?: string }) {
   const sourceEventType = String(block.sourceEventType ?? "");
+  const mainVisibility = String(block.mainVisibility ?? "");
+  return sourceEventType === "assistant_text_final" || mainVisibility === "visible_final";
+}
+
+function isCloseoutBodyBlock(
+  block: { id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string },
+  finalBodyText = "",
+  closeoutBoundaryOffset?: number,
+) {
   const retention = String(block.retention ?? "");
+  if (isExplicitFinalBodyBlock(block)) return true;
+  if (isSupersededCloseoutBody(block, finalBodyText, closeoutBoundaryOffset)) return false;
+  return retention !== "transient" && !isProcessBodyBlock(block);
+}
+
+function isArchivedBodyBlock(
+  block: { id?: string; firstOffset?: number; retention?: string; sourceEventType?: string; mainVisibility?: string; text?: string },
+  finalBodyText = "",
+  closeoutBoundaryOffset?: number,
+) {
+  if (isCloseoutBodyBlock(block, finalBodyText, closeoutBoundaryOffset)) return false;
+  if (isSupersededCloseoutBody(block, finalBodyText, closeoutBoundaryOffset)) return false;
+  return isProcessBodyBlock(block) || String(block.retention ?? "") === "transient";
+}
+
+function isProcessBodyBlock(block: { id?: string; sourceEventType?: string }) {
+  const sourceEventType = String(block.sourceEventType ?? "");
   const id = String(block.id ?? "");
-  if (sourceEventType === "runtime_step_summary") return false;
-  if (id.startsWith("model-action-feedback-body:")) return false;
-  return retention !== "transient";
+  return sourceEventType === "assistant_public_feedback"
+    || sourceEventType === "runtime_step_summary"
+    || id.startsWith("assistant-public-feedback:")
+    || id.startsWith("model-action-feedback-body:");
+}
+
+function isSupersededCloseoutBody(
+  block: { firstOffset?: number; sourceEventType?: string; text?: string },
+  finalBodyText = "",
+  closeoutBoundaryOffset?: number,
+) {
+  const sourceEventType = String(block.sourceEventType ?? "");
+  const finalText = normalizeBodyText(finalBodyText);
+  if (!finalText) return false;
+  if (!bodyIsInCloseoutPhase(block, closeoutBoundaryOffset)) {
+    return false;
+  }
+  if (sourceEventType === "assistant_public_feedback" || sourceEventType === "runtime_step_summary") {
+    return true;
+  }
+  if (sourceEventType === "assistant_stream_repair") {
+    return true;
+  }
+  if (sourceEventType !== "assistant_text_delta") {
+    return false;
+  }
+  const blockText = normalizeBodyText(block.text);
+  return Boolean(
+    blockText
+    && finalText
+    && (
+      blockText === finalText
+      || finalText.startsWith(blockText)
+      || (blockText.length >= 80 && finalText.includes(blockText))
+    )
+  );
+}
+
+function bodyIsInCloseoutPhase(block: { firstOffset?: number }, closeoutBoundaryOffset?: number) {
+  if (closeoutBoundaryOffset === undefined) return false;
+  return Number(block.firstOffset ?? Number.NEGATIVE_INFINITY) > closeoutBoundaryOffset;
+}
+
+function normalizeBodyText(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }

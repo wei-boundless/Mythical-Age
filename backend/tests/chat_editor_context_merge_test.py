@@ -31,6 +31,10 @@ def test_workspace_only_payload_does_not_hide_vscode_active_file(monkeypatch) ->
             "visible_files": [
                 {"path": "D:/AI/langchain-agent/mario.html", "language_id": "html", "dirty": False},
             ],
+            "open_tabs": [
+                {"path": "D:/AI/langchain-agent/mario.html", "label": "mario.html", "language_id": "html", "dirty": False},
+                {"path": "D:/AI/langchain-agent/app.css", "label": "app.css", "language_id": "css", "dirty": False},
+            ],
         }
     )
     monkeypatch.setattr("api.chat.get_vscode_connection_store", lambda: store)
@@ -41,6 +45,7 @@ def test_workspace_only_payload_does_not_hide_vscode_active_file(monkeypatch) ->
             "source": "frontend.center_workspace",
             "workspace_roots": ["D:/AI/langchain-agent"],
             "visible_files": [],
+            "open_tabs": [],
         },
         allow_vscode_fallback=True,
     )
@@ -49,6 +54,10 @@ def test_workspace_only_payload_does_not_hide_vscode_active_file(monkeypatch) ->
     assert merged["active_file"]["path"] == "D:/AI/langchain-agent/mario.html"
     assert merged["active_file"]["content_preview"]["source"] == "vscode_buffer"
     assert merged["visible_files"][0]["path"] == "D:/AI/langchain-agent/mario.html"
+    assert [item["path"] for item in merged["open_tabs"]] == [
+        "D:/AI/langchain-agent/mario.html",
+        "D:/AI/langchain-agent/app.css",
+    ]
     assert merged["merge_reason"] == "payload_workspace_only_vscode_file_focus"
     assert merged["authority"] == "api.chat.effective_editor_context"
 
@@ -59,6 +68,7 @@ def test_payload_active_file_remains_primary_when_vscode_has_other_file(monkeypa
             "source": "vscode",
             "workspace_roots": ["D:/repo"],
             "active_file": {"path": "D:/repo/other.html", "language_id": "html", "dirty": False},
+            "open_tabs": [{"path": "D:/repo/other.html", "label": "other.html", "language_id": "html", "dirty": False}],
         }
     )
     monkeypatch.setattr("api.chat.get_vscode_connection_store", lambda: store)
@@ -70,11 +80,14 @@ def test_payload_active_file_remains_primary_when_vscode_has_other_file(monkeypa
             "workspace_roots": ["D:/repo"],
             "active_file": {"path": "mario.html", "language_id": "html", "dirty": False},
             "visible_files": [{"path": "mario.html", "language_id": "html", "dirty": False}],
+            "open_tabs": [{"path": "mario.html", "label": "mario.html", "language_id": "html", "dirty": False}],
         },
         allow_vscode_fallback=True,
     )
 
     assert merged["active_file"]["path"] == "mario.html"
+    assert merged["open_tabs"][0]["path"] == "mario.html"
+    assert merged["open_tabs"][1]["path"] == "D:/repo/other.html"
     assert merged["merge_reason"] == "payload_editor_context_preferred"
 
 
@@ -108,4 +121,3 @@ def test_payload_active_file_is_enriched_from_matching_vscode_file(monkeypatch) 
     assert merged["active_file"]["dirty"] is True
     assert merged["active_file"]["content_preview"]["source"] == "vscode_buffer"
     assert merged["merge_reason"] == "payload_active_file_enriched_from_vscode"
-

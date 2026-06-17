@@ -7,6 +7,7 @@ from runtime.model_gateway.assistant_stream_frame import (
 )
 
 
+ASSISTANT_PUBLIC_FEEDBACK_EVENT = "assistant_public_feedback"
 TOOL_ITEM_STARTED_EVENT = "tool_item_started"
 TOOL_ITEM_COMPLETED_EVENT = "tool_item_completed"
 TOOL_CALL_REQUESTED_EVENT = "tool_call_requested"
@@ -33,6 +34,7 @@ TERMINAL_PUBLIC_CHANNEL = "terminal"
 STATUS_PUBLIC_CHANNEL = "status"
 
 TRANSCRIPT_PUBLIC_EVENTS = {
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,

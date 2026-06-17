@@ -4,6 +4,7 @@ import type { EditorContextSnapshot, EditorPosition, EditorRange } from "./types
 const SELECTED_TEXT_LIMIT = 8000;
 const ACTIVE_CONTENT_PREVIEW_LIMIT = 24000;
 const VISIBLE_FILES_LIMIT = 20;
+const OPEN_TABS_LIMIT = 100;
 const DIAGNOSTICS_LIMIT = 50;
 const WORKSPACE_ROOTS_LIMIT = 8;
 
@@ -11,6 +12,7 @@ export function collectEditorContext(): EditorContextSnapshot {
   const activeEditor = vscode.window.activeTextEditor;
   const visibleEditors = vscode.window.visibleTextEditors.slice(0, VISIBLE_FILES_LIMIT);
   const activeFile = activeEditor ? activeFileSnapshot(activeEditor) : undefined;
+  const openTabs = collectOpenTabs(activeEditor, visibleEditors);
   const diagnostics = collectDiagnostics();
   return {
     source: "vscode",
@@ -21,15 +23,18 @@ export function collectEditorContext(): EditorContextSnapshot {
     active_file: activeFile,
     visible_files: visibleEditors.map((editor) => ({
       path: documentPath(editor.document),
+      label: documentLabel(editor.document),
       language_id: editor.document.languageId,
       dirty: editor.document.isDirty
     })),
+    open_tabs: openTabs,
     diagnostics,
     limits: {
       selected_text_chars: activeFile?.selection?.text?.length || 0,
       content_preview_chars: activeFile?.content_preview?.text.length || 0,
       diagnostics_count: diagnostics.length,
-      visible_files_count: visibleEditors.length
+      visible_files_count: visibleEditors.length,
+      open_tabs_count: openTabs.length
     }
   };
 }
@@ -41,6 +46,7 @@ function activeFileSnapshot(editor: vscode.TextEditor): NonNullable<EditorContex
   const previewTruncated = documentText.length > ACTIVE_CONTENT_PREVIEW_LIMIT;
   return {
     path: documentPath(editor.document),
+    label: documentLabel(editor.document),
     language_id: editor.document.languageId,
     dirty: editor.document.isDirty,
     selection: {
@@ -56,6 +62,54 @@ function activeFileSnapshot(editor: vscode.TextEditor): NonNullable<EditorContex
     },
     visible_ranges: editor.visibleRanges.map(range).slice(0, 8)
   };
+}
+
+function collectOpenTabs(
+  activeEditor: vscode.TextEditor | undefined,
+  visibleEditors: readonly vscode.TextEditor[]
+): EditorContextSnapshot["open_tabs"] {
+  const activePath = activeEditor ? normalizePathKey(documentPath(activeEditor.document)) : "";
+  const visiblePaths = new Set(visibleEditors.map((editor) => normalizePathKey(documentPath(editor.document))));
+  const documentsByUri = new Map(vscode.workspace.textDocuments.map((document) => [document.uri.toString(), document]));
+  const result: EditorContextSnapshot["open_tabs"] = [];
+  const seen = new Set<string>();
+
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const uri = tabTextUri(tab);
+      if (!uri || uri.scheme !== "file") {
+        continue;
+      }
+      const path = uri.fsPath || uri.toString();
+      const key = normalizePathKey(path);
+      if (!path || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const document = documentsByUri.get(uri.toString());
+      result.push({
+        path,
+        label: tab.label || fileLabel(path),
+        language_id: document?.languageId || languageIdFromPath(path),
+        dirty: Boolean(document?.isDirty),
+        active: Boolean(activePath && key === activePath),
+        visible: visiblePaths.has(key)
+      });
+      if (result.length >= OPEN_TABS_LIMIT) {
+        return result;
+      }
+    }
+  }
+
+  return result;
+}
+
+function tabTextUri(tab: vscode.Tab): vscode.Uri | undefined {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) {
+    return input.uri;
+  }
+  return undefined;
 }
 
 function collectDiagnostics(): EditorContextSnapshot["diagnostics"] {
@@ -78,6 +132,46 @@ function collectDiagnostics(): EditorContextSnapshot["diagnostics"] {
 
 function documentPath(document: vscode.TextDocument): string {
   return document.uri.fsPath || document.uri.toString();
+}
+
+function documentLabel(document: vscode.TextDocument): string {
+  return fileLabel(documentPath(document));
+}
+
+function fileLabel(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() || path;
+}
+
+function normalizePathKey(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function languageIdFromPath(path: string): string {
+  const lower = path.toLowerCase();
+  const extension = lower.includes(".") ? lower.slice(lower.lastIndexOf(".") + 1) : "";
+  switch (extension) {
+    case "ts":
+      return "typescript";
+    case "tsx":
+      return "typescriptreact";
+    case "js":
+      return "javascript";
+    case "jsx":
+      return "javascriptreact";
+    case "py":
+      return "python";
+    case "json":
+      return "json";
+    case "md":
+      return "markdown";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    default:
+      return extension;
+  }
 }
 
 function position(value: vscode.Position): EditorPosition {

@@ -30,6 +30,7 @@ from runtime.model_gateway.assistant_stream_frame import (
     assistant_message_ref,
 )
 from runtime.output_stream.public_contract import (
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
@@ -62,6 +63,7 @@ TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "stopped", "orphaned"}
 TASK_EXECUTOR_HANDOFF_REASONS = {"task_executor_scheduled"}
 TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
@@ -79,6 +81,7 @@ TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
 TASK_BRIDGE_TERMINAL_EVENT_TYPES = {"task_run_lifecycle_finished", "task_run_terminal_observed"}
 TASK_TERMINAL_STATUSES = {"completed", "failed", "blocked", "aborted", "cancelled", "canceled", "stopped", "waiting_executor", "waiting_user", "waiting_approval"}
 TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS = {
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
@@ -198,6 +201,19 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     },
     "harness_run_started": {"task_run", "turn_run", "event"},
     "runtime_step_summary": {
+        "step",
+        "status",
+        "summary",
+        "public_progress_note",
+        "agent_brief_output",
+        "current_judgment",
+        "next_action",
+        "completion_status",
+        "presentation_source",
+        "feedback_identity",
+        "event",
+    },
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT: {
         "step",
         "status",
         "summary",
@@ -728,6 +744,8 @@ def _merge_editor_contexts(payload_context: dict[str, Any], vscode_context: dict
     vscode_active = dict(vscode_context.get("active_file") or {})
     payload_visible = _editor_visible_file_list(payload_context)
     vscode_visible = _editor_visible_file_list(vscode_context)
+    payload_open_tabs = _editor_open_tab_list(payload_context)
+    vscode_open_tabs = _editor_open_tab_list(vscode_context)
     merged: dict[str, Any] = dict(payload_context)
     merged["workspace_roots"] = _dedupe_editor_context_values(
         list(payload_context.get("workspace_roots") or []) + list(vscode_context.get("workspace_roots") or [])
@@ -742,6 +760,11 @@ def _merge_editor_contexts(payload_context: dict[str, Any], vscode_context: dict
         merged["visible_files"] = visible_files
     elif "visible_files" in merged:
         merged.pop("visible_files", None)
+    open_tabs = _merge_open_editor_tabs(payload_open_tabs, vscode_open_tabs)
+    if open_tabs:
+        merged["open_tabs"] = open_tabs
+    elif "open_tabs" in merged:
+        merged.pop("open_tabs", None)
     diagnostics = _merge_editor_diagnostics(
         list(payload_context.get("diagnostics") or []),
         list(vscode_context.get("diagnostics") or []),
@@ -754,12 +777,23 @@ def _merge_editor_contexts(payload_context: dict[str, Any], vscode_context: dict
     if sources:
         merged["source"] = "+".join(str(item) for item in sources)
     merged["authority"] = "api.chat.effective_editor_context"
-    merged["merge_reason"] = _editor_context_merge_reason(payload_active, vscode_active, payload_visible, vscode_visible)
+    merged["merge_reason"] = _editor_context_merge_reason(
+        payload_active,
+        vscode_active,
+        payload_visible,
+        vscode_visible,
+        payload_open_tabs,
+        vscode_open_tabs,
+    )
     return {key: value for key, value in merged.items() if value not in (None, "", [], {})}
 
 
 def _editor_visible_file_list(context: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(item) for item in list(context.get("visible_files") or []) if isinstance(item, dict)]
+
+
+def _editor_open_tab_list(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [dict(item) for item in list(context.get("open_tabs") or []) if isinstance(item, dict)]
 
 
 def _merge_active_editor_file(payload_active: dict[str, Any], vscode_active: dict[str, Any]) -> dict[str, Any]:
@@ -780,16 +814,24 @@ def _merge_active_editor_file(payload_active: dict[str, Any], vscode_active: dic
 
 
 def _merge_visible_editor_files(payload_visible: list[dict[str, Any]], vscode_visible: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _merge_editor_file_records(payload_visible, vscode_visible, limit=20)
+
+
+def _merge_open_editor_tabs(payload_open_tabs: list[dict[str, Any]], vscode_open_tabs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _merge_editor_file_records(payload_open_tabs, vscode_open_tabs, limit=100)
+
+
+def _merge_editor_file_records(left: list[dict[str, Any]], right: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for item in [*payload_visible, *vscode_visible]:
+    for item in [*left, *right]:
         path = str(item.get("path") or item.get("uri") or "").strip()
         key = _normalized_editor_path(path)
         if not path or key in seen:
             continue
         seen.add(key)
         result.append({field: value for field, value in dict(item).items() if value not in (None, "", [], {})})
-    return result[:20]
+    return result[: max(1, int(limit or 20))]
 
 
 def _merge_editor_diagnostics(payload_diagnostics: list[Any], vscode_diagnostics: list[Any]) -> list[Any]:
@@ -809,8 +851,10 @@ def _editor_context_merge_reason(
     vscode_active: dict[str, Any],
     payload_visible: list[dict[str, Any]],
     vscode_visible: list[dict[str, Any]],
+    payload_open_tabs: list[dict[str, Any]],
+    vscode_open_tabs: list[dict[str, Any]],
 ) -> str:
-    if not payload_active and not payload_visible and (vscode_active or vscode_visible):
+    if not payload_active and not payload_visible and not payload_open_tabs and (vscode_active or vscode_visible or vscode_open_tabs):
         return "payload_workspace_only_vscode_file_focus"
     payload_path = str(payload_active.get("path") or payload_active.get("uri") or "").strip()
     vscode_path = str(vscode_active.get("path") or vscode_active.get("uri") or "").strip()

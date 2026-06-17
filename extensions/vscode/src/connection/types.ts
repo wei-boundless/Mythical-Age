@@ -14,6 +14,7 @@ export type EditorContextSnapshot = {
   workspace_roots: string[];
   active_file?: {
     path: string;
+    label: string;
     language_id: string;
     dirty: boolean;
     selection?: EditorRange & {
@@ -29,8 +30,17 @@ export type EditorContextSnapshot = {
   };
   visible_files: Array<{
     path: string;
+    label: string;
     language_id: string;
     dirty: boolean;
+  }>;
+  open_tabs: Array<{
+    path: string;
+    label: string;
+    language_id: string;
+    dirty: boolean;
+    active: boolean;
+    visible: boolean;
   }>;
   diagnostics: Array<{
     path: string;
@@ -43,6 +53,7 @@ export type EditorContextSnapshot = {
     content_preview_chars: number;
     diagnostics_count: number;
     visible_files_count: number;
+    open_tabs_count: number;
   };
 };
 

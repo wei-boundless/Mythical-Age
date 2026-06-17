@@ -4159,16 +4159,20 @@ export class WorkspaceRuntime {
       active_file: activePath
         ? {
             path: activePath,
+            label: this.fileLabelForPath(activePath),
             language_id: this.languageIdForPath(activePath),
             dirty: Boolean(context?.inspectorDirty),
             content_preview: contentPreview,
             selection: undefined,
-          }
+        }
         : undefined,
-      visible_files: openFilePaths.map((path) => ({
+      open_tabs: openFilePaths.map((path) => ({
         path,
+        label: this.fileLabelForPath(path),
         language_id: this.languageIdForPath(path),
         dirty: path === activePath ? Boolean(context?.inspectorDirty) : false,
+        active: path === activePath,
+        visible: path === activePath,
       })),
     };
   }
@@ -4206,6 +4210,11 @@ export class WorkspaceRuntime {
       default:
         return extension || "plaintext";
     }
+  }
+
+  private fileLabelForPath(path: string) {
+    const normalized = path.replace(/\\/g, "/");
+    return normalized.split("/").filter(Boolean).pop() || path;
   }
 
   private sessionProjectRoot(state: StoreState, sessionId: string) {

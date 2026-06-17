@@ -10,6 +10,7 @@ from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PU
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
 from runtime.output_stream.public_contract import (
+    ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_FINAL_EVENT,
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
     SESSION_OUTPUT_COMMIT_FAILED_EVENT,
@@ -532,8 +533,8 @@ def test_assistant_final_and_protocol_feedback_projection_do_not_cross_body_chan
     assert "OCR 已读取题目" not in str(protocol_frame)
 
 
-def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
-    first = _frame(
+def test_runtime_step_summary_never_directly_projects_as_assistant_body() -> None:
+    frame = _frame(
         "runtime_step_summary",
         {
             "runtime_event_id": "event:stage:1",
@@ -545,27 +546,76 @@ def test_model_action_runtime_step_summary_projects_as_body_frame() -> None:
             "current_judgment": "已确认目标文件完整可用。",
         },
     )
-    second = _frame(
-        "runtime_step_summary",
+
+    assert frame["op"] == "item_upsert"
+    assert frame["slot"] == "trace"
+    assert frame["event_family"] == "status_trace"
+    assert frame["channel"] == "status"
+    assert frame["source_authority"] == "runtime"
+    assert frame["main_visibility"] == "hidden"
+
+
+def test_assistant_public_feedback_stream_event_projects_as_body_frame() -> None:
+    events = _project_public_stream_event(
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         {
-            "runtime_event_id": "event:stage:2",
-            "source_task_event_offset": 20,
+            "runtime_event_id": "event:stage:1",
+            "source_task_event_offset": 10,
             "task_run_id": "taskrun:stage",
-            "step": "model_action_received:2",
+            "step": "model_action_received:1",
             "status": "running",
             "presentation_source": "model_action.current_judgment",
-            "current_judgment": "开始执行精确修改。",
+            "current_judgment": "已确认目标文件完整可用。",
+        },
+    )
+    assert [event_type for event_type, _ in events] == [ASSISTANT_PUBLIC_FEEDBACK_EVENT]
+
+
+def test_model_action_step_summary_stays_runtime_summary_not_assistant_feedback() -> None:
+    events = _project_public_stream_event(
+        "runtime_step_summary",
+        {
+            "runtime_event_id": "event:stage:1",
+            "source_task_event_offset": 10,
+            "task_run_id": "taskrun:stage",
+            "step": "model_action_received:1",
+            "status": "running",
+            "presentation_source": "model_action.current_judgment",
+            "current_judgment": "已确认目标文件完整可用。",
+        },
+    )
+    assert [event_type for event_type, _ in events] == ["runtime_step_summary"]
+
+
+def test_assistant_public_feedback_projects_as_body_frame() -> None:
+    events = _project_public_stream_event(
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        {
+            "runtime_event_id": "event:stage:1",
+            "source_task_event_offset": 10,
+            "task_run_id": "taskrun:stage",
+            "step": "model_action_received:1",
+            "status": "running",
+            "presentation_source": "model_action.current_judgment",
+            "current_judgment": "已确认目标文件完整可用。",
         },
     )
 
-    assert first["op"] == "body_append"
-    assert first["slot"] == "body"
-    assert first["event_family"] == "assistant_body"
-    assert first["channel"] == "body"
-    assert first["source_authority"] == "model"
-    assert first["main_visibility"] == "visible_live"
-    assert second["item_id"] != first["item_id"]
-    assert second["trace_refs"]
+    frame = project_public_projection_event(
+        events[0][0],
+        events[0][1],
+        session_id="session:test",
+        sequence=1,
+    )["public_projection_frame"]
+
+    assert frame["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
+    assert frame["op"] == "body_append"
+    assert frame["slot"] == "body"
+    assert frame["event_family"] == "assistant_body"
+    assert frame["channel"] == "body"
+    assert frame["source_authority"] == "model"
+    assert frame["main_visibility"] == "visible_live"
+    assert frame["text"] == "已确认目标文件完整可用。"
 
 
 def test_model_action_feedback_identity_keeps_replayed_body_frame_stable() -> None:
@@ -595,23 +645,24 @@ def test_model_action_feedback_identity_keeps_replayed_body_frame_stable() -> No
         "source_task_event_offset": 11,
     }
 
-    assert lifecycle.should_emit_public_event("runtime_step_summary", first) is True
+    assert lifecycle.should_emit_public_event(ASSISTANT_PUBLIC_FEEDBACK_EVENT, first) is True
     first_frame = project_public_projection_event(
-        "runtime_step_summary",
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         first,
         session_id="session:test",
         sequence=1,
         lifecycle_state=lifecycle,
     )["public_projection_frame"]
-    assert lifecycle.should_emit_public_event("runtime_step_summary", second) is True
+    assert lifecycle.should_emit_public_event(ASSISTANT_PUBLIC_FEEDBACK_EVENT, second) is True
     second_frame = project_public_projection_event(
-        "runtime_step_summary",
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         second,
         session_id="session:test",
         sequence=2,
         lifecycle_state=lifecycle,
     )["public_projection_frame"]
 
+    assert first_frame["source_event_type"] == ASSISTANT_PUBLIC_FEEDBACK_EVENT
     assert first_frame["op"] == "body_append"
     assert first_frame["slot"] == "body"
     assert first_frame["source_authority"] == "model"

@@ -128,10 +128,10 @@ function completeCommittedFrames() {
     frame({
       frame_id: "frame:progress-body",
       event_offset: 1,
-      source_event_type: "runtime_step_summary",
+      source_event_type: "assistant_public_feedback",
       retention: "transient",
-      item_id: "model-action-feedback-body:progress",
-      text: "收口前的过程正文。",
+      item_id: "assistant-public-feedback:progress",
+      text: "最终正文。",
     }),
     frame({
       frame_id: "frame:tool",
@@ -149,8 +149,32 @@ function completeCommittedFrames() {
       state: "running",
     }),
     frame({
-      frame_id: "frame:final-body",
+      frame_id: "frame:streaming-final-body",
       event_offset: 3,
+      source_event_type: "assistant_public_feedback",
+      retention: "transient",
+      item_id: "assistant-public-feedback:closeout-shadow",
+      text: "最终正文。",
+    }),
+    frame({
+      frame_id: "frame:streaming-final-delta",
+      event_offset: 4,
+      source_event_type: "assistant_text_delta",
+      retention: "transient",
+      text: "最终正文。",
+    }),
+    frame({
+      frame_id: "frame:repair-final-body",
+      event_offset: 5,
+      op: "body_finalize",
+      source_event_type: "assistant_stream_repair",
+      retention: "transient",
+      main_visibility: "visible_live",
+      text: "最终正文。",
+    }),
+    frame({
+      frame_id: "frame:final-body",
+      event_offset: 6,
       op: "body_finalize",
       source_event_type: "assistant_text_final",
       main_visibility: "visible_final",
@@ -158,7 +182,7 @@ function completeCommittedFrames() {
     }),
     frame({
       frame_id: "frame:commit",
-      event_offset: 4,
+      event_offset: 7,
       channel: "lifecycle",
       event_family: "runtime_commit",
       op: "commit_ack",
@@ -194,13 +218,41 @@ describe("hydrateSessionRuntimeProjection", () => {
       expect.objectContaining({
         kind: "activity_archive",
         blocks: expect.arrayContaining([
-          expect.objectContaining({ kind: "body_segment", text: "收口前的过程正文。" }),
+          expect.objectContaining({
+            kind: "body_segment",
+            sourceEventType: "assistant_public_feedback",
+            text: "最终正文。",
+          }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:read" }),
         ]),
       }),
-      expect.objectContaining({ kind: "body_segment", text: "最终正文。" }),
+      expect.objectContaining({
+        kind: "body_segment",
+        sourceEventType: "assistant_text_final",
+        text: "最终正文。",
+      }),
       expect.objectContaining({ kind: "log_entry", toolEventCount: 1 }),
     ]));
+    const archive = view?.blocks.find((block) => block.kind === "activity_archive");
+    expect(archive).toEqual(expect.objectContaining({
+      blocks: expect.not.arrayContaining([
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_delta" }),
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_stream_repair" }),
+        expect.objectContaining({ kind: "body_segment", sourceEventType: "assistant_text_final" }),
+        expect.objectContaining({
+          kind: "body_segment",
+          sourceEventType: "assistant_public_feedback",
+          text: "最终正文。",
+        }),
+      ]),
+    }));
+    expect(view?.blocks.filter((block) => block.kind === "body_segment")).toEqual([
+      expect.objectContaining({
+        kind: "body_segment",
+        sourceEventType: "assistant_text_final",
+        text: "最终正文。",
+      }),
+    ]);
     expect(view?.traceAvailable).toBe(true);
     expect(view?.toolEventCount).toBe(1);
   });

@@ -3019,7 +3019,7 @@ def _single_agent_turn_output_contract(
             },
             "native_tool_feedback_contract": {
                 "assistant_content_preamble_is_public_feedback": True,
-                "projection_target": "runtime_step_summary",
+                "projection_target": "assistant_public_feedback",
                 "missing_preamble_policy": "record_contract_gap_without_synthesizing_body",
                 "low_level_tool_calls_may_omit_feedback": True,
                 "stage_change_or_failure_should_emit_feedback": True,

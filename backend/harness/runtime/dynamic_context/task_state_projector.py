@@ -1657,6 +1657,7 @@ def _editor_file_state_projection(value: dict[str, Any]) -> dict[str, Any]:
         {
             "source": str(value.get("source") or ""),
             "active": value.get("active") if isinstance(value.get("active"), bool) else None,
+            "open": value.get("open") if isinstance(value.get("open"), bool) else None,
             "visible": value.get("visible") if isinstance(value.get("visible"), bool) else None,
             "dirty": value.get("dirty") if isinstance(value.get("dirty"), bool) else None,
             "language_id": str(value.get("language_id") or ""),

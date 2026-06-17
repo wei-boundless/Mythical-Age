@@ -18,6 +18,8 @@ export function VSCodeStatusPanel({ sessionId, projectBinding }: VSCodeStatusPan
   }
   const boundRoot = String(projectBinding?.workspace_root || status?.workspace_root || "").trim();
   const activeFile = String(status?.active_file?.path || "").trim();
+  const openTabs = Array.isArray(status?.open_tabs) ? status.open_tabs : [];
+  const openTabCount = Number(status?.limits?.open_tabs_count || openTabs.length || 0);
   const connected = Boolean(status?.connected && !status?.stale);
   const stale = Boolean(status?.connected && status?.stale);
   const reusedProjectConnection = Boolean(status?.reused_project_connection);
@@ -31,6 +33,9 @@ export function VSCodeStatusPanel({ sessionId, projectBinding }: VSCodeStatusPan
     reusedProjectConnection ? "当前会话复用同项目 VS Code 连接" : "",
     ageLabel ? `上次同步：${ageLabel}前` : "",
     activeFile ? `当前文件：${activeFile}` : "",
+    openTabCount ? `打开标签页：${openTabCount}` : "",
+    ...openTabs.slice(0, 12).map((tab) => `- ${String(tab.label || fileName(String(tab.path || ""))).trim()}: ${String(tab.path || "").trim()}`),
+    openTabs.length > 12 ? `- 另有 ${openTabs.length - 12} 个标签页` : "",
     error ? `错误：${error}` : "",
   ].filter(Boolean).join("\n");
   const openLabel = stale ? "重新连接 VS Code" : connected ? "打开 VS Code" : "连接 VS Code";
@@ -53,6 +58,9 @@ export function VSCodeStatusPanel({ sessionId, projectBinding }: VSCodeStatusPan
       ) : (
         <span className="vscode-status__file">未绑定项目</span>
       )}
+      {openTabCount ? (
+        <span className="vscode-status__tabs">{openTabCount} 标签</span>
+      ) : null}
       <button
         aria-label={boundRoot ? openLabel : "当前会话未绑定项目"}
         className={needsReconnect ? "vscode-status__open vscode-status__open--attention" : "vscode-status__open"}

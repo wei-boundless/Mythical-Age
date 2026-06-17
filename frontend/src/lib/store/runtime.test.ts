@@ -1475,10 +1475,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           truncated: false,
         },
       },
-      visible_files: [{
+      open_tabs: [{
         path: "frontend/src/App.tsx",
         language_id: "typescriptreact",
         dirty: true,
+        active: true,
+        visible: true,
       }],
     });
     expect((api.streamChat.mock.calls[0]?.[0]?.editor_context as Record<string, any>)?.active_file?.selection).toBeUndefined();

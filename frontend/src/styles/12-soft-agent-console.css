@@ -1246,13 +1246,6 @@ body {
   color: #39475c;
 }
 
-.agent-workbench .public-run-activity__body-note-label {
-  color: #6a7788;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
 .agent-workbench .public-run-activity__body-note .public-run-activity__body {
   max-width: 88ch;
   color: #425168;

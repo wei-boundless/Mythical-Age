@@ -36,6 +36,9 @@ class VSCodeConnectionStatus:
     workspace_root: str = ""
     project_key: str = ""
     active_file: dict[str, Any] = field(default_factory=dict)
+    visible_files: list[dict[str, Any]] = field(default_factory=list)
+    open_tabs: list[dict[str, Any]] = field(default_factory=list)
+    limits: dict[str, Any] = field(default_factory=dict)
     connection_session_id: str = ""
     connection_id: str = ""
     reused_project_connection: bool = False
@@ -53,6 +56,9 @@ class VSCodeConnectionStatus:
             "workspace_root": self.workspace_root,
             "project_key": self.project_key,
             "active_file": dict(self.active_file),
+            "visible_files": [dict(item) for item in self.visible_files],
+            "open_tabs": [dict(item) for item in self.open_tabs],
+            "limits": dict(self.limits),
             "connection_session_id": self.connection_session_id,
             "connection_id": self.connection_id,
             "reused_project_connection": self.reused_project_connection,

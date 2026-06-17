@@ -16,6 +16,7 @@ LAUNCH_INTENT_TTL_SECONDS = 300.0
 ACTIVE_FILE_PREVIEW_LIMIT = 24_000
 SELECTION_TEXT_LIMIT = 8_000
 VISIBLE_FILES_LIMIT = 20
+OPEN_TABS_LIMIT = 100
 DIAGNOSTICS_LIMIT = 80
 WORKSPACE_ROOTS_LIMIT = 8
 COMMAND_QUEUE_LIMIT = 50
@@ -175,7 +176,11 @@ class VSCodeConnectionStore:
             )
         age = time.time() - snapshot.received_at
         stale = age > stale_after_seconds
-        active_file = dict(dict(snapshot.editor_context).get("active_file") or {})
+        editor_context = dict(snapshot.editor_context)
+        active_file = dict(editor_context.get("active_file") or {})
+        visible_files = [dict(item) for item in list(editor_context.get("visible_files") or [])]
+        open_tabs = [dict(item) for item in list(editor_context.get("open_tabs") or [])]
+        limits = dict(editor_context.get("limits") or {})
         project_root = _session_project_root(session_manager, target_session_id) if session_manager is not None else ""
         workspace_root = project_root or snapshot.workspace_root
         return VSCodeConnectionStatus(
@@ -189,6 +194,9 @@ class VSCodeConnectionStore:
             workspace_root=workspace_root,
             project_key=project_workspace_key(workspace_root) if workspace_root else "",
             active_file=active_file,
+            visible_files=visible_files,
+            open_tabs=open_tabs,
+            limits=limits,
             connection_session_id=snapshot.session_id,
             connection_id=snapshot.connection_id,
             reused_project_connection=bool(snapshot.session_id and snapshot.session_id != target_session_id),
@@ -211,7 +219,11 @@ class VSCodeConnectionStore:
             )
         age = time.time() - snapshot.received_at
         stale = age > stale_after_seconds
-        active_file = dict(dict(snapshot.editor_context).get("active_file") or {})
+        editor_context = dict(snapshot.editor_context)
+        active_file = dict(editor_context.get("active_file") or {})
+        visible_files = [dict(item) for item in list(editor_context.get("visible_files") or [])]
+        open_tabs = [dict(item) for item in list(editor_context.get("open_tabs") or [])]
+        limits = dict(editor_context.get("limits") or {})
         return VSCodeConnectionStatus(
             session_id="",
             status="stale" if stale else "connected",
@@ -223,6 +235,9 @@ class VSCodeConnectionStore:
             workspace_root=project_root,
             project_key=project_key,
             active_file=active_file,
+            visible_files=visible_files,
+            open_tabs=open_tabs,
+            limits=limits,
             connection_session_id=snapshot.session_id,
             connection_id=snapshot.connection_id,
             reused_project_connection=True,
@@ -329,6 +344,14 @@ def _normalize_editor_context(value: dict[str, Any]) -> dict[str, Any]:
         for item in (_normalize_visible_file(entry) for entry in list(raw.get("visible_files") or [])[:VISIBLE_FILES_LIMIT])
         if item
     ]
+    open_tabs = _dedupe_editor_files(
+        [
+            item
+            for item in (_normalize_open_tab(entry) for entry in list(raw.get("open_tabs") or [])[:OPEN_TABS_LIMIT])
+            if item
+        ],
+        limit=OPEN_TABS_LIMIT,
+    )
     diagnostics = [
         item
         for item in (_normalize_diagnostic(entry) for entry in list(raw.get("diagnostics") or [])[:DIAGNOSTICS_LIMIT])
@@ -342,13 +365,22 @@ def _normalize_editor_context(value: dict[str, Any]) -> dict[str, Any]:
         )
         if root
     ]
+    limits = dict(raw.get("limits") or {})
+    limits.update(
+        {
+            "visible_files_count": len(visible_files),
+            "open_tabs_count": len(open_tabs),
+            "diagnostics_count": len(diagnostics),
+        }
+    )
     result: dict[str, Any] = {
         "source": "vscode",
         "captured_at": str(raw.get("captured_at") or ""),
         "workspace_roots": list(dict.fromkeys(workspace_roots)),
         "visible_files": visible_files,
+        "open_tabs": open_tabs,
         "diagnostics": diagnostics,
-        "limits": dict(raw.get("limits") or {}),
+        "limits": limits,
         "authority": "integrations.vscode_connection.editor_context",
     }
     if active_file:
@@ -364,6 +396,7 @@ def _normalize_active_file(value: object) -> dict[str, Any]:
         return {}
     result: dict[str, Any] = {
         "path": path,
+        "label": str(value.get("label") or _file_label(path)).strip()[:240],
         "language_id": str(value.get("language_id") or "").strip(),
         "dirty": bool(value.get("dirty")),
     }
@@ -415,9 +448,46 @@ def _normalize_visible_file(value: object) -> dict[str, Any]:
         return {}
     return {
         "path": path,
+        "label": str(value.get("label") or _file_label(path)).strip()[:240],
         "language_id": str(value.get("language_id") or "").strip(),
         "dirty": bool(value.get("dirty")),
     }
+
+
+def _normalize_open_tab(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    path = str(value.get("path") or value.get("uri") or "").strip()
+    if not path:
+        return {}
+    return {
+        "path": path,
+        "label": str(value.get("label") or _file_label(path)).strip()[:240],
+        "language_id": str(value.get("language_id") or value.get("languageId") or "").strip(),
+        "dirty": bool(value.get("dirty")),
+        "active": bool(value.get("active")),
+        "visible": bool(value.get("visible")),
+    }
+
+
+def _dedupe_editor_files(items: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        path = str(item.get("path") or "").strip()
+        key = path.replace("\\", "/").rstrip("/").lower()
+        if not path or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _file_label(path: str) -> str:
+    normalized = str(path or "").replace("\\", "/").rstrip("/")
+    return normalized.split("/")[-1] if normalized else ""
 
 
 def _normalize_diagnostic(value: object) -> dict[str, Any]:
