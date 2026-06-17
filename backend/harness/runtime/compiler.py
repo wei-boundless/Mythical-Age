@@ -2932,6 +2932,8 @@ def _single_agent_turn_output_contract(
             },
             "ordinary_tool_calls": {
                 "enabled": "tool_call" in allowed_actions,
+                "transport": "provider_native_tool_call_or_json_tool_call",
+                "native_tool_transport_enabled": "tool_call" in allowed_actions,
                 "multi_tool_calls_allowed": True,
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "boundary": "runtime_visible_tools_only",
@@ -2954,6 +2956,54 @@ def _single_agent_turn_output_contract(
                 "runtime_execution_policy": "tool_batch_plan_scheduled_by_safety_and_resource_locks",
                 "control_actions_exposed_as_native_tools": False,
                 "visible_tool_boundary": "ordinary tool calls use the RuntimeToolPlan model-visible tool surface for this invocation",
+            },
+            "transport_decision_table": {
+                "control_actions": {
+                    "transport": "json_action",
+                    "native_tool_transport_enabled": False,
+                    "allowed_action_types": [
+                        item
+                        for item in (
+                            "respond",
+                            "ask_user",
+                            "block",
+                            "request_task_run",
+                            "active_work_control",
+                            "resume_recoverable_work",
+                        )
+                        if item in allowed_actions
+                    ],
+                },
+                "ordinary_tool_calls": {
+                    "transport": "provider_native_tool_call_or_json_tool_call",
+                    "native_tool_transport_enabled": "tool_call" in allowed_actions,
+                    "json_tool_call_enabled": json_action_enabled and "tool_call" in allowed_actions,
+                    "multi_tool_calls_allowed": "tool_call" in allowed_actions,
+                },
+                "assistant_body": {
+                    "enabled_when": "non_json_control_phase_or_final_commit",
+                    "disabled_reason_when_json_required": "avoid_publishing_invalid_protocol_text",
+                    "raw_text_is_not_a_control_action": True,
+                },
+            },
+            "public_feedback_contract": {
+                "feedback_must_be_model_authored": True,
+                "system_must_not_synthesize_user_semantic_text": True,
+                "json_action_feedback_fields": [
+                    "public_progress_note",
+                    "public_action_state.current_judgment",
+                    "final_answer",
+                    "user_question",
+                    "blocking_reason",
+                ],
+                "tool_events_are_not_user_responses": True,
+            },
+            "native_tool_feedback_contract": {
+                "assistant_content_preamble_is_public_feedback": True,
+                "projection_target": "runtime_step_summary",
+                "missing_preamble_policy": "record_contract_gap_without_synthesizing_body",
+                "low_level_tool_calls_may_omit_feedback": True,
+                "stage_change_or_failure_should_emit_feedback": True,
             },
         },
         "planning_protocol": dict(planning_protocol or {}),
@@ -4944,7 +4994,49 @@ def _task_scoped_tool_routes_from_tool_plan(tool_plan: Any | None) -> list[dict[
 def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if not projection:
         return ""
-    return "当前运行事实：\n"
+    allowed_actions = [
+        str(item)
+        for item in list(projection.get("allowed_action_types") or [])
+        if str(item)
+    ]
+    model_contract = dict(projection.get("model_decision_contract") or {})
+    control_actions = [
+        str(item)
+        for item in list(model_contract.get("control_actions") or [])
+        if str(item)
+    ]
+    service_surface = dict(projection.get("service_surface") or {})
+    tool_boundary = dict(projection.get("tool_boundary") or {})
+    try:
+        visible_tool_count = int(tool_boundary.get("visible_tool_count") or 0)
+    except (TypeError, ValueError):
+        visible_tool_count = 0
+    native_tool_available = bool(service_surface.get("tool_call_transport_available") is True) and bool(
+        visible_tool_count > 0
+    )
+    allowed_text = "、".join(allowed_actions) if allowed_actions else "当前包声明的允许动作"
+    lines = [
+        "当前运行事实：",
+        f"你本轮可以选择：{allowed_text}。",
+    ]
+    if control_actions:
+        lines.append(
+            "控制动作必须输出 authority 为 harness.loop.model_action_request 的 JSON action；"
+            "不要用 provider-native tool call 表达控制决定。"
+        )
+    if native_tool_available:
+        lines.extend(
+            [
+                "普通工具可以使用 provider-native tool call，也可以按本轮 JSON action 合同提交 tool_call。",
+                "如果使用 provider-native tool call 且需要回应用户、解释阶段判断、处理工具失败或说明范围变化，"
+                "请在同一条 assistant content 中先写一句用户可见说明；系统会把这句 preamble 作为 public_progress_note 投影到正文。",
+                "低层连续读取、搜索、列目录可以不逐次解释；但用户追问、工具失败、范围变化、阶段结束或连续多批工具后继续执行时，必须给出公开判断。",
+            ]
+        )
+    lines.append(
+        "不要把工具名、协议字段、内部事件号或隐藏推理写给用户；系统不会替你生成“已收到”“正在处理”这类语义正文。"
+    )
+    return "\n".join(lines).strip() + "\n"
 
 
 def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
