@@ -1,3 +1,6 @@
+__pycache__/
+.codex/
+.codex-temp/
 .env
 .tmp/
 .runtime/
@@ -76,10 +79,13 @@ backend/tests/_artifacts/scifact_v2_*.json
 .tmp-*.png
 mythical-agent
 docs/
-basketball-game.html 
-conftest.py 
-fps_game.html 
-mario.html 
-pytest.ini  
-sitecustomize.py 
+backend/maintenance/
+extensions/vscode/out/
+adventure-island-standalone/
+runtime_state/
+state_index/
+source/
+basketball-game.html
+fps_game.html
+mario.html
 soccer-game.html
