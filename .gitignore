@@ -12,6 +12,7 @@ scifact/
 *.log
 *.err.log
 *.out.log
+logs/
 frontend/node_modules/
 node_modules/
 frontend/.next/
