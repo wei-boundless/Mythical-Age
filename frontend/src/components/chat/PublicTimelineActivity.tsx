@@ -174,18 +174,9 @@ function ActivityArchive({ entry }: { entry: ActivityEntry }) {
       open={open}
     >
       <summary>
-        <span className="public-run-activity__archive-label">
-          <span className="public-run-activity__archive-title">{entry.text || "本轮记录"}</span>
-          {entry.detail ? (
-            <>
-              <span className="public-run-activity__archive-separator" aria-hidden="true">·</span>
-              <span className="public-run-activity__archive-detail">{entry.detail}</span>
-            </>
-          ) : null}
-        </span>
         <span className="public-run-activity__archive-rule" aria-hidden="true" />
         <span className="public-run-activity__archive-meta">
-          {entry.statusLabel || toolRoundStatusLabel(statusTone)}
+          {entry.detail || `${entry.archiveCount ?? entries.length} 条`}
         </span>
         <span className="public-run-activity__archive-caret" aria-hidden="true" />
       </summary>
@@ -308,14 +299,13 @@ function archiveEntryFromBlock(block: ActivityArchiveProjectionBlock, index: num
   return {
     archivedEntries: entries,
     archiveCount: entries.length,
-    detail: firstDifferentText(block.title, block.detail),
+    detail: firstText(block.detail) || `${entries.length} 条`,
     id: `activity-archive:${stableId}`,
     kind: "activity_archive",
     sections: [],
     state: cleanText(block.state).toLowerCase(),
-    statusLabel: toolRoundStatusLabel(statusTone),
     statusTone,
-    text: firstText(block.title) || "本轮记录",
+    text: "",
   };
 }
 

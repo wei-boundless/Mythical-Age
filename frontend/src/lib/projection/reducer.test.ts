@@ -775,7 +775,7 @@ describe("chronological projection frame reducer contract", () => {
     expect(view?.blocks).toEqual([
       expect.objectContaining({
         kind: "activity_archive",
-        title: "本轮记录",
+        title: "",
         blocks: [
           expect.objectContaining({
             kind: "body_segment",

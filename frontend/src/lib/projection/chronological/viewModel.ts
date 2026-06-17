@@ -139,7 +139,7 @@ function activityArchiveBlocks(
   return [{
     kind: "activity_archive",
     id: `activity-archive:${ledger.keyString ?? "projection"}`,
-    title: "本轮记录",
+    title: "",
     detail: archiveDetail(sortedBlocks),
     state: archiveState(sortedBlocks),
     blocks: sortedBlocks,
@@ -148,7 +148,7 @@ function activityArchiveBlocks(
 }
 
 function archiveDetail(blocks: ActivityArchiveChildBlock[]) {
-  return `${blocks.length} 条记录`;
+  return `${blocks.length} 条`;
 }
 
 function archiveState(blocks: ActivityArchiveChildBlock[]) {

@@ -131,7 +131,7 @@ function completeCommittedFrames() {
       source_event_type: "assistant_public_feedback",
       retention: "transient",
       item_id: "assistant-public-feedback:progress",
-      text: "最终正文。",
+      text: "收口前的过程正文。",
     }),
     frame({
       frame_id: "frame:tool",
@@ -221,7 +221,7 @@ describe("hydrateSessionRuntimeProjection", () => {
           expect.objectContaining({
             kind: "body_segment",
             sourceEventType: "assistant_public_feedback",
-            text: "最终正文。",
+            text: "收口前的过程正文。",
           }),
           expect.objectContaining({ kind: "tool_event", toolCallId: "call:read" }),
         ]),

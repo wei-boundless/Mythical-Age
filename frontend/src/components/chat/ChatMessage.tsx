@@ -243,7 +243,7 @@ function ChatMessageComponent({
     <>
       {renderClosedTimeline ? (
         <PublicTimelineActivity
-          ariaLabel="本轮记录"
+          ariaLabel="收口前轨迹"
           blocks={projectionBlocks}
         />
       ) : null}

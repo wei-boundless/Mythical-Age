@@ -48,7 +48,7 @@ public_projection_frame
 
 ### UI
 
-只展示 `projectionView.blocks`。`本轮记录` 位于最终正文上方，日志入口来自同一个 committed view 的 `logRef/toolEventCount`。
+只展示 `projectionView.blocks`。收口前已经投影过的轨迹以无标题折叠线位于最终正文上方，日志入口来自同一个 committed view 的 `logRef/toolEventCount`。
 
 ## 实施步骤
 

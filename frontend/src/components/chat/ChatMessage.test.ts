@@ -65,8 +65,8 @@ function activityArchiveBlock(blocks: ActivityArchiveBlock["blocks"] = [toolBloc
   return {
     kind: "activity_archive",
     id: "activity-archive:test",
-    title: "本轮记录",
-    detail: "1 个工具",
+    title: "",
+    detail: "2 条",
     state: "done",
     blocks,
     offset: 9,
@@ -136,10 +136,10 @@ describe("ChatMessage", () => {
 
     expect(html).toContain("已经完成的正文。");
     expect(html).toContain("收口前的过程正文。");
-    expect(html).toContain("aria-label=\"本轮记录\"");
+    expect(html).toContain("aria-label=\"收口前轨迹\"");
     expect(html).toContain("public-run-activity__archive");
     expect(html).toContain("public-run-activity__body-note");
-    expect(html).toContain("本轮记录");
+    expect(html).not.toContain("本轮记录");
     expect(html).toContain("读取文件 ChatMessage.tsx");
     expect(html).toContain("public-run-activity__tool-window");
     expect(html.indexOf("public-run-activity__archive")).toBeLessThan(html.indexOf("已经完成的正文。"));
