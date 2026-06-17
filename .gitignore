@@ -76,4 +76,10 @@ backend/tests/_artifacts/scifact_v2_*.json
 .tmp-*.png
 mythical-agent
 docs/
-basketball-game.html conftest.py fps_game.html mario.html pytest.ini requirements.txt sitecustomize.py soccer-game.html
+basketball-game.html 
+conftest.py 
+fps_game.html 
+mario.html 
+pytest.ini  
+sitecustomize.py 
+soccer-game.html

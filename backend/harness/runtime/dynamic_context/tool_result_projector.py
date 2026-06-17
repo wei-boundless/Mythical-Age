@@ -559,7 +559,12 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             "source_authority": "preview_only",
             "rehydration_preference": "read_persisted_tool_result",
             "usable_as_evidence_for": ["omitted_tool_output_recovery"],
-            "instruction": "Use the preview for orientation only; call read_persisted_tool_result before relying on omitted exact output.",
+            "instruction": (
+                "Use visible answer/text fields directly when they are sufficient. Only call "
+                "read_persisted_tool_result for omitted exact output, and only with replacement_id values from "
+                "rehydration_plan.content_replacements that start with tool_result:; never pass attachment paths, "
+                "file paths, or internal dynamic-context replacement refs as replacement_id."
+            ),
         }
     return {}
 

@@ -3400,7 +3400,102 @@ def _normalize_single_agent_json_payload(
     packet_ref: str,
 ) -> dict[str, Any]:
     del request_id, turn_id, packet_ref
-    return dict(payload or {})
+    raw = dict(payload or {})
+    normalized = dict(raw)
+    envelope = _dict_payload(raw.get("payload"))
+    action = _dict_payload(raw.get("action"))
+    copied: list[dict[str, str]] = []
+    ignored_conflicts: list[dict[str, str]] = []
+
+    def copy_if_missing(field: str, value: Any, *, source: str) -> None:
+        if not _json_action_field_has_value(value):
+            return
+        existing = normalized.get(field)
+        if not _json_action_field_has_value(existing):
+            normalized[field] = value
+            copied.append({"field": field, "source": source})
+            return
+        if _json_action_field_signature(existing) != _json_action_field_signature(value):
+            ignored_conflicts.append({"field": field, "source": source})
+
+    copy_if_missing("action_type", envelope.get("action_type"), source="payload.action_type")
+    copy_if_missing("action_type", action.get("action_type"), source="action.action_type")
+    action_type = str(normalized.get("action_type") or "").strip()
+
+    copy_if_missing("public_progress_note", envelope.get("public_progress_note"), source="payload.public_progress_note")
+    copy_if_missing("public_progress_note", action.get("public_progress_note"), source="action.public_progress_note")
+    copy_if_missing("public_action_state", envelope.get("public_action_state"), source="payload.public_action_state")
+    copy_if_missing("public_action_state", action.get("public_action_state"), source="action.public_action_state")
+
+    copy_if_missing("final_answer", envelope.get("final_answer"), source="payload.final_answer")
+    copy_if_missing("final_answer", action.get("final_answer"), source="action.final_answer")
+    if action_type == "respond":
+        copy_if_missing("final_answer", envelope.get("content"), source="payload.content")
+        copy_if_missing("final_answer", action.get("content"), source="action.content")
+
+    copy_if_missing("user_question", envelope.get("user_question"), source="payload.user_question")
+    copy_if_missing("user_question", action.get("user_question"), source="action.user_question")
+    if action_type == "ask_user":
+        copy_if_missing("user_question", envelope.get("question"), source="payload.question")
+        copy_if_missing("user_question", action.get("question"), source="action.question")
+
+    copy_if_missing("blocking_reason", envelope.get("blocking_reason"), source="payload.blocking_reason")
+    copy_if_missing("blocking_reason", action.get("blocking_reason"), source="action.blocking_reason")
+    if action_type == "block":
+        copy_if_missing("blocking_reason", envelope.get("reason"), source="payload.reason")
+        copy_if_missing("blocking_reason", action.get("reason"), source="action.reason")
+
+    copy_if_missing("tool_call", envelope.get("tool_call"), source="payload.tool_call")
+    copy_if_missing("tool_call", action.get("tool_call"), source="action.tool_call")
+    if action_type == "tool_call":
+        copy_if_missing("tool_call", _tool_call_from_action_envelope(envelope), source="payload")
+        copy_if_missing("tool_call", _tool_call_from_action_envelope(action), source="action")
+
+    if copied or ignored_conflicts:
+        diagnostics = normalized.get("diagnostics")
+        normalized_diagnostics = dict(diagnostics) if isinstance(diagnostics, dict) else {}
+        if copied:
+            normalized_diagnostics["json_action_envelope_normalized"] = copied
+        if ignored_conflicts:
+            normalized_diagnostics["json_action_envelope_ignored_conflicts"] = ignored_conflicts
+        normalized["diagnostics"] = normalized_diagnostics
+    return normalized
+
+
+def _dict_payload(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _json_action_field_has_value(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, (list, tuple)):
+        return bool(value)
+    return bool(str(value or "").strip())
+
+
+def _json_action_field_signature(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _tool_call_from_action_envelope(value: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(value.get("tool_name") or value.get("name") or "").strip()
+    if not tool_name:
+        return {}
+    args = value.get("args") or value.get("tool_args") or {}
+    return {
+        key: val
+        for key, val in {
+            "id": str(value.get("id") or value.get("tool_call_id") or "").strip(),
+            "tool_name": tool_name,
+            "name": tool_name,
+            "args": args if isinstance(args, dict) else {},
+        }.items()
+        if val not in ("", None, {})
+    }
 
 
 def _action_requests_from_native_tool_calls(

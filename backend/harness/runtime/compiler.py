@@ -2346,6 +2346,13 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block",
+        "json_action_shape_rules": [
+            "只输出一个 JSON 对象；不要使用 Markdown 代码块；不要在 JSON 前后附加自然语言正文。",
+            "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
+            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
+            "block 必须把真实阻塞原因写在顶层 blocking_reason。",
+            "tool_call 使用顶层 tool_call: {tool_name, args}；普通工具也可以使用 provider-native tool_call，但控制动作不能走 provider-native tool_call。",
+        ],
         "action_selection_rules": [
             "先识别用户当前输入本身要你回应什么：提问、质疑、状态追问、纠错、继续执行、修改目标、请求交付或闲聊。任何 action 都不能绕过这个输入意图。",
             "先判断用户当前要求是否是任务承接请求：是否要求开始/启动/继续推进/执行/落地/实现/修复/构建/生成/写入/验证，并要求做到可验收结果。",
@@ -2540,6 +2547,13 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
+        "json_action_shape_rules": [
+            "只输出一个 JSON 对象；不要使用 Markdown 代码块；不要在 JSON 前后附加自然语言正文。",
+            "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
+            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要使用 provider-native ask_user 工具调用。",
+            "block 必须把真实阻塞原因写在顶层 blocking_reason。",
+            "tool_call 使用顶层 tool_calls 或 tool_call；普通工具也可以使用 provider-native tool_call，但控制动作不能走 provider-native tool_call。",
+        ],
         "public_response_obligation": {
             "authority": "model_semantic_response",
             "rule": "你必须回应用户当前输入本身。回应可以是直接回答、解释你的公开判断、说明需要查证哪个事实才能判断、指出当前不能回答的原因，或说明会把用户的新要求并入执行边界。持续任务执行时，内部工具可以不可见，但工具动作不能替代对用户输入的回应。",
@@ -4874,6 +4888,15 @@ def _model_decision_contract_payload(
         "semantic_actions": semantic_actions,
         "control_actions": control_actions,
         "required_transport": "json_action" if control_actions else "assistant_message_or_tool_call",
+        "json_action_shape": {
+            "authority": "harness.loop.model_action_request",
+            "single_json_object_only": True,
+            "no_markdown_fence": True,
+            "no_text_outside_json": True,
+            "respond_requires_top_level_final_answer": "action_type=respond 时，最终给用户看的自然回复必须写在顶层 final_answer；不要放入 payload.content、payload.final_answer 或 action.content。",
+            "ask_user_requires_top_level_user_question": "action_type=ask_user 时，用户要回答的问题必须写在顶层 user_question；不要通过 provider-native ask_user 工具调用表达。",
+            "block_requires_top_level_blocking_reason": "action_type=block 时，真实阻塞原因必须写在顶层 blocking_reason。",
+        },
         "task_entry_rule": {
             "request_task_run_allowed": bool(task_run_allowed),
             "must_choose_request_task_run_when_task_entry_conditions_hold": bool(task_run_allowed),

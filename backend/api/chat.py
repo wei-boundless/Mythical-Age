@@ -2084,6 +2084,7 @@ def _status_for_public_event(event_type: str, data: dict[str, Any] | None = None
 
 def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     normalized = str(event_type or "message").strip() or "message"
+    raw_data = {key: value for key, value in dict(event).items() if key != "type"}
     if normalized in INTERNAL_STREAM_EVENTS:
         return []
     if normalized in {"model_action_request", "agent_turn_terminal"}:
@@ -2093,7 +2094,6 @@ def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list
         return [(normalized, data)] if data else []
     if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
         return []
-    raw_data = {key: value for key, value in dict(event).items() if key != "type"}
     if normalized in {"step_summary_recorded", "runtime_step_summary"}:
         data = _runtime_step_summary_data(raw_data)
         return [("runtime_step_summary", data)] if data else []

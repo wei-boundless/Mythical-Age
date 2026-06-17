@@ -926,6 +926,31 @@ def test_tool_failure_feedback_survives_completion_projection_detail() -> None:
     assert frame["detail"] == error_text
 
 
+def test_agent_contract_feedback_projection_initializes_raw_data_before_branch() -> None:
+    events = _project_public_stream_event(
+        "agent_contract_feedback_required",
+        {
+            "event": {
+                "event_id": "event:agent-contract-feedback",
+                "payload": {
+                    "turn_id": "turn:test:feedback",
+                    "model_visible": True,
+                    "agent_contract_feedback": {
+                        "signal_kind": "agent_contract_feedback_required",
+                        "agent_feedback": "这是一条执行契约反馈，不是用户消息。",
+                    },
+                },
+            }
+        },
+    )
+
+    assert [event_type for event_type, _ in events] == ["agent_contract_feedback_required"]
+    data = events[0][1]
+    assert data["turn_id"] == "turn:test:feedback"
+    assert data["runtime_event_id"] == "event:agent-contract-feedback"
+    assert data["agent_contract_feedback"]["signal_kind"] == "agent_contract_feedback_required"
+
+
 def test_lifecycle_closes_completion_by_tool_call_id_even_when_completion_permission_ref_drifts() -> None:
     lifecycle = ProjectionLifecycleState()
     anchor = {

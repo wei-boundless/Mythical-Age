@@ -260,6 +260,97 @@ def test_native_request_task_run_requires_json_action_transport() -> None:
     assert native_errors[0]["repairable"] is True
 
 
+def test_single_agent_parser_normalizes_nested_respond_payload_final_answer() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    parsed = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "respond",
+                    "payload": {"final_answer": "OCR 已提取题目，答案是 C。"},
+                },
+                ensure_ascii=False,
+            ),
+            tool_calls=[],
+        ),
+        request_id="model-response:test:nested-respond",
+        turn_id="turn:test:nested-respond",
+        packet_ref="packet:test:nested-respond",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block"),
+        phase="tool_loop",
+        require_json_action=True,
+        public_response_required=True,
+    )
+
+    assert parsed.error is None
+    assert parsed.action_request is not None
+    assert parsed.action_request.action_type == "respond"
+    assert parsed.action_request.final_answer == "OCR 已提取题目，答案是 C。"
+    normalized = parsed.action_request.diagnostics["json_action_envelope_normalized"]
+    assert {"field": "final_answer", "source": "payload.final_answer"} in normalized
+
+
+def test_single_agent_parser_normalizes_nested_content_and_question_envelopes() -> None:
+    from types import SimpleNamespace
+
+    from harness.loop.single_agent_turn import _single_agent_action_request_from_response
+
+    respond = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "respond",
+                    "payload": {"content": "这是可直接发布的回答。"},
+                },
+                ensure_ascii=False,
+            ),
+            tool_calls=[],
+        ),
+        request_id="model-response:test:nested-content",
+        turn_id="turn:test:nested-content",
+        packet_ref="packet:test:nested-content",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block"),
+        phase="tool_loop",
+        require_json_action=True,
+        public_response_required=True,
+    )
+    ask = _single_agent_action_request_from_response(
+        SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "action_type": "ask_user",
+                    "action": {"question": "请补充第 8 题的完整选项。"},
+                },
+                ensure_ascii=False,
+            ),
+            tool_calls=[],
+        ),
+        request_id="model-response:test:nested-question",
+        turn_id="turn:test:nested-question",
+        packet_ref="packet:test:nested-question",
+        iteration=1,
+        allowed_action_types=("respond", "ask_user", "block"),
+        phase="tool_loop",
+        require_json_action=True,
+        public_response_required=True,
+    )
+
+    assert respond.error is None
+    assert respond.action_request is not None
+    assert respond.action_request.final_answer == "这是可直接发布的回答。"
+    assert ask.error is None
+    assert ask.action_request is not None
+    assert ask.action_request.user_question == "请补充第 8 题的完整选项。"
+
+
 def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_signal() -> None:
     from harness.loop.single_agent_turn import (
         _model_protocol_violation_control_signal,
