@@ -75,7 +75,6 @@ import {
   SESSION_RUNTIME_PROJECTION_DELAY_MS,
   SESSION_TOKEN_STATS_DELAY_MS,
   TOKEN_STATS_MONITOR_REFRESH_INTERVAL_MS,
-  VISIBLE_STREAM_BODY_FLUSH_DELAY_MS,
 } from "./runtime/constants";
 import { hydrateSessionRuntimeProjection, recoveredChatRunActivityDetail } from "./runtime/projectionHydration";
 import {
@@ -125,8 +124,6 @@ type PendingVisibleStreamFlush = {
   options: VisibleStreamStateOptions;
   event: string;
   data: Record<string, unknown>;
-  timer: number | ReturnType<typeof setTimeout> | null;
-  frame: number | null;
 };
 
 const DEFAULT_SESSION_TITLE = "New Session";
@@ -1772,8 +1769,6 @@ export class WorkspaceRuntime {
       options,
       event,
       data,
-      timer: null,
-      frame: null,
     };
     this.pendingVisibleStreamFlushes.set(sessionId, pending);
     const flush = () => {
@@ -1794,17 +1789,15 @@ export class WorkspaceRuntime {
         data: latest.data,
       });
     };
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      pending.frame = window.requestAnimationFrame(() => {
-        pending.frame = null;
-        flush();
-      });
+    this.scheduleVisibleStreamMicrotask(flush);
+  }
+
+  private scheduleVisibleStreamMicrotask(callback: () => void) {
+    if (typeof queueMicrotask === "function") {
+      queueMicrotask(callback);
       return;
     }
-    pending.timer = setTimeout(() => {
-      pending.timer = null;
-      flush();
-    }, VISIBLE_STREAM_BODY_FLUSH_DELAY_MS);
+    Promise.resolve().then(callback);
   }
 
   private flushVisibleStreamStateNow(
@@ -1831,14 +1824,6 @@ export class WorkspaceRuntime {
     const pending = this.pendingVisibleStreamFlushes.get(sessionId);
     if (!pending) {
       return;
-    }
-    if (pending.timer) {
-      clearTimeout(pending.timer);
-    }
-    if (typeof window !== "undefined") {
-      if (pending.frame !== null && typeof window.cancelAnimationFrame === "function") {
-        window.cancelAnimationFrame(pending.frame);
-      }
     }
     this.pendingVisibleStreamFlushes.delete(sessionId);
   }
@@ -3803,12 +3788,12 @@ export class WorkspaceRuntime {
       emit_assistant_text_delta: true,
       upstream_reconnect_enabled: true,
       partial_stream_recovery: "continue_from_visible_prefix",
-      chunk_strategy: "typing",
-      max_flush_interval_ms: 24,
-      max_pending_utf8_bytes: 36,
+      chunk_strategy: "passthrough",
+      max_flush_interval_ms: 8,
+      max_pending_utf8_bytes: 1024,
       max_pending_line_count: 1,
-      min_event_interval_ms: 8,
-      event_budget_per_second: 90,
+      min_event_interval_ms: 0,
+      event_budget_per_second: 0,
       source: "frontend.chat_stream_display_toggle",
     };
   }

@@ -97,6 +97,10 @@ logger = logging.getLogger(__name__)
 _CONVERSATION_TASK_EXECUTION_STEPS = 50
 
 
+def _request_is_active_turn_steer(request: HarnessRuntimeRequest) -> bool:
+    return str(getattr(request, "active_turn_input_policy", "") or "").strip().lower() == "steer"
+
+
 class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
 
@@ -552,6 +556,26 @@ class HarnessRuntimeFacade:
                     "decision": current_work_decision.to_dict(),
                     "receipt": current_work_receipt.to_dict(),
                 }
+                if _request_is_active_turn_steer(semantic_request) and current_work_decision.action == "current_work_control_required":
+                    direct_steer_branch = {
+                        **dict(runtime_branch or {}),
+                        "branch_kind": "active_turn_steer",
+                        "invocation_kind": "active_turn_steer",
+                        "dispatch_target": "harness.entrypoint.direct_active_turn_steer",
+                        "reason": "active_turn_steer_boundary_ready",
+                    }
+                    yield {
+                        "type": "runtime_branch_decided",
+                        "runtime_branch": direct_steer_branch,
+                    }
+                    async for event in self._run_direct_active_turn_steer(
+                        request=semantic_request,
+                        turn_id=turn_id,
+                        active_work_context=active_work_context,
+                        current_work_boundary_receipt=current_work_receipt.to_dict(),
+                    ):
+                        yield event
+                    return
                 session_emphasis = self._session_emphasis_for_turn(
                     session_id=request.session_id,
                     turn_id=turn_id,
@@ -1317,6 +1341,139 @@ class HarnessRuntimeFacade:
                     **refs,
                 },
             )
+
+    async def _run_direct_active_turn_steer(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        active_work_context: ActiveWorkContext | None,
+        current_work_boundary_receipt: dict[str, Any],
+    ):
+        receipt = dict(current_work_boundary_receipt or {})
+        fresh_context, denied_reason = self._validated_active_work_context_for_control_receipt(
+            session_id=request.session_id,
+            receipt=receipt,
+            active_work_context=active_work_context,
+        )
+        if fresh_context is None:
+            reason = denied_reason or "active_work_control_unavailable"
+            yield {
+                "type": "runtime_status",
+                "title": "补充要求未接入当前任务",
+                "detail": "当前任务状态已变化，这条补充没有接入正在运行的任务。",
+                "state": "blocked",
+                "phase": "work_control",
+                "terminal_reason": reason,
+                "current_work_boundary_receipt": receipt,
+            }
+            yield error_event(
+                content="当前任务状态已变化，这条补充没有接入正在运行的任务。",
+                code="active_turn_steer_unavailable",
+                reason=reason,
+                extra={
+                    "terminal_reason": reason,
+                    "current_work_boundary_receipt": receipt,
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "no_agent_answer_runtime_unavailable",
+                },
+            )
+            return
+
+        refs = self._active_work_control_event_refs(
+            active_work_context=fresh_context,
+            active_turn_id=str(
+                receipt.get("actual_active_turn_id")
+                or dict(receipt.get("active_work_ref") or {}).get("actual_active_turn_id")
+                or fresh_context.active_work_id
+                or ""
+            ),
+        )
+        result = append_user_work_instruction(
+            self.single_agent_runtime_host,
+            fresh_context.task_run_id,
+            content=request.message,
+            turn_id=turn_id,
+            intent="conversation_steer_while_running" if fresh_context.running else "append_instruction_to_active_work",
+            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+        )
+        if not result.get("ok"):
+            reason = str(result.get("error") or result.get("reason") or "active_task_steer_record_failed")
+            yield {
+                "type": "runtime_status",
+                "title": "补充要求未接入当前任务",
+                "detail": "补充要求写入当前任务失败。",
+                "state": "blocked",
+                "phase": "work_control",
+                "terminal_reason": reason,
+                **refs,
+                "current_work_boundary_receipt": receipt,
+            }
+            yield error_event(
+                content="补充要求写入当前任务失败。",
+                code="active_task_steer_record_failed",
+                reason=reason,
+                extra={
+                    "terminal_reason": reason,
+                    **refs,
+                    "current_work_boundary_receipt": receipt,
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "no_agent_answer_runtime_unavailable",
+                },
+            )
+            return
+
+        steer = dict(result.get("steer") or {})
+        submission = dict(result.get("submission") or {})
+        steer_ref = str(steer.get("steer_id") or "")
+        submission_ref = str(submission.get("submission_id") or "")
+        active_work = {
+            "action": "append_instruction_to_active_work",
+            "relation_to_current_work": "current_work",
+            "appended_instruction": str(request.message or "").strip(),
+            "steer_ref": steer_ref,
+            "submission_ref": submission_ref,
+            "authority": "harness.loop.active_task_steer",
+        }
+        accepted_payload = {
+            "type": "active_task_steer_accepted",
+            "summary": "补充要求已接入当前任务。",
+            "status": "accepted",
+            "terminal_reason": "active_task_steer_recorded",
+            "steer_ref": steer_ref,
+            "submission_ref": submission_ref,
+            **refs,
+            "runtime_branch": dict(receipt.get("runtime_branch_ref") or {}),
+            "active_work": active_work,
+            "current_work_boundary_receipt": receipt,
+        }
+        yield accepted_payload
+        yield {
+            "type": "runtime_status",
+            "title": "补充要求已接入当前任务",
+            "detail": "补充要求已进入当前任务的处理队列。",
+            "state": "running",
+            "phase": "work_control",
+            "terminal_reason": "active_task_steer_recorded",
+            "steer_ref": steer_ref,
+            "submission_ref": submission_ref,
+            **refs,
+            "current_work_boundary_receipt": receipt,
+        }
+        yield {
+            "type": "done",
+            "content": "",
+            "status": "completed",
+            "terminal_reason": "active_task_steer_recorded",
+            "answer_channel": "runtime_status",
+            "answer_source": "harness.entrypoint.direct_active_turn_steer",
+            "answer_persist_policy": "runtime_status_only",
+            "answer_finalization_policy": "no_agent_answer_runtime_status",
+            "steer_ref": steer_ref,
+            "submission_ref": submission_ref,
+            **refs,
+            "current_work_boundary_receipt": receipt,
+        }
 
     def _validated_active_work_context_for_control_receipt(
         self,

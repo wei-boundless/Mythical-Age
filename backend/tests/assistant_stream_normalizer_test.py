@@ -61,6 +61,42 @@ def test_assistant_stream_typing_strategy_does_not_emit_whole_markdown_line() ->
     assert events[0]["content_utf8_bytes"] <= 12
 
 
+def test_assistant_stream_passthrough_strategy_preserves_model_delta_rhythm() -> None:
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:passthrough",
+        stream_policy={
+            "chunk_strategy": "passthrough",
+            "max_flush_interval_ms": 1000,
+            "max_pending_utf8_bytes": 1024,
+            "min_event_interval_ms": 0,
+            "event_budget_per_second": 0,
+        },
+    )
+
+    delta = "模型一次返回的这一整段内容应该作为同一帧尽快投影，而不是被模拟打字切碎。"
+    events = normalizer.observe_delta(delta)
+
+    assert [event["content"] for event in events] == [delta]
+
+
+def test_assistant_stream_passthrough_drains_oversized_model_delta_without_waiting() -> None:
+    normalizer = AssistantStreamNormalizer.from_policy(
+        stream_ref="stream:passthrough-oversized",
+        stream_policy={
+            "chunk_strategy": "passthrough",
+            "max_flush_interval_ms": 1000,
+            "max_pending_utf8_bytes": 4,
+            "min_event_interval_ms": 0,
+            "event_budget_per_second": 0,
+        },
+    )
+
+    events = normalizer.observe_delta("abcdefghijkl")
+
+    assert [event["content"] for event in events] == ["abcd", "efgh", "ijkl"]
+    assert normalizer.flush() == []
+
+
 def test_assistant_stream_force_flush_keeps_typing_chunk_size() -> None:
     normalizer = AssistantStreamNormalizer.from_policy(
         stream_ref="stream:typing-force",

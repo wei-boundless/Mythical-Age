@@ -56,7 +56,7 @@ class AssistantStreamPolicy:
             max_pending_line_count=_bounded_int(policy.get("max_pending_line_count"), default=1, minimum=1, maximum=20),
             min_event_interval_ms=_bounded_int(policy.get("min_event_interval_ms"), default=0, minimum=0, maximum=1000),
             event_budget_per_second=_bounded_int(policy.get("event_budget_per_second"), default=0, minimum=0, maximum=240),
-            chunk_strategy=_choice(policy.get("chunk_strategy"), default="semantic", choices={"semantic", "typing"}),
+            chunk_strategy=_choice(policy.get("chunk_strategy"), default="semantic", choices={"semantic", "typing", "passthrough"}),
         )
 
 
@@ -89,7 +89,7 @@ class AssistantStreamNormalizer:
         self.max_pending_line_count = max(1, int(max_pending_line_count))
         self.min_event_interval_ms = max(0, int(min_event_interval_ms))
         self.event_budget_per_second = max(0, int(event_budget_per_second))
-        self.chunk_strategy = _choice(chunk_strategy, default="semantic", choices={"semantic", "typing"})
+        self.chunk_strategy = _choice(chunk_strategy, default="semantic", choices={"semantic", "typing", "passthrough"})
         self.safety_prefix_utf8_limit = max(1, int(safety_prefix_utf8_limit))
         self.latest_sequence = 0
         self.safety_gate_open = False
@@ -214,7 +214,7 @@ class AssistantStreamNormalizer:
             self.pending_content = self.pending_content[len(chunk):]
             self._last_flush = now
             self._record_event_budget(now)
-            if not force:
+            if not force and self.chunk_strategy != "passthrough":
                 break
         return frames
 
@@ -251,6 +251,8 @@ class AssistantStreamNormalizer:
             return ""
         if force:
             return _take_utf8_budget(pending, self._slice_utf8_budget())
+        if self.chunk_strategy == "passthrough":
+            return _take_utf8_budget(pending, self._slice_utf8_budget())
         if self.chunk_strategy == "typing":
             return self._typing_slice(pending, now=now)
         newline_limited = _line_slice(pending, max_lines=self.max_pending_line_count)
@@ -286,6 +288,8 @@ class AssistantStreamNormalizer:
     def _slice_utf8_budget(self) -> int:
         if self.chunk_strategy == "typing":
             return max(1, min(self.max_pending_utf8_bytes, 48))
+        if self.chunk_strategy == "passthrough":
+            return max(1, self.max_pending_utf8_bytes)
         return max(1, min(self.max_pending_utf8_bytes, 96))
 
     def _can_emit_event(self, now: float) -> bool:

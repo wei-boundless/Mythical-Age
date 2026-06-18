@@ -19,12 +19,12 @@ DEFAULT_CHAT_STREAM_MODEL_SELECTION: dict[str, Any] = {
         "emit_assistant_text_delta": True,
         "upstream_reconnect_enabled": True,
         "partial_stream_recovery": "continue_from_visible_prefix",
-        "chunk_strategy": "typing",
-        "max_flush_interval_ms": 24,
-        "max_pending_utf8_bytes": 36,
+        "chunk_strategy": "passthrough",
+        "max_flush_interval_ms": 8,
+        "max_pending_utf8_bytes": 1024,
         "max_pending_line_count": 1,
-        "min_event_interval_ms": 8,
-        "event_budget_per_second": 90,
+        "min_event_interval_ms": 0,
+        "event_budget_per_second": 0,
         "source": "backend.cli.chat_stream_default",
     }
 }

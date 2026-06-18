@@ -3768,11 +3768,12 @@ def _stream_policy_for_task_model_requirement(
             "enabled": True,
             "mode": str(policy.get("mode") or "model_text_stream"),
             "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
-            "max_flush_interval_ms": _stream_policy_int(policy.get("max_flush_interval_ms"), default=40),
-            "max_pending_utf8_bytes": _stream_policy_int(policy.get("max_pending_utf8_bytes"), default=128),
+            "chunk_strategy": str(policy.get("chunk_strategy") or "passthrough"),
+            "max_flush_interval_ms": _stream_policy_int(policy.get("max_flush_interval_ms"), default=8),
+            "max_pending_utf8_bytes": _stream_policy_int(policy.get("max_pending_utf8_bytes"), default=1024),
             "max_pending_line_count": _stream_policy_int(policy.get("max_pending_line_count"), default=1),
-            "min_event_interval_ms": _stream_policy_int(policy.get("min_event_interval_ms"), default=16),
-            "event_budget_per_second": _stream_policy_int(policy.get("event_budget_per_second"), default=30),
+            "min_event_interval_ms": _stream_policy_int(policy.get("min_event_interval_ms"), default=0),
+            "event_budget_per_second": _stream_policy_int(policy.get("event_budget_per_second"), default=0),
             "source": str(policy.get("source") or "node.contract_bindings.runtime.model_requirement.streaming_required"),
         }
     return policy

@@ -3869,15 +3869,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       enabled: true,
       upstream_reconnect_enabled: true,
       partial_stream_recovery: "continue_from_visible_prefix",
-      chunk_strategy: "typing",
-      max_flush_interval_ms: 24,
-      max_pending_utf8_bytes: 36,
-      min_event_interval_ms: 8,
-      event_budget_per_second: 90,
+      chunk_strategy: "passthrough",
+      max_flush_interval_ms: 8,
+      max_pending_utf8_bytes: 1024,
+      min_event_interval_ms: 0,
+      event_budget_per_second: 0,
     }));
   });
 
-  it("coalesces visible assistant body deltas and flushes immediately on final text", async () => {
+  it("coalesces same-turn visible assistant body deltas in a microtask without paint-frame delay", async () => {
     let handlers: StreamEventHandlers | null = null;
     let resolveStream: (value: {
       terminalEvent: "turn_completed";
@@ -3886,6 +3886,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       eventLogId: string;
       lastEventOffset: number;
     }) => void = () => undefined;
+    const requestAnimationFrame = vi.fn();
+    Object.assign(window, {
+      requestAnimationFrame,
+      cancelAnimationFrame: vi.fn(),
+    });
     api.streamChat.mockImplementation(async (_payload, streamHandlers) => {
       handlers = streamHandlers;
       streamHandlers.onEvent("assistant_text_delta", {
@@ -3930,14 +3935,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const sendPromise = runtime.actions.sendMessage("写一段");
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
 
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(store.getState().messages.at(-1)?.role).toBe("assistant");
-    expect(store.getState().messages.at(-1)?.content).toBe("");
-
-    await vi.advanceTimersByTimeAsync(15);
-    expect(store.getState().messages.at(-1)?.content).toBe("");
-
-    await vi.advanceTimersByTimeAsync(1);
     expect(store.getState().messages.at(-1)?.content).toBe("");
     expect(latestProjectionView(store.getState())?.canonicalContent).toBe("甲乙");
     expect(store.getState().chatStreamLatencySummary).toEqual(expect.objectContaining({
@@ -5711,12 +5712,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "typing",
-        max_flush_interval_ms: 24,
-        max_pending_utf8_bytes: 36,
+        chunk_strategy: "passthrough",
+        max_flush_interval_ms: 8,
+        max_pending_utf8_bytes: 1024,
         max_pending_line_count: 1,
-        min_event_interval_ms: 8,
-        event_budget_per_second: 90,
+        min_event_interval_ms: 0,
+        event_budget_per_second: 0,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5856,12 +5857,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "typing",
-        max_flush_interval_ms: 24,
-        max_pending_utf8_bytes: 36,
+        chunk_strategy: "passthrough",
+        max_flush_interval_ms: 8,
+        max_pending_utf8_bytes: 1024,
         max_pending_line_count: 1,
-        min_event_interval_ms: 8,
-        event_budget_per_second: 90,
+        min_event_interval_ms: 0,
+        event_budget_per_second: 0,
         source: "frontend.chat_stream_display_toggle",
       },
     });
@@ -5953,12 +5954,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         emit_assistant_text_delta: true,
         upstream_reconnect_enabled: true,
         partial_stream_recovery: "continue_from_visible_prefix",
-        chunk_strategy: "typing",
-        max_flush_interval_ms: 24,
-        max_pending_utf8_bytes: 36,
+        chunk_strategy: "passthrough",
+        max_flush_interval_ms: 8,
+        max_pending_utf8_bytes: 1024,
         max_pending_line_count: 1,
-        min_event_interval_ms: 8,
-        event_budget_per_second: 90,
+        min_event_interval_ms: 0,
+        event_budget_per_second: 0,
         source: "frontend.chat_stream_display_toggle",
       },
     });
